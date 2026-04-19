@@ -1,0 +1,27 @@
+{
+    "name": "tapscore",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev:server": "PORT=3030 bun --watch server/main.ts",
+        "check:client": "tsgo --noEmit",
+        "check:server": "tsgo -p tsconfig.server.json --noEmit",
+        "check:test": "tsgo -p tsconfig.test.json --noEmit",
+        "test": "bun test",
+        "test:server": "bun test server/",
+        "test:affected": "bun ../mackans-client-fw/core/affected-tests.ts"
+    },
+    "dependencies": {
+        "@basics/core": "file:../mackans-client-fw/core",
+        "@sinclair/typebox": "0.34.48",
+        "hono": "4.11.9",
+        "kysely": "0.27.6",
+        "kysely-bun-sqlite": "0.3.2"
+    },
+    "devDependencies": {
+        "@types/bun": "^1",
+        "@typescript/native-preview": "^7.0.0-dev.20260211.1",
+        "typescript": "^5.9.3",
+        "vite": "^7.3.1"
+    }
+}
