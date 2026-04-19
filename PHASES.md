@@ -37,7 +37,7 @@ Phase 1 picks these up as its first act, before any domain work.
 
 ---
 
-## Phase 1 — Foundation
+## Phase 1 — Foundation ✅
 
 **Spec:** §2 (Club, Course, Tee, Player, Handicap), §8 (Authorization — roles only stubbed here), §14 items 2, 4, 5.
 

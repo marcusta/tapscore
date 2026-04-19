@@ -9,7 +9,9 @@
         "check:test": "tsgo -p tsconfig.test.json --noEmit",
         "test": "bun test",
         "test:server": "bun test server/",
-        "test:affected": "bun ../mackans-client-fw/core/affected-tests.ts"
+        "test:affected": "bun ../mackans-client-fw/core/affected-tests.ts",
+        "generate": "bun ../mackans-client-fw/core/generate-api.ts",
+        "reset:dev": "rm -rf data/"
     },
     "dependencies": {
         "@basics/core": "file:../mackans-client-fw/core",
