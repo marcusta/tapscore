@@ -14,9 +14,11 @@ import type { Player } from '../server/services/player.service';
 import type { GuestPlayer } from '../server/services/guest-player.service';
 import type { Club } from '../server/services/club.service';
 import type { ScoreEvent } from '../server/services/score-event.service';
+import type { Scorecard, ScorecardHole } from '../server/services/scorecard.service';
 import type { Leaderboard } from '../server/domain/leaderboard';
 import type { ParticipantResult, CourseHole, PairResult } from '../server/domain/format';
 import { courseHolesForRound } from '../server/domain/round-holes';
+import { stablefordOutcome, type StablefordHoleOutcome } from '../server/domain/formats/_stableford-scoring';
 
 export type Services = ReturnType<typeof createServices>;
 
@@ -207,6 +209,8 @@ export interface RoundRenderContext {
     participants: Participant[];
     events: ScoreEvent[];
     leaderboard: Leaderboard;
+    /** Raw per-participant scorecards (source-tagged rows). Better-ball renders per-player sub-rows from these. */
+    scorecards: Scorecard[];
     playersById: Map<string, Player>;
     guestsById: Map<string, GuestPlayer>;
     teesById: Map<string, Tee>;
@@ -225,6 +229,7 @@ export async function collectRoundContext(
     const participants = await svc.participantService.listByRound(roundId);
     const events = await svc.scoreEventService.listByRound(roundId);
     const leaderboard = await svc.leaderboardService.forRound(roundId);
+    const scorecards = await svc.scorecardService.forRound(roundId);
 
     const playerIds = new Set<string>();
     const guestIds = new Set<string>();
@@ -254,11 +259,18 @@ export async function collectRoundContext(
         if (t) teesById.set(id, t);
     }
 
-    return { round, course, participants, events, leaderboard, playersById, guestsById, teesById, dbPath };
+    return { round, course, participants, events, leaderboard, scorecards, playersById, guestsById, teesById, dbPath };
 }
 
 export function renderRoundHtml(ctx: RoundRenderContext): string {
-    const { round, course, participants, events, leaderboard, playersById, guestsById, teesById, dbPath } = ctx;
+    const { round, course, participants, events, leaderboard, scorecards, playersById, guestsById, teesById, dbPath } = ctx;
+    const scorecardByParticipant = new Map(scorecards.map((sc) => [sc.participantId, sc]));
+
+    // Better-ball detection — hoisted above `participantLabel` because the
+    // label uses `&` between team members for better-ball.
+    const isBetterBall =
+        round.formatSlots[0]?.scoringMode === 'stableford' &&
+        round.formatSlots[0]?.teamShape === 'better_ball';
 
     const participantLabel = (p: Participant): string => {
         const names = p.players.map((link) => {
@@ -269,7 +281,12 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
             }
             return '?';
         });
-        return names.length ? names.join(' + ') : `participant:${short(p.id)}`;
+        if (!names.length) return `participant:${short(p.id)}`;
+        // Team-shape formats use " & " between members; individual-shape
+        // participants only ever have one name anyway, so the separator is
+        // mostly cosmetic when there's 2+ players.
+        const sep = isBetterBall ? ' & ' : ' + ';
+        return names.join(sep);
     };
     const playerName = (id: string | null): string => {
         if (!id) return '—';
@@ -419,6 +436,236 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
             }
         }
     }
+
+    const playerLinkLabel = (link: Participant['players'][number]): string => {
+        if (link.playerId) return playersById.get(link.playerId)?.displayName ?? `player:${short(link.playerId)}`;
+        if (link.guestPlayerId) {
+            const g = guestsById.get(link.guestPlayerId);
+            return g ? `${g.displayName} (guest)` : `guest:${short(link.guestPlayerId)}`;
+        }
+        return '?';
+    };
+
+    // Better-ball scorecard: 4 rows per player (Given / Gross / Net / Points)
+    // plus 1 team Points row. Reads raw per-player scorecard rows from the
+    // team participant's scorecard, runs the same stableford primitives the
+    // strategy uses (`stablefordOutcome`), and emits the team row from the
+    // already-computed `result`.
+    const renderBetterBallScorecard = (
+        result: ParticipantResult,
+        p: Participant,
+        courseHoles: CourseHole[],
+    ): string => {
+        const groups = splitHoleGroups(courseHoles);
+        const includeTotColumn = groups.length > 1;
+
+        const teamByHole = new Map(result.holes.map((h) => [h.holeNumber, h]));
+        const scorecard = scorecardByParticipant.get(p.id);
+        const allRows = scorecard?.holes ?? [];
+
+        const row = (
+            label: string,
+            cell: (h: CourseHole) => string,
+            sum: (holes: CourseHole[]) => string,
+            klass = '',
+        ): string => {
+            const groupSums = groups.map((g) => sum(g.holes));
+            const groupCells = groups
+                .map((g, i) => g.holes.map(cell).join('') + `<td class="sum">${groupSums[i]}</td>`)
+                .join('');
+            let totCell = '';
+            if (includeTotColumn) {
+                const nums = groupSums.filter((s) => s !== '—').map(Number);
+                const tot = nums.length === 0 ? '—' : String(nums.reduce((a, b) => a + b, 0));
+                totCell = `<td class="sum">${tot}</td>`;
+            }
+            return `
+<tr class="${klass}">
+  <th class="rowlabel">${label}</th>
+  ${groupCells}
+  ${totCell}
+</tr>`;
+        };
+
+        const headerCells = groups
+            .map((g) => g.holes.map((h) => `<th>${h.holeNumber}</th>`).join('') + `<th class="sum">${g.label}</th>`)
+            .join('');
+        const holeHeader = `
+<tr>
+  <th class="rowlabel">Hole</th>
+  ${headerCells}
+  ${includeTotColumn ? '<th class="sum">TOT</th>' : ''}
+</tr>`;
+
+        const parRow = row('Par', (h) => `<td>${h.par}</td>`, (holes) => String(holes.reduce((a, b) => a + b.par, 0)));
+        const siRow = row('SI', (h) => `<td class="si">${h.strokeIndex}</td>`, () => '—', 'dim');
+
+        // Per-player sub-rows. Each player's strokes-given map is based on
+        // their own PH (fallback: team PH, since per-player PH snapshots
+        // don't exist yet — see leaderboard.service.ts).
+        const playerBlocks = p.players.map((link) => {
+            const name = playerLinkLabel(link);
+            const playerPh = p.playingHandicapSnapshot ?? 0;
+            const strokesGiven = strokesGivenMap(playerPh, allCourseHoles);
+            // Source filter: pick this player's rows from the flat list.
+            const playerRows: ScorecardHole[] = allRows.filter((h) => {
+                if (link.playerId) return h.sourcePlayerId === link.playerId;
+                if (link.guestPlayerId) return h.sourceGuestPlayerId === link.guestPlayerId;
+                return false;
+            });
+            const playerRowByHole = new Map<number, ScorecardHole>();
+            for (const r of playerRows) playerRowByHole.set(r.holeNumber, r);
+
+            // Per-hole stableford outcomes for this player.
+            const outcomeByHole = new Map<number, StablefordHoleOutcome>();
+            for (const ch of allCourseHoles) {
+                const row = playerRowByHole.get(ch.holeNumber);
+                const strokes = row === undefined ? undefined : row.strokes;
+                outcomeByHole.set(
+                    ch.holeNumber,
+                    stablefordOutcome(strokes, ch, strokesGiven.get(ch.holeNumber) ?? 0),
+                );
+            }
+
+            const givenRow = row(
+                `${esc(name)} Given`,
+                (h) => {
+                    const sg = strokesGiven.get(h.holeNumber) ?? 0;
+                    return `<td class="given">${sg > 0 ? `+${sg}` : ''}</td>`;
+                },
+                () => '—',
+                'dim',
+            );
+            const grossRow = row(
+                `${esc(name)} Gross`,
+                (h) => {
+                    const o = outcomeByHole.get(h.holeNumber)!;
+                    // "pickup" shows P; "dnp" and "no_event" show dash; scored shows gross.
+                    if (o.kind === 'pickup') return `<td><span class="pickup">P</span></td>`;
+                    return `<td>${strokesCell(o.gross)}</td>`;
+                },
+                (holes) => {
+                    let total = 0;
+                    let any = false;
+                    for (const h of holes) {
+                        const o = outcomeByHole.get(h.holeNumber)!;
+                        if (o.gross !== null) {
+                            total += o.gross;
+                            any = true;
+                        }
+                    }
+                    return any ? String(total) : '—';
+                },
+            );
+            const netRow = row(
+                `${esc(name)} Net`,
+                (h) => {
+                    const o = outcomeByHole.get(h.holeNumber)!;
+                    return `<td>${netCell(o.net)}</td>`;
+                },
+                (holes) => {
+                    let total = 0;
+                    let any = false;
+                    for (const h of holes) {
+                        const o = outcomeByHole.get(h.holeNumber)!;
+                        if (o.net !== null) {
+                            total += o.net;
+                            any = true;
+                        }
+                    }
+                    return any ? String(total) : '—';
+                },
+            );
+            const pointsRow = row(
+                `${esc(name)} Points`,
+                (h) => {
+                    const o = outcomeByHole.get(h.holeNumber)!;
+                    // Tooltip: per-player arithmetic.
+                    let tip = '';
+                    if (o.kind === 'scored') {
+                        const diff = o.netPar - (o.gross as number);
+                        const diffStr = diff >= 0 ? `+${diff}` : `${diff}`;
+                        tip = `${o.points} pts (netPar ${o.netPar} − ${o.gross} = ${diffStr})`;
+                    } else if (o.kind === 'pickup') {
+                        tip = `0 pts (pickup, netPar ${o.netPar})`;
+                    } else if (o.kind === 'dnp') {
+                        tip = `DNP — null points`;
+                    }
+                    const title = tip ? ` title="${esc(tip)}"` : '';
+                    return `<td${title}>${o.points ?? '—'}</td>`;
+                },
+                (holes) => {
+                    let total = 0;
+                    let any = false;
+                    for (const h of holes) {
+                        const o = outcomeByHole.get(h.holeNumber)!;
+                        if (o.points !== null) {
+                            total += o.points;
+                            any = true;
+                        }
+                    }
+                    return any ? String(total) : '—';
+                },
+            );
+            return [givenRow, grossRow, netRow, pointsRow].join('');
+        });
+
+        // Team points row — uses the strategy's already-computed values.
+        const teamRow = row(
+            'Team Points',
+            (h) => {
+                const hr = teamByHole.get(h.holeNumber);
+                const note = hr?.note ? ` title="${esc(hr.note)}"` : '';
+                return `<td${note}><strong>${hr?.points ?? '—'}</strong></td>`;
+            },
+            (holes) => {
+                let total = 0;
+                let any = false;
+                for (const h of holes) {
+                    const hr = teamByHole.get(h.holeNumber);
+                    if (hr?.points != null) {
+                        total += hr.points;
+                        any = true;
+                    }
+                }
+                return any ? String(total) : '—';
+            },
+        );
+
+        // Per-hole arithmetic line — team's chosen points + each player's share.
+        const annotatedHoles = result.holes.filter((h) => h.note && h.points !== null);
+        const arithmetic =
+            annotatedHoles.length > 0
+                ? `<p class="arithmetic">${annotatedHoles
+                      .map((h) => `h${h.holeNumber}: ${esc(h.note!)}`)
+                      .join(' · ')}</p>`
+                : '';
+
+        const totalsRow = result.totals
+            .map((t) => `<li>${esc(t.scoringType)} = <strong>${t.value ?? '—'}</strong></li>`)
+            .join('');
+
+        return `
+<article class="scorecard-card">
+  <header>
+    <h3>${esc(participantLabel(p))}</h3>
+    <span class="muted">
+      slot #${result.slotIndex} · ${esc(round.formatSlots[0]?.scoringMode ?? '')} × ${esc(round.formatSlots[0]?.teamShape ?? '')} · team PH ${p.playingHandicapSnapshot ?? '—'} · holes played ${result.holesPlayed}
+    </span>
+  </header>
+  <table class="scorecard">
+    <thead>${holeHeader}</thead>
+    <tbody>
+      ${parRow}
+      ${siRow}
+      ${playerBlocks.join('')}
+      ${teamRow}
+    </tbody>
+  </table>
+  ${arithmetic}
+  <ul class="totals">${totalsRow}</ul>
+</article>`;
+    };
 
     const renderScorecard = (result: ParticipantResult, p: Participant, courseHoles: CourseHole[]): string => {
         const byHole = new Map(result.holes.map((h) => [h.holeNumber, h]));
@@ -610,6 +857,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         const cards = participants.map((p) => {
             const r = resultByParticipant.get(p.id);
             if (!r) return '';
+            if (isBetterBall) return renderBetterBallScorecard(r, p, playedCourseHoles);
             return renderScorecard(r, p, playedCourseHoles);
         });
         return `

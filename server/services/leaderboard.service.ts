@@ -13,6 +13,23 @@ import { courseHolesForRound } from '../domain/round-holes';
  * with scorecards + snapshots, and format slots — then runs it. Slot assignment
  * in this first cut is: every participant is in `slotIndex = 0` (single-slot
  * rounds). Multi-slot scope_config is exercised in Phase 2.5i.
+ *
+ * Contract on `ParticipantInput.holes`: this service passes EVERY scorecard
+ * row for a participant through as-is, with no source filtering. For
+ * individual / foursomes that's one row per hole (null / null source). For
+ * team formats (better-ball from 2.5e on) it's up to two rows per hole
+ * (one per player source). Individual strategies stay correct because
+ * their upstream seeds never append team-source events under their
+ * participants, so every row they read is null-source. Team strategies
+ * slice the flat list internally (via `pickForSource` from
+ * `scorecard.service` or by pre-filtering in their own loop).
+ *
+ * Per-player playing handicaps: `participant_players` does not (yet) carry
+ * a per-player `playing_handicap_snapshot` column. Until that migration
+ * lands, we fall back to the team-level `playingHandicapSnapshot` for
+ * every linked player. This is good enough for better-ball when both
+ * players are on the same tee with similar course handicaps (the common
+ * case), and is a documented known limitation — future work.
  */
 export class LeaderboardService {
     constructor(
@@ -52,6 +69,14 @@ export class LeaderboardService {
             participantId: p.id,
             playingHandicap: p.playingHandicapSnapshot,
             holes: cardByParticipant.get(p.id)?.holes ?? [],
+            // Per-player PH fallback: until `participant_players` carries a
+            // per-player PH snapshot column, every linked player inherits
+            // the team's PH. Documented fallback; see module header.
+            players: p.players.map((link) => ({
+                playerId: link.playerId,
+                guestPlayerId: link.guestPlayerId,
+                playingHandicap: p.playingHandicapSnapshot,
+            })),
         }));
 
         // First-cut routing: every participant lands in slot 0. Phase 2.5i

@@ -94,6 +94,14 @@ export interface RoundInit {
 export interface AddParticipantInit {
     player?: PlayerRef;
     guest?: GuestRef;
+    /**
+     * For team participants (better-ball, Taliban, Umbrella) — 2+ player
+     * links on one participant. Pass `{player}` or `{guest}` per link.
+     * Mutually exclusive with top-level `player`/`guest`. The snapshot
+     * uses the FIRST member's handicap index (no per-player PH snapshots
+     * today; see leaderboard.service.ts).
+     */
+    team?: Array<{ player?: PlayerRef; guest?: GuestRef }>;
     teeName?: string; // resolve by name within the round's course
     teeId?: string;
     gender?: TeeGender; // required if snapshotting
@@ -354,11 +362,16 @@ export class RoundScenarioRef {
     }
 
     async addParticipant(init: AddParticipantInit): Promise<ParticipantScenarioRef> {
+        const hasSingle = init.player || init.guest;
+        const hasTeam = init.team && init.team.length > 0;
         if (init.player && init.guest) {
             throw new Error('addParticipant: pass player OR guest, not both');
         }
-        if (!init.player && !init.guest) {
-            throw new Error('addParticipant: pass a player or guest');
+        if (hasSingle && hasTeam) {
+            throw new Error('addParticipant: pass team OR player/guest, not both');
+        }
+        if (!hasSingle && !hasTeam) {
+            throw new Error('addParticipant: pass a player, guest, or team');
         }
 
         let teeId = init.teeId;
@@ -369,34 +382,59 @@ export class RoundScenarioRef {
             teeId = match.id;
         }
 
+        // Snapshot owner: the first team member supplies the handicap index
+        // for the team-level snapshot (there's no per-player snapshot yet).
+        const firstMember = init.team?.[0];
+        const snapshotPlayer: PlayerRef | undefined = init.player ?? firstMember?.player;
+        const snapshotGuest: GuestRef | undefined = init.guest ?? firstMember?.guest;
+
         const snapshot = init.skipSnapshot
             ? undefined
             : teeId && init.gender
-              ? init.player
+              ? snapshotPlayer
                   ? {
                         teeId,
                         gender: init.gender,
-                        fromPlayerId: init.player.id,
+                        fromPlayerId: snapshotPlayer.id,
                         allowancePct: init.allowancePct ?? 100,
                     }
-                  : {
-                        teeId,
-                        gender: init.gender,
-                        handicapIndex: init.guest!.handicapIndex ?? undefined,
-                        allowancePct: init.allowancePct ?? 100,
-                    }
+                  : snapshotGuest
+                    ? {
+                          teeId,
+                          gender: init.gender,
+                          handicapIndex: snapshotGuest.handicapIndex ?? undefined,
+                          allowancePct: init.allowancePct ?? 100,
+                      }
+                    : undefined
               : undefined;
+
+        const linkInputs: { playerId?: string; guestPlayerId?: string }[] = [];
+        if (init.player) linkInputs.push({ playerId: init.player.id });
+        else if (init.guest) linkInputs.push({ guestPlayerId: init.guest.id });
+        else if (init.team) {
+            for (const member of init.team) {
+                if (member.player && member.guest) {
+                    throw new Error('addParticipant.team: each member passes player OR guest, not both');
+                }
+                if (!member.player && !member.guest) {
+                    throw new Error('addParticipant.team: each member needs a player or guest');
+                }
+                linkInputs.push(
+                    member.player
+                        ? { playerId: member.player.id }
+                        : { guestPlayerId: member.guest!.id },
+                );
+            }
+        }
 
         const p = await this.s.services.participantService.create({
             roundId: this.round.id,
             teamLabel: init.teamLabel ?? null,
             categorySnapshot: init.categorySnapshot ?? null,
             snapshot,
-            players: init.player
-                ? [{ playerId: init.player.id }]
-                : [{ guestPlayerId: init.guest!.id }],
+            players: linkInputs,
         });
-        return new ParticipantScenarioRef(this.s, p, this.round, init.player?.id);
+        return new ParticipantScenarioRef(this.s, p, this.round, snapshotPlayer?.id);
     }
 }
 

@@ -97,13 +97,54 @@ export interface PairResult {
     winner: string | null;
 }
 
-/** Minimum participant context a strategy needs — strokes + snapshots for net. */
+/**
+ * Per-player link inside a team participant. Team formats (better-ball 2.5e,
+ * Taliban 2.5g, Umbrella 2.5h) read per-player playing handicaps for strokes-
+ * given allocation. Individual-shape formats ignore this — they read
+ * `ParticipantInput.playingHandicap` (the team-level snapshot).
+ *
+ * Exactly one of `playerId` / `guestPlayerId` is populated (same xor rule as
+ * `participant_players`). `playingHandicap` is the per-player PH; see the
+ * note in `leaderboard.service.ts` about the fallback to the team PH until
+ * per-player PH snapshots land (tracked for a future migration, not 2.5e).
+ */
+export interface ParticipantPlayerInput {
+    playerId: string | null;
+    guestPlayerId: string | null;
+    playingHandicap: number | null;
+}
+
+/**
+ * Minimum participant context a strategy needs — strokes + snapshots for net.
+ *
+ * `holes` contains ALL scorecard rows for the participant, regardless of
+ * source. For individual / foursomes every row has `sourcePlayerId = null`
+ * and `sourceGuestPlayerId = null` — a single row per hole. For team
+ * formats that populate the source columns (better-ball, Taliban, Umbrella)
+ * there is one row per (hole, source-player) tuple. Strategies that don't
+ * expect multi-source rows (stroke-play, stableford-individual, match-play,
+ * köpenhamnare) get away with this because their callers never append
+ * team-source events under the same participant — their rows are all
+ * null/null. Team strategies use `pickForSource` from `scorecard.service`
+ * to slice by player.
+ *
+ * `players` carries per-player PHs for team formats. Empty array or omitted
+ * for individual / foursomes — those formats ignore it. Team formats
+ * validate count (better-ball: exactly 2).
+ */
 export interface ParticipantInput {
     participantId: string;
     /** Sparse — holes with no event have no entry. null strokes = DNP; 0 = pickup. */
     holes: ScorecardHole[];
     /** Null if the participant has no frozen playing handicap (stroke-play gross only). */
     playingHandicap: number | null;
+    /**
+     * Per-player links + PHs for team formats. Optional — defaults to []
+     * so existing individual-format tests don't need updating. Team
+     * strategies (better-ball, Taliban, Umbrella) throw if the count is
+     * wrong for their shape.
+     */
+    players?: ParticipantPlayerInput[];
 }
 
 /**
@@ -172,8 +213,10 @@ import { strokePlayIndividual } from './formats/stroke-play-individual';
 import { stablefordIndividual } from './formats/stableford-individual';
 import { matchPlayIndividual } from './formats/match-play-individual';
 import { kopenhamnareIndividual } from './formats/kopenhamnare-individual';
+import { stablefordBetterBall } from './formats/stableford-better-ball';
 
 registerFormat(strokePlayIndividual);
 registerFormat(stablefordIndividual);
 registerFormat(matchPlayIndividual);
 registerFormat(kopenhamnareIndividual);
+registerFormat(stablefordBetterBall);
