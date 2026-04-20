@@ -90,7 +90,8 @@ test('taliban: normal hole — team A better-ball 4 vs team B 5 on par 4 → A +
     expect(pair.holes[0].fromB).toBe(0);
     expect(pair.winner).toBe('teamA');
     expect(pair.result).toBe('won');
-    expect(pair.summary).toContain('Alice & Bob 1 − 0 Carol & Dan');
+    // Single-hole round, final. Summary carries delta + raw: "A +1 (1-0) B".
+    expect(pair.summary).toBe('Alice & Bob +1 (1-0) Carol & Dan');
 });
 
 test('taliban: better-ball tie decided on worse-ball → A +1', () => {
@@ -210,8 +211,9 @@ test('taliban: gross eagle by down-team → +5 (comeback)', () => {
     // Final running totals: A=5, B=1. A wins 5-1 but wait — A only earned
     // 5 on hole 2; A's total = 5. B earned 1 on hole 1, B's total = 1.
     // Actually: entering hole 2, A=0, B=1 → A is down by 1. A wins hole 2
-    // with eagle → A earns 5 → A=5, B=1.
-    expect(pair.summary).toContain('5 − 1');
+    // with eagle → A earns 5 → A=5, B=1. Summary: delta 4, raw (5-1).
+    expect(pair.summary).toContain('+4');
+    expect(pair.summary).toContain('(5-1)');
 });
 
 test('taliban: pickup by one player — team\'s better-ball from the non-pickup player', () => {
@@ -300,8 +302,9 @@ test('taliban: running state — A 1-down entering hole 3, wins hole 3 with eagl
     expect(pair.holes[1].status).toBe('halved');
     expect(pair.holes[2].fromA).toBe(5);
     expect(pair.holes[2].note).toContain('down-team eagle');
-    // After H3 running score: A=5, B=1. A up by 4.
-    expect(pair.summary).toContain('5 − 1');
+    // After H3 running score: A=5, B=1. A up by 4. Course only has 3 holes,
+    // so the match is complete — no "thru N" tag.
+    expect(pair.summary).toBe('Alice & Bob +4 (5-1) Carol & Dan');
 });
 
 test('taliban: tied-entering eagle stays at 2 points (not down, not up)', () => {
@@ -393,7 +396,7 @@ test('taliban: full 18-hole realistic match renders a proper summary', () => {
     const pair = result.pairResults![0];
     expect(pair.result).toBe('halved');
     expect(pair.winner).toBeNull();
-    expect(pair.summary).toBe('Alice & Bob 2 − 2 Carol & Dan');
+    expect(pair.summary).toBe('Alice & Bob AS Carol & Dan');
 });
 
 test('taliban: totals on participant results are empty', () => {
@@ -465,5 +468,8 @@ test('taliban: in-progress summary when any hole undecided', () => {
     const pair = result.pairResults![0];
     expect(pair.result).toBe('in_progress');
     expect(pair.winner).toBeNull();
-    expect(pair.summary).toContain('in progress');
+    // In-progress: A +1 thru 1 (1-0) B — 1 decided hole, H2 undecided.
+    expect(pair.summary).toContain('thru 1');
+    expect(pair.summary).toContain('+1');
+    expect(pair.summary).toContain('(1-0)');
 });

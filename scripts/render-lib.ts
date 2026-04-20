@@ -1082,6 +1082,255 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
 </article>`;
     };
 
+    // Unified pair scorecard — one table for BOTH sides of a match-play or
+    // Taliban pair. Previously each team rendered its own scorecard, so the
+    // two tables often had different column widths and you couldn't compare
+    // hole-by-hole vertically. This renderer stacks: shared hole header → Par
+    // / SI → Side A block (Given / Gross / Net per player, + team row for
+    // Taliban) → Side B block → per-hole Status row (verbatim from the
+    // participant's own note) → cumulative Match row (idiom-specific:
+    // match-play "1UP"/"AS"/"NDN", Taliban "+N"/"-N"/"AS").
+    //
+    // `kind` decides the per-player layout: individual = 1 player/side, no
+    // team row; team = 2 players/side + a team row (gross/net = better-ball;
+    // the "team points earned" cell uses `PairHoleResult.fromA|fromB`).
+    const renderPairScorecard = (
+        pair: PairResult,
+        kind: 'match_play_individual' | 'taliban_better_ball',
+        partA: Participant,
+        partB: Participant,
+        resA: ParticipantResult,
+        resB: ParticipantResult,
+        courseHoles: CourseHole[],
+    ): string => {
+        const groups = splitHoleGroups(courseHoles);
+        const includeTotColumn = groups.length > 1;
+
+        const row = (
+            label: string,
+            cell: (h: CourseHole) => string,
+            sum: (holes: CourseHole[]) => string,
+            klass = '',
+        ): string => {
+            const groupSums = groups.map((g) => sum(g.holes));
+            const groupCells = groups
+                .map((g, i) => g.holes.map(cell).join('') + `<td class="sum">${groupSums[i]}</td>`)
+                .join('');
+            let totCell = '';
+            if (includeTotColumn) {
+                const nums = groupSums.filter((s) => s !== '—').map(Number);
+                const tot = nums.length === 0 ? '—' : String(nums.reduce((a, b) => a + b, 0));
+                totCell = `<td class="sum">${tot}</td>`;
+            }
+            return `
+<tr class="${klass}">
+  <th class="rowlabel">${label}</th>
+  ${groupCells}
+  ${totCell}
+</tr>`;
+        };
+
+        const headerCells = groups
+            .map((g) => g.holes.map((h) => `<th>${h.holeNumber}</th>`).join('') + `<th class="sum">${g.label}</th>`)
+            .join('');
+        const holeHeader = `
+<tr>
+  <th class="rowlabel">Hole</th>
+  ${headerCells}
+  ${includeTotColumn ? '<th class="sum">TOT</th>' : ''}
+</tr>`;
+
+        const parRow = row('Par', (h) => `<td>${h.par}</td>`, (holes) => String(holes.reduce((a, b) => a + b.par, 0)));
+        const siRow = row('SI', (h) => `<td class="si">${h.strokeIndex}</td>`, () => '—', 'dim');
+
+        // Build one side's player rows (Given / Gross / Net per player). For
+        // match-play individual the participant has 1 player link; for Taliban
+        // it has 2. Gross/Net come from the raw scorecard rows (source-filtered)
+        // so we get the pickup / DNP semantics right per player. Strokes-given
+        // uses the team PH as a fallback when the per-player PH snapshot isn't
+        // set (same convention as the existing Taliban + better-ball renders).
+        const sideBlock = (p: Participant): string => {
+            const scorecard = scorecardByParticipant.get(p.id);
+            const allRows = scorecard?.holes ?? [];
+            const blocks = p.players.map((link) => {
+                const name = playerLinkLabel(link);
+                const playerPh = p.playingHandicapSnapshot ?? 0;
+                const strokesGiven = strokesGivenMap(playerPh, allCourseHoles);
+                const playerRows: ScorecardHole[] = allRows.filter((h) => {
+                    if (link.playerId) return h.sourcePlayerId === link.playerId;
+                    if (link.guestPlayerId) return h.sourceGuestPlayerId === link.guestPlayerId;
+                    // Match-play individual seeds write events with null source
+                    // columns — one player per participant, no source filter needed.
+                    return h.sourcePlayerId === null && h.sourceGuestPlayerId === null;
+                });
+                const byHole = new Map<number, ScorecardHole>();
+                for (const r of playerRows) byHole.set(r.holeNumber, r);
+
+                const givenRow = row(
+                    `${esc(name)} Given`,
+                    (h) => {
+                        const sg = strokesGiven.get(h.holeNumber) ?? 0;
+                        return `<td class="given">${sg > 0 ? `+${sg}` : ''}</td>`;
+                    },
+                    () => '—',
+                    'dim',
+                );
+                const grossRow = row(
+                    `${esc(name)} Gross`,
+                    (h) => {
+                        const r = byHole.get(h.holeNumber);
+                        if (!r) return `<td>${strokesCell(null)}</td>`;
+                        return `<td>${strokesCell(r.strokes)}</td>`;
+                    },
+                    (holes) => {
+                        let total = 0;
+                        let any = false;
+                        for (const h of holes) {
+                            const r = byHole.get(h.holeNumber);
+                            if (r && r.strokes !== null && r.strokes !== 0) {
+                                total += r.strokes;
+                                any = true;
+                            }
+                        }
+                        return any ? String(total) : '—';
+                    },
+                );
+                const netRow = row(
+                    `${esc(name)} Net`,
+                    (h) => {
+                        const r = byHole.get(h.holeNumber);
+                        if (!r || r.strokes === null || r.strokes === 0) {
+                            return `<td>${netCell(null)}</td>`;
+                        }
+                        const given = strokesGiven.get(h.holeNumber) ?? 0;
+                        return `<td>${netCell(r.strokes - given)}</td>`;
+                    },
+                    (holes) => {
+                        let total = 0;
+                        let any = false;
+                        for (const h of holes) {
+                            const r = byHole.get(h.holeNumber);
+                            if (r && r.strokes !== null && r.strokes !== 0) {
+                                const given = strokesGiven.get(h.holeNumber) ?? 0;
+                                total += r.strokes - given;
+                                any = true;
+                            }
+                        }
+                        return any ? String(total) : '—';
+                    },
+                );
+                return [givenRow, grossRow, netRow].join('');
+            });
+            return blocks.join('');
+        };
+
+        const pairByHole = new Map(pair.holes.map((ph) => [ph.holeNumber, ph]));
+
+        // Team row for Taliban only: shows the points THIS HOLE awarded to
+        // the side (from the pair's fromA / fromB). Match-play individual has
+        // no meaningful team row — the per-player Net is already the ball.
+        const teamRow = (perspective: 'A' | 'B', label: string): string =>
+            row(
+                `${label} team pts`,
+                (h) => {
+                    const ph = pairByHole.get(h.holeNumber);
+                    if (!ph || ph.status === null) return `<td>—</td>`;
+                    const pts = perspective === 'A' ? ph.fromA : ph.fromB;
+                    return `<td><strong>${pts ?? 0}</strong></td>`;
+                },
+                (holes) => {
+                    let total = 0;
+                    let any = false;
+                    for (const h of holes) {
+                        const ph = pairByHole.get(h.holeNumber);
+                        if (ph && ph.status !== null) {
+                            total += (perspective === 'A' ? ph.fromA : ph.fromB) ?? 0;
+                            any = true;
+                        }
+                    }
+                    return any ? String(total) : '—';
+                },
+            );
+
+        // Status row — per-hole outcome only, from the pair-level note.
+        // Match-play: "W" / "L" / "AS" (+ "(dormie)"); Taliban: "W+1" / "W+2
+        // (birdie)" / "W+5 (down eagle)" / "L" / "AS". The Match row below
+        // carries the running cumulative — keep them non-overlapping.
+        const statusRow = row(
+            'Status',
+            (h) => {
+                const ph = pairByHole.get(h.holeNumber);
+                return `<td class="status">${esc(ph?.note ?? '—')}</td>`;
+            },
+            () => '—',
+        );
+
+        // Match row — cumulative from A's perspective, idiom-specific.
+        // Running sum of `PairHoleResult.pointsDelta`; null holes contribute 0
+        // (no change in running state). Match-play: AS / NUP / NDN. Taliban:
+        // AS / +N / -N (signed integer delta).
+        const formatRunning = (running: number): string => {
+            if (kind === 'match_play_individual') {
+                if (running === 0) return 'AS';
+                if (running > 0) return `${running}UP`;
+                return `${-running}DN`;
+            }
+            // taliban
+            if (running === 0) return 'AS';
+            if (running > 0) return `+${running}`;
+            return `−${-running}`;
+        };
+        // Precompute running after each hole by natural ordering (same as
+        // pair.holes is built hole-by-hole in the strategy).
+        const runningByHole = new Map<number, number>();
+        let running = 0;
+        const orderedHoles = [...pair.holes].sort((a, b) => a.holeNumber - b.holeNumber);
+        for (const ph of orderedHoles) {
+            if (ph.pointsDelta !== null) running += ph.pointsDelta;
+            runningByHole.set(ph.holeNumber, running);
+        }
+        const matchRow = row(
+            'Match',
+            (h) => {
+                const r = runningByHole.get(h.holeNumber);
+                if (r === undefined) return `<td class="status">—</td>`;
+                return `<td class="status">${esc(formatRunning(r))}</td>`;
+            },
+            () => '—',
+        );
+
+        const title = `${esc(participantLabel(partA))} vs. ${esc(participantLabel(partB))}`;
+        const slotFormat = round.formatSlots[pair.slotIndex];
+        const slotDescr = slotFormat
+            ? `slot #${pair.slotIndex} · ${esc(slotFormat.scoringMode)} × ${esc(slotFormat.teamShape)} @ ${slotFormat.allowancePct}%`
+            : `slot #${pair.slotIndex}`;
+
+        const includeTeamRow = kind === 'taliban_better_ball';
+
+        return `
+<article class="scorecard-card">
+  <header>
+    <h3>${title}</h3>
+    <span class="muted">
+      ${slotDescr} · ${esc(pair.summary)}
+    </span>
+  </header>
+  <table class="scorecard">
+    <thead>${holeHeader}</thead>
+    <tbody>
+      ${parRow}
+      ${siRow}
+      ${sideBlock(partA)}
+      ${includeTeamRow ? teamRow('A', esc(participantLabel(partA))) : ''}
+      ${sideBlock(partB)}
+      ${includeTeamRow ? teamRow('B', esc(participantLabel(partB))) : ''}
+      ${statusRow}
+      ${matchRow}
+    </tbody>
+  </table>
+</article>`;
+    };
+
     // Umbrella scorecard: per-player Gross + GIR sub-rows, then a team
     // category matrix row per hole (LG / LT / GA / GB / B), then a team
     // Points row with sweep badge. Category matrix cells show ✓ / ½ / —
@@ -1307,14 +1556,43 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
 
     const renderScorecards = (): string => {
         const resultByParticipant = new Map(leaderboard.participantResults.map((r) => [r.participantId, r]));
-        const cards = participants.map((p) => {
+        const partById = new Map(participants.map((p) => [p.id, p]));
+        // Pair-level formats (match-play individual, Taliban better-ball)
+        // render ONE unified scorecard per pair instead of a separate card
+        // per participant — so you can compare hole-by-hole vertically.
+        // We track which participants have already been folded into a pair
+        // card to avoid double-rendering; orphans (odd-count match-play)
+        // still fall through to the individual renderer below.
+        const foldedIntoPair = new Set<string>();
+        const cards: string[] = [];
+        for (const pr of leaderboard.pairResults) {
+            const [idA, idB] = pr.participants;
+            const partA = partById.get(idA);
+            const partB = partById.get(idB);
+            const resA = resultByParticipant.get(idA);
+            const resB = resultByParticipant.get(idB);
+            if (!partA || !partB || !resA || !resB) continue;
+            // Use participant A's slot to detect the format kind — both
+            // participants of a pair share a slot by construction.
+            const slot = slotByParticipantId.get(idA);
+            let kind: 'match_play_individual' | 'taliban_better_ball' | null = null;
+            if (isTalibanSlot(slot)) kind = 'taliban_better_ball';
+            else if (slot?.scoringMode === 'match_play' && slot?.teamShape === 'individual')
+                kind = 'match_play_individual';
+            if (!kind) continue; // pair from a future pair-level format — leave as-is
+            cards.push(renderPairScorecard(pr, kind, partA, partB, resA, resB, playedCourseHoles));
+            foldedIntoPair.add(idA);
+            foldedIntoPair.add(idB);
+        }
+        for (const p of participants) {
+            if (foldedIntoPair.has(p.id)) continue;
             const r = resultByParticipant.get(p.id);
-            if (!r) return '';
-            if (isParticipantBetterBall(p)) return renderBetterBallScorecard(r, p, playedCourseHoles);
-            if (isParticipantTaliban(p)) return renderTalibanScorecard(r, p, playedCourseHoles);
-            if (isParticipantUmbrella(p)) return renderUmbrellaScorecard(r, p, playedCourseHoles);
-            return renderScorecard(r, p, playedCourseHoles);
-        });
+            if (!r) continue;
+            if (isParticipantBetterBall(p)) cards.push(renderBetterBallScorecard(r, p, playedCourseHoles));
+            else if (isParticipantTaliban(p)) cards.push(renderTalibanScorecard(r, p, playedCourseHoles));
+            else if (isParticipantUmbrella(p)) cards.push(renderUmbrellaScorecard(r, p, playedCourseHoles));
+            else cards.push(renderScorecard(r, p, playedCourseHoles));
+        }
         return `
 <section>
   <h2>Scorecards</h2>

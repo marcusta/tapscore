@@ -86,6 +86,13 @@ export interface PairHoleResult {
     fromA: number | null;
     /** Net (or gross, strategy-defined) strokes for the B side on this hole. */
     fromB: number | null;
+    /**
+     * Signed points this hole, A-side perspective. Match-play: ±1 or 0
+     * (won/lost/halved). Taliban: weighted by bonus (±1, ±2, ±5). null when
+     * the hole is undecided (status === null). Rendered as a running-sum
+     * "Match" row in the unified pair scorecard.
+     */
+    pointsDelta: number | null;
     /** Combined per-hole annotation — e.g. "A 1UP", "dormie", "AS". */
     note?: string;
 }

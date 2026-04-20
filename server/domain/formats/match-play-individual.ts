@@ -227,18 +227,23 @@ function computePair(
             note: holeNoteB,
         });
 
-        // Pair-level note.
+        // Pair-level note: per-hole outcome only. Running cumulative is
+        // rendered separately as the "Match" row — don't duplicate here.
         let pairNote: string | undefined;
-        if (status === null) {
-            pairNote = leadA === 0 ? 'AS' : perspectiveNote(leadA, remainingAfter);
-        } else {
-            pairNote = perspectiveNote(leadA, remainingAfter);
+        if (status !== null) {
+            pairNote = statusShort(status);
+            const dormieForLeader =
+                remainingAfter > 0 && Math.abs(leadA) === remainingAfter;
+            if (dormieForLeader) pairNote += ' (dormie)';
         }
+        const pointsDelta: number | null =
+            status === null ? null : status === 'won' ? 1 : status === 'lost' ? -1 : 0;
         pairHoles.push({
             holeNumber: ch.holeNumber,
             status,
             fromA: sideA.net,
             fromB: sideB.net,
+            pointsDelta,
             note: pairNote,
         });
     }

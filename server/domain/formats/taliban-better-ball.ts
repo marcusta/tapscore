@@ -203,8 +203,40 @@ function statusShort(s: 'won' | 'lost' | 'halved'): string {
     return s === 'won' ? 'W' : s === 'lost' ? 'L' : 'AS';
 }
 
-function pairSummary(labelA: string, totalA: number, labelB: string, totalB: number): string {
-    return `${labelA} ${totalA} − ${totalB} ${labelB}`;
+/** Drop " by <player>" attribution from noteDetail for the pair-cell view. */
+function stripAttribution(detail: string): string {
+    return detail.replaceAll(/ by p:[0-9a-f]+/g, '');
+}
+
+/**
+ * Pair summary string. Format depends on state:
+ *   - A leading, final:       "{labelA} +{delta} ({ptsA}-{ptsB}) {labelB}"
+ *   - B leading, final:       "{labelA} ({ptsA}-{ptsB}) +{delta} {labelB}"
+ *   - Tied, final:            "{labelA} AS {labelB}"
+ *   - In progress (A up):     "{labelA} +{delta} thru {N} ({ptsA}-{ptsB}) {labelB}"
+ *   - In progress (B up):     "{labelA} ({ptsA}-{ptsB}) thru {N} +{delta} {labelB}"
+ *   - In progress tied:       "{labelA} AS thru {N} {labelB}"
+ * The raw parenthesised score communicates HOW the delta was earned
+ * (eagle-heavy = big spread) — delta alone hides that detail.
+ */
+function pairSummary(
+    labelA: string,
+    totalA: number,
+    labelB: string,
+    totalB: number,
+    inProgress: boolean,
+    holesDecided: number,
+): string {
+    const delta = Math.abs(totalA - totalB);
+    const progressTag = inProgress ? ` thru ${holesDecided}` : '';
+    if (totalA === totalB) {
+        return `${labelA} AS${progressTag} ${labelB}`;
+    }
+    const raw = `(${totalA}-${totalB})`;
+    if (totalA > totalB) {
+        return `${labelA} +${delta}${progressTag} ${raw} ${labelB}`;
+    }
+    return `${labelA} ${raw}${progressTag} +${delta} ${labelB}`;
 }
 
 function participantLabel(p: ParticipantInput): string {
@@ -362,7 +394,11 @@ function computePair(
             totalB += pointsThisHole;
         }
 
-        // Per-hole pair note: both the team-level delta and the running score.
+        // Per-hole pair note: team-level delta + qualitative detail (bonus
+        // trigger / tiebreaker). Running cumulative is rendered separately
+        // as the "Match" row — don't duplicate here. Attribution-by-id is
+        // stripped from `noteDetail` for the pair cell (the per-participant
+        // notes keep it for the individual scorecards).
         const pairStatusStr =
             status === null
                 ? 'pending'
@@ -371,18 +407,25 @@ function computePair(
                   : awardTo === 'A'
                     ? `A +${pointsThisHole}`
                     : `B +${pointsThisHole}`;
+        const pairDetail = stripAttribution(noteDetail);
         const pairNote =
             status === null
-                ? `pending (${totalA}-${totalB})`
-                : noteDetail
-                  ? `${pairStatusStr} (${noteDetail}) · ${totalA}-${totalB}`
-                  : `${pairStatusStr} · ${totalA}-${totalB}`;
+                ? 'pending'
+                : pairDetail
+                  ? `${pairStatusStr} (${pairDetail})`
+                  : pairStatusStr;
 
+        // Signed A-perspective points for this hole — sum = running Match
+        // row in the unified pair scorecard. null when the hole is undecided
+        // (status === null); 0 on halved; ±1/±2/±5 otherwise.
+        const pointsDelta: number | null =
+            status === null ? null : awardTo === 'A' ? pointsThisHole : awardTo === 'B' ? -pointsThisHole : 0;
         pairHoles.push({
             holeNumber: ch.holeNumber,
             status,
             fromA,
             fromB,
+            pointsDelta,
             note: pairNote,
         });
 
@@ -431,8 +474,9 @@ function computePair(
     const labelB = teamB.teamLabel ?? undefined;
     const displayA = labelA && labelA.length > 0 ? labelA : `Team-${participantLabel(teamA)}`;
     const displayB = labelB && labelB.length > 0 ? labelB : `Team-${participantLabel(teamB)}`;
-    const baseSummary = pairSummary(displayA, totalA, displayB, totalB);
-    const summary = inProgress ? `${baseSummary} (in progress)` : baseSummary;
+    // Count holes actually decided (status !== null) — "thru N" tag for in-progress.
+    const holesDecided = pairHoles.filter((h) => h.status !== null).length;
+    const summary = pairSummary(displayA, totalA, displayB, totalB, inProgress, holesDecided);
 
     const pair: PairResult = {
         slotIndex: slot.slotIndex,
