@@ -25,9 +25,9 @@ export async function apply(s: Scenario): Promise<void> {
         ],
     });
 
-    const pAlice = await round.addParticipant({ player: alice, teeName: 'Gul', gender: 'M', allowancePct: 100 });
+    const pAlice = await round.addParticipant({ player: alice, teeName: 'Gul', gender: 'F', allowancePct: 100 });
     const pBob = await round.addParticipant({ player: bob, teeName: 'Gul', gender: 'M', allowancePct: 100 });
-    const pEve = await round.addParticipant({ player: eve, teeName: 'Gul', gender: 'M', allowancePct: 100 });
+    const pEve = await round.addParticipant({ player: eve, teeName: 'Gul', gender: 'F', allowancePct: 100 });
     const pFrank = await round.addParticipant({ guest: frankGuest, teeName: 'Gul', gender: 'M', allowancePct: 100 });
 
     // Linköping front 9 pars: 4 4 3 5 3 5 3 4 4 (par 35). All four play to the finish.

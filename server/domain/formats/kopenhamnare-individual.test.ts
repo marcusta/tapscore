@@ -292,6 +292,31 @@ test('DNP event on one player: that hole is null for all three', () => {
     expect(totals).toEqual([8, 4, 0]);
 });
 
+test('pickup by one player: pickup ranks last, others still get points', () => {
+    const s = findFormat('kopenhamnare', 'individual');
+    const holes = par4Course(1);
+    const a = mk('A', 0, { 1: 3 });
+    const b = mk('B', 0, { 1: 0 }); // pickup → automatic last
+    const c = mk('C', 0, { 1: 5 });
+    const result = s.compute(trio(a, b, c, holes), slotWith());
+    expect(result.participantResults.map((r) => r.holes[0].points)).toEqual([4, 0, 2]);
+    expect(result.participantResults[1].holes[0].gross).toBe(0);
+    expect(result.participantResults[1].holes[0].net).toBeNull();
+    expect(result.participantResults[1].holes[0].note).toBe('0 of 6 (sole worst)');
+});
+
+test('two pickups tie for last: scored player gets 4, pickups get 1 each', () => {
+    const s = findFormat('kopenhamnare', 'individual');
+    const holes = par4Course(1);
+    const a = mk('A', 0, { 1: 3 });
+    const b = mk('B', 0, { 1: 0 });
+    const c = mk('C', 0, { 1: 0 });
+    const result = s.compute(trio(a, b, c, holes), slotWith());
+    expect(result.participantResults.map((r) => r.holes[0].points)).toEqual([4, 1, 1]);
+    expect(result.participantResults[1].holes[0].note).toBe('1 of 6 (tied rest)');
+    expect(result.participantResults[2].holes[0].note).toBe('1 of 6 (tied rest)');
+});
+
 test('no events at all → null points total, holesPlayed 0', () => {
     const s = findFormat('kopenhamnare', 'individual');
     const holes = par4Course(18);

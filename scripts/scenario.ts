@@ -21,7 +21,7 @@
 //           { scoringMode: 'stroke_play', teamShape: 'individual', allowancePct: 100 },
 //       ],
 //   });
-//   const pEve = await r.addParticipant({ player: eve, teeName: 'Gul', gender: 'M' });
+//   const pEve = await r.addParticipant({ player: eve, teeName: 'Gul', gender: 'F' });
 //   await pEve.play({ 1: 4, 2: 5, 3: 3, 4: 5, 5: 3 /* ... */ });
 //   await s.close();
 

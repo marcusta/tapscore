@@ -23,11 +23,13 @@
 // null). Under `standard`, a null PH is treated as 0 (same policy as
 // stroke-play individual).
 //
-// Per-hole null handling: if any of the three players has no net score for
-// a hole (no event, or DNP event), the hole is undecided — points are null
-// for all three on that hole and no one's running total advances. This is
-// intentional: Köpenhamnare only distributes 6 points when all three are
-// scored, otherwise the ranking is ill-defined.
+// Per-hole null handling:
+//   - no event, or DNP event (`strokes = null`) → hole undecided; points are
+//     null for all three and no one's running total advances.
+//   - pickup (`strokes = 0`) → player is default last on the hole, tied with
+//     any other pickup. The other players still receive points based on their
+//     own ranking against the pickup(s).
+// This keeps pickup distinct from "hole never got a score".
 //
 // Per-hole `note` surfaces a short topology tag (e.g. "4 of 6 (sole best)")
 // alongside the points value — the scorecard render uses it as the Points
@@ -106,6 +108,7 @@ function strokesByHoleFor(
 interface HoleState {
     gross: number | null;
     net: number | null;
+    rankingNet: number | null;
     strokesGiven: number;
 }
 
@@ -115,16 +118,21 @@ function resolveHole(
     strokesGiven: number,
 ): HoleState {
     const played = p.holes.find((h) => h.holeNumber === ch.holeNumber);
-    if (played === undefined) return { gross: null, net: null, strokesGiven };
+    if (played === undefined) return { gross: null, net: null, rankingNet: null, strokesGiven };
     const strokes = played.strokes;
-    if (strokes === null) return { gross: null, net: null, strokesGiven };
+    if (strokes === null) return { gross: null, net: null, rankingNet: null, strokesGiven };
     if (strokes === 0) {
-        // Pickup — in Köpenhamnare we treat as "hole not scored for ranking
-        // purposes"; the three-way comparison needs a real net, and a pickup
-        // has no meaningful ranking against others' scored holes.
-        return { gross: null, net: null, strokesGiven };
+        // Pickup = automatic last, tied with any other pickup. Keep the Gross
+        // row honest (`P` in the render via strokesCell(0)); Net stays null
+        // because there is no meaningful net stroke number to show.
+        return { gross: 0, net: null, rankingNet: Number.POSITIVE_INFINITY, strokesGiven };
     }
-    return { gross: strokes, net: strokes - strokesGiven, strokesGiven };
+    return {
+        gross: strokes,
+        net: strokes - strokesGiven,
+        rankingNet: strokes - strokesGiven,
+        strokesGiven,
+    };
 }
 
 interface HolePoints {
@@ -243,7 +251,9 @@ export const kopenhamnareIndividual: FormatStrategy = {
             }
 
             const allScored =
-                stateA.net !== null && stateB.net !== null && stateC.net !== null;
+                stateA.rankingNet !== null &&
+                stateB.rankingNet !== null &&
+                stateC.rankingNet !== null;
 
             if (!allScored) {
                 // Hole not decided — null points for all three; running totals
@@ -264,9 +274,9 @@ export const kopenhamnareIndividual: FormatStrategy = {
             }
 
             const dist = distribute6([
-                stateA.net as number,
-                stateB.net as number,
-                stateC.net as number,
+                stateA.rankingNet as number,
+                stateB.rankingNet as number,
+                stateC.rankingNet as number,
             ]);
             const pairs = [
                 [pA, stateA, dist[0]],

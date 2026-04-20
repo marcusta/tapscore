@@ -53,7 +53,7 @@ export async function apply(s: Scenario): Promise<void> {
     const pAlice = await round.addParticipant({
         player: alice,
         teeName: 'Gul',
-        gender: 'M',
+        gender: 'F',
         allowancePct: 100,
     });
     const pBob = await round.addParticipant({
@@ -65,7 +65,7 @@ export async function apply(s: Scenario): Promise<void> {
     const pEve = await round.addParticipant({
         player: eve,
         teeName: 'Gul',
-        gender: 'M',
+        gender: 'F',
         allowancePct: 100,
     });
     const pGunnar = await round.addParticipant({

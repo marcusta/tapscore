@@ -16,7 +16,7 @@ import type { Club } from '../server/services/club.service';
 import type { ScoreEvent } from '../server/services/score-event.service';
 import type { Scorecard, ScorecardHole } from '../server/services/scorecard.service';
 import type { Leaderboard } from '../server/domain/leaderboard';
-import type { ParticipantResult, CourseHole, PairResult } from '../server/domain/format';
+import type { ParticipantResult, CourseHole, PairResult, PairHoleResult } from '../server/domain/format';
 import { courseHolesForRound } from '../server/domain/round-holes';
 import { stablefordOutcome, type StablefordHoleOutcome } from '../server/domain/formats/_stableford-scoring';
 
@@ -44,6 +44,11 @@ function strokesCell(strokes: number | null | undefined): string {
 function netCell(net: number | null): string {
     if (net === null) return '<span class="dnp">–</span>';
     return String(net);
+}
+
+function numericCell(value: number | null | undefined): string {
+    if (value === null || value === undefined) return '—';
+    return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 interface HoleGroup {
@@ -110,6 +115,7 @@ const CSS = `
   .dnp { color: var(--dim); }
   .pickup { color: #c00; font-weight: bold; }
   .arithmetic { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--muted); }
+  .arithmetic .match { color: inherit; font-weight: 700; }
   .hint { color: var(--muted); font-size: 12px; }
   .scorecard-card { border: 1px solid var(--border); padding: 1rem; margin-bottom: 1rem; border-radius: 6px; }
   .scorecard-card header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: .5rem; }
@@ -404,13 +410,37 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         const rows = participants.map((p) => {
             const tee = p.teeIdSnapshot ? teesById.get(p.teeIdSnapshot) : null;
             const teeLabel = tee ? tee.name : '—';
+            let snapshotGender = '—';
             let arithmetic = '—';
             if (p.handicapIndexSnapshot !== null && tee) {
+                const matchingGenders = new Set(
+                    tee.ratings
+                        .filter((r) => {
+                            const raw =
+                                p.handicapIndexSnapshot! * (r.slope / 113) +
+                                (r.courseRating - r.par);
+                            return Math.round(raw) === p.courseHandicapSnapshot;
+                        })
+                        .map((r) => r.gender),
+                );
+                snapshotGender =
+                    matchingGenders.size === 0
+                        ? '?'
+                        : Array.from(matchingGenders).sort().join('/');
                 const lines: string[] = [];
                 for (const r of tee.ratings) {
                     const raw = p.handicapIndexSnapshot * (r.slope / 113) + (r.courseRating - r.par);
+                    const line =
+                        `${r.gender}: ${p.handicapIndexSnapshot} × ${r.slope}/113 + (${r.courseRating} − ${r.par}) = ${raw.toFixed(2)} → ${Math.round(raw)}` +
+                        (matchingGenders.has(r.gender)
+                            ? matchingGenders.size === 1
+                                ? ' ← CH'
+                                : ' ← matches CH'
+                            : '');
                     lines.push(
-                        `${r.gender}: ${p.handicapIndexSnapshot} × ${r.slope}/113 + (${r.courseRating} − ${r.par}) = ${raw.toFixed(2)} → ${Math.round(raw)}`,
+                        matchingGenders.has(r.gender)
+                            ? `<span class="match">${line}</span>`
+                            : line,
                     );
                 }
                 arithmetic = lines.join('<br>');
@@ -422,6 +452,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
   <td>${esc(p.teamLabel ?? '—')}</td>
   <td>${esc(p.categorySnapshot ?? '—')}</td>
   <td>${esc(teeLabel)}</td>
+  <td>${esc(snapshotGender)}</td>
   <td class="num">${p.handicapIndexSnapshot ?? '—'}</td>
   <td class="num">${p.courseHandicapSnapshot ?? '—'}</td>
   <td class="num">${p.playingHandicapSnapshot ?? '—'}</td>
@@ -436,12 +467,14 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
     <thead>
       <tr>
         <th>id</th><th>players</th><th>team</th><th>category</th><th>tee (snap)</th>
-        <th>H idx</th><th>CH</th><th>PH</th><th>WHS arithmetic (per rating)</th><th>flags</th>
+        <th>gender</th><th>H idx</th><th>CH</th><th>PH</th><th>WHS arithmetic (per rating)</th><th>flags</th>
       </tr>
     </thead>
     <tbody>${rows.join('')}</tbody>
   </table>
   <p class="hint">CH = round(index × slope/113 + (CR − par)). PH = round(CH × allowancePct/100).</p>
+  <p class="hint">Gender is inferred from the tee-rating row(s) whose arithmetic matches the frozen course-handicap snapshot.</p>
+  <p class="hint">In the arithmetic column, the line marked <strong>← CH</strong> is the tee-rating row that matches the frozen course-handicap snapshot.</p>
   <p class="hint">Scorecard cells: <code>–</code> = did not play, <code>P</code> = pickup (in the events log; in the Gross row it is resolved to par + 2 + strokes given per WHS net-double).</p>
 </section>`;
     };
@@ -496,6 +529,56 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         }
     }
 
+    // Match-style / head-to-head-ish formats benefit from a "running"
+    // cumulative that is normalised to the current trailer, so the lowest
+    // total is always 0 at any hole. Example:
+    //   raw totals  [10, 8, 6] -> running [4, 2, 0]
+    //   raw totals  [7, 4]     -> running [3, 0]
+    //
+    // This is rendered for:
+    //   - Köpenhamnare (3-player match-style points race)
+    //   - Umbrella (team-vs-team cumulative points)
+    //
+    // Pair formats (match-play, Taliban) compute the same idea from their
+    // pair-level rows below because they don't expose participant `totals`
+    // as points arrays.
+    const normalizedRunningByParticipant = new Map<string, Map<number, number>>();
+    const needsNormalizedRunning = (
+        s: typeof round.formatSlots[number] | undefined,
+    ): boolean =>
+        isKopenhamnareSlot(s) ||
+        (s?.scoringMode === 'umbrella' && s?.teamShape === 'four_ball');
+    for (const slot of round.formatSlots) {
+        if (!needsNormalizedRunning(slot)) continue;
+        const slotResults = leaderboard.participantResults.filter(
+            (r) => r.slotIndex === slot.slotIndex,
+        );
+        if (slotResults.length === 0) continue;
+        const rawTotals = new Map<string, number>();
+        const holes = [...playedCourseHoles].sort((a, b) => a.holeNumber - b.holeNumber);
+        for (const r of slotResults) {
+            rawTotals.set(r.participantId, 0);
+            normalizedRunningByParticipant.set(r.participantId, new Map());
+        }
+        for (const ch of holes) {
+            for (const r of slotResults) {
+                const hr = r.holes.find((h) => h.holeNumber === ch.holeNumber);
+                if (hr?.points !== null && hr?.points !== undefined) {
+                    rawTotals.set(
+                        r.participantId,
+                        (rawTotals.get(r.participantId) ?? 0) + hr.points,
+                    );
+                }
+            }
+            const min = Math.min(...slotResults.map((r) => rawTotals.get(r.participantId) ?? 0));
+            for (const r of slotResults) {
+                normalizedRunningByParticipant
+                    .get(r.participantId)!
+                    .set(ch.holeNumber, (rawTotals.get(r.participantId) ?? 0) - min);
+            }
+        }
+    }
+
     const playerLinkLabel = (link: Participant['players'][number]): string => {
         if (link.playerId) return playersById.get(link.playerId)?.displayName ?? `player:${short(link.playerId)}`;
         if (link.guestPlayerId) {
@@ -543,6 +626,24 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
   <th class="rowlabel">${label}</th>
   ${groupCells}
   ${totCell}
+</tr>`;
+        };
+
+        const stateRow = (
+            label: string,
+            cell: (h: CourseHole) => string,
+            groupEnd: (holes: CourseHole[]) => string,
+            totalEnd: string,
+            klass = '',
+        ): string => {
+            const groupCells = groups
+                .map((g) => g.holes.map(cell).join('') + `<td class="sum">${groupEnd(g.holes)}</td>`)
+                .join('');
+            return `
+<tr class="${klass}">
+  <th class="rowlabel">${label}</th>
+  ${groupCells}
+  ${includeTotColumn ? `<td class="sum">${totalEnd}</td>` : ''}
 </tr>`;
         };
 
@@ -774,6 +875,24 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
 </tr>`;
         };
 
+        const stateRow = (
+            label: string,
+            cell: (h: CourseHole) => string,
+            groupEnd: (holes: CourseHole[]) => string,
+            totalEnd: string,
+            klass = '',
+        ): string => {
+            const groupCells = groups
+                .map((g) => g.holes.map(cell).join('') + `<td class="sum">${groupEnd(g.holes)}</td>`)
+                .join('');
+            return `
+<tr class="${klass}">
+  <th class="rowlabel">${label}</th>
+  ${groupCells}
+  ${includeTotColumn ? `<td class="sum">${totalEnd}</td>` : ''}
+</tr>`;
+        };
+
         const headerCells = groups
             .map((g) => g.holes.map((h) => `<th>${h.holeNumber}</th>`).join('') + `<th class="sum">${g.label}</th>`)
             .join('');
@@ -848,6 +967,23 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
               )
             : '';
 
+        const runningByHole = normalizedRunningByParticipant.get(p.id);
+        const runningRow =
+            pointsAny && runningByHole
+                ? stateRow(
+                      'Running',
+                      (h) => `<td>${numericCell(runningByHole.get(h.holeNumber))}</td>`,
+                      (holes) => {
+                          const last = holes[holes.length - 1];
+                          return last ? numericCell(runningByHole.get(last.holeNumber)) : '—';
+                      },
+                      (() => {
+                          const last = courseHoles[courseHoles.length - 1];
+                          return last ? numericCell(runningByHole.get(last.holeNumber)) : '—';
+                      })(),
+                  )
+                : '';
+
         const statusRow = isPair
             ? row(
                   'Status',
@@ -916,6 +1052,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
       ${grossRow}
       ${netRow}
       ${pointsRow}
+      ${runningRow}
       ${statusRow}
     </tbody>
   </table>
@@ -1130,6 +1267,24 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
 </tr>`;
         };
 
+        const stateRow = (
+            label: string,
+            cell: (h: CourseHole) => string,
+            groupEnd: (holes: CourseHole[]) => string,
+            totalEnd: string,
+            klass = '',
+        ): string => {
+            const groupCells = groups
+                .map((g) => g.holes.map(cell).join('') + `<td class="sum">${groupEnd(g.holes)}</td>`)
+                .join('');
+            return `
+<tr class="${klass}">
+  <th class="rowlabel">${label}</th>
+  ${groupCells}
+  ${includeTotColumn ? `<td class="sum">${totalEnd}</td>` : ''}
+</tr>`;
+        };
+
         const headerCells = groups
             .map((g) => g.holes.map((h) => `<th>${h.holeNumber}</th>`).join('') + `<th class="sum">${g.label}</th>`)
             .join('');
@@ -1226,30 +1381,75 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
 
         const pairByHole = new Map(pair.holes.map((ph) => [ph.holeNumber, ph]));
 
-        // Team row for Taliban only: shows the points THIS HOLE awarded to
-        // the side (from the pair's fromA / fromB). Match-play individual has
-        // no meaningful team row — the per-player Net is already the ball.
-        const teamRow = (perspective: 'A' | 'B', label: string): string =>
+        const sidePoints = (perspective: 'A' | 'B', ph: PairHoleResult): number | null => {
+            if (ph.status === null) return null;
+            if (kind === 'match_play_individual') {
+                if (ph.status === 'halved') return 0;
+                if (perspective === 'A') return ph.status === 'won' ? 1 : 0;
+                return ph.status === 'lost' ? 1 : 0;
+            }
+            return perspective === 'A' ? ph.fromA : ph.fromB;
+        };
+
+        const buildNormalizedRunning = (
+            perspective: 'A' | 'B',
+        ): Map<number, number> => {
+            let rawA = 0;
+            let rawB = 0;
+            const out = new Map<number, number>();
+            const ordered = [...pair.holes].sort((a, b) => a.holeNumber - b.holeNumber);
+            for (const ph of ordered) {
+                const ptsA = sidePoints('A', ph);
+                const ptsB = sidePoints('B', ph);
+                if (ptsA !== null) rawA += ptsA;
+                if (ptsB !== null) rawB += ptsB;
+                const min = Math.min(rawA, rawB);
+                out.set(ph.holeNumber, (perspective === 'A' ? rawA : rawB) - min);
+            }
+            return out;
+        };
+
+        const runningAByHole = buildNormalizedRunning('A');
+        const runningBByHole = buildNormalizedRunning('B');
+
+        const pointsRowForSide = (perspective: 'A' | 'B', label: string): string =>
             row(
-                `${label} team pts`,
+                `${label} pts`,
                 (h) => {
                     const ph = pairByHole.get(h.holeNumber);
-                    if (!ph || ph.status === null) return `<td>—</td>`;
-                    const pts = perspective === 'A' ? ph.fromA : ph.fromB;
-                    return `<td><strong>${pts ?? 0}</strong></td>`;
+                    return `<td><strong>${numericCell(ph ? sidePoints(perspective, ph) : null)}</strong></td>`;
                 },
                 (holes) => {
                     let total = 0;
                     let any = false;
                     for (const h of holes) {
                         const ph = pairByHole.get(h.holeNumber);
-                        if (ph && ph.status !== null) {
-                            total += (perspective === 'A' ? ph.fromA : ph.fromB) ?? 0;
+                        const pts = ph ? sidePoints(perspective, ph) : null;
+                        if (pts !== null) {
+                            total += pts;
                             any = true;
                         }
                     }
-                    return any ? String(total) : '—';
+                    return any ? numericCell(total) : '—';
                 },
+            );
+
+        const runningRowForSide = (
+            perspective: 'A' | 'B',
+            label: string,
+            runningByHole: Map<number, number>,
+        ): string =>
+            stateRow(
+                `${label} run`,
+                (h) => `<td>${numericCell(runningByHole.get(h.holeNumber))}</td>`,
+                (holes) => {
+                    const last = holes[holes.length - 1];
+                    return last ? numericCell(runningByHole.get(last.holeNumber)) : '—';
+                },
+                (() => {
+                    const last = courseHoles[courseHoles.length - 1];
+                    return last ? numericCell(runningByHole.get(last.holeNumber)) : '—';
+                })(),
             );
 
         // Status row — per-hole outcome only, from the pair-level note.
@@ -1305,7 +1505,8 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
             ? `slot #${pair.slotIndex} · ${esc(slotFormat.scoringMode)} × ${esc(slotFormat.teamShape)} @ ${slotFormat.allowancePct}%`
             : `slot #${pair.slotIndex}`;
 
-        const includeTeamRow = kind === 'taliban_better_ball';
+        const labelA = esc(participantLabel(partA));
+        const labelB = esc(participantLabel(partB));
 
         return `
 <article class="scorecard-card">
@@ -1321,9 +1522,11 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
       ${parRow}
       ${siRow}
       ${sideBlock(partA)}
-      ${includeTeamRow ? teamRow('A', esc(participantLabel(partA))) : ''}
+      ${pointsRowForSide('A', labelA)}
+      ${runningRowForSide('A', labelA, runningAByHole)}
       ${sideBlock(partB)}
-      ${includeTeamRow ? teamRow('B', esc(participantLabel(partB))) : ''}
+      ${pointsRowForSide('B', labelB)}
+      ${runningRowForSide('B', labelB, runningBByHole)}
       ${statusRow}
       ${matchRow}
     </tbody>
@@ -1369,6 +1572,24 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
   <th class="rowlabel">${label}</th>
   ${groupCells}
   ${totCell}
+</tr>`;
+        };
+
+        const stateRow = (
+            label: string,
+            cell: (h: CourseHole) => string,
+            groupEnd: (holes: CourseHole[]) => string,
+            totalEnd: string,
+            klass = '',
+        ): string => {
+            const groupCells = groups
+                .map((g) => g.holes.map(cell).join('') + `<td class="sum">${groupEnd(g.holes)}</td>`)
+                .join('');
+            return `
+<tr class="${klass}">
+  <th class="rowlabel">${label}</th>
+  ${groupCells}
+  ${includeTotColumn ? `<td class="sum">${totalEnd}</td>` : ''}
 </tr>`;
         };
 
@@ -1511,6 +1732,22 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
             },
         );
 
+        const runningByHole = normalizedRunningByParticipant.get(p.id);
+        const runningRow = runningByHole
+            ? stateRow(
+                  'Running',
+                  (h) => `<td>${numericCell(runningByHole.get(h.holeNumber))}</td>`,
+                  (holes) => {
+                      const last = holes[holes.length - 1];
+                      return last ? numericCell(runningByHole.get(last.holeNumber)) : '—';
+                  },
+                  (() => {
+                      const last = courseHoles[courseHoles.length - 1];
+                      return last ? numericCell(runningByHole.get(last.holeNumber)) : '—';
+                  })(),
+              )
+            : '';
+
         // Per-hole arithmetic line under the card for hand verification.
         const annotatedHoles = result.holes.filter((h) => h.note && h.points !== null && h.points !== 0);
         const arithmetic =
@@ -1547,6 +1784,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
       ${teamLtRow}
       ${catMatrixRow}
       ${teamPointsRow}
+      ${runningRow}
     </tbody>
   </table>
   ${arithmetic}
