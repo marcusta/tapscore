@@ -153,17 +153,75 @@ Gate: create a round with 4 participants, push score events through descriptors,
 
 **Spec:** §3 (format slots), §14 items 6, 7.
 
-Add scoring modes: stableford, match-play. Add team shapes: better-ball, foursomes (alternate-shot).
+Goal: stress-test the format strategy interface across enough real scoring modes and team shapes that the shape won't buckle when Phase 3+ piles on wrappers. If the interface needs reshape, reshape here — a bent interface propagated through FriendlyRound/CompetitionRound is expensive to fix later.
 
-Exercise multi-format-slot round (2 singles + 2 alternate-shot, different participant scopes). Confirm strategy interface composes without conditional branches on wrapper type.
+Formats to deliver in 2.5 (each is its own sub-step with a gate: regen + checks + tests green + render refreshed and eyeballed before moving on):
 
-**HTML render expectations:**
-- Scorecard shows the new rows each format needs (Stableford points per hole + total; match-play hole status like `1UP / AS / 2DN`).
-- Per-participant card declares which slot they scored under (`slot #0 stableford × individual`, `slot #1 stroke_play × foursomes`) and the allowance.
-- Leaderboard adds a `points` column (stableford) ranked high-to-low, and match-play results expressed as holes up / holes remaining per pair.
-- Seeds: `stableford-round`, `match-play-round`, `multi-slot-series-round` (2 singles + 2 alternate-shot) — each renders cleanly and the numbers reconcile against a hand-drawn scorecard.
+- **Stableford × individual** — per-hole stableford points from par + strokes given. Pickup = 0 points that hole but total stays valid. Registers a new scoring mode (`stableford`) and a new scoring type (`points`, ranked high-to-low).
+- **Match-play × individual** — pair-level format. Per-hole win/loss/halved status based on net scores. Output is pair-level (`"3 & 2"`, `"2 UP thru 14"`, `"AS"`), not participant-level.
+- **Köpenhamnare × individual (3-player)** — Swedish stroke-play points game. Exactly 3 participants share 6 points per hole based on net ranking: 4 / 2 / 0 when all three differ; 4 / 1 / 1 when best is alone and the other two tie; 3 / 3 / 0 when two tie for best and one is worst; 2 / 2 / 2 when all three are equal. Running point total across holes. Two handicap modes, selectable per slot: (a) standard — each player gets their normal playing handicap, strokes distributed by SI; (b) delta-from-min — the two higher-handicap players get `(their_ph − min_ph)` strokes, the lowest-PH player plays at 0, strokes distributed by SI. First format that needs format-specific slot config beyond allowance (see below).
+- **Stableford × better-ball** — 2-player teams, team points per hole = best of the pair's individual stableford points. Requires per-player event sourcing (see schema change below).
+- **Stroke-play × foursomes (alternate-shot)** — 2-player teams play one ball → one scorecard per participant, no per-player sourcing needed. Allowance (typically 50%) lives in `round_format_slots.allowance_pct`; strategy is oblivious.
+- **Taliban × better-ball** — 2v2 match-play variant. Per-hole comparison: first compare better-ball of each pair; if halved, compare worse-ball (best worse-ball wins); if still halved, hole is halved (0 points). Normal win = 1 point. Win on a gross birdie = 2 points. Win on a gross eagle by the pair currently *down* in the match = 5 points. Running match state across holes (so being 1 down and winning gives AS, winning with gross eagle while down gives you 4 up). Requires per-player event sourcing.
+- **Umbrella × 4-ball (2v2)** — each hole has 5 accomplishment categories, each worth N points where N = hole number: (1) low individual gross in the foursome, (2) low 2-ball team total, (3) Player A GIR, (4) Player B GIR, (5) any team member gross birdie. If one team sweeps all 5 categories on a hole → points double ("umbrella"). Running point total across holes. Requires per-player event sourcing AND a supplemental per-hole data channel (at minimum GIR flag; see Open decisions).
 
-**Mandatory stop + hand-test + review.** If the strategy interface needs reshape, reshape it here, not after Phase 3 piles on FriendlyRound and CompetitionRound. Commit `phase 2.5 complete: strategy coverage`.
+### Schema changes this phase lands
+
+1. **Per-player event sourcing (migration 013).** `score_events.source_player_id` (nullable FK → `players.id`, alternatively `guest_player_id`) and mirrored on `scorecards`. Individual formats leave it null. Team formats that need per-player data (better-ball, Taliban, Umbrella) populate it on every event. Trigger regenerates the scorecard preserving source.
+   - Rationale: `participant_id` identifies the team; `source_player_id` identifies which player in the team took the stroke. This is the cleanest migration — alternatives (phantom per-player participants, JSON blob) have worse downstream cost.
+   - Forward-only. Existing rows get null (individual formats only).
+
+2. **Supplemental per-hole data (migration 014, Umbrella prerequisite).** Open decision — pick one before implementing Umbrella:
+   - **(a)** `score_events.metadata` (JSON, nullable). Flexible, untyped, format reads what it needs. Easiest.
+   - **(b)** Typed nullable columns: `reached_gir` (integer 0/1), `putts` (integer). Typed but schema bloats as formats demand more fields.
+   - **(c)** Parallel `hole_shot_detail` table keyed by `(round_id, participant_id, hole, source_player_id)` with format-agnostic fields. Most normalised; most plumbing.
+
+   Default to (a) unless a strong reason surfaces. Document choice in `score-event.service.ts` module comment and the implementer can switch if (a) proves fragile.
+
+3. **Format-specific slot config (no migration — reuse `round_format_slots.scope_config`).** `scope_config` already exists as a nullable JSON blob, originally earmarked for participant scoping (`{participantIds: [...]}`). Widen its documented use to a two-key structure: `{ scope?: ..., config?: ... }`. Format strategies read `slot.scopeConfig?.config` for their own options — Köpenhamnare's `handicapMode: "standard" | "delta_from_min"`, Umbrella's `birdieRule: "gross" | "net"`, any future per-slot knob. Multi-slot routing reads `slot.scopeConfig?.scope`. One field, two concerns, JSON keeps them separable. Update the `FormatSlot` type in `round.service.ts` and note the shape in its doc comment.
+
+### Interface reshape expectation
+
+The current `FormatStrategy.compute(oneParticipant) → ParticipantResult` shape won't accommodate match-play (pair-level), Köpenhamnare (three-way per-hole ranking), Taliban (running pair state + cross-pair per-hole comparison), or Umbrella (all four players' hole data compared simultaneously for each of 5 categories). Probable reshape: `compute(slotInput) → SlotResult`, where `slotInput` carries every participant in the slot with per-hole data and the strategy internally decides whether to iterate per-participant, per-pair, per-trio, or per-hole-across-all. Simple formats (stroke-play, stableford individual, foursomes) internally loop per-participant and behave as today. Complex formats (match-play, Köpenhamnare, Taliban, Umbrella) run their full slot-level logic.
+
+Reshape at step 2.5b (match-play) when the pressure first surfaces; Köpenhamnare at 2.5c validates the new shape on a non-pair multi-participant topology before schema migrations land. Taliban and Umbrella then pile on against the new shape and prove it. If the new shape cracks on any of them, reshape again — now, not in Phase 3.
+
+### Sub-steps (commit gate at each)
+
+- **2.5a.** Move `stroke-play × individual` under `server/domain/formats/`, re-export from `format.ts`. Add `stableford × individual`. Unit tests + render seed `stableford-round`.
+- **2.5b.** Add `match-play × individual`. Reshape `FormatStrategy` interface as needed (document the new shape in `format.ts` module comment). Add a pair-level result type on `Leaderboard` (not a fake participant row). Render: scorecard gets `Status` row (`1UP`/`AS`/`2DN`); leaderboard section shows pair results (`Alice d. Bob, 3 & 2`) instead of a strokes table. Seed `match-play-round`.
+- **2.5c.** Add `köpenhamnare × individual`. Widen `FormatSlot.scopeConfig` to `{scope?, config?}` and have the strategy read `config.handicapMode`. Strategy runs per-hole three-way ranking on net scores, distributes 6 points with the tie-handling rules (4-2-0 / 4-1-1 / 3-3-0 / 2-2-2). Implement both handicap modes (`standard` and `delta_from_min`); render surfaces which mode is active and shows the effective playing handicap per player alongside the snapshot. Seed `kopenhamnare-round` — 18 holes with at least one hole per tie topology (sole best, two-way tie for best, three-way tie) and exercises both handicap modes across two seeded rounds if the easier path is one seed per mode.
+- **2.5d.** Migration 013 — `source_player_id` on `score_events` + `scorecards` + trigger. `score-event.service.ts` accepts and persists it; `scorecard.service.ts` exposes it on `ScorecardHole`. Existing tests untouched (null source for individual).
+- **2.5e.** Add `stableford × better-ball`. Strategy reads per-player net per hole from the scorecard, picks team best. Render: scorecard shows both players' per-hole rows above the team Points row. Seed `better-ball-round`.
+- **2.5f.** Add `stroke-play × foursomes`. Structurally a 2-player participant playing one ball, so the strategy is stroke-play but the participant has 2 player links. Render: card header lists both players. Seed `foursomes-round`.
+- **2.5g.** Add `Taliban × better-ball` (scoring mode `taliban`). Strategy runs pair-vs-pair hole-by-hole with running match state, applying the birdie/eagle/down-team multipliers. Render: per-hole shows gross birdie/eagle badges, pair-level row shows running score, leaderboard shows pair points. Seed `taliban-round` — include at least one hole where eagle-while-down triggers +5, one where gross birdie wins, one halved on better-ball but decided on worse-ball.
+- **2.5h.** Migration 014 — supplemental per-hole data channel (default: `score_events.metadata` JSON). `score-event.service.ts` accepts metadata; `ScorecardHole` exposes it. Add `umbrella × 4-ball`. Strategy computes 5 categories per hole × hole-number multiplier, detects sweep, applies double. Render: scorecard gets a category matrix per hole (LG / LT / GIR-A / GIR-B / BIRD) with sweep badge, leaderboard is cumulative team points. Seed `umbrella-round` — at least one umbrella (sweep) hole; one hole with split categories; one with net-vs-gross birdie ambiguity (document the chosen rule via `config.birdieRule`).
+- **2.5i.** Multi-slot round. Update `leaderboard.service` to read `slot.scopeConfig?.scope` (`{participantIds: [...]}`) and route each participant to the matching slot (replaces the "every participant in slot 0" stub). Seed `multi-slot-series-round` — 2 singles + 2 foursomes, or mix with Taliban pairs / a Köpenhamnare trio if it illustrates scope well.
+- **2.5j.** Render polish: `tmp/index.html` columns legibly summarise multi-slot (`stableford×individual@95% + stroke_play×foursomes@50%`), each per-participant card declares its slot + allowance (`slot #0 · stableford × individual · 95%`), inline arithmetic (stableford per hole, match-play hole status, Köpenhamnare point distribution per hole, Taliban multipliers, Umbrella category matrix with sweep math) present everywhere numbers are computed.
+- **2.5k.** Interface review. Re-read `format.ts` top-to-bottom. Can you describe adding `skins × better-ball` in one sentence without opening the existing strategies? If yes, the interface passed. If no, reshape now. Update the module comment to reflect the final shape. If the shape differs from what this PHASES.md section describes, update this section too.
+
+### HTML render expectations (applies across all sub-steps)
+
+- Scorecard rows by format:
+  - Stroke-play: Par, SI, Given, Gross, Net.
+  - Stableford: + Points row.
+  - Köpenhamnare: + per-hole Points row per player showing the 6-point distribution (`4 / 2 / 0`, `4 / 1 / 1`, etc.) with the tie topology annotated.
+  - Match-play / Taliban: + Status row (hole result from this pair's perspective, e.g. `W+2` for Taliban birdie-win, `L` for loss, `AS` for half).
+  - Umbrella: + category matrix row per hole (LG / LT / GIR-A / GIR-B / BIRD), with sweep badge when applicable.
+- Per-participant card header declares slot index, format (`stableford × individual`), and allowance (`95%`). Köpenhamnare cards additionally declare `handicapMode` and the effective per-player playing handicap under that mode.
+- Leaderboard:
+  - Stroke-play/Stableford/Köpenhamnare/Umbrella: participant-level rows with total column for that scoring type.
+  - Match-play/Taliban: pair-level section with result expressed in golf idiom (`Alice & Bob d. Carol & Dan, 3 & 2` for match; `Alice & Bob 7, Carol & Dan 4` for Taliban running points).
+- Seeds (all idempotent): `stableford-round`, `match-play-round`, `kopenhamnare-round`, `better-ball-round`, `foursomes-round`, `taliban-round`, `umbrella-round`, `multi-slot-series-round`.
+- `tmp/index.html` format column surfaces multi-slot rounds legibly.
+
+### Gate
+
+- `bun run check:server && bun run check:client && bun run check:test && bun test` green.
+- `bun run render:all`, open every rendered page, eyeball each format's card against a hand-drawn scorecard. Confirm: (1) each format reads like a real one for its kind, (2) match-play and Taliban expressed in golf idiom, (3) Köpenhamnare's 6 points always sum per hole and the tie topology matches the distribution, (4) Umbrella sweep visibly doubles, (5) multi-slot scope routes participants correctly, (6) inline arithmetic present for stableford points, match-play hole status, Köpenhamnare point distribution, Taliban multipliers, Umbrella category counts.
+- Hand-test: create each format type via the scenario builder + curl, push events, verify leaderboard updates, verify replay determinism on the multi-slot round.
+
+**Mandatory stop + hand-test + review.** Commit `phase 2.5 complete: strategy coverage`.
 
 ---
 
