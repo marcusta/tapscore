@@ -2,22 +2,30 @@
 //
 // Designed to compose without conditional branches on either axis:
 //
-//   1. `FormatStrategy` sees ONE participant at a time and produces that
-//      participant's contribution for the slot. It is shape-agnostic — if the
-//      strategy is a team shape, the caller is responsible for passing the
-//      participant that represents the team (a better-ball pair is one
-//      participant with two `participant_players` links; foursomes ditto).
-//      Team-shape logic lives in how scorecards feed into the strategy, not
-//      in a second level of wrappers.
+//   1. `FormatStrategy.compute(input, slot)` sees the WHOLE SLOT at once —
+//      every participant assigned to the slot plus the course holes. The
+//      strategy decides internally whether to iterate per-participant
+//      (stroke-play, stableford, foursomes), per-pair (match-play, Taliban),
+//      per-trio (Köpenhamnare), or per-hole-across-all (Umbrella). This
+//      slot-level visibility is why the interface takes `SlotInput` instead
+//      of `ParticipantInput`: pair-level and slot-level formats can't be
+//      computed one participant at a time.
 //
-//   2. Each strategy declares its own `ScoringResult` shape. Stroke-play has
-//      gross + net totals; stableford has points; match-play emits per-hole
-//      status. The leaderboard consumes the generic `ScoringResult` produced
-//      by a strategy — it does not inspect strokes or points directly.
+//   2. Strategies return a `SlotResult = { participantResults, pairResults? }`.
+//      `participantResults` is always populated — every strategy produces
+//      per-participant scorecards (match-play writes the running status as
+//      a `note` on each `HoleResult`). `pairResults` is present only for
+//      pair-level formats (match-play today; Taliban later); simple formats
+//      leave it undefined.
 //
-//   3. Registration is through `registerFormat()`. New formats = new file +
-//      one registration call. No schema change, no switch statements outside
-//      this module.
+//   3. Each strategy declares its own scoring types on `ParticipantResult.totals`.
+//      Stroke-play has gross + net; stableford has points; match-play has
+//      no scalar total (empty totals array — pair results drive the
+//      leaderboard section instead).
+//
+//   4. Registration is through `registerFormat()`. New format = new file +
+//      one registration call. No schema change, no switch statements
+//      outside this module.
 //
 //   Concrete strategies live under `./formats/*.ts`. Each file exports its
 //   `FormatStrategy` object; `format.ts` imports and registers them at the
@@ -27,8 +35,10 @@
 //   on its types.
 //
 // §14.6 (results row keyed by `(participant, scoring_type)`): strategies can
-// emit multiple `ScoringResult` rows (typically gross + net) — the shape
-// declares this per-hole, then the leaderboard aggregates across slots.
+// emit multiple `ParticipantResult.totals` rows (typically gross + net) — the
+// leaderboard aggregates across slots per scoring type.
+// §14.7 (no-result vs pickup) surfaces on `HoleResult`: gross/net/points null
+// for either, and strategies distinguish the two through the source event.
 
 import type { FormatSlot } from '../services/round.service';
 import type { ScorecardHole } from '../services/scorecard.service';
@@ -51,10 +61,40 @@ export interface ParticipantResult {
     participantId: string;
     slotIndex: number;
     holes: HoleResult[];
-    /** Totals, one per scoring type. Must include at least 'gross'. */
+    /**
+     * Totals, one per scoring type. Stroke-play emits gross + net; stableford
+     * emits points; match-play emits nothing (empty array — the leaderboard
+     * section is driven by `pairResults`).
+     */
     totals: { scoringType: string; value: number | null }[];
     /** Holes not scored (null strokes) and pickups (0 strokes). Kept for UIs. */
     holesPlayed: number;
+}
+
+/** Per-hole pair-level result — match-play / Taliban. */
+export interface PairHoleResult {
+    holeNumber: number;
+    /** null when the hole cannot yet be decided (one side DNP / no event). */
+    status: 'won' | 'lost' | 'halved' | null;
+    /** Net (or gross, strategy-defined) strokes for the A side on this hole. */
+    fromA: number | null;
+    /** Net (or gross, strategy-defined) strokes for the B side on this hole. */
+    fromB: number | null;
+    /** Combined per-hole annotation — e.g. "A 1UP", "dormie", "AS". */
+    note?: string;
+}
+
+/** Pair-level rollup — match-play today, Taliban later. */
+export interface PairResult {
+    slotIndex: number;
+    /** [participantIdA, participantIdB] — the ordered pairing for this match. */
+    participants: [string, string];
+    holes: PairHoleResult[];
+    /** Golf-idiom one-line summary: "3 & 2", "2 UP thru 14", "AS", "AS thru 9". */
+    summary: string;
+    result: 'won' | 'lost' | 'halved' | 'in_progress';
+    /** Participant id of the match winner. Null if halved or in progress. */
+    winner: string | null;
 }
 
 /** Minimum participant context a strategy needs — strokes + snapshots for net. */
@@ -64,8 +104,24 @@ export interface ParticipantInput {
     holes: ScorecardHole[];
     /** Null if the participant has no frozen playing handicap (stroke-play gross only). */
     playingHandicap: number | null;
-    /** Course holes (par + stroke index). Used for net and stableford. */
+}
+
+/**
+ * Slot-level strategy input. Every participant assigned to the slot + the
+ * slot's course holes. Course holes live on the slot (not on each participant)
+ * because a slot by definition plays one course — de-duplicating here avoids
+ * drift between participants of the same slot.
+ */
+export interface SlotInput {
+    participants: ParticipantInput[];
     courseHoles: CourseHole[];
+}
+
+/** Slot-level strategy output. Always has per-participant results; pair results optional. */
+export interface SlotResult {
+    participantResults: ParticipantResult[];
+    /** Populated only by pair-level formats (match-play, Taliban). */
+    pairResults?: PairResult[];
 }
 
 /** Hole metadata the strategy resolves from the course — cached per round. */
@@ -79,7 +135,7 @@ export interface CourseHole {
 export interface FormatStrategy {
     readonly scoringMode: string;
     readonly teamShape: string;
-    compute(input: ParticipantInput, slot: FormatSlot): ParticipantResult;
+    compute(input: SlotInput, slot: FormatSlot): SlotResult;
 }
 
 // --- Registry ---
@@ -114,6 +170,8 @@ export function clearFormats(): void {
 
 import { strokePlayIndividual } from './formats/stroke-play-individual';
 import { stablefordIndividual } from './formats/stableford-individual';
+import { matchPlayIndividual } from './formats/match-play-individual';
 
 registerFormat(strokePlayIndividual);
 registerFormat(stablefordIndividual);
+registerFormat(matchPlayIndividual);

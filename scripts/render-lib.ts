@@ -15,7 +15,7 @@ import type { GuestPlayer } from '../server/services/guest-player.service';
 import type { Club } from '../server/services/club.service';
 import type { ScoreEvent } from '../server/services/score-event.service';
 import type { Leaderboard } from '../server/domain/leaderboard';
-import type { ParticipantResult, CourseHole } from '../server/domain/format';
+import type { ParticipantResult, CourseHole, PairResult } from '../server/domain/format';
 import { courseHolesForRound } from '../server/domain/round-holes';
 
 export type Services = ReturnType<typeof createServices>;
@@ -378,6 +378,12 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
 </section>`;
     };
 
+    const pairResultsByParticipant = new Map<string, PairResult>();
+    for (const pr of leaderboard.pairResults) {
+        pairResultsByParticipant.set(pr.participants[0], pr);
+        pairResultsByParticipant.set(pr.participants[1], pr);
+    }
+
     const renderScorecard = (result: ParticipantResult, p: Participant, courseHoles: CourseHole[]): string => {
         const byHole = new Map(result.holes.map((h) => [h.holeNumber, h]));
         const groups = splitHoleGroups(courseHoles);
@@ -385,6 +391,13 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         // Allocation always against the full 18 SI distribution — a 9-hole round
         // inherits the strokes that fall on its holes, not a fresh 9-hole allocation.
         const strokesGiven = strokesGivenMap(p.playingHandicapSnapshot, allCourseHoles);
+        // A Status row is rendered for pair-level formats (match-play today,
+        // Taliban later) — we signal via participation in a pair result. The
+        // strategy populates each `HoleResult.note` with the running status
+        // from that participant's perspective (e.g. `1UP`, `AS`, `2DN`,
+        // `dormie`). Stableford etc. also populate `note`, but for arithmetic;
+        // they don't appear in pairResults so the Status row is skipped.
+        const isPair = pairResultsByParticipant.has(p.id);
 
         const row = (
             label: string,
@@ -484,6 +497,17 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
               )
             : '';
 
+        const statusRow = isPair
+            ? row(
+                  'Status',
+                  (h) => {
+                      const hr = byHole.get(h.holeNumber);
+                      return `<td class="status">${esc(hr?.note ?? '—')}</td>`;
+                  },
+                  () => '—',
+              )
+            : '';
+
         // When any hole carries a `note` (e.g. stableford arithmetic), surface
         // the per-hole breakdown under the scorecard so the points row's
         // numbers are immediately hand-verifiable.
@@ -516,6 +540,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
       ${grossRow}
       ${netRow}
       ${pointsRow}
+      ${statusRow}
     </tbody>
   </table>
   ${pointsArithmetic}
@@ -586,10 +611,42 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
   </table>
 </div>`;
         });
+
+        const pairSection = leaderboard.pairResults.length > 0
+            ? (() => {
+                  const rows = leaderboard.pairResults.map((pr) => {
+                      const a = participantName(pr.participants[0]);
+                      const b = participantName(pr.participants[1]);
+                      let line: string;
+                      if (pr.result === 'won') {
+                          const winnerName = pr.winner === pr.participants[0] ? a : b;
+                          const loserName = pr.winner === pr.participants[0] ? b : a;
+                          line = `${esc(winnerName)} d. ${esc(loserName)}, ${esc(pr.summary)}`;
+                      } else if (pr.result === 'lost') {
+                          // Result is from A's perspective; this branch means B won.
+                          line = `${esc(b)} d. ${esc(a)}, ${esc(pr.summary)}`;
+                      } else if (pr.result === 'halved') {
+                          line = `${esc(a)} & ${esc(b)} halved, ${esc(pr.summary)}`;
+                      } else {
+                          line = `${esc(a)} vs ${esc(b)}, ${esc(pr.summary)} (in progress)`;
+                      }
+                      return `<tr><td class="num muted">#${pr.slotIndex}</td><td>${line}</td></tr>`;
+                  });
+                  return `
+<div class="lb-col" style="min-width: 420px;">
+  <h3>Match results</h3>
+  <table class="grid">
+    <thead><tr><th>slot</th><th>result</th></tr></thead>
+    <tbody>${rows.join('')}</tbody>
+  </table>
+</div>`;
+              })()
+            : '';
+
         return `
 <section>
   <h2>Leaderboard</h2>
-  <div class="lb-row">${sections.join('')}</div>
+  <div class="lb-row">${sections.join('')}${pairSection}</div>
 </section>`;
     };
 

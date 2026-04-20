@@ -1,16 +1,26 @@
 // Round leaderboard — pure computation over scorecards + format slots.
 //
-// One leaderboard per round, produced by running every participant through
-// the format strategy for their slot, then grouping results by scoring type
-// (gross / net / points / …) and ranking ascending or descending per-type.
+// One leaderboard per round, produced by running each SLOT through its format
+// strategy (not each participant individually). The strategy sees every
+// participant assigned to the slot + the slot's course holes, and returns a
+// `SlotResult` with per-participant and optional pair-level results. The
+// leaderboard groups participant results by scoring type (gross / net /
+// points / …) and ranks them; pair-level results are collected separately.
 //
 // Separation: leaderboard does NOT know which scoring type ranks high-to-low
-// or low-to-high — strategies declare that in the participant result by
-// convention: strokes are low-good, points are high-good. This file reads
-// the `scoringType` label and uses a small table; new labels need a line
-// added here.
+// or low-to-high — strategies declare that implicitly by label convention
+// (strokes are low-good, points are high-good). This file reads the
+// `scoringType` label and uses a small table; new labels need a line added
+// here.
 
-import { findFormat, type ParticipantInput, type ParticipantResult } from './format';
+import {
+    findFormat,
+    type CourseHole,
+    type PairResult,
+    type ParticipantInput,
+    type ParticipantResult,
+    type SlotInput,
+} from './format';
 import type { FormatSlot } from '../services/round.service';
 
 // --- Public types ---
@@ -33,15 +43,20 @@ export interface Leaderboard {
     byScoringType: LeaderboardByType[];
     /** Raw strategy output per participant — exposed for UI detail views. */
     participantResults: ParticipantResult[];
+    /** Pair-level results from pair-level formats (match-play today). */
+    pairResults: PairResult[];
+}
+
+/** One slot's worth of input: which participants, what course holes. */
+export interface SlotGroup {
+    slot: FormatSlot;
+    participants: ParticipantInput[];
+    courseHoles: CourseHole[];
 }
 
 export interface LeaderboardInput {
-    /** Participants in the round, each with their scorecard + snapshot. */
-    participants: ParticipantInput[];
-    /** `participant_id` → `slot_index` assignment. Participants not listed are skipped. */
-    participantSlots: Map<string, number>;
-    /** Round's format slots, indexed by `slotIndex`. */
-    slots: FormatSlot[];
+    /** Slot groups in slot-index order. Each group carries its participants + holes. */
+    slotGroups: SlotGroup[];
 }
 
 // --- Ranking direction ---
@@ -77,25 +92,23 @@ function rank(values: LeaderboardEntry[], direction: Direction): LeaderboardEntr
 // --- Entry point ---
 
 export function computeLeaderboard(input: LeaderboardInput): Leaderboard {
-    const slotByIndex = new Map(input.slots.map((s) => [s.slotIndex, s]));
+    const participantResults: ParticipantResult[] = [];
+    const pairResults: PairResult[] = [];
 
-    const results: ParticipantResult[] = [];
-    for (const p of input.participants) {
-        const slotIndex = input.participantSlots.get(p.participantId);
-        if (slotIndex === undefined) continue;
-        const slot = slotByIndex.get(slotIndex);
-        if (!slot) {
-            throw new Error(
-                `participant ${p.participantId} assigned to missing slot ${slotIndex}`,
-            );
-        }
-        const strategy = findFormat(slot.scoringMode, slot.teamShape);
-        results.push(strategy.compute(p, slot));
+    for (const group of input.slotGroups) {
+        const strategy = findFormat(group.slot.scoringMode, group.slot.teamShape);
+        const slotInput: SlotInput = {
+            participants: group.participants,
+            courseHoles: group.courseHoles,
+        };
+        const out = strategy.compute(slotInput, group.slot);
+        participantResults.push(...out.participantResults);
+        if (out.pairResults) pairResults.push(...out.pairResults);
     }
 
-    // Group by scoring type across all results.
+    // Group by scoring type across all participant results.
     const byType = new Map<string, LeaderboardEntry[]>();
-    for (const r of results) {
+    for (const r of participantResults) {
         for (const total of r.totals) {
             const bucket = byType.get(total.scoringType) ?? [];
             bucket.push({
@@ -114,5 +127,5 @@ export function computeLeaderboard(input: LeaderboardInput): Leaderboard {
         byScoringType.push({ scoringType, entries: rank(entries, direction) });
     }
 
-    return { byScoringType, participantResults: results };
+    return { byScoringType, participantResults, pairResults };
 }

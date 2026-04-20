@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { computeLeaderboard } from './leaderboard';
+import { computeLeaderboard, type SlotGroup } from './leaderboard';
 import type { CourseHole, ParticipantInput } from './format';
 import type { FormatSlot } from '../services/round.service';
 
@@ -25,7 +25,6 @@ function makeParticipant(id: string, strokesPerHole: number): ParticipantInput {
     const courseHoles = par4Course(18);
     return {
         participantId: id,
-        courseHoles,
         playingHandicap: null,
         holes: courseHoles.map((h) => ({
             holeNumber: h.holeNumber,
@@ -36,14 +35,13 @@ function makeParticipant(id: string, strokesPerHole: number): ParticipantInput {
     };
 }
 
+function singleGroup(participants: ParticipantInput[], slot: FormatSlot = strokeSlot()): SlotGroup {
+    return { slot, participants, courseHoles: par4Course(18) };
+}
+
 test('leaderboard ranks gross low-to-high', () => {
     const lb = computeLeaderboard({
-        participants: [makeParticipant('p1', 4), makeParticipant('p2', 5)],
-        participantSlots: new Map([
-            ['p1', 0],
-            ['p2', 0],
-        ]),
-        slots: [strokeSlot()],
+        slotGroups: [singleGroup([makeParticipant('p1', 4), makeParticipant('p2', 5)])],
     });
     const gross = lb.byScoringType.find((b) => b.scoringType === 'gross')!;
     expect(gross.entries[0].participantId).toBe('p1');
@@ -56,17 +54,13 @@ test('leaderboard ranks gross low-to-high', () => {
 
 test('ties share the same position', () => {
     const lb = computeLeaderboard({
-        participants: [
-            makeParticipant('p1', 4),
-            makeParticipant('p2', 4),
-            makeParticipant('p3', 5),
+        slotGroups: [
+            singleGroup([
+                makeParticipant('p1', 4),
+                makeParticipant('p2', 4),
+                makeParticipant('p3', 5),
+            ]),
         ],
-        participantSlots: new Map([
-            ['p1', 0],
-            ['p2', 0],
-            ['p3', 0],
-        ]),
-        slots: [strokeSlot()],
     });
     const gross = lb.byScoringType.find((b) => b.scoringType === 'gross')!;
     expect(gross.entries[0].position).toBe(1);
@@ -77,17 +71,11 @@ test('ties share the same position', () => {
 test('partial scorecards have total reflecting played holes only; sort last when null', () => {
     const empty: ParticipantInput = {
         participantId: 'empty',
-        courseHoles: par4Course(18),
         playingHandicap: null,
         holes: [], // nobody's hit a ball
     };
     const lb = computeLeaderboard({
-        participants: [makeParticipant('p1', 4), empty],
-        participantSlots: new Map([
-            ['p1', 0],
-            ['empty', 0],
-        ]),
-        slots: [strokeSlot()],
+        slotGroups: [singleGroup([makeParticipant('p1', 4), empty])],
     });
     const gross = lb.byScoringType.find((b) => b.scoringType === 'gross')!;
     expect(gross.entries[0].participantId).toBe('p1');
@@ -95,32 +83,40 @@ test('partial scorecards have total reflecting played holes only; sort last when
     expect(gross.entries[1].total).toBeNull();
 });
 
-test('participants without slot assignments are skipped', () => {
+test('empty slot group produces an empty leaderboard (no results, no pairs)', () => {
     const lb = computeLeaderboard({
-        participants: [makeParticipant('p1', 4), makeParticipant('p2', 5)],
-        participantSlots: new Map([['p1', 0]]),
-        slots: [strokeSlot()],
+        slotGroups: [singleGroup([])],
     });
-    const gross = lb.byScoringType.find((b) => b.scoringType === 'gross')!;
-    expect(gross.entries).toHaveLength(1);
-    expect(gross.entries[0].participantId).toBe('p1');
+    expect(lb.byScoringType).toHaveLength(0);
+    expect(lb.participantResults).toHaveLength(0);
+    expect(lb.pairResults).toHaveLength(0);
 });
 
-test('missing slot reference throws', () => {
+test('unregistered format throws via findFormat', () => {
+    const slot: FormatSlot = {
+        slotIndex: 0,
+        scoringMode: 'skins',
+        teamShape: 'scramble',
+        allowancePct: 100,
+        scopeConfig: null,
+    };
     expect(() =>
         computeLeaderboard({
-            participants: [makeParticipant('p1', 4)],
-            participantSlots: new Map([['p1', 99]]),
-            slots: [strokeSlot()],
+            slotGroups: [
+                {
+                    slot,
+                    participants: [makeParticipant('p1', 4)],
+                    courseHoles: par4Course(18),
+                },
+            ],
         }),
-    ).toThrow(/missing slot/);
+    ).toThrow(/no format strategy/);
 });
 
 test('net leaderboard ranks using handicap-adjusted total', () => {
     const courseHoles = par4Course(18);
     const scratch: ParticipantInput = {
         participantId: 'scratch',
-        courseHoles,
         playingHandicap: 0,
         holes: courseHoles.map((h) => ({
             holeNumber: h.holeNumber,
@@ -131,7 +127,6 @@ test('net leaderboard ranks using handicap-adjusted total', () => {
     };
     const bogeyPlayer: ParticipantInput = {
         participantId: 'bogey',
-        courseHoles,
         playingHandicap: 18,
         holes: courseHoles.map((h) => ({
             holeNumber: h.holeNumber,
@@ -141,12 +136,7 @@ test('net leaderboard ranks using handicap-adjusted total', () => {
         })),
     };
     const lb = computeLeaderboard({
-        participants: [scratch, bogeyPlayer],
-        participantSlots: new Map([
-            ['scratch', 0],
-            ['bogey', 0],
-        ]),
-        slots: [strokeSlot()],
+        slotGroups: [singleGroup([scratch, bogeyPlayer])],
     });
     const net = lb.byScoringType.find((b) => b.scoringType === 'net')!;
     // Bogey player wins net (72 vs null for scratch — scratch has ph=0 so net=gross=90).

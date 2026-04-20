@@ -4,7 +4,7 @@ import type { RoundService } from './round.service';
 import type { ParticipantService } from './participant.service';
 import type { ScorecardService } from './scorecard.service';
 import type { CourseService } from './course.service';
-import { computeLeaderboard, type Leaderboard } from '../domain/leaderboard';
+import { computeLeaderboard, type Leaderboard, type SlotGroup } from '../domain/leaderboard';
 import type { ParticipantInput, CourseHole } from '../domain/format';
 import { courseHolesForRound } from '../domain/round-holes';
 
@@ -12,7 +12,7 @@ import { courseHolesForRound } from '../domain/round-holes';
  * Materialises the inputs to `computeLeaderboard` — course holes, participants
  * with scorecards + snapshots, and format slots — then runs it. Slot assignment
  * in this first cut is: every participant is in `slotIndex = 0` (single-slot
- * rounds). Multi-slot scope_config is exercised in Phase 2.5.
+ * rounds). Multi-slot scope_config is exercised in Phase 2.5i.
  */
 export class LeaderboardService {
     constructor(
@@ -50,25 +50,28 @@ export class LeaderboardService {
 
         const participantInputs: ParticipantInput[] = participants.map((p) => ({
             participantId: p.id,
-            courseHoles: allHoles,
             playingHandicap: p.playingHandicapSnapshot,
             holes: cardByParticipant.get(p.id)?.holes ?? [],
         }));
 
-        const participantSlots = new Map<string, number>();
-        for (const p of participants) {
-            // First-cut assignment: every participant is in the first slot.
-            // Phase 2.5 will read `round.formatSlots[].scopeConfig` to filter.
-            participantSlots.set(p.id, round.formatSlots[0]?.slotIndex ?? 0);
+        // First-cut routing: every participant lands in slot 0. Phase 2.5i
+        // will read `slot.scopeConfig.scope` to partition participants across
+        // multiple slots.
+        const defaultSlot = round.formatSlots[0];
+        if (!defaultSlot) {
+            throw new Error(`round ${roundId} has no format slots`);
         }
+        const slotGroups: SlotGroup[] = [
+            {
+                slot: defaultSlot,
+                participants: participantInputs,
+                courseHoles: allHoles,
+            },
+        ];
 
         void this.db;
 
-        const lb = computeLeaderboard({
-            participants: participantInputs,
-            participantSlots,
-            slots: round.formatSlots,
-        });
+        const lb = computeLeaderboard({ slotGroups });
 
         // Trim per-hole rows to the played set so consumers see a clean 9-hole
         // (or 18-hole) view. Totals computed by the strategy already exclude
@@ -78,6 +81,10 @@ export class LeaderboardService {
             participantResults: lb.participantResults.map((r) => ({
                 ...r,
                 holes: r.holes.filter((h) => playedSet.has(h.holeNumber)),
+            })),
+            pairResults: lb.pairResults.map((pr) => ({
+                ...pr,
+                holes: pr.holes.filter((h) => playedSet.has(h.holeNumber)),
             })),
         };
     }
