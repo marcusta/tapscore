@@ -16,6 +16,7 @@ import type { Club } from '../server/services/club.service';
 import type { ScoreEvent } from '../server/services/score-event.service';
 import type { Leaderboard } from '../server/domain/leaderboard';
 import type { ParticipantResult, CourseHole } from '../server/domain/format';
+import { courseHolesForRound } from '../server/domain/round-holes';
 
 export type Services = ReturnType<typeof createServices>;
 
@@ -41,6 +42,28 @@ function strokesCell(strokes: number | null | undefined): string {
 function netCell(net: number | null): string {
     if (net === null) return '<span class="dnp">–</span>';
     return String(net);
+}
+
+interface HoleGroup {
+    label: string; // "OUT" | "IN" | "TOT"
+    holes: CourseHole[];
+}
+
+/**
+ * For an 18-hole round (holes from both halves): OUT + IN + TOT columns.
+ * For a 9-hole round (only one half): a single TOT column.
+ * Keeps the scorecard visually honest — no 9 empty IN cells on a front_9.
+ */
+function splitHoleGroups(courseHoles: CourseHole[]): HoleGroup[] {
+    const front = courseHoles.filter((h) => h.holeNumber <= 9);
+    const back = courseHoles.filter((h) => h.holeNumber > 9);
+    if (front.length > 0 && back.length > 0) {
+        return [
+            { label: 'OUT', holes: front },
+            { label: 'IN', holes: back },
+        ];
+    }
+    return [{ label: 'TOT', holes: courseHoles }];
 }
 
 function strokesGivenMap(
@@ -269,24 +292,39 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
   </table>
 </section>`;
 
+    const playedCourseHoles: CourseHole[] = courseHolesForRound(
+        round.roundType,
+        course.holes.map((h) => ({ holeNumber: h.holeNumber, par: h.par, strokeIndex: h.strokeIndex })),
+    );
+
     const renderCourseMetadata = (): string => {
-        const out = course.holes.slice(0, 9);
-        const inn = course.holes.slice(9, 18);
-        const parOut = out.reduce((a, b) => a + b.par, 0);
-        const parIn = inn.reduce((a, b) => a + b.par, 0);
-        const cells = (holes: typeof course.holes) => holes.map((h) => `<td>${h.par}</td>`).join('');
-        const si = (holes: typeof course.holes) => holes.map((h) => `<td class="si">${h.strokeIndex}</td>`).join('');
-        const holeHeader = (holes: typeof course.holes) => holes.map((h) => `<th>${h.holeNumber}</th>`).join('');
+        const groups = splitHoleGroups(playedCourseHoles);
+        const includeTotColumn = groups.length > 1;
+        const parTotal = playedCourseHoles.reduce((a, b) => a + b.par, 0);
+
+        const headerCells = groups
+            .map((g) => g.holes.map((h) => `<th>${h.holeNumber}</th>`).join('') + `<th class="sum">${g.label}</th>`)
+            .join('');
+        const parCells = groups
+            .map((g) => g.holes.map((h) => `<td>${h.par}</td>`).join('') + `<td class="sum">${g.holes.reduce((a, b) => a + b.par, 0)}</td>`)
+            .join('');
+        const siCells = groups
+            .map((g) => g.holes.map((h) => `<td class="si">${h.strokeIndex}</td>`).join('') + `<td class="sum"></td>`)
+            .join('');
+        const totHead = includeTotColumn ? `<th class="sum">TOT</th>` : '';
+        const totPar = includeTotColumn ? `<td class="sum">${parTotal}</td>` : '';
+        const totSi = includeTotColumn ? `<td class="sum"></td>` : '';
+
         return `
 <section>
-  <h2>Course — ${esc(course.name)}</h2>
+  <h2>Course — ${esc(course.name)} <span class="muted">· ${esc(round.roundType)} (${playedCourseHoles.length} holes)</span></h2>
   <table class="scorecard">
     <thead>
-      <tr><th class="rowlabel">Hole</th>${holeHeader(out)}<th class="sum">OUT</th>${holeHeader(inn)}<th class="sum">IN</th><th class="sum">TOT</th></tr>
+      <tr><th class="rowlabel">Hole</th>${headerCells}${totHead}</tr>
     </thead>
     <tbody>
-      <tr><th class="rowlabel">Par</th>${cells(out)}<td class="sum">${parOut}</td>${cells(inn)}<td class="sum">${parIn}</td><td class="sum">${parOut + parIn}</td></tr>
-      <tr><th class="rowlabel">SI</th>${si(out)}<td class="sum"></td>${si(inn)}<td class="sum"></td><td class="sum"></td></tr>
+      <tr><th class="rowlabel">Par</th>${parCells}${totPar}</tr>
+      <tr><th class="rowlabel">SI</th>${siCells}${totSi}</tr>
     </tbody>
   </table>
 </section>`;
@@ -340,8 +378,8 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
 
     const renderScorecard = (result: ParticipantResult, p: Participant, courseHoles: CourseHole[]): string => {
         const byHole = new Map(result.holes.map((h) => [h.holeNumber, h]));
-        const outRange = courseHoles.filter((h) => h.holeNumber <= 9);
-        const inRange = courseHoles.filter((h) => h.holeNumber > 9);
+        const groups = splitHoleGroups(courseHoles);
+        const includeTotColumn = groups.length > 1;
         const strokesGiven = strokesGivenMap(p.playingHandicapSnapshot, courseHoles);
 
         const row = (
@@ -350,33 +388,32 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
             sum: (holes: CourseHole[]) => string,
             klass = '',
         ): string => {
-            const outSum = sum(outRange);
-            const inSum = sum(inRange);
-            const tot =
-                outSum === '—' && inSum === '—'
-                    ? '—'
-                    : String(
-                          (outSum === '—' ? 0 : Number(outSum)) + (inSum === '—' ? 0 : Number(inSum)),
-                      );
+            const groupSums = groups.map((g) => sum(g.holes));
+            const groupCells = groups
+                .map((g, i) => g.holes.map(cell).join('') + `<td class="sum">${groupSums[i]}</td>`)
+                .join('');
+            let totCell = '';
+            if (includeTotColumn) {
+                const nums = groupSums.filter((s) => s !== '—').map(Number);
+                const tot = nums.length === 0 ? '—' : String(nums.reduce((a, b) => a + b, 0));
+                totCell = `<td class="sum">${tot}</td>`;
+            }
             return `
 <tr class="${klass}">
   <th class="rowlabel">${label}</th>
-  ${outRange.map(cell).join('')}
-  <td class="sum">${outSum}</td>
-  ${inRange.map(cell).join('')}
-  <td class="sum">${inSum}</td>
-  <td class="sum">${tot}</td>
+  ${groupCells}
+  ${totCell}
 </tr>`;
         };
 
+        const headerCells = groups
+            .map((g) => g.holes.map((h) => `<th>${h.holeNumber}</th>`).join('') + `<th class="sum">${g.label}</th>`)
+            .join('');
         const holeHeader = `
 <tr>
   <th class="rowlabel">Hole</th>
-  ${outRange.map((h) => `<th>${h.holeNumber}</th>`).join('')}
-  <th class="sum">OUT</th>
-  ${inRange.map((h) => `<th>${h.holeNumber}</th>`).join('')}
-  <th class="sum">IN</th>
-  <th class="sum">TOT</th>
+  ${headerCells}
+  ${includeTotColumn ? '<th class="sum">TOT</th>' : ''}
 </tr>`;
 
         const parRow = row('Par', (h) => `<td>${h.par}</td>`, (holes) => String(holes.reduce((a, b) => a + b.par, 0)));
@@ -470,16 +507,11 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
     };
 
     const renderScorecards = (): string => {
-        const courseHoles: CourseHole[] = course.holes.map((h) => ({
-            holeNumber: h.holeNumber,
-            par: h.par,
-            strokeIndex: h.strokeIndex,
-        }));
         const resultByParticipant = new Map(leaderboard.participantResults.map((r) => [r.participantId, r]));
         const cards = participants.map((p) => {
             const r = resultByParticipant.get(p.id);
             if (!r) return '';
-            return renderScorecard(r, p, courseHoles);
+            return renderScorecard(r, p, playedCourseHoles);
         });
         return `
 <section>

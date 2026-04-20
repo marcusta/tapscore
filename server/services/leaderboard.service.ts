@@ -6,6 +6,7 @@ import type { ScorecardService } from './scorecard.service';
 import type { CourseService } from './course.service';
 import { computeLeaderboard, type Leaderboard } from '../domain/leaderboard';
 import type { ParticipantInput, CourseHole } from '../domain/format';
+import { courseHolesForRound } from '../domain/round-holes';
 
 /**
  * Materialises the inputs to `computeLeaderboard` — course holes, participants
@@ -29,11 +30,12 @@ export class LeaderboardService {
         const course = await this.courseService.getById(round.courseId);
         if (!course) throw new Error(`course ${round.courseId} not found`);
 
-        const courseHoles: CourseHole[] = course.holes.map((h) => ({
+        const allHoles: CourseHole[] = course.holes.map((h) => ({
             holeNumber: h.holeNumber,
             par: h.par,
             strokeIndex: h.strokeIndex,
         }));
+        const courseHoles = courseHolesForRound(round.roundType, allHoles);
 
         const participants = await this.participantService.listByRound(roundId);
         const scorecards = await this.scorecardService.forRound(roundId);
