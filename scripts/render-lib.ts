@@ -271,6 +271,12 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
     const isBetterBall =
         round.formatSlots[0]?.scoringMode === 'stableford' &&
         round.formatSlots[0]?.teamShape === 'better_ball';
+    // Foursomes detection — alternate-shot teams render as individual
+    // stroke-play cards (one Gross / Net row) but display both names in
+    // the header (`"Alice & Bob"`) and show the allowance percentage.
+    const isFoursomes =
+        round.formatSlots[0]?.scoringMode === 'stroke_play' &&
+        round.formatSlots[0]?.teamShape === 'foursomes';
 
     const participantLabel = (p: Participant): string => {
         const names = p.players.map((link) => {
@@ -285,7 +291,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         // Team-shape formats use " & " between members; individual-shape
         // participants only ever have one name anyway, so the separator is
         // mostly cosmetic when there's 2+ players.
-        const sep = isBetterBall ? ' & ' : ' + ';
+        const sep = isBetterBall || isFoursomes ? ' & ' : ' + ';
         return names.join(sep);
     };
     const playerName = (id: string | null): string => {
@@ -827,12 +833,22 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
                   })()
                 : '';
 
+        // Foursomes header annotation: foursomes cards re-use the individual
+        // scorecard layout (one ball → one Gross row, one Net row) but the
+        // header should surface that this is a team format and the typical
+        // 50% allowance.
+        const slotFormat = round.formatSlots[result.slotIndex];
+        const foursomesAnnotation =
+            isFoursomes && slotFormat
+                ? ` · ${esc(slotFormat.scoringMode)} × ${esc(slotFormat.teamShape)} @ ${slotFormat.allowancePct}%`
+                : '';
+
         return `
 <article class="scorecard-card">
   <header>
     <h3>${esc(participantLabel(p))}</h3>
     <span class="muted">
-      slot #${result.slotIndex} · H idx ${p.handicapIndexSnapshot ?? '—'} · CH ${p.courseHandicapSnapshot ?? '—'} · PH ${p.playingHandicapSnapshot ?? '—'}${kopenAnnotation} · holes played ${result.holesPlayed}
+      slot #${result.slotIndex}${foursomesAnnotation} · H idx ${p.handicapIndexSnapshot ?? '—'} · CH ${p.courseHandicapSnapshot ?? '—'} · PH ${p.playingHandicapSnapshot ?? '—'}${kopenAnnotation} · holes played ${result.holesPlayed}
     </span>
   </header>
   <table class="scorecard">

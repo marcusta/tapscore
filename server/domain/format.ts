@@ -214,9 +214,11 @@ import { stablefordIndividual } from './formats/stableford-individual';
 import { matchPlayIndividual } from './formats/match-play-individual';
 import { kopenhamnareIndividual } from './formats/kopenhamnare-individual';
 import { stablefordBetterBall } from './formats/stableford-better-ball';
+import { strokePlayFoursomes } from './formats/stroke-play-foursomes';
 
 registerFormat(strokePlayIndividual);
 registerFormat(stablefordIndividual);
 registerFormat(matchPlayIndividual);
 registerFormat(kopenhamnareIndividual);
 registerFormat(stablefordBetterBall);
+registerFormat(strokePlayFoursomes);

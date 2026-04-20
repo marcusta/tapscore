@@ -95,17 +95,28 @@ export interface AddParticipantInit {
     player?: PlayerRef;
     guest?: GuestRef;
     /**
-     * For team participants (better-ball, Taliban, Umbrella) — 2+ player
-     * links on one participant. Pass `{player}` or `{guest}` per link.
-     * Mutually exclusive with top-level `player`/`guest`. The snapshot
-     * uses the FIRST member's handicap index (no per-player PH snapshots
-     * today; see leaderboard.service.ts).
+     * For team participants (better-ball, foursomes, Taliban, Umbrella) —
+     * 2+ player links on one participant. Pass `{player}` or `{guest}` per
+     * link. Mutually exclusive with top-level `player`/`guest`. The
+     * snapshot uses the FIRST member's handicap index (no per-player PH
+     * snapshots today; see leaderboard.service.ts). Pass
+     * `handicapIndexOverride` to supply a synthetic team-level index
+     * instead — useful for foursomes where the team PH is derived from
+     * the sum of both players' course handicaps × allowance (not one
+     * player's).
      */
     team?: Array<{ player?: PlayerRef; guest?: GuestRef }>;
     teeName?: string; // resolve by name within the round's course
     teeId?: string;
     gender?: TeeGender; // required if snapshotting
     allowancePct?: number; // default 100
+    /**
+     * Override the handicap index used for the snapshot. When set, replaces
+     * the usual "latest handicap history for the snapshot player" lookup.
+     * Foursomes seeds use this to represent the sum-of-both-players
+     * combined index so the team PH snapshot ≈ combined CH × allowance.
+     */
+    handicapIndexOverride?: number;
     skipSnapshot?: boolean; // for bare participants
     teamLabel?: string | null;
     categorySnapshot?: string | null;
@@ -391,21 +402,28 @@ export class RoundScenarioRef {
         const snapshot = init.skipSnapshot
             ? undefined
             : teeId && init.gender
-              ? snapshotPlayer
+              ? init.handicapIndexOverride !== undefined
                   ? {
                         teeId,
                         gender: init.gender,
-                        fromPlayerId: snapshotPlayer.id,
+                        handicapIndex: init.handicapIndexOverride,
                         allowancePct: init.allowancePct ?? 100,
                     }
-                  : snapshotGuest
+                  : snapshotPlayer
                     ? {
                           teeId,
                           gender: init.gender,
-                          handicapIndex: snapshotGuest.handicapIndex ?? undefined,
+                          fromPlayerId: snapshotPlayer.id,
                           allowancePct: init.allowancePct ?? 100,
                       }
-                    : undefined
+                    : snapshotGuest
+                      ? {
+                            teeId,
+                            gender: init.gender,
+                            handicapIndex: snapshotGuest.handicapIndex ?? undefined,
+                            allowancePct: init.allowancePct ?? 100,
+                        }
+                      : undefined
               : undefined;
 
         const linkInputs: { playerId?: string; guestPlayerId?: string }[] = [];
