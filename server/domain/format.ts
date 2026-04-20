@@ -15,8 +15,8 @@
 //      `participantResults` is always populated — every strategy produces
 //      per-participant scorecards (match-play writes the running status as
 //      a `note` on each `HoleResult`). `pairResults` is present only for
-//      pair-level formats (match-play today; Taliban later); simple formats
-//      leave it undefined.
+//      pair-level formats (match-play and Taliban); simple formats leave
+//      it undefined.
 //
 //   3. Each strategy declares its own scoring types on `ParticipantResult.totals`.
 //      Stroke-play has gross + net; stableford has points; match-play has
@@ -50,7 +50,13 @@ export interface HoleResult {
     holeNumber: number;
     gross: number | null; // null = hole not scored (DNP)
     net: number | null;
-    /** Stableford points / match-play hole status / skins — strategy-defined. */
+    /**
+     * Strategy-defined per-hole scalar. Stableford: points; Köpenhamnare:
+     * points for that player on that hole; Taliban: pair points earned by
+     * the A-side; Umbrella: team-A points for the hole. Null for formats
+     * with no per-hole scalar (stroke-play, match-play — the latter writes
+     * status to `note` and rolls up at pair level).
+     */
     points: number | null;
     /** Free-form annotation for views (e.g. match-play "1UP"). Strategy-defined. */
     note?: string;
