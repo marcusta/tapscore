@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
-import { findFormat, type CourseHole, type ParticipantInput } from './format';
-import type { FormatSlot } from '../services/round.service';
+import { findFormat, type CourseHole, type ParticipantInput } from '../format';
+import type { FormatSlot } from '../../services/round.service';
 
 function par4Course(n: number): CourseHole[] {
     return Array.from({ length: n }, (_, i) => ({

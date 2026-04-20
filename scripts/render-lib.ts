@@ -470,7 +470,8 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
                   'Points',
                   (h) => {
                       const hr = byHole.get(h.holeNumber);
-                      return `<td>${hr?.points ?? '—'}</td>`;
+                      const note = hr?.note ? ` title="${esc(hr.note)}"` : '';
+                      return `<td${note}>${hr?.points ?? '—'}</td>`;
                   },
                   (holes) => {
                       const total = holes.reduce((acc, h) => {
@@ -482,6 +483,17 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
                   },
               )
             : '';
+
+        // When any hole carries a `note` (e.g. stableford arithmetic), surface
+        // the per-hole breakdown under the scorecard so the points row's
+        // numbers are immediately hand-verifiable.
+        const annotatedHoles = result.holes.filter((h) => h.note && h.points !== null);
+        const pointsArithmetic =
+            annotatedHoles.length > 0
+                ? `<p class="arithmetic">${annotatedHoles
+                      .map((h) => `h${h.holeNumber}: ${esc(h.note!)}`)
+                      .join(' · ')}</p>`
+                : '';
 
         const totalsRow = result.totals
             .map((t) => `<li>${esc(t.scoringType)} = <strong>${t.value ?? '—'}</strong></li>`)
@@ -506,6 +518,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
       ${pointsRow}
     </tbody>
   </table>
+  ${pointsArithmetic}
   <ul class="totals">${totalsRow}</ul>
 </article>`;
     };

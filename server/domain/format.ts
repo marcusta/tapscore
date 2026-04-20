@@ -19,6 +19,13 @@
 //      one registration call. No schema change, no switch statements outside
 //      this module.
 //
+//   Concrete strategies live under `./formats/*.ts`. Each file exports its
+//   `FormatStrategy` object; `format.ts` imports and registers them at the
+//   bottom of this file. Keeping registration centralised here (rather than
+//   as a top-level side-effect inside each strategy file) avoids a circular
+//   module-init hazard between the registry and the strategies that depend
+//   on its types.
+//
 // §14.6 (results row keyed by `(participant, scoring_type)`): strategies can
 // emit multiple `ScoringResult` rows (typically gross + net) — the shape
 // declares this per-hole, then the leaderboard aggregates across slots.
@@ -99,99 +106,14 @@ export function clearFormats(): void {
     registry.clear();
 }
 
-// --- Stroke-play × individual ---
+// --- Concrete strategies ---
+//
+// Register built-ins here. New format = add a file under `./formats/`, export
+// the strategy, add one line below. Keep these imports at the bottom so the
+// registry + types above are fully initialised before any strategy file runs.
 
-const strokePlayIndividual: FormatStrategy = {
-    scoringMode: 'stroke_play',
-    teamShape: 'individual',
-    compute(input, slot): ParticipantResult {
-        const holes: HoleResult[] = [];
-        let grossTotal = 0;
-        let netTotal = 0;
-        let grossHasValue = false;
-        let netHasValue = false;
-        let holesPlayed = 0;
-        // An incomplete hole — either explicit DNP (null strokes event) or a
-        // pickup (0 strokes event) — voids the stroke-play total: the player
-        // does not have a completed card. Per-hole values are still reported
-        // (null for DNP, par + 2 + given net-double for pickup) so the
-        // scorecard and handicap-posting path can use them; the leaderboard
-        // just sees null totals and sorts the participant last.
-        //
-        // "No event at all" on a hole is mid-round, not incomplete — the player
-        // hasn't reached that hole yet and their partial total is still valid.
-        let hasIncompleteHole = false;
-
-        // Net distribution: give strokes on holes in stroke-index order.
-        // playing_handicap n means: first `n mod holeCount` holes get an extra
-        // stroke; every hole gets `floor(n / holeCount)` strokes baseline.
-        const ph = input.playingHandicap ?? 0;
-        const holeCount = input.courseHoles.length;
-        const baseline = holeCount > 0 ? Math.floor(ph / holeCount) : 0;
-        const extras = holeCount > 0 ? ((ph % holeCount) + holeCount) % holeCount : 0;
-        const strokeByHole = new Map<number, number>();
-        for (const ch of input.courseHoles) {
-            const extraFromRank = ch.strokeIndex <= extras ? 1 : 0;
-            strokeByHole.set(ch.holeNumber, baseline + extraFromRank);
-        }
-
-        for (const ch of input.courseHoles) {
-            const played = input.holes.find((h) => h.holeNumber === ch.holeNumber);
-            const strokesForHole = strokeByHole.get(ch.holeNumber) ?? 0;
-            if (played === undefined) {
-                // No event yet — participant hasn't reached this hole.
-                holes.push({ holeNumber: ch.holeNumber, gross: null, net: null, points: null });
-                continue;
-            }
-            // Event exists for this hole → counts as engagement.
-            holesPlayed++;
-            const strokes = played.strokes;
-            if (strokes === null) {
-                // Explicit DNP event → voids total; per-hole stays null.
-                hasIncompleteHole = true;
-                holes.push({ holeNumber: ch.holeNumber, gross: null, net: null, points: null });
-                continue;
-            }
-            if (strokes === 0) hasIncompleteHole = true; // pickup
-            // Pickup (0) in stroke-play = max of net-double (par + 2 + strokes given) per WHS.
-            const effectiveGross = strokes === 0 ? ch.par + 2 + strokesForHole : strokes;
-            const net = effectiveGross - strokesForHole;
-            grossTotal += effectiveGross;
-            netTotal += net;
-            grossHasValue = true;
-            netHasValue = true;
-            holes.push({
-                holeNumber: ch.holeNumber,
-                gross: effectiveGross,
-                net,
-                points: null,
-            });
-        }
-
-        void slot;
-
-        return {
-            participantId: input.participantId,
-            slotIndex: slot.slotIndex,
-            holes,
-            totals: [
-                {
-                    scoringType: 'gross',
-                    value: hasIncompleteHole ? null : grossHasValue ? grossTotal : null,
-                },
-                {
-                    scoringType: 'net',
-                    value:
-                        hasIncompleteHole
-                            ? null
-                            : netHasValue && input.playingHandicap !== null
-                              ? netTotal
-                              : null,
-                },
-            ],
-            holesPlayed,
-        };
-    },
-};
+import { strokePlayIndividual } from './formats/stroke-play-individual';
+import { stablefordIndividual } from './formats/stableford-individual';
 
 registerFormat(strokePlayIndividual);
+registerFormat(stablefordIndividual);
