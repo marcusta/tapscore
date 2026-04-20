@@ -45,6 +45,7 @@ export type ScoringMode =
     | 'stableford'
     | 'match_play'
     | 'kopenhamnare'
+    | 'taliban'
     | 'skins'
     | 'custom';
 export type TeamShape =

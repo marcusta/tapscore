@@ -145,6 +145,13 @@ export interface ParticipantInput {
      * wrong for their shape.
      */
     players?: ParticipantPlayerInput[];
+    /**
+     * Optional team / participant display label — `participants.team_label`.
+     * Taliban's pair-summary renders `"{labelA} {ptsA} − {ptsB} {labelB}"`
+     * using this when present; falls back to a short id otherwise. Other
+     * strategies ignore it.
+     */
+    teamLabel?: string | null;
 }
 
 /**
@@ -215,6 +222,7 @@ import { matchPlayIndividual } from './formats/match-play-individual';
 import { kopenhamnareIndividual } from './formats/kopenhamnare-individual';
 import { stablefordBetterBall } from './formats/stableford-better-ball';
 import { strokePlayFoursomes } from './formats/stroke-play-foursomes';
+import { talibanBetterBall } from './formats/taliban-better-ball';
 
 registerFormat(strokePlayIndividual);
 registerFormat(stablefordIndividual);
@@ -222,3 +230,4 @@ registerFormat(matchPlayIndividual);
 registerFormat(kopenhamnareIndividual);
 registerFormat(stablefordBetterBall);
 registerFormat(strokePlayFoursomes);
+registerFormat(talibanBetterBall);

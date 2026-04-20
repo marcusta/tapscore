@@ -69,6 +69,7 @@ export class LeaderboardService {
             participantId: p.id,
             playingHandicap: p.playingHandicapSnapshot,
             holes: cardByParticipant.get(p.id)?.holes ?? [],
+            teamLabel: p.teamLabel,
             // Per-player PH fallback: until `participant_players` carries a
             // per-player PH snapshot column, every linked player inherits
             // the team's PH. Documented fallback; see module header.
