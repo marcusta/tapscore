@@ -384,13 +384,55 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         pairResultsByParticipant.set(pr.participants[1], pr);
     }
 
+    // Köpenhamnare: if the (current-stub) slot 0 is kopenhamnare × individual,
+    // derive effective PH per participant for the card-header annotation. The
+    // snapshot is always shown; the effective PH surfaces how delta_from_min
+    // shifts it (e.g. snapshot PH=22, mode=delta_from_min → effective PH=17).
+    const firstSlot = round.formatSlots[0];
+    const isKopenhamnare =
+        firstSlot?.scoringMode === 'kopenhamnare' && firstSlot?.teamShape === 'individual';
+    const kopenHandicapMode =
+        isKopenhamnare
+            ? ((firstSlot.scopeConfig?.config?.handicapMode as string | undefined) ??
+              'standard')
+            : null;
+    const effectivePHByParticipant = new Map<string, number | null>();
+    if (isKopenhamnare) {
+        const phs = participants.map((p) => p.playingHandicapSnapshot);
+        if (kopenHandicapMode === 'delta_from_min') {
+            const allNonNull = phs.every((v) => v !== null) && phs.length > 0;
+            if (allNonNull) {
+                const min = Math.min(...(phs as number[]));
+                for (const p of participants) {
+                    effectivePHByParticipant.set(
+                        p.id,
+                        (p.playingHandicapSnapshot as number) - min,
+                    );
+                }
+            } else {
+                for (const p of participants) effectivePHByParticipant.set(p.id, null);
+            }
+        } else {
+            // standard — effective = snapshot.
+            for (const p of participants) {
+                effectivePHByParticipant.set(p.id, p.playingHandicapSnapshot);
+            }
+        }
+    }
+
     const renderScorecard = (result: ParticipantResult, p: Participant, courseHoles: CourseHole[]): string => {
         const byHole = new Map(result.holes.map((h) => [h.holeNumber, h]));
         const groups = splitHoleGroups(courseHoles);
         const includeTotColumn = groups.length > 1;
         // Allocation always against the full 18 SI distribution — a 9-hole round
         // inherits the strokes that fall on its holes, not a fresh 9-hole allocation.
-        const strokesGiven = strokesGivenMap(p.playingHandicapSnapshot, allCourseHoles);
+        // For Köpenhamnare under delta_from_min, the Given row shows the EFFECTIVE
+        // strokes (lowest-PH player plays off 0; others get their delta).
+        const phForStrokes =
+            isKopenhamnare && effectivePHByParticipant.has(p.id)
+                ? (effectivePHByParticipant.get(p.id) ?? p.playingHandicapSnapshot)
+                : p.playingHandicapSnapshot;
+        const strokesGiven = strokesGivenMap(phForStrokes, allCourseHoles);
         // A Status row is rendered for pair-level formats (match-play today,
         // Taliban later) — we signal via participation in a pair result. The
         // strategy populates each `HoleResult.note` with the running status
@@ -523,12 +565,27 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
             .map((t) => `<li>${esc(t.scoringType)} = <strong>${t.value ?? '—'}</strong></li>`)
             .join('');
 
+        // Köpenhamnare header annotation: declare mode + effective PH next to
+        // the snapshot so the reader can see e.g. "PH 23 → eff 19 (delta_from_min)".
+        const kopenAnnotation =
+            isKopenhamnare
+                ? (() => {
+                      const eff = effectivePHByParticipant.get(p.id);
+                      const modeLabel = esc(kopenHandicapMode ?? 'standard');
+                      if (eff === undefined || eff === null) return ` · mode ${modeLabel}`;
+                      if (p.playingHandicapSnapshot !== null && eff !== p.playingHandicapSnapshot) {
+                          return ` · eff PH ${eff} (mode ${modeLabel})`;
+                      }
+                      return ` · eff PH ${eff} (mode ${modeLabel})`;
+                  })()
+                : '';
+
         return `
 <article class="scorecard-card">
   <header>
     <h3>${esc(participantLabel(p))}</h3>
     <span class="muted">
-      slot #${result.slotIndex} · H idx ${p.handicapIndexSnapshot ?? '—'} · CH ${p.courseHandicapSnapshot ?? '—'} · PH ${p.playingHandicapSnapshot ?? '—'} · holes played ${result.holesPlayed}
+      slot #${result.slotIndex} · H idx ${p.handicapIndexSnapshot ?? '—'} · CH ${p.courseHandicapSnapshot ?? '—'} · PH ${p.playingHandicapSnapshot ?? '—'}${kopenAnnotation} · holes played ${result.holesPlayed}
     </span>
   </header>
   <table class="scorecard">

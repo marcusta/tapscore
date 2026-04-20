@@ -40,7 +40,13 @@ export interface RoundsTable {
     created_at: Generated<string>;
 }
 
-export type ScoringMode = 'stroke_play' | 'stableford' | 'match_play' | 'skins' | 'custom';
+export type ScoringMode =
+    | 'stroke_play'
+    | 'stableford'
+    | 'match_play'
+    | 'kopenhamnare'
+    | 'skins'
+    | 'custom';
 export type TeamShape =
     | 'individual'
     | 'better_ball'

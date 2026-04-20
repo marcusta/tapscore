@@ -27,6 +27,7 @@ const ScoringMode = Type.Union([
     Type.Literal('stroke_play'),
     Type.Literal('stableford'),
     Type.Literal('match_play'),
+    Type.Literal('kopenhamnare'),
     Type.Literal('skins'),
     Type.Literal('custom'),
 ]);
@@ -39,12 +40,26 @@ const TeamShape = Type.Union([
     Type.Literal('custom'),
 ]);
 
+// `scopeConfig` at the wire carries `{ scope?, config? }` (both optional),
+// or null. Using `Type.Unknown()` here keeps the wire permissive — format
+// strategies type their own `config` shape at the call site, and the
+// service normalises legacy blobs on read (see `FormatSlotConfig`).
+const ScopeConfigInput = Type.Union([
+    Type.Null(),
+    Type.Object({
+        scope: Type.Optional(
+            Type.Object({ participantIds: Type.Array(Type.String()) }),
+        ),
+        config: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    }),
+]);
+
 const FormatSlotInput = Type.Object({
     slotIndex: Type.Number(),
     scoringMode: ScoringMode,
     teamShape: TeamShape,
     allowancePct: Type.Number(),
-    scopeConfig: Type.Unknown(),
+    scopeConfig: ScopeConfigInput,
 });
 
 const CreateRoundInput = Type.Object({

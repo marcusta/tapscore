@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { createTestDb } from '../testing/db';
-import type { FormatSlot } from './round.service';
+import type { FormatSlot, FormatSlotConfig } from './round.service';
 
 async function setup() {
     const ctx = await createTestDb();
@@ -115,13 +115,68 @@ test('update bulk-replaces format slots', async () => {
     });
     const updated = await roundService.update(r.id, {
         formatSlots: [
-            { slotIndex: 0, scoringMode: 'stableford', teamShape: 'individual', allowancePct: 95, scopeConfig: { categories: ['A'] } },
+            { slotIndex: 0, scoringMode: 'stableford', teamShape: 'individual', allowancePct: 95, scopeConfig: { config: { categories: ['A'] } } },
             { slotIndex: 1, scoringMode: 'stroke_play', teamShape: 'foursomes', allowancePct: 50, scopeConfig: null },
         ],
     });
     expect(updated.formatSlots).toHaveLength(2);
-    expect(updated.formatSlots[0].scopeConfig).toEqual({ categories: ['A'] });
+    expect(updated.formatSlots[0].scopeConfig).toEqual({ config: { categories: ['A'] } });
     expect(updated.formatSlots[1].teamShape).toBe('foursomes');
+});
+
+test('update: legacy top-level scopeConfig blob is normalised into config on read', async () => {
+    const { roundService, courseId } = await setup();
+    const r = await roundService.create({
+        courseId,
+        date: '2026-05-01',
+        roundType: 'full_18',
+        venueType: 'outdoor',
+        startListMode: 'structured',
+        formatSlots: [singleStrokeSlot()],
+    });
+    // Simulate a pre-2.5c seed that wrote `{categories: ['A']}` at the top level.
+    // `scopeConfig` is typed as `FormatSlotConfig | null` now, so this is a
+    // cast — the read-side normaliser rewraps it under `config`.
+    const updated = await roundService.update(r.id, {
+        formatSlots: [
+            {
+                slotIndex: 0,
+                scoringMode: 'stableford',
+                teamShape: 'individual',
+                allowancePct: 95,
+                scopeConfig: { categories: ['A'] } as unknown as FormatSlotConfig,
+            },
+        ],
+    });
+    expect(updated.formatSlots[0].scopeConfig).toEqual({
+        config: { categories: ['A'] },
+    });
+});
+
+test('update: legacy top-level participantIds is normalised under scope', async () => {
+    const { roundService, courseId } = await setup();
+    const r = await roundService.create({
+        courseId,
+        date: '2026-05-01',
+        roundType: 'full_18',
+        venueType: 'outdoor',
+        startListMode: 'structured',
+        formatSlots: [singleStrokeSlot()],
+    });
+    const updated = await roundService.update(r.id, {
+        formatSlots: [
+            {
+                slotIndex: 0,
+                scoringMode: 'stableford',
+                teamShape: 'individual',
+                allowancePct: 100,
+                scopeConfig: { participantIds: ['a', 'b', 'c'] } as unknown as FormatSlotConfig,
+            },
+        ],
+    });
+    expect(updated.formatSlots[0].scopeConfig).toEqual({
+        scope: { participantIds: ['a', 'b', 'c'] },
+    });
 });
 
 test('update patches individual fields only', async () => {

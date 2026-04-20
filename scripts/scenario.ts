@@ -34,7 +34,7 @@ import type { Tee, TeeRating } from '../server/services/tee.service';
 import type { Player } from '../server/services/player.service';
 import type { GuestPlayer } from '../server/services/guest-player.service';
 import type { Participant } from '../server/services/participant.service';
-import type { Round, FormatSlot } from '../server/services/round.service';
+import type { Round, FormatSlot, FormatSlotConfig } from '../server/services/round.service';
 
 const DB_PATH = process.env.DB_PATH ?? './data/app.sqlite';
 
@@ -84,7 +84,7 @@ export interface RoundInit {
         scoringMode: FormatSlot['scoringMode'];
         teamShape: FormatSlot['teamShape'];
         allowancePct: number;
-        scopeConfig?: unknown;
+        scopeConfig?: FormatSlotConfig | null;
     }[];
     windowStart?: string | null;
     windowEnd?: string | null;

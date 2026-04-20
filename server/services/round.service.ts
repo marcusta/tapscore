@@ -13,12 +13,35 @@ import type {
 
 // --- Output types ---
 
+/**
+ * Typed shape of `round_format_slots.scope_config` (stored as JSON text).
+ *
+ * Two keys, two concerns:
+ *   - `scope` — which participants this slot applies to. Multi-slot routing
+ *     (Phase 2.5i) reads `scope.participantIds` to partition participants
+ *     across slots.
+ *   - `config` — format-specific per-slot options. Each strategy types its
+ *     own config (Köpenhamnare reads `config.handicapMode`; Umbrella will
+ *     read `config.birdieRule`; etc.). The field is `Record<string, unknown>`
+ *     here — strategies cast to their own shape at the call site.
+ *
+ * Backward-compat: early Phase-2 tests stored arbitrary JSON at the top
+ * level (e.g. `{categories: ['A']}`). On read, we detect anything not
+ * already using the `{scope?, config?}` structure and migrate it into the
+ * new shape (wrap `{participantIds: [...]}` under `scope`; wrap any other
+ * top-level blob under `config`). Writes always persist the new shape.
+ */
+export interface FormatSlotConfig {
+    scope?: { participantIds: string[] };
+    config?: Record<string, unknown>;
+}
+
 export interface FormatSlot {
     slotIndex: number;
     scoringMode: ScoringMode;
     teamShape: TeamShape;
     allowancePct: number;
-    scopeConfig: unknown;
+    scopeConfig: FormatSlotConfig | null;
 }
 
 export interface Round {
@@ -65,13 +88,40 @@ export interface UpdateRoundInput {
 type RoundRow = Selectable<RoundsTable>;
 type FormatSlotRow = Selectable<RoundFormatSlotsTable>;
 
+function normaliseScopeConfig(parsed: unknown): FormatSlotConfig | null {
+    if (parsed === null || parsed === undefined) return null;
+    if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+        // Non-object at top level — treat as opaque config blob.
+        return { config: { value: parsed } as Record<string, unknown> };
+    }
+    const obj = parsed as Record<string, unknown>;
+    const keys = Object.keys(obj);
+    // Already in the new shape (`scope` and/or `config`, nothing else at top level).
+    const isNewShape =
+        keys.length === 0 ||
+        keys.every((k) => k === 'scope' || k === 'config');
+    if (isNewShape) return obj as FormatSlotConfig;
+    // Legacy: `{participantIds: [...]}` top-level → move under `scope`.
+    if (Array.isArray(obj.participantIds)) {
+        const { participantIds, ...rest } = obj;
+        const out: FormatSlotConfig = {
+            scope: { participantIds: participantIds as string[] },
+        };
+        if (Object.keys(rest).length > 0) out.config = rest;
+        return out;
+    }
+    // Any other legacy blob → wrap entirely under `config`.
+    return { config: obj };
+}
+
 function toFormatSlot(row: FormatSlotRow): FormatSlot {
     return {
         slotIndex: row.slot_index,
         scoringMode: row.scoring_mode,
         teamShape: row.team_shape,
         allowancePct: row.allowance_pct,
-        scopeConfig: row.scope_config === null ? null : JSON.parse(row.scope_config),
+        scopeConfig:
+            row.scope_config === null ? null : normaliseScopeConfig(JSON.parse(row.scope_config)),
     };
 }
 

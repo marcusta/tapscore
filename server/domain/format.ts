@@ -171,7 +171,9 @@ export function clearFormats(): void {
 import { strokePlayIndividual } from './formats/stroke-play-individual';
 import { stablefordIndividual } from './formats/stableford-individual';
 import { matchPlayIndividual } from './formats/match-play-individual';
+import { kopenhamnareIndividual } from './formats/kopenhamnare-individual';
 
 registerFormat(strokePlayIndividual);
 registerFormat(stablefordIndividual);
 registerFormat(matchPlayIndividual);
+registerFormat(kopenhamnareIndividual);
