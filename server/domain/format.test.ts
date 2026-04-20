@@ -100,6 +100,31 @@ test('low-stroke-index holes get extras first (playing handicap 9)', () => {
     expect(holeNet10).toBe(4);
 });
 
+test('any pickup voids the stroke-play gross and net totals (no completed card)', () => {
+    const s = findFormat('stroke_play', 'individual');
+    const holes = par4Course(18);
+    const input: ParticipantInput = {
+        participantId: 'p1',
+        courseHoles: holes,
+        playingHandicap: 18,
+        holes: [
+            ...Array.from({ length: 8 }, (_, i) => ({
+                holeNumber: i + 1,
+                strokes: 4,
+                recordedBy: null,
+                recordedAt: '',
+            })),
+            { holeNumber: 9, strokes: 0, recordedBy: null, recordedAt: '' }, // pickup
+        ],
+    };
+    const r = s.compute(input, slot());
+    // Per-hole net-double still recorded for WHS / display.
+    expect(r.holes.find((h) => h.holeNumber === 9)!.gross).toBe(7); // par 4 + 2 + 1 given
+    // But the totals are null — Frank doesn't get a stroke-play result.
+    expect(r.totals.find((t) => t.scoringType === 'gross')!.value).toBeNull();
+    expect(r.totals.find((t) => t.scoringType === 'net')!.value).toBeNull();
+});
+
 test('pickup (0 strokes) counts as net-double', () => {
     const s = findFormat('stroke_play', 'individual');
     const holes = par4Course(18);

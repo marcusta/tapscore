@@ -111,6 +111,12 @@ const strokePlayIndividual: FormatStrategy = {
         let grossHasValue = false;
         let netHasValue = false;
         let holesPlayed = 0;
+        // Any pickup on any played hole voids the stroke-play total — the
+        // player doesn't have a completed card. Per-hole values are still
+        // reported (par + 2 + given per WHS net-double) so the scorecard
+        // and handicap-posting path can use them; the leaderboard just
+        // sees a null total and sorts the participant last.
+        let hasPickup = false;
 
         // Net distribution: give strokes on holes in stroke-index order.
         // playing_handicap n means: first `n mod holeCount` holes get an extra
@@ -134,6 +140,7 @@ const strokePlayIndividual: FormatStrategy = {
                 continue;
             }
             holesPlayed++;
+            if (strokes === 0) hasPickup = true;
             // Pickup (0) in stroke-play = max of net-double (par + 2 + strokes given) per WHS.
             const effectiveGross = strokes === 0 ? ch.par + 2 + strokesForHole : strokes;
             const net = effectiveGross - strokesForHole;
@@ -156,10 +163,18 @@ const strokePlayIndividual: FormatStrategy = {
             slotIndex: slot.slotIndex,
             holes,
             totals: [
-                { scoringType: 'gross', value: grossHasValue ? grossTotal : null },
+                {
+                    scoringType: 'gross',
+                    value: hasPickup ? null : grossHasValue ? grossTotal : null,
+                },
                 {
                     scoringType: 'net',
-                    value: netHasValue && input.playingHandicap !== null ? netTotal : null,
+                    value:
+                        hasPickup
+                            ? null
+                            : netHasValue && input.playingHandicap !== null
+                              ? netTotal
+                              : null,
                 },
             ],
             holesPlayed,
