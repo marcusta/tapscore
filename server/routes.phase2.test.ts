@@ -146,6 +146,9 @@ test('full round flow: 4 participants, events, leaderboard, idempotency, replay'
         recordedAt: '2026-05-01T09:00:00.000Z',
     });
     expect(e1.inserted).toBe(true);
+    // recordedAt must be ISO-parseable regardless of whether it came from the
+    // DB default (`YYYY-MM-DD HH:MM:SS`) or an explicit pass-through.
+    expect(Number.isNaN(Date.parse(e1.event.recordedAt))).toBe(false);
 
     // Idempotent retry — same clientEventId, returns original.
     const e1Retry = await scoreEventService.append({

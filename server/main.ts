@@ -17,6 +17,7 @@ import { createTeeTimesApi } from './api/tee-times.api';
 import { createScoreEventsApi } from './api/score-events.api';
 import { createScorecardsApi } from './api/scorecards.api';
 import { createLeaderboardsApi } from './api/leaderboards.api';
+import { seedDev } from './db/seeds/dev';
 
 // --- Composition root ---
 
@@ -24,6 +25,7 @@ const { app, db, bootstrapAuth } = await createApp<Database>(
     path.join(import.meta.dir, 'db/migrations'),
 );
 
+const services = createServices(db);
 const {
     playerService,
     clubService,
@@ -37,7 +39,7 @@ const {
     scoreEventService,
     scorecardService,
     leaderboardService,
-} = createServices(db);
+} = services;
 
 await bootstrapAuth({
     verify: (u, p) => playerService.verify(u, p),
@@ -60,16 +62,8 @@ mount(app, '/api', createLeaderboardsApi(leaderboardService));
 // --- Dev seed ---
 
 if (process.env.NODE_ENV !== 'production') {
-    try {
-        await playerService.register({
-            username: 'alice',
-            password: 'password123',
-            displayName: 'Alice Andersson',
-        });
-        log.info({ msg: 'dev seed: created player alice' });
-    } catch {
-        // Already exists (unique constraint) — ignore
-    }
+    await seedDev(services);
+    log.info({ msg: 'dev seed applied (alice, bob, halmstad/north/yellow)' });
 }
 
 // --- Start ---

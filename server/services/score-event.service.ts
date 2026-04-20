@@ -1,6 +1,7 @@
 import type { Kysely, Selectable } from 'kysely';
 import type { Database, ScoreEventsTable, ScoreEventType } from '../db/schema';
 import type { RoundService } from './round.service';
+import { toIsoUtc } from '../domain/time';
 
 // --- Output types ---
 
@@ -47,7 +48,7 @@ function toEvent(row: ScoreEventRow): ScoreEvent {
         strokes: row.strokes,
         eventType: row.event_type,
         recordedByPlayerId: row.recorded_by_player_id,
-        recordedAt: row.recorded_at,
+        recordedAt: toIsoUtc(row.recorded_at),
         clientEventId: row.client_event_id,
     };
 }

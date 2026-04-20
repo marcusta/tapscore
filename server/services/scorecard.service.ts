@@ -1,5 +1,6 @@
 import type { Kysely, Selectable } from 'kysely';
 import type { Database, ScorecardsTable } from '../db/schema';
+import { toIsoUtc } from '../domain/time';
 
 // --- Output types ---
 
@@ -24,7 +25,7 @@ function toHole(row: ScorecardRow): ScorecardHole {
         holeNumber: row.hole,
         strokes: row.strokes,
         recordedBy: row.recorded_by_player_id,
-        recordedAt: row.recorded_at,
+        recordedAt: toIsoUtc(row.recorded_at),
     };
 }
 
@@ -81,7 +82,7 @@ export class ScorecardService {
                 holeNumber: row.hole,
                 strokes: row.strokes,
                 recordedBy: row.recorded_by_player_id,
-                recordedAt: row.recorded_at,
+                recordedAt: toIsoUtc(row.recorded_at),
             };
             const bucket = byParticipant.get(row.participant_id);
             if (bucket) bucket.push(hole);
