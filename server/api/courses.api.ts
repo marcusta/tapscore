@@ -19,7 +19,7 @@ const CreateCourseInput = Type.Object({
     clubId: Type.String(),
     name: Type.String(),
     holeCount: HoleCount,
-    holes: Type.Array(HoleInput),
+    holes: Type.Optional(Type.Array(HoleInput)),
 });
 
 const UpdateCourseInput = Type.Object({
@@ -27,6 +27,13 @@ const UpdateCourseInput = Type.Object({
     name: Type.Optional(Type.String()),
     holeCount: Type.Optional(HoleCount),
     holes: Type.Optional(Type.Array(HoleInput)),
+});
+
+const UpdateHoleInput = Type.Object({
+    courseId: Type.String(),
+    holeNumber: Type.Number(),
+    par: Type.Optional(Type.Number()),
+    strokeIndex: Type.Optional(Type.Number()),
 });
 
 // --- API descriptor ---
@@ -39,6 +46,8 @@ export function createCoursesApi(svc: CourseService) {
         get:        { method: 'GET'    as const, path: '/courses/get',     fn: (input: Static<typeof IdInput>)            => svc.getById(input.id),                                                                       schema: IdInput,           middleware: mw },
         create:     { method: 'POST'   as const, path: '/courses',         fn: (input: Static<typeof CreateCourseInput>)  => svc.create(input),                                                                           schema: CreateCourseInput, middleware: mw },
         update:     { method: 'POST'   as const, path: '/courses/update',  fn: (input: Static<typeof UpdateCourseInput>)  => svc.update(input.id, { name: input.name, holeCount: input.holeCount, holes: input.holes }),  schema: UpdateCourseInput, middleware: mw },
+        updateHole: { method: 'POST'   as const, path: '/courses/holes/update', fn: (input: Static<typeof UpdateHoleInput>) => svc.updateHole(input.courseId, input.holeNumber, { par: input.par, strokeIndex: input.strokeIndex }), schema: UpdateHoleInput, middleware: mw },
+        validate:   { method: 'GET'    as const, path: '/courses/validate', fn: (input: Static<typeof IdInput>)         => svc.validate(input.id), schema: IdInput, middleware: mw },
         remove:     { method: 'DELETE' as const, path: '/courses/:id',     fn: (input: Static<typeof IdInput>)            => svc.remove(input.id),                                                                        schema: IdInput,           middleware: mw },
     };
 }

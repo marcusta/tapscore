@@ -1,5 +1,6 @@
 import type { Kysely, Selectable } from 'kysely';
 import type { Database, CoursesTable, CourseHolesTable } from '../db/schema';
+import { validateCourse, type CourseValidation } from '../domain/course';
 
 // --- Output types ---
 
@@ -21,13 +22,24 @@ export interface CreateCourseInput {
     clubId: string;
     name: string;
     holeCount: 9 | 18;
-    holes: Hole[];
+    /**
+     * Optional. If omitted or empty, the service seeds `holeCount` default
+     * rows (par 4, strokeIndex = holeNumber). Admins then edit individual
+     * holes via `updateHole`. Pass an explicit array to bootstrap with real
+     * values in one call — must satisfy the same validation as `updateHole`.
+     */
+    holes?: Hole[];
 }
 
 export interface UpdateCourseInput {
     name?: string;
     holeCount?: 9 | 18;
     holes?: Hole[];
+}
+
+export interface UpdateHoleInput {
+    par?: number;
+    strokeIndex?: number;
 }
 
 // --- Row mapping ---
@@ -102,6 +114,17 @@ export class CourseService {
         return trx.deleteFrom('course_holes').where('course_id', '=', courseId);
     }
 
+    private updateHoleQ(
+        courseId: string,
+        holeNumber: number,
+        trx: Kysely<Database> = this.db,
+    ) {
+        return trx
+            .updateTable('course_holes')
+            .where('course_id', '=', courseId)
+            .where('hole_number', '=', holeNumber);
+    }
+
     // --- Methods ---
 
     async list(): Promise<Course[]> {
@@ -132,7 +155,11 @@ export class CourseService {
     }
 
     async create(input: CreateCourseInput): Promise<Course> {
-        this.validateHoles(input.holeCount, input.holes);
+        const holes =
+            input.holes && input.holes.length > 0
+                ? input.holes
+                : this.defaultHoles(input.holeCount);
+        this.validateHoles(input.holeCount, holes);
 
         const id = crypto.randomUUID();
         await this.db.transaction().execute(async (trx) => {
@@ -141,7 +168,7 @@ export class CourseService {
                 trx,
             ).execute();
             await this.insertHoles(
-                input.holes.map((h) => ({
+                holes.map((h) => ({
                     course_id: id,
                     hole_number: h.holeNumber,
                     par: h.par,
@@ -156,7 +183,7 @@ export class CourseService {
             clubId: input.clubId,
             name: input.name,
             holeCount: input.holeCount,
-            holes: [...input.holes].sort((a, b) => a.holeNumber - b.holeNumber),
+            holes: [...holes].sort((a, b) => a.holeNumber - b.holeNumber),
         };
     }
 
@@ -193,6 +220,64 @@ export class CourseService {
 
     async remove(id: string): Promise<void> {
         await this.deleteById(id).execute();
+    }
+
+    /**
+     * Read-only validation of a course's holes — for admin-UI badges. Returns
+     * `{ ok, issues[] }`. `ok` is true iff there are zero `error` issues;
+     * warnings (e.g. unusual par) do not block. Pure rule logic in
+     * `server/domain/course.ts`.
+     */
+    async validate(courseId: string): Promise<CourseValidation> {
+        const course = await this.getById(courseId);
+        if (!course) throw new Error(`course ${courseId} not found`);
+        return validateCourse(course);
+    }
+
+    /**
+     * Update one hole's par and/or strokeIndex in place.
+     *
+     * Lenient: duplicate stroke indices across holes are permitted while the
+     * admin is editing — auto-swapping would reshuffle other holes the user
+     * never touched. Range check on SI is the only guard. Set-wide uniqueness
+     * is enforced at consumption time (round creation in Phase 2) and via
+     * the bulk `update` path when the admin commits a complete set.
+     */
+    async updateHole(
+        courseId: string,
+        holeNumber: number,
+        patch: UpdateHoleInput,
+    ): Promise<Course> {
+        const course = await this.byId(courseId).executeTakeFirstOrThrow();
+        const target = await this.holesFor(courseId)
+            .where('hole_number', '=', holeNumber)
+            .executeTakeFirst();
+        if (!target) {
+            throw new Error(`course ${courseId} has no hole ${holeNumber}`);
+        }
+
+        const newPar = patch.par ?? target.par;
+        const newSI = patch.strokeIndex ?? target.stroke_index;
+
+        if (newSI < 1 || newSI > course.hole_count) {
+            throw new Error(`strokeIndex must be 1..${course.hole_count} (got ${newSI})`);
+        }
+
+        await this.updateHoleQ(courseId, holeNumber)
+            .set({ par: newPar, stroke_index: newSI })
+            .execute();
+
+        const result = await this.getById(courseId);
+        if (!result) throw new Error(`Course ${courseId} not found after updateHole`);
+        return result;
+    }
+
+    private defaultHoles(holeCount: number): Hole[] {
+        return Array.from({ length: holeCount }, (_, i) => ({
+            holeNumber: i + 1,
+            par: 4,
+            strokeIndex: i + 1,
+        }));
     }
 
     private validateHoles(holeCount: number, holes: Hole[]): void {

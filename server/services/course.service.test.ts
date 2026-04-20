@@ -123,6 +123,66 @@ test('update rejects hole-count mismatch', async () => {
     await expect(courseService.update(created.id, { holes: holes9() })).rejects.toThrow();
 });
 
+// --- Skeleton defaults when holes omitted ---
+
+test('create without holes seeds 18 default rows (par 4, SI = holeNumber)', async () => {
+    const { courseService, clubId } = await setup();
+    const c = await courseService.create({ clubId, name: 'North', holeCount: 18 });
+    expect(c.holes).toHaveLength(18);
+    expect(c.holes.every((h) => h.par === 4)).toBe(true);
+    expect(c.holes.map((h) => h.strokeIndex)).toEqual(
+        Array.from({ length: 18 }, (_, i) => i + 1),
+    );
+});
+
+test('create with empty holes array behaves like omit (seeds defaults)', async () => {
+    const { courseService, clubId } = await setup();
+    const c = await courseService.create({ clubId, name: 'Short', holeCount: 9, holes: [] });
+    expect(c.holes).toHaveLength(9);
+    expect(c.holes.every((h) => h.par === 4)).toBe(true);
+});
+
+// --- updateHole ---
+
+test('updateHole changes par only', async () => {
+    const { courseService, clubId } = await setup();
+    const c = await courseService.create({ clubId, name: 'North', holeCount: 18 });
+    const updated = await courseService.updateHole(c.id, 5, { par: 5 });
+    expect(updated.holes.find((h) => h.holeNumber === 5)!.par).toBe(5);
+    expect(updated.holes.find((h) => h.holeNumber === 5)!.strokeIndex).toBe(5);
+});
+
+test('updateHole allows duplicate stroke indices (lenient while editing)', async () => {
+    const { courseService, clubId } = await setup();
+    const c = await courseService.create({ clubId, name: 'North', holeCount: 18 });
+    // Set hole 5 → SI 12. Hole 12 keeps SI 12 (duplicate allowed mid-edit).
+    const updated = await courseService.updateHole(c.id, 5, { strokeIndex: 12 });
+    expect(updated.holes.find((h) => h.holeNumber === 5)!.strokeIndex).toBe(12);
+    expect(updated.holes.find((h) => h.holeNumber === 12)!.strokeIndex).toBe(12);
+});
+
+test('updateHole does not touch other holes', async () => {
+    const { courseService, clubId } = await setup();
+    const c = await courseService.create({ clubId, name: 'North', holeCount: 18 });
+    const updated = await courseService.updateHole(c.id, 5, { strokeIndex: 5, par: 3 });
+    expect(updated.holes.find((h) => h.holeNumber === 5)!.par).toBe(3);
+    expect(updated.holes.find((h) => h.holeNumber === 12)!.strokeIndex).toBe(12);
+});
+
+test('updateHole rejects unknown holeNumber', async () => {
+    const { courseService, clubId } = await setup();
+    const c = await courseService.create({ clubId, name: 'North', holeCount: 18 });
+    await expect(courseService.updateHole(c.id, 99, { par: 4 })).rejects.toThrow(/no hole 99/);
+});
+
+test('updateHole rejects SI out of range', async () => {
+    const { courseService, clubId } = await setup();
+    const c = await courseService.create({ clubId, name: 'North', holeCount: 18 });
+    await expect(
+        courseService.updateHole(c.id, 5, { strokeIndex: 99 }),
+    ).rejects.toThrow(/strokeIndex must be 1..18/);
+});
+
 test('remove cascades to holes', async () => {
     const { courseService, clubId, db } = await setup();
     const created = await courseService.create({
