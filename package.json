@@ -11,7 +11,8 @@
         "test:server": "bun test server/",
         "test:affected": "bun ../mackans-client-fw/core/affected-tests.ts",
         "generate": "bun ../mackans-client-fw/core/generate-api.ts",
-        "reset:dev": "rm -rf data/"
+        "reset:dev": "rm -rf data/",
+        "render:round": "bun scripts/render-round.ts"
     },
     "dependencies": {
         "@basics/core": "file:../mackans-client-fw/core",

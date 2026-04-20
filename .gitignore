@@ -3,6 +3,7 @@ data/*.sqlite
 data/*.sqlite-wal
 data/*.sqlite-shm
 dist
+tmp
 .env
 .env.*
 !.env.example
