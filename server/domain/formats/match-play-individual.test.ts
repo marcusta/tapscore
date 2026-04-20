@@ -29,8 +29,17 @@ function holeEvent(holeNumber: number, strokes: number | null): {
     strokes: number | null;
     recordedBy: null;
     recordedAt: '';
+    sourcePlayerId: null;
+    sourceGuestPlayerId: null;
 } {
-    return { holeNumber, strokes, recordedBy: null, recordedAt: '' };
+    return {
+        holeNumber,
+        strokes,
+        recordedBy: null,
+        recordedAt: '',
+        sourcePlayerId: null,
+        sourceGuestPlayerId: null,
+    };
 }
 
 test('match-play: A up 3 after 16 with 2 to play → "3 & 2"', () => {

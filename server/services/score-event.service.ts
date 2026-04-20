@@ -15,6 +15,15 @@ export interface ScoreEvent {
     recordedByPlayerId: string | null;
     recordedAt: string;
     clientEventId: string;
+    /**
+     * When the event belongs to a per-player slot within a team participant
+     * (better-ball 2.5e, Taliban 2.5g, Umbrella 2.5h), identifies the
+     * specific player. Individual / foursomes leave both null.
+     * Invariant (enforced in `append`): either both null, or exactly one
+     * non-null. Never both.
+     */
+    sourcePlayerId: string | null;
+    sourceGuestPlayerId: string | null;
 }
 
 export interface AppendScoreEventInput {
@@ -27,6 +36,13 @@ export interface AppendScoreEventInput {
     clientEventId: string;
     /** Optional server timestamp override — used by tests that replay events out of order. */
     recordedAt?: string;
+    /**
+     * Per-player source within a team participant. Either both null
+     * (individual / foursomes), or exactly one non-null (better-ball,
+     * Taliban, Umbrella). Both populated → validation error.
+     */
+    sourcePlayerId?: string | null;
+    sourceGuestPlayerId?: string | null;
 }
 
 export interface AppendResult {
@@ -50,6 +66,8 @@ function toEvent(row: ScoreEventRow): ScoreEvent {
         recordedByPlayerId: row.recorded_by_player_id,
         recordedAt: toIsoUtc(row.recorded_at),
         clientEventId: row.client_event_id,
+        sourcePlayerId: row.source_player_id,
+        sourceGuestPlayerId: row.source_guest_player_id,
     };
 }
 
@@ -92,6 +110,8 @@ export class ScoreEventService {
             recorded_by_player_id: string | null;
             client_event_id: string;
             recorded_at?: string;
+            source_player_id: string | null;
+            source_guest_player_id: string | null;
         },
         trx: Kysely<Database> = this.db,
     ) {
@@ -107,8 +127,25 @@ export class ScoreEventService {
      *
      * Callers may pass `recordedAt` to force a specific server timestamp (useful
      * for replay / backfill tests). Default is the DB default (`datetime('now')`).
+     *
+     * Source validation: `sourcePlayerId` and `sourceGuestPlayerId` together
+     * identify the specific player within a team participant. For individual
+     * and foursomes slots both are left null. For per-player team formats
+     * (better-ball, Taliban, Umbrella) exactly one is populated. Both
+     * populated is a programming error and throws. This mirrors the
+     * `participant_players.player_id xor guest_player_id` shape and is
+     * enforced here because SQLite cannot `ALTER TABLE ADD CHECK` cheaply
+     * (see migration 013).
      */
     async append(input: AppendScoreEventInput): Promise<AppendResult> {
+        const sourcePlayerId = input.sourcePlayerId ?? null;
+        const sourceGuestPlayerId = input.sourceGuestPlayerId ?? null;
+        if (sourcePlayerId !== null && sourceGuestPlayerId !== null) {
+            throw new Error(
+                'score-event append: pass at most one of sourcePlayerId or sourceGuestPlayerId (both null for individual formats)',
+            );
+        }
+
         const existing = await this.byRoundClientKey(input.roundId, input.clientEventId)
             .executeTakeFirst();
         if (existing) {
@@ -126,6 +163,8 @@ export class ScoreEventService {
                 event_type: input.eventType,
                 recorded_by_player_id: input.recordedByPlayerId ?? null,
                 client_event_id: input.clientEventId,
+                source_player_id: sourcePlayerId,
+                source_guest_player_id: sourceGuestPlayerId,
             };
             if (input.recordedAt !== undefined) values.recorded_at = input.recordedAt;
             await this.insertEvent(values, trx).execute();

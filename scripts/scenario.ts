@@ -106,6 +106,17 @@ export interface AddParticipantInit {
 /** sparse map: hole number → strokes. `null` = DNP, `0` = pickup, `n` = strokes. */
 export type HoleScores = Record<number, number | null>;
 
+/**
+ * Options for `play()` / `clear()`. `sourcePlayerId` / `sourceGuestPlayerId`
+ * tag every event with the player-within-team identity (used by
+ * better-ball, Taliban, Umbrella). Default null/null preserves the
+ * individual / foursomes shape and keeps existing seeds byte-identical.
+ */
+export interface PlayOptions {
+    sourcePlayerId?: string | null;
+    sourceGuestPlayerId?: string | null;
+}
+
 // --- Refs ---
 
 export interface PlayerRef {
@@ -408,8 +419,13 @@ export class ParticipantScenarioRef {
      *   0    → pickup
      * Events are appended in hole order with monotonically increasing
      * recordedAt so leaderboards reflect the natural play sequence.
+     *
+     * Pass `options.sourcePlayerId` or `options.sourceGuestPlayerId` when
+     * recording for a specific player inside a team participant (better-ball,
+     * Taliban, Umbrella). Default (both null) is the individual /
+     * foursomes shape.
      */
-    async play(scores: HoleScores): Promise<void> {
+    async play(scores: HoleScores, options: PlayOptions = {}): Promise<void> {
         const baseMs = Date.now();
         let offset = 0;
         const holeNumbers = Object.keys(scores)
@@ -426,12 +442,14 @@ export class ParticipantScenarioRef {
                 recordedByPlayerId: this.recordedByPlayerId ?? null,
                 clientEventId: this.s.nextClientEventId(),
                 recordedAt: new Date(baseMs + offset).toISOString(),
+                sourcePlayerId: options.sourcePlayerId ?? null,
+                sourceGuestPlayerId: options.sourceGuestPlayerId ?? null,
             });
             offset += 1000;
         }
     }
 
-    async clear(hole: number): Promise<void> {
+    async clear(hole: number, options: PlayOptions = {}): Promise<void> {
         await this.s.services.scoreEventService.append({
             roundId: this.round.id,
             participantId: this.participant.id,
@@ -441,6 +459,8 @@ export class ParticipantScenarioRef {
             recordedByPlayerId: this.recordedByPlayerId ?? null,
             clientEventId: this.s.nextClientEventId(),
             recordedAt: new Date().toISOString(),
+            sourcePlayerId: options.sourcePlayerId ?? null,
+            sourceGuestPlayerId: options.sourceGuestPlayerId ?? null,
         });
     }
 }

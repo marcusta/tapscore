@@ -132,3 +132,69 @@ test('round delete cascades events', async () => {
     const list = await scoreEventService.listByRound(roundId);
     expect(list).toHaveLength(0);
 });
+
+test('append with sourcePlayerId persists and round-trips', async () => {
+    const { scoreEventService, roundId, participantId, aliceId } = await setup();
+    const res = await scoreEventService.append({
+        roundId,
+        participantId,
+        hole: 1,
+        strokes: 4,
+        eventType: 'score_entered',
+        clientEventId: 'c1',
+        sourcePlayerId: aliceId,
+    });
+    expect(res.event.sourcePlayerId).toBe(aliceId);
+    expect(res.event.sourceGuestPlayerId).toBeNull();
+    const list = await scoreEventService.listByRound(roundId);
+    expect(list[0].sourcePlayerId).toBe(aliceId);
+    expect(list[0].sourceGuestPlayerId).toBeNull();
+});
+
+test('append with sourceGuestPlayerId persists and round-trips', async () => {
+    const { scoreEventService, guestPlayerService, roundId, participantId } = await setup();
+    const guest = await guestPlayerService.create({ displayName: 'Guest', gender: 'M', handicapIndex: 12 });
+    const res = await scoreEventService.append({
+        roundId,
+        participantId,
+        hole: 1,
+        strokes: 5,
+        eventType: 'score_entered',
+        clientEventId: 'c1',
+        sourceGuestPlayerId: guest.id,
+    });
+    expect(res.event.sourcePlayerId).toBeNull();
+    expect(res.event.sourceGuestPlayerId).toBe(guest.id);
+});
+
+test('append with both source ids throws', async () => {
+    const { scoreEventService, guestPlayerService, roundId, participantId, aliceId } = await setup();
+    const guest = await guestPlayerService.create({ displayName: 'Guest', gender: 'M', handicapIndex: 12 });
+    await expect(
+        scoreEventService.append({
+            roundId,
+            participantId,
+            hole: 1,
+            strokes: 4,
+            eventType: 'score_entered',
+            clientEventId: 'c1',
+            sourcePlayerId: aliceId,
+            sourceGuestPlayerId: guest.id,
+        }),
+    ).rejects.toThrow(/sourcePlayerId or sourceGuestPlayerId/);
+});
+
+test('append with both source ids null persists (individual / foursomes path)', async () => {
+    const { scoreEventService, roundId, participantId } = await setup();
+    const res = await scoreEventService.append({
+        roundId,
+        participantId,
+        hole: 1,
+        strokes: 4,
+        eventType: 'score_entered',
+        clientEventId: 'c1',
+    });
+    expect(res.inserted).toBe(true);
+    expect(res.event.sourcePlayerId).toBeNull();
+    expect(res.event.sourceGuestPlayerId).toBeNull();
+});

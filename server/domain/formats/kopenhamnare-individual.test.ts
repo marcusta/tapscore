@@ -38,6 +38,8 @@ function mk(id: string, ph: number | null, scores: Record<number, number | null>
             strokes: v,
             recordedBy: null,
             recordedAt: '',
+            sourcePlayerId: null,
+            sourceGuestPlayerId: null,
         })),
     };
 }
@@ -265,9 +267,9 @@ test('DNP event on one player: that hole is null for all three', () => {
         participantId: 'B',
         playingHandicap: 0,
         holes: [
-            { holeNumber: 1, strokes: 4, recordedBy: null, recordedAt: '' },
-            { holeNumber: 2, strokes: null, recordedBy: null, recordedAt: '' }, // DNP
-            { holeNumber: 3, strokes: 4, recordedBy: null, recordedAt: '' },
+            { holeNumber: 1, strokes: 4, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null },
+            { holeNumber: 2, strokes: null, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null }, // DNP
+            { holeNumber: 3, strokes: 4, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null },
         ],
     };
     const c = mk('C', 0, { 1: 5, 2: 5, 3: 5 });

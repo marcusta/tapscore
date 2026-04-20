@@ -35,6 +35,8 @@ test('stroke-play × individual: gross total sums strokes', () => {
             strokes: 4,
             recordedBy: null,
             recordedAt: '2026-05-01T10:00:00Z',
+            sourcePlayerId: null,
+            sourceGuestPlayerId: null,
         })),
     };
     const result = s.compute(singleSlot(input, holes), slot());
@@ -56,6 +58,8 @@ test('net total applies stroke allocation by stroke index', () => {
             strokes: 5, // bogey
             recordedBy: null,
             recordedAt: '2026-05-01T10:00:00Z',
+            sourcePlayerId: null,
+            sourceGuestPlayerId: null,
         })),
     };
     const result = s.compute(singleSlot(input, holes), slot());
@@ -77,6 +81,8 @@ test('net total is null when playing handicap is null', () => {
             strokes: 4,
             recordedBy: null,
             recordedAt: '',
+            sourcePlayerId: null,
+            sourceGuestPlayerId: null,
         })),
     };
     const result = s.compute(singleSlot(input, holes), slot());
@@ -95,6 +101,8 @@ test('low-stroke-index holes get extras first (playing handicap 9)', () => {
             strokes: 4, // par
             recordedBy: null,
             recordedAt: '',
+            sourcePlayerId: null,
+            sourceGuestPlayerId: null,
         })),
     };
     const result = s.compute(singleSlot(input, holes), slot());
@@ -118,8 +126,10 @@ test('any pickup voids the stroke-play gross and net totals (no completed card)'
                 strokes: 4,
                 recordedBy: null,
                 recordedAt: '',
+                sourcePlayerId: null,
+                sourceGuestPlayerId: null,
             })),
-            { holeNumber: 9, strokes: 0, recordedBy: null, recordedAt: '' }, // pickup
+            { holeNumber: 9, strokes: 0, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null }, // pickup
         ],
     };
     const result = s.compute(singleSlot(input, holes), slot());
@@ -143,6 +153,8 @@ test('pickup (0 strokes) counts as net-double', () => {
                 strokes: 0, // pickup
                 recordedBy: null,
                 recordedAt: '',
+                sourcePlayerId: null,
+                sourceGuestPlayerId: null,
             },
         ],
     };
@@ -161,8 +173,8 @@ test('DNP event leaves the hole null, counts as engaged, voids stroke-play total
         participantId: 'p1',
         playingHandicap: 0,
         holes: [
-            { holeNumber: 1, strokes: 4, recordedBy: null, recordedAt: '' },
-            { holeNumber: 2, strokes: null, recordedBy: null, recordedAt: '' },
+            { holeNumber: 1, strokes: 4, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null },
+            { holeNumber: 2, strokes: null, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null },
         ],
     };
     const result = s.compute(singleSlot(input, holes), slot());
@@ -184,8 +196,8 @@ test('mid-round participant with no events past hole N keeps their partial total
         participantId: 'p1',
         playingHandicap: 0,
         holes: [
-            { holeNumber: 1, strokes: 4, recordedBy: null, recordedAt: '' },
-            { holeNumber: 2, strokes: 5, recordedBy: null, recordedAt: '' },
+            { holeNumber: 1, strokes: 4, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null },
+            { holeNumber: 2, strokes: 5, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null },
         ],
     };
     const result = s.compute(singleSlot(input, holes), slot());
@@ -205,6 +217,8 @@ test('stroke-play slot with multiple participants returns one result per partici
             strokes: 4,
             recordedBy: null,
             recordedAt: '',
+            sourcePlayerId: null,
+            sourceGuestPlayerId: null,
         })),
     };
     const p2: ParticipantInput = {
@@ -215,6 +229,8 @@ test('stroke-play slot with multiple participants returns one result per partici
             strokes: 5,
             recordedBy: null,
             recordedAt: '',
+            sourcePlayerId: null,
+            sourceGuestPlayerId: null,
         })),
     };
     const out = s.compute({ participants: [p1, p2], courseHoles: holes }, slot());

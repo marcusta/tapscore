@@ -115,6 +115,15 @@ export interface ScoreEventsTable {
     recorded_by_player_id: string | null;
     recorded_at: Generated<string>;
     client_event_id: string;
+    /**
+     * When the event belongs to a per-player slot within a team participant
+     * (better-ball, Taliban, Umbrella), identifies the specific player.
+     * Individual and foursomes leave both source columns null. Invariant:
+     * either both null, or exactly one non-null — enforced in
+     * `score-event.service.ts::append`.
+     */
+    source_player_id: string | null;
+    source_guest_player_id: string | null;
 }
 
 export interface ScorecardsTable {
@@ -124,6 +133,15 @@ export interface ScorecardsTable {
     recorded_by_player_id: string | null;
     recorded_at: string;
     latest_event_id: string;
+    source_player_id: string | null;
+    source_guest_player_id: string | null;
+    /**
+     * Generated column: `COALESCE(source_player_id, source_guest_player_id, '')`.
+     * Participates in the `(participant_id, hole, source_key)` unique index
+     * so one row exists per (participant, hole, source). Never written
+     * directly — SQLite maintains it.
+     */
+    source_key: Generated<string>;
 }
 
 export interface RoleGrantsTable {

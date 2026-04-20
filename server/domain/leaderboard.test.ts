@@ -31,6 +31,8 @@ function makeParticipant(id: string, strokesPerHole: number): ParticipantInput {
             strokes: strokesPerHole,
             recordedBy: null,
             recordedAt: '',
+            sourcePlayerId: null,
+            sourceGuestPlayerId: null,
         })),
     };
 }
@@ -123,6 +125,8 @@ test('net leaderboard ranks using handicap-adjusted total', () => {
             strokes: 5, // 90 gross
             recordedBy: null,
             recordedAt: '',
+            sourcePlayerId: null,
+            sourceGuestPlayerId: null,
         })),
     };
     const bogeyPlayer: ParticipantInput = {
@@ -133,6 +137,8 @@ test('net leaderboard ranks using handicap-adjusted total', () => {
             strokes: 5, // 90 gross, 72 net
             recordedBy: null,
             recordedAt: '',
+            sourcePlayerId: null,
+            sourceGuestPlayerId: null,
         })),
     };
     const lb = computeLeaderboard({

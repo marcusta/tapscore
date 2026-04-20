@@ -21,6 +21,8 @@ const AppendInput = Type.Object({
     strokes: Type.Union([Type.Number(), Type.Null()]),
     eventType: EventType,
     clientEventId: Type.String(),
+    sourcePlayerId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    sourceGuestPlayerId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 });
 
 // --- API descriptor ---

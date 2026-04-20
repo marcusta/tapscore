@@ -35,6 +35,8 @@ test('even-par round (all pars) scores 36 points over 18 holes', () => {
             strokes: 4, // par
             recordedBy: null,
             recordedAt: '',
+            sourcePlayerId: null,
+            sourceGuestPlayerId: null,
         })),
     };
     const r = s.compute(singleSlot(input, holes), slot()).participantResults[0];
@@ -58,6 +60,8 @@ test('bogey-golf round (all +1) scores 18 points over 18 holes', () => {
             strokes: 5, // bogey
             recordedBy: null,
             recordedAt: '',
+            sourcePlayerId: null,
+            sourceGuestPlayerId: null,
         })),
     };
     const r = s.compute(singleSlot(input, holes), slot()).participantResults[0];
@@ -82,6 +86,8 @@ test('strokes given (PH > 0) elevates per-hole points via net-par adjustment', (
             strokes: 4,
             recordedBy: null,
             recordedAt: '',
+            sourcePlayerId: null,
+            sourceGuestPlayerId: null,
         })),
     };
     const r = s.compute(singleSlot(input, holes), slot()).participantResults[0];
@@ -101,6 +107,8 @@ test('strokes given from partial PH land on low-SI holes first', () => {
             strokes: 4,
             recordedBy: null,
             recordedAt: '',
+            sourcePlayerId: null,
+            sourceGuestPlayerId: null,
         })),
     };
     const r = s.compute(singleSlot(input, holes), slot()).participantResults[0];
@@ -120,11 +128,11 @@ test('net eagle/birdie/par/bogey/double yield 4/3/2/1/0 points', () => {
         participantId: 'p1',
         playingHandicap: 0,
         holes: [
-            { holeNumber: 1, strokes: 2, recordedBy: null, recordedAt: '' }, // eagle → 4
-            { holeNumber: 2, strokes: 3, recordedBy: null, recordedAt: '' }, // birdie → 3
-            { holeNumber: 3, strokes: 4, recordedBy: null, recordedAt: '' }, // par → 2
-            { holeNumber: 4, strokes: 5, recordedBy: null, recordedAt: '' }, // bogey → 1
-            { holeNumber: 5, strokes: 6, recordedBy: null, recordedAt: '' }, // double → 0
+            { holeNumber: 1, strokes: 2, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null }, // eagle → 4
+            { holeNumber: 2, strokes: 3, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null }, // birdie → 3
+            { holeNumber: 3, strokes: 4, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null }, // par → 2
+            { holeNumber: 4, strokes: 5, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null }, // bogey → 1
+            { holeNumber: 5, strokes: 6, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null }, // double → 0
         ],
     };
     const r = s.compute(singleSlot(input, holes), slot()).participantResults[0];
@@ -141,7 +149,7 @@ test('triple bogey and worse clamp to 0 points, not negative', () => {
     const input: ParticipantInput = {
         participantId: 'p1',
         playingHandicap: 0,
-        holes: [{ holeNumber: 1, strokes: 9, recordedBy: null, recordedAt: '' }],
+        holes: [{ holeNumber: 1, strokes: 9, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null }],
     };
     const r = s.compute(singleSlot(input, holes), slot()).participantResults[0];
     expect(r.holes[0].points).toBe(0);
@@ -160,6 +168,8 @@ test('pickup scores 0 points on the hole but total stays valid', () => {
             strokes: scoring[i],
             recordedBy: null,
             recordedAt: '',
+            sourcePlayerId: null,
+            sourceGuestPlayerId: null,
         })),
     };
     const r = s.compute(singleSlot(input, holes), slot()).participantResults[0];
@@ -183,6 +193,8 @@ test('DNP leaves the hole null but the running total still sums non-null holes',
             strokes: scoring[i],
             recordedBy: null,
             recordedAt: '',
+            sourcePlayerId: null,
+            sourceGuestPlayerId: null,
         })),
     };
     const r = s.compute(singleSlot(input, holes), slot()).participantResults[0];
@@ -199,9 +211,9 @@ test('mid-round with no event for later holes reports partial total', () => {
         participantId: 'p1',
         playingHandicap: 0,
         holes: [
-            { holeNumber: 1, strokes: 4, recordedBy: null, recordedAt: '' },
-            { holeNumber: 2, strokes: 4, recordedBy: null, recordedAt: '' },
-            { holeNumber: 3, strokes: 4, recordedBy: null, recordedAt: '' },
+            { holeNumber: 1, strokes: 4, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null },
+            { holeNumber: 2, strokes: 4, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null },
+            { holeNumber: 3, strokes: 4, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null },
         ],
     };
     const r = s.compute(singleSlot(input, holes), slot()).participantResults[0];
@@ -223,6 +235,8 @@ test('totals list contains only points — no gross/net rollup for stableford', 
             strokes: 4,
             recordedBy: null,
             recordedAt: '',
+            sourcePlayerId: null,
+            sourceGuestPlayerId: null,
         })),
     };
     const r = s.compute(singleSlot(input, holes), slot()).participantResults[0];

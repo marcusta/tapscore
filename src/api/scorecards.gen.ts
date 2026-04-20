@@ -11,6 +11,8 @@ export interface ScorecardHole {
     strokes: null | number;
     recordedBy: null | string;
     recordedAt: string;
+    sourcePlayerId: null | string;
+    sourceGuestPlayerId: null | string;
 }
 
 export interface ScorecardsApi {
