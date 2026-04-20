@@ -130,10 +130,18 @@ export type HoleScores = Record<number, number | null>;
  * tag every event with the player-within-team identity (used by
  * better-ball, Taliban, Umbrella). Default null/null preserves the
  * individual / foursomes shape and keeps existing seeds byte-identical.
+ *
+ * `metadata` is an optional per-event JSON blob (migration 014). Umbrella
+ * uses `{gir: boolean}` per per-player event. Default null. When
+ * `play(scores, {metadata: {...}})` is passed as a plain object, the same
+ * metadata is attached to every hole in `scores`. For per-hole variation,
+ * pass `metadataFor(hole) => {...}` instead.
  */
 export interface PlayOptions {
     sourcePlayerId?: string | null;
     sourceGuestPlayerId?: string | null;
+    metadata?: Record<string, unknown> | null;
+    metadataFor?: (hole: number) => Record<string, unknown> | null;
 }
 
 // --- Refs ---
@@ -489,6 +497,10 @@ export class ParticipantScenarioRef {
             .sort((a, b) => a - b);
         for (const hole of holeNumbers) {
             const strokes = scores[hole];
+            const metadata =
+                options.metadataFor !== undefined
+                    ? options.metadataFor(hole)
+                    : (options.metadata ?? null);
             await this.s.services.scoreEventService.append({
                 roundId: this.round.id,
                 participantId: this.participant.id,
@@ -500,6 +512,7 @@ export class ParticipantScenarioRef {
                 recordedAt: new Date(baseMs + offset).toISOString(),
                 sourcePlayerId: options.sourcePlayerId ?? null,
                 sourceGuestPlayerId: options.sourceGuestPlayerId ?? null,
+                metadata,
             });
             offset += 1000;
         }
@@ -517,6 +530,7 @@ export class ParticipantScenarioRef {
             recordedAt: new Date().toISOString(),
             sourcePlayerId: options.sourcePlayerId ?? null,
             sourceGuestPlayerId: options.sourceGuestPlayerId ?? null,
+            metadata: options.metadata ?? null,
         });
     }
 }

@@ -264,3 +264,95 @@ test('pickForSource returns the matching hole, null otherwise', async () => {
     expect(pickForSource(sc.holes, 'nonexistent', null)).toBeNull();
     expect(pickForSource(sc.holes, null, null)).toBeNull();
 });
+
+// --- metadata (phase 2.5h / migration 014) ---
+
+test('scorecard row surfaces metadata from latest event (null source)', async () => {
+    const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
+    await scoreEventService.append({
+        roundId,
+        participantId: p1Id,
+        hole: 1,
+        strokes: 4,
+        eventType: 'score_entered',
+        clientEventId: 'c1',
+        metadata: { gir: true },
+    });
+    const sc = await scorecardService.forParticipant(p1Id);
+    expect(sc.holes[0].metadata).toEqual({ gir: true });
+    // forRound returns the same metadata through the multi-participant path.
+    const all = await scorecardService.forRound(roundId);
+    expect(all[0].holes[0].metadata).toEqual({ gir: true });
+});
+
+test('scorecard row surfaces metadata from latest event (per-player source)', async () => {
+    const { scoreEventService, scorecardService, roundId, teamId, aliceId, bobId } =
+        await setupWithTeam();
+    await scoreEventService.append({
+        roundId,
+        participantId: teamId,
+        hole: 1,
+        strokes: 4,
+        eventType: 'score_entered',
+        clientEventId: 'a1',
+        sourcePlayerId: aliceId,
+        metadata: { gir: true },
+    });
+    await scoreEventService.append({
+        roundId,
+        participantId: teamId,
+        hole: 1,
+        strokes: 5,
+        eventType: 'score_entered',
+        clientEventId: 'b1',
+        sourcePlayerId: bobId,
+        metadata: { gir: false },
+    });
+    const sc = await scorecardService.forParticipant(teamId);
+    const aliceHole = sc.holes.find((h) => h.sourcePlayerId === aliceId)!;
+    const bobHole = sc.holes.find((h) => h.sourcePlayerId === bobId)!;
+    expect(aliceHole.metadata).toEqual({ gir: true });
+    expect(bobHole.metadata).toEqual({ gir: false });
+});
+
+test('later event overwrites earlier metadata in the materialised view', async () => {
+    const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
+    await scoreEventService.append({
+        roundId,
+        participantId: p1Id,
+        hole: 1,
+        strokes: 4,
+        eventType: 'score_entered',
+        clientEventId: 'early',
+        recordedAt: '2026-05-01T10:00:00.000Z',
+        metadata: { gir: false },
+    });
+    await scoreEventService.append({
+        roundId,
+        participantId: p1Id,
+        hole: 1,
+        strokes: 5,
+        eventType: 'score_entered',
+        clientEventId: 'late',
+        recordedAt: '2026-05-01T10:05:00.000Z',
+        metadata: { gir: true, putts: 2 },
+    });
+    const sc = await scorecardService.forParticipant(p1Id);
+    expect(sc.holes).toHaveLength(1);
+    expect(sc.holes[0].strokes).toBe(5);
+    expect(sc.holes[0].metadata).toEqual({ gir: true, putts: 2 });
+});
+
+test('scorecard metadata defaults to null when unset', async () => {
+    const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
+    await scoreEventService.append({
+        roundId,
+        participantId: p1Id,
+        hole: 1,
+        strokes: 4,
+        eventType: 'score_entered',
+        clientEventId: 'c1',
+    });
+    const sc = await scorecardService.forParticipant(p1Id);
+    expect(sc.holes[0].metadata).toBeNull();
+});

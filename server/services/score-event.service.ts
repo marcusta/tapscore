@@ -24,6 +24,14 @@ export interface ScoreEvent {
      */
     sourcePlayerId: string | null;
     sourceGuestPlayerId: string | null;
+    /**
+     * Supplemental per-event JSON metadata (migration 014 — Umbrella
+     * prerequisite). Stored as TEXT, parsed at this boundary. `null` when
+     * the event has no attached metadata. Umbrella uses `metadata.gir`
+     * (boolean) per per-player event. Future formats attach any additional
+     * hole-level signal here without a schema change.
+     */
+    metadata: Record<string, unknown> | null;
 }
 
 export interface AppendScoreEventInput {
@@ -43,6 +51,12 @@ export interface AppendScoreEventInput {
      */
     sourcePlayerId?: string | null;
     sourceGuestPlayerId?: string | null;
+    /**
+     * Optional per-event metadata (migration 014). Serialised to a JSON
+     * string on write. Default `null` (unset / cleared). Umbrella's seed
+     * populates `{gir: boolean}` per per-player event.
+     */
+    metadata?: Record<string, unknown> | null;
 }
 
 export interface AppendResult {
@@ -68,7 +82,33 @@ function toEvent(row: ScoreEventRow): ScoreEvent {
         clientEventId: row.client_event_id,
         sourcePlayerId: row.source_player_id,
         sourceGuestPlayerId: row.source_guest_player_id,
+        metadata: parseMetadata(row.metadata),
     };
+}
+
+/**
+ * Parse a `metadata` TEXT value from the DB. Null stays null. A string is
+ * JSON.parse'd and must yield an object; anything else (array, scalar,
+ * malformed JSON) throws with a clear message. This is the read boundary
+ * for the untyped JSON blob — keep errors loud so a corrupt row is spotted
+ * at first read rather than propagated as an odd rendering.
+ */
+function parseMetadata(raw: string | null): Record<string, unknown> | null {
+    if (raw === null) return null;
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(raw);
+    } catch (err) {
+        throw new Error(
+            `score-event metadata: malformed JSON in DB — ${(err as Error).message} (raw: ${raw.slice(0, 80)})`,
+        );
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error(
+            `score-event metadata: expected JSON object, got ${parsed === null ? 'null' : Array.isArray(parsed) ? 'array' : typeof parsed}`,
+        );
+    }
+    return parsed as Record<string, unknown>;
 }
 
 export class ScoreEventService {
@@ -112,6 +152,7 @@ export class ScoreEventService {
             recorded_at?: string;
             source_player_id: string | null;
             source_guest_player_id: string | null;
+            metadata: string | null;
         },
         trx: Kysely<Database> = this.db,
     ) {
@@ -152,6 +193,9 @@ export class ScoreEventService {
             return { event: toEvent(existing), inserted: false };
         }
 
+        const metadata = input.metadata ?? null;
+        const metadataText = metadata === null ? null : JSON.stringify(metadata);
+
         const id = crypto.randomUUID();
         await this.db.transaction().execute(async (trx) => {
             const values: Parameters<typeof this.insertEvent>[0] = {
@@ -165,6 +209,7 @@ export class ScoreEventService {
                 client_event_id: input.clientEventId,
                 source_player_id: sourcePlayerId,
                 source_guest_player_id: sourceGuestPlayerId,
+                metadata: metadataText,
             };
             if (input.recordedAt !== undefined) values.recorded_at = input.recordedAt;
             await this.insertEvent(values, trx).execute();

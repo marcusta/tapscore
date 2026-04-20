@@ -198,3 +198,94 @@ test('append with both source ids null persists (individual / foursomes path)', 
     expect(res.event.sourcePlayerId).toBeNull();
     expect(res.event.sourceGuestPlayerId).toBeNull();
 });
+
+// --- metadata (phase 2.5h / migration 014) ---
+
+test('append with metadata populated — persisted + round-trip JSON parse', async () => {
+    const { scoreEventService, roundId, participantId } = await setup();
+    const res = await scoreEventService.append({
+        roundId,
+        participantId,
+        hole: 1,
+        strokes: 4,
+        eventType: 'score_entered',
+        clientEventId: 'c1',
+        metadata: { gir: true, putts: 2 },
+    });
+    expect(res.event.metadata).toEqual({ gir: true, putts: 2 });
+    const list = await scoreEventService.listByRound(roundId);
+    expect(list[0].metadata).toEqual({ gir: true, putts: 2 });
+    const got = await scoreEventService.getById(res.event.id);
+    expect(got?.metadata).toEqual({ gir: true, putts: 2 });
+});
+
+test('append with metadata null — works and round-trips as null', async () => {
+    const { scoreEventService, roundId, participantId } = await setup();
+    const res = await scoreEventService.append({
+        roundId,
+        participantId,
+        hole: 1,
+        strokes: 4,
+        eventType: 'score_entered',
+        clientEventId: 'c1',
+        metadata: null,
+    });
+    expect(res.event.metadata).toBeNull();
+});
+
+test('append with metadata unset — defaults to null', async () => {
+    const { scoreEventService, roundId, participantId } = await setup();
+    const res = await scoreEventService.append({
+        roundId,
+        participantId,
+        hole: 1,
+        strokes: 4,
+        eventType: 'score_entered',
+        clientEventId: 'c1',
+    });
+    expect(res.event.metadata).toBeNull();
+});
+
+test('malformed metadata in DB throws a clear error on read', async () => {
+    const ctx = await setup();
+    await ctx.scoreEventService.append({
+        roundId: ctx.roundId,
+        participantId: ctx.participantId,
+        hole: 1,
+        strokes: 4,
+        eventType: 'score_entered',
+        clientEventId: 'c1',
+    });
+    // Corrupt the stored metadata directly — simulate a bad write or a
+    // legacy row that didn't observe the parse contract. The test context
+    // exposes the raw Kysely instance via `db`.
+    await ctx.db
+        .updateTable('score_events')
+        .set({ metadata: 'not-json' })
+        .where('round_id', '=', ctx.roundId)
+        .execute();
+    await expect(ctx.scoreEventService.listByRound(ctx.roundId)).rejects.toThrow(
+        /malformed JSON/,
+    );
+});
+
+test('non-object JSON metadata throws a clear error on read', async () => {
+    const ctx = await setup();
+    await ctx.scoreEventService.append({
+        roundId: ctx.roundId,
+        participantId: ctx.participantId,
+        hole: 1,
+        strokes: 4,
+        eventType: 'score_entered',
+        clientEventId: 'c1',
+    });
+    // JSON-valid but not an object (array) — should still throw.
+    await ctx.db
+        .updateTable('score_events')
+        .set({ metadata: '[1,2,3]' })
+        .where('round_id', '=', ctx.roundId)
+        .execute();
+    await expect(ctx.scoreEventService.listByRound(ctx.roundId)).rejects.toThrow(
+        /expected JSON object/,
+    );
+});

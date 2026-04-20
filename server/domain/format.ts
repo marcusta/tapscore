@@ -223,6 +223,7 @@ import { kopenhamnareIndividual } from './formats/kopenhamnare-individual';
 import { stablefordBetterBall } from './formats/stableford-better-ball';
 import { strokePlayFoursomes } from './formats/stroke-play-foursomes';
 import { talibanBetterBall } from './formats/taliban-better-ball';
+import { umbrellaFourBall } from './formats/umbrella-4-ball';
 
 registerFormat(strokePlayIndividual);
 registerFormat(stablefordIndividual);
@@ -231,3 +232,4 @@ registerFormat(kopenhamnareIndividual);
 registerFormat(stablefordBetterBall);
 registerFormat(strokePlayFoursomes);
 registerFormat(talibanBetterBall);
+registerFormat(umbrellaFourBall);

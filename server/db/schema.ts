@@ -46,11 +46,13 @@ export type ScoringMode =
     | 'match_play'
     | 'kopenhamnare'
     | 'taliban'
+    | 'umbrella'
     | 'skins'
     | 'custom';
 export type TeamShape =
     | 'individual'
     | 'better_ball'
+    | 'four_ball'
     | 'scramble'
     | 'foursomes'
     | 'greensome'
@@ -125,6 +127,13 @@ export interface ScoreEventsTable {
      */
     source_player_id: string | null;
     source_guest_player_id: string | null;
+    /**
+     * Supplemental per-hole JSON blob (migration 014 — Umbrella prerequisite).
+     * SQLite has no native JSON type; stored as TEXT, parsed at the service
+     * boundary. Umbrella reads `metadata.gir` per per-player event. Null for
+     * events that have no supplemental data to attach.
+     */
+    metadata: string | null;
 }
 
 export interface ScorecardsTable {
@@ -143,6 +152,12 @@ export interface ScorecardsTable {
      * directly — SQLite maintains it.
      */
     source_key: Generated<string>;
+    /**
+     * Latest event's `metadata` blob (migration 014). Flows through the
+     * `scorecards_rebuild_on_event` trigger. Parsed by `scorecard.service.ts`
+     * at the read boundary; stored as TEXT.
+     */
+    metadata: string | null;
 }
 
 export interface RoleGrantsTable {

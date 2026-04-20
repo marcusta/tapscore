@@ -23,6 +23,11 @@ const AppendInput = Type.Object({
     clientEventId: Type.String(),
     sourcePlayerId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     sourceGuestPlayerId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    // Per-event JSON metadata (migration 014). Umbrella uses `{gir: boolean}`.
+    // Keeps the wire permissive — format strategies read what they need.
+    metadata: Type.Optional(
+        Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
+    ),
 });
 
 // --- API descriptor ---

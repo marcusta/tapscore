@@ -16,6 +16,18 @@ export interface ScorecardHole {
      */
     sourcePlayerId: string | null;
     sourceGuestPlayerId: string | null;
+    /**
+     * Supplemental per-hole JSON metadata from the latest event for this
+     * `(participant, hole, source)`. Flows through the rebuild trigger
+     * (migration 014). Null when no metadata was attached. Umbrella reads
+     * `metadata.gir` (boolean); absent → treated as not GIR.
+     *
+     * Optional in the TypeScript type so pre-014 test fixtures that build
+     * ScorecardHole literals by hand don't need per-fixture updates. The
+     * runtime read path (`toHole`, `forRound`) always populates it (null
+     * or parsed object) — see `parseMetadata`.
+     */
+    metadata?: Record<string, unknown> | null;
 }
 
 export interface Scorecard {
@@ -35,7 +47,32 @@ function toHole(row: ScorecardRow): ScorecardHole {
         recordedAt: toIsoUtc(row.recorded_at),
         sourcePlayerId: row.source_player_id,
         sourceGuestPlayerId: row.source_guest_player_id,
+        metadata: parseMetadata(row.metadata),
     };
+}
+
+/**
+ * Parse a scorecard row's `metadata` TEXT. Null stays null. A string is
+ * JSON.parse'd and must be an object; anything else throws. Mirrors
+ * `score-event.service.ts::parseMetadata` — kept local to this service so
+ * the read-time contract is visible at the call site.
+ */
+function parseMetadata(raw: string | null): Record<string, unknown> | null {
+    if (raw === null) return null;
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(raw);
+    } catch (err) {
+        throw new Error(
+            `scorecard metadata: malformed JSON in DB — ${(err as Error).message} (raw: ${raw.slice(0, 80)})`,
+        );
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error(
+            `scorecard metadata: expected JSON object, got ${parsed === null ? 'null' : Array.isArray(parsed) ? 'array' : typeof parsed}`,
+        );
+    }
+    return parsed as Record<string, unknown>;
 }
 
 /**
@@ -81,6 +118,7 @@ export class ScorecardService {
                 'scorecards.latest_event_id',
                 'scorecards.source_player_id',
                 'scorecards.source_guest_player_id',
+                'scorecards.metadata',
             ])
             .orderBy('scorecards.participant_id')
             .orderBy('scorecards.hole')
@@ -109,6 +147,7 @@ export class ScorecardService {
                 recordedAt: toIsoUtc(row.recorded_at),
                 sourcePlayerId: row.source_player_id,
                 sourceGuestPlayerId: row.source_guest_player_id,
+                metadata: parseMetadata(row.metadata),
             };
             const bucket = byParticipant.get(row.participant_id);
             if (bucket) bucket.push(hole);
