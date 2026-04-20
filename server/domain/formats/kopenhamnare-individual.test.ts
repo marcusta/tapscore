@@ -85,7 +85,7 @@ test('all three distinct (4 / 2 / 0) — annotated per-hole', () => {
     expect(points).toEqual([4, 2, 0]);
     expect(result.participantResults[0].holes[0].note).toBe('4 of 6 (sole best)');
     expect(result.participantResults[1].holes[0].note).toBe('2 of 6 (middle)');
-    expect(result.participantResults[2].holes[0].note).toBe('0 of 6 (worst)');
+    expect(result.participantResults[2].holes[0].note).toBe('0 of 6 (sole worst)');
 });
 
 test('sole best + two tied (4 / 1 / 1)', () => {

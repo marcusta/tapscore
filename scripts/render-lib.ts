@@ -269,37 +269,53 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
     const { round, course, participants, events, leaderboard, scorecards, playersById, guestsById, teesById, dbPath } = ctx;
     const scorecardByParticipant = new Map(scorecards.map((sc) => [sc.participantId, sc]));
 
-    // Better-ball detection — hoisted above `participantLabel` because the
-    // label uses `&` between team members for better-ball.
-    const isBetterBall =
-        round.formatSlots[0]?.scoringMode === 'stableford' &&
-        round.formatSlots[0]?.teamShape === 'better_ball';
-    // Foursomes detection — alternate-shot teams render as individual
-    // stroke-play cards (one Gross / Net row) but display both names in
-    // the header (`"Alice & Bob"`) and show the allowance percentage.
-    const isFoursomes =
-        round.formatSlots[0]?.scoringMode === 'stroke_play' &&
-        round.formatSlots[0]?.teamShape === 'foursomes';
-    // Taliban detection — 2v2 match-play variant. Renders per-player
-    // Gross/Net sub-rows (like better-ball) plus a team-level Status row
-    // (`W+2` / `L` / `AS` / `W+5` per hole). Pair summary surfaces in the
-    // Match results section of the leaderboard.
-    const isTaliban =
-        round.formatSlots[0]?.scoringMode === 'taliban' &&
-        round.formatSlots[0]?.teamShape === 'better_ball';
-    // Umbrella detection — 2v2 points-per-hole format with a 5-category
-    // matrix per hole and a sweep doubler. Renders per-player Gross
-    // sub-rows, a GIR sub-row per player (from `metadata.gir`), and a team
-    // category matrix row (LG / LT / GA / GB / B) per hole plus a team
-    // Points row with the umbrella multiplier badge on sweep holes.
-    const isUmbrella =
-        round.formatSlots[0]?.scoringMode === 'umbrella' &&
-        round.formatSlots[0]?.teamShape === 'four_ball';
-    const umbrellaBirdieRule =
-        isUmbrella
-            ? ((round.formatSlots[0]!.scopeConfig?.config?.birdieRule as string | undefined) ??
-              'gross')
+    // Per-participant slot lookup. Multi-slot rounds scope participants via
+    // `scopeConfig.scope.participantIds` (same convention as
+    // leaderboard.service.ts). Single-slot rounds without scope fall back
+    // to "everyone in slot 0".
+    const slotByParticipantId = new Map<string, typeof round.formatSlots[number]>();
+    const singleSlotNoScope =
+        round.formatSlots.length === 1 &&
+        (round.formatSlots[0]!.scopeConfig?.scope?.participantIds ?? null) === null;
+    if (singleSlotNoScope) {
+        for (const p of participants) {
+            slotByParticipantId.set(p.id, round.formatSlots[0]!);
+        }
+    } else {
+        for (const p of participants) {
+            const match = round.formatSlots.find((s) =>
+                s.scopeConfig?.scope?.participantIds?.includes(p.id),
+            );
+            if (match) slotByParticipantId.set(p.id, match);
+        }
+    }
+
+    // Per-participant format detection — a team-shape format in one slot must
+    // not leak layout choices into another slot's participants. Each scorecard
+    // variant asks its OWN slot what format it is.
+    const isBetterBallSlot = (s: typeof round.formatSlots[number] | undefined): boolean =>
+        s?.scoringMode === 'stableford' && s?.teamShape === 'better_ball';
+    const isFoursomesSlot = (s: typeof round.formatSlots[number] | undefined): boolean =>
+        s?.scoringMode === 'stroke_play' && s?.teamShape === 'foursomes';
+    const isTalibanSlot = (s: typeof round.formatSlots[number] | undefined): boolean =>
+        s?.scoringMode === 'taliban' && s?.teamShape === 'better_ball';
+    const isUmbrellaSlot = (s: typeof round.formatSlots[number] | undefined): boolean =>
+        s?.scoringMode === 'umbrella' && s?.teamShape === 'four_ball';
+    const umbrellaBirdieRuleFor = (
+        s: typeof round.formatSlots[number] | undefined,
+    ): string | null =>
+        isUmbrellaSlot(s)
+            ? ((s!.scopeConfig?.config?.birdieRule as string | undefined) ?? 'gross')
             : null;
+
+    const isParticipantBetterBall = (p: Participant): boolean =>
+        isBetterBallSlot(slotByParticipantId.get(p.id));
+    const isParticipantFoursomes = (p: Participant): boolean =>
+        isFoursomesSlot(slotByParticipantId.get(p.id));
+    const isParticipantTaliban = (p: Participant): boolean =>
+        isTalibanSlot(slotByParticipantId.get(p.id));
+    const isParticipantUmbrella = (p: Participant): boolean =>
+        isUmbrellaSlot(slotByParticipantId.get(p.id));
 
     const participantLabel = (p: Participant): string => {
         const names = p.players.map((link) => {
@@ -313,8 +329,14 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         if (!names.length) return `participant:${short(p.id)}`;
         // Team-shape formats use " & " between members; individual-shape
         // participants only ever have one name anyway, so the separator is
-        // mostly cosmetic when there's 2+ players.
-        const sep = isBetterBall || isFoursomes || isTaliban || isUmbrella ? ' & ' : ' + ';
+        // mostly cosmetic when there's 2+ players. Detection is per-slot so
+        // a foursomes team in slot #1 gets `&` even when slot #0 is singles.
+        const teamShape =
+            isParticipantBetterBall(p) ||
+            isParticipantFoursomes(p) ||
+            isParticipantTaliban(p) ||
+            isParticipantUmbrella(p);
+        const sep = teamShape ? ' & ' : ' + ';
         return names.join(sep);
     };
     const playerName = (id: string | null): string => {
@@ -430,37 +452,45 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         pairResultsByParticipant.set(pr.participants[1], pr);
     }
 
-    // Köpenhamnare: if the (current-stub) slot 0 is kopenhamnare × individual,
-    // derive effective PH per participant for the card-header annotation. The
-    // snapshot is always shown; the effective PH surfaces how delta_from_min
-    // shifts it (e.g. snapshot PH=22, mode=delta_from_min → effective PH=17).
-    const firstSlot = round.formatSlots[0];
-    const isKopenhamnare =
-        firstSlot?.scoringMode === 'kopenhamnare' && firstSlot?.teamShape === 'individual';
-    const kopenHandicapMode =
-        isKopenhamnare
-            ? ((firstSlot.scopeConfig?.config?.handicapMode as string | undefined) ??
+    // Köpenhamnare: for any kopenhamnare × individual slot, derive effective
+    // PH per participant for the card-header annotation. The snapshot is
+    // always shown; the effective PH surfaces how delta_from_min shifts it
+    // (e.g. snapshot PH=22, mode=delta_from_min → effective PH=17). Handled
+    // per slot so a hypothetical multi-slot layout with two kopenhamnare
+    // groups computes the min within each group.
+    const isKopenhamnareSlot = (
+        s: typeof round.formatSlots[number] | undefined,
+    ): boolean => s?.scoringMode === 'kopenhamnare' && s?.teamShape === 'individual';
+    const kopenHandicapModeFor = (
+        s: typeof round.formatSlots[number] | undefined,
+    ): string | null =>
+        isKopenhamnareSlot(s)
+            ? ((s!.scopeConfig?.config?.handicapMode as string | undefined) ??
               'standard')
             : null;
     const effectivePHByParticipant = new Map<string, number | null>();
-    if (isKopenhamnare) {
-        const phs = participants.map((p) => p.playingHandicapSnapshot);
-        if (kopenHandicapMode === 'delta_from_min') {
+    for (const slot of round.formatSlots) {
+        if (!isKopenhamnareSlot(slot)) continue;
+        const slotParticipants = participants.filter(
+            (p) => slotByParticipantId.get(p.id) === slot,
+        );
+        const mode = kopenHandicapModeFor(slot);
+        if (mode === 'delta_from_min') {
+            const phs = slotParticipants.map((p) => p.playingHandicapSnapshot);
             const allNonNull = phs.every((v) => v !== null) && phs.length > 0;
             if (allNonNull) {
                 const min = Math.min(...(phs as number[]));
-                for (const p of participants) {
+                for (const p of slotParticipants) {
                     effectivePHByParticipant.set(
                         p.id,
                         (p.playingHandicapSnapshot as number) - min,
                     );
                 }
             } else {
-                for (const p of participants) effectivePHByParticipant.set(p.id, null);
+                for (const p of slotParticipants) effectivePHByParticipant.set(p.id, null);
             }
         } else {
-            // standard — effective = snapshot.
-            for (const p of participants) {
+            for (const p of slotParticipants) {
                 effectivePHByParticipant.set(p.id, p.playingHandicapSnapshot);
             }
         }
@@ -674,12 +704,13 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
             .map((t) => `<li>${esc(t.scoringType)} = <strong>${t.value ?? '—'}</strong></li>`)
             .join('');
 
+        const slotFormat = round.formatSlots[result.slotIndex];
         return `
 <article class="scorecard-card">
   <header>
     <h3>${esc(participantLabel(p))}</h3>
     <span class="muted">
-      slot #${result.slotIndex} · ${esc(round.formatSlots[0]?.scoringMode ?? '')} × ${esc(round.formatSlots[0]?.teamShape ?? '')} · team PH ${p.playingHandicapSnapshot ?? '—'} · holes played ${result.holesPlayed}
+      slot #${result.slotIndex} · ${esc(slotFormat?.scoringMode ?? '')} × ${esc(slotFormat?.teamShape ?? '')} · team PH ${p.playingHandicapSnapshot ?? '—'} · holes played ${result.holesPlayed}
     </span>
   </header>
   <table class="scorecard">
@@ -704,8 +735,10 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         // inherits the strokes that fall on its holes, not a fresh 9-hole allocation.
         // For Köpenhamnare under delta_from_min, the Given row shows the EFFECTIVE
         // strokes (lowest-PH player plays off 0; others get their delta).
+        const participantSlot = slotByParticipantId.get(p.id);
+        const isKopenhamnareParticipant = isKopenhamnareSlot(participantSlot);
         const phForStrokes =
-            isKopenhamnare && effectivePHByParticipant.has(p.id)
+            isKopenhamnareParticipant && effectivePHByParticipant.has(p.id)
                 ? (effectivePHByParticipant.get(p.id) ?? p.playingHandicapSnapshot)
                 : p.playingHandicapSnapshot;
         const strokesGiven = strokesGivenMap(phForStrokes, allCourseHoles);
@@ -844,10 +877,10 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         // Köpenhamnare header annotation: declare mode + effective PH next to
         // the snapshot so the reader can see e.g. "PH 23 → eff 19 (delta_from_min)".
         const kopenAnnotation =
-            isKopenhamnare
+            isKopenhamnareParticipant
                 ? (() => {
                       const eff = effectivePHByParticipant.get(p.id);
-                      const modeLabel = esc(kopenHandicapMode ?? 'standard');
+                      const modeLabel = esc(kopenHandicapModeFor(participantSlot) ?? 'standard');
                       if (eff === undefined || eff === null) return ` · mode ${modeLabel}`;
                       if (p.playingHandicapSnapshot !== null && eff !== p.playingHandicapSnapshot) {
                           return ` · eff PH ${eff} (mode ${modeLabel})`;
@@ -862,7 +895,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         // 50% allowance.
         const slotFormat = round.formatSlots[result.slotIndex];
         const foursomesAnnotation =
-            isFoursomes && slotFormat
+            isFoursomesSlot(slotFormat) && slotFormat
                 ? ` · ${esc(slotFormat.scoringMode)} × ${esc(slotFormat.teamShape)} @ ${slotFormat.allowancePct}%`
                 : '';
 
@@ -1028,12 +1061,13 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
             () => '—',
         );
 
+        const slotFormat = round.formatSlots[result.slotIndex];
         return `
 <article class="scorecard-card">
   <header>
     <h3>${esc(participantLabel(p))}</h3>
     <span class="muted">
-      slot #${result.slotIndex} · ${esc(round.formatSlots[0]?.scoringMode ?? '')} × ${esc(round.formatSlots[0]?.teamShape ?? '')} @ ${round.formatSlots[0]?.allowancePct ?? 100}% · team PH ${p.playingHandicapSnapshot ?? '—'} · holes played ${result.holesPlayed}
+      slot #${result.slotIndex} · ${esc(slotFormat?.scoringMode ?? '')} × ${esc(slotFormat?.teamShape ?? '')} @ ${slotFormat?.allowancePct ?? 100}% · team PH ${p.playingHandicapSnapshot ?? '—'} · holes played ${result.holesPlayed}
     </span>
   </header>
   <table class="scorecard">
@@ -1244,7 +1278,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         const slotFormat = round.formatSlots[result.slotIndex];
         const umbrellaHeader =
             slotFormat
-                ? `slot #${result.slotIndex} · ${esc(slotFormat.scoringMode)} × ${esc(slotFormat.teamShape)} @ ${slotFormat.allowancePct}% · birdieRule ${esc(umbrellaBirdieRule ?? 'gross')}`
+                ? `slot #${result.slotIndex} · ${esc(slotFormat.scoringMode)} × ${esc(slotFormat.teamShape)} @ ${slotFormat.allowancePct}% · birdieRule ${esc(umbrellaBirdieRuleFor(slotFormat) ?? 'gross')}`
                 : `slot #${result.slotIndex}`;
 
         return `
@@ -1276,9 +1310,9 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         const cards = participants.map((p) => {
             const r = resultByParticipant.get(p.id);
             if (!r) return '';
-            if (isBetterBall) return renderBetterBallScorecard(r, p, playedCourseHoles);
-            if (isTaliban) return renderTalibanScorecard(r, p, playedCourseHoles);
-            if (isUmbrella) return renderUmbrellaScorecard(r, p, playedCourseHoles);
+            if (isParticipantBetterBall(p)) return renderBetterBallScorecard(r, p, playedCourseHoles);
+            if (isParticipantTaliban(p)) return renderTalibanScorecard(r, p, playedCourseHoles);
+            if (isParticipantUmbrella(p)) return renderUmbrellaScorecard(r, p, playedCourseHoles);
             return renderScorecard(r, p, playedCourseHoles);
         });
         return `
@@ -1362,13 +1396,14 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
             // `slotIndex` matches. Taliban today is single-slot, so it falls
             // naturally into its slot's section.
             const slotPairs = leaderboard.pairResults.filter((pr) => pr.slotIndex === slotIndex);
+            const slotIsTaliban = isTalibanSlot(slot);
             const pairSection = slotPairs.length > 0
                 ? (() => {
                       const rows = slotPairs.map((pr) => {
                           const a = participantName(pr.participants[0]);
                           const b = participantName(pr.participants[1]);
                           let line: string;
-                          if (isTaliban) {
+                          if (slotIsTaliban) {
                               line = esc(pr.summary);
                           } else if (pr.result === 'won') {
                               const winnerName = pr.winner === pr.participants[0] ? a : b;
@@ -1377,9 +1412,11 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
                           } else if (pr.result === 'lost') {
                               line = `${esc(b)} d. ${esc(a)}, ${esc(pr.summary)}`;
                           } else if (pr.result === 'halved') {
-                              line = `${esc(a)} & ${esc(b)} halved, ${esc(pr.summary)}`;
+                              // Golf idiom: unresolved matches use "vs." — resolved
+                              // results use "d." (defeated) or "& k" shorthand.
+                              line = `${esc(a)} vs. ${esc(b)} halved, ${esc(pr.summary)}`;
                           } else {
-                              line = `${esc(a)} vs ${esc(b)}, ${esc(pr.summary)} (in progress)`;
+                              line = `${esc(a)} vs. ${esc(b)}, ${esc(pr.summary)} (in progress)`;
                           }
                           return `<tr><td>${line}</td></tr>`;
                       });
@@ -1417,11 +1454,12 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
                 ? `Slot #${slot.slotIndex} · ${esc(slot.scoringMode)} × ${esc(slot.teamShape)} @ ${slot.allowancePct}%`
                 : `Slot #${slotIndex}`;
             const slotPairs = leaderboard.pairResults.filter((pr) => pr.slotIndex === slotIndex);
+            const slotIsTaliban = isTalibanSlot(slot);
             const rows = slotPairs.map((pr) => {
                 const a = participantName(pr.participants[0]);
                 const b = participantName(pr.participants[1]);
                 let line: string;
-                if (isTaliban) {
+                if (slotIsTaliban) {
                     line = esc(pr.summary);
                 } else if (pr.result === 'won') {
                     const winnerName = pr.winner === pr.participants[0] ? a : b;
@@ -1430,9 +1468,9 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
                 } else if (pr.result === 'lost') {
                     line = `${esc(b)} d. ${esc(a)}, ${esc(pr.summary)}`;
                 } else if (pr.result === 'halved') {
-                    line = `${esc(a)} & ${esc(b)} halved, ${esc(pr.summary)}`;
+                    line = `${esc(a)} vs. ${esc(b)} halved, ${esc(pr.summary)}`;
                 } else {
-                    line = `${esc(a)} vs ${esc(b)}, ${esc(pr.summary)} (in progress)`;
+                    line = `${esc(a)} vs. ${esc(b)}, ${esc(pr.summary)} (in progress)`;
                 }
                 return `<tr><td>${line}</td></tr>`;
             });

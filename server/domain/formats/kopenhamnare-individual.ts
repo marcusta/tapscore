@@ -147,7 +147,7 @@ function distribute6(nets: [number, number, number]): [HolePoints, HolePoints, H
         return nets.map((n): HolePoints => {
             if (n === best) return { points: 4, topology: '4 of 6 (sole best)' };
             if (n === mid) return { points: 2, topology: '2 of 6 (middle)' };
-            return { points: 0, topology: '0 of 6 (worst)' };
+            return { points: 0, topology: '0 of 6 (sole worst)' };
         }) as [HolePoints, HolePoints, HolePoints];
     }
     if (uniq.size === 1) {
