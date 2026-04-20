@@ -12,6 +12,19 @@ Authoritative rebuild plan. Each phase ends at a hand-test gate. New sessions pi
 
 When a phase finishes: commit with `phase N complete: <one-liner>`, update this file's status, stop for hand-test.
 
+## Verification via HTML render (standing rule)
+
+Every phase's gate includes an **HTML render** that shows the new entities and their computed views on a single static page, written to `tmp/` under the existing `scripts/render-all.ts` pipeline. The render is the primary hand-verification surface — tests prove the code runs, the render proves the *numbers are right* and the *shapes make sense to a human*.
+
+What "include in the render" means in practice:
+- **Data on the page.** Every new field the phase introduces — snapshots, wrapper-level metadata, computed totals, points, standings — must appear. If it's not on the page, the phase isn't verifiable.
+- **Arithmetic, not just results.** When a value is computed (WHS handicap, points from a template, tour standings aggregation), show the computation inline (`"14 × 124/113 + (69.5 − 71) = 13.86 → 14"`), not only the output.
+- **Real-world fidelity.** Match the shape of a real scorecard / leaderboard / standings page (OUT/IN/TOT, thru-N, position ties, projected vs official). User's mental model is the golf-industry norm.
+- **Pre-made seeds cover the new ground.** Extend `scripts/seeds/` so the user can trigger a representative scenario with `bun run seed <name>` without hand-scripting. At minimum: one seed per new entity or leaderboard shape the phase adds.
+- **Index page stays honest.** `tmp/index.html` (list of all rounds / competitions / tours, generated alongside) must surface the new wrapper type so it's discoverable.
+
+The render is not cosmetic polish. A phase that passes all tests but can't be inspected by eye is not complete.
+
 ---
 
 ## Phase 0 — Scaffold ✅
@@ -144,6 +157,12 @@ Add scoring modes: stableford, match-play. Add team shapes: better-ball, foursom
 
 Exercise multi-format-slot round (2 singles + 2 alternate-shot, different participant scopes). Confirm strategy interface composes without conditional branches on wrapper type.
 
+**HTML render expectations:**
+- Scorecard shows the new rows each format needs (Stableford points per hole + total; match-play hole status like `1UP / AS / 2DN`).
+- Per-participant card declares which slot they scored under (`slot #0 stableford × individual`, `slot #1 stroke_play × foursomes`) and the allowance.
+- Leaderboard adds a `points` column (stableford) ranked high-to-low, and match-play results expressed as holes up / holes remaining per pair.
+- Seeds: `stableford-round`, `match-play-round`, `multi-slot-series-round` (2 singles + 2 alternate-shot) — each renders cleanly and the numbers reconcile against a hand-drawn scorecard.
+
 **Mandatory stop + hand-test + review.** If the strategy interface needs reshape, reshape it here, not after Phase 3 piles on FriendlyRound and CompetitionRound. Commit `phase 2.5 complete: strategy coverage`.
 
 ---
@@ -156,6 +175,12 @@ Exercise multi-format-slot round (2 singles + 2 alternate-shot, different partic
 - Share-token join flow: guest creates a `guest_player`, joins via token, reads scoped to the round.
 - WHS posting: if `post_to_handicap`, a completed round writes to `handicap_history` via `handicap.service`.
 - FriendlyRound leaderboard = Round leaderboard. No new engine.
+
+**HTML render expectations:**
+- Round page header shows the FriendlyRound wrapper metadata: creator, share token, `post_to_handicap` flag.
+- If the round is completed and `post_to_handicap` is true, the post-round section shows the WHS entries that would/did get written to `handicap_history` per participant, with the arithmetic.
+- Index page distinguishes friendly rounds from plain rounds (badge / column).
+- Seed: `friendly-round-with-posting` — creator + guest join via share token, round completes, handicap history row appears.
 
 **Mandatory stop + hand-test + review.** Commit `phase 3 complete: friendly round`.
 
@@ -171,4 +196,4 @@ Exercise multi-format-slot round (2 singles + 2 alternate-shot, different partic
 - **9. Real-time** — added to `@basics/core` (framework change): WebSocket transport, cursor, client event queue, coalescing. Tapscore is the first consumer.
 - **10. Documents, finalization audit, admin tooling, manual-import flow** — final production polish.
 
-Plan each in detail at the start of its own session by expanding the corresponding section here.
+Plan each in detail at the start of its own session by expanding the corresponding section here. Each expansion **must** include an HTML render plan per the standing rule above — what the new wrapper / view / computation looks like on screen, and which seed(s) exercise it. Sketch the section contents (course/competition meta → participants → scorecards → leaderboard → standings → events / audit) so a future you knows what to render before starting the implementation.
