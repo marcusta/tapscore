@@ -207,3 +207,260 @@ test('full_18 round still covers all 18 holes', async () => {
     const lb = await leaderboardService.forRound(round.id);
     expect(lb.participantResults[0].holes).toHaveLength(18);
 });
+
+// --- Multi-slot scope routing (Phase 2.5i) ---
+
+test('single-slot round with no scope defaults every participant to slot 0 (back-compat)', async () => {
+    const { roundService, participantService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
+    const round = await roundService.create({
+        courseId,
+        date: '2026-05-01',
+        roundType: 'full_18',
+        venueType: 'outdoor',
+        startListMode: 'structured',
+        formatSlots: [slot], // no scopeConfig
+    });
+    const p1 = await participantService.create({
+        roundId: round.id,
+        snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+    });
+    const p2 = await participantService.create({
+        roundId: round.id,
+        snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+    });
+    for (let h = 1; h <= 18; h++) {
+        await scoreEventService.append({
+            roundId: round.id, participantId: p1.id, hole: h, strokes: 4,
+            eventType: 'score_entered', clientEventId: `p1-h${h}`,
+        });
+        await scoreEventService.append({
+            roundId: round.id, participantId: p2.id, hole: h, strokes: 5,
+            eventType: 'score_entered', clientEventId: `p2-h${h}`,
+        });
+    }
+
+    const lb = await leaderboardService.forRound(round.id);
+    // Both participants land in slot 0; one bucket per scoring type at slotIndex 0.
+    expect(lb.byScoringType).toHaveLength(2); // gross + net
+    for (const b of lb.byScoringType) {
+        expect(b.slotIndex).toBe(0);
+        expect(b.entries.map((e) => e.participantId).sort()).toEqual([p1.id, p2.id].sort());
+    }
+});
+
+test('multi-slot round routes each participant to the slot whose scope lists them', async () => {
+    const { roundService, participantService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
+
+    // Bootstrap round with a single throwaway slot so we can mint participant ids,
+    // then update the round with two slots whose scopes reference those ids.
+    const bootstrap = await roundService.create({
+        courseId, date: '2026-05-01', roundType: 'full_18',
+        venueType: 'outdoor', startListMode: 'structured',
+        formatSlots: [slot],
+    });
+    const pA = await participantService.create({
+        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+    });
+    const pB = await participantService.create({
+        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+    });
+    const pC = await participantService.create({
+        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+    });
+
+    // Now widen to two slots with explicit per-slot scopes.
+    await roundService.update(bootstrap.id, {
+        formatSlots: [
+            {
+                slotIndex: 0,
+                scoringMode: 'stroke_play',
+                teamShape: 'individual',
+                allowancePct: 100,
+                scopeConfig: { scope: { participantIds: [pA.id, pB.id] } },
+            },
+            {
+                slotIndex: 1,
+                scoringMode: 'stableford',
+                teamShape: 'individual',
+                allowancePct: 100,
+                scopeConfig: { scope: { participantIds: [pC.id] } },
+            },
+        ],
+    });
+
+    for (let h = 1; h <= 18; h++) {
+        await scoreEventService.append({ roundId: bootstrap.id, participantId: pA.id, hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `a-h${h}` });
+        await scoreEventService.append({ roundId: bootstrap.id, participantId: pB.id, hole: h, strokes: 5, eventType: 'score_entered', clientEventId: `b-h${h}` });
+        await scoreEventService.append({ roundId: bootstrap.id, participantId: pC.id, hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `c-h${h}` });
+    }
+
+    const lb = await leaderboardService.forRound(bootstrap.id);
+
+    // Slot 0 is stroke-play → emits gross + net; slot 1 is stableford → emits points.
+    const slot0Buckets = lb.byScoringType.filter((b) => b.slotIndex === 0);
+    const slot1Buckets = lb.byScoringType.filter((b) => b.slotIndex === 1);
+    expect(slot0Buckets.map((b) => b.scoringType).sort()).toEqual(['gross', 'net']);
+    expect(slot1Buckets.map((b) => b.scoringType)).toEqual(['points']);
+
+    // Cross-slot leakage check: slot 0's buckets only contain pA & pB;
+    // slot 1's points bucket only contains pC.
+    for (const b of slot0Buckets) {
+        expect(b.entries.map((e) => e.participantId).sort()).toEqual([pA.id, pB.id].sort());
+    }
+    for (const b of slot1Buckets) {
+        expect(b.entries.map((e) => e.participantId)).toEqual([pC.id]);
+    }
+
+    // Participant results carry the slotIndex the strategy ran under.
+    const resultA = lb.participantResults.find((r) => r.participantId === pA.id)!;
+    const resultC = lb.participantResults.find((r) => r.participantId === pC.id)!;
+    expect(resultA.slotIndex).toBe(0);
+    expect(resultC.slotIndex).toBe(1);
+});
+
+test('multi-slot round missing scope on any slot throws', async () => {
+    const { roundService, participantService, leaderboardService, courseId, teeId } = await setup18();
+    const bootstrap = await roundService.create({
+        courseId, date: '2026-05-01', roundType: 'full_18',
+        venueType: 'outdoor', startListMode: 'structured',
+        formatSlots: [slot],
+    });
+    const pA = await participantService.create({
+        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+    });
+    await roundService.update(bootstrap.id, {
+        formatSlots: [
+            {
+                slotIndex: 0,
+                scoringMode: 'stroke_play',
+                teamShape: 'individual',
+                allowancePct: 100,
+                scopeConfig: { scope: { participantIds: [pA.id] } },
+            },
+            {
+                slotIndex: 1,
+                scoringMode: 'stableford',
+                teamShape: 'individual',
+                allowancePct: 100,
+                scopeConfig: null, // missing scope
+            },
+        ],
+    });
+
+    expect(leaderboardService.forRound(bootstrap.id)).rejects.toThrow(
+        /slot #1 in round .* has no scope\.participantIds/,
+    );
+});
+
+test('participant not matched by any slot scope throws', async () => {
+    const { roundService, participantService, leaderboardService, courseId, teeId } = await setup18();
+    const bootstrap = await roundService.create({
+        courseId, date: '2026-05-01', roundType: 'full_18',
+        venueType: 'outdoor', startListMode: 'structured',
+        formatSlots: [slot],
+    });
+    const pA = await participantService.create({
+        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+    });
+    const pOrphan = await participantService.create({
+        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+    });
+    await roundService.update(bootstrap.id, {
+        formatSlots: [
+            {
+                slotIndex: 0,
+                scoringMode: 'stroke_play',
+                teamShape: 'individual',
+                allowancePct: 100,
+                scopeConfig: { scope: { participantIds: [pA.id] } },
+            },
+            {
+                slotIndex: 1,
+                scoringMode: 'stableford',
+                teamShape: 'individual',
+                allowancePct: 100,
+                scopeConfig: { scope: { participantIds: [] } }, // empty, excludes pOrphan
+            },
+        ],
+    });
+
+    expect(leaderboardService.forRound(bootstrap.id)).rejects.toThrow(
+        new RegExp(`participant ${pOrphan.id} in round .* is not assigned to any slot's scope`),
+    );
+});
+
+test('participant in multiple slot scopes throws', async () => {
+    const { roundService, participantService, leaderboardService, courseId, teeId } = await setup18();
+    const bootstrap = await roundService.create({
+        courseId, date: '2026-05-01', roundType: 'full_18',
+        venueType: 'outdoor', startListMode: 'structured',
+        formatSlots: [slot],
+    });
+    const pA = await participantService.create({
+        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+    });
+    await roundService.update(bootstrap.id, {
+        formatSlots: [
+            {
+                slotIndex: 0,
+                scoringMode: 'stroke_play',
+                teamShape: 'individual',
+                allowancePct: 100,
+                scopeConfig: { scope: { participantIds: [pA.id] } },
+            },
+            {
+                slotIndex: 1,
+                scoringMode: 'stableford',
+                teamShape: 'individual',
+                allowancePct: 100,
+                scopeConfig: { scope: { participantIds: [pA.id] } }, // duplicate!
+            },
+        ],
+    });
+
+    expect(leaderboardService.forRound(bootstrap.id)).rejects.toThrow(
+        /is assigned to multiple slots/,
+    );
+});
+
+test('multi-slot round with overlapping scoringType label across slots keeps buckets separate', async () => {
+    // Two stableford slots (individual + individual) both emit `points`.
+    // The legacy single-bucket-per-scoringType behaviour would have merged
+    // them; 2.5i partitions per slot so each lives in its own bucket.
+    const { roundService, participantService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
+    const bootstrap = await roundService.create({
+        courseId, date: '2026-05-01', roundType: 'full_18',
+        venueType: 'outdoor', startListMode: 'structured',
+        formatSlots: [slot],
+    });
+    const pA = await participantService.create({
+        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+    });
+    const pB = await participantService.create({
+        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+    });
+    await roundService.update(bootstrap.id, {
+        formatSlots: [
+            {
+                slotIndex: 0, scoringMode: 'stableford', teamShape: 'individual', allowancePct: 100,
+                scopeConfig: { scope: { participantIds: [pA.id] } },
+            },
+            {
+                slotIndex: 1, scoringMode: 'stableford', teamShape: 'individual', allowancePct: 100,
+                scopeConfig: { scope: { participantIds: [pB.id] } },
+            },
+        ],
+    });
+    for (let h = 1; h <= 18; h++) {
+        await scoreEventService.append({ roundId: bootstrap.id, participantId: pA.id, hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `a-h${h}` });
+        await scoreEventService.append({ roundId: bootstrap.id, participantId: pB.id, hole: h, strokes: 5, eventType: 'score_entered', clientEventId: `b-h${h}` });
+    }
+
+    const lb = await leaderboardService.forRound(bootstrap.id);
+    const pointsBuckets = lb.byScoringType.filter((b) => b.scoringType === 'points');
+    // TWO separate points buckets, one per slot — 2.5h's collision is resolved.
+    expect(pointsBuckets).toHaveLength(2);
+    expect(pointsBuckets.map((b) => b.slotIndex).sort()).toEqual([0, 1]);
+    expect(pointsBuckets[0]!.entries.map((e) => e.participantId)).toEqual([pA.id]);
+    expect(pointsBuckets[1]!.entries.map((e) => e.participantId)).toEqual([pB.id]);
+});

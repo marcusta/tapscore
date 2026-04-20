@@ -10,9 +10,18 @@ import { courseHolesForRound } from '../domain/round-holes';
 
 /**
  * Materialises the inputs to `computeLeaderboard` — course holes, participants
- * with scorecards + snapshots, and format slots — then runs it. Slot assignment
- * in this first cut is: every participant is in `slotIndex = 0` (single-slot
- * rounds). Multi-slot scope_config is exercised in Phase 2.5i.
+ * with scorecards + snapshots, and format slots — then runs it.
+ *
+ * Slot routing (Phase 2.5i):
+ *   - Single-slot round (one format slot, no `scope.participantIds` on it):
+ *     every participant lands in that slot. This is the 9-seed
+ *     backwards-compat branch — none of the existing seeds populate scope.
+ *   - Multi-slot round: every slot MUST have `scopeConfig.scope.participantIds`
+ *     populated. Each participant is routed to the slot whose scope lists
+ *     their id. Hard errors (before touching the strategy) if:
+ *       a) any slot has no scope on a multi-slot round,
+ *       b) a participant matches zero slots' scope,
+ *       c) a participant matches more than one slot's scope.
  *
  * Contract on `ParticipantInput.holes`: this service passes EVERY scorecard
  * row for a participant through as-is, with no source filtering. For
@@ -80,20 +89,60 @@ export class LeaderboardService {
             })),
         }));
 
-        // First-cut routing: every participant lands in slot 0. Phase 2.5i
-        // will read `slot.scopeConfig.scope` to partition participants across
-        // multiple slots.
-        const defaultSlot = round.formatSlots[0];
-        if (!defaultSlot) {
+        if (round.formatSlots.length === 0) {
             throw new Error(`round ${roundId} has no format slots`);
         }
-        const slotGroups: SlotGroup[] = [
-            {
-                slot: defaultSlot,
-                participants: participantInputs,
-                courseHoles: allHoles,
-            },
-        ];
+
+        // Route participants to slots via `scopeConfig.scope.participantIds`.
+        // Single-slot rounds with no scope fall back to "everyone in slot 0"
+        // (the existing 9 seeds all hit this branch byte-for-byte).
+        const participantsBySlotIndex = new Map<number, ParticipantInput[]>();
+        for (const s of round.formatSlots) {
+            participantsBySlotIndex.set(s.slotIndex, []);
+        }
+
+        const singleSlotNoScope =
+            round.formatSlots.length === 1 &&
+            (round.formatSlots[0]!.scopeConfig?.scope?.participantIds ?? null) === null;
+
+        if (singleSlotNoScope) {
+            participantsBySlotIndex.get(round.formatSlots[0]!.slotIndex)!.push(...participantInputs);
+        } else {
+            // Multi-slot (or single-slot with explicit scope) — every slot
+            // must carry a scope; participants must match exactly one slot.
+            for (const slot of round.formatSlots) {
+                const ids = slot.scopeConfig?.scope?.participantIds;
+                if (!ids) {
+                    throw new Error(
+                        `slot #${slot.slotIndex} in round ${roundId} has no scope.participantIds — multi-slot rounds require explicit participant scoping`,
+                    );
+                }
+            }
+            for (const pin of participantInputs) {
+                const matches = round.formatSlots.filter((slot) =>
+                    slot.scopeConfig!.scope!.participantIds.includes(pin.participantId),
+                );
+                if (matches.length === 0) {
+                    throw new Error(
+                        `participant ${pin.participantId} in round ${roundId} is not assigned to any slot's scope`,
+                    );
+                }
+                if (matches.length > 1) {
+                    throw new Error(
+                        `participant ${pin.participantId} in round ${roundId} is assigned to multiple slots' scope (#${matches.map((m) => m.slotIndex).join(', #')})`,
+                    );
+                }
+                participantsBySlotIndex.get(matches[0]!.slotIndex)!.push(pin);
+            }
+        }
+
+        const slotGroups: SlotGroup[] = round.formatSlots.map((slot) => ({
+            slot,
+            participants: participantsBySlotIndex.get(slot.slotIndex) ?? [],
+            // `courseHoles` comes from the round's single course — all slots
+            // share it. Multi-slot routing doesn't change the course axis.
+            courseHoles: allHoles,
+        }));
 
         void this.db;
 

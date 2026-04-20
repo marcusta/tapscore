@@ -7,6 +7,7 @@ export interface Leaderboard {
 }
 
 export interface LeaderboardByType {
+    slotIndex: number;
     scoringType: string;
     entries: LeaderboardEntry[];
 }
