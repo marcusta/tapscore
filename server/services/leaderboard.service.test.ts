@@ -100,6 +100,89 @@ test('back_9 round uses holes 10..18 only', async () => {
     );
 });
 
+test('9-hole allocation follows full-18 SI distribution (strokes land only where they fall)', async () => {
+    // Course with scrambled SIs: front 9 carries SIs 10..18, back 9 carries SIs 1..9.
+    // A PH=9 player has extras=9 → SI 1..9 all get +1. On front_9 that yields
+    // ZERO strokes (front 9's SIs are 10..18). On back_9 it yields nine strokes.
+    const ctx = await createTestDb();
+    const club = await ctx.clubService.create({ name: 'HGC' });
+    const course = await ctx.courseService.create({
+        clubId: club.id,
+        name: 'Weird',
+        holeCount: 18,
+        holes: Array.from({ length: 18 }, (_, i) => ({
+            holeNumber: i + 1,
+            par: 4,
+            // holes 1..9 → SIs 10..18; holes 10..18 → SIs 1..9
+            strokeIndex: i < 9 ? i + 10 : i - 8,
+        })),
+    });
+    const tee = await ctx.teeService.create({
+        courseId: course.id,
+        name: 'White',
+        holeLengths: [],
+        ratings: [{ gender: 'M', courseRating: 72, slope: 113, par: 72, totalLengthM: 6000 }],
+    });
+
+    const frontRound = await ctx.roundService.create({
+        courseId: course.id,
+        date: '2026-05-01',
+        roundType: 'front_9',
+        venueType: 'outdoor',
+        startListMode: 'structured',
+        formatSlots: [slot],
+    });
+    const pFront = await ctx.participantService.create({
+        roundId: frontRound.id,
+        snapshot: { teeId: tee.id, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+    });
+    for (let h = 1; h <= 9; h++) {
+        await ctx.scoreEventService.append({
+            roundId: frontRound.id,
+            participantId: pFront.id,
+            hole: h,
+            strokes: 5,
+            eventType: 'score_entered',
+            clientEventId: `f${h}`,
+        });
+    }
+    const frontLb = await ctx.leaderboardService.forRound(frontRound.id);
+    const frontGross = frontLb.byScoringType.find((b) => b.scoringType === 'gross')!;
+    const frontNet = frontLb.byScoringType.find((b) => b.scoringType === 'net')!;
+    // 9 bogeys, no strokes given on any of these holes → net = gross.
+    expect(frontGross.entries[0].total).toBe(45);
+    expect(frontNet.entries[0].total).toBe(45);
+
+    const backRound = await ctx.roundService.create({
+        courseId: course.id,
+        date: '2026-05-01',
+        roundType: 'back_9',
+        venueType: 'outdoor',
+        startListMode: 'structured',
+        formatSlots: [slot],
+    });
+    const pBack = await ctx.participantService.create({
+        roundId: backRound.id,
+        snapshot: { teeId: tee.id, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+    });
+    for (let h = 10; h <= 18; h++) {
+        await ctx.scoreEventService.append({
+            roundId: backRound.id,
+            participantId: pBack.id,
+            hole: h,
+            strokes: 5,
+            eventType: 'score_entered',
+            clientEventId: `b${h}`,
+        });
+    }
+    const backLb = await ctx.leaderboardService.forRound(backRound.id);
+    const backGross = backLb.byScoringType.find((b) => b.scoringType === 'gross')!;
+    const backNet = backLb.byScoringType.find((b) => b.scoringType === 'net')!;
+    // 9 bogeys, every hole gets +1 → net = gross − 9 = 36.
+    expect(backGross.entries[0].total).toBe(45);
+    expect(backNet.entries[0].total).toBe(36);
+});
+
 test('full_18 round still covers all 18 holes', async () => {
     const { roundService, participantService, scoreEventService, leaderboardService, courseId } = await setup18();
     const round = await roundService.create({

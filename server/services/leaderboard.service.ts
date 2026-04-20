@@ -35,7 +35,14 @@ export class LeaderboardService {
             par: h.par,
             strokeIndex: h.strokeIndex,
         }));
-        const courseHoles = courseHolesForRound(round.roundType, allHoles);
+        // Stroke allocation happens against the course's FULL SI distribution
+        // (WHS rule: on a 9-hole round, you get whichever strokes from your
+        // full-course allocation happen to land on the holes you play — not a
+        // fresh allocation over 9). We therefore pass `allHoles` to the strategy
+        // and trim the result's per-hole rows to the played set afterwards.
+        const playedSet = new Set(
+            courseHolesForRound(round.roundType, allHoles).map((h) => h.holeNumber),
+        );
 
         const participants = await this.participantService.listByRound(roundId);
         const scorecards = await this.scorecardService.forRound(roundId);
@@ -43,7 +50,7 @@ export class LeaderboardService {
 
         const participantInputs: ParticipantInput[] = participants.map((p) => ({
             participantId: p.id,
-            courseHoles,
+            courseHoles: allHoles,
             playingHandicap: p.playingHandicapSnapshot,
             holes: cardByParticipant.get(p.id)?.holes ?? [],
         }));
@@ -57,10 +64,21 @@ export class LeaderboardService {
 
         void this.db;
 
-        return computeLeaderboard({
+        const lb = computeLeaderboard({
             participants: participantInputs,
             participantSlots,
             slots: round.formatSlots,
         });
+
+        // Trim per-hole rows to the played set so consumers see a clean 9-hole
+        // (or 18-hole) view. Totals computed by the strategy already exclude
+        // null-gross holes, so they are unaffected by this trim.
+        return {
+            ...lb,
+            participantResults: lb.participantResults.map((r) => ({
+                ...r,
+                holes: r.holes.filter((h) => playedSet.has(h.holeNumber)),
+            })),
+        };
     }
 }

@@ -292,10 +292,12 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
   </table>
 </section>`;
 
-    const playedCourseHoles: CourseHole[] = courseHolesForRound(
-        round.roundType,
-        course.holes.map((h) => ({ holeNumber: h.holeNumber, par: h.par, strokeIndex: h.strokeIndex })),
-    );
+    const allCourseHoles: CourseHole[] = course.holes.map((h) => ({
+        holeNumber: h.holeNumber,
+        par: h.par,
+        strokeIndex: h.strokeIndex,
+    }));
+    const playedCourseHoles: CourseHole[] = courseHolesForRound(round.roundType, allCourseHoles);
 
     const renderCourseMetadata = (): string => {
         const groups = splitHoleGroups(playedCourseHoles);
@@ -380,7 +382,9 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         const byHole = new Map(result.holes.map((h) => [h.holeNumber, h]));
         const groups = splitHoleGroups(courseHoles);
         const includeTotColumn = groups.length > 1;
-        const strokesGiven = strokesGivenMap(p.playingHandicapSnapshot, courseHoles);
+        // Allocation always against the full 18 SI distribution — a 9-hole round
+        // inherits the strokes that fall on its holes, not a fresh 9-hole allocation.
+        const strokesGiven = strokesGivenMap(p.playingHandicapSnapshot, allCourseHoles);
 
         const row = (
             label: string,
