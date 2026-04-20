@@ -109,7 +109,7 @@ Migration adds: `display_name` (text, not null), `nickname` (text, nullable), `a
 
 ---
 
-## Phase 2 — Round primitive
+## Phase 2 — Round primitive ✅
 
 **Spec:** §3 (Round), §11 (event-log scorecard), §9 (snapshotting).
 

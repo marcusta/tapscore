@@ -11,6 +11,113 @@ export interface Database {
     guest_players: GuestPlayersTable;
     handicap_history: HandicapHistoryTable;
     role_grants: RoleGrantsTable;
+    rounds: RoundsTable;
+    round_format_slots: RoundFormatSlotsTable;
+    participants: ParticipantsTable;
+    participant_players: ParticipantPlayersTable;
+    tee_times: TeeTimesTable;
+    score_events: ScoreEventsTable;
+    scorecards: ScorecardsTable;
+}
+
+export type RoundType = 'full_18' | 'front_9' | 'back_9' | 'custom_holes';
+export type VenueType = 'outdoor' | 'indoor';
+export type StartListMode = 'structured' | 'fixed_slots' | 'open_window';
+export type RoundStatus = 'not_started' | 'active' | 'complete';
+
+export interface RoundsTable {
+    id: string;
+    course_id: string;
+    date: string;
+    round_type: RoundType;
+    venue_type: VenueType;
+    start_list_mode: StartListMode;
+    window_start: string | null;
+    window_end: string | null;
+    self_organize: number;
+    status: RoundStatus;
+    latest_event_id: string | null;
+    created_at: Generated<string>;
+}
+
+export type ScoringMode = 'stroke_play' | 'stableford' | 'match_play' | 'skins' | 'custom';
+export type TeamShape =
+    | 'individual'
+    | 'better_ball'
+    | 'scramble'
+    | 'foursomes'
+    | 'greensome'
+    | 'custom';
+
+export interface RoundFormatSlotsTable {
+    round_id: string;
+    slot_index: number;
+    scoring_mode: ScoringMode;
+    team_shape: TeamShape;
+    allowance_pct: number;
+    scope_config: string | null;
+}
+
+export interface ParticipantsTable {
+    id: string;
+    round_id: string;
+    team_label: string | null;
+    category_snapshot: string | null;
+    tee_id_snapshot: string | null;
+    handicap_index_snapshot: number | null;
+    course_handicap_snapshot: number | null;
+    playing_handicap_snapshot: number | null;
+    is_locked: number;
+    is_dq: number;
+    admin_modified_by: string | null;
+    admin_modified_at: string | null;
+    admin_notes: string | null;
+    created_at: Generated<string>;
+}
+
+export interface ParticipantPlayersTable {
+    id: string;
+    participant_id: string;
+    player_id: string | null;
+    guest_player_id: string | null;
+    created_at: Generated<string>;
+}
+
+export interface TeeTimesTable {
+    id: string;
+    round_id: string;
+    start_time: string;
+    start_hole: number;
+    capacity: number;
+    hitting_bay: string | null;
+    created_at: Generated<string>;
+}
+
+export type ScoreEventType =
+    | 'score_entered'
+    | 'score_cleared'
+    | 'score_confirmed'
+    | 'manual_override';
+
+export interface ScoreEventsTable {
+    id: string;
+    round_id: string;
+    participant_id: string;
+    hole: number;
+    strokes: number | null;
+    event_type: ScoreEventType;
+    recorded_by_player_id: string | null;
+    recorded_at: Generated<string>;
+    client_event_id: string;
+}
+
+export interface ScorecardsTable {
+    participant_id: string;
+    hole: number;
+    strokes: number | null;
+    recorded_by_player_id: string | null;
+    recorded_at: string;
+    latest_event_id: string;
 }
 
 export interface RoleGrantsTable {
