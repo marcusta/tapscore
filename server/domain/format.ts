@@ -111,12 +111,16 @@ const strokePlayIndividual: FormatStrategy = {
         let grossHasValue = false;
         let netHasValue = false;
         let holesPlayed = 0;
-        // Any pickup on any played hole voids the stroke-play total — the
-        // player doesn't have a completed card. Per-hole values are still
-        // reported (par + 2 + given per WHS net-double) so the scorecard
-        // and handicap-posting path can use them; the leaderboard just
-        // sees a null total and sorts the participant last.
-        let hasPickup = false;
+        // An incomplete hole — either explicit DNP (null strokes event) or a
+        // pickup (0 strokes event) — voids the stroke-play total: the player
+        // does not have a completed card. Per-hole values are still reported
+        // (null for DNP, par + 2 + given net-double for pickup) so the
+        // scorecard and handicap-posting path can use them; the leaderboard
+        // just sees null totals and sorts the participant last.
+        //
+        // "No event at all" on a hole is mid-round, not incomplete — the player
+        // hasn't reached that hole yet and their partial total is still valid.
+        let hasIncompleteHole = false;
 
         // Net distribution: give strokes on holes in stroke-index order.
         // playing_handicap n means: first `n mod holeCount` holes get an extra
@@ -133,14 +137,22 @@ const strokePlayIndividual: FormatStrategy = {
 
         for (const ch of input.courseHoles) {
             const played = input.holes.find((h) => h.holeNumber === ch.holeNumber);
-            const strokes = played?.strokes ?? null;
             const strokesForHole = strokeByHole.get(ch.holeNumber) ?? 0;
-            if (strokes === null) {
+            if (played === undefined) {
+                // No event yet — participant hasn't reached this hole.
                 holes.push({ holeNumber: ch.holeNumber, gross: null, net: null, points: null });
                 continue;
             }
+            // Event exists for this hole → counts as engagement.
             holesPlayed++;
-            if (strokes === 0) hasPickup = true;
+            const strokes = played.strokes;
+            if (strokes === null) {
+                // Explicit DNP event → voids total; per-hole stays null.
+                hasIncompleteHole = true;
+                holes.push({ holeNumber: ch.holeNumber, gross: null, net: null, points: null });
+                continue;
+            }
+            if (strokes === 0) hasIncompleteHole = true; // pickup
             // Pickup (0) in stroke-play = max of net-double (par + 2 + strokes given) per WHS.
             const effectiveGross = strokes === 0 ? ch.par + 2 + strokesForHole : strokes;
             const net = effectiveGross - strokesForHole;
@@ -165,12 +177,12 @@ const strokePlayIndividual: FormatStrategy = {
             totals: [
                 {
                     scoringType: 'gross',
-                    value: hasPickup ? null : grossHasValue ? grossTotal : null,
+                    value: hasIncompleteHole ? null : grossHasValue ? grossTotal : null,
                 },
                 {
                     scoringType: 'net',
                     value:
-                        hasPickup
+                        hasIncompleteHole
                             ? null
                             : netHasValue && input.playingHandicap !== null
                               ? netTotal

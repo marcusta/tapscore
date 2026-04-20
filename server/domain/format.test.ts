@@ -148,7 +148,7 @@ test('pickup (0 strokes) counts as net-double', () => {
     expect(hole1.net).toBe(6);
 });
 
-test('null strokes (DNP) leave the hole null in both gross and net', () => {
+test('DNP event leaves the hole null, counts as engaged, voids stroke-play total', () => {
     const s = findFormat('stroke_play', 'individual');
     const holes = par4Course(18);
     const input: ParticipantInput = {
@@ -163,7 +163,29 @@ test('null strokes (DNP) leave the hole null in both gross and net', () => {
     const r = s.compute(input, slot());
     expect(r.holes.find((h) => h.holeNumber === 2)!.gross).toBeNull();
     expect(r.holes.find((h) => h.holeNumber === 2)!.net).toBeNull();
-    expect(r.holesPlayed).toBe(1);
+    // Both events count as engagement — the player is thru 2 holes on the course.
+    expect(r.holesPlayed).toBe(2);
+    // But the card isn't complete (hole 2 was DNP'd), so the total is null.
+    expect(r.totals.find((t) => t.scoringType === 'gross')!.value).toBeNull();
+});
+
+test('mid-round participant with no events past hole N keeps their partial total', () => {
+    // Only two events for a player thru hole 2; holes 3..18 have NO event at all.
+    // This is NOT the same as DNP — they simply haven't gotten there yet.
+    const s = findFormat('stroke_play', 'individual');
+    const holes = par4Course(18);
+    const input: ParticipantInput = {
+        participantId: 'p1',
+        courseHoles: holes,
+        playingHandicap: 0,
+        holes: [
+            { holeNumber: 1, strokes: 4, recordedBy: null, recordedAt: '' },
+            { holeNumber: 2, strokes: 5, recordedBy: null, recordedAt: '' },
+        ],
+    };
+    const r = s.compute(input, slot());
+    expect(r.holesPlayed).toBe(2);
+    expect(r.totals.find((t) => t.scoringType === 'gross')!.value).toBe(9);
 });
 
 test('findFormat throws for unregistered combination', () => {
