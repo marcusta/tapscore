@@ -208,6 +208,31 @@ test('match-play: strokes given — A (PH=14) beats B (PH=0) on low-SI holes via
     expect(pair.winner).toBe('A');
 });
 
+test('match-play: handicaps are normalized to the low player within the pair', () => {
+    const s = findFormat('match_play', 'individual');
+    const holes = par4Course(18);
+    const a: ParticipantInput = {
+        participantId: 'A',
+        playingHandicap: 2,
+        holes: [holeEvent(1, 5)],
+    };
+    const b: ParticipantInput = {
+        participantId: 'B',
+        playingHandicap: 14,
+        holes: [holeEvent(1, 5)],
+    };
+
+    const result = s.compute(pairSlot(a, b, holes), slot());
+    const pair = result.pairResults![0];
+    const h1 = pair.holes.find((h) => h.holeNumber === 1)!;
+
+    // Low marker (A) plays off 0; B receives only the difference (12), which
+    // on this synthetic course means one stroke on SI 1..12 including hole 1.
+    expect(h1.fromA).toBe(5);
+    expect(h1.fromB).toBe(4);
+    expect(h1.status).toBe('lost');
+});
+
 test('match-play: odd-participant slot — one pair + a no-opponent ParticipantResult', () => {
     const s = findFormat('match_play', 'individual');
     const holes = par4Course(18);

@@ -23,6 +23,9 @@ export interface ParticipantPlayerLink {
     participantId: string;
     playerId: null | string;
     guestPlayerId: null | string;
+    handicapIndexSnapshot: null | number;
+    courseHandicapSnapshot: null | number;
+    playingHandicapSnapshot: null | number;
 }
 
 export interface ParticipantsApi {

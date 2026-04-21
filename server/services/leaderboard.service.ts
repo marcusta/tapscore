@@ -33,12 +33,11 @@ import { courseHolesForRound } from '../domain/round-holes';
  * slice the flat list internally (via `pickForSource` from
  * `scorecard.service` or by pre-filtering in their own loop).
  *
- * Per-player playing handicaps: `participant_players` does not (yet) carry
- * a per-player `playing_handicap_snapshot` column. Until that migration
- * lands, we fall back to the team-level `playingHandicapSnapshot` for
- * every linked player. This is good enough for better-ball when both
- * players are on the same tee with similar course handicaps (the common
- * case), and is a documented known limitation — future work.
+ * Per-player snapshots live on `participant_players` (migration 015).
+ * Team formats consume the linked players' own frozen playing handicaps;
+ * only when an old row predates the migration (or was added without enough
+ * snapshot context to backfill accurately) do we fall back to the team's
+ * participant-level `playingHandicapSnapshot`.
  */
 export class LeaderboardService {
     constructor(
@@ -79,13 +78,11 @@ export class LeaderboardService {
             playingHandicap: p.playingHandicapSnapshot,
             holes: cardByParticipant.get(p.id)?.holes ?? [],
             teamLabel: p.teamLabel,
-            // Per-player PH fallback: until `participant_players` carries a
-            // per-player PH snapshot column, every linked player inherits
-            // the team's PH. Documented fallback; see module header.
             players: p.players.map((link) => ({
                 playerId: link.playerId,
                 guestPlayerId: link.guestPlayerId,
-                playingHandicap: p.playingHandicapSnapshot,
+                playingHandicap:
+                    link.playingHandicapSnapshot ?? p.playingHandicapSnapshot,
             })),
         }));
 

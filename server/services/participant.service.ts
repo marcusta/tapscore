@@ -16,6 +16,9 @@ export interface ParticipantPlayerLink {
     participantId: string;
     playerId: string | null;
     guestPlayerId: string | null;
+    handicapIndexSnapshot: number | null;
+    courseHandicapSnapshot: number | null;
+    playingHandicapSnapshot: number | null;
 }
 
 export interface Participant {
@@ -68,7 +71,16 @@ function toLink(row: ParticipantPlayerRow): ParticipantPlayerLink {
         participantId: row.participant_id,
         playerId: row.player_id,
         guestPlayerId: row.guest_player_id,
+        handicapIndexSnapshot: row.handicap_index_snapshot,
+        courseHandicapSnapshot: row.course_handicap_snapshot,
+        playingHandicapSnapshot: row.playing_handicap_snapshot,
     };
+}
+
+interface SnapshotContext {
+    teeId: string;
+    gender: TeeGender;
+    allowancePct: number;
 }
 
 function toParticipant(row: ParticipantRow, players: ParticipantPlayerLink[]): Participant {
@@ -149,6 +161,9 @@ export class ParticipantService {
             participant_id: string;
             player_id: string | null;
             guest_player_id: string | null;
+            handicap_index_snapshot: number | null;
+            course_handicap_snapshot: number | null;
+            playing_handicap_snapshot: number | null;
         },
         trx: Kysely<Database> = this.db,
     ) {
@@ -163,6 +178,10 @@ export class ParticipantService {
 
     async create(input: CreateParticipantInput): Promise<Participant> {
         const snap = await this.computeSnapshot(input.snapshot);
+        const linkSnapshotContext = await this.snapshotContextFromInput(input.snapshot);
+        const linkSnapshots = await Promise.all(
+            (input.players ?? []).map((p) => this.computeLinkSnapshot(p, linkSnapshotContext)),
+        );
         const id = crypto.randomUUID();
 
         await this.db.transaction().execute(async (trx) => {
@@ -181,8 +200,8 @@ export class ParticipantService {
                 },
                 trx,
             ).execute();
-            for (const p of input.players ?? []) {
-                await this.insertLinkRow(id, p, trx);
+            for (let i = 0; i < (input.players ?? []).length; i++) {
+                await this.insertLinkRow(id, input.players![i]!, linkSnapshots[i]!, trx);
             }
         });
 
@@ -238,7 +257,9 @@ export class ParticipantService {
         participantId: string,
         which: { playerId?: string; guestPlayerId?: string },
     ): Promise<ParticipantPlayerLink> {
-        const id = await this.insertLinkRow(participantId, which, this.db);
+        const context = await this.snapshotContextForParticipant(participantId);
+        const snapshot = await this.computeLinkSnapshot(which, context);
+        const id = await this.insertLinkRow(participantId, which, snapshot, this.db);
         const row = await this.db
             .selectFrom('participant_players')
             .selectAll()
@@ -250,6 +271,11 @@ export class ParticipantService {
     private async insertLinkRow(
         participantId: string,
         which: { playerId?: string; guestPlayerId?: string },
+        snapshot: {
+            handicapIndex: number | null;
+            courseHandicap: number | null;
+            playingHandicap: number | null;
+        },
         trx: Kysely<Database>,
     ): Promise<string> {
         const hasPlayer = which.playerId !== undefined && which.playerId !== null;
@@ -266,10 +292,168 @@ export class ParticipantService {
                 participant_id: participantId,
                 player_id: which.playerId ?? null,
                 guest_player_id: which.guestPlayerId ?? null,
+                handicap_index_snapshot: snapshot.handicapIndex,
+                course_handicap_snapshot: snapshot.courseHandicap,
+                playing_handicap_snapshot: snapshot.playingHandicap,
             },
             trx,
         ).execute();
         return id;
+    }
+
+    private async snapshotContextFromInput(
+        input?: ParticipantSnapshotInput,
+    ): Promise<SnapshotContext | null> {
+        if (!input) return null;
+        return {
+            teeId: input.teeId,
+            gender: input.gender,
+            allowancePct: input.allowancePct ?? 100,
+        };
+    }
+
+    private async snapshotContextForParticipant(participantId: string): Promise<SnapshotContext | null> {
+        const participant = await this.byId(participantId).executeTakeFirst();
+        if (!participant?.tee_id_snapshot) return null;
+        const gender = await this.inferSnapshotGender(
+            participant.tee_id_snapshot,
+            participant.handicap_index_snapshot,
+            participant.course_handicap_snapshot,
+        );
+        const allowancePct = await this.allowancePctForParticipant(
+            participant.round_id,
+            participantId,
+        );
+        if (gender === null || allowancePct === null) return null;
+        return {
+            teeId: participant.tee_id_snapshot,
+            gender,
+            allowancePct,
+        };
+    }
+
+    private async allowancePctForParticipant(
+        roundId: string,
+        participantId: string,
+    ): Promise<number | null> {
+        const slots = await this.db
+            .selectFrom('round_format_slots')
+            .select(['allowance_pct', 'scope_config'])
+            .where('round_id', '=', roundId)
+            .orderBy('slot_index')
+            .execute();
+        if (slots.length === 0) return null;
+        const singleSlotScopeIds =
+            slots.length === 1 && slots[0]!.scope_config !== null
+                ? ((JSON.parse(slots[0]!.scope_config) as {
+                      scope?: { participantIds?: string[] };
+                  }).scope?.participantIds ?? null)
+                : null;
+        if (slots.length === 1 && singleSlotScopeIds === null) {
+            return slots[0]!.allowance_pct;
+        }
+        const matches = slots.filter((slot) => {
+            if (slot.scope_config === null) return false;
+            const parsed = JSON.parse(slot.scope_config) as {
+                scope?: { participantIds?: string[] };
+            };
+            return parsed.scope?.participantIds?.includes(participantId) ?? false;
+        });
+        return matches.length === 1 ? matches[0]!.allowance_pct : null;
+    }
+
+    private async inferSnapshotGender(
+        teeId: string,
+        handicapIndexSnapshot: number | null,
+        courseHandicapSnapshot: number | null,
+    ): Promise<TeeGender | null> {
+        const tee = await this.teeService.getById(teeId);
+        if (!tee) return null;
+        if (handicapIndexSnapshot === null || courseHandicapSnapshot === null) {
+            return tee.ratings.length === 1 ? tee.ratings[0]!.gender : null;
+        }
+        const matching = tee.ratings.filter((r) => {
+            const raw =
+                handicapIndexSnapshot * (r.slope / 113) + (r.courseRating - r.par);
+            return Math.round(raw) === courseHandicapSnapshot;
+        });
+        if (matching.length > 0) return matching[0]!.gender;
+        return tee.ratings.length === 1 ? tee.ratings[0]!.gender : null;
+    }
+
+    private async handicapIndexForLink(which: {
+        playerId?: string;
+        guestPlayerId?: string;
+    }): Promise<number | null> {
+        if (which.playerId) {
+            const latest = await this.handicapService.latestFor(which.playerId);
+            if (!latest) throw new Error(`no handicap history for player ${which.playerId}`);
+            return latest.handicapIndex;
+        }
+        if (which.guestPlayerId) {
+            const guest = await this.db
+                .selectFrom('guest_players')
+                .select(['id', 'handicap_index'])
+                .where('id', '=', which.guestPlayerId)
+                .executeTakeFirst();
+            if (!guest) throw new Error(`guest player ${which.guestPlayerId} not found`);
+            if (guest.handicap_index === null) {
+                throw new Error(`guest player ${which.guestPlayerId} has no handicap index`);
+            }
+            return guest.handicap_index;
+        }
+        return null;
+    }
+
+    private async computeLinkSnapshot(
+        which: { playerId?: string; guestPlayerId?: string },
+        context: SnapshotContext | null,
+    ): Promise<{
+        handicapIndex: number | null;
+        courseHandicap: number | null;
+        playingHandicap: number | null;
+    }> {
+        if (!context) {
+            return {
+                handicapIndex: null,
+                courseHandicap: null,
+                playingHandicap: null,
+            };
+        }
+        const handicapIndex = await this.handicapIndexForLink(which);
+        if (handicapIndex === null) {
+            throw new Error(
+                'participant_players link must have exactly one of playerId or guestPlayerId',
+            );
+        }
+        return this.computeSnapshotForHandicapIndex(handicapIndex, context);
+    }
+
+    private async computeSnapshotForHandicapIndex(
+        handicapIndex: number,
+        context: SnapshotContext,
+    ): Promise<{
+        handicapIndex: number;
+        courseHandicap: number;
+        playingHandicap: number;
+    }> {
+        const tee = await this.teeService.getById(context.teeId);
+        if (!tee) throw new Error(`tee ${context.teeId} not found`);
+        const rating = tee.ratings.find((r) => r.gender === context.gender);
+        if (!rating) {
+            throw new Error(`tee ${context.teeId} has no rating for gender ${context.gender}`);
+        }
+        const ch = courseHandicap({
+            handicapIndex,
+            slope: rating.slope,
+            courseRating: rating.courseRating,
+            par: rating.par,
+        });
+        return {
+            handicapIndex,
+            courseHandicap: ch,
+            playingHandicap: playingHandicap(ch, context.allowancePct),
+        };
     }
 
     private async computeSnapshot(input?: ParticipantSnapshotInput): Promise<{
@@ -287,40 +471,27 @@ export class ParticipantService {
             };
         }
 
-        // Resolve handicap index.
-        let handicapIndex: number | null;
-        if (input.fromPlayerId !== undefined) {
-            const latest = await this.handicapService.latestFor(input.fromPlayerId);
-            if (!latest) throw new Error(`no handicap history for player ${input.fromPlayerId}`);
-            handicapIndex = latest.handicapIndex;
-        } else if (input.handicapIndex !== undefined) {
-            handicapIndex = input.handicapIndex;
-        } else {
+        const handicapIndex =
+            input.fromPlayerId !== undefined
+                ? await this.handicapIndexForLink({ playerId: input.fromPlayerId })
+                : input.handicapIndex !== undefined
+                  ? input.handicapIndex
+                  : null;
+        if (handicapIndex === null) {
             throw new Error('snapshot requires fromPlayerId or handicapIndex');
         }
 
-        // Look up the tee rating for this gender.
-        const tee = await this.teeService.getById(input.teeId);
-        if (!tee) throw new Error(`tee ${input.teeId} not found`);
-        const rating = tee.ratings.find((r) => r.gender === input.gender);
-        if (!rating) {
-            throw new Error(`tee ${input.teeId} has no rating for gender ${input.gender}`);
-        }
-
-        const ch = courseHandicap({
-            handicapIndex,
-            slope: rating.slope,
-            courseRating: rating.courseRating,
-            par: rating.par,
+        const linkSnapshot = await this.computeSnapshotForHandicapIndex(handicapIndex, {
+            teeId: input.teeId,
+            gender: input.gender,
+            allowancePct: input.allowancePct ?? 100,
         });
-        const allowance = input.allowancePct ?? 100;
-        const ph = playingHandicap(ch, allowance);
 
         return {
             teeId: input.teeId,
-            handicapIndex,
-            courseHandicap: ch,
-            playingHandicap: ph,
+            handicapIndex: linkSnapshot.handicapIndex,
+            courseHandicap: linkSnapshot.courseHandicap,
+            playingHandicap: linkSnapshot.playingHandicap,
         };
     }
 }

@@ -22,13 +22,11 @@
 // level, the pair halves ("AS"); if the pair goes to 18 and a side wins the
 // final hole, the summary is "N UP" (no trailing "& k" because k = 0).
 //
-// Strokes allocation: same baseline-plus-extras by stroke index as stroke-play
-// and stableford. Playing handicap is per participant; the pair's "low net"
-// on a hole is each side's own net after their own strokes given. Classical
-// match-play strokes-differential handicapping ("low handicap to scratch")
-// is a 2.5c / future enhancement — for 2.5b we keep the simple model and
-// verify it with a test where the high-handicap player nets past their
-// scratch opponent.
+// Strokes allocation: match-play uses strokes DIFFERENTIAL within the pair.
+// The lowest playing handicap in the match plays off 0, and the opponent
+// gets only the delta to that number. Example: PH 2 vs PH 14 => effective
+// match handicaps 0 vs 12. Those effective handicaps then allocate strokes
+// by SI via the same baseline-plus-extras rule as stroke-play/stableford.
 //
 // Totals on `ParticipantResult` are intentionally empty — match-play has no
 // scalar scoring type. The leaderboard renders pair results instead of a
@@ -46,6 +44,7 @@ import type {
     SlotResult,
 } from '../format';
 import type { FormatSlot } from '../../services/round.service';
+import { normalizeMatchPlayHandicaps } from './_match-play-handicap';
 
 interface StrokesGivenSide {
     strokesByHole: Map<number, number>;
@@ -140,8 +139,12 @@ function computePair(
     courseHoles: CourseHole[],
     slot: FormatSlot,
 ): { pair: PairResult; resultA: ParticipantResult; resultB: ParticipantResult } {
-    const givenA = strokesGiven(a.playingHandicap, courseHoles);
-    const givenB = strokesGiven(b.playingHandicap, courseHoles);
+    const [effectiveA, effectiveB] = normalizeMatchPlayHandicaps([
+        a.playingHandicap,
+        b.playingHandicap,
+    ]);
+    const givenA = strokesGiven(effectiveA, courseHoles);
+    const givenB = strokesGiven(effectiveB, courseHoles);
 
     const holesA: HoleResult[] = [];
     const holesB: HoleResult[] = [];

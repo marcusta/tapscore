@@ -89,6 +89,9 @@ export interface ParticipantPlayersTable {
     participant_id: string;
     player_id: string | null;
     guest_player_id: string | null;
+    handicap_index_snapshot: number | null;
+    course_handicap_snapshot: number | null;
+    playing_handicap_snapshot: number | null;
     created_at: Generated<string>;
 }
 

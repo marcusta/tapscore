@@ -153,6 +153,31 @@ test('create initial players array populates links', async () => {
     expect(p.players).toHaveLength(2);
 });
 
+test('create with team links + snapshot freezes per-link handicaps independently', async () => {
+    const ctx = await setup();
+    const { participantService, handicapService, roundId, teeId, aliceId, guestId } = ctx;
+    await handicapService.record({
+        playerId: aliceId,
+        handicapIndex: 10,
+        source: 'manual',
+        effectiveDate: '2026-04-01',
+    });
+    const p = await participantService.create({
+        roundId,
+        snapshot: { teeId, gender: 'M', fromPlayerId: aliceId, allowancePct: 100 },
+        players: [{ playerId: aliceId }, { guestPlayerId: guestId }],
+    });
+    expect(p.players).toHaveLength(2);
+    const aliceLink = p.players.find((link) => link.playerId === aliceId)!;
+    const guestLink = p.players.find((link) => link.guestPlayerId === guestId)!;
+    expect(aliceLink.handicapIndexSnapshot).toBe(10);
+    expect(aliceLink.courseHandicapSnapshot).toBe(11);
+    expect(aliceLink.playingHandicapSnapshot).toBe(11);
+    expect(guestLink.handicapIndexSnapshot).toBe(18.5);
+    expect(guestLink.courseHandicapSnapshot).toBe(21);
+    expect(guestLink.playingHandicapSnapshot).toBe(21);
+});
+
 test('listByRound returns all participants with links', async () => {
     const { participantService, roundId, aliceId } = await setup();
     await participantService.create({ roundId, players: [{ playerId: aliceId }] });

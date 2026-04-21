@@ -117,9 +117,9 @@ export interface PairResult {
  * `ParticipantInput.playingHandicap` (the team-level snapshot).
  *
  * Exactly one of `playerId` / `guestPlayerId` is populated (same xor rule as
- * `participant_players`). `playingHandicap` is the per-player PH; see the
- * note in `leaderboard.service.ts` about the fallback to the team PH until
- * per-player PH snapshots land (tracked for a future migration, not 2.5e).
+ * `participant_players`). `playingHandicap` is the per-player PH frozen on
+ * the link row; callers may still fall back to the team PH for legacy rows
+ * that predate the per-link snapshot migration.
  */
 export interface ParticipantPlayerInput {
     playerId: string | null;
@@ -237,12 +237,16 @@ import { stablefordBetterBall } from './formats/stableford-better-ball';
 import { strokePlayFoursomes } from './formats/stroke-play-foursomes';
 import { talibanBetterBall } from './formats/taliban-better-ball';
 import { umbrellaFourBall } from './formats/umbrella-4-ball';
+import { umbrellaIndividual } from './formats/umbrella-individual';
+import { matchPlayBetterBall } from './formats/match-play-better-ball';
 
 registerFormat(strokePlayIndividual);
 registerFormat(stablefordIndividual);
 registerFormat(matchPlayIndividual);
+registerFormat(matchPlayBetterBall);
 registerFormat(kopenhamnareIndividual);
 registerFormat(stablefordBetterBall);
 registerFormat(strokePlayFoursomes);
 registerFormat(talibanBetterBall);
 registerFormat(umbrellaFourBall);
+registerFormat(umbrellaIndividual);

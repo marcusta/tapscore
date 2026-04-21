@@ -20,6 +20,7 @@ The starter app `~/dev/github/mackans-client-fw/apps/starter` is the reference l
 - **Snapshot at time of play** — participant carries frozen copies of handicap index, course handicap, playing handicap, tee, and category. Results never recompute from live player data.
 - **Score events are source of truth** — `score_event` is append-only; `scorecard` is a materialised view. The event log replays exact state; client writes are idempotent via `client_event_id`.
 - **Format strategies are pluggable** — scoring mode × team shape axes. New format = new strategy file + registration. No schema change.
+- **Format verification uses the canonical fixture workflow** — when working on formats, do not rely on whatever happens to already be in `data/app.sqlite`. Rebuild the dedicated fixture DB with `bun run seed:formats`, then render from that same fixture set with `bun run render:formats`.
 - **Phase order is fixed** — see `PHASES.md`. Stop and hand-test between phases; do not skip ahead.
 - **FK-target migrations precede dependents, regardless of phase narrative.** SQLite runs with `PRAGMA foreign_keys = ON`, which validates the parent table's existence on *every write* to the referencing table — even when the FK column is NULL. If a phase's narrative order puts an entity before the one it references, land the referenced table's migration first (it can ship with an empty service and fill out later). Example: Phase 1b extends `players` with `home_club_id` → `clubs(id)`, but `clubs` isn't introduced until 1c; the clubs migration lands as `002_create_clubs.ts` before the extend-players migration.
 
@@ -40,6 +41,8 @@ bun run check:test       # tsgo on tests/
 bun run test:server      # server tests
 bun run test:affected    # only tests reachable from changed files (needs at least one commit)
 bun test                 # full suite
+bun run seed:formats     # rebuild canonical manual-format fixture DB under tmp/
+bun run render:formats   # render canonical manual-format fixtures from that DB
 ```
 
 ## Runtime state

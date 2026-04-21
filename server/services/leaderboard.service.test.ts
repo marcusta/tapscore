@@ -208,6 +208,78 @@ test('full_18 round still covers all 18 holes', async () => {
     expect(lb.participantResults[0].holes).toHaveLength(18);
 });
 
+test('better-ball leaderboard uses each linked player\'s own frozen PH', async () => {
+    const ctx = await setup18();
+    const { roundService, participantService, handicapService, playerService, scoreEventService, leaderboardService, courseId, teeId } = ctx;
+    const bob = await playerService.register({
+        username: 'bob',
+        password: 'password123',
+        displayName: 'Bob',
+    });
+    const round = await roundService.create({
+        courseId,
+        date: '2026-05-01',
+        roundType: 'full_18',
+        venueType: 'outdoor',
+        startListMode: 'structured',
+        formatSlots: [
+            {
+                slotIndex: 0,
+                scoringMode: 'stableford',
+                teamShape: 'better_ball',
+                allowancePct: 100,
+                scopeConfig: null,
+            },
+        ],
+    });
+    const alice = await playerService.register({
+        username: 'alice-bb',
+        password: 'password123',
+        displayName: 'Alice BB',
+    });
+    await handicapService.record({
+        playerId: alice.id,
+        handicapIndex: 0,
+        source: 'manual',
+        effectiveDate: '2026-04-01',
+    });
+    await handicapService.record({
+        playerId: bob.id,
+        handicapIndex: 14,
+        source: 'manual',
+        effectiveDate: '2026-04-01',
+    });
+    const team = await participantService.create({
+        roundId: round.id,
+        snapshot: { teeId, gender: 'M', fromPlayerId: alice.id, allowancePct: 100 },
+        players: [{ playerId: alice.id }, { playerId: bob.id }],
+        teamLabel: 'Alice & Bob',
+    });
+    await scoreEventService.append({
+        roundId: round.id,
+        participantId: team.id,
+        hole: 5,
+        strokes: 4,
+        eventType: 'score_entered',
+        clientEventId: 'alice-h5',
+        sourcePlayerId: alice.id,
+    });
+    await scoreEventService.append({
+        roundId: round.id,
+        participantId: team.id,
+        hole: 5,
+        strokes: 4,
+        eventType: 'score_entered',
+        clientEventId: 'bob-h5',
+        sourcePlayerId: bob.id,
+    });
+
+    const lb = await leaderboardService.forRound(round.id);
+    const result = lb.participantResults[0]!;
+    expect(result.holes.find((h) => h.holeNumber === 5)!.points).toBe(3);
+    expect(result.totals.find((t) => t.scoringType === 'points')!.value).toBe(3);
+});
+
 // --- Multi-slot scope routing (Phase 2.5i) ---
 
 test('single-slot round with no scope defaults every participant to slot 0 (back-compat)', async () => {

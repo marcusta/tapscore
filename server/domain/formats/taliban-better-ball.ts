@@ -11,8 +11,8 @@
 //
 // For each hole we compute each player's per-hole GROSS and NET scores.
 // "Net" = gross − strokes-given (strokes-given allocated by SI from each
-// player's own playing handicap; fallback to team PH — see
-// leaderboard.service.ts on per-player PH snapshots not existing yet).
+// player's own playing handicap, with a team-PH fallback only for legacy
+// rows that predate per-link snapshots).
 //
 // For each team we then compute:
 //   - better-ball net  = min of the two players' net scores on the hole

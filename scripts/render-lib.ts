@@ -7,6 +7,7 @@ import type { Database } from '../server/db/schema';
 import type { Kysely } from 'kysely';
 import type { createServices } from '../server/services/index';
 import type { Participant } from '../server/services/participant.service';
+import type { ParticipantPlayerLink } from '../server/services/participant.service';
 import type { Round } from '../server/services/round.service';
 import type { Course } from '../server/services/course.service';
 import type { Tee } from '../server/services/tee.service';
@@ -16,9 +17,10 @@ import type { Club } from '../server/services/club.service';
 import type { ScoreEvent } from '../server/services/score-event.service';
 import type { Scorecard, ScorecardHole } from '../server/services/scorecard.service';
 import type { Leaderboard } from '../server/domain/leaderboard';
-import type { ParticipantResult, CourseHole, PairResult, PairHoleResult } from '../server/domain/format';
+import type { ParticipantResult, CourseHole, PairResult, PairHoleResult, HoleResult } from '../server/domain/format';
 import { courseHolesForRound } from '../server/domain/round-holes';
 import { stablefordOutcome, type StablefordHoleOutcome } from '../server/domain/formats/_stableford-scoring';
+import { normalizeMatchPlayHandicaps } from '../server/domain/formats/_match-play-handicap';
 
 export type Services = ReturnType<typeof createServices>;
 
@@ -49,6 +51,16 @@ function netCell(net: number | null): string {
 function numericCell(value: number | null | undefined): string {
     if (value === null || value === undefined) return '—';
     return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function formatEventMetadata(metadata: Record<string, unknown> | null): string {
+    if (metadata === null) return '<span class="muted">—</span>';
+    const parts: string[] = [];
+    for (const [k, v] of Object.entries(metadata)) {
+        if (typeof v === 'boolean') parts.push(`${esc(k)}:${v ? '✓' : '✗'}`);
+        else parts.push(`${esc(k)}:${esc(String(v))}`);
+    }
+    return `<code>${parts.join(' ')}</code>`;
 }
 
 interface HoleGroup {
@@ -87,6 +99,31 @@ function strokesGivenMap(
         m.set(ch.holeNumber, baseline + extra);
     }
     return m;
+}
+
+type PairScorecardKind =
+    | 'match_play_individual'
+    | 'match_play_better_ball'
+    | 'taliban_better_ball';
+
+export function pairSideScorecardRows(
+    kind: PairScorecardKind,
+    link: ParticipantPlayerLink,
+    allRows: ScorecardHole[],
+): ScorecardHole[] {
+    if (kind === 'match_play_individual') {
+        // Individual match-play events are recorded against the participant
+        // with null source columns, so the scorecard must read the shared
+        // participant rows instead of filtering by player id.
+        return allRows.filter(
+            (h) => h.sourcePlayerId === null && h.sourceGuestPlayerId === null,
+        );
+    }
+    return allRows.filter((h) => {
+        if (link.playerId) return h.sourcePlayerId === link.playerId;
+        if (link.guestPlayerId) return h.sourceGuestPlayerId === link.guestPlayerId;
+        return h.sourcePlayerId === null && h.sourceGuestPlayerId === null;
+    });
 }
 
 // --- shared CSS ---
@@ -141,6 +178,42 @@ export interface IndexRow {
     eventCount: number;
 }
 
+function titleCaseWords(raw: string): string {
+    return raw
+        .split('_')
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+}
+
+export function formatSlotSummary(
+    slot: { scoringMode: string; teamShape: string; allowancePct: number },
+): string {
+    const key = `${slot.scoringMode}:${slot.teamShape}`;
+    const label =
+        key === 'stroke_play:individual'
+            ? 'Stroke Play (Individual)'
+            : key === 'stableford:individual'
+              ? 'Stableford (Individual)'
+              : key === 'stroke_play:foursomes'
+                ? 'Stroke Play (Foursomes)'
+                : key === 'stableford:better_ball'
+                  ? 'Stableford (Better Ball)'
+                  : key === 'match_play:individual'
+                    ? 'Match Play (Individual)'
+                    : key === 'match_play:better_ball'
+                      ? 'Match Play (Better Ball)'
+                      : key === 'taliban:better_ball'
+                        ? 'Taliban (Better Ball)'
+                        : key === 'kopenhamnare:individual'
+                          ? 'Kopenhamnare (Individual)'
+                          : key === 'umbrella:four_ball'
+                            ? 'Umbrella (4-Ball)'
+                            : key === 'umbrella:individual'
+                              ? 'Umbrella (3-Player Individual)'
+                              : `${titleCaseWords(slot.scoringMode)} x ${titleCaseWords(slot.teamShape)}`;
+    return `${label} @ ${slot.allowancePct}%`;
+}
+
 export async function collectIndexRows(svc: Services): Promise<IndexRow[]> {
     const rounds = await svc.roundService.list();
     const courseById = new Map<string, Course>();
@@ -169,7 +242,7 @@ export function renderIndexHtml(rows: IndexRow[]): string {
     const body = rows
         .map((row) => {
             const slots = row.round.formatSlots
-                .map((s) => `${s.scoringMode}×${s.teamShape}@${s.allowancePct}%`)
+                .map((s) => formatSlotSummary(s))
                 .join(', ');
             return `
 <tr>
@@ -305,12 +378,14 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         s?.scoringMode === 'stroke_play' && s?.teamShape === 'foursomes';
     const isTalibanSlot = (s: typeof round.formatSlots[number] | undefined): boolean =>
         s?.scoringMode === 'taliban' && s?.teamShape === 'better_ball';
-    const isUmbrellaSlot = (s: typeof round.formatSlots[number] | undefined): boolean =>
+    const isUmbrellaFourBallSlot = (s: typeof round.formatSlots[number] | undefined): boolean =>
         s?.scoringMode === 'umbrella' && s?.teamShape === 'four_ball';
+    const isUmbrellaIndividualSlot = (s: typeof round.formatSlots[number] | undefined): boolean =>
+        s?.scoringMode === 'umbrella' && s?.teamShape === 'individual';
     const umbrellaBirdieRuleFor = (
         s: typeof round.formatSlots[number] | undefined,
     ): string | null =>
-        isUmbrellaSlot(s)
+        s?.scoringMode === 'umbrella'
             ? ((s!.scopeConfig?.config?.birdieRule as string | undefined) ?? 'gross')
             : null;
 
@@ -320,8 +395,12 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         isFoursomesSlot(slotByParticipantId.get(p.id));
     const isParticipantTaliban = (p: Participant): boolean =>
         isTalibanSlot(slotByParticipantId.get(p.id));
+    const isParticipantUmbrellaFourBall = (p: Participant): boolean =>
+        isUmbrellaFourBallSlot(slotByParticipantId.get(p.id));
+    const isParticipantUmbrellaIndividual = (p: Participant): boolean =>
+        isUmbrellaIndividualSlot(slotByParticipantId.get(p.id));
     const isParticipantUmbrella = (p: Participant): boolean =>
-        isUmbrellaSlot(slotByParticipantId.get(p.id));
+        isParticipantUmbrellaFourBall(p) || isParticipantUmbrellaIndividual(p);
 
     const participantLabel = (p: Participant): string => {
         const names = p.players.map((link) => {
@@ -362,7 +441,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
     <tr><th>start list mode</th><td>${esc(round.startListMode)}</td></tr>
     <tr><th>status</th><td>${esc(round.status)}</td></tr>
     <tr><th>latest event</th><td><code>${esc(round.latestEventId ?? '—')}</code></td></tr>
-    <tr><th>format slots</th><td>${round.formatSlots.map((s) => `#${s.slotIndex} ${esc(s.scoringMode)} × ${esc(s.teamShape)} @ ${s.allowancePct}%`).join('<br>')}</td></tr>
+    <tr><th>format slots</th><td>${round.formatSlots.map((s) => `#${s.slotIndex} ${esc(formatSlotSummary(s))}`).join('<br>')}</td></tr>
   </table>
 </section>`;
 
@@ -407,44 +486,123 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
     };
 
     const renderParticipantsTable = (): string => {
-        const rows = participants.map((p) => {
-            const tee = p.teeIdSnapshot ? teesById.get(p.teeIdSnapshot) : null;
-            const teeLabel = tee ? tee.name : '—';
-            let snapshotGender = '—';
-            let arithmetic = '—';
-            if (p.handicapIndexSnapshot !== null && tee) {
-                const matchingGenders = new Set(
-                    tee.ratings
-                        .filter((r) => {
-                            const raw =
-                                p.handicapIndexSnapshot! * (r.slope / 113) +
-                                (r.courseRating - r.par);
-                            return Math.round(raw) === p.courseHandicapSnapshot;
-                        })
-                        .map((r) => r.gender),
-                );
-                snapshotGender =
-                    matchingGenders.size === 0
-                        ? '?'
-                        : Array.from(matchingGenders).sort().join('/');
-                const lines: string[] = [];
-                for (const r of tee.ratings) {
-                    const raw = p.handicapIndexSnapshot * (r.slope / 113) + (r.courseRating - r.par);
-                    const line =
-                        `${r.gender}: ${p.handicapIndexSnapshot} × ${r.slope}/113 + (${r.courseRating} − ${r.par}) = ${raw.toFixed(2)} → ${Math.round(raw)}` +
-                        (matchingGenders.has(r.gender)
-                            ? matchingGenders.size === 1
-                                ? ' ← CH'
-                                : ' ← matches CH'
-                            : '');
-                    lines.push(
-                        matchingGenders.has(r.gender)
-                            ? `<span class="match">${line}</span>`
-                            : line,
-                    );
-                }
-                arithmetic = lines.join('<br>');
+        const linkLabel = (link: Participant['players'][number]): string => {
+            if (link.playerId) {
+                return playersById.get(link.playerId)?.displayName ?? `player:${short(link.playerId)}`;
             }
+            if (link.guestPlayerId) {
+                const g = guestsById.get(link.guestPlayerId);
+                return g ? `${g.displayName} (guest)` : `guest:${short(link.guestPlayerId)}`;
+            }
+            return '?';
+        };
+
+        const arithmeticLinesFor = (
+            handicapIndexSnapshot: number | null,
+            courseHandicapSnapshot: number | null,
+            tee: Tee | null,
+        ): { gender: string; arithmetic: string } => {
+            if (handicapIndexSnapshot === null || !tee) {
+                return { gender: '—', arithmetic: '—' };
+            }
+            const matchingGenders = new Set(
+                tee.ratings
+                    .filter((r) => {
+                        const raw =
+                            handicapIndexSnapshot * (r.slope / 113) +
+                            (r.courseRating - r.par);
+                        return Math.round(raw) === courseHandicapSnapshot;
+                    })
+                    .map((r) => r.gender),
+            );
+            const gender =
+                matchingGenders.size === 0
+                    ? '?'
+                    : Array.from(matchingGenders).sort().join('/');
+            const lines: string[] = [];
+            for (const r of tee.ratings) {
+                const raw =
+                    handicapIndexSnapshot * (r.slope / 113) + (r.courseRating - r.par);
+                const line =
+                    `${r.gender}: ${handicapIndexSnapshot} × ${r.slope}/113 + (${r.courseRating} − ${r.par}) = ${raw.toFixed(2)} → ${Math.round(raw)}` +
+                    (matchingGenders.has(r.gender)
+                        ? matchingGenders.size === 1
+                            ? ' ← CH'
+                            : ' ← matches CH'
+                        : '');
+                lines.push(
+                    matchingGenders.has(r.gender)
+                        ? `<span class="match">${line}</span>`
+                        : line,
+                );
+            }
+            return { gender, arithmetic: lines.join('<br>') };
+        };
+
+        const rows = participants.map((p) => {
+            const tee = p.teeIdSnapshot ? (teesById.get(p.teeIdSnapshot) ?? null) : null;
+            const teeLabel = tee ? tee.name : '—';
+            const effectivePH = effectivePHByParticipant.get(p.id);
+            const linkSnapshots =
+                p.players.length > 0
+                    ? p.players.map((link) => ({
+                          id: link.id,
+                          label: linkLabel(link),
+                          handicapIndexSnapshot:
+                              link.handicapIndexSnapshot ??
+                              (p.players.length === 1 ? p.handicapIndexSnapshot : null),
+                          courseHandicapSnapshot:
+                              link.courseHandicapSnapshot ??
+                              (p.players.length === 1 ? p.courseHandicapSnapshot : null),
+                          playingHandicapSnapshot:
+                              link.playingHandicapSnapshot ??
+                              (p.players.length === 1 ? p.playingHandicapSnapshot : null),
+                      }))
+                    : [
+                          {
+                              id: p.id,
+                              label: participantLabel(p),
+                              handicapIndexSnapshot: p.handicapIndexSnapshot,
+                              courseHandicapSnapshot: p.courseHandicapSnapshot,
+                              playingHandicapSnapshot: p.playingHandicapSnapshot,
+                          },
+                      ];
+            const genderSet = new Set<string>();
+            const arithmeticBlocks = linkSnapshots.map((linkSnap) => {
+                const { gender, arithmetic } = arithmeticLinesFor(
+                    linkSnap.handicapIndexSnapshot,
+                    linkSnap.courseHandicapSnapshot,
+                    tee,
+                );
+                if (gender !== '—') genderSet.add(gender);
+                if (linkSnapshots.length === 1) return arithmetic;
+                return `<strong>${esc(linkSnap.label)}</strong><br>${arithmetic}`;
+            });
+            const snapshotGender =
+                genderSet.size === 0 ? '—' : Array.from(genderSet).sort().join('<br>');
+            const hIdxCell = linkSnapshots
+                .map((linkSnap) => numericCell(linkSnap.handicapIndexSnapshot))
+                .join('<br>');
+            const chCell = linkSnapshots
+                .map((linkSnap) => numericCell(linkSnap.courseHandicapSnapshot))
+                .join('<br>');
+            const phCell = linkSnapshots
+                .map((linkSnap) => {
+                    const base = linkSnap.playingHandicapSnapshot;
+                    const adjusted = p.players.length > 0
+                        ? effectivePHByLinkId.get(linkSnap.id) ?? undefined
+                        : undefined;
+                    const effective =
+                        adjusted ??
+                        (linkSnapshots.length === 1 && effectivePH !== undefined
+                            ? effectivePH
+                            : base);
+                    if (effective !== undefined && effective !== base) {
+                        return `${numericCell(base)} <span class="muted">→ ${numericCell(effective)}</span>`;
+                    }
+                    return numericCell(base);
+                })
+                .join('<br>');
             return `
 <tr>
   <td><code>${esc(short(p.id))}</code></td>
@@ -452,11 +610,11 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
   <td>${esc(p.teamLabel ?? '—')}</td>
   <td>${esc(p.categorySnapshot ?? '—')}</td>
   <td>${esc(teeLabel)}</td>
-  <td>${esc(snapshotGender)}</td>
-  <td class="num">${p.handicapIndexSnapshot ?? '—'}</td>
-  <td class="num">${p.courseHandicapSnapshot ?? '—'}</td>
-  <td class="num">${p.playingHandicapSnapshot ?? '—'}</td>
-  <td class="arithmetic">${arithmetic}</td>
+  <td>${snapshotGender}</td>
+  <td class="num">${hIdxCell}</td>
+  <td class="num">${chCell}</td>
+  <td class="num">${phCell}</td>
+  <td class="arithmetic">${arithmeticBlocks.join('<br><br>')}</td>
   <td>${p.isLocked ? '🔒' : ''} ${p.isDq ? 'DQ' : ''}</td>
 </tr>`;
         });
@@ -473,6 +631,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
     <tbody>${rows.join('')}</tbody>
   </table>
   <p class="hint">CH = round(index × slope/113 + (CR − par)). PH = round(CH × allowancePct/100).</p>
+  <p class="hint">Match-play formats normalise PH within each match: the lowest PH plays off 0 and others receive only the difference.</p>
   <p class="hint">Gender is inferred from the tee-rating row(s) whose arithmetic matches the frozen course-handicap snapshot.</p>
   <p class="hint">In the arithmetic column, the line marked <strong>← CH</strong> is the tee-rating row that matches the frozen course-handicap snapshot.</p>
   <p class="hint">Scorecard cells: <code>–</code> = did not play, <code>P</code> = pickup (in the events log; in the Gross row it is resolved to par + 2 + strokes given per WHS net-double).</p>
@@ -502,6 +661,40 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
               'standard')
             : null;
     const effectivePHByParticipant = new Map<string, number | null>();
+    const effectivePHByLinkId = new Map<string, number | null>();
+    for (const pr of leaderboard.pairResults) {
+        const slot = round.formatSlots[pr.slotIndex];
+        if (!(slot?.scoringMode === 'match_play')) continue;
+        const [idA, idB] = pr.participants;
+        const partA = participants.find((p) => p.id === idA);
+        const partB = participants.find((p) => p.id === idB);
+        if (!partA || !partB) continue;
+        if (slot.teamShape === 'individual') {
+            const [effectiveA, effectiveB] = normalizeMatchPlayHandicaps([
+                partA.playingHandicapSnapshot,
+                partB.playingHandicapSnapshot,
+            ]);
+            effectivePHByParticipant.set(idA, effectiveA);
+            effectivePHByParticipant.set(idB, effectiveB);
+            continue;
+        }
+        if (slot.teamShape === 'better_ball') {
+            const allLinks = [
+                ...partA.players.map((link) => ({
+                    link,
+                    ph: link.playingHandicapSnapshot ?? partA.playingHandicapSnapshot,
+                })),
+                ...partB.players.map((link) => ({
+                    link,
+                    ph: link.playingHandicapSnapshot ?? partB.playingHandicapSnapshot,
+                })),
+            ];
+            const normalized = normalizeMatchPlayHandicaps(allLinks.map((entry) => entry.ph));
+            for (let i = 0; i < allLinks.length; i++) {
+                effectivePHByLinkId.set(allLinks[i]!.link.id, normalized[i] ?? null);
+            }
+        }
+    }
     for (const slot of round.formatSlots) {
         if (!isKopenhamnareSlot(slot)) continue;
         const slotParticipants = participants.filter(
@@ -537,7 +730,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
     //
     // This is rendered for:
     //   - Köpenhamnare (3-player match-style points race)
-    //   - Umbrella (team-vs-team cumulative points)
+    //   - Umbrella (both 2v2 and 3-player individual variants)
     //
     // Pair formats (match-play, Taliban) compute the same idea from their
     // pair-level rows below because they don't expose participant `totals`
@@ -547,7 +740,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         s: typeof round.formatSlots[number] | undefined,
     ): boolean =>
         isKopenhamnareSlot(s) ||
-        (s?.scoringMode === 'umbrella' && s?.teamShape === 'four_ball');
+        s?.scoringMode === 'umbrella';
     for (const slot of round.formatSlots) {
         if (!needsNormalizedRunning(slot)) continue;
         const slotResults = leaderboard.participantResults.filter(
@@ -587,6 +780,18 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         }
         return '?';
     };
+
+    const playerPhSummary = (p: Participant): string =>
+        p.players.length === 0
+            ? `PH ${p.playingHandicapSnapshot ?? '—'}`
+            : `player PH ${p.players
+                  .map((link) => {
+                      const base = link.playingHandicapSnapshot ?? p.playingHandicapSnapshot;
+                      const adjusted = effectivePHByLinkId.get(link.id) ?? base;
+                      if (adjusted !== base) return `${numericCell(base)} → ${numericCell(adjusted)}`;
+                      return numericCell(base);
+                  })
+                  .join(' / ')}`;
 
     // Better-ball scorecard: 4 rows per player (Given / Gross / Net / Points)
     // plus 1 team Points row. Reads raw per-player scorecard rows from the
@@ -661,11 +866,11 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         const siRow = row('SI', (h) => `<td class="si">${h.strokeIndex}</td>`, () => '—', 'dim');
 
         // Per-player sub-rows. Each player's strokes-given map is based on
-        // their own PH (fallback: team PH, since per-player PH snapshots
-        // don't exist yet — see leaderboard.service.ts).
+        // their own frozen PH on the link row, with a team-PH fallback for
+        // legacy rows that predate per-link snapshots.
         const playerBlocks = p.players.map((link) => {
             const name = playerLinkLabel(link);
-            const playerPh = p.playingHandicapSnapshot ?? 0;
+            const playerPh = link.playingHandicapSnapshot ?? p.playingHandicapSnapshot ?? 0;
             const strokesGiven = strokesGivenMap(playerPh, allCourseHoles);
             // Source filter: pick this player's rows from the flat list.
             const playerRows: ScorecardHole[] = allRows.filter((h) => {
@@ -811,7 +1016,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
   <header>
     <h3>${esc(participantLabel(p))}</h3>
     <span class="muted">
-      slot #${result.slotIndex} · ${esc(slotFormat?.scoringMode ?? '')} × ${esc(slotFormat?.teamShape ?? '')} · team PH ${p.playingHandicapSnapshot ?? '—'} · holes played ${result.holesPlayed}
+      slot #${result.slotIndex} · ${esc(slotFormat?.scoringMode ?? '')} × ${esc(slotFormat?.teamShape ?? '')} · ${playerPhSummary(p)} · holes played ${result.holesPlayed}
     </span>
   </header>
   <table class="scorecard">
@@ -838,10 +1043,9 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         // strokes (lowest-PH player plays off 0; others get their delta).
         const participantSlot = slotByParticipantId.get(p.id);
         const isKopenhamnareParticipant = isKopenhamnareSlot(participantSlot);
-        const phForStrokes =
-            isKopenhamnareParticipant && effectivePHByParticipant.has(p.id)
-                ? (effectivePHByParticipant.get(p.id) ?? p.playingHandicapSnapshot)
-                : p.playingHandicapSnapshot;
+        const phForStrokes = effectivePHByParticipant.has(p.id)
+            ? (effectivePHByParticipant.get(p.id) ?? p.playingHandicapSnapshot)
+            : p.playingHandicapSnapshot;
         const strokesGiven = strokesGivenMap(phForStrokes, allCourseHoles);
         // A Status row is rendered for pair-level formats (match-play today,
         // Taliban later) — we signal via participation in a pair result. The
@@ -1061,6 +1265,241 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
 </article>`;
     };
 
+    const renderUmbrellaIndividualScorecard = (
+        result: ParticipantResult,
+        p: Participant,
+        courseHoles: CourseHole[],
+    ): string => {
+        const byHole = new Map(result.holes.map((h) => [h.holeNumber, h]));
+        const groups = splitHoleGroups(courseHoles);
+        const includeTotColumn = groups.length > 1;
+        const strokesGiven = strokesGivenMap(p.playingHandicapSnapshot, allCourseHoles);
+        const scorecard = scorecardByParticipant.get(p.id);
+        const rawByHole = new Map(
+            (scorecard?.holes ?? [])
+                .filter((h) => h.sourcePlayerId === null && h.sourceGuestPlayerId === null)
+                .map((h) => [h.holeNumber, h]),
+        );
+
+        const hasCat = (hr: HoleResult | undefined, cat: 'LG' | 'FWY' | 'GIR' | 'BIRD'): boolean =>
+            hr?.note !== undefined ? new RegExp(`\\b${cat}\\b`).test(hr.note) : false;
+
+        const row = (
+            label: string,
+            cell: (h: CourseHole) => string,
+            sum: (holes: CourseHole[]) => string,
+            klass = '',
+        ): string => {
+            const groupSums = groups.map((g) => sum(g.holes));
+            const groupCells = groups
+                .map((g, i) => g.holes.map(cell).join('') + `<td class="sum">${groupSums[i]}</td>`)
+                .join('');
+            let totCell = '';
+            if (includeTotColumn) {
+                const nums = groupSums.filter((s) => s !== '—').map(Number);
+                const tot = nums.length === 0 ? '—' : String(nums.reduce((a, b) => a + b, 0));
+                totCell = `<td class="sum">${tot}</td>`;
+            }
+            return `
+<tr class="${klass}">
+  <th class="rowlabel">${label}</th>
+  ${groupCells}
+  ${totCell}
+</tr>`;
+        };
+
+        const stateRow = (
+            label: string,
+            cell: (h: CourseHole) => string,
+            groupEnd: (holes: CourseHole[]) => string,
+            totalEnd: string,
+            klass = '',
+        ): string => {
+            const groupCells = groups
+                .map((g) => g.holes.map(cell).join('') + `<td class="sum">${groupEnd(g.holes)}</td>`)
+                .join('');
+            return `
+<tr class="${klass}">
+  <th class="rowlabel">${label}</th>
+  ${groupCells}
+  ${includeTotColumn ? `<td class="sum">${totalEnd}</td>` : ''}
+</tr>`;
+        };
+
+        const headerCells = groups
+            .map((g) => g.holes.map((h) => `<th>${h.holeNumber}</th>`).join('') + `<th class="sum">${g.label}</th>`)
+            .join('');
+        const holeHeader = `
+<tr>
+  <th class="rowlabel">Hole</th>
+  ${headerCells}
+  ${includeTotColumn ? '<th class="sum">TOT</th>' : ''}
+</tr>`;
+
+        const parRow = row('Par', (h) => `<td>${h.par}</td>`, (holes) => String(holes.reduce((a, b) => a + b.par, 0)));
+        const siRow = row('SI', (h) => `<td class="si">${h.strokeIndex}</td>`, () => '—', 'dim');
+        const strokesGivenRow = row(
+            'Given',
+            (h) => {
+                const s = strokesGiven.get(h.holeNumber) ?? 0;
+                return `<td class="given">${s > 0 ? `+${s}` : ''}</td>`;
+            },
+            () => '—',
+            'dim',
+        );
+        const grossRow = row(
+            'Gross',
+            (h) => `<td>${strokesCell(byHole.get(h.holeNumber)?.gross ?? null)}</td>`,
+            (holes) => {
+                const total = holes.reduce((acc, h) => {
+                    const gross = byHole.get(h.holeNumber)?.gross;
+                    return gross != null ? acc + gross : acc;
+                }, 0);
+                const any = holes.some((h) => byHole.get(h.holeNumber)?.gross != null);
+                return any ? String(total) : '—';
+            },
+        );
+        const netRow = row(
+            'Net',
+            (h) => `<td>${netCell(byHole.get(h.holeNumber)?.net ?? null)}</td>`,
+            (holes) => {
+                const total = holes.reduce((acc, h) => {
+                    const net = byHole.get(h.holeNumber)?.net;
+                    return net != null ? acc + net : acc;
+                }, 0);
+                const any = holes.some((h) => byHole.get(h.holeNumber)?.net != null);
+                return any ? String(total) : '—';
+            },
+        );
+        const lgRow = row(
+            'LG',
+            (h) => `<td class="given">${hasCat(byHole.get(h.holeNumber), 'LG') ? '✓' : ''}</td>`,
+            (holes) => {
+                const total = holes.filter((h) => hasCat(byHole.get(h.holeNumber), 'LG')).length;
+                return total > 0 ? String(total) : '—';
+            },
+            'dim',
+        );
+        const firRow = row(
+            'FIR',
+            (h) => {
+                if (h.par <= 3) return '<td class="given">—</td>';
+                const fir = rawByHole.get(h.holeNumber)?.metadata?.fairway === true;
+                return `<td class="given">${fir ? '✓' : ''}</td>`;
+            },
+            (holes) => {
+                const total = holes.filter(
+                    (h) => h.par > 3 && rawByHole.get(h.holeNumber)?.metadata?.fairway === true,
+                ).length;
+                return total > 0 ? String(total) : '—';
+            },
+            'dim',
+        );
+        const girRow = row(
+            'GIR',
+            (h) => {
+                const gir = rawByHole.get(h.holeNumber)?.metadata?.gir === true;
+                return `<td class="given">${gir ? '✓' : ''}</td>`;
+            },
+            (holes) => {
+                const total = holes.filter(
+                    (h) => rawByHole.get(h.holeNumber)?.metadata?.gir === true,
+                ).length;
+                return total > 0 ? String(total) : '—';
+            },
+            'dim',
+        );
+        const birdRow = row(
+            'BIRD',
+            (h) => `<td class="given">${hasCat(byHole.get(h.holeNumber), 'BIRD') ? '✓' : ''}</td>`,
+            (holes) => {
+                const total = holes.filter((h) => hasCat(byHole.get(h.holeNumber), 'BIRD')).length;
+                return total > 0 ? String(total) : '—';
+            },
+            'dim',
+        );
+        const pointsRow = row(
+            'Points',
+            (h) => {
+                const hr = byHole.get(h.holeNumber);
+                const note = hr?.note ? ` title="${esc(hr.note)}"` : '';
+                const sweep = hr?.note?.includes('☂') ? ' ☂' : '';
+                return `<td${note}>${hr?.points != null ? `<strong>${hr.points}${sweep}</strong>` : '—'}</td>`;
+            },
+            (holes) => {
+                const total = holes.reduce((acc, h) => {
+                    const points = byHole.get(h.holeNumber)?.points;
+                    return points != null ? acc + points : acc;
+                }, 0);
+                const any = holes.some((h) => byHole.get(h.holeNumber)?.points != null);
+                return any ? String(total) : '—';
+            },
+        );
+
+        const runningByHole = normalizedRunningByParticipant.get(p.id);
+        const runningRow =
+            runningByHole
+                ? stateRow(
+                      'Running',
+                      (h) => `<td>${numericCell(runningByHole.get(h.holeNumber))}</td>`,
+                      (holes) => {
+                          const last = holes[holes.length - 1];
+                          return last ? numericCell(runningByHole.get(last.holeNumber)) : '—';
+                      },
+                      (() => {
+                          const last = courseHoles[courseHoles.length - 1];
+                          return last ? numericCell(runningByHole.get(last.holeNumber)) : '—';
+                      })(),
+                  )
+                : '';
+
+        const annotatedHoles = result.holes.filter((h) => h.note && h.points !== null);
+        const pointsArithmetic =
+            annotatedHoles.length > 0
+                ? `<p class="arithmetic">${annotatedHoles
+                      .map((h) => `h${h.holeNumber}: ${esc(h.note!)}`)
+                      .join(' · ')}</p>`
+                : '';
+
+        const totalsRow = result.totals
+            .map((t) => `<li>${esc(t.scoringType)} = <strong>${t.value ?? '—'}</strong></li>`)
+            .join('');
+
+        const slotFormat = round.formatSlots[result.slotIndex];
+        const umbrellaHeader =
+            slotFormat
+                ? `slot #${result.slotIndex} · ${esc(formatSlotSummary(slotFormat))} · birdieRule ${esc(umbrellaBirdieRuleFor(slotFormat) ?? 'gross')}`
+                : `slot #${result.slotIndex}`;
+
+        return `
+<article class="scorecard-card">
+  <header>
+    <h3>${esc(participantLabel(p))}</h3>
+    <span class="muted">
+      ${umbrellaHeader} · H idx ${p.handicapIndexSnapshot ?? '—'} · CH ${p.courseHandicapSnapshot ?? '—'} · PH ${p.playingHandicapSnapshot ?? '—'} · holes played ${result.holesPlayed}
+    </span>
+  </header>
+  <table class="scorecard">
+    <thead>${holeHeader}</thead>
+    <tbody>
+      ${parRow}
+      ${siRow}
+      ${strokesGivenRow}
+      ${grossRow}
+      ${netRow}
+      ${lgRow}
+      ${firRow}
+      ${girRow}
+      ${birdRow}
+      ${pointsRow}
+      ${runningRow}
+    </tbody>
+  </table>
+  ${pointsArithmetic}
+  <ul class="totals">${totalsRow}</ul>
+</article>`;
+    };
+
     // Taliban scorecard: like better-ball (per-player Given / Gross / Net
     // sub-rows), but replaces the team Points row with a team Status row
     // (`W+2` / `L` / `AS` / `W+5 (down eagle)` per hole). Taliban is
@@ -1120,7 +1559,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         // (Taliban has no per-player stableford-style points).
         const playerBlocks = p.players.map((link) => {
             const name = playerLinkLabel(link);
-            const playerPh = p.playingHandicapSnapshot ?? 0;
+            const playerPh = link.playingHandicapSnapshot ?? p.playingHandicapSnapshot ?? 0;
             const strokesGiven = strokesGivenMap(playerPh, allCourseHoles);
             const playerRows: ScorecardHole[] = allRows.filter((h) => {
                 if (link.playerId) return h.sourcePlayerId === link.playerId;
@@ -1204,7 +1643,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
   <header>
     <h3>${esc(participantLabel(p))}</h3>
     <span class="muted">
-      slot #${result.slotIndex} · ${esc(slotFormat?.scoringMode ?? '')} × ${esc(slotFormat?.teamShape ?? '')} @ ${slotFormat?.allowancePct ?? 100}% · team PH ${p.playingHandicapSnapshot ?? '—'} · holes played ${result.holesPlayed}
+      slot #${result.slotIndex} · ${esc(slotFormat?.scoringMode ?? '')} × ${esc(slotFormat?.teamShape ?? '')} @ ${slotFormat?.allowancePct ?? 100}% · ${playerPhSummary(p)} · holes played ${result.holesPlayed}
     </span>
   </header>
   <table class="scorecard">
@@ -1233,7 +1672,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
     // the "team points earned" cell uses `PairHoleResult.fromA|fromB`).
     const renderPairScorecard = (
         pair: PairResult,
-        kind: 'match_play_individual' | 'taliban_better_ball',
+        kind: PairScorecardKind,
         partA: Participant,
         partB: Participant,
         resA: ParticipantResult,
@@ -1302,22 +1741,21 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         // match-play individual the participant has 1 player link; for Taliban
         // it has 2. Gross/Net come from the raw scorecard rows (source-filtered)
         // so we get the pickup / DNP semantics right per player. Strokes-given
-        // uses the team PH as a fallback when the per-player PH snapshot isn't
-        // set (same convention as the existing Taliban + better-ball renders).
+        // uses the link's own frozen PH, with a participant-level fallback for
+        // legacy rows that predate the per-link snapshot migration.
         const sideBlock = (p: Participant): string => {
             const scorecard = scorecardByParticipant.get(p.id);
             const allRows = scorecard?.holes ?? [];
             const blocks = p.players.map((link) => {
                 const name = playerLinkLabel(link);
-                const playerPh = p.playingHandicapSnapshot ?? 0;
+                const playerPh =
+                    effectivePHByLinkId.get(link.id) ??
+                    effectivePHByParticipant.get(p.id) ??
+                    link.playingHandicapSnapshot ??
+                    p.playingHandicapSnapshot ??
+                    0;
                 const strokesGiven = strokesGivenMap(playerPh, allCourseHoles);
-                const playerRows: ScorecardHole[] = allRows.filter((h) => {
-                    if (link.playerId) return h.sourcePlayerId === link.playerId;
-                    if (link.guestPlayerId) return h.sourceGuestPlayerId === link.guestPlayerId;
-                    // Match-play individual seeds write events with null source
-                    // columns — one player per participant, no source filter needed.
-                    return h.sourcePlayerId === null && h.sourceGuestPlayerId === null;
-                });
+                const playerRows = pairSideScorecardRows(kind, link, allRows);
                 const byHole = new Map<number, ScorecardHole>();
                 for (const r of playerRows) byHole.set(r.holeNumber, r);
 
@@ -1383,7 +1821,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
 
         const sidePoints = (perspective: 'A' | 'B', ph: PairHoleResult): number | null => {
             if (ph.status === null) return null;
-            if (kind === 'match_play_individual') {
+            if (kind === 'match_play_individual' || kind === 'match_play_better_ball') {
                 if (ph.status === 'halved') return 0;
                 if (perspective === 'A') return ph.status === 'won' ? 1 : 0;
                 return ph.status === 'lost' ? 1 : 0;
@@ -1470,7 +1908,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         // (no change in running state). Match-play: AS / NUP / NDN. Taliban:
         // AS / +N / -N (signed integer delta).
         const formatRunning = (running: number): string => {
-            if (kind === 'match_play_individual') {
+            if (kind === 'match_play_individual' || kind === 'match_play_better_ball') {
                 if (running === 0) return 'AS';
                 if (running > 0) return `${running}UP`;
                 return `${-running}DN`;
@@ -1772,7 +2210,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
   <header>
     <h3>${esc(participantLabel(p))}</h3>
     <span class="muted">
-      ${umbrellaHeader} · team PH ${p.playingHandicapSnapshot ?? '—'} · holes played ${result.holesPlayed}
+      ${umbrellaHeader} · ${playerPhSummary(p)} · holes played ${result.holesPlayed}
     </span>
   </header>
   <table class="scorecard">
@@ -1813,10 +2251,16 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
             // Use participant A's slot to detect the format kind — both
             // participants of a pair share a slot by construction.
             const slot = slotByParticipantId.get(idA);
-            let kind: 'match_play_individual' | 'taliban_better_ball' | null = null;
+            let kind:
+                | 'match_play_individual'
+                | 'match_play_better_ball'
+                | 'taliban_better_ball'
+                | null = null;
             if (isTalibanSlot(slot)) kind = 'taliban_better_ball';
             else if (slot?.scoringMode === 'match_play' && slot?.teamShape === 'individual')
                 kind = 'match_play_individual';
+            else if (slot?.scoringMode === 'match_play' && slot?.teamShape === 'better_ball')
+                kind = 'match_play_better_ball';
             if (!kind) continue; // pair from a future pair-level format — leave as-is
             cards.push(renderPairScorecard(pr, kind, partA, partB, resA, resB, playedCourseHoles));
             foldedIntoPair.add(idA);
@@ -1828,7 +2272,8 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
             if (!r) continue;
             if (isParticipantBetterBall(p)) cards.push(renderBetterBallScorecard(r, p, playedCourseHoles));
             else if (isParticipantTaliban(p)) cards.push(renderTalibanScorecard(r, p, playedCourseHoles));
-            else if (isParticipantUmbrella(p)) cards.push(renderUmbrellaScorecard(r, p, playedCourseHoles));
+            else if (isParticipantUmbrellaFourBall(p)) cards.push(renderUmbrellaScorecard(r, p, playedCourseHoles));
+            else if (isParticipantUmbrellaIndividual(p)) cards.push(renderUmbrellaIndividualScorecard(r, p, playedCourseHoles));
             else cards.push(renderScorecard(r, p, playedCourseHoles));
         }
         return `
@@ -1841,13 +2286,22 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
     const renderEvents = (): string => {
         const rows = events.map((e: ScoreEvent) => {
             const participant = participants.find((p) => p.id === e.participantId);
+            const sourceName =
+                e.sourcePlayerId !== null
+                    ? playerName(e.sourcePlayerId)
+                    : e.sourceGuestPlayerId !== null
+                      ? `guest ${short(e.sourceGuestPlayerId)}`
+                      : '';
+            const metaCell = formatEventMetadata(e.metadata);
             return `
 <tr>
   <td class="muted">${esc(e.recordedAt)}</td>
   <td>${esc(participant ? participantLabel(participant) : short(e.participantId))}</td>
+  <td>${esc(sourceName)}</td>
   <td class="num">${e.hole}</td>
   <td class="num">${strokesCell(e.strokes)}</td>
   <td>${esc(e.eventType)}</td>
+  <td>${metaCell}</td>
   <td>${esc(playerName(e.recordedByPlayerId))}</td>
   <td><code>${esc(e.clientEventId)}</code></td>
   <td><code>${esc(short(e.id))}</code></td>
@@ -1857,7 +2311,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
 <section>
   <h2>Events log (${events.length})</h2>
   <table class="grid">
-    <thead><tr><th>recorded at</th><th>participant</th><th>hole</th><th>strokes</th><th>type</th><th>recorded by</th><th>client id</th><th>event id</th></tr></thead>
+    <thead><tr><th>recorded at</th><th>participant</th><th>player</th><th>hole</th><th>strokes</th><th>type</th><th>metadata</th><th>recorded by</th><th>client id</th><th>event id</th></tr></thead>
     <tbody>${rows.join('')}</tbody>
   </table>
 </section>`;
@@ -1905,7 +2359,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         const slotSections = slotIndices.map((slotIndex) => {
             const slot = round.formatSlots[slotIndex];
             const header = slot
-                ? `Slot #${slot.slotIndex} · ${esc(slot.scoringMode)} × ${esc(slot.teamShape)} @ ${slot.allowancePct}%`
+                ? `Slot #${slot.slotIndex} · ${esc(formatSlotSummary(slot))}`
                 : `Slot #${slotIndex}`;
             const cols = (bucketsBySlot.get(slotIndex) ?? []).map(renderBucket).join('');
             // Per-slot pair-results subsection — only the pairs whose
@@ -1967,7 +2421,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         const orphanedPairSections = orphanedPairSlots.map((slotIndex) => {
             const slot = round.formatSlots[slotIndex];
             const header = slot
-                ? `Slot #${slot.slotIndex} · ${esc(slot.scoringMode)} × ${esc(slot.teamShape)} @ ${slot.allowancePct}%`
+                ? `Slot #${slot.slotIndex} · ${esc(formatSlotSummary(slot))}`
                 : `Slot #${slotIndex}`;
             const slotPairs = leaderboard.pairResults.filter((pr) => pr.slotIndex === slotIndex);
             const slotIsTaliban = isTalibanSlot(slot);

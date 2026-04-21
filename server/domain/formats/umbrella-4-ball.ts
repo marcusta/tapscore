@@ -33,37 +33,30 @@
 // The other team's categories are unrelated; they compute their own per-
 // team sum and points independently.
 //
-// Running cumulative per-team total across 18 holes. Leaderboard = team
-// points ranked high-to-low via `byScoringType: 'points'`.
+// Running cumulative per-team total across 18 holes. The headline total
+// (leaderboard / scorecard `points = X`) is NORMALISED: trailing team → 0,
+// leader carries the gap. So a raw 395 vs 325 round is shown as 70 vs 0 —
+// makes "how far behind are we?" trivial to read during play. Raw per-hole
+// `points` stay unchanged; only the aggregate is adjusted.
 //
 // --- Edge cases ---
 //
-// Ties within LG:
-//   - LG tied between players across teams → split proportional to how
-//     many of the tied winners are on each team (Alice (A) + Carol (B)
-//     tied → A: 0.5, B: 0.5). Alice + Bob (same team A) tied → A: 1.0,
-//     B: 0.0 (team won; the category measures "a player on this team had
-//     the low gross").
-//   - All four players tied for low gross → A: 1.0, B: 1.0 (each team
-//     has winners among its own players; the whole category goes to
-//     both teams — arithmetic: winners-on-team-A / total-winners = 2/4
-//     but conceptually this IS "a player on A had low gross" AND "a
-//     player on B had low gross". Keep the same proportional rule:
-//     2/4 = 0.5 each. Documented here; the point total is dull because
-//     both teams get half a point on LG.)
-//   NOTE: re-reading — the spec says "If tied across teams, split." For
-//   "within team A tied", team A gets the full point. The general rule
-//   that works: LG's award to team X = (winners on X) / (total winners).
-//   This yields:
-//     Alice ties Bob (both A): A gets 2/2 = 1.0, B gets 0/2 = 0.
-//     Alice ties Carol (across): A = 1/2, B = 1/2.
-//     All 4 tied: A = 2/4 = 0.5, B = 2/4 = 0.5.
-//   Chosen for arithmetic consistency; documented in the per-hole note.
+// Ties (LG & LT): tied sides BOTH get the full category (1 / 1), not
+// half-points. The losing side is normalised to 0 as usual, so an "even"
+// hole just means neither team is penalised on that category. No
+// fractional awards — the scorecard stays integer-clean.
 //
-// Ties within LT (one team 2-ball total vs the other):
-//   - A's sum < B's sum → A: 1, B: 0.
-//   - A's sum == B's sum → 0.5 / 0.5.
-//   - A's sum > B's sum → A: 0, B: 1.
+// LG — "did a player on THIS team have the low individual gross?":
+//   - A has winner(s) AND B has none → A = 1, B = 0.
+//   - A has none AND B has winner(s) → A = 0, B = 1.
+//   - Both sides have winner(s) (cross-team tie, or all-4 tie) → A = 1, B = 1.
+//   - Within-team tie (Alice + Bob both low on A, B higher) → A = 1, B = 0.
+//   - Nobody contributed → 0 / 0.
+//
+// LT — low 2-ball team total:
+//   - A's sum < B's sum → A = 1, B = 0.
+//   - A's sum > B's sum → A = 0, B = 1.
+//   - A's sum == B's sum → A = 1, B = 1.
 //   - One team missing a player's gross → that team forfeits LT (other
 //     team wins outright if that team has both players; else neither).
 //
@@ -313,11 +306,10 @@ export const umbrellaFourBall: FormatStrategy = {
             if (contribs.length > 0) {
                 const minGross = Math.min(...contribs.map((c) => c.gross));
                 const winners = contribs.filter((c) => c.gross === minGross);
-                const total = winners.length;
                 const winnersA = winners.filter((w) => w.team === 'A').length;
                 const winnersB = winners.filter((w) => w.team === 'B').length;
-                catsA.lg = winnersA / total;
-                catsB.lg = winnersB / total;
+                catsA.lg = winnersA > 0 ? 1 : 0;
+                catsB.lg = winnersB > 0 ? 1 : 0;
             }
 
             // --- LT — low 2-ball team total ---
@@ -333,8 +325,8 @@ export const umbrellaFourBall: FormatStrategy = {
                 if (teamATotal < teamBTotal) catsA.lt = 1;
                 else if (teamATotal > teamBTotal) catsB.lt = 1;
                 else {
-                    catsA.lt = 0.5;
-                    catsB.lt = 0.5;
+                    catsA.lt = 1;
+                    catsB.lt = 1;
                 }
             } else if (teamATotal !== null) {
                 catsA.lt = 1;
@@ -394,18 +386,26 @@ export const umbrellaFourBall: FormatStrategy = {
             });
         }
 
+        // Normalise the headline total: the trailing team drops to 0 and
+        // the leader carries the gap. Mirrors the per-hole Running row and
+        // makes "how many points behind are we?" trivial to read. The raw
+        // per-hole `points` on each HoleResult stay untouched (the
+        // arithmetic breakdown is the strategy's truth).
+        const normalizedA = Math.max(0, totalA - totalB);
+        const normalizedB = Math.max(0, totalB - totalA);
+
         const resultA: ParticipantResult = {
             participantId: teamA.participantId,
             slotIndex: slot.slotIndex,
             holes: holesA,
-            totals: [{ scoringType: 'points', value: totalA }],
+            totals: [{ scoringType: 'points', value: normalizedA }],
             holesPlayed: holesPlayedA,
         };
         const resultB: ParticipantResult = {
             participantId: teamB.participantId,
             slotIndex: slot.slotIndex,
             holes: holesB,
-            totals: [{ scoringType: 'points', value: totalB }],
+            totals: [{ scoringType: 'points', value: normalizedB }],
             holesPlayed: holesPlayedB,
         };
         return { participantResults: [resultA, resultB] };

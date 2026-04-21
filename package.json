@@ -14,7 +14,11 @@
         "reset:dev": "rm -rf data/",
         "render:round": "bun scripts/render-round.ts",
         "render:all": "bun scripts/render-all.ts",
-        "seed": "bun scripts/seed.ts"
+        "render:formats": "bun scripts/render-formats.ts",
+        "seed": "bun scripts/seed.ts",
+        "seed:list": "bun scripts/seed.ts list",
+        "seed:formats": "bun scripts/seed-formats.ts",
+        "check:format-fixtures": "bun scripts/check-format-fixtures.ts"
     },
     "dependencies": {
         "@basics/core": "file:../mackans-client-fw/core",

@@ -126,19 +126,19 @@ test('umbrella: sweep on hole 5 → 5 × 5 × 2 = 50 (umbrella multiplier)', () 
 
 // --- split across teams (LG tie) ---
 
-test('umbrella: LG split 0.5 / 0.5 across teams', () => {
+test('umbrella: cross-team LG + LT tie → both teams get full category (1 each), no halves', () => {
     const s = findFormat('umbrella', 'four_ball');
     const holes = parCourse([{ par: 4 }]);
-    // A: 4, 5 (min 4). B: 4, 5 (min 4). LG tied between Alice (A) and Carol (B) → 0.5/0.5.
-    // LT: A sum 9, B sum 9 → split 0.5/0.5.
-    // No GIR, no birdie. Total cats each team: 1.0. Points each = 1 × 1 = 1.
+    // A: 4, 5. B: 4, 5. LG tied between Alice (A) and Carol (B) → both have a
+    // winner → A=1, B=1. LT: A sum 9 == B sum 9 → A=1, B=1.
+    // No GIR, no birdie. Cats each: 2. Points each = 2 × 1 = 2.
     const aHoles = [makeHole(1, 4, ALICE), makeHole(1, 5, BOB)];
     const bHoles = [makeHole(1, 4, CAROL), makeHole(1, 5, DAN)];
     const result = s.compute(twoTeamSlot(teamA(aHoles), teamB(bHoles), holes), slot());
     const rA = result.participantResults.find((r) => r.participantId === 'teamA')!;
     const rB = result.participantResults.find((r) => r.participantId === 'teamB')!;
-    expect(rA.holes[0].points).toBe(1);
-    expect(rB.holes[0].points).toBe(1);
+    expect(rA.holes[0].points).toBe(2);
+    expect(rB.holes[0].points).toBe(2);
 });
 
 // --- LG tied within one team (full point to that team) ---
@@ -183,7 +183,8 @@ test("umbrella: net birdie via config.birdieRule='net' — team gets BIRD when n
     // Team A PH 1. Alice/Bob each get +1 stroke on SI 1 (this hole).
     //   Alice gross 4 → net 3 (net birdie). Bob gross 5 → net 4.
     // Team B PH 0. Carol/Dan play 4, 4 (no birdie).
-    // LG: min gross = Alice 4, Carol 4, Dan 4 → 3-way tie (1A + 2B) → A = 1/3, B = 2/3.
+    // LG: min gross = Alice 4, Carol 4, Dan 4 → cross-team tie, both sides
+    //     have winners → A=1, B=1.
     // LT: A sum 9, B sum 8 → B. So LT: A=0, B=1.
     // GIR: none.
     // BIRD (net mode): A has Alice net 3 ≤ 3 → yes. B no net birdie. So A=1, B=0.
@@ -195,10 +196,10 @@ test("umbrella: net birdie via config.birdieRule='net' — team gets BIRD when n
     );
     const rA = result.participantResults.find((r) => r.participantId === 'teamA')!;
     const rB = result.participantResults.find((r) => r.participantId === 'teamB')!;
-    // A cats: LG 1/3 + LT 0 + BIRD 1 = ~1.333. Points = 1.333 × 1 ≈ 1.333
-    // B cats: LG 2/3 + LT 1 + BIRD 0 = ~1.667. Points = 1.667 × 1 ≈ 1.667
-    expect(rA.holes[0].points!).toBeCloseTo(1 / 3 + 1, 5);
-    expect(rB.holes[0].points!).toBeCloseTo(2 / 3 + 1, 5);
+    // A cats: LG 1 + LT 0 + BIRD 1 = 2. Points = 2 × 1 = 2.
+    // B cats: LG 1 + LT 1 + BIRD 0 = 2. Points = 2 × 1 = 2.
+    expect(rA.holes[0].points).toBe(2);
+    expect(rB.holes[0].points).toBe(2);
     // The BIRD hit only because net birdie rule is active — sanity-check gross mode is different.
     const grossResult = s.compute(
         twoTeamSlot(teamA(aHoles, 'A&B', 1), teamB(bHoles, 'C&D', 0), holes),
@@ -206,8 +207,8 @@ test("umbrella: net birdie via config.birdieRule='net' — team gets BIRD when n
     );
     const grossA = grossResult.participantResults.find((r) => r.participantId === 'teamA')!;
     // Gross mode: Alice gross 4 ≤ 3? No. No gross birdie. BIRD for A = 0.
-    // A cats: LG 1/3 + LT 0 + BIRD 0 = 1/3. Points = 1/3 × 1.
-    expect(grossA.holes[0].points!).toBeCloseTo(1 / 3, 5);
+    // A cats: LG 1 + LT 0 + BIRD 0 = 1. Points = 1 × 1 = 1.
+    expect(grossA.holes[0].points).toBe(1);
 });
 
 // --- GIR data present awards categories; missing → 0 GIR ---
@@ -359,9 +360,10 @@ test('umbrella: 18-hole round with one umbrella hole — running totals match ha
     expect(rA.holes[9].points).toBe(0); // hole 10 — B wins
     expect(rB.holes[9].points).toBe(20);
 
-    // A total = 2 + 50 + 0 = 52. B total = 0 + 0 + 20 = 20.
-    expect(rA.totals[0].value).toBe(52);
-    expect(rB.totals[0].value).toBe(20);
+    // Raw totals: A = 2 + 50 + 0 = 52, B = 0 + 0 + 20 = 20.
+    // Normalised (trailer → 0, leader carries gap): A = 32, B = 0.
+    expect(rA.totals[0].value).toBe(32);
+    expect(rB.totals[0].value).toBe(0);
 });
 
 // --- note rendering ---

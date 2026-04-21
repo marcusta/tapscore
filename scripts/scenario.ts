@@ -36,7 +36,7 @@ import type { GuestPlayer } from '../server/services/guest-player.service';
 import type { Participant } from '../server/services/participant.service';
 import type { Round, FormatSlot, FormatSlotConfig } from '../server/services/round.service';
 
-const DB_PATH = process.env.DB_PATH ?? './data/app.sqlite';
+const DEFAULT_DB_PATH = process.env.DB_PATH ?? './data/app.sqlite';
 
 // --- Public types ---
 
@@ -98,8 +98,9 @@ export interface AddParticipantInit {
      * For team participants (better-ball, foursomes, Taliban, Umbrella) —
      * 2+ player links on one participant. Pass `{player}` or `{guest}` per
      * link. Mutually exclusive with top-level `player`/`guest`. The
-     * snapshot uses the FIRST member's handicap index (no per-player PH
-     * snapshots today; see leaderboard.service.ts). Pass
+     * participant row still snapshots the FIRST member by default, but each
+     * `participant_players` link now freezes its own handicap / course /
+     * playing handicap when a snapshot context is provided. Pass
      * `handicapIndexOverride` to supply a synthetic team-level index
      * instead — useful for foursomes where the team PH is derived from
      * the sum of both players' course handicaps × allowance (not one
@@ -181,8 +182,8 @@ export interface TeeRef {
 
 // --- Scenario ---
 
-export async function startScenario(): Promise<Scenario> {
-    const db = createDb<Database>(DB_PATH);
+export async function startScenario(dbPath = DEFAULT_DB_PATH): Promise<Scenario> {
+    const db = createDb<Database>(dbPath);
     const services = createServices(db);
     return new Scenario(db, services);
 }
@@ -401,8 +402,9 @@ export class RoundScenarioRef {
             teeId = match.id;
         }
 
-        // Snapshot owner: the first team member supplies the handicap index
-        // for the team-level snapshot (there's no per-player snapshot yet).
+        // Snapshot owner: the first team member supplies the participant-row
+        // snapshot by default. Per-player snapshots are frozen separately on
+        // each link by participant.service.ts when `snapshot` is provided.
         const firstMember = init.team?.[0];
         const snapshotPlayer: PlayerRef | undefined = init.player ?? firstMember?.player;
         const snapshotGuest: GuestRef | undefined = init.guest ?? firstMember?.guest;

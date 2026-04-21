@@ -212,7 +212,8 @@ Reshape at step 2.5b (match-play) when the pressure first surfaces; Köpenhamnar
 - Leaderboard:
   - Stroke-play/Stableford/Köpenhamnare/Umbrella: participant-level rows with total column for that scoring type.
   - Match-play/Taliban: pair-level section with result expressed in golf idiom (`Alice & Bob d. Carol & Dan, 3 & 2` for match; `Alice & Bob 7, Carol & Dan 4` for Taliban running points).
-- Seeds (all idempotent): `stableford-round`, `match-play-round`, `kopenhamnare-round`, `better-ball-round`, `foursomes-round`, `taliban-round`, `umbrella-round`, `multi-slot-series-round`.
+- Seeds (all idempotent): `stableford-round`, `match-play-round`, `kopenhamnare-round`, `better-ball-round`, `foursomes-round`, `taliban-round`, `umbrella-round`, `umbrella-individual-round`, `multi-slot-series-round`.
+- Canonical fixture workflow: `bun run seed:formats` rebuilds a dedicated manual-fixture DB under `tmp/`; `bun run render:formats` re-seeds that DB and renders the complete manual fixture set deterministically into `tmp/formats/`.
 - `tmp/index.html` format column surfaces multi-slot rounds legibly.
 
 ### Gate

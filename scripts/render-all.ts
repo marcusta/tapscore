@@ -8,6 +8,7 @@
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { createDb } from '@basics/core/server/db';
+import { runMigrations } from '@basics/core/server/migrate';
 import type { Database } from '../server/db/schema';
 import { createServices } from '../server/services/index';
 import {
@@ -29,6 +30,7 @@ if (!fs.existsSync(dbPath)) {
 }
 
 const db = createDb<Database>(dbPath);
+await runMigrations(db, path.join(import.meta.dir, '../server/db/migrations'));
 const svc = createServices(db);
 
 try {
