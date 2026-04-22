@@ -56,6 +56,7 @@ export interface Round {
     selfOrganize: boolean;
     status: RoundStatus;
     latestEventId: string | null;
+    courseNameSnapshot: string | null;
     formatSlots: FormatSlot[];
 }
 
@@ -138,6 +139,7 @@ function toRound(row: RoundRow, formatSlots: FormatSlot[]): Round {
         selfOrganize: row.self_organize === 1,
         status: row.status,
         latestEventId: row.latest_event_id,
+        courseNameSnapshot: row.course_name_snapshot,
         formatSlots,
     };
 }

@@ -285,6 +285,19 @@ export function renderIndexHtml(rows: IndexRow[]): string {
 
 // --- round page ---
 
+export interface RoundCourseHoleSnapshot {
+    holeNumber: number;
+    par: number;
+    baseStrokeIndex: number;
+}
+
+export interface RoundTeeHoleSnapshot {
+    teeId: string;
+    holeNumber: number;
+    lengthM: number;
+    strokeIndexOverride: number | null;
+}
+
 export interface RoundRenderContext {
     round: Round;
     course: Course;
@@ -296,6 +309,8 @@ export interface RoundRenderContext {
     playersById: Map<string, Player>;
     guestsById: Map<string, GuestPlayer>;
     teesById: Map<string, Tee>;
+    courseHolesSnapshot: RoundCourseHoleSnapshot[];
+    teeHolesSnapshot: RoundTeeHoleSnapshot[];
     dbPath: string;
 }
 
@@ -341,11 +356,37 @@ export async function collectRoundContext(
         if (t) teesById.set(id, t);
     }
 
-    return { round, course, participants, events, leaderboard, scorecards, playersById, guestsById, teesById, dbPath };
+    const courseHolesSnapshotRows = await svc.db
+        .selectFrom('round_course_holes')
+        .select(['hole_number', 'par', 'base_stroke_index'])
+        .where('round_id', '=', roundId)
+        .orderBy('hole_number')
+        .execute();
+    const courseHolesSnapshot: RoundCourseHoleSnapshot[] = courseHolesSnapshotRows.map((r) => ({
+        holeNumber: r.hole_number,
+        par: r.par,
+        baseStrokeIndex: r.base_stroke_index,
+    }));
+
+    const teeHolesSnapshotRows = await svc.db
+        .selectFrom('round_tee_holes')
+        .select(['tee_id', 'hole_number', 'length_m', 'stroke_index_override'])
+        .where('round_id', '=', roundId)
+        .orderBy('tee_id')
+        .orderBy('hole_number')
+        .execute();
+    const teeHolesSnapshot: RoundTeeHoleSnapshot[] = teeHolesSnapshotRows.map((r) => ({
+        teeId: r.tee_id,
+        holeNumber: r.hole_number,
+        lengthM: r.length_m,
+        strokeIndexOverride: r.stroke_index_override,
+    }));
+
+    return { round, course, participants, events, leaderboard, scorecards, playersById, guestsById, teesById, courseHolesSnapshot, teeHolesSnapshot, dbPath };
 }
 
 export function renderRoundHtml(ctx: RoundRenderContext): string {
-    const { round, course, participants, events, leaderboard, scorecards, playersById, guestsById, teesById, dbPath } = ctx;
+    const { round, course, participants, events, leaderboard, scorecards, playersById, guestsById, teesById, courseHolesSnapshot, teeHolesSnapshot, dbPath } = ctx;
     const scorecardByParticipant = new Map(scorecards.map((sc) => [sc.participantId, sc]));
 
     // Per-participant slot lookup. Multi-slot rounds scope participants via
@@ -429,12 +470,20 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
         return playersById.get(id)?.displayName ?? short(id);
     };
 
+    const courseNameDiffers =
+        round.courseNameSnapshot !== null && round.courseNameSnapshot !== course.name;
+    const courseNameCell = round.courseNameSnapshot === null
+        ? `${esc(course.name)} (${course.holeCount} holes) <span class="muted">· no snapshot yet (2.6a migration-only)</span>`
+        : courseNameDiffers
+          ? `${esc(course.name)} <span class="muted">(live)</span> <span class="match">· snapshot: ${esc(round.courseNameSnapshot)}</span>`
+          : `${esc(course.name)} <span class="muted">· snapshot matches</span> (${course.holeCount} holes)`;
+
     const renderMeta = (): string => `
 <section>
   <h2>Round</h2>
   <table class="kv">
     <tr><th>id</th><td><code>${esc(round.id)}</code></td></tr>
-    <tr><th>course</th><td>${esc(course.name)} (${course.holeCount} holes)</td></tr>
+    <tr><th>course</th><td>${courseNameCell}</td></tr>
     <tr><th>date</th><td>${esc(round.date)}</td></tr>
     <tr><th>type</th><td>${esc(round.roundType)}</td></tr>
     <tr><th>venue</th><td>${esc(round.venueType)}</td></tr>
@@ -483,6 +532,72 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
     </tbody>
   </table>
 </section>`;
+    };
+
+    const renderSnapshotTables = (): string => {
+        const courseSection = (() => {
+            if (courseHolesSnapshot.length === 0) {
+                return `
+<section>
+  <h2>Course hole snapshot <span class="muted">· round_course_holes</span></h2>
+  <p class="muted">No snapshot rows yet. 2.6a is migration-only — live snapshot capture lands in 2.6b via the RoundCompiler. For now, run <code>bun scripts/backfill-round-snapshots.ts</code> on a seeded dev DB to populate snapshots for hand-verification.</p>
+</section>`;
+            }
+            const rowsHtml = courseHolesSnapshot
+                .map(
+                    (h) => `<tr><td>${h.holeNumber}</td><td>${h.par}</td><td>${h.baseStrokeIndex}</td></tr>`,
+                )
+                .join('');
+            return `
+<section>
+  <h2>Course hole snapshot <span class="muted">· round_course_holes (${courseHolesSnapshot.length} rows)</span></h2>
+  <table class="grid">
+    <thead><tr><th>hole</th><th>par</th><th>base SI</th></tr></thead>
+    <tbody>${rowsHtml}</tbody>
+  </table>
+</section>`;
+        })();
+
+        const teeSection = (() => {
+            if (teeHolesSnapshot.length === 0) {
+                return `
+<section>
+  <h2>Tee hole snapshot <span class="muted">· round_tee_holes</span></h2>
+  <p class="muted">No snapshot rows yet — either no participant tees assigned yet, or this round pre-dates the 2.6a backfill. Live capture lands in 2.6b via the RoundCompiler.</p>
+</section>`;
+            }
+            const byTee = new Map<string, RoundTeeHoleSnapshot[]>();
+            for (const row of teeHolesSnapshot) {
+                const bucket = byTee.get(row.teeId);
+                if (bucket) bucket.push(row);
+                else byTee.set(row.teeId, [row]);
+            }
+            const teeTables = Array.from(byTee.entries())
+                .map(([teeId, rows]) => {
+                    const tee = teesById.get(teeId);
+                    const label = tee ? tee.name : `tee:${short(teeId)}`;
+                    const body = rows
+                        .map(
+                            (r) =>
+                                `<tr><td>${r.holeNumber}</td><td>${r.lengthM}</td><td>${r.strokeIndexOverride ?? '—'}</td></tr>`,
+                        )
+                        .join('');
+                    return `
+<h3>${esc(label)} <span class="muted">· ${rows.length} holes</span></h3>
+<table class="grid">
+  <thead><tr><th>hole</th><th>length (m)</th><th>SI override</th></tr></thead>
+  <tbody>${body}</tbody>
+</table>`;
+                })
+                .join('');
+            return `
+<section>
+  <h2>Tee hole snapshot <span class="muted">· round_tee_holes (${teeHolesSnapshot.length} rows across ${byTee.size} tees)</span></h2>
+  ${teeTables}
+</section>`;
+        })();
+
+        return courseSection + teeSection;
     };
 
     const renderParticipantsTable = (): string => {
@@ -2481,6 +2596,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
 </h1>
 ${renderMeta()}
 ${renderCourseMetadata()}
+${renderSnapshotTables()}
 ${renderParticipantsTable()}
 ${renderScorecards()}
 ${renderLeaderboard()}

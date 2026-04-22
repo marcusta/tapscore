@@ -255,24 +255,37 @@ Split into four slices.
 
 Pure snapshot plumbing; no ball/participant refactor, no tee/rating snapshots yet (those are per-producer and land on `ball_players` in 2.6b).
 
-- Migration: new `round_course_holes` table (`round_id`, `hole_no`, `par`, `base_stroke_index`) — 18 rows per round, course-level snapshot of `course_holes` at round creation.
-- Migration: new `round_tee_holes` table (`round_id`, `tee_id`, `hole_no`, `length_m`, `stroke_index_override?`) — per-tee hole data (length always per-tee; SI override when the tee reorders difficulty). One row per tee-in-use per hole.
+- Migration: new `round_course_holes` table (`round_id`, `hole_number`, `par`, `base_stroke_index`) — 18 rows per round, course-level snapshot of `course_holes`. Written at migration time for rounds that exist; live write path lands in 2.6b.
+- Migration: new `round_tee_holes` table (`round_id`, `tee_id`, `hole_number`, `length_m`, `stroke_index_override?`) — per-tee hole data (length always per-tee; SI override when the tee reorders difficulty). One row per tee-in-use per hole.
 - Migration: `rounds` gains `course_name_snapshot` (frozen course identity for audit-grade rendering alongside the live `course_id` FK).
 - Migration: `players.deleted_at` (soft-delete column, nullable datetime).
-- Backfill from existing `rounds` + `courses` + `course_holes` + `tees` + `tee_holes` (whichever tee-hole table exists; if lengths/overrides aren't modelled yet, scope the backfill to whatever data exists and document the gap in the migration comment).
+- Backfill from existing `rounds` + `courses` + `course_holes` + `tees` + `tee_hole_lengths` (existing per-tee length table). Extracted into `server/db/backfill/round-snapshots.ts` so a dev util can replay it post-seed for hand-verification without needing an old-schema fixture.
 - Live FKs (`course_id`, `tee_id`, `home_club_id`) stay — snapshots sit alongside.
-- Codegen via `bun run generate`.
-- No behaviour change. Strategies still read live course/tee data (migrated in 2.6b).
+- Codegen via `bun run generate` (note: pre-existing breakage in the mackans codegen — non-blocking for 2.6a).
+- **No behaviour change, no live write hooks.** Strategies still read live course/tee data. Rounds created between 2.6a and 2.6b have no snapshot rows — live capture moves to the RoundCompiler in 2.6b.
+- Column-name note: existing tables use `hole_number`; the new tables follow suit so future joins line up. Spec prose earlier used `hole_no` casually — implementation follows codebase convention.
 
 **Explicitly not in this slice (per reviewer feedback on mixed-tee reality):**
 - No singular `rounds.tee_rating_snapshot` / `rounds.slope_snapshot` / `rounds.tee_par_snapshot`. Tee/rating is per-producer — lands on `ball_players` in 2.6b alongside the balls refactor.
+- No live snapshot write hooks on round creation / participant add. RoundCompiler in 2.6b becomes the write boundary.
 
 **HTML render expectations:**
-- Round page header shows `course_name_snapshot` alongside the live course name (diff visibility during transition).
-- `round_course_holes` snapshot visible as a small table (hole / par / base SI).
-- `round_tee_holes` snapshot visible per tee-in-use (tee / hole / length / SI override when present).
+- Round page header shows `course_name_snapshot` alongside the live course name when populated (diff visibility during transition); empty-state message when absent.
+- `round_course_holes` snapshot visible as a small table (hole / par / base SI) when populated; explicit "no snapshot yet" copy otherwise, pointing at the dev backfill util.
+- `round_tee_holes` snapshot visible per tee-in-use (tee / hole / length / SI override when present) when populated; empty-state copy otherwise.
 
-**Gate:** existing seeds render identically to pre-phase. `bun run check:*` + `bun test` green. Commit `phase 2.6a complete: course + hole snapshots, soft-delete`.
+**Hand-verification workflow (dev only, no prod data yet):**
+1. `bun run reset:dev` → boot dev server (applies migrations; snapshot tables empty).
+2. `bun run seed <names>` — create rounds on fresh schema.
+3. `bun scripts/backfill-round-snapshots.ts` — simulates migration-time backfill against seeded rounds. Use `--reseed` to wipe-and-rewrite.
+4. Render round pages — snapshot tables populated, empty-state copy gone.
+
+**Gate:**
+- Backfilled rounds render `course_name_snapshot`, `round_course_holes`, `round_tee_holes` correctly.
+- Rounds created on fresh schema without backfill allowed to show no snapshot rows — live capture is a 2.6b responsibility.
+- Existing seeds render identical scoring output to pre-phase (only expected markup diff: the three new snapshot surfaces).
+- `bun run check:*` + `bun test` green.
+- Commit: `phase 2.6a complete: course + hole snapshots, soft-delete`.
 
 ### 2.6b — Balls, per-producer tee snapshots, RoundCompiler, two strategy layers
 

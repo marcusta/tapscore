@@ -12,6 +12,8 @@ export interface Database {
     handicap_history: HandicapHistoryTable;
     role_grants: RoleGrantsTable;
     rounds: RoundsTable;
+    round_course_holes: RoundCourseHolesTable;
+    round_tee_holes: RoundTeeHolesTable;
     round_format_slots: RoundFormatSlotsTable;
     participants: ParticipantsTable;
     participant_players: ParticipantPlayersTable;
@@ -37,7 +39,23 @@ export interface RoundsTable {
     self_organize: number;
     status: RoundStatus;
     latest_event_id: string | null;
+    course_name_snapshot: string | null;
     created_at: Generated<string>;
+}
+
+export interface RoundCourseHolesTable {
+    round_id: string;
+    hole_number: number;
+    par: number;
+    base_stroke_index: number;
+}
+
+export interface RoundTeeHolesTable {
+    round_id: string;
+    tee_id: string;
+    hole_number: number;
+    length_m: number;
+    stroke_index_override: number | null;
 }
 
 export type ScoringMode =
@@ -253,5 +271,6 @@ export interface PlayersTable {
     avatar_url: string | null;
     home_club_id: string | null;
     handicap_index: number | null;
+    deleted_at: string | null;
     created_at: Generated<string>;
 }
