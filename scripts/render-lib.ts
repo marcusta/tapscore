@@ -292,7 +292,9 @@ export interface RoundCourseHoleSnapshot {
 }
 
 export interface RoundTeeHoleSnapshot {
-    teeId: string;
+    /** Live FK — null after tee deletion. Frozen identity lives in teeNameSnapshot. */
+    teeId: string | null;
+    teeNameSnapshot: string;
     holeNumber: number;
     lengthM: number;
     strokeIndexOverride: number | null;
@@ -370,13 +372,20 @@ export async function collectRoundContext(
 
     const teeHolesSnapshotRows = await svc.db
         .selectFrom('round_tee_holes')
-        .select(['tee_id', 'hole_number', 'length_m', 'stroke_index_override'])
+        .select([
+            'tee_id',
+            'tee_name_snapshot',
+            'hole_number',
+            'length_m',
+            'stroke_index_override',
+        ])
         .where('round_id', '=', roundId)
-        .orderBy('tee_id')
+        .orderBy('tee_name_snapshot')
         .orderBy('hole_number')
         .execute();
     const teeHolesSnapshot: RoundTeeHoleSnapshot[] = teeHolesSnapshotRows.map((r) => ({
         teeId: r.tee_id,
+        teeNameSnapshot: r.tee_name_snapshot,
         holeNumber: r.hole_number,
         lengthM: r.length_m,
         strokeIndexOverride: r.stroke_index_override,
@@ -566,16 +575,27 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
   <p class="muted">No snapshot rows yet — either no participant tees assigned yet, or this round pre-dates the 2.6a backfill. Live capture lands in 2.6b via the RoundCompiler.</p>
 </section>`;
             }
-            const byTee = new Map<string, RoundTeeHoleSnapshot[]>();
+            // Group by frozen tee name — FK can be null after tee deletion,
+            // but tee_name_snapshot is always present (migration 017
+            // guarantee). Use the live name when the FK still resolves so
+            // the render diffs live-vs-snapshot when they drift.
+            const byTeeName = new Map<string, RoundTeeHoleSnapshot[]>();
             for (const row of teeHolesSnapshot) {
-                const bucket = byTee.get(row.teeId);
+                const bucket = byTeeName.get(row.teeNameSnapshot);
                 if (bucket) bucket.push(row);
-                else byTee.set(row.teeId, [row]);
+                else byTeeName.set(row.teeNameSnapshot, [row]);
             }
-            const teeTables = Array.from(byTee.entries())
-                .map(([teeId, rows]) => {
-                    const tee = teesById.get(teeId);
-                    const label = tee ? tee.name : `tee:${short(teeId)}`;
+            const teeTables = Array.from(byTeeName.entries())
+                .map(([snapshotName, rows]) => {
+                    const teeId = rows[0]!.teeId;
+                    const liveTee = teeId !== null ? teesById.get(teeId) : undefined;
+                    const liveName = liveTee?.name;
+                    const label =
+                        liveName === undefined
+                            ? `${esc(snapshotName)} <span class="muted">· tee deleted (snapshot frozen)</span>`
+                            : liveName === snapshotName
+                              ? esc(snapshotName)
+                              : `${esc(liveName)} <span class="muted">(live)</span> <span class="match">· snapshot: ${esc(snapshotName)}</span>`;
                     const body = rows
                         .map(
                             (r) =>
@@ -583,7 +603,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
                         )
                         .join('');
                     return `
-<h3>${esc(label)} <span class="muted">· ${rows.length} holes</span></h3>
+<h3>${label} <span class="muted">· ${rows.length} holes</span></h3>
 <table class="grid">
   <thead><tr><th>hole</th><th>length (m)</th><th>SI override</th></tr></thead>
   <tbody>${body}</tbody>
@@ -592,7 +612,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
                 .join('');
             return `
 <section>
-  <h2>Tee hole snapshot <span class="muted">· round_tee_holes (${teeHolesSnapshot.length} rows across ${byTee.size} tees)</span></h2>
+  <h2>Tee hole snapshot <span class="muted">· round_tee_holes (${teeHolesSnapshot.length} rows across ${byTeeName.size} tees)</span></h2>
   ${teeTables}
 </section>`;
         })();

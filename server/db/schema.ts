@@ -52,7 +52,13 @@ export interface RoundCourseHolesTable {
 
 export interface RoundTeeHolesTable {
     round_id: string;
-    tee_id: string;
+    /**
+     * Live FK to `tees.id`. Nullable post-migration-017 — on tee deletion
+     * the FK nulls out (matches `participants.tee_id_snapshot`). Frozen
+     * identity survives in `tee_name_snapshot`.
+     */
+    tee_id: string | null;
+    tee_name_snapshot: string;
     hole_number: number;
     length_m: number;
     stroke_index_override: number | null;

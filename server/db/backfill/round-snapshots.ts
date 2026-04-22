@@ -1,4 +1,9 @@
-import type { Kysely } from 'kysely';
+import { type Kysely, sql } from 'kysely';
+
+async function hasTeeNameSnapshotColumn(db: Kysely<any>): Promise<boolean> {
+    const result = await sql<{ name: string }>`PRAGMA table_info(round_tee_holes)`.execute(db);
+    return result.rows.some((row) => row.name === 'tee_name_snapshot');
+}
 
 /**
  * Backfill helper for migration 016. Extracted so a dev-only script
@@ -52,6 +57,22 @@ export async function backfillRoundSnapshots(
         .where('id', 'in', courseIds)
         .execute()) as Array<{ id: string; name: string }>;
     const courseNameById = new Map(courses.map((c) => [c.id, c.name]));
+
+    // round_tee_holes.tee_name_snapshot was added in migration 017.
+    // Migration 016 invokes this helper before 017 has run, so it must
+    // gracefully write the pre-017 shape. Post-017 callers (dev util)
+    // write the full shape.
+    const writeTeeNameSnapshot = await hasTeeNameSnapshotColumn(db);
+    const teeNameById = writeTeeNameSnapshot
+        ? new Map(
+              (
+                  (await db
+                      .selectFrom('tees')
+                      .select(['id', 'name'])
+                      .execute()) as Array<{ id: string; name: string }>
+              ).map((t) => [t.id, t.name]),
+          )
+        : new Map<string, string>();
 
     const courseHoles = (await db
         .selectFrom('course_holes')
@@ -170,16 +191,21 @@ export async function backfillRoundSnapshots(
             for (const teeId of teeIds) {
                 const teeHoles = teeHolesByTeeId.get(teeId) ?? [];
                 for (const tee of teeHoles) {
-                    await db
-                        .insertInto('round_tee_holes')
-                        .values({
-                            round_id: round.id,
-                            tee_id: teeId,
-                            hole_number: tee.hole_number,
-                            length_m: tee.length_m,
-                            stroke_index_override: tee.stroke_index_override,
-                        })
-                        .execute();
+                    const baseValues = {
+                        round_id: round.id,
+                        tee_id: teeId,
+                        hole_number: tee.hole_number,
+                        length_m: tee.length_m,
+                        stroke_index_override: tee.stroke_index_override,
+                    };
+                    const values = writeTeeNameSnapshot
+                        ? {
+                              ...baseValues,
+                              tee_name_snapshot:
+                                  teeNameById.get(teeId) ?? `tee:${teeId.slice(0, 8)}`,
+                          }
+                        : baseValues;
+                    await db.insertInto('round_tee_holes').values(values).execute();
                     teeHoleRows += 1;
                 }
             }
