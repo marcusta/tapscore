@@ -226,6 +226,186 @@ Reshape at step 2.5b (match-play) when the pressure first surfaces; Köpenhamnar
 
 ---
 
+## Phase 2.6 — Round context, balls, and allowance config
+
+**Spec:** §17 (Round Context and Format Strategies) — rewritten around **ball as atomic scoring unit**. Also revisits §3 (Round), §9 (Snapshotting), §11 (Event log).
+
+### Why this phase exists
+
+Phase 2.5 proved strategies work but exposed four structural gaps:
+
+1. Per-format handicap rules (foursomes avg-index, greensomes weighted pair, scramble by-rank, four-ball per-player 85%) can't be expressed by flat `allowance_pct: number`. The foursomes avg-index fix lives in `scripts/scenario.ts` as seed glue, not in the API.
+2. Hole-level scoring data (par, stroke index, length) is not snapshotted per round. A course rerating would silently rewrite history.
+3. A multi-format round (same 4 players, 7 formats — stableford, umbrella, taliban, gross, singles match, köpenhamnare, better-ball) needs one event log feeding many strategies. Current participant-centric model can't express this cleanly.
+4. The `participants` / `participant_players` model conflates "who plays" with "what gets scored." In alt-shot, scramble, greensomes the scored thing is a team-ball — one stroke per hole shared by N producers. Model should name that directly.
+
+FriendlyRound (Phase 3) shares the Round engine — cleaning the contract now, not after.
+
+### The model in one paragraph
+
+A **ball** is the atomic scoring unit (1-producer = own-ball, 2+ producers = alt-shot / greensomes / scramble team-ball). Every score event targets a ball. A **slot** declares format + `allowance_config` + which balls it scores, with per-slot derived CH/PH per ball in `slot_balls`. Strategy = pure function over `(roundContext, slotBalls, events)`. Identity lives on live FKs (`ball_players.player_id` | `guest_player_id`, XOR). Scoring data frozen as snapshots. See §17 for full details including `allowance_config` shape, two-stage strategy contract (`deriveSlotBalls` + `score`), and the 4-player / 6-ball worked example.
+
+### Migration strategy
+
+The `participants` / `participant_players` / (draft) `slot_teams` tables collapse into `balls` / `ball_players` / `slot_balls`. This is a big migration — doing it in one slice would violate the phase discipline, so it splits as below. Each slice has own commit + hand-test gate. No partial states across sessions.
+
+Split into four slices.
+
+### 2.6a — Course/hole snapshot tables, soft-delete
+
+Pure snapshot plumbing; no ball/participant refactor, no tee/rating snapshots yet (those are per-producer and land on `ball_players` in 2.6b).
+
+- Migration: new `round_course_holes` table (`round_id`, `hole_no`, `par`, `base_stroke_index`) — 18 rows per round, course-level snapshot of `course_holes` at round creation.
+- Migration: new `round_tee_holes` table (`round_id`, `tee_id`, `hole_no`, `length_m`, `stroke_index_override?`) — per-tee hole data (length always per-tee; SI override when the tee reorders difficulty). One row per tee-in-use per hole.
+- Migration: `rounds` gains `course_name_snapshot` (frozen course identity for audit-grade rendering alongside the live `course_id` FK).
+- Migration: `players.deleted_at` (soft-delete column, nullable datetime).
+- Backfill from existing `rounds` + `courses` + `course_holes` + `tees` + `tee_holes` (whichever tee-hole table exists; if lengths/overrides aren't modelled yet, scope the backfill to whatever data exists and document the gap in the migration comment).
+- Live FKs (`course_id`, `tee_id`, `home_club_id`) stay — snapshots sit alongside.
+- Codegen via `bun run generate`.
+- No behaviour change. Strategies still read live course/tee data (migrated in 2.6b).
+
+**Explicitly not in this slice (per reviewer feedback on mixed-tee reality):**
+- No singular `rounds.tee_rating_snapshot` / `rounds.slope_snapshot` / `rounds.tee_par_snapshot`. Tee/rating is per-producer — lands on `ball_players` in 2.6b alongside the balls refactor.
+
+**HTML render expectations:**
+- Round page header shows `course_name_snapshot` alongside the live course name (diff visibility during transition).
+- `round_course_holes` snapshot visible as a small table (hole / par / base SI).
+- `round_tee_holes` snapshot visible per tee-in-use (tee / hole / length / SI override when present).
+
+**Gate:** existing seeds render identically to pre-phase. `bun run check:*` + `bun test` green. Commit `phase 2.6a complete: course + hole snapshots, soft-delete`.
+
+### 2.6b — Balls, per-producer tee snapshots, RoundCompiler, two strategy layers
+
+The structural heart. Largest slice — if execution sprawls, split further mid-session and adjust this file.
+
+**Schema migrations:**
+- New `round_definitions` (`round_id`, `version`, `definition_json`, `compiled_at`, `compiled_by`, `superseded_by?`, `source_kind` (`initial` | `setup_correction` | `allowance_override`), `source_event_id?`). Versioned source-of-truth document written by the compiler on every compile. v1 is admin input; each `setup_correction_event` AND each `allowance_override_event` produces a new version row — single definition chain, no split between "base definition" and "overrides".
+- New `round_ball_strategies` (`id`, `round_id`, `strategy_id`, `strategy_def_id`, `derivation_config` JSON, `composition` JSON). `strategy_def_id` is the stable id from `RoundDefinition.ballStrategies[].id` and survives recompile.
+- New `balls` (`id`, `round_id`, `round_ball_strategy_id` FK, `label?`, `course_handicap_snapshot` (ball_CH), `per_producer_ch` JSON). Ball identity is `(round_id, round_ball_strategy_id, producer_set)`; producer-set dedupe is a strategy-declared optimization, not canonical identity.
+- New `ball_players` (`ball_id`, `producer_def_id`, `player_id?`, `guest_player_id?` XOR; `display_name_snapshot`, `handicap_index_snapshot`, `category_snapshot`, `gender_snapshot`, `tee_id` FK (live), `tee_name_snapshot`, `course_rating_snapshot`, `slope_snapshot`, `tee_par_snapshot`, `course_handicap_snapshot`). `producer_def_id` is the stable id from `RoundDefinition.producers[].id`. **Per-producer tee + category + CH snapshots live here — not on `rounds`** — so mixed-tee/mixed-category rounds replay correctly.
+- New `slots` (`id`, `round_id`, `slot_def_id`, `scoring_mode`, `team_shape`, `allowance_config` JSON, `ball_mode`). `slot_def_id` is the stable id from `RoundDefinition.slots[].id`. Replaces/extends existing `round_format_slots`.
+- New `slot_balls` (`slot_id`, `ball_id`, `playing_handicap_snapshot`). **No duplicated `course_handicap_snapshot`** — read from `balls` via join.
+- New `slot_ball_teams` (`slot_id`, `team_label`, `ball_id`) — for own-ball team formats (better-ball, taliban 2v2 grouping).
+- Existing `round_format_slots` migrates into new `slots` table with `allowance_config` JSON (Typebox-validated `FormatAllowanceConfig`) replacing `allowance_pct`.
+- Collapse `participants` + `participant_players` into `balls` + `ball_players` + `slot_balls`. Lossless backfill — every existing seed must replay identically.
+
+**Mapping existing seeds during migration:**
+- Singles slot with `allowance_pct: N` → declare `OwnBallPerPlayer(single)` on the round, slot gets `FormatAllowanceConfig: flat(N)`.
+- Foursomes seed → declare `AltShotPair(avg)` with pairings from existing participant teams, slot gets `flat(50)`.
+- Per-producer tee snapshots backfilled from the pre-phase participant's tee (if modelled) or the round's tee (pre-mixed-tee seeds).
+- Document the mapping in migration comments.
+
+**Strategy contracts (per §17):**
+
+```ts
+interface BallCreationStrategy {
+  id: string
+  compositionRequirement(): { requiresTeams: boolean; teamSize?: { min: number; max: number } }
+  allowsProducerSetDedupe(): boolean                  // OwnBallPerPlayer→true, team strategies→false
+  create(input: {
+    producers: { playerRef, handicapIndex, gender?, tee: TeeSnapshot, teeHoles: RoundTeeHoleSnapshot[] }[]
+    composition?, courseHoles: RoundCourseHoleSnapshot[], derivationConfig
+  }): { balls: { producerPlayerRefIds, label?, courseHandicapSnapshot, perProducerCh }[] }
+}
+
+interface FormatStrategy {
+  id: string
+  ballRequirement(): { producerCount: { min, max }; ballMode: 'own'|'team'|'any'; requiresSlotTeamGrouping?: boolean }
+  deriveSlotBalls(balls, allowanceConfig): { ballId, playingHandicapSnapshot }[]   // allowance only, no derivation
+  score(roundContext, slotBalls, slotTeamGroupings?, events): StrategyResult       // events include typed corrections/rulings
+}
+```
+
+Strategy inputs are per-producer (tee-aware). SI resolution in scoring: producer's `tee_id` → `round_tee_holes.stroke_index_override`, else `round_course_holes.base_stroke_index`.
+
+**Concrete strategies in this slice (minimum to cover existing seeds):**
+- Ball creation: `OwnBallPerPlayer` (single derivation, `allowsProducerSetDedupe=true`), `AltShotPair` (avg derivation, `allowsProducerSetDedupe=false`).
+- Format: migrate `stroke-play-individual`, `stroke-play-foursomes`, `stableford`, `match-play`, `köpenhamnare`, `taliban` (2v2 own-ball variant), `umbrella`, `better-ball`. `deriveSlotBalls` only applies allowance; derivation moves to ball creation.
+- The `avgTeamIndex` logic leaves `scripts/scenario.ts` and lives in `AltShotPair.create`.
+
+**RoundCompiler (new, single persistence boundary per §17):**
+- Implement `RoundCompiler.compile(RoundDefinition) → Either<Diagnostics, CompiledRound>` + `persist(CompiledRound)`.
+- Admin input shape = `RoundDefinition` (declarative: producers with per-producer tees + categories + stable def-ids, ball strategies list with def-ids, slot list with def-ids + format + allowance + optional team grouping). **Every node carries a stable def-id** that survives recompile.
+- Pipeline inside compile: (1) validate shape, assign def-ids on first compile; (2) snapshot course/tees/holes into `round_course_holes` + `round_tee_holes` + per-producer `ball_players` snapshots (tee + category + CH); (3) run each ball-creation strategy; (4) dedupe where `allowsProducerSetDedupe=true`; (5) validate each slot against `format.ballRequirement()` — structured diagnostics, never half-persisted; (6) `format.deriveSlotBalls` per slot; (7) atomic persist — **including a new `round_definitions` version row** alongside outputs.
+- **Deterministic output ids:** `balls.id = hash(round_id, strategy_def_id, sorted(producer_def_ids))`, `slots.id = hash(round_id, slot_def_id)`, `round_ball_strategies.id = hash(round_id, strategy_def_id)`. Content-addressed so recompile regenerates identical ids for unchanged subjects — append-only events (`score_event.ball_id`, `allowance_override_event.slot_def_id`, `ruling_event.target_id`, `metadata_event.ball_id`) remain valid.
+- **Recompile (setup correction or allowance override):** (1) compile new RoundDefinition; (2) diff outputs by deterministic id — unchanged rows no-op, changed rows upsert, new rows insert, removed rows delete; (3) insert new `round_definitions` version with `source_kind` + `source_event_id`. Allowance-override fast-path: when the diff shows only `slots[slot_def_id].allowanceConfig` changed, skip ball re-derivation and run `format.deriveSlotBalls` on that slot only.
+- **Orphaned events:** events referencing a removed id are retained in the log (append-only preserved) and surfaced as an `orphaned_events_after_correction` diagnostic on the new `round_definitions` version. Admin resolves (accept correction as-is vs re-enter affected events).
+- All services that previously wrote participants/slots directly now route through the compiler. `ParticipantService` deprecated → replaced by the compiler + `BallService` / `SlotBallService` as dumb recorders of compiler output.
+
+**Event log (per §17 — typed, not generic):**
+- `score_event` and `metadata_event` switch subject from participant to `ball_id`. Schema migration rewrites existing events.
+- `metadata_event` gains optional XOR pair `producer_player_id` | `producer_guest_player_id` for per-producer metadata types (GIR/FIR/putts in team-ball contexts), matching the XOR identity pattern on `ball_players`. Both null for ball-level metadata; exactly one set for per-producer — supports guest producers losslessly.
+- Replace the earlier single `override_event` with three typed events:
+  - `setup_correction_event` — pre-finalization fix on `RoundDefinition` inputs only (producer tee, producer handicap index, producer category, ball composition, slot declaration, ball-strategy config). Never targets derived outputs. Mutates stored definition; compiler re-runs; outputs recomputed.
+  - `allowance_override_event` — slot-level allowance change post-setup, keyed by `slot_def_id`. Folds into the `round_definitions` chain (new version, narrow diff); compiler fast-paths `format.deriveSlotBalls` only.
+  - `ruling_event` — post-play competitive ruling (DQ, penalty strokes, hole adjudication). Read by strategy during `score()`, no re-derivation.
+
+**HTML render expectations:**
+- Round page shows declared ball creation strategies ("Ball creation: OwnBallPerPlayer + AltShotPair (P1+P2 vs P3+P4 avg-index)") with derivation arithmetic per team ball.
+- Per-producer snapshot table: producer → tee + rating + slope + par + handicap_index + CH, visibly showing mixed-tee derivation when relevant.
+- Slot header: format allowance ("Individual stableford, 95%"; "Foursomes alt-shot, 50%").
+- Per-ball line: `ball_CH` (from ball creation) × format allowance = `ball_PH` — both stages visible, joined from `balls` + `slot_balls`.
+- Ball producers listed per ball row: `display_name_snapshot` (audit) + live player link (navigation) when available.
+
+**Gate:** every existing seed produces identical scoring output byte-for-byte vs pre-phase (no existing seed is mixed-tee, so the per-producer snapshots just repeat the round tee — that's fine and expected). Regression test: run each seed before and after, diff the render HTML — only expected markup diffs allowed (new ball-creation / per-producer / allowance lines), never number changes. Commit `phase 2.6b complete: balls + per-producer tees + RoundCompiler + strategy split`.
+
+### 2.6c — New ball-creation & format coverage + kitchen-sink multi-slot seed
+
+Exercise the new shape on formats flat `allowance_pct` couldn't express, plus prove the multi-slot multi-ball model works end-to-end.
+
+**New ball creation strategies:**
+- `GreensomesPair` with `weighted(lowPct, highPct)` derivation.
+- `ScrambleTeam` with `by_rank(chPcts[])` derivation — supports both 2-player `[35,15]` and 4-player `[25,20,15,10]` via composition.
+- `ModifiedAltShotPair` — emits both own-balls AND alt-shot team-balls in one pass (kitchen-sink needs this so one round covers individual formats + alt-shot simultaneously).
+
+**New format strategies:**
+- `greensomes` (team-ball, 2..2).
+- `scramble` (team-ball, 2..2 or 4..4).
+- Four-ball better-ball already migrated in 2.6b as a format; seed with per-ball 85% allowance here.
+
+**Seeds:**
+- `greensomes-weighted-round` — uses `GreensomesPair(0.6, 0.4)` + `greensomes` format + `flat(100)`.
+- `scramble-4-by-rank-round` — `ScrambleTeam(by_rank([25,20,15,10]))` + `scramble` format.
+- `scramble-2-by-rank-round` — `ScrambleTeam(by_rank([35,15]))` + `scramble` format.
+- `fourball-85-round` — `OwnBallPerPlayer` + `better-ball` format + `flat(85)` + 2v2 slot grouping.
+- **Kitchen-sink:** `multi-format-extreme-round` — 4 players, ball creation strategies `[OwnBallPerPlayer(single), ModifiedAltShotPair(avg, pairings=[(P1,P2),(P3,P4)])]` produces 6 balls (4 own + 2 alt-shot). 7 slots: stableford (`flat(95)`), umbrella (`flat(100)`), taliban (2v2, `flat(90)`), individual gross (`flat(100)`), alt-shot match (`flat(100)`), köpenhamnare between 3 of 4 (`flat(100)`), better-ball (2v2, `flat(85)`). Proves one event log drives many strategies with per-slot PH correctness.
+- **Mixed-tee:** `mixed-tee-round` — 2 men on yellow, 2 women on red, foursomes (1 mixed-tee pair + 1 same-tee pair). Each producer's CH derives from their own tee's rating/slope/par. Alt-shot team CH combines per-producer CHs from different tees. Proves per-producer tee snapshots work end-to-end (not just stored).
+
+**Strategy tests per new shape (ball creation derivation + format scoring), including mixed-tee derivation test.**
+
+**HTML render expectations:**
+- Each new seed renders a full scorecard with inline arithmetic for the new derivation (greensomes weighted formula; scramble ranked order with per-player CH × pct).
+- `multi-format-extreme-round` page:
+  - Top: round-level ball creation strategy declarations with per-team-ball derivation arithmetic visible.
+  - Middle: one events table per ball (6 columns, 18 rows) — the shared event log.
+  - Bottom: 7 slot sections, each showing its ball subset + allowance line + `ball_PH` × hole strokes → result.
+- Same 4 own-balls feed 5 of the 7 slots with different PHs per slot, visibly demonstrating the split.
+
+**Gate:** new seeds + kitchen-sink render correct arithmetic; `bun test` includes new ball-creation + format + multi-slot tests. Commit `phase 2.6c complete: new strategies + multi-slot kitchen sink`.
+
+### 2.6d — Typed corrections, soft-delete read path, player dashboard
+
+Per §17, corrections are typed — three distinct events instead of one generic override bus.
+
+- `setup_correction_event` — pre-finalization fix on `RoundDefinition` inputs only (wrong tee, wrong handicap index, wrong category, wrong ball composition, wrong slot declaration, wrong ball-strategy config). Targets: `producer_tee` | `producer_handicap_index` | `producer_category` | `ball_composition` | `slot_declaration` | `ball_strategy_config`. `target_ref` uses **stable def-ids only** (`producer_def_id`, `strategy_def_id`, `slot_def_id`), never compiler-output row ids. Derived outputs (`balls`, `slot_balls`, `slot_ball_teams`, ball CH, ball PH) are never targeted directly — the event mutates the latest `round_definitions` version into a new version, the compiler re-runs, and all downstream outputs are recomputed. Old + new input values retained in the event; the full definition chain is retained in `round_definitions`.
+- `allowance_override_event` — slot-level allowance change post-setup, keyed by `slot_def_id` (stable). Writes a new `round_definitions` version with `source_kind='allowance_override'`; compiler diff recognises the narrow change and fast-paths `format.deriveSlotBalls` on that slot only. Ball CH untouched. Survives subsequent `setup_correction_event` recompiles because it lives in the definition chain, not a separate overlay.
+- `ruling_event` — post-play competitive ruling (DQ, penalty strokes, hole adjudication, WD). Target: `ball_hole` | `ball_total` | `slot_ball_result`. Strategy reads during `score()` and applies as scoring-layer adjustment; no re-derivation.
+- Read path honours `players.deleted_at`: dashboard queries filter soft-deleted out; historical scorecard rendering uses `ball_players.display_name_snapshot` (always populated), so deleted-player rounds still render with the played-as name. Live player navigation links only appear when the player is active.
+- Player dashboard query + render: per §17 dashboard query, joining via `ball_players.player_id`.
+- Hard-delete (GDPR): nulls PII on `players` row, keeps `id` + `deleted_at` tombstone for FK integrity; snapshot columns on `ball_players` unaffected.
+
+**HTML render expectations:**
+- Dashboard seed: `player-dashboard-listing` renders a player's round history (own-ball and team-ball rounds, with per-slot PH and finishing position per slot).
+- Soft-delete seed: `soft-deleted-player-round` — historical round whose one producer is soft-deleted; render shows `display_name_snapshot` intact, no live link.
+- Setup correction seed: `setup-correction-round` — round with a `setup_correction_event` changing a producer's tee (wrong tee assigned initially); render shows original CH derivation, correction event with reason, post-correction CH derivation, and downstream slot_balls all updated.
+- Allowance override seed: `allowance-override-round` — slot's allowance changed post-setup (e.g. club decided 95% → 90% stableford after scores were entered); render shows original slot_balls PHs, override event, new `round_definitions` version (`source_kind='allowance_override'`), re-derived slot_balls, scoring recomputed.
+- Override-then-correction seed: `allowance-override-then-setup-correction-round` — allowance override applied first, then a later `setup_correction_event` changes a producer's tee; render shows the override is preserved through the full recompile (final PHs reflect both the tee correction AND the earlier allowance override, proving single-source-of-truth reconciliation).
+- Ruling seed: `ruling-applied-round` — round with a `ruling_event` adding +2 penalty strokes on a specific ball/hole; render shows raw strokes, ruling event, final adjusted total.
+
+**Gate:** dashboard, soft-delete, all three typed correction flows render correctly by eye. Commit `phase 2.6d complete: typed corrections + soft-delete + dashboard`.
+
+---
+
 ## Phase 3 — FriendlyRound
 
 **Spec:** §4 (FriendlyRound).

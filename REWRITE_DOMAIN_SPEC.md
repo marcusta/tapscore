@@ -130,23 +130,19 @@ A Round has one or more format slots. A format slot declares:
 
 Single-format round: one slot covering everyone. Multi-format round (series-style): 2 singles slots + 2 alternate-shot slots, each covering different participants.
 
-### Scorecard (per participant per Round)
+### Scoring unit — ball (per Round)
 
-- Strokes per hole: `int | null (no-result) | 0 (pickup)`
-- Snapshots: handicap index, course handicap, playing handicap, tee, course rating, slope at time of play
+A **ball** is the atomic scoring unit: one stream of strokes per hole. One producer = own-ball, 2+ producers = team-ball. Scorecards are rendered from balls, not from a separate participant entity. See §17 for the full ball/strategy model; the summary here is:
+
+- Strokes per hole: `int | null (no-result) | 0 (pickup)` — stored as append-only `score_event` keyed by `ball_id`
+- Per-producer snapshots live on `ball_players`: tee, course rating, slope, par, handicap index, course handicap (mixed-tee rounds have distinct per-producer rows)
+- Per-slot snapshot lives on `slot_balls`: `playing_handicap_snapshot` (ball CH × format allowance)
 - Derived via format strategy: gross, net, points, per-hole match-play status
 - Manual-entry override: out / in / total without per-hole detail (for importing old results or incomplete entry)
 
-### Participant (per Round)
+### Producer (per Round)
 
-A **slot in a tee time within a Round**, not a person. One participant can map to multiple players via a `participant_players` junction (supports substitutes, shared scorecards, teams of 2–4).
-
-Carries per-round snapshots:
-
-- Category assignment (if round inherits categories from Competition)
-- Tee (derived from category + round)
-- Playing handicap (computed and frozen at assignment)
-- Flags: `is_locked`, `is_dq`, admin notes, admin modified-by
+A **producer** is a player (or guest) occupying a scoring slot on one or more balls within a Round. "Participant" as a standalone entity is superseded by §17's ball/producer model; producers are represented by rows in `ball_players` (with XOR `player_id | guest_player_id`), which carry the per-round snapshots listed above. Admin-level flags (`is_locked`, `is_dq`, admin notes) move to the ball or slot_ball level where they're actually scoped.
 
 ### Start List (per Round)
 
@@ -372,16 +368,18 @@ Role grants are records in a junction table, not fields on user. A player can be
 
 ## 9. Snapshotting (critical cross-cutting concern)
 
-Things that must be snapshotted at time of play, not looked up later:
+Things that must be snapshotted at time of play, not looked up later. Canonical storage is per §17; fields listed here for the snapshotting concern:
 
-- Player handicap index → `participant.handicap_index_snapshot`
-- Course handicap → `participant.course_handicap_snapshot`
-- Playing handicap → `participant.playing_handicap_snapshot`
-- Tee assignment → `participant.tee_id_snapshot`
-- Course rating, slope → `scorecard` (for net calc replay)
-- Category → `participant.category_snapshot`
+- Course identity → `rounds.course_name_snapshot`
+- Per-hole course data → `round_course_holes` (hole_no, par, base_stroke_index)
+- Per-tee-per-hole data → `round_tee_holes` (length, stroke_index_override)
+- Per-producer tee + rating + slope + par + handicap index + course handicap → `ball_players` (one row per producer per ball; mixed-tee rounds carry distinct snapshots per producer)
+- Category → `ball_players.category_snapshot`
+- Ball course handicap → `balls.course_handicap_snapshot` (immutable after ball creation)
+- Slot playing handicap (ball CH × allowance) → `slot_balls.playing_handicap_snapshot`
+- Display name at time of play → `ball_players.display_name_snapshot` (audit-grade rendering even after soft-delete/rename)
 
-Reason: handicap indices change, tees get re-rated, categories get edited. Retroactive recalculation breaks finalized rounds. This is the root cause of several bugs in the current codebase.
+Reason: handicap indices change, tees get re-rated, categories get edited, players get renamed or soft-deleted. Retroactive recalculation breaks finalized rounds. This is the root cause of several bugs in the current codebase.
 
 Finalization snapshot: `competition_results` table. Written on `is_results_final = true`, immutable thereafter.
 
@@ -608,7 +606,501 @@ To resolve before or during implementation:
 
 ---
 
-## 17. Naming Decisions
+## 17. Round Context and Format Strategies
+
+Extends sections 3 (Round), 9 (Snapshotting), and 11 (Event log) with the concrete model for how a format strategy gets everything it needs — and nothing it doesn't — from the round. Supersedes the earlier `participants` / `participant_players` / `slot_teams` sketch: **the atomic scoring unit is a ball, not a participant.**
+
+### Guiding principle
+
+A Round is a **self-contained, frozen snapshot** of all data needed to score and render it. A format strategy is a **pure function** over that snapshot, the slot's ball set (with pre-derived PH per ball), and the event log:
+
+```
+strategy.score(roundContext, slotBalls, events) → { result }
+```
+
+No DB lookups mid-calculation. No hidden inputs. Re-running on the same inputs always produces the same output. Course rating changes, handicap index changes, tee re-ratings — none of these touch historical rounds. The strategy does not know or care who the players are, how PH was derived, or whether a ball is shared by one player or four. Identity and derivation are upstream concerns.
+
+### The ball: atomic unit of scoring
+
+A **ball** is what gets scored: one stroke count per hole, optional metadata (GIR, FIR, putts). Produced by one or more players — 1 = own-ball, 2+ = team-ball (alt-shot, scramble, greensomes). Every scoring event in the round targets a ball.
+
+```
+round_ball_strategies
+  id, round_id, strategy_id,                   -- e.g. 'own_ball_per_player', 'alt_shot_pair'
+  strategy_def_id,                             -- stable id from RoundDefinition.ballStrategies[].id
+  derivation_config JSON,                      -- BallDerivationConfig (scramble ranks, greensomes weights)
+  composition JSON                             -- pairings / teams (null for own-ball)
+
+balls
+  id, round_id,
+  round_ball_strategy_id (FK),                 -- which instance produced this ball (canonical identity)
+  label?,
+  course_handicap_snapshot,                    -- ball_CH (derivation output)
+  per_producer_ch JSON?                        -- audit surface for team balls
+
+ball_players                                   -- guest support preserved via XOR
+  ball_id,
+  producer_def_id,                             -- stable id from RoundDefinition.producers[].id;
+                                               -- survives recompile so corrections can find this row
+  player_id? | guest_player_id?,               -- XOR, matches legacy participant_players_xor_check
+  display_name_snapshot,                       -- "played as" for audit-grade rendering
+  handicap_index_snapshot,                     -- raw WHS index at round start
+  category_snapshot,                           -- category assignment feeding tee/CH derivation
+  gender_snapshot,                             -- drives gender-split tee ratings
+  tee_id (FK, live),                           -- per-producer tee (mixed-tee rounds: women red / men yellow)
+  tee_name_snapshot,
+  course_rating_snapshot,
+  slope_snapshot,
+  tee_par_snapshot,
+  course_handicap_snapshot                     -- per-producer CH (before team-ball derivation)
+```
+
+Two identity surfaces per registered-player producer: live `player_id` FK (navigation, dashboard, "current name") and `display_name_snapshot` (what renders on the historical scorecard). UI picks per surface. Guest players are round-scoped; their snapshot lives on the `guest_players` row they point to.
+
+**Per-producer tee snapshots are required** — §2 allows per-category tee assignment, so a single round routinely has men on one tee and women on another. Team-ball derivation combines per-producer CHs, each computed from that producer's own tee rating.
+
+Ball identity is **`(round_id, round_ball_strategy_id, producer_set)`** — strategy instance is part of the key. Producer-set-only dedupe is an optimization the strategy opts into (`allowsProducerSetDedupe`): `OwnBallPerPlayer` says yes (one P1 own-ball, reused across slots); team strategies say no (two `AltShotPair` instances with the same pair mean two different balls).
+
+### Round context: course + holes snapshots
+
+Course identity stays live; scoring data frozen in two normalised tables.
+
+```
+rounds
+  id, course_id (FK, live), played_at,
+  course_name_snapshot                         -- for audit-grade rendering; live FK for navigation
+
+round_course_holes
+  (round_id, hole_no, par, base_stroke_index)  -- course-level hole data, frozen
+
+round_tee_holes
+  (round_id, tee_id, hole_no,
+   length_m, stroke_index_override?)           -- per-tee hole data; SI override wins when present
+```
+
+Scoring routines that need effective SI: look up via the producer's `ball_players.tee_id` → `round_tee_holes.stroke_index_override`, else fall back to `round_course_holes.base_stroke_index`. Lengths are always per-tee.
+
+No singular `rounds.tee_rating_snapshot` / `rounds.slope_snapshot` / `rounds.tee_par_snapshot` — those are per-producer on `ball_players`.
+
+### Two strategy layers: ball creation and format
+
+Two distinct strategies, separated by concern.
+
+**BallCreationStrategy** (round-level). Produces balls from players and composition. Owns **derivation** — how producer indices/CHs combine into the ball's base CH. Knows nothing about scoring.
+
+**FormatStrategy** (slot-level). Given pre-created balls with derived CH, applies **allowance** to get PH, then scores. Knows nothing about how balls were formed.
+
+```
+ball creation produces: ball_CH = derive(perProducerCH, derivationConfig)    -- each producer's CH computed from their own tee
+format applies:         ball_PH = round(ball_CH × allowancePct / 100)
+```
+
+A round declares one or more BallCreationStrategy instances (persisted in `round_ball_strategies`). Their outputs union into the round's ball pool. Each slot references a format + subset of balls from the pool + its allowance config + (optional) own-ball team grouping.
+
+### Slots reference balls, not players
+
+```
+slots
+  id, round_id,
+  slot_def_id,                                 -- stable id from RoundDefinition.slots[].id
+  scoring_mode, team_shape,
+  allowance_config,                            -- FormatAllowanceConfig (allowance only, no derivation)
+  ball_mode                                    -- 'own' | 'team' — derivable from strategy; stored for UI/query convenience
+
+slot_balls
+  (slot_id, ball_id,
+   playing_handicap_snapshot)                  -- only slot-specific value; ball_CH stays on `balls` (no duplication)
+
+slot_ball_teams                                -- only for own-ball team formats (better-ball, taliban)
+  (slot_id, team_label, ball_id)               -- groups balls into teams at slot level
+```
+
+`slot_balls` no longer duplicates `course_handicap_snapshot` — read it from `balls` via join. CH is per-ball (immutable after ball creation); only PH varies per slot because only the allowance varies per slot. Ball CH is never patched directly: a `setup_correction_event` (see below) targets the RoundDefinition input (e.g. producer tee or handicap index), the compiler re-runs, and the recomputed CH lands on `balls` — all slots observing that ball pick up the new value via join.
+
+### What gets snapshotted vs what stays live
+
+| Data | Treatment | Where |
+|------|-----------|-------|
+| Course identity (name, slug) | **Live FK** + frozen name snapshot | `rounds.course_id` + `rounds.course_name_snapshot` |
+| Hole par + base SI | Frozen per round | `round_course_holes` |
+| Per-tee hole length + SI override | Frozen per round × tee | `round_tee_holes` |
+| Per-producer tee + rating + slope + par | Frozen per producer | `ball_players.*_snapshot` |
+| Per-producer handicap index | Frozen per producer | `ball_players.handicap_index_snapshot` |
+| Per-producer category | Frozen per producer | `ball_players.category_snapshot` |
+| Per-producer CH (pre-derivation) | Frozen per producer | `ball_players.course_handicap_snapshot` |
+| RoundDefinition (source of truth for compiler) | Versioned per compile | `round_definitions` |
+| Ball derivation config + composition | Frozen per strategy instance | `round_ball_strategies` |
+| Ball CH | Frozen per ball | `balls.course_handicap_snapshot` |
+| Per-producer CH for team balls | Audit JSON | `balls.per_producer_ch` |
+| Format allowance config | Frozen per slot | `slots.allowance_config` |
+| Ball PH | Frozen per (slot × ball) | `slot_balls.playing_handicap_snapshot` |
+| Slot team groupings (better-ball, taliban) | Frozen per slot | `slot_ball_teams` |
+| Player identity (name, email, avatar) | **Live FK** for navigation + frozen `display_name_snapshot` for audit rendering | `ball_players.player_id` + `ball_players.display_name_snapshot` |
+| Guest player identity | Frozen | `guest_players` row |
+
+**Soft-delete** on `players` (`deleted_at`). Dashboard queries filter soft-deleted out. Rendering falls back to `display_name_snapshot` (always populated at round creation) so historical scorecards never show "Deleted player" — they show what the player was called when they played. Live `player_id` still works for navigation when the player is active.
+
+Hard-delete (GDPR) nulls PII on `players`, keeps tombstone row so FKs survive. Snapshots on `ball_players` are unaffected by the policy the reviewer flagged: registered-player rendering becomes **live for current surfaces, frozen for historical surfaces** — by design, same as guest rendering.
+
+### Storage split — by data shape
+
+- **Flat, frozen scalars** → columns on the owning row (snapshots on `ball_players`, CH on `balls`).
+- **Row-oriented, aggregated** → normalised table. `round_course_holes` + `round_tee_holes` so cross-round aggregates like "hardest hole on course X" stay pure SQL.
+- **Polymorphic / discriminated-union** → JSON blob. `BallDerivationConfig` + `composition` on `round_ball_strategies`, `FormatAllowanceConfig` on `slots`. Normalising unions would require polymorphic tables.
+
+Live FKs sit alongside snapshots so "all rounds at Linköpings" and "all rounds by player X" stay trivial queries.
+
+### Config shapes (split by concern)
+
+Two Typebox-validated unions, one per strategy layer.
+
+```ts
+// Lives on ball creation strategy instance (round-level).
+// Determines ball_CH from producer CHs.
+type BallDerivationConfig =
+  | { type: 'single' }                                          // 1-producer — use that player's CH
+  | { type: 'avg' }                                             // foursomes — avg of producer indices, apply tee rating once
+  | { type: 'sum_of_ch' }                                       // four-ball combined (variant rulesets)
+  | { type: 'weighted'; lowPct: number; highPct: number }       // greensomes — 0.6 × low + 0.4 × high
+  | { type: 'by_rank'; chPcts: number[] }                       // scramble — CHs sorted low→high, ball_CH = Σ(CH[i] × chPcts[i] / 100)
+
+// Lives on slot (per format).
+// Determines ball_PH from ball_CH.
+type FormatAllowanceConfig =
+  | { type: 'flat'; pct: number }                               // uniform allowance applied to every ball in the slot
+```
+
+Match-play PH normalisation (subtract lowest PH in match from everyone) stays in scoring code — orthogonal to allowance, not encoded here.
+
+### Worked examples
+
+| Format | Ball creation strategy | `BallDerivationConfig` | `FormatAllowanceConfig` | Slot-level grouping |
+|---|---|---|---|---|
+| Individual stroke, 100% | `OwnBallPerPlayer` | `single` | `flat(100)` | — |
+| Individual stableford, 95% | `OwnBallPerPlayer` | `single` | `flat(95)` | — |
+| Foursomes (alt-shot), 50% | `AltShotPair` | `avg` | `flat(50)` | — |
+| Greensomes, 0.6/0.4 | `GreensomesPair` | `weighted(0.6, 0.4)` | `flat(100)` | — |
+| Four-ball better-ball, 85% per ball, 2v2 | `OwnBallPerPlayer` | `single` | `flat(85)` | 2v2 pairing |
+| **Taliban (2v2 better-ball variant)**, 90% per ball | `OwnBallPerPlayer` | `single` | `flat(90)` | 2v2 pairing |
+| Scramble 4 by-rank | `ScrambleTeam` | `by_rank([25,20,15,10])` | `flat(100)` | — |
+| Scramble 2 by-rank | `ScrambleTeam` | `by_rank([35,15])` | `flat(100)` | — |
+| Match play singles | `OwnBallPerPlayer` | `single` | `flat(100)` | — |
+
+Note: the `OwnBallPerPlayer` ball strategy executes **once** per round, producing the own-ball set shared across every format slot that needs own-balls (stableford, better-ball, taliban, match play, köpenhamnare, etc.). Team-ball strategies (`AltShotPair`, `GreensomesPair`, `ScrambleTeam`) produce their distinct balls alongside.
+
+### Strategy contracts
+
+Two interfaces. Each has one job. Inputs are per-producer (tee-aware), not round-singular.
+
+```ts
+interface BallCreationStrategy {
+  id: string                                    // 'own_ball_per_player' | 'alt_shot_pair' | 'greensomes_pair'
+                                                // | 'scramble_team' | 'modified_alt_shot_pair'
+
+  // Declares the composition input it needs (e.g. pairings for alt-shot).
+  compositionRequirement(): {
+    requiresTeams: boolean
+    teamSize?: { min: number; max: number }     // e.g. alt-shot: 2..2, scramble-4: 4..4
+  }
+
+  // If true, the compiler may dedupe balls across strategy instances when producer-set matches.
+  // OwnBallPerPlayer → true (P1's own-ball exists once no matter how many slots reference it).
+  // Team strategies → false (two AltShotPair instances with the same pair are two different balls).
+  allowsProducerSetDedupe(): boolean
+
+  // Produces balls with derived ball_CH. Pure — no DB access.
+  // Each producer carries their own tee snapshot (mixed-tee rounds).
+  create(input: {
+    producers: {
+      playerRef: PlayerRef
+      handicapIndex: number
+      gender?: 'M' | 'F'
+      tee: TeeSnapshot                          // per-producer
+      teeHoles: RoundTeeHoleSnapshot[]          // per-producer, 18 rows for that tee
+    }[]
+    composition?: { teams: { label: string; playerRefIds: string[] }[] }
+    courseHoles: RoundCourseHoleSnapshot[]      // par + base SI, course-level
+    derivationConfig: BallDerivationConfig
+  }): {
+    balls: {
+      producerPlayerRefIds: string[]
+      label?: string
+      courseHandicapSnapshot: number            // ball_CH — derived from per-producer CHs
+      perProducerCh: { playerRefId: string; ch: number }[]  // audit; always emitted
+    }[]
+  }
+}
+
+interface FormatStrategy {
+  id: string                                    // 'stableford' | 'stroke_play' | 'match_play'
+                                                // | 'better_ball' | 'taliban' | 'kopenhamnare' | 'umbrella' | …
+
+  // Declares what ball shape this format can consume.
+  ballRequirement(): {
+    producerCount: { min: number; max: number } // 1..1 for own-ball, 2..2 for foursomes, 4..4 for scramble-4
+    ballMode: 'own' | 'team' | 'any'
+    requiresSlotTeamGrouping?: boolean          // true for better-ball / taliban
+  }
+
+  // Applies allowance to derived ball_CH → ball_PH. Pure.
+  deriveSlotBalls(input: {
+    balls: { ballId: string; courseHandicapSnapshot: number }[]
+    allowanceConfig: FormatAllowanceConfig
+  }): { ballId: string; playingHandicapSnapshot: number }[]
+
+  // Scoring. Pure over frozen inputs. Does not touch players, indices, allowance.
+  // Reads effective SI per (ball, producer, hole) via roundContext: producer's tee override
+  // (round_tee_holes.stroke_index_override) falls back to base (round_course_holes.base_stroke_index).
+  score(input: {
+    roundContext: RoundContext                  // course holes + per-tee holes + per-producer tee snapshots
+    slotBalls: SlotBall[]                       // derivation output, frozen
+    slotTeamGroupings?: { teamLabel: string; ballIds: string[] }[]
+    events: (ScoreEvent | MetadataEvent | SetupCorrectionEvent | AllowanceOverrideEvent | RulingEvent)[]
+  }): StrategyResult
+
+  // Optional: owns rendering, or delegates to shared render-lib.
+  render?(result: StrategyResult): RenderedOutput
+}
+```
+
+### Compatibility matrix (validated by the compiler)
+
+| FormatStrategy | `ballRequirement().producerCount` | `ballMode` | `requiresSlotTeamGrouping` |
+|---|---|---|---|
+| Individual stableford / stroke / gross / umbrella | 1..1 | own | false |
+| Match play singles | 1..1 | own | false |
+| Köpenhamnare | 1..1 | own | false |
+| Better-ball | 1..1 | own | true (2v2) |
+| Taliban (2v2 better-ball variant) | 1..1 | own | true (2v2) |
+| Foursomes / greensomes / alt-shot match | 2..2 | team | false |
+| Scramble-2 | 2..2 | team | false |
+| Scramble-4 | 4..4 | team | false |
+
+### Round compiler and `RoundDefinition`
+
+Admin input never writes `balls` / `ball_players` / `slot_balls` directly. The **compiler** is the single boundary: `RoundDefinition → validate → compile → persist`. All invariants, dedupe rules, compatibility checks, and human-readable diagnostics live here.
+
+`RoundDefinition` is a persisted, versioned document — not just an in-memory DTO. Every compile writes the exact definition that produced the current outputs, so a later `setup_correction_event` has an authoritative source to mutate. Reconstructing a definition from normalized output tables is **not** supported; the definition is the source of truth.
+
+Every node in `RoundDefinition` carries a **stable def-id** assigned at definition time. These ids survive recompile and are threaded into output tables as FKs (`ball_players.producer_def_id`, `round_ball_strategies.strategy_def_id`, `slots.slot_def_id`). Corrections target def-ids, never compiler-output row ids.
+
+```ts
+type RoundDefinition = {
+  courseId: string
+  playedAt: string
+  producers: {
+    id: string                                  // stable def-id → ball_players.producer_def_id
+    playerRef: PlayerRef                        // { kind: 'player' | 'guest', id }
+    handicapIndex: number
+    gender?: 'M' | 'F'
+    teeId: string                               // per-producer
+    category?: string                           // drives tee/CH; snapshotted on ball_players
+  }[]
+  ballStrategies: {
+    id: string                                  // stable def-id → round_ball_strategies.strategy_def_id
+    strategyId: string                          // 'own_ball_per_player' | …
+    derivationConfig: BallDerivationConfig
+    composition?: { teams: { label: string; producerDefIds: string[] }[] }
+  }[]
+  slots: {
+    id: string                                  // stable def-id → slots.slot_def_id
+    formatId: string
+    allowanceConfig: FormatAllowanceConfig
+    ballSelector: { strategyDefIds?: string[]; producerDefIds?: string[] } // default: auto-match via ballRequirement
+    teamGrouping?: { teams: { label: string; producerDefIds: string[] }[] }
+  }[]
+}
+
+// Persisted alongside outputs. One row per compile; version chain preserves history.
+round_definitions
+  round_id, version,
+  definition_json,                              -- full RoundDefinition at this version
+  compiled_at, compiled_by,
+  superseded_by?,                               -- next version
+  source_kind,                                  -- 'initial' | 'setup_correction' | 'allowance_override'
+  source_event_id?                              -- setup_correction_event.id or allowance_override_event.id
+                                                -- (null for v1, the initial admin input)
+
+interface RoundCompiler {
+  compile(def: RoundDefinition): RoundCompileResult    // Either<Diagnostics, CompiledRound>
+  persist(compiled: CompiledRound): Promise<RoundId>   // transactional write of all tables
+}
+```
+
+Pipeline inside `compile`:
+
+```
+1. Validate definition shape; assign missing def-ids (first compile only).
+2. Snapshot course/tees/holes:
+   → rounds.course_name_snapshot, round_course_holes, round_tee_holes
+   → per-producer tee + category snapshots prepared for ball_players rows
+3. Run each BallCreationStrategy.create(producers, composition, derivationConfig, courseHoles)
+   → candidate balls with per-producer CH; each ball tagged with strategy_def_id
+4. Dedupe across strategy instances where allowsProducerSetDedupe() is true
+5. Validate each slot against format.ballRequirement() — reject with diagnostics if mismatched
+6. For each slot, run format.deriveSlotBalls(balls, allowanceConfig) → slot_balls rows
+7. Persist atomically:
+   → round_definitions (new version row with the exact input that produced these outputs)
+   → rounds, round_course_holes, round_tee_holes, round_ball_strategies,
+     balls, ball_players (with producer_def_id), slots (with slot_def_id),
+     slot_balls, slot_ball_teams.
+```
+
+### Stable runtime ids across recompile
+
+Compiler outputs **must** use deterministic content-addressed ids so that append-only events keep pointing at the right subject after a recompile:
+
+```
+balls.id       = hash(round_id, round_ball_strategy.strategy_def_id, sorted(producer_def_ids))
+slots.id       = hash(round_id, slot_def_id)
+slot_balls.(slot_id, ball_id)                                    -- deterministic from the above
+round_ball_strategies.id = hash(round_id, strategy_def_id)
+```
+
+Because these ids are a pure function of stable def-ids + producer-def-id set, a recompile regenerates identical ids for any entity whose defining inputs are unchanged. Events (`score_event.ball_id`, `allowance_override_event.slot_def_id`, `ruling_event.target_id`, `metadata_event.ball_id`) remain valid without rewrite.
+
+**Recompile semantics** (after a `setup_correction_event` or `allowance_override_event`):
+
+1. Compile the new `RoundDefinition` version → new `CompiledRound`.
+2. Diff new outputs vs current outputs by deterministic id:
+   - **Unchanged rows** (same id, same content): no-op.
+   - **Changed rows** (same id, different content — e.g. producer tee corrected, CH recomputed): upsert in place. All referring events stay valid.
+   - **New rows** (id not in current): insert.
+   - **Removed rows** (id in current, not in new — e.g. a producer was dropped, collapsing a ball): delete. Any events referencing a removed id are **not silently discarded** — they're retained in the event log (append-only is preserved) and surfaced as a diagnostic (`orphaned_events_after_correction`) on the new `round_definitions` version. Admin decides whether the correction is correct or whether the events need re-entry against a surviving ball.
+3. Insert a new `round_definitions` row pointing at the triggering event.
+
+This keeps the event log append-only, preserves all prior score events across corrections where the subject still exists, and makes destructive corrections auditable rather than silent.
+
+Validation errors are structured: a rejected definition returns a list of diagnostics (which slot, which constraint, what's missing), never a half-persisted round.
+
+### Event log (extends section 11)
+
+Ball is the only score subject. Metadata gains optional producer attribution. Corrections are **typed, not a generic override bus**.
+
+```
+score_event              { round_id, ball_id, hole, strokes | null,
+                           client_event_id (unique per round), recorded_by, recorded_at }
+
+metadata_event           { round_id, ball_id, hole,
+                           producer_player_id?,         -- XOR pair with producer_guest_player_id,
+                           producer_guest_player_id?,   -- both null for ball-level metadata;
+                                                        -- exactly one set for per-producer types
+                                                        -- (gir/fir/putts in team-ball contexts,
+                                                        -- including guest producers)
+                           type: 'gir' | 'fir' | 'putts' | 'penalty' | ...,
+                           value,
+                           client_event_id, recorded_by, recorded_at }
+
+setup_correction_event   { round_id,
+                           -- Targets ONLY RoundDefinition-owned inputs. Compiler outputs
+                           -- (balls, slot_balls, slot_ball_teams, ball_CH, etc.) are derived
+                           -- and never targeted directly — they are recomputed when an input
+                           -- changes.
+                           target: 'producer_tee'            -- which tee a producer plays from
+                                 | 'producer_handicap_index' -- the index used for CH derivation
+                                 | 'producer_category'       -- category assignment feeding tee/CH
+                                 | 'ball_composition'        -- add/remove/swap producers on a ball
+                                 | 'slot_declaration'        -- slot's format + allowance + team grouping
+                                 | 'ball_strategy_config',   -- ball creation strategy / derivation config
+                           target_ref,                  -- ALL refs use stable RoundDefinition def-ids,
+                                                        -- never compiler-output row ids. Shape by target:
+                                                        -- producer_tee|producer_handicap_index|producer_category:
+                                                        --   { producer_def_id }
+                                                        -- ball_composition:
+                                                        --   { strategy_def_id, team_label? }
+                                                        -- slot_declaration:
+                                                        --   { slot_def_id }
+                                                        -- ball_strategy_config:
+                                                        --   { strategy_def_id }
+                           old_value, new_value, reason,
+                           recorded_by, recorded_at }
+                         -- Pre-finalization fix on RoundDefinition. Stored definition is
+                         -- mutated; compiler re-runs from the changed input forward;
+                         -- downstream outputs are recomputed, never touched directly.
+
+allowance_override_event { round_id, slot_def_id,            -- stable def-id, not slot row id
+                           old_config, new_config, reason,
+                           recorded_by, recorded_at }
+                         -- Folds into the RoundDefinition chain: writes a NEW round_definitions
+                         -- version with only slots[slot_def_id].allowanceConfig changed,
+                         -- source_kind='allowance_override' and source_event_id set. The
+                         -- compiler diffs the new version;
+                         -- when the only change is allowanceConfig on one slot, it fast-paths to
+                         -- format.deriveSlotBalls on that slot, skipping ball re-derivation.
+                         -- Single source of truth: RoundDefinition chain holds current effective
+                         -- allowance; no split reconciliation against a separate override layer.
+
+ruling_event             { round_id,
+                           target: 'ball_hole' | 'ball_total' | 'slot_ball_result',
+                           target_id,
+                           kind: 'dq' | 'penalty_strokes' | 'hole_adjudication' | 'wd',
+                           value,                       -- e.g. { strokes: +2 } or { disqualified: true }
+                           reason, recorded_by, recorded_at }
+                         -- Competitive ruling applied at scoring layer, does not re-derive.
+```
+
+Replay semantics:
+- Later `score_event` wins per `(ball_id, hole)`.
+- `setup_correction_event` mutates the stored `RoundDefinition` at the targeted input, then the compiler re-runs from that input forward — affected `balls` / `slot_balls` / `ball_players` / `slot_ball_teams` are recomputed as outputs. The event log retains both old and new input values; derived outputs are never written to directly.
+- `allowance_override_event` writes a new `round_definitions` version (with only `slots[i].allowanceConfig` changed); compiler's diff recognises the narrow change and fast-paths `format.deriveSlotBalls` on the affected slot — ball CH untouched, all other slots untouched. After a later `setup_correction_event` triggers a full recompile, the allowance override is **preserved** because it lives in the definition chain, not a separate overlay.
+- `ruling_event` is read by the format strategy during `score()` and applied as a scoring-layer adjustment. No re-derivation.
+
+Three typed events, each with distinct semantics, preserve the composable model instead of becoming a generic mutation bus.
+
+### Multi-format, multi-ball in one round
+
+Covers the realistic extreme: 4 players in one group playing modified alt-shot (2 pairs, 2 team-balls finished per hole) AND all four playing own balls (4 own-balls per hole), across many format slots.
+
+Balls declared per round:
+```
+B_P1, B_P2, B_P3, B_P4          -- own-balls, 1 producer each
+B_pairA (P1, P2)                 -- alt-shot team-ball
+B_pairB (P3, P4)                 -- alt-shot team-ball
+```
+
+Ball creation strategies declared on the round:
+```
+OwnBallPerPlayer(single)                       → B_P1, B_P2, B_P3, B_P4
+AltShotPair(avg, pairings=[(P1,P2),(P3,P4)])   → B_pairA, B_pairB
+```
+
+Slots (partial):
+| Slot | Format | Balls referenced | Slot grouping | Allowance |
+|---|---|---|---|---|
+| Alt-shot match (Pair A vs Pair B) | match-play | `B_pairA`, `B_pairB` | — | `flat(100)` |
+| Individual stableford | stableford | `B_P1..B_P4` | — | `flat(95)` |
+| Taliban (2v2 better-ball variant) | taliban | `B_P1..B_P4` | 2v2 (P1+P2 vs P3+P4) | `flat(90)` |
+| Better-ball (pairs) | better-ball | `B_P1..B_P4` | 2v2 (same) | `flat(85)` |
+| Köpenhamnare (P1,P2,P3) | köpenhamnare | `B_P1, B_P2, B_P3` | — | `flat(100)` |
+| Individual gross | stroke-play | `B_P1..B_P4` | — | `flat(100)` |
+| Umbrella | umbrella | `B_P1..B_P4` | — | `flat(100)` |
+
+All seven slots consume the same events log (one `score_event` per ball per hole). No slot re-derives anything; they read their pre-computed `slot_balls` rows. Own-ball PH varies per slot (95% stableford vs 85% better-ball vs 90% taliban, all off the same `B_Pn.courseHandicapSnapshot`). Team-ball PH (`B_pairA`, `B_pairB`) comes from the foursomes avg-index derivation applied once at ball creation, then 100% match-play allowance.
+
+### Player dashboard (guest-aware)
+
+```sql
+SELECT r.*
+FROM rounds r
+JOIN balls b ON b.round_id = r.id
+JOIN ball_players bp ON bp.ball_id = b.id
+WHERE bp.player_id = :playerId
+  AND NOT EXISTS (SELECT 1 FROM players x WHERE x.id = bp.player_id AND x.deleted_at IS NOT NULL)
+```
+
+Works for solo and team rounds — a shared team-ball surfaces for each producer. Guest players (no `players.id`; `ball_players.guest_player_id` populated instead) correctly do not appear in any registered player's dashboard. If a guest later claims their rounds by creating an account, a one-time migration flips `ball_players` rows from `guest_player_id` to `player_id`.
+
+### Open questions (specific to this section)
+
+1. **Rendering ownership** — strategy produces structured result; render-lib formats. Settled unless round context can't carry what render-lib needs.
+2. **Club house rules** — out of `FormatAllowanceConfig`. Admin sets explicit slot allowance; no implicit inheritance.
+3. **Migration path** — `participants` + `participant_players` → `balls` + `ball_players` + `round_ball_strategies` + `slot_balls` + `slot_ball_teams` + `round_definitions` + `slots` (with def-ids). `allowance_pct` numeric → (a) explicit ball-creation-strategy per slot's existing team-shape and (b) `FormatAllowanceConfig` JSON on slot. Backfill must synthesize a v1 `round_definitions` row per existing round by reverse-engineering a declarative definition from the legacy participant shape (documented, lossy only where legacy data was already missing). Big one-shot migration.
+4. **Mixed own-ball + team-ball physics** — structurally supported (kitchen-sink example). Score-entry UX (per-player vs per-team prompts per slot `ball_mode`) is a separate design task in the phase that ships the UI.
+5. **Cross-round producer identity for guests** — a guest who later creates an account: one-time migration flips `ball_players.guest_player_id` → `player_id` for their historical rounds. `display_name_snapshot` stays frozen on each row (played as Anna G. vs current name Anna Gustafsson). Belongs in the guest-promotion phase, not here.
+
+---
+
+## 18. Naming Decisions
 
 - **Round** is the core primitive. Context-free. All scoring logic targets Round.
 - **FriendlyRound** wraps a Round for ad-hoc / casual play.
