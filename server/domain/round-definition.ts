@@ -123,6 +123,15 @@ const SlotDefinition = Type.Object({
     allowanceConfig: FormatAllowanceConfig,
     ballSelector: Type.Optional(SlotBallSelector),
     teamGrouping: Type.Optional(SlotTeamGrouping),
+    /**
+     * Per-format configuration — birdieRule (umbrella), handicapMode
+     * (köpenhamnare), etc. Opaque at the RoundDefinition layer; each
+     * `FormatStrategy.score()` narrows locally. Kept separate from
+     * `allowanceConfig` because the concerns are orthogonal: allowance
+     * affects ball_PH derivation, formatConfig controls per-hole scoring
+     * rules.
+     */
+    formatConfig: Type.Optional(Type.Unknown()),
 });
 
 export const RoundDefinition = Type.Object({
