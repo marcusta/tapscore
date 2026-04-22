@@ -17,6 +17,13 @@ export interface Database {
     round_format_slots: RoundFormatSlotsTable;
     participants: ParticipantsTable;
     participant_players: ParticipantPlayersTable;
+    round_definitions: RoundDefinitionsTable;
+    round_ball_strategies: RoundBallStrategiesTable;
+    balls: BallsTable;
+    ball_players: BallPlayersTable;
+    slots: SlotsTable;
+    slot_balls: SlotBallsTable;
+    slot_ball_teams: SlotBallTeamsTable;
     tee_times: TeeTimesTable;
     score_events: ScoreEventsTable;
     scorecards: ScorecardsTable;
@@ -266,6 +273,118 @@ export interface ClubsTable {
     location: string | null;
     logo_url: string | null;
     created_at: Generated<string>;
+}
+
+// --- Phase 2.6b/1 — RoundCompiler output tables (additive). ---
+//
+// Populated by the RoundCompiler in slice 3a; read by scoring in slice 3b.
+// JSON columns store TEXT (SQLite has no native JSON); typed schemas live in
+// `server/domain/round-definition.ts` and gate parse/serialize at the
+// compiler boundary.
+
+export type RoundDefinitionSourceKind = 'initial' | 'setup_correction' | 'allowance_override';
+
+export interface RoundDefinitionsTable {
+    round_id: string;
+    version: number;
+    /** Serialized `RoundDefinition` Typebox shape — full input that produced this version. */
+    definition_json: string;
+    compiled_at: Generated<string>;
+    compiled_by: string | null;
+    /**
+     * Points to the next version in the same round's chain. No FK (composite
+     * self-reference); compiler maintains the chain.
+     */
+    superseded_by_version: number | null;
+    source_kind: RoundDefinitionSourceKind;
+    /**
+     * Triggering event id for `setup_correction` / `allowance_override` versions.
+     * Null for `initial`. FK lands in slice 4 alongside the typed correction
+     * event tables.
+     */
+    source_event_id: string | null;
+}
+
+export interface RoundBallStrategiesTable {
+    /** Deterministic content-addressed: `hash(round_id, strategy_def_id)`. */
+    id: string;
+    round_id: string;
+    /** Registry id — `own_ball_per_player`, `alt_shot_pair`, … */
+    strategy_id: string;
+    /** Stable id from `RoundDefinition.ballStrategies[].id`; survives recompile. */
+    strategy_def_id: string;
+    /** Serialized `BallDerivationConfig`. */
+    derivation_config: string;
+    /** Serialized composition (`{ teams: [...] }`) when the strategy needs one. */
+    composition: string | null;
+}
+
+export interface BallsTable {
+    /** `hash(round_id, strategy_def_id, sorted(producer_def_ids))`. */
+    id: string;
+    round_id: string;
+    round_ball_strategy_id: string;
+    label: string | null;
+    /** Derived ball CH (output of ball-creation strategy). */
+    course_handicap_snapshot: number;
+    /** Audit JSON: `[{ producerDefId, ch }]`. Null for own-ball where it's redundant. */
+    per_producer_ch: string | null;
+}
+
+export interface BallPlayersTable {
+    ball_id: string;
+    /** Stable id from `RoundDefinition.producers[].id`. */
+    producer_def_id: string;
+    /**
+     * XOR with `guest_player_id` — see check constraint. Both FKs are
+     * `ON DELETE RESTRICT` so the XOR invariant cannot be violated by a
+     * delete cascade. Players soft-delete (`deleted_at`) or hard-delete to
+     * a tombstone row; guests are never deleted while history references
+     * them.
+     */
+    player_id: string | null;
+    guest_player_id: string | null;
+    display_name_snapshot: string;
+    handicap_index_snapshot: number;
+    category_snapshot: string | null;
+    gender_snapshot: 'M' | 'F' | null;
+    /** Live FK; nulls on tee deletion (mirrors `participants.tee_id_snapshot`). */
+    tee_id: string | null;
+    tee_name_snapshot: string;
+    course_rating_snapshot: number;
+    slope_snapshot: number;
+    tee_par_snapshot: number;
+    /** Per-producer CH (pre-derivation, before any team-ball combination). */
+    course_handicap_snapshot: number;
+}
+
+export type SlotBallMode = 'own' | 'team';
+
+export interface SlotsTable {
+    /** `hash(round_id, slot_def_id)`. */
+    id: string;
+    round_id: string;
+    /** Stable id from `RoundDefinition.slots[].id`. */
+    slot_def_id: string;
+    scoring_mode: ScoringMode;
+    team_shape: TeamShape;
+    /** Serialized `FormatAllowanceConfig`. */
+    allowance_config: string;
+    /** Derivable from strategy; stored for query convenience. */
+    ball_mode: SlotBallMode;
+}
+
+export interface SlotBallsTable {
+    slot_id: string;
+    ball_id: string;
+    /** ball_PH = round(ball_CH × allowance / 100). Only slot-specific value. */
+    playing_handicap_snapshot: number;
+}
+
+export interface SlotBallTeamsTable {
+    slot_id: string;
+    team_label: string;
+    ball_id: string;
 }
 
 export interface PlayersTable {
