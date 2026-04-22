@@ -35,9 +35,11 @@ export async function apply(s: Scenario): Promise<void> {
     const alice = await s.player('alice', { handicap: 3 });
     const bob = await s.player('bob', { handicap: 14 });
 
-    // Slot #1 — two foursomes teams. Carol & Dan is synthetic index 14
-    // (team PH 7 at 50%). Eve & Frank is synthetic index 20 (team PH 10
-    // at 50%). Frank is a guest so we exercise a player-guest foursome.
+    // Slot #1 — two foursomes teams. Team index is avg of member exact
+    // indices; team PH = playingHandicap(team CH, 50%).
+    // Carol (6) + Dan (8) → team idx 7 → team CH 6 → team PH 3.
+    // Eve (6) + Frank (14) → team idx 10 → team CH 9 → team PH 5.
+    // Frank is a guest so we exercise a player-guest foursome.
     const carol = await s.player('carol', { displayName: 'Carol Carlsson', handicap: 6 });
     const dan = await s.player('dan', { displayName: 'Dan Dahlgren', handicap: 8 });
     const eve = await s.player('eve', { displayName: 'Eve Eriksson', handicap: 6 });
@@ -80,18 +82,18 @@ export async function apply(s: Scenario): Promise<void> {
 
     const teamCarolDan = await round.addParticipant({
         team: [{ player: carol }, { player: dan }],
+        teamShape: 'foursomes',
         teeName: 'Gul',
         gender: 'M',
         allowancePct: 50,
-        handicapIndexOverride: 14, // combined index → team CH 14, team PH 7 @ 50%
         teamLabel: 'Carol & Dan',
     });
     const teamEveFrank = await round.addParticipant({
         team: [{ player: eve }, { guest: frankGuest }],
+        teamShape: 'foursomes',
         teeName: 'Gul',
         gender: 'M',
         allowancePct: 50,
-        handicapIndexOverride: 20, // combined index → team CH 20, team PH 10 @ 50%
         teamLabel: 'Eve & Frank',
     });
 

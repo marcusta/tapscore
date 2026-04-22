@@ -97,25 +97,27 @@ export interface AddParticipantInit {
     /**
      * For team participants (better-ball, foursomes, Taliban, Umbrella) —
      * 2+ player links on one participant. Pass `{player}` or `{guest}` per
-     * link. Mutually exclusive with top-level `player`/`guest`. The
-     * participant row still snapshots the FIRST member by default, but each
-     * `participant_players` link now freezes its own handicap / course /
-     * playing handicap when a snapshot context is provided. Pass
-     * `handicapIndexOverride` to supply a synthetic team-level index
-     * instead — useful for foursomes where the team PH is derived from
-     * the sum of both players' course handicaps × allowance (not one
-     * player's).
+     * link. Mutually exclusive with top-level `player`/`guest`. Each
+     * `participant_players` link freezes its own handicap / course /
+     * playing handicap when a snapshot context is provided.
+     *
+     * For foursomes teams the participant-row snapshot uses the AVERAGE of
+     * member exact handicap indices (WHS: half the sum of members' course
+     * handicaps, approximated via averaging the exact indices before
+     * applying slope). For other team shapes the FIRST member's index
+     * seeds the participant row (per-player links hold their own).
      */
     team?: Array<{ player?: PlayerRef; guest?: GuestRef }>;
+    /** Treat team as foursomes for participant-row snapshot (avg-index). */
+    teamShape?: 'foursomes' | 'other';
     teeName?: string; // resolve by name within the round's course
     teeId?: string;
     gender?: TeeGender; // required if snapshotting
     allowancePct?: number; // default 100
     /**
-     * Override the handicap index used for the snapshot. When set, replaces
-     * the usual "latest handicap history for the snapshot player" lookup.
-     * Foursomes seeds use this to represent the sum-of-both-players
-     * combined index so the team PH snapshot ≈ combined CH × allowance.
+     * Override the handicap index used for the participant-row snapshot.
+     * When set, replaces the default lookup. Rarely needed now that
+     * foursomes teams auto-average member indices.
      */
     handicapIndexOverride?: number;
     skipSnapshot?: boolean; // for bare participants
@@ -409,6 +411,11 @@ export class RoundScenarioRef {
         const snapshotPlayer: PlayerRef | undefined = init.player ?? firstMember?.player;
         const snapshotGuest: GuestRef | undefined = init.guest ?? firstMember?.guest;
 
+        const teamAvgIndex =
+            init.team && init.team.length >= 2 && init.teamShape === 'foursomes'
+                ? await this.avgTeamIndex(init.team)
+                : null;
+
         const snapshot = init.skipSnapshot
             ? undefined
             : teeId && init.gender
@@ -419,21 +426,28 @@ export class RoundScenarioRef {
                         handicapIndex: init.handicapIndexOverride,
                         allowancePct: init.allowancePct ?? 100,
                     }
-                  : snapshotPlayer
+                  : teamAvgIndex !== null
                     ? {
                           teeId,
                           gender: init.gender,
-                          fromPlayerId: snapshotPlayer.id,
+                          handicapIndex: teamAvgIndex,
                           allowancePct: init.allowancePct ?? 100,
                       }
-                    : snapshotGuest
+                    : snapshotPlayer
                       ? {
                             teeId,
                             gender: init.gender,
-                            handicapIndex: snapshotGuest.handicapIndex ?? undefined,
+                            fromPlayerId: snapshotPlayer.id,
                             allowancePct: init.allowancePct ?? 100,
                         }
-                      : undefined
+                      : snapshotGuest
+                        ? {
+                              teeId,
+                              gender: init.gender,
+                              handicapIndex: snapshotGuest.handicapIndex ?? undefined,
+                              allowancePct: init.allowancePct ?? 100,
+                          }
+                        : undefined
               : undefined;
 
         const linkInputs: { playerId?: string; guestPlayerId?: string }[] = [];
@@ -463,6 +477,31 @@ export class RoundScenarioRef {
             players: linkInputs,
         });
         return new ParticipantScenarioRef(this.s, p, this.round, snapshotPlayer?.id);
+    }
+
+    private async avgTeamIndex(
+        team: Array<{ player?: PlayerRef; guest?: GuestRef }>,
+    ): Promise<number> {
+        const indices: number[] = [];
+        for (const m of team) {
+            if (m.player) {
+                const latest = await this.s.services.handicapService.latestFor(m.player.id);
+                if (!latest) {
+                    throw new Error(
+                        `addParticipant.team: no handicap history for player ${m.player.username}`,
+                    );
+                }
+                indices.push(latest.handicapIndex);
+            } else if (m.guest) {
+                if (m.guest.handicapIndex === null) {
+                    throw new Error(
+                        `addParticipant.team: guest ${m.guest.displayName} has no handicap index`,
+                    );
+                }
+                indices.push(m.guest.handicapIndex);
+            }
+        }
+        return indices.reduce((a, b) => a + b, 0) / indices.length;
     }
 }
 

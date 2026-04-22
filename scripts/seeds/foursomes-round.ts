@@ -1,19 +1,21 @@
 // A sample stroke-play × foursomes (alternate-shot) round on Linköpings
 // Golfklubb. Two 2-player teams, each sharing one ball — so the seed
 // appends events with NO `sourcePlayerId` (same shape as individual
-// stroke-play). Team-level PH snapshots use `handicapIndexOverride` to
-// represent a synthetic "combined" index that, when paired with the 50%
-// slot allowance, yields the team PH defined below.
+// stroke-play). Team handicap follows the WHS-style avg-index method:
+// team_index = avg(A_idx, B_idx), then course handicap from the tee
+// rating, then playing handicap at the slot allowance (50%).
 //
-// Team 1 — "Alice & Bob": combined handicap index 20 → team CH 20 on Gul/M
-// (20 × 124/113 + (69.5 − 71) = 20.44 → 20). Team PH at 50% = 10.
+// Team 1 — "Alice & Bob": Alice idx 8, Bob idx 12 → team idx 10 → team
+// CH on Gul/M = round(10 × 124/113 + (69.5 − 71)) = round(9.47) = 9.
+// Team PH @ 50% = round(4.5) = 5 (banker's — Math.round in JS rounds
+// half up so 4.5 → 5).
 // Scores chosen so the card shows a visible BIRDIE (hole 4, par 5 → 4) and
-// a visible DOUBLE BOGEY (hole 14, par 5 → 7). Gross 82, net 82 − 10 = 72.
+// a visible DOUBLE BOGEY (hole 14, par 5 → 7). Gross 82, net 82 − 5 = 77.
 //
-// Team 2 — "Carol & David": combined handicap index 14 → team CH 14 on
-// Gul/M (14 × 124/113 + (69.5 − 71) = 13.86 → 14). Team PH at 50% = 7.
-// Tighter card: gross 78, net 71. Beats Team 1 on both gross and net so
-// the leaderboard ranks them above Alice & Bob.
+// Team 2 — "Carol & David": Carol idx 6, David idx 8 → team idx 7 → team
+// CH = round(7 × 124/113 + (69.5 − 71)) = round(6.18) = 6. Team PH @ 50%
+// = round(3) = 3. Tighter card: gross 78, net 75. Beats Team 1 on both
+// gross and net so the leaderboard ranks them above Alice & Bob.
 //
 // Foursomes has ONE scorecard per team; events carry no source tag. The
 // render reuses the individual stroke-play card layout (one Gross row,
@@ -51,26 +53,22 @@ export async function apply(s: Scenario): Promise<void> {
 
     const team1 = await round.addParticipant({
         team: [{ player: alice }, { player: bob }],
+        teamShape: 'foursomes',
         teeName: 'Gul',
         gender: 'M',
         allowancePct: 50,
-        // Combined index (Alice 8 + Bob 12 = 20). Under 50% allowance
-        // → team CH 20 → team PH 10.
-        handicapIndexOverride: 20,
         teamLabel: 'Alice & Bob',
     });
     const team2 = await round.addParticipant({
         team: [{ player: carol }, { player: david }],
+        teamShape: 'foursomes',
         teeName: 'Gul',
         gender: 'M',
         allowancePct: 50,
-        // Combined index (Carol 6 + David 8 = 14). Under 50% allowance
-        // → team CH 14 → team PH 7.
-        handicapIndexOverride: 14,
         teamLabel: 'Carol & David',
     });
 
-    // --- Team 1: gross 82, net 72 (PH 10) ---
+    // --- Team 1: gross 82, net 77 (PH 5) ---
     // Par row: 4 4 3 5 3 5 3 4 4 | 5 3 4 4 5 4 3 4 4 = 71
     // Scores: 4 5 4 4 3 6 3 4 5 | 5 4 4 5 7 5 4 5 5 = 82
     // Notable: h4 birdie (par 5 → 4), h14 double bogey (par 5 → 7).
@@ -79,7 +77,7 @@ export async function apply(s: Scenario): Promise<void> {
         10: 5, 11: 4, 12: 4, 13: 5, 14: 7 /* DOUBLE BOGEY */, 15: 5, 16: 4, 17: 5, 18: 5,
     });
 
-    // --- Team 2: gross 78, net 71 (PH 7) ---
+    // --- Team 2: gross 78, net 75 (PH 3) ---
     // Scores: 4 4 5 4 3 4 3 5 4 | 6 3 5 5 5 5 4 5 4 = 78
     // Notable: h6 birdie (par 5 → 4), h3 double bogey (par 3 → 5).
     await team2.play({
