@@ -156,9 +156,10 @@ export interface PlayOptions {
 // `s.round(...)` / `round.addParticipant(...)` call so slice 3d.2 can
 // translate the draft into a real `RoundDefinition` and slice 3d.3 can
 // swap the write path from `participantService.create` to the
-// RoundCompiler. Deliberately un-exported — shape may change.
+// RoundCompiler. Exported for the translator (scenario-translate.ts);
+// still treated as implementation detail — the shape may change.
 
-type ProducerDraft = {
+export type ProducerDraft = {
     /** Stable, deterministic def-id (`p1`, `p2`, …). */
     defId: string;
     playerRef: { kind: 'player'; id: string } | { kind: 'guest'; id: string };
@@ -169,7 +170,7 @@ type ProducerDraft = {
     teamLabel?: string | null;
 };
 
-type StrategyDraft = {
+export type StrategyDraft = {
     defId: string;
     /** Registry id — e.g. `own_ball_per_player`, `alt_shot_pair`. */
     strategyId: string;
@@ -178,7 +179,7 @@ type StrategyDraft = {
     pairings?: { producerDefIds: string[] }[];
 };
 
-type SlotDraft = {
+export type SlotDraft = {
     defId: string;
     scoringMode: ScoringMode;
     teamShape: TeamShape;
@@ -188,7 +189,7 @@ type SlotDraft = {
     teamGroupings?: { teamLabel: string; producerDefIds: string[] }[];
 };
 
-type RoundDefinitionDraft = {
+export type RoundDefinitionDraft = {
     courseId: string;
     playedAt: string;
     roundType: RoundInit['roundType'];
