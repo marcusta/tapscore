@@ -10,7 +10,7 @@ async function setup() {
         name: 'North',
         holeCount: 18,
     });
-    const round = await ctx.roundService.create({
+    const round = await ctx.roundService.createLegacy({
         courseId: course.id,
         date: '2026-05-01',
         roundType: 'full_18',
@@ -118,7 +118,7 @@ test('clientEventId uniqueness is scoped per round', async () => {
     // Another round with its own participant, same clientEventId → should work.
     const club2 = await clubService.create({ name: 'Other GK' });
     const course2 = await courseService.create({ clubId: club2.id, name: 'Other', holeCount: 18 });
-    const round2 = await roundService.create({
+    const round2 = await roundService.createLegacy({
         courseId: course2.id,
         date: '2026-05-01',
         roundType: 'full_18',
@@ -170,7 +170,7 @@ test('append with sourceGuestPlayerId persists and round-trips', async () => {
     const ctx = await createTestDb();
     const club = await ctx.clubService.create({ name: 'Halmstad GK' });
     const course = await ctx.courseService.create({ clubId: club.id, name: 'North', holeCount: 18 });
-    const round = await ctx.roundService.create({
+    const round = await ctx.roundService.createLegacy({
         courseId: course.id,
         date: '2026-05-01',
         roundType: 'full_18',

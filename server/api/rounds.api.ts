@@ -1,6 +1,7 @@
 import { Type, type Static } from '@sinclair/typebox';
 import { requireAuth } from '@basics/core/server/auth';
 import type { RoundService } from '../services/round.service';
+import { RoundDefinition } from '../domain/round-definition';
 
 // --- Input schemas ---
 
@@ -62,16 +63,15 @@ const FormatSlotInput = Type.Object({
     scopeConfig: ScopeConfigInput,
 });
 
+/**
+ * Phase 2.6b/3b.3.3 — `create` accepts a `RoundDefinition` directly. The
+ * service drives compile + persist in one transaction. The old
+ * `{courseId, date, formatSlots, …}` shape moved to `roundService.createLegacy`
+ * for fixture paths that stamp compiler tables via `seedBallsFromParticipants`;
+ * it is intentionally NOT wired into the HTTP API.
+ */
 const CreateRoundInput = Type.Object({
-    courseId: Type.String(),
-    date: Type.String(),
-    roundType: RoundType,
-    venueType: VenueType,
-    startListMode: StartListMode,
-    windowStart: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-    windowEnd: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-    selfOrganize: Type.Optional(Type.Boolean()),
-    formatSlots: Type.Array(FormatSlotInput),
+    definition: RoundDefinition,
 });
 
 const UpdateRoundInput = Type.Object({
@@ -94,7 +94,7 @@ export function createRoundsApi(svc: RoundService) {
     return {
         list:   { method: 'GET'    as const, path: '/rounds',        fn: ()                                        => svc.list(),                                                                                                                                                                                                                  middleware: mw },
         get:    { method: 'GET'    as const, path: '/rounds/get',    fn: (input: Static<typeof IdInput>)           => svc.getById(input.id),                                                                                                                                                                                                       schema: IdInput,          middleware: mw },
-        create: { method: 'POST'   as const, path: '/rounds',        fn: (input: Static<typeof CreateRoundInput>)  => svc.create(input),                                                                                                                                                                                                           schema: CreateRoundInput, middleware: mw },
+        create: { method: 'POST'   as const, path: '/rounds',        fn: (input: Static<typeof CreateRoundInput>)  => svc.create({ definition: input.definition }),                                                                                                                                                                                schema: CreateRoundInput, middleware: mw },
         update: { method: 'POST'   as const, path: '/rounds/update', fn: (input: Static<typeof UpdateRoundInput>)  => svc.update(input.id, { date: input.date, roundType: input.roundType, venueType: input.venueType, startListMode: input.startListMode, windowStart: input.windowStart, windowEnd: input.windowEnd, selfOrganize: input.selfOrganize, status: input.status, formatSlots: input.formatSlots }), schema: UpdateRoundInput, middleware: mw },
         remove: { method: 'DELETE' as const, path: '/rounds/:id',    fn: (input: Static<typeof IdInput>)           => svc.remove(input.id),                                                                                                                                                                                                        schema: IdInput,          middleware: mw },
     };

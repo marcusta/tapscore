@@ -134,9 +134,34 @@ const SlotDefinition = Type.Object({
     formatConfig: Type.Optional(Type.Unknown()),
 });
 
+// --- Round-level metadata ---
+//
+// Phase 2.6b/3b.3.3 — absorbed from `CreateRoundInput` so `RoundDefinition`
+// is the canonical create-input. These fields populate the `rounds` row
+// alongside `courseId` / `playedAt`; the compiler ignores them.
+
+const RoundType = Type.Union([
+    Type.Literal('full_18'),
+    Type.Literal('front_9'),
+    Type.Literal('back_9'),
+    Type.Literal('custom_holes'),
+]);
+const VenueType = Type.Union([Type.Literal('outdoor'), Type.Literal('indoor')]);
+const StartListMode = Type.Union([
+    Type.Literal('structured'),
+    Type.Literal('fixed_slots'),
+    Type.Literal('open_window'),
+]);
+
 export const RoundDefinition = Type.Object({
     courseId: Type.String({ minLength: 1 }),
     playedAt: Type.String({ minLength: 1 }),
+    roundType: Type.Optional(RoundType),
+    venueType: Type.Optional(VenueType),
+    startListMode: Type.Optional(StartListMode),
+    windowStart: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    windowEnd: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    selfOrganize: Type.Optional(Type.Boolean()),
     producers: Type.Array(ProducerDefinition, { minItems: 1 }),
     ballStrategies: Type.Array(BallStrategyDefinition, { minItems: 1 }),
     slots: Type.Array(SlotDefinition, { minItems: 1 }),

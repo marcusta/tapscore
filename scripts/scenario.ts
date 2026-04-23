@@ -351,7 +351,7 @@ export class Scenario {
             allowancePct: s.allowancePct,
             scopeConfig: s.scopeConfig ?? null,
         }));
-        const round = await this.services.roundService.create({
+        const round = await this.services.roundService.createLegacy({
             courseId,
             date: init.date,
             roundType: init.roundType,

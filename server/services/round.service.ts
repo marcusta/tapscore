@@ -10,6 +10,10 @@ import type {
     ScoringMode,
     TeamShape,
 } from '../db/schema';
+import type { RoundDefinition } from '../domain/round-definition';
+import type { CompilerInput, CompilerTeeContext, Gender } from '../domain/compiler/types';
+import { compile } from '../domain/compiler/compile';
+import { persistCompiledRound } from '../domain/compiler/persist';
 
 // --- Output types ---
 
@@ -60,7 +64,13 @@ export interface Round {
     formatSlots: FormatSlot[];
 }
 
-export interface CreateRoundInput {
+/**
+ * Legacy create-input — courseId + metadata + flat formatSlots array.
+ * Retained for the handful of tests / seed paths that pair this with
+ * `seedBallsFromParticipants` to stamp compiler tables post-hoc. New code
+ * goes through `create({ definition })` which drives the compiler directly.
+ */
+export interface CreateRoundLegacyInput {
     courseId: string;
     date: string;
     roundType: RoundType;
@@ -70,6 +80,23 @@ export interface CreateRoundInput {
     windowEnd?: string | null;
     selfOrganize?: boolean;
     formatSlots: FormatSlot[];
+}
+
+/**
+ * Canonical create-input (Phase 2.6b/3b.3.3). The `RoundDefinition` carries
+ * both round-level metadata (roundType, venueType, etc. — same fields the
+ * legacy input had) AND the compiler input (producers, ballStrategies,
+ * slots). The service transacts:
+ *   1. `rounds` insert (round-level fields off the definition).
+ *   2. `round_format_slots` insert (legacy render paths still read it —
+ *      derived here by decomposing slot formatIds into (scoringMode,
+ *      teamShape, allowancePct, scopeConfig)).
+ *   3. `compile()` → `persistCompiledRound()` → all the 018 tables.
+ * Dependencies injected via the `Deps` object keep the compiler input
+ * assembly explicit and testable without a service-locator import cycle.
+ */
+export interface CreateRoundInput {
+    definition: RoundDefinition;
 }
 
 export interface UpdateRoundInput {
@@ -82,6 +109,25 @@ export interface UpdateRoundInput {
     selfOrganize?: boolean;
     status?: RoundStatus;
     formatSlots?: FormatSlot[];
+}
+
+// --- Compiler wiring ---
+//
+// Minimal dep surface so `create()` can build a `CompilerInput` without
+// pulling the full service bundle. `createServices()` wires these up at
+// construction time; tests may pass a stubbed bag or use `createLegacy()`.
+
+export interface RoundServiceDeps {
+    getCourseHoles(courseId: string): Promise<
+        { holeNumber: number; par: number; strokeIndex: number }[]
+    >;
+    getTeeContext(teeId: string): Promise<CompilerTeeContext | null>;
+    getPlayerProfile(
+        playerId: string,
+    ): Promise<{ displayName: string; gender?: Gender } | null>;
+    getGuestProfile(
+        guestId: string,
+    ): Promise<{ displayName: string; gender?: Gender } | null>;
 }
 
 // --- Row mapping ---
@@ -144,8 +190,40 @@ function toRound(row: RoundRow, formatSlots: FormatSlot[]): Round {
     };
 }
 
+// --- formatId decomposition (mirror of compiler's) ---
+//
+// Needed here because `round_format_slots` still stores (scoring_mode,
+// team_shape) columns. Keep in sync with `compile.ts` FORMAT_ID_DECOMPOSITION.
+const FORMAT_ID_DECOMPOSITION: Record<
+    string,
+    { scoringMode: ScoringMode; teamShape: TeamShape }
+> = {
+    stroke_play_individual: { scoringMode: 'stroke_play', teamShape: 'individual' },
+    stableford_individual: { scoringMode: 'stableford', teamShape: 'individual' },
+    match_play_individual: { scoringMode: 'match_play', teamShape: 'individual' },
+    kopenhamnare_individual: { scoringMode: 'kopenhamnare', teamShape: 'individual' },
+    umbrella_individual: { scoringMode: 'umbrella', teamShape: 'individual' },
+    stroke_play_foursomes: { scoringMode: 'stroke_play', teamShape: 'foursomes' },
+    stableford_better_ball: { scoringMode: 'stableford', teamShape: 'better_ball' },
+    match_play_better_ball: { scoringMode: 'match_play', teamShape: 'better_ball' },
+    taliban_better_ball: { scoringMode: 'taliban', teamShape: 'better_ball' },
+    umbrella_4_ball: { scoringMode: 'umbrella', teamShape: 'four_ball' },
+};
+
+function splitFormatId(formatId: string): {
+    scoringMode: ScoringMode;
+    teamShape: TeamShape;
+} {
+    const hit = FORMAT_ID_DECOMPOSITION[formatId];
+    if (hit) return hit;
+    return { scoringMode: 'custom', teamShape: 'custom' };
+}
+
 export class RoundService {
-    constructor(private db: Kysely<Database>) {}
+    constructor(
+        private db: Kysely<Database>,
+        private deps?: RoundServiceDeps,
+    ) {}
 
     // --- Queries (read) ---
 
@@ -230,7 +308,149 @@ export class RoundService {
         return toRound(row, slots.map(toFormatSlot));
     }
 
+    /**
+     * Canonical create — compiles `definition` + persists v1 rows to the
+     * compiler-output tables (018) inside the same transaction as the
+     * `rounds` + `round_format_slots` inserts. Throws on compile
+     * diagnostics.
+     */
     async create(input: CreateRoundInput): Promise<Round> {
+        if (!this.deps) {
+            throw new Error(
+                'RoundService.create requires RoundServiceDeps (use createLegacy from test contexts that stub compiler input).',
+            );
+        }
+        const deps = this.deps;
+        const def = input.definition;
+        const id = crypto.randomUUID();
+
+        // --- Decompose slots for round_format_slots (legacy storage) ---
+        const formatSlots: FormatSlot[] = def.slots.map((s, idx) => {
+            const { scoringMode, teamShape } = splitFormatId(s.formatId);
+            const scopeConfig: FormatSlotConfig | null =
+                s.formatConfig === undefined
+                    ? null
+                    : { config: s.formatConfig as Record<string, unknown> };
+            const allowancePct =
+                s.allowanceConfig.type === 'flat' ? s.allowanceConfig.pct : 100;
+            return {
+                slotIndex: idx,
+                scoringMode,
+                teamShape,
+                allowancePct,
+                scopeConfig,
+            };
+        });
+        this.validateSlots(formatSlots);
+
+        // --- Build CompilerInput ---
+        const courseHoles = await deps.getCourseHoles(def.courseId);
+        if (courseHoles.length === 0) {
+            throw new Error(`course ${def.courseId} has no holes`);
+        }
+
+        const teeIds = new Set(def.producers.map((p) => p.teeId));
+        const tees = new Map<string, CompilerTeeContext>();
+        for (const teeId of teeIds) {
+            const ctx = await deps.getTeeContext(teeId);
+            if (!ctx) throw new Error(`tee ${teeId} not found`);
+            tees.set(teeId, ctx);
+        }
+
+        const playerProfiles = new Map<
+            string,
+            { displayName: string; gender?: Gender; category?: string }
+        >();
+        const guestProfiles = new Map<
+            string,
+            { displayName: string; gender?: Gender; category?: string }
+        >();
+        for (const p of def.producers) {
+            if (p.playerRef.kind === 'player') {
+                if (playerProfiles.has(p.playerRef.id)) continue;
+                const profile = await deps.getPlayerProfile(p.playerRef.id);
+                if (!profile) throw new Error(`player ${p.playerRef.id} not found`);
+                playerProfiles.set(p.playerRef.id, profile);
+            } else {
+                if (guestProfiles.has(p.playerRef.id)) continue;
+                const profile = await deps.getGuestProfile(p.playerRef.id);
+                if (!profile) {
+                    throw new Error(`guest player ${p.playerRef.id} not found`);
+                }
+                guestProfiles.set(p.playerRef.id, profile);
+            }
+        }
+
+        const compilerInput: CompilerInput = {
+            roundId: id,
+            definition: def,
+            courseHoles: courseHoles.map((h) => ({
+                holeNumber: h.holeNumber,
+                par: h.par,
+                baseStrokeIndex: h.strokeIndex,
+            })),
+            tees,
+            playerProfiles,
+            guestProfiles,
+        };
+
+        const compileResult = compile(compilerInput);
+        if (!compileResult.ok) {
+            throw new Error(
+                `compile failed for round ${id}: ${compileResult.diagnostics
+                    .map((d) => `${d.code}: ${d.message}`)
+                    .join('; ')}`,
+            );
+        }
+
+        await this.db.transaction().execute(async (trx) => {
+            await this.insertRound(
+                {
+                    id,
+                    course_id: def.courseId,
+                    date: def.playedAt,
+                    round_type: def.roundType ?? 'full_18',
+                    venue_type: def.venueType ?? 'outdoor',
+                    start_list_mode: def.startListMode ?? 'structured',
+                    window_start: def.windowStart ?? null,
+                    window_end: def.windowEnd ?? null,
+                    self_organize: def.selfOrganize ? 1 : 0,
+                    status: 'not_started',
+                },
+                trx,
+            ).execute();
+            if (formatSlots.length > 0) {
+                await this.insertSlots(
+                    formatSlots.map((s) => ({
+                        round_id: id,
+                        slot_index: s.slotIndex,
+                        scoring_mode: s.scoringMode,
+                        team_shape: s.teamShape,
+                        allowance_pct: s.allowancePct,
+                        scope_config:
+                            s.scopeConfig === null || s.scopeConfig === undefined
+                                ? null
+                                : JSON.stringify(s.scopeConfig),
+                    })),
+                    trx,
+                ).execute();
+            }
+            await persistCompiledRound(trx, compileResult.compiled, {
+                sourceKind: 'initial',
+            });
+        });
+
+        const result = await this.getById(id);
+        if (!result) throw new Error(`Round ${id} not found after create`);
+        return result;
+    }
+
+    /**
+     * Legacy create — round + round_format_slots only. No compiler-table
+     * writes; tests that pair this with `seedBallsFromParticipants` stamp
+     * balls/slots post-hoc. New code should use `create({ definition })`.
+     */
+    async createLegacy(input: CreateRoundLegacyInput): Promise<Round> {
         this.validateSlots(input.formatSlots);
         const id = crypto.randomUUID();
 

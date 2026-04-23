@@ -356,11 +356,22 @@ function createdBallToResolved(
     });
     const sortedKeys = sortProducerSet(refs);
     const ballId = hashId('tapscore:ball:v1', roundId, strategyDefId, ...sortedKeys);
+    // Populate `balls.label` (§17 option 3a): fall back to a display-name
+    // join when the strategy didn't already set one (own-ball doesn't; pair
+    // strategies like alt-shot do). Single producer → their display name;
+    // multi-producer → "Name1 & Name2 & ...".
+    let derivedLabel: string | null = cb.label ?? null;
+    if (derivedLabel === null) {
+        const names = cb.producerDefIds
+            .map((pid) => producers.get(pid)?.displayName)
+            .filter((n): n is string => typeof n === 'string');
+        derivedLabel = names.length > 0 ? names.join(' & ') : null;
+    }
     return {
         row: {
             id: ballId,
             roundBallStrategyId: strategyRow.id,
-            label: cb.label ?? null,
+            label: derivedLabel,
             courseHandicapSnapshot: cb.courseHandicapSnapshot,
             perProducerChJson: JSON.stringify(cb.perProducerCh),
         },

@@ -1,6 +1,14 @@
-import { test, expect } from 'bun:test';
+import { test, expect, beforeAll } from 'bun:test';
 import { createTestDb } from '../testing/db';
 import type { FormatSlot, FormatSlotConfig } from './round.service';
+import type { RoundDefinition } from '../domain/round-definition';
+import { registerBuiltInBallCreationStrategies } from '../domain/strategies/ball-creation';
+import { registerBuiltInFormatStrategies } from '../domain/strategies/formats';
+
+beforeAll(() => {
+    registerBuiltInBallCreationStrategies();
+    registerBuiltInFormatStrategies();
+});
 
 async function setup() {
     const ctx = await createTestDb();
@@ -25,7 +33,7 @@ function singleStrokeSlot(): FormatSlot {
 
 test('create round persists fields + format slot', async () => {
     const { roundService, courseId } = await setup();
-    const r = await roundService.create({
+    const r = await roundService.createLegacy({
         courseId,
         date: '2026-05-01',
         roundType: 'full_18',
@@ -45,7 +53,7 @@ test('create round persists fields + format slot', async () => {
 test('create rejects empty format slots', async () => {
     const { roundService, courseId } = await setup();
     await expect(
-        roundService.create({
+        roundService.createLegacy({
             courseId,
             date: '2026-05-01',
             roundType: 'full_18',
@@ -59,7 +67,7 @@ test('create rejects empty format slots', async () => {
 test('create rejects non-contiguous slot indices', async () => {
     const { roundService, courseId } = await setup();
     await expect(
-        roundService.create({
+        roundService.createLegacy({
             courseId,
             date: '2026-05-01',
             roundType: 'full_18',
@@ -73,7 +81,7 @@ test('create rejects non-contiguous slot indices', async () => {
 test('create rejects allowance out of range', async () => {
     const { roundService, courseId } = await setup();
     await expect(
-        roundService.create({
+        roundService.createLegacy({
             courseId,
             date: '2026-05-01',
             roundType: 'full_18',
@@ -86,7 +94,7 @@ test('create rejects allowance out of range', async () => {
 
 test('getById returns slots sorted by slotIndex', async () => {
     const { roundService, courseId } = await setup();
-    const r = await roundService.create({
+    const r = await roundService.createLegacy({
         courseId,
         date: '2026-05-01',
         roundType: 'full_18',
@@ -105,7 +113,7 @@ test('getById returns slots sorted by slotIndex', async () => {
 
 test('update bulk-replaces format slots', async () => {
     const { roundService, courseId } = await setup();
-    const r = await roundService.create({
+    const r = await roundService.createLegacy({
         courseId,
         date: '2026-05-01',
         roundType: 'full_18',
@@ -126,7 +134,7 @@ test('update bulk-replaces format slots', async () => {
 
 test('update: legacy top-level scopeConfig blob is normalised into config on read', async () => {
     const { roundService, courseId } = await setup();
-    const r = await roundService.create({
+    const r = await roundService.createLegacy({
         courseId,
         date: '2026-05-01',
         roundType: 'full_18',
@@ -155,7 +163,7 @@ test('update: legacy top-level scopeConfig blob is normalised into config on rea
 
 test('update: legacy top-level participantIds is normalised under scope', async () => {
     const { roundService, courseId } = await setup();
-    const r = await roundService.create({
+    const r = await roundService.createLegacy({
         courseId,
         date: '2026-05-01',
         roundType: 'full_18',
@@ -181,7 +189,7 @@ test('update: legacy top-level participantIds is normalised under scope', async 
 
 test('update patches individual fields only', async () => {
     const { roundService, courseId } = await setup();
-    const r = await roundService.create({
+    const r = await roundService.createLegacy({
         courseId,
         date: '2026-05-01',
         roundType: 'full_18',
@@ -196,7 +204,7 @@ test('update patches individual fields only', async () => {
 
 test('remove cascades to format slots', async () => {
     const { roundService, courseId, db } = await setup();
-    const r = await roundService.create({
+    const r = await roundService.createLegacy({
         courseId,
         date: '2026-05-01',
         roundType: 'full_18',
@@ -215,7 +223,7 @@ test('remove cascades to format slots', async () => {
 
 test('course delete is blocked by RESTRICT when rounds reference it', async () => {
     const { roundService, courseService, courseId } = await setup();
-    await roundService.create({
+    await roundService.createLegacy({
         courseId,
         date: '2026-05-01',
         roundType: 'full_18',
@@ -224,4 +232,178 @@ test('course delete is blocked by RESTRICT when rounds reference it', async () =
         formatSlots: [singleStrokeSlot()],
     });
     await expect(courseService.remove(courseId)).rejects.toThrow();
+});
+
+// --- Canonical create({ definition }) ---
+//
+// Phase 2.6b/3b.3.3 wired RoundCompiler into `roundService.create`. One call
+// transacts `rounds` + `round_format_slots` + every compiler-output table
+// (balls, ball_players, slots, slot_balls, round_definitions, …). The
+// legacy API (`createLegacy`) stays around for fixture paths that stamp
+// compiler tables via `seedBallsFromParticipants` after the fact.
+
+async function setupWithTeeAndPlayer() {
+    const ctx = await createTestDb();
+    const club = await ctx.clubService.create({ name: 'Halmstad GK' });
+    const course = await ctx.courseService.create({
+        clubId: club.id,
+        name: 'North',
+        holeCount: 18,
+    });
+    const tee = await ctx.teeService.create({
+        courseId: course.id,
+        name: 'Yellow',
+        colour: '#ffd400',
+        holeLengths: [],
+        ratings: [
+            { gender: 'M', courseRating: 71.2, slope: 132, par: 72, totalLengthM: 6200 },
+        ],
+    });
+    const alice = await ctx.playerService.register({
+        username: 'alice-def',
+        password: 'password123',
+        displayName: 'Alice',
+    });
+    return { ...ctx, courseId: course.id, teeId: tee.id, aliceId: alice.id };
+}
+
+function singlePlayerDef(opts: {
+    courseId: string;
+    teeId: string;
+    playerId: string;
+}): RoundDefinition {
+    return {
+        courseId: opts.courseId,
+        playedAt: '2026-05-01',
+        roundType: 'full_18',
+        venueType: 'outdoor',
+        startListMode: 'structured',
+        producers: [
+            {
+                id: 'prod-alice',
+                playerRef: { kind: 'player', id: opts.playerId },
+                handicapIndex: 10,
+                gender: 'M',
+                teeId: opts.teeId,
+            },
+        ],
+        ballStrategies: [
+            {
+                id: 'own',
+                strategyId: 'own_ball_per_player',
+                derivationConfig: { type: 'single' },
+            },
+        ],
+        slots: [
+            {
+                id: 'slot-0',
+                formatId: 'stableford_individual',
+                allowanceConfig: { type: 'flat', pct: 95 },
+                ballSelector: { strategyDefIds: ['own'] },
+            },
+        ],
+    };
+}
+
+test('create({definition}) persists rounds row + format slots + compiler tables', async () => {
+    const { roundService, db, courseId, teeId, aliceId } = await setupWithTeeAndPlayer();
+    const round = await roundService.create({
+        definition: singlePlayerDef({ courseId, teeId, playerId: aliceId }),
+    });
+    expect(round.id).toBeTruthy();
+    expect(round.courseId).toBe(courseId);
+    expect(round.status).toBe('not_started');
+    expect(round.formatSlots).toHaveLength(1);
+    expect(round.formatSlots[0].scoringMode).toBe('stableford');
+
+    // Compiler tables populated.
+    const strategies = await db
+        .selectFrom('round_ball_strategies')
+        .select('id')
+        .where('round_id', '=', round.id)
+        .execute();
+    expect(strategies).toHaveLength(1);
+    const balls = await db
+        .selectFrom('balls')
+        .select(['id', 'label'])
+        .where('round_id', '=', round.id)
+        .execute();
+    expect(balls).toHaveLength(1);
+    expect(balls[0]!.label).toBe('Alice');
+    const defRows = await db
+        .selectFrom('round_definitions')
+        .select(['version', 'source_kind'])
+        .where('round_id', '=', round.id)
+        .execute();
+    expect(defRows).toHaveLength(1);
+    expect(defRows[0]!.version).toBe(1);
+    expect(defRows[0]!.source_kind).toBe('initial');
+});
+
+test('create({definition}) rolls back if compile fails', async () => {
+    const { roundService, db, courseId, teeId, aliceId } = await setupWithTeeAndPlayer();
+    const bad = singlePlayerDef({ courseId, teeId, playerId: aliceId });
+    // Unknown formatId triggers a compile diagnostic.
+    bad.slots[0]!.formatId = 'bogus_format';
+    await expect(roundService.create({ definition: bad })).rejects.toThrow(/unknown_format/);
+    const rounds = await db.selectFrom('rounds').select('id').execute();
+    expect(rounds).toHaveLength(0);
+});
+
+test('create({definition}) with foursomes pair sets balls.label to team label', async () => {
+    const ctx = await setupWithTeeAndPlayer();
+    const bob = await ctx.playerService.register({
+        username: 'bob-def',
+        password: 'password123',
+        displayName: 'Bob',
+    });
+    const def: RoundDefinition = {
+        courseId: ctx.courseId,
+        playedAt: '2026-05-01',
+        roundType: 'full_18',
+        venueType: 'outdoor',
+        startListMode: 'structured',
+        producers: [
+            {
+                id: 'p-a',
+                playerRef: { kind: 'player', id: ctx.aliceId },
+                handicapIndex: 10,
+                gender: 'M',
+                teeId: ctx.teeId,
+            },
+            {
+                id: 'p-b',
+                playerRef: { kind: 'player', id: bob.id },
+                handicapIndex: 14,
+                gender: 'M',
+                teeId: ctx.teeId,
+            },
+        ],
+        ballStrategies: [
+            {
+                id: 'pair',
+                strategyId: 'alt_shot_pair',
+                derivationConfig: { type: 'avg' },
+                composition: {
+                    teams: [{ label: 'Alice & Bob', producerDefIds: ['p-a', 'p-b'] }],
+                },
+            },
+        ],
+        slots: [
+            {
+                id: 'slot-0',
+                formatId: 'stroke_play_foursomes',
+                allowanceConfig: { type: 'flat', pct: 50 },
+                ballSelector: { strategyDefIds: ['pair'] },
+            },
+        ],
+    };
+    const round = await ctx.roundService.create({ definition: def });
+    const balls = await ctx.db
+        .selectFrom('balls')
+        .select(['label'])
+        .where('round_id', '=', round.id)
+        .execute();
+    expect(balls).toHaveLength(1);
+    expect(balls[0]!.label).toBe('Alice & Bob');
 });

@@ -67,7 +67,7 @@ export async function seedBallsFromParticipants(
 
     const participants = await db
         .selectFrom('participants')
-        .select(['id', 'playing_handicap_snapshot'])
+        .select(['id', 'playing_handicap_snapshot', 'team_label'])
         .where('round_id', '=', roundId)
         .execute();
 
@@ -91,13 +91,17 @@ export async function seedBallsFromParticipants(
         const ph = p.playing_handicap_snapshot ?? 0;
         ballByParticipant.set(p.id, { ballId, playingHandicap: ph });
         if (existingBalls.has(ballId)) continue;
+        // Copy participants.team_label onto balls.label so downstream
+        // reads (leaderboard.service / render-lib) can source labels from
+        // the ball model — matches what the RoundCompiler will stamp
+        // directly in the live path (§17 option 3a).
         await db
             .insertInto('balls')
             .values({
                 id: ballId,
                 round_id: roundId,
                 round_ball_strategy_id: strategyId,
-                label: null,
+                label: p.team_label,
                 course_handicap_snapshot: 0,
                 per_producer_ch: null,
             })

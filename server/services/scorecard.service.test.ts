@@ -18,7 +18,7 @@ async function setup() {
         name: 'North',
         holeCount: 18,
     });
-    const round = await ctx.roundService.create({
+    const round = await ctx.roundService.createLegacy({
         courseId: course.id,
         date: '2026-05-01',
         roundType: 'full_18',
@@ -177,7 +177,7 @@ async function setupWithTeam() {
     const ctx = await createTestDb();
     const club = await ctx.clubService.create({ name: 'Halmstad GK' });
     const course = await ctx.courseService.create({ clubId: club.id, name: 'North', holeCount: 18 });
-    const round = await ctx.roundService.create({
+    const round = await ctx.roundService.createLegacy({
         courseId: course.id,
         date: '2026-05-01',
         roundType: 'full_18',

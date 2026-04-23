@@ -95,21 +95,15 @@ export class LeaderboardService {
             playersByBall.set(r.ball_id, list);
         }
 
-        // Surface team_label from `participants` via the ball_players →
-        // participant_players bridge. One participant per ball (topology
-        // invariant established by the compiler / seed helper).
-        const teamLabelRows = await this.db
-            .selectFrom('ball_players as bp')
-            .innerJoin('participant_players as pp', 'pp.id', 'bp.producer_def_id')
-            .innerJoin('participants as p', 'p.id', 'pp.participant_id')
-            .innerJoin('balls as b', 'b.id', 'bp.ball_id')
-            .where('b.round_id', '=', roundId)
-            .select(['bp.ball_id', 'p.team_label'])
-            .distinct()
-            .execute();
+        // Phase 2.6b/3b.3.3 — labels live on `balls.label` (option 3a).
+        // The compiler populates this from producer displayNames (or from
+        // the strategy composition label for pair balls). Legacy fixtures
+        // stamped via `seedBallsFromParticipants` copy participants.team_label
+        // onto `balls.label` at seed time — so this single read covers both
+        // paths without the `participants` join.
         const teamLabelByBall = new Map<string, string | null>();
-        for (const r of teamLabelRows) {
-            teamLabelByBall.set(r.ball_id, r.team_label);
+        for (const b of ballRows) {
+            teamLabelByBall.set(b.id, b.label ?? null);
         }
 
         // slot_balls joined with slots — per (ball, slot-index, PH).

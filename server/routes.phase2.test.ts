@@ -32,7 +32,7 @@ async function fullSetup() {
         ],
     });
 
-    const round = await ctx.roundService.create({
+    const round = await ctx.roundService.createLegacy({
         courseId: course.id,
         date: '2026-05-01',
         roundType: 'full_18',

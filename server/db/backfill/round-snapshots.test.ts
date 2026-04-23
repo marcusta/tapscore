@@ -24,7 +24,7 @@ async function setup() {
             { gender: 'M', courseRating: 71.2, slope: 132, par: 72, totalLengthM: 6200 },
         ],
     });
-    const round = await ctx.roundService.create({
+    const round = await ctx.roundService.createLegacy({
         courseId: course.id,
         date: '2026-05-01',
         roundType: 'full_18',

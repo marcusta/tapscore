@@ -40,7 +40,7 @@ async function setup18() {
 
 test('front_9 round distributes PH across the 9 played holes only', async () => {
     const { db, roundService, participantService, playerService, handicapService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
-    const round = await roundService.create({
+    const round = await roundService.createLegacy({
         courseId,
         date: '2026-05-01',
         roundType: 'front_9',
@@ -80,7 +80,7 @@ test('front_9 round distributes PH across the 9 played holes only', async () => 
 
 test('back_9 round uses holes 10..18 only', async () => {
     const { db, roundService, participantService, playerService, scoreEventService, leaderboardService, courseId } = await setup18();
-    const round = await roundService.create({
+    const round = await roundService.createLegacy({
         courseId,
         date: '2026-05-01',
         roundType: 'back_9',
@@ -134,7 +134,7 @@ test('9-hole allocation follows full-18 SI distribution (strokes land only where
         ratings: [{ gender: 'M', courseRating: 72, slope: 113, par: 72, totalLengthM: 6000 }],
     });
 
-    const frontRound = await ctx.roundService.create({
+    const frontRound = await ctx.roundService.createLegacy({
         courseId: course.id,
         date: '2026-05-01',
         roundType: 'front_9',
@@ -167,7 +167,7 @@ test('9-hole allocation follows full-18 SI distribution (strokes land only where
     expect(frontGross.entries[0].total).toBe(45);
     expect(frontNet.entries[0].total).toBe(45);
 
-    const backRound = await ctx.roundService.create({
+    const backRound = await ctx.roundService.createLegacy({
         courseId: course.id,
         date: '2026-05-01',
         roundType: 'back_9',
@@ -203,7 +203,7 @@ test('9-hole allocation follows full-18 SI distribution (strokes land only where
 
 test('full_18 round still covers all 18 holes', async () => {
     const { db, roundService, participantService, playerService, scoreEventService, leaderboardService, courseId } = await setup18();
-    const round = await roundService.create({
+    const round = await roundService.createLegacy({
         courseId,
         date: '2026-05-01',
         roundType: 'full_18',
@@ -236,7 +236,7 @@ test('better-ball leaderboard uses each linked player\'s own frozen PH', async (
         password: 'password123',
         displayName: 'Bob',
     });
-    const round = await roundService.create({
+    const round = await roundService.createLegacy({
         courseId,
         date: '2026-05-01',
         roundType: 'full_18',
@@ -305,7 +305,7 @@ test('better-ball leaderboard uses each linked player\'s own frozen PH', async (
 
 test('single-slot round with no scope defaults every participant to slot 0 (back-compat)', async () => {
     const { db, roundService, participantService, playerService, handicapService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
-    const round = await roundService.create({
+    const round = await roundService.createLegacy({
         courseId,
         date: '2026-05-01',
         roundType: 'full_18',
@@ -353,7 +353,7 @@ test('multi-slot round routes each participant to the slot whose scope lists the
 
     // Bootstrap round with a single throwaway slot so we can mint participant ids,
     // then update the round with two slots whose scopes reference those ids.
-    const bootstrap = await roundService.create({
+    const bootstrap = await roundService.createLegacy({
         courseId, date: '2026-05-01', roundType: 'full_18',
         venueType: 'outdoor', startListMode: 'structured',
         formatSlots: [slot],
@@ -435,7 +435,7 @@ test('ball not assigned to any slot (slot_balls missing) throws', async () => {
     // ball exists in `balls` but has no slot_balls row → leaderboard must
     // surface that so it isn't silently dropped from every bucket.
     const { db, roundService, participantService, leaderboardService, courseId, teeId } = await setup18();
-    const bootstrap = await roundService.create({
+    const bootstrap = await roundService.createLegacy({
         courseId, date: '2026-05-01', roundType: 'full_18',
         venueType: 'outdoor', startListMode: 'structured',
         formatSlots: [
@@ -470,7 +470,7 @@ test('slots row with unparseable slot_def_id throws', async () => {
     // `slot-<N>` pattern written by synthesize-legacy can't be mapped back
     // to a slotIndex. Surface rather than silently partition to slot 0.
     const { db, roundService, participantService, leaderboardService, courseId, teeId } = await setup18();
-    const round = await roundService.create({
+    const round = await roundService.createLegacy({
         courseId, date: '2026-05-01', roundType: 'full_18',
         venueType: 'outdoor', startListMode: 'structured',
         formatSlots: [slot],
@@ -492,7 +492,7 @@ test('multi-slot round with overlapping scoringType label across slots keeps buc
     // The legacy single-bucket-per-scoringType behaviour would have merged
     // them; 2.5i partitions per slot so each lives in its own bucket.
     const { db, roundService, participantService, playerService, handicapService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
-    const bootstrap = await roundService.create({
+    const bootstrap = await roundService.createLegacy({
         courseId, date: '2026-05-01', roundType: 'full_18',
         venueType: 'outdoor', startListMode: 'structured',
         formatSlots: [slot],

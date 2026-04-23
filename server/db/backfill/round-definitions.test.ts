@@ -61,7 +61,7 @@ async function setupIndividualStablefordRound() {
         effectiveDate: '2026-01-01',
     });
 
-    const round = await ctx.roundService.create({
+    const round = await ctx.roundService.createLegacy({
         courseId: course.id,
         date: '2026-05-01',
         roundType: 'full_18',
@@ -177,7 +177,7 @@ describe('backfillRoundDefinitions', () => {
             effectiveDate: '2026-01-01',
         });
 
-        const round = await ctx.roundService.create({
+        const round = await ctx.roundService.createLegacy({
             courseId: course.id,
             date: '2026-05-01',
             roundType: 'full_18',
@@ -251,7 +251,7 @@ describe('backfillRoundDefinitions', () => {
                 return p;
             }),
         );
-        const round = await ctx.roundService.create({
+        const round = await ctx.roundService.createLegacy({
             courseId: course.id,
             date: '2026-05-01',
             roundType: 'full_18',
@@ -356,7 +356,7 @@ describe('backfillRoundDefinitions', () => {
                 return p;
             }),
         );
-        const round = await ctx.roundService.create({
+        const round = await ctx.roundService.createLegacy({
             courseId: course.id,
             date: '2026-05-01',
             roundType: 'full_18',
@@ -436,7 +436,7 @@ describe('backfillRoundDefinitions', () => {
             gender: 'F',
             handicapIndex: 22,
         });
-        const round = await ctx.roundService.create({
+        const round = await ctx.roundService.createLegacy({
             courseId: course.id,
             date: '2026-05-01',
             roundType: 'full_18',
@@ -490,7 +490,7 @@ describe('backfillRoundDefinitions', () => {
                 strokeIndex: i + 1,
             })),
         });
-        await ctx.roundService.create({
+        await ctx.roundService.createLegacy({
             courseId: course.id,
             date: '2026-05-01',
             roundType: 'full_18',
