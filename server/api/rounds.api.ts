@@ -67,8 +67,8 @@ const FormatSlotInput = Type.Object({
  * Phase 2.6b/3b.3.3 — `create` accepts a `RoundDefinition` directly. The
  * service drives compile + persist in one transaction. The old
  * `{courseId, date, formatSlots, …}` shape moved to `roundService.createLegacy`
- * for fixture paths that stamp compiler tables via `seedBallsFromParticipants`;
- * it is intentionally NOT wired into the HTTP API.
+ * for remaining legacy fixture paths; it is intentionally NOT wired into
+ * the HTTP API.
  */
 const CreateRoundInput = Type.Object({
     definition: RoundDefinition,

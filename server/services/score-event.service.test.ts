@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { createTestDb } from '../testing/db';
-import { seedBallsFromParticipants } from '../testing/balls';
+import { createCompiledRound } from '../testing/compiler-rounds';
 
 async function setup() {
     const ctx = await createTestDb();
@@ -10,40 +10,27 @@ async function setup() {
         name: 'North',
         holeCount: 18,
     });
-    const round = await ctx.roundService.createLegacy({
+    const tee = await ctx.teeService.create({
         courseId: course.id,
-        date: '2026-05-01',
-        roundType: 'full_18',
-        venueType: 'outdoor',
-        startListMode: 'structured',
-        formatSlots: [
-            {
-                slotIndex: 0,
-                scoringMode: 'stroke_play',
-                teamShape: 'individual',
-                allowancePct: 100,
-                scopeConfig: null,
-            },
-        ],
+        name: 'White',
+        holeLengths: [],
+        ratings: [{ gender: 'M', courseRating: 72, slope: 113, par: 72, totalLengthM: 6000 }],
     });
     const alice = await ctx.playerService.register({
         username: 'alice',
         password: 'password123',
         displayName: 'Alice',
     });
-    const p = await ctx.participantService.create({
-        roundId: round.id,
-        players: [{ playerId: alice.id }],
+    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
+        courseId: course.id,
+        teeId: tee.id,
+        slots: [{ formatId: 'stroke_play_individual' }],
+        players: [{ kind: 'player', id: alice.id, handicapIndex: 9 }],
     });
-    // Seed minimal compiler output (balls + ball_players) so the
-    // score-event service can resolve ball_id. The RoundCompiler would
-    // normally do this; tests fake the topology. The helper stamps
-    // `ball-${participantId}` as each ball's id.
-    await seedBallsFromParticipants(ctx.db, round.id);
     return {
         ...ctx,
         roundId: round.id,
-        ballId: `ball-${p.id}`,
+        ballId: ballByProducerIndex[0]!,
         aliceId: alice.id,
     };
 }
@@ -114,26 +101,27 @@ test('listByRound returns events in recorded_at order', async () => {
 });
 
 test('clientEventId uniqueness is scoped per round', async () => {
-    const { scoreEventService, roundService, courseService, clubService, participantService, playerService, db, roundId, ballId } = await setup();
+    const ctx = await setup();
+    const { scoreEventService, roundId, ballId } = ctx;
     // Another round with its own participant, same clientEventId → should work.
-    const club2 = await clubService.create({ name: 'Other GK' });
-    const course2 = await courseService.create({ clubId: club2.id, name: 'Other', holeCount: 18 });
-    const round2 = await roundService.createLegacy({
+    const club2 = await ctx.clubService.create({ name: 'Other GK' });
+    const course2 = await ctx.courseService.create({ clubId: club2.id, name: 'Other', holeCount: 18 });
+    const tee2 = await ctx.teeService.create({
         courseId: course2.id,
-        date: '2026-05-01',
-        roundType: 'full_18',
-        venueType: 'outdoor',
-        startListMode: 'structured',
-        formatSlots: [
-            { slotIndex: 0, scoringMode: 'stroke_play', teamShape: 'individual', allowancePct: 100, scopeConfig: null },
-        ],
+        name: 'White',
+        holeLengths: [],
+        ratings: [{ gender: 'M', courseRating: 72, slope: 113, par: 72, totalLengthM: 6000 }],
     });
-    const carol = await playerService.register({ username: 'carol', password: 'password123', displayName: 'Carol' });
-    const p2 = await participantService.create({ roundId: round2.id, players: [{ playerId: carol.id }] });
-    await seedBallsFromParticipants(db, round2.id);
+    const carol = await ctx.playerService.register({ username: 'carol', password: 'password123', displayName: 'Carol' });
+    const { round: round2, ballByProducerIndex: ballsR2 } = await createCompiledRound(ctx, {
+        courseId: course2.id,
+        teeId: tee2.id,
+        slots: [{ formatId: 'stroke_play_individual' }],
+        players: [{ kind: 'player', id: carol.id, handicapIndex: 9 }],
+    });
 
     const a = await scoreEventService.append({ roundId, ballId, hole: 1, strokes: 4, eventType: 'score_entered', clientEventId: 'shared' });
-    const b = await scoreEventService.append({ roundId: round2.id, ballId: `ball-${p2.id}`, hole: 1, strokes: 5, eventType: 'score_entered', clientEventId: 'shared' });
+    const b = await scoreEventService.append({ roundId: round2.id, ballId: ballsR2[0]!, hole: 1, strokes: 5, eventType: 'score_entered', clientEventId: 'shared' });
     expect(a.inserted).toBe(true);
     expect(b.inserted).toBe(true);
     expect(a.event.id).not.toBe(b.event.id);
@@ -166,26 +154,26 @@ test('append with sourcePlayerId persists and round-trips', async () => {
 });
 
 test('append with sourceGuestPlayerId persists and round-trips', async () => {
-    // Use a fresh context where a guest is part of the participant.
+    // Use a fresh context where a guest is the sole producer.
     const ctx = await createTestDb();
     const club = await ctx.clubService.create({ name: 'Halmstad GK' });
     const course = await ctx.courseService.create({ clubId: club.id, name: 'North', holeCount: 18 });
-    const round = await ctx.roundService.createLegacy({
+    const tee = await ctx.teeService.create({
         courseId: course.id,
-        date: '2026-05-01',
-        roundType: 'full_18',
-        venueType: 'outdoor',
-        startListMode: 'structured',
-        formatSlots: [
-            { slotIndex: 0, scoringMode: 'stroke_play', teamShape: 'individual', allowancePct: 100, scopeConfig: null },
-        ],
+        name: 'White',
+        holeLengths: [],
+        ratings: [{ gender: 'M', courseRating: 72, slope: 113, par: 72, totalLengthM: 6000 }],
     });
     const guest = await ctx.guestPlayerService.create({ displayName: 'Guest', gender: 'M', handicapIndex: 12 });
-    const p = await ctx.participantService.create({ roundId: round.id, players: [{ guestPlayerId: guest.id }] });
-    await seedBallsFromParticipants(ctx.db, round.id);
+    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
+        courseId: course.id,
+        teeId: tee.id,
+        slots: [{ formatId: 'stroke_play_individual' }],
+        players: [{ kind: 'guest', id: guest.id, handicapIndex: 12 }],
+    });
     const { scoreEventService } = ctx;
     const roundId = round.id;
-    const ballId = `ball-${p.id}`;
+    const ballId = ballByProducerIndex[0]!;
     const res = await scoreEventService.append({
         roundId,
         ballId,

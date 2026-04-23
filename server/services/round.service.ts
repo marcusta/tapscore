@@ -66,9 +66,9 @@ export interface Round {
 
 /**
  * Legacy create-input — courseId + metadata + flat formatSlots array.
- * Retained for the handful of tests / seed paths that pair this with
- * `seedBallsFromParticipants` to stamp compiler tables post-hoc. New code
- * goes through `create({ definition })` which drives the compiler directly.
+ * Retained for the handful of tests / seed paths that don't yet go through
+ * the compiler. New code goes through `create({ definition })` which drives
+ * the compiler directly. Slice 3d.5 will retire this path entirely.
  */
 export interface CreateRoundLegacyInput {
     courseId: string;
@@ -447,8 +447,9 @@ export class RoundService {
 
     /**
      * Legacy create — round + round_format_slots only. No compiler-table
-     * writes; tests that pair this with `seedBallsFromParticipants` stamp
-     * balls/slots post-hoc. New code should use `create({ definition })`.
+     * writes. A few fixture paths still need this for narrow tests that
+     * don't touch scoring; new code should use `create({ definition })`.
+     * Slice 3d.5 will retire this method.
      */
     async createLegacy(input: CreateRoundLegacyInput): Promise<Round> {
         this.validateSlots(input.formatSlots);

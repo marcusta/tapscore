@@ -1,14 +1,7 @@
 import { test, expect } from 'bun:test';
 import { createTestDb } from '../testing/db';
-import { seedBallsFromParticipants } from '../testing/balls';
+import { createCompiledRound } from '../testing/compiler-rounds';
 import { pickForSource } from './scorecard.service';
-
-// The seed helper stamps `ball-${participantId}` as each participant's ball
-// id (see testing/balls.ts). Tests use this deterministic mapping to drive
-// `forBall` reads without re-querying the bridge.
-function ballFor(participantId: string): string {
-    return `ball-${participantId}`;
-}
 
 async function setup() {
     const ctx = await createTestDb();
@@ -18,52 +11,51 @@ async function setup() {
         name: 'North',
         holeCount: 18,
     });
-    const round = await ctx.roundService.createLegacy({
+    const tee = await ctx.teeService.create({
         courseId: course.id,
-        date: '2026-05-01',
-        roundType: 'full_18',
-        venueType: 'outdoor',
-        startListMode: 'structured',
-        formatSlots: [
-            {
-                slotIndex: 0,
-                scoringMode: 'stroke_play',
-                teamShape: 'individual',
-                allowancePct: 100,
-                scopeConfig: null,
-            },
-        ],
+        name: 'White',
+        holeLengths: [],
+        ratings: [{ gender: 'M', courseRating: 72, slope: 113, par: 72, totalLengthM: 6000 }],
     });
-    // Give each bare participant exactly one player — service translation
-    // needs a participant_players row to resolve participant_id ↔ ball_id.
     const alice = await ctx.playerService.register({ username: 'alice', password: 'password123', displayName: 'Alice' });
     const bob = await ctx.playerService.register({ username: 'bob', password: 'password123', displayName: 'Bob' });
-    const p1 = await ctx.participantService.create({ roundId: round.id, players: [{ playerId: alice.id }] });
-    const p2 = await ctx.participantService.create({ roundId: round.id, players: [{ playerId: bob.id }] });
-    await seedBallsFromParticipants(ctx.db, round.id);
-    return { ...ctx, roundId: round.id, p1Id: p1.id, p2Id: p2.id };
+    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
+        courseId: course.id,
+        teeId: tee.id,
+        slots: [{ formatId: 'stroke_play_individual' }],
+        players: [
+            { kind: 'player', id: alice.id, handicapIndex: 9 },
+            { kind: 'player', id: bob.id, handicapIndex: 9 },
+        ],
+    });
+    return {
+        ...ctx,
+        roundId: round.id,
+        aliceBall: ballByProducerIndex[0]!,
+        bobBall: ballByProducerIndex[1]!,
+    };
 }
 
 test('trigger creates scorecard row on event insert', async () => {
-    const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
+    const { scoreEventService, scorecardService, roundId, aliceBall } = await setup();
     await scoreEventService.append({
         roundId,
-        ballId: ballFor(p1Id),
+        ballId: aliceBall,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
         clientEventId: 'c1',
     });
-    const sc = await scorecardService.forBall(ballFor(p1Id));
+    const sc = await scorecardService.forBall(aliceBall);
     expect(sc.holes).toHaveLength(1);
     expect(sc.holes[0]).toMatchObject({ holeNumber: 1, strokes: 4 });
 });
 
 test('later event for same hole overwrites scorecard row', async () => {
-    const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
+    const { scoreEventService, scorecardService, roundId, aliceBall } = await setup();
     await scoreEventService.append({
         roundId,
-        ballId: ballFor(p1Id),
+        ballId: aliceBall,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -72,23 +64,23 @@ test('later event for same hole overwrites scorecard row', async () => {
     });
     await scoreEventService.append({
         roundId,
-        ballId: ballFor(p1Id),
+        ballId: aliceBall,
         hole: 1,
         strokes: 5,
         eventType: 'score_entered',
         clientEventId: 'c2',
         recordedAt: '2026-05-01T10:05:00.000Z',
     });
-    const sc = await scorecardService.forBall(ballFor(p1Id));
+    const sc = await scorecardService.forBall(aliceBall);
     expect(sc.holes).toHaveLength(1);
     expect(sc.holes[0].strokes).toBe(5);
 });
 
 test('score_cleared wipes strokes but keeps row', async () => {
-    const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
+    const { scoreEventService, scorecardService, roundId, aliceBall } = await setup();
     await scoreEventService.append({
         roundId,
-        ballId: ballFor(p1Id),
+        ballId: aliceBall,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -97,24 +89,24 @@ test('score_cleared wipes strokes but keeps row', async () => {
     });
     await scoreEventService.append({
         roundId,
-        ballId: ballFor(p1Id),
+        ballId: aliceBall,
         hole: 1,
         strokes: null,
         eventType: 'score_cleared',
         clientEventId: 'c2',
         recordedAt: '2026-05-01T10:05:00.000Z',
     });
-    const sc = await scorecardService.forBall(ballFor(p1Id));
+    const sc = await scorecardService.forBall(aliceBall);
     expect(sc.holes).toHaveLength(1);
     expect(sc.holes[0].strokes).toBeNull();
 });
 
 test('out-of-order insert converges on latest recorded_at', async () => {
-    const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
+    const { scoreEventService, scorecardService, roundId, aliceBall } = await setup();
     // Insert the LATER event first.
     await scoreEventService.append({
         roundId,
-        ballId: ballFor(p1Id),
+        ballId: aliceBall,
         hole: 1,
         strokes: 5,
         eventType: 'score_entered',
@@ -124,22 +116,22 @@ test('out-of-order insert converges on latest recorded_at', async () => {
     // Then the EARLIER event. Trigger must NOT overwrite.
     await scoreEventService.append({
         roundId,
-        ballId: ballFor(p1Id),
+        ballId: aliceBall,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
         clientEventId: 'early',
         recordedAt: '2026-05-01T10:00:00.000Z',
     });
-    const sc = await scorecardService.forBall(ballFor(p1Id));
+    const sc = await scorecardService.forBall(aliceBall);
     expect(sc.holes[0].strokes).toBe(5); // latest (by recorded_at) wins
 });
 
 test('null strokes (DNP) and zero strokes (pickup) are both preserved', async () => {
-    const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
+    const { scoreEventService, scorecardService, roundId, aliceBall } = await setup();
     await scoreEventService.append({
         roundId,
-        ballId: ballFor(p1Id),
+        ballId: aliceBall,
         hole: 1,
         strokes: 0,
         eventType: 'score_entered',
@@ -147,13 +139,13 @@ test('null strokes (DNP) and zero strokes (pickup) are both preserved', async ()
     });
     await scoreEventService.append({
         roundId,
-        ballId: ballFor(p1Id),
+        ballId: aliceBall,
         hole: 2,
         strokes: null,
         eventType: 'score_entered',
         clientEventId: 'c2',
     });
-    const sc = await scorecardService.forBall(ballFor(p1Id));
+    const sc = await scorecardService.forBall(aliceBall);
     const hole1 = sc.holes.find((h) => h.holeNumber === 1)!;
     const hole2 = sc.holes.find((h) => h.holeNumber === 2)!;
     expect(hole1.strokes).toBe(0);
@@ -161,56 +153,79 @@ test('null strokes (DNP) and zero strokes (pickup) are both preserved', async ()
 });
 
 test('forRound groups by ball', async () => {
-    const { scoreEventService, scorecardService, roundId, p1Id, p2Id } = await setup();
-    await scoreEventService.append({ roundId, ballId: ballFor(p1Id), hole: 1, strokes: 4, eventType: 'score_entered', clientEventId: 'a' });
-    await scoreEventService.append({ roundId, ballId: ballFor(p2Id), hole: 1, strokes: 5, eventType: 'score_entered', clientEventId: 'b' });
-    await scoreEventService.append({ roundId, ballId: ballFor(p1Id), hole: 2, strokes: 3, eventType: 'score_entered', clientEventId: 'c' });
+    const { scoreEventService, scorecardService, roundId, aliceBall, bobBall } = await setup();
+    await scoreEventService.append({ roundId, ballId: aliceBall, hole: 1, strokes: 4, eventType: 'score_entered', clientEventId: 'a' });
+    await scoreEventService.append({ roundId, ballId: bobBall, hole: 1, strokes: 5, eventType: 'score_entered', clientEventId: 'b' });
+    await scoreEventService.append({ roundId, ballId: aliceBall, hole: 2, strokes: 3, eventType: 'score_entered', clientEventId: 'c' });
     const list = await scorecardService.forRound(roundId);
     expect(list).toHaveLength(2);
-    const p1Card = list.find((s) => s.ballId === ballFor(p1Id))!;
-    expect(p1Card.holes).toHaveLength(2);
+    const aliceCard = list.find((s) => s.ballId === aliceBall)!;
+    expect(aliceCard.holes).toHaveLength(2);
 });
 
 // --- per-player source rows (phase 2.5d) ---
+//
+// In the own-ball topology, better-ball teams have TWO balls (one per
+// producer). The legacy tests used a single team-ball with sourcePlayerId
+// filtering — those assertions are no longer a direct fit. We exercise the
+// `sourcePlayerId` column on score_events via an individual slot (any
+// ball can carry a source id; the column is orthogonal to the topology).
 
 async function setupWithTeam() {
     const ctx = await createTestDb();
     const club = await ctx.clubService.create({ name: 'Halmstad GK' });
     const course = await ctx.courseService.create({ clubId: club.id, name: 'North', holeCount: 18 });
-    const round = await ctx.roundService.createLegacy({
+    const tee = await ctx.teeService.create({
         courseId: course.id,
-        date: '2026-05-01',
-        roundType: 'full_18',
-        venueType: 'outdoor',
-        startListMode: 'structured',
-        formatSlots: [
-            { slotIndex: 0, scoringMode: 'stableford', teamShape: 'better_ball', allowancePct: 90, scopeConfig: null },
-        ],
+        name: 'White',
+        holeLengths: [],
+        ratings: [{ gender: 'M', courseRating: 72, slope: 113, par: 72, totalLengthM: 6000 }],
     });
     const alice = await ctx.playerService.register({ username: 'alice', password: 'password123', displayName: 'Alice' });
     const bob = await ctx.playerService.register({ username: 'bob', password: 'password123', displayName: 'Bob' });
-    const team = await ctx.participantService.create({
-        roundId: round.id,
-        teamLabel: 'A&B',
-        players: [{ playerId: alice.id }, { playerId: bob.id }],
+    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
+        courseId: course.id,
+        teeId: tee.id,
+        slots: [
+            {
+                formatId: 'stableford_better_ball',
+                allowancePct: 90,
+            },
+        ],
+        players: [
+            { kind: 'player', id: alice.id, handicapIndex: 9, team: 'A&B' },
+            { kind: 'player', id: bob.id, handicapIndex: 9, team: 'A&B' },
+            // Better-ball needs >=2 teams — add a dummy opposing pair so
+            // the compiler's team grouping check passes.
+            { kind: 'player', id: (await ctx.playerService.register({ username: 'carol-sc', password: 'password123', displayName: 'Carol' })).id, handicapIndex: 9, team: 'CD' },
+            { kind: 'player', id: (await ctx.playerService.register({ username: 'dan-sc', password: 'password123', displayName: 'Dan' })).id, handicapIndex: 9, team: 'CD' },
+        ],
     });
-    await seedBallsFromParticipants(ctx.db, round.id);
-    return { ...ctx, roundId: round.id, teamId: team.id, aliceId: alice.id, bobId: bob.id };
+    return {
+        ...ctx,
+        roundId: round.id,
+        aliceBall: ballByProducerIndex[0]!,
+        bobBall: ballByProducerIndex[1]!,
+        aliceId: alice.id,
+        bobId: bob.id,
+    };
 }
 
-test('two events at same (participant, hole) with different sourcePlayerId persist as separate rows', async () => {
-    const { scoreEventService, scorecardService, roundId, teamId, aliceId, bobId } = await setupWithTeam();
+test('two events at same (ball, hole) with different sourcePlayerId persist as separate rows', async () => {
+    // Ball-level: using Alice's own ball but tagging events with two source
+    // ids exercises the per-source scorecard row fan-out.
+    const { scoreEventService, scorecardService, roundId, aliceBall, aliceId, bobId } = await setupWithTeam();
     await scoreEventService.append({
-        roundId, ballId: ballFor(teamId), hole: 1, strokes: 4,
+        roundId, ballId: aliceBall, hole: 1, strokes: 4,
         eventType: 'score_entered', clientEventId: 'a1', sourcePlayerId: aliceId,
         recordedAt: '2026-05-01T10:00:00.000Z',
     });
     await scoreEventService.append({
-        roundId, ballId: ballFor(teamId), hole: 1, strokes: 5,
+        roundId, ballId: aliceBall, hole: 1, strokes: 5,
         eventType: 'score_entered', clientEventId: 'b1', sourcePlayerId: bobId,
         recordedAt: '2026-05-01T10:01:00.000Z',
     });
-    const sc = await scorecardService.forBall(ballFor(teamId));
+    const sc = await scorecardService.forBall(aliceBall);
     expect(sc.holes).toHaveLength(2);
     const aliceHole = sc.holes.find((h) => h.sourcePlayerId === aliceId)!;
     const bobHole = sc.holes.find((h) => h.sourcePlayerId === bobId)!;
@@ -218,43 +233,43 @@ test('two events at same (participant, hole) with different sourcePlayerId persi
     expect(bobHole.strokes).toBe(5);
 });
 
-test('two events at same (participant, hole) with same sourcePlayerId — later overwrites (idempotent replay)', async () => {
-    const { scoreEventService, scorecardService, roundId, teamId, aliceId } = await setupWithTeam();
+test('two events at same (ball, hole) with same sourcePlayerId — later overwrites (idempotent replay)', async () => {
+    const { scoreEventService, scorecardService, roundId, aliceBall, aliceId } = await setupWithTeam();
     await scoreEventService.append({
-        roundId, ballId: ballFor(teamId), hole: 1, strokes: 4,
+        roundId, ballId: aliceBall, hole: 1, strokes: 4,
         eventType: 'score_entered', clientEventId: 'a1', sourcePlayerId: aliceId,
         recordedAt: '2026-05-01T10:00:00.000Z',
     });
     await scoreEventService.append({
-        roundId, ballId: ballFor(teamId), hole: 1, strokes: 6,
+        roundId, ballId: aliceBall, hole: 1, strokes: 6,
         eventType: 'score_entered', clientEventId: 'a2', sourcePlayerId: aliceId,
         recordedAt: '2026-05-01T10:05:00.000Z',
     });
-    const sc = await scorecardService.forBall(ballFor(teamId));
+    const sc = await scorecardService.forBall(aliceBall);
     expect(sc.holes).toHaveLength(1);
     expect(sc.holes[0].strokes).toBe(6);
     expect(sc.holes[0].sourcePlayerId).toBe(aliceId);
 });
 
 test('null source row coexists separately from per-player rows on same hole', async () => {
-    const { scoreEventService, scorecardService, roundId, teamId, aliceId } = await setupWithTeam();
+    const { scoreEventService, scorecardService, roundId, aliceBall, aliceId } = await setupWithTeam();
     await scoreEventService.append({
-        roundId, ballId: ballFor(teamId), hole: 1, strokes: 4,
+        roundId, ballId: aliceBall, hole: 1, strokes: 4,
         eventType: 'score_entered', clientEventId: 'a1', sourcePlayerId: aliceId,
         recordedAt: '2026-05-01T10:00:00.000Z',
     });
     await scoreEventService.append({
-        roundId, ballId: ballFor(teamId), hole: 1, strokes: 7,
+        roundId, ballId: aliceBall, hole: 1, strokes: 7,
         eventType: 'score_entered', clientEventId: 'team1',
         recordedAt: '2026-05-01T10:01:00.000Z',
     });
     // Later null-source event at the same hole overwrites only the null bucket.
     await scoreEventService.append({
-        roundId, ballId: ballFor(teamId), hole: 1, strokes: 8,
+        roundId, ballId: aliceBall, hole: 1, strokes: 8,
         eventType: 'score_entered', clientEventId: 'team2',
         recordedAt: '2026-05-01T10:02:00.000Z',
     });
-    const sc = await scorecardService.forBall(ballFor(teamId));
+    const sc = await scorecardService.forBall(aliceBall);
     expect(sc.holes).toHaveLength(2);
     const nullHole = sc.holes.find((h) => h.sourcePlayerId === null && h.sourceGuestPlayerId === null)!;
     const aliceHole = sc.holes.find((h) => h.sourcePlayerId === aliceId)!;
@@ -263,16 +278,16 @@ test('null source row coexists separately from per-player rows on same hole', as
 });
 
 test('pickForSource returns the matching hole, null otherwise', async () => {
-    const { scoreEventService, scorecardService, roundId, teamId, aliceId, bobId } = await setupWithTeam();
+    const { scoreEventService, scorecardService, roundId, aliceBall, aliceId, bobId } = await setupWithTeam();
     await scoreEventService.append({
-        roundId, ballId: ballFor(teamId), hole: 1, strokes: 4,
+        roundId, ballId: aliceBall, hole: 1, strokes: 4,
         eventType: 'score_entered', clientEventId: 'a1', sourcePlayerId: aliceId,
     });
     await scoreEventService.append({
-        roundId, ballId: ballFor(teamId), hole: 1, strokes: 5,
+        roundId, ballId: aliceBall, hole: 1, strokes: 5,
         eventType: 'score_entered', clientEventId: 'b1', sourcePlayerId: bobId,
     });
-    const sc = await scorecardService.forBall(ballFor(teamId));
+    const sc = await scorecardService.forBall(aliceBall);
     expect(pickForSource(sc.holes, aliceId, null)?.strokes).toBe(4);
     expect(pickForSource(sc.holes, bobId, null)?.strokes).toBe(5);
     expect(pickForSource(sc.holes, 'nonexistent', null)).toBeNull();
@@ -282,29 +297,30 @@ test('pickForSource returns the matching hole, null otherwise', async () => {
 // --- metadata (phase 2.5h / migration 014) ---
 
 test('scorecard row surfaces metadata from latest event (null source)', async () => {
-    const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
+    const { scoreEventService, scorecardService, roundId, aliceBall } = await setup();
     await scoreEventService.append({
         roundId,
-        ballId: ballFor(p1Id),
+        ballId: aliceBall,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
         clientEventId: 'c1',
         metadata: { gir: true },
     });
-    const sc = await scorecardService.forBall(ballFor(p1Id));
+    const sc = await scorecardService.forBall(aliceBall);
     expect(sc.holes[0].metadata).toEqual({ gir: true });
     // forRound returns the same metadata through the multi-ball path.
     const all = await scorecardService.forRound(roundId);
-    expect(all[0].holes[0].metadata).toEqual({ gir: true });
+    const card = all.find((c) => c.ballId === aliceBall)!;
+    expect(card.holes[0].metadata).toEqual({ gir: true });
 });
 
 test('scorecard row surfaces metadata from latest event (per-player source)', async () => {
-    const { scoreEventService, scorecardService, roundId, teamId, aliceId, bobId } =
+    const { scoreEventService, scorecardService, roundId, aliceBall, aliceId, bobId } =
         await setupWithTeam();
     await scoreEventService.append({
         roundId,
-        ballId: ballFor(teamId),
+        ballId: aliceBall,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -314,7 +330,7 @@ test('scorecard row surfaces metadata from latest event (per-player source)', as
     });
     await scoreEventService.append({
         roundId,
-        ballId: ballFor(teamId),
+        ballId: aliceBall,
         hole: 1,
         strokes: 5,
         eventType: 'score_entered',
@@ -322,7 +338,7 @@ test('scorecard row surfaces metadata from latest event (per-player source)', as
         sourcePlayerId: bobId,
         metadata: { gir: false },
     });
-    const sc = await scorecardService.forBall(ballFor(teamId));
+    const sc = await scorecardService.forBall(aliceBall);
     const aliceHole = sc.holes.find((h) => h.sourcePlayerId === aliceId)!;
     const bobHole = sc.holes.find((h) => h.sourcePlayerId === bobId)!;
     expect(aliceHole.metadata).toEqual({ gir: true });
@@ -330,10 +346,10 @@ test('scorecard row surfaces metadata from latest event (per-player source)', as
 });
 
 test('later event overwrites earlier metadata in the materialised view', async () => {
-    const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
+    const { scoreEventService, scorecardService, roundId, aliceBall } = await setup();
     await scoreEventService.append({
         roundId,
-        ballId: ballFor(p1Id),
+        ballId: aliceBall,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -343,7 +359,7 @@ test('later event overwrites earlier metadata in the materialised view', async (
     });
     await scoreEventService.append({
         roundId,
-        ballId: ballFor(p1Id),
+        ballId: aliceBall,
         hole: 1,
         strokes: 5,
         eventType: 'score_entered',
@@ -351,22 +367,22 @@ test('later event overwrites earlier metadata in the materialised view', async (
         recordedAt: '2026-05-01T10:05:00.000Z',
         metadata: { gir: true, putts: 2 },
     });
-    const sc = await scorecardService.forBall(ballFor(p1Id));
+    const sc = await scorecardService.forBall(aliceBall);
     expect(sc.holes).toHaveLength(1);
     expect(sc.holes[0].strokes).toBe(5);
     expect(sc.holes[0].metadata).toEqual({ gir: true, putts: 2 });
 });
 
 test('scorecard metadata defaults to null when unset', async () => {
-    const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
+    const { scoreEventService, scorecardService, roundId, aliceBall } = await setup();
     await scoreEventService.append({
         roundId,
-        ballId: ballFor(p1Id),
+        ballId: aliceBall,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
         clientEventId: 'c1',
     });
-    const sc = await scorecardService.forBall(ballFor(p1Id));
+    const sc = await scorecardService.forBall(aliceBall);
     expect(sc.holes[0].metadata).toBeNull();
 });

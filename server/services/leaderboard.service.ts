@@ -97,10 +97,8 @@ export class LeaderboardService {
 
         // Phase 2.6b/3b.3.3 — labels live on `balls.label` (option 3a).
         // The compiler populates this from producer displayNames (or from
-        // the strategy composition label for pair balls). Legacy fixtures
-        // stamped via `seedBallsFromParticipants` copy participants.team_label
-        // onto `balls.label` at seed time — so this single read covers both
-        // paths without the `participants` join.
+        // the strategy composition label for pair balls). A single read off
+        // `balls.label` covers every code path — no `participants` join.
         const teamLabelByBall = new Map<string, string | null>();
         for (const b of ballRows) {
             teamLabelByBall.set(b.id, b.label ?? null);

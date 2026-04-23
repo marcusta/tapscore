@@ -239,8 +239,8 @@ test('course delete is blocked by RESTRICT when rounds reference it', async () =
 // Phase 2.6b/3b.3.3 wired RoundCompiler into `roundService.create`. One call
 // transacts `rounds` + `round_format_slots` + every compiler-output table
 // (balls, ball_players, slots, slot_balls, round_definitions, …). The
-// legacy API (`createLegacy`) stays around for fixture paths that stamp
-// compiler tables via `seedBallsFromParticipants` after the fact.
+// legacy API (`createLegacy`) stays around for the remaining legacy fixture
+// paths that have not yet migrated to the compiler.
 
 async function setupWithTeeAndPlayer() {
     const ctx = await createTestDb();

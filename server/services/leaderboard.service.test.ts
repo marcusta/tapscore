@@ -1,25 +1,12 @@
 import { test, expect } from 'bun:test';
 import { createTestDb } from '../testing/db';
-import { seedBallsFromParticipants } from '../testing/balls';
-import type { FormatSlot } from './round.service';
-
-const slot: FormatSlot = {
-    slotIndex: 0,
-    scoringMode: 'stroke_play',
-    teamShape: 'individual',
-    allowancePct: 100,
-    scopeConfig: null,
-};
-
-/** seed helper stamps `ball-${participantId}` as each participant's ball id. */
-const ballFor = (participantId: string): string => `ball-${participantId}`;
+import { createCompiledRound } from '../testing/compiler-rounds';
 
 /**
  * Shared setup: an 18-hole par-4 course at HGC with a single tee rated so
  * `courseHandicap(index=9)` = 9 (slope 113, CR 72, par 72 → slope/113 = 1,
- * CR−par = 0, so CH = index = 9). Means a participant snapshotted with
- * index 9 gets playing_handicap 9 exactly, and the 9-hole leaderboard test
- * can reason about stroke allocation cleanly.
+ * CR−par = 0, so CH = index = 9). Means a producer with handicapIndex 9
+ * gets playing_handicap 9 exactly.
  */
 async function setup18() {
     const ctx = await createTestDb();
@@ -39,28 +26,22 @@ async function setup18() {
 }
 
 test('front_9 round distributes PH across the 9 played holes only', async () => {
-    const { db, roundService, participantService, playerService, handicapService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
-    const round = await roundService.createLegacy({
+    const ctx = await setup18();
+    const { scoreEventService, leaderboardService, courseId, teeId } = ctx;
+    const alice = await ctx.playerService.register({ username: 'front9-p1', password: 'password123', displayName: 'Front9 P1' });
+    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
         courseId,
-        date: '2026-05-01',
+        teeId,
         roundType: 'front_9',
-        venueType: 'outdoor',
-        startListMode: 'structured',
-        formatSlots: [slot],
+        slots: [{ formatId: 'stroke_play_individual' }],
+        players: [{ kind: 'player', id: alice.id, handicapIndex: 9 }],
     });
-    const pl = await playerService.register({ username: 'front9-p1', password: 'password123', displayName: 'Front9 P1' });
-    await handicapService.record({ playerId: pl.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
-    const p = await participantService.create({
-        roundId: round.id,
-        snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
-        players: [{ playerId: pl.id }],
-    });
-    await seedBallsFromParticipants(db, round.id);
+    const ball = ballByProducerIndex[0]!;
     // PH 9 over 9 holes: baseline = 1, extras = 0 → +1 stroke on every hole.
     for (let h = 1; h <= 9; h++) {
         await scoreEventService.append({
             roundId: round.id,
-            ballId: ballFor(p.id),
+            ballId: ball,
             hole: h,
             strokes: 5, // bogey
             eventType: 'score_entered',
@@ -79,22 +60,21 @@ test('front_9 round distributes PH across the 9 played holes only', async () => 
 });
 
 test('back_9 round uses holes 10..18 only', async () => {
-    const { db, roundService, participantService, playerService, scoreEventService, leaderboardService, courseId } = await setup18();
-    const round = await roundService.createLegacy({
+    const ctx = await setup18();
+    const { scoreEventService, leaderboardService, courseId, teeId } = ctx;
+    const pl = await ctx.playerService.register({ username: 'back9-p1', password: 'password123', displayName: 'Back9 P1' });
+    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
         courseId,
-        date: '2026-05-01',
+        teeId,
         roundType: 'back_9',
-        venueType: 'outdoor',
-        startListMode: 'structured',
-        formatSlots: [slot],
+        slots: [{ formatId: 'stroke_play_individual' }],
+        players: [{ kind: 'player', id: pl.id, handicapIndex: 9 }],
     });
-    const pl = await playerService.register({ username: 'back9-p1', password: 'password123', displayName: 'Back9 P1' });
-    const p = await participantService.create({ roundId: round.id, players: [{ playerId: pl.id }] });
-    await seedBallsFromParticipants(db, round.id);
+    const ball = ballByProducerIndex[0]!;
     for (let h = 10; h <= 18; h++) {
         await scoreEventService.append({
             roundId: round.id,
-            ballId: ballFor(p.id),
+            ballId: ball,
             hole: h,
             strokes: 4,
             eventType: 'score_entered',
@@ -134,26 +114,19 @@ test('9-hole allocation follows full-18 SI distribution (strokes land only where
         ratings: [{ gender: 'M', courseRating: 72, slope: 113, par: 72, totalLengthM: 6000 }],
     });
 
-    const frontRound = await ctx.roundService.createLegacy({
-        courseId: course.id,
-        date: '2026-05-01',
-        roundType: 'front_9',
-        venueType: 'outdoor',
-        startListMode: 'structured',
-        formatSlots: [slot],
-    });
     const plFront = await ctx.playerService.register({ username: 'si-front', password: 'password123', displayName: 'SI Front' });
-    await ctx.handicapService.record({ playerId: plFront.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
-    const pFront = await ctx.participantService.create({
-        roundId: frontRound.id,
-        snapshot: { teeId: tee.id, gender: 'M', handicapIndex: 9, allowancePct: 100 },
-        players: [{ playerId: plFront.id }],
+    const { round: frontRound, ballByProducerIndex: frontBalls } = await createCompiledRound(ctx, {
+        courseId: course.id,
+        teeId: tee.id,
+        roundType: 'front_9',
+        slots: [{ formatId: 'stroke_play_individual' }],
+        players: [{ kind: 'player', id: plFront.id, handicapIndex: 9 }],
     });
-    await seedBallsFromParticipants(ctx.db, frontRound.id);
+    const frontBall = frontBalls[0]!;
     for (let h = 1; h <= 9; h++) {
         await ctx.scoreEventService.append({
             roundId: frontRound.id,
-            ballId: ballFor(pFront.id),
+            ballId: frontBall,
             hole: h,
             strokes: 5,
             eventType: 'score_entered',
@@ -167,26 +140,19 @@ test('9-hole allocation follows full-18 SI distribution (strokes land only where
     expect(frontGross.entries[0].total).toBe(45);
     expect(frontNet.entries[0].total).toBe(45);
 
-    const backRound = await ctx.roundService.createLegacy({
-        courseId: course.id,
-        date: '2026-05-01',
-        roundType: 'back_9',
-        venueType: 'outdoor',
-        startListMode: 'structured',
-        formatSlots: [slot],
-    });
     const plBack = await ctx.playerService.register({ username: 'si-back', password: 'password123', displayName: 'SI Back' });
-    await ctx.handicapService.record({ playerId: plBack.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
-    const pBack = await ctx.participantService.create({
-        roundId: backRound.id,
-        snapshot: { teeId: tee.id, gender: 'M', handicapIndex: 9, allowancePct: 100 },
-        players: [{ playerId: plBack.id }],
+    const { round: backRound, ballByProducerIndex: backBalls } = await createCompiledRound(ctx, {
+        courseId: course.id,
+        teeId: tee.id,
+        roundType: 'back_9',
+        slots: [{ formatId: 'stroke_play_individual' }],
+        players: [{ kind: 'player', id: plBack.id, handicapIndex: 9 }],
     });
-    await seedBallsFromParticipants(ctx.db, backRound.id);
+    const backBall = backBalls[0]!;
     for (let h = 10; h <= 18; h++) {
         await ctx.scoreEventService.append({
             roundId: backRound.id,
-            ballId: ballFor(pBack.id),
+            ballId: backBall,
             hole: h,
             strokes: 5,
             eventType: 'score_entered',
@@ -202,22 +168,20 @@ test('9-hole allocation follows full-18 SI distribution (strokes land only where
 });
 
 test('full_18 round still covers all 18 holes', async () => {
-    const { db, roundService, participantService, playerService, scoreEventService, leaderboardService, courseId } = await setup18();
-    const round = await roundService.createLegacy({
+    const ctx = await setup18();
+    const { scoreEventService, leaderboardService, courseId, teeId } = ctx;
+    const pl = await ctx.playerService.register({ username: 'full18-p1', password: 'password123', displayName: 'Full18 P1' });
+    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
         courseId,
-        date: '2026-05-01',
-        roundType: 'full_18',
-        venueType: 'outdoor',
-        startListMode: 'structured',
-        formatSlots: [slot],
+        teeId,
+        slots: [{ formatId: 'stroke_play_individual' }],
+        players: [{ kind: 'player', id: pl.id, handicapIndex: 9 }],
     });
-    const pl = await playerService.register({ username: 'full18-p1', password: 'password123', displayName: 'Full18 P1' });
-    const p = await participantService.create({ roundId: round.id, players: [{ playerId: pl.id }] });
-    await seedBallsFromParticipants(db, round.id);
+    const ball = ballByProducerIndex[0]!;
     for (let h = 1; h <= 18; h++) {
         await scoreEventService.append({
             roundId: round.id,
-            ballId: ballFor(p.id),
+            ballId: ball,
             hole: h,
             strokes: 4,
             eventType: 'score_entered',
@@ -228,191 +192,144 @@ test('full_18 round still covers all 18 holes', async () => {
     expect(lb.ballResults[0].holes).toHaveLength(18);
 });
 
-// Phase 2.6b/3d.3 — this test exercises the LEGACY seed shape (one ball
-// per team with 2 ball_players) via `seedBallsFromParticipants`. The
-// ball-native leaderboard now requires own-ball topology (one ball per
-// producer) plus `slot_ball_teams` groupings, which that helper does not
-// emit. Skipped until the helper is updated or the test is rewritten
-// against a compiler-driven setup.
-test.skip('better-ball leaderboard uses each linked player\'s own frozen PH', async () => {
+test("better-ball leaderboard uses each linked player's own frozen PH", async () => {
+    // Own-ball topology: alice + bob each have their own ball; the slot
+    // groups them into team 'Alice & Bob'. On hole 5 (SI 5):
+    //   - alice (HI 0 → CH 0 → PH 0) scores 4: par, 2 stableford points.
+    //   - bob (HI 14 → CH 14 → PH 14) scores 4: gets 1 stroke (SI 5),
+    //     net 3, 3 stableford points.
+    //   - team (better-ball = max points) = 3.
     const ctx = await setup18();
-    const { roundService, participantService, handicapService, playerService, scoreEventService, leaderboardService, courseId, teeId } = ctx;
-    const bob = await playerService.register({
-        username: 'bob',
-        password: 'password123',
-        displayName: 'Bob',
-    });
-    const round = await roundService.createLegacy({
-        courseId,
-        date: '2026-05-01',
-        roundType: 'full_18',
-        venueType: 'outdoor',
-        startListMode: 'structured',
-        formatSlots: [
-            {
-                slotIndex: 0,
-                scoringMode: 'stableford',
-                teamShape: 'better_ball',
-                allowancePct: 100,
-                scopeConfig: null,
-            },
-        ],
-    });
-    const alice = await playerService.register({
+    const { scoreEventService, leaderboardService, courseId, teeId } = ctx;
+    const alice = await ctx.playerService.register({
         username: 'alice-bb',
         password: 'password123',
         displayName: 'Alice BB',
     });
-    await handicapService.record({
-        playerId: alice.id,
-        handicapIndex: 0,
-        source: 'manual',
-        effectiveDate: '2026-04-01',
+    const bob = await ctx.playerService.register({
+        username: 'bob',
+        password: 'password123',
+        displayName: 'Bob',
     });
-    await handicapService.record({
-        playerId: bob.id,
-        handicapIndex: 14,
-        source: 'manual',
-        effectiveDate: '2026-04-01',
+    // Better-ball needs a second team to satisfy the format's team grouping
+    // requirement. Throwaway opposing pair that we don't score.
+    const carol = await ctx.playerService.register({
+        username: 'carol-bb',
+        password: 'password123',
+        displayName: 'Carol BB',
     });
-    const team = await participantService.create({
-        roundId: round.id,
-        snapshot: { teeId, gender: 'M', fromPlayerId: alice.id, allowancePct: 100 },
-        players: [{ playerId: alice.id }, { playerId: bob.id }],
-        teamLabel: 'Alice & Bob',
+    const dan = await ctx.playerService.register({
+        username: 'dan-bb',
+        password: 'password123',
+        displayName: 'Dan BB',
     });
-    await seedBallsFromParticipants(ctx.db, round.id);
+    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
+        courseId,
+        teeId,
+        slots: [{ formatId: 'stableford_better_ball', allowancePct: 100 }],
+        players: [
+            { kind: 'player', id: alice.id, handicapIndex: 0, team: 'Alice & Bob' },
+            { kind: 'player', id: bob.id, handicapIndex: 14, team: 'Alice & Bob' },
+            { kind: 'player', id: carol.id, handicapIndex: 9, team: 'Carol & Dan' },
+            { kind: 'player', id: dan.id, handicapIndex: 9, team: 'Carol & Dan' },
+        ],
+    });
+    const aliceBall = ballByProducerIndex[0]!;
+    const bobBall = ballByProducerIndex[1]!;
     await scoreEventService.append({
         roundId: round.id,
-        ballId: ballFor(team.id),
+        ballId: aliceBall,
         hole: 5,
         strokes: 4,
         eventType: 'score_entered',
         clientEventId: 'alice-h5',
-        sourcePlayerId: alice.id,
     });
     await scoreEventService.append({
         roundId: round.id,
-        ballId: ballFor(team.id),
+        ballId: bobBall,
         hole: 5,
         strokes: 4,
         eventType: 'score_entered',
         clientEventId: 'bob-h5',
-        sourcePlayerId: bob.id,
     });
 
     const lb = await leaderboardService.forRound(round.id);
-    const result = lb.ballResults[0]!;
-    expect(result.holes.find((h) => h.holeNumber === 5)!.points).toBe(3);
-    expect(result.totals.find((t) => t.scoringType === 'points')!.value).toBe(3);
+    // Team result's representative ballId is the first own-ball in the team —
+    // the "Alice & Bob" team's first producer is alice, so the team result
+    // keys off alice's ball id.
+    const teamResult = lb.ballResults.find((r) => r.ballId === aliceBall)!;
+    expect(teamResult.holes.find((h) => h.holeNumber === 5)!.points).toBe(3);
+    expect(teamResult.totals.find((t) => t.scoringType === 'points')!.value).toBe(3);
 });
 
 // --- Multi-slot scope routing (Phase 2.5i) ---
 
 test('single-slot round with no scope defaults every participant to slot 0 (back-compat)', async () => {
-    const { db, roundService, participantService, playerService, handicapService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
-    const round = await roundService.createLegacy({
+    const ctx = await setup18();
+    const { scoreEventService, leaderboardService, courseId, teeId } = ctx;
+    const pl1 = await ctx.playerService.register({ username: 'ss-p1', password: 'password123', displayName: 'SS P1' });
+    const pl2 = await ctx.playerService.register({ username: 'ss-p2', password: 'password123', displayName: 'SS P2' });
+    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
         courseId,
-        date: '2026-05-01',
-        roundType: 'full_18',
-        venueType: 'outdoor',
-        startListMode: 'structured',
-        formatSlots: [slot], // no scopeConfig
+        teeId,
+        slots: [{ formatId: 'stroke_play_individual' }],
+        players: [
+            { kind: 'player', id: pl1.id, handicapIndex: 9 },
+            { kind: 'player', id: pl2.id, handicapIndex: 9 },
+        ],
     });
-    const pl1 = await playerService.register({ username: 'ss-p1', password: 'password123', displayName: 'SS P1' });
-    const pl2 = await playerService.register({ username: 'ss-p2', password: 'password123', displayName: 'SS P2' });
-    await handicapService.record({ playerId: pl1.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
-    await handicapService.record({ playerId: pl2.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
-    const p1 = await participantService.create({
-        roundId: round.id,
-        snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
-        players: [{ playerId: pl1.id }],
-    });
-    const p2 = await participantService.create({
-        roundId: round.id,
-        snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
-        players: [{ playerId: pl2.id }],
-    });
-    await seedBallsFromParticipants(db, round.id);
+    const ball1 = ballByProducerIndex[0]!;
+    const ball2 = ballByProducerIndex[1]!;
     for (let h = 1; h <= 18; h++) {
         await scoreEventService.append({
-            roundId: round.id, ballId: ballFor(p1.id), hole: h, strokes: 4,
+            roundId: round.id, ballId: ball1, hole: h, strokes: 4,
             eventType: 'score_entered', clientEventId: `p1-h${h}`,
         });
         await scoreEventService.append({
-            roundId: round.id, ballId: ballFor(p2.id), hole: h, strokes: 5,
+            roundId: round.id, ballId: ball2, hole: h, strokes: 5,
             eventType: 'score_entered', clientEventId: `p2-h${h}`,
         });
     }
 
     const lb = await leaderboardService.forRound(round.id);
-    // Both participants land in slot 0; one bucket per scoring type at slotIndex 0.
+    // Both producers land in slot 0; one bucket per scoring type at slotIndex 0.
     expect(lb.byScoringType).toHaveLength(2); // gross + net
     for (const b of lb.byScoringType) {
         expect(b.slotIndex).toBe(0);
-        expect(b.entries.map((e) => e.ballId).sort()).toEqual([ballFor(p1.id), ballFor(p2.id)].sort());
+        expect(b.entries.map((e) => e.ballId).sort()).toEqual([ball1, ball2].sort());
     }
 });
 
-test('multi-slot round routes each participant to the slot whose scope lists them', async () => {
-    const { db, roundService, participantService, playerService, handicapService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
-
-    // Bootstrap round with a single throwaway slot so we can mint participant ids,
-    // then update the round with two slots whose scopes reference those ids.
-    const bootstrap = await roundService.createLegacy({
-        courseId, date: '2026-05-01', roundType: 'full_18',
-        venueType: 'outdoor', startListMode: 'structured',
-        formatSlots: [slot],
-    });
-    const plA = await playerService.register({ username: 'ms-a', password: 'password123', displayName: 'MS A' });
-    const plB = await playerService.register({ username: 'ms-b', password: 'password123', displayName: 'MS B' });
-    const plC = await playerService.register({ username: 'ms-c', password: 'password123', displayName: 'MS C' });
-    await handicapService.record({ playerId: plA.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
-    await handicapService.record({ playerId: plB.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
-    await handicapService.record({ playerId: plC.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
-    const pA = await participantService.create({
-        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
-        players: [{ playerId: plA.id }],
-    });
-    const pB = await participantService.create({
-        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
-        players: [{ playerId: plB.id }],
-    });
-    const pC = await participantService.create({
-        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
-        players: [{ playerId: plC.id }],
-    });
-    await seedBallsFromParticipants(db, bootstrap.id);
-
-    // Now widen to two slots with explicit per-slot scopes.
-    await roundService.update(bootstrap.id, {
-        formatSlots: [
-            {
-                slotIndex: 0,
-                scoringMode: 'stroke_play',
-                teamShape: 'individual',
-                allowancePct: 100,
-                scopeConfig: { scope: { participantIds: [pA.id, pB.id] } },
-            },
-            {
-                slotIndex: 1,
-                scoringMode: 'stableford',
-                teamShape: 'individual',
-                allowancePct: 100,
-                scopeConfig: { scope: { participantIds: [pC.id] } },
-            },
+test('multi-slot round routes each producer to the slot whose selector lists them', async () => {
+    const ctx = await setup18();
+    const { scoreEventService, leaderboardService, courseId, teeId } = ctx;
+    const plA = await ctx.playerService.register({ username: 'ms-a', password: 'password123', displayName: 'MS A' });
+    const plB = await ctx.playerService.register({ username: 'ms-b', password: 'password123', displayName: 'MS B' });
+    const plC = await ctx.playerService.register({ username: 'ms-c', password: 'password123', displayName: 'MS C' });
+    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
+        courseId,
+        teeId,
+        slots: [
+            { formatId: 'stroke_play_individual', playerIndices: [1, 2] },
+            { formatId: 'stableford_individual', playerIndices: [3] },
+        ],
+        players: [
+            { kind: 'player', id: plA.id, handicapIndex: 9 },
+            { kind: 'player', id: plB.id, handicapIndex: 9 },
+            { kind: 'player', id: plC.id, handicapIndex: 9 },
         ],
     });
-    // Re-seed slots/slot_balls to mirror the post-update format slot shape.
-    await seedBallsFromParticipants(db, bootstrap.id);
+    const ballA = ballByProducerIndex[0]!;
+    const ballB = ballByProducerIndex[1]!;
+    const ballC = ballByProducerIndex[2]!;
 
     for (let h = 1; h <= 18; h++) {
-        await scoreEventService.append({ roundId: bootstrap.id, ballId: ballFor(pA.id), hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `a-h${h}` });
-        await scoreEventService.append({ roundId: bootstrap.id, ballId: ballFor(pB.id), hole: h, strokes: 5, eventType: 'score_entered', clientEventId: `b-h${h}` });
-        await scoreEventService.append({ roundId: bootstrap.id, ballId: ballFor(pC.id), hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `c-h${h}` });
+        await scoreEventService.append({ roundId: round.id, ballId: ballA, hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `a-h${h}` });
+        await scoreEventService.append({ roundId: round.id, ballId: ballB, hole: h, strokes: 5, eventType: 'score_entered', clientEventId: `b-h${h}` });
+        await scoreEventService.append({ roundId: round.id, ballId: ballC, hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `c-h${h}` });
     }
 
-    const lb = await leaderboardService.forRound(bootstrap.id);
+    const lb = await leaderboardService.forRound(round.id);
 
     // Slot 0 is stroke-play → emits gross + net; slot 1 is stableford → emits points.
     const slot0Buckets = lb.byScoringType.filter((b) => b.slotIndex === 0);
@@ -420,71 +337,59 @@ test('multi-slot round routes each participant to the slot whose scope lists the
     expect(slot0Buckets.map((b) => b.scoringType).sort()).toEqual(['gross', 'net']);
     expect(slot1Buckets.map((b) => b.scoringType)).toEqual(['points']);
 
-    // Cross-slot leakage check: slot 0's buckets only contain pA & pB;
-    // slot 1's points bucket only contains pC.
+    // Cross-slot leakage check: slot 0's buckets only contain ballA & ballB;
+    // slot 1's points bucket only contains ballC.
     for (const b of slot0Buckets) {
-        expect(b.entries.map((e) => e.ballId).sort()).toEqual([ballFor(pA.id), ballFor(pB.id)].sort());
+        expect(b.entries.map((e) => e.ballId).sort()).toEqual([ballA, ballB].sort());
     }
     for (const b of slot1Buckets) {
-        expect(b.entries.map((e) => e.ballId)).toEqual([ballFor(pC.id)]);
+        expect(b.entries.map((e) => e.ballId)).toEqual([ballC]);
     }
 
     // Ball results carry the slotIndex the strategy ran under.
-    const resultA = lb.ballResults.find((r) => r.ballId === ballFor(pA.id))!;
-    const resultC = lb.ballResults.find((r) => r.ballId === ballFor(pC.id))!;
+    const resultA = lb.ballResults.find((r) => r.ballId === ballA)!;
+    const resultC = lb.ballResults.find((r) => r.ballId === ballC)!;
     expect(resultA.slotIndex).toBe(0);
     expect(resultC.slotIndex).toBe(1);
 });
 
 test('ball not assigned to any slot (slot_balls missing) throws', async () => {
-    // Compiler-drift check: seed only pA into any slot_balls row; pOrphan's
-    // ball exists in `balls` but has no slot_balls row → leaderboard must
-    // surface that so it isn't silently dropped from every bucket.
-    const { db, roundService, participantService, leaderboardService, courseId, teeId } = await setup18();
-    const bootstrap = await roundService.createLegacy({
-        courseId, date: '2026-05-01', roundType: 'full_18',
-        venueType: 'outdoor', startListMode: 'structured',
-        formatSlots: [
-            {
-                slotIndex: 0,
-                scoringMode: 'stroke_play',
-                teamShape: 'individual',
-                allowancePct: 100,
-                scopeConfig: null,
-            },
+    // Compiler-drift check: the compiler always stamps slot_balls for every
+    // ball it emits; we manually delete one row to simulate drift and verify
+    // the leaderboard surfaces it instead of silently dropping the ball.
+    const ctx = await setup18();
+    const { db, leaderboardService, courseId, teeId } = ctx;
+    const plA = await ctx.playerService.register({ username: 'orph-a', password: 'password123', displayName: 'Orph A' });
+    const plB = await ctx.playerService.register({ username: 'orph-b', password: 'password123', displayName: 'Orph B' });
+    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
+        courseId,
+        teeId,
+        slots: [{ formatId: 'stroke_play_individual' }],
+        players: [
+            { kind: 'player', id: plA.id, handicapIndex: 9 },
+            { kind: 'player', id: plB.id, handicapIndex: 9 },
         ],
     });
-    const pA = await participantService.create({
-        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
-    });
-    const pOrphan = await participantService.create({
-        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
-    });
-    await seedBallsFromParticipants(db, bootstrap.id);
-    // Manually delete the orphan's slot_balls row to simulate compiler drift.
-    await db.deleteFrom('slot_balls').where('ball_id', '=', ballFor(pOrphan.id)).execute();
-    // Keep pA in the picture so the round has SOME data.
-    void pA;
+    const orphanBall = ballByProducerIndex[1]!;
+    await db.deleteFrom('slot_balls').where('ball_id', '=', orphanBall).execute();
 
-    expect(leaderboardService.forRound(bootstrap.id)).rejects.toThrow(
-        new RegExp(`ball ${ballFor(pOrphan.id)} in round .* is not assigned to any slot`),
+    expect(leaderboardService.forRound(round.id)).rejects.toThrow(
+        new RegExp(`ball ${orphanBall} in round .* is not assigned to any slot`),
     );
 });
 
 test('slots row with unparseable slot_def_id throws', async () => {
     // Drift check: a `slots` row whose `slot_def_id` doesn't match the
-    // `slot-<N>` pattern written by synthesize-legacy can't be mapped back
-    // to a slotIndex. Surface rather than silently partition to slot 0.
-    const { db, roundService, participantService, leaderboardService, courseId, teeId } = await setup18();
-    const round = await roundService.createLegacy({
-        courseId, date: '2026-05-01', roundType: 'full_18',
-        venueType: 'outdoor', startListMode: 'structured',
-        formatSlots: [slot],
+    // `slot-<N>` pattern. Surface rather than silently partition to slot 0.
+    const ctx = await setup18();
+    const { db, leaderboardService, courseId, teeId } = ctx;
+    const pl = await ctx.playerService.register({ username: 'parse-p', password: 'password123', displayName: 'Parse P' });
+    const { round } = await createCompiledRound(ctx, {
+        courseId,
+        teeId,
+        slots: [{ formatId: 'stroke_play_individual' }],
+        players: [{ kind: 'player', id: pl.id, handicapIndex: 9 }],
     });
-    await participantService.create({
-        roundId: round.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
-    });
-    await seedBallsFromParticipants(db, round.id);
     // Corrupt the slot_def_id.
     await db.updateTable('slots').set({ slot_def_id: 'nonsense' }).where('round_id', '=', round.id).execute();
 
@@ -497,48 +402,35 @@ test('multi-slot round with overlapping scoringType label across slots keeps buc
     // Two stableford slots (individual + individual) both emit `points`.
     // The legacy single-bucket-per-scoringType behaviour would have merged
     // them; 2.5i partitions per slot so each lives in its own bucket.
-    const { db, roundService, participantService, playerService, handicapService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
-    const bootstrap = await roundService.createLegacy({
-        courseId, date: '2026-05-01', roundType: 'full_18',
-        venueType: 'outdoor', startListMode: 'structured',
-        formatSlots: [slot],
-    });
-    const plA = await playerService.register({ username: 'ov-a', password: 'password123', displayName: 'OV A' });
-    const plB = await playerService.register({ username: 'ov-b', password: 'password123', displayName: 'OV B' });
-    await handicapService.record({ playerId: plA.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
-    await handicapService.record({ playerId: plB.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
-    const pA = await participantService.create({
-        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
-        players: [{ playerId: plA.id }],
-    });
-    const pB = await participantService.create({
-        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
-        players: [{ playerId: plB.id }],
-    });
-    await seedBallsFromParticipants(db, bootstrap.id);
-    await roundService.update(bootstrap.id, {
-        formatSlots: [
-            {
-                slotIndex: 0, scoringMode: 'stableford', teamShape: 'individual', allowancePct: 100,
-                scopeConfig: { scope: { participantIds: [pA.id] } },
-            },
-            {
-                slotIndex: 1, scoringMode: 'stableford', teamShape: 'individual', allowancePct: 100,
-                scopeConfig: { scope: { participantIds: [pB.id] } },
-            },
+    const ctx = await setup18();
+    const { scoreEventService, leaderboardService, courseId, teeId } = ctx;
+    const plA = await ctx.playerService.register({ username: 'ov-a', password: 'password123', displayName: 'OV A' });
+    const plB = await ctx.playerService.register({ username: 'ov-b', password: 'password123', displayName: 'OV B' });
+    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
+        courseId,
+        teeId,
+        slots: [
+            { formatId: 'stableford_individual', playerIndices: [1] },
+            { formatId: 'stableford_individual', playerIndices: [2] },
+        ],
+        players: [
+            { kind: 'player', id: plA.id, handicapIndex: 9 },
+            { kind: 'player', id: plB.id, handicapIndex: 9 },
         ],
     });
-    await seedBallsFromParticipants(db, bootstrap.id);
+    const ballA = ballByProducerIndex[0]!;
+    const ballB = ballByProducerIndex[1]!;
+
     for (let h = 1; h <= 18; h++) {
-        await scoreEventService.append({ roundId: bootstrap.id, ballId: ballFor(pA.id), hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `a-h${h}` });
-        await scoreEventService.append({ roundId: bootstrap.id, ballId: ballFor(pB.id), hole: h, strokes: 5, eventType: 'score_entered', clientEventId: `b-h${h}` });
+        await scoreEventService.append({ roundId: round.id, ballId: ballA, hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `a-h${h}` });
+        await scoreEventService.append({ roundId: round.id, ballId: ballB, hole: h, strokes: 5, eventType: 'score_entered', clientEventId: `b-h${h}` });
     }
 
-    const lb = await leaderboardService.forRound(bootstrap.id);
+    const lb = await leaderboardService.forRound(round.id);
     const pointsBuckets = lb.byScoringType.filter((b) => b.scoringType === 'points');
     // TWO separate points buckets, one per slot — 2.5h's collision is resolved.
     expect(pointsBuckets).toHaveLength(2);
     expect(pointsBuckets.map((b) => b.slotIndex).sort()).toEqual([0, 1]);
-    expect(pointsBuckets[0]!.entries.map((e) => e.ballId)).toEqual([ballFor(pA.id)]);
-    expect(pointsBuckets[1]!.entries.map((e) => e.ballId)).toEqual([ballFor(pB.id)]);
+    expect(pointsBuckets[0]!.entries.map((e) => e.ballId)).toEqual([ballA]);
+    expect(pointsBuckets[1]!.entries.map((e) => e.ballId)).toEqual([ballB]);
 });
