@@ -173,4 +173,130 @@ describe('persistCompiledRound', () => {
             expect(sb.playing_handicap_snapshot).toBe(10);
         }
     });
+
+    test('recompile with identical definition → v2 row, v1 marked superseded, outputs stable', async () => {
+        const ctx = await setupRound();
+        const first = compile(mkInput());
+        if (!first.ok) throw new Error(JSON.stringify(first.diagnostics));
+        await persistCompiledRound(ctx.db, first.compiled);
+        const firstBallIds = first.compiled.balls.map((b) => b.id).sort();
+
+        const second = compile(mkInput());
+        if (!second.ok) throw new Error(JSON.stringify(second.diagnostics));
+        const res = await persistCompiledRound(ctx.db, second.compiled, {
+            sourceKind: 'setup_correction',
+            sourceEventId: 'evt-1',
+        });
+        expect(res.version).toBe(2);
+        expect(res.isRecompile).toBe(true);
+
+        const defs = await ctx.db
+            .selectFrom('round_definitions')
+            .selectAll()
+            .where('round_id', '=', 'r1')
+            .orderBy('version', 'asc')
+            .execute();
+        expect(defs).toHaveLength(2);
+        expect(defs[0].version).toBe(1);
+        expect(defs[0].superseded_by_version).toBe(2);
+        expect(defs[1].version).toBe(2);
+        expect(defs[1].source_kind).toBe('setup_correction');
+        expect(defs[1].source_event_id).toBe('evt-1');
+
+        const ballsAfter = await ctx.db
+            .selectFrom('balls')
+            .select('id')
+            .where('round_id', '=', 'r1')
+            .execute();
+        expect(ballsAfter.map((b) => b.id).sort()).toEqual(firstBallIds);
+    });
+
+    test('recompile with changed allowance → slot_balls PH updates, ball ids stable', async () => {
+        const ctx = await setupRound();
+        const first = compile(mkInput());
+        if (!first.ok) throw new Error(JSON.stringify(first.diagnostics));
+        await persistCompiledRound(ctx.db, first.compiled);
+
+        const input2 = mkInput();
+        input2.definition = {
+            ...definition,
+            slots: [
+                { ...definition.slots[0], allowanceConfig: { type: 'flat', pct: 50 } },
+            ],
+        };
+        const second = compile(input2);
+        if (!second.ok) throw new Error(JSON.stringify(second.diagnostics));
+        await persistCompiledRound(ctx.db, second.compiled, {
+            sourceKind: 'allowance_override',
+            sourceEventId: 'evt-2',
+        });
+
+        const slotBalls = await ctx.db.selectFrom('slot_balls').selectAll().execute();
+        expect(slotBalls).toHaveLength(3);
+        for (const sb of slotBalls) {
+            expect(sb.playing_handicap_snapshot).toBe(6); // CH=11 (hi 10, slope 130, cr 71.2, par 72) × 0.5 → 6
+        }
+        const firstBalls = first.compiled.balls.map((b) => b.id).sort();
+        const secondBalls = second.compiled.balls.map((b) => b.id).sort();
+        expect(secondBalls).toEqual(firstBalls);
+    });
+
+    test('recompile with removed producer → ball row + ball_players cascade away', async () => {
+        const ctx = await setupRound();
+        const first = compile(mkInput());
+        if (!first.ok) throw new Error(JSON.stringify(first.diagnostics));
+        await persistCompiledRound(ctx.db, first.compiled);
+
+        const input2 = mkInput();
+        input2.definition = {
+            ...definition,
+            producers: definition.producers.filter((p) => p.id !== 'p3'),
+        };
+        const second = compile(input2);
+        if (!second.ok) throw new Error(JSON.stringify(second.diagnostics));
+        await persistCompiledRound(ctx.db, second.compiled, {
+            sourceKind: 'setup_correction',
+            sourceEventId: 'evt-3',
+        });
+
+        const balls = await ctx.db
+            .selectFrom('balls')
+            .selectAll()
+            .where('round_id', '=', 'r1')
+            .execute();
+        expect(balls).toHaveLength(2);
+
+        const bpForMissing = await ctx.db
+            .selectFrom('ball_players')
+            .selectAll()
+            .where('player_id', '=', 'p3')
+            .execute();
+        expect(bpForMissing).toHaveLength(0);
+    });
+
+    test('rejects source_kind=initial when prior version exists', async () => {
+        const ctx = await setupRound();
+        const first = compile(mkInput());
+        if (!first.ok) throw new Error(JSON.stringify(first.diagnostics));
+        await persistCompiledRound(ctx.db, first.compiled);
+
+        const second = compile(mkInput());
+        if (!second.ok) throw new Error(JSON.stringify(second.diagnostics));
+        await expect(
+            persistCompiledRound(ctx.db, second.compiled, { sourceKind: 'initial' }),
+        ).rejects.toThrow(/already has version/);
+    });
+
+    test('rejects setup_correction without source_event_id', async () => {
+        const ctx = await setupRound();
+        const first = compile(mkInput());
+        if (!first.ok) throw new Error(JSON.stringify(first.diagnostics));
+        await persistCompiledRound(ctx.db, first.compiled);
+
+        const second = compile(mkInput());
+        if (!second.ok) throw new Error(JSON.stringify(second.diagnostics));
+        await expect(
+            persistCompiledRound(ctx.db, second.compiled, { sourceKind: 'setup_correction' }),
+        ).rejects.toThrow(/requires source_event_id/);
+    });
 });
