@@ -45,9 +45,12 @@ export async function apply(s: Scenario): Promise<void> {
     const eve = await s.player('eve', { displayName: 'Eve Eriksson', handicap: 6 });
     const frankGuest = await s.guest('Frank Gäst', { gender: 'M', handicap: 14 });
 
-    // Create the round WITHOUT scopes first (scenario-level helper doesn't
-    // know participant ids yet). We'll update the slots with scopes after
-    // we add the participants.
+    // Slice 2.6b/3d.3 — round scope is declared up-front via
+    // `slotIndex` on each `addParticipant` call. The scenario draft
+    // accumulates a `scopeProducerDefIds` list per slot and the
+    // translator emits `ballSelector.producerDefIds` so the compiler
+    // routes each slot's own balls into `slot_balls`. No more
+    // post-hoc `roundService.update({scopeConfig: {...}})` dance.
     const round = await s.round({
         clubName: 'Linköpings Golfklubb',
         courseName: 'Linköpings Golfklubb 1-18',
@@ -56,8 +59,6 @@ export async function apply(s: Scenario): Promise<void> {
         venueType: 'outdoor',
         startListMode: 'structured',
         formatSlots: [
-            // Placeholder slot #0 — will be overwritten with scope once
-            // participants exist. Kept for `create()`'s min-one-slot rule.
             { scoringMode: 'stableford', teamShape: 'individual', allowancePct: 95 },
             { scoringMode: 'stroke_play', teamShape: 'foursomes', allowancePct: 50 },
         ],
@@ -70,12 +71,14 @@ export async function apply(s: Scenario): Promise<void> {
         teeName: 'Gul',
         gender: 'M',
         allowancePct: 95,
+        slotIndex: 0,
     });
     const pBob = await round.addParticipant({
         player: bob,
         teeName: 'Gul',
         gender: 'M',
         allowancePct: 95,
+        slotIndex: 0,
     });
 
     // --- Slot #1 participants: two foursomes teams ---
@@ -87,6 +90,7 @@ export async function apply(s: Scenario): Promise<void> {
         gender: 'M',
         allowancePct: 50,
         teamLabel: 'Carol & Dan',
+        slotIndex: 1,
     });
     const teamEveFrank = await round.addParticipant({
         team: [{ player: eve }, { guest: frankGuest }],
@@ -95,30 +99,7 @@ export async function apply(s: Scenario): Promise<void> {
         gender: 'M',
         allowancePct: 50,
         teamLabel: 'Eve & Frank',
-    });
-
-    // Now attach scope lists to each slot — participant ids are known.
-    await s.services.roundService.update(round.id, {
-        formatSlots: [
-            {
-                slotIndex: 0,
-                scoringMode: 'stableford',
-                teamShape: 'individual',
-                allowancePct: 95,
-                scopeConfig: {
-                    scope: { participantIds: [pAlice.id, pBob.id] },
-                },
-            },
-            {
-                slotIndex: 1,
-                scoringMode: 'stroke_play',
-                teamShape: 'foursomes',
-                allowancePct: 50,
-                scopeConfig: {
-                    scope: { participantIds: [teamCarolDan.id, teamEveFrank.id] },
-                },
-            },
-        ],
+        slotIndex: 1,
     });
 
     // --- Events, slot #0 ---

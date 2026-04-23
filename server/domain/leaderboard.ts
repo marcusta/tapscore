@@ -70,6 +70,8 @@ export interface SlotGroup {
     slot: FormatSlot;
     balls: BallInput[];
     courseHoles: CourseHole[];
+    /** Optional team grouping — see `SlotInput.teams`. */
+    teams?: { teamLabel: string; ballIds: string[] }[];
 }
 
 export interface LeaderboardInput {
@@ -122,6 +124,7 @@ export function computeLeaderboard(input: LeaderboardInput): Leaderboard {
         const slotInput: SlotInput = {
             balls: group.balls,
             courseHoles: group.courseHoles,
+            teams: group.teams,
         };
         const out = strategy.compute(slotInput, group.slot);
         ballResults.push(...out.ballResults);

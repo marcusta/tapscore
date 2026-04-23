@@ -1,23 +1,17 @@
 // Stableford × better-ball — 2-player teams, team points per hole = max of
 // the two players' individual stableford points.
 //
-// Each player has their own ball, their own strokes given (from their own
-// PH and the hole's SI), their own per-hole stableford outcome. The team
-// takes the better score — one non-null contribution wins the hole; both
-// null makes the team-hole null.
+// Phase 2.6b own-ball topology: the compiler emits ONE ball per producer.
+// This strategy iterates `SlotInput.teams` — each entry groups 2 own-ball
+// ids into a team. Per team, we look up each own-ball's BallInput and read
+// per-hole strokes directly off its `holes` list (no source filtering;
+// own-balls don't populate the source columns).
 //
-// This is the first strategy that reads per-player rows from a
-// participant's scorecard. Since 2.5d the `scorecards` table is keyed by
-// `(participant_id, hole, source_key)` — a better-ball team has two rows
-// per hole, one per player source. This strategy groups them by source,
-// runs a full stableford calculation per player with that player's own
-// PH and strokes-given map, then picks the team's best points per hole.
+// Validation: team shape is `better_ball`, `SlotInput.teams` must be
+// present with at least one team, and every team must have exactly 2
+// own-balls. Fewer / more → throws with the slot + team label.
 //
-// Validation: team shape is `better_ball` and we require exactly 2 player
-// links on each participant. Fewer or more → throws with the slot + the
-// participant id.
-//
-// Totals: one `points` entry per participant. `points` already sorts
+// Totals: one `points` entry per team. `points` already sorts
 // high-to-low in `leaderboard.ts`. Gross/net on each team `HoleResult`
 // are set to the MIN of the two players' values — "best-ball gross/net"
 // is a display convenience (the scorecard Gross/Net rows want something),
@@ -30,60 +24,39 @@ import type {
     FormatStrategy,
     HoleResult,
     BallInput,
-    BallPlayerInput,
     BallResult,
     SlotInput,
     SlotResult,
 } from '../format';
 import type { FormatSlot } from '../../services/round.service';
-import type { ScorecardHole } from '../../services/scorecard.service';
-import { pickForSource } from '../../services/scorecard.service';
 import { strokesGivenMap, stablefordOutcome, type StablefordHoleOutcome } from './_stableford-scoring';
 
-interface PlayerCtx {
-    /** Stable short display label for the note (first 8 of player id if nothing better). */
+interface BallCtx {
+    ball: BallInput;
     label: string;
-    link: BallPlayerInput;
     strokesByHole: Map<number, number>;
-    holes: ScorecardHole[]; // only this player's rows
 }
 
-function playerLabel(link: BallPlayerInput): string {
-    const id = link.playerId ?? link.guestPlayerId ?? 'unknown';
+function ballLabel(ball: BallInput): string {
+    if (ball.teamLabel && ball.teamLabel.length > 0) return ball.teamLabel;
+    const link = (ball.players ?? [])[0];
+    const id = link?.playerId ?? link?.guestPlayerId ?? ball.ballId;
     return `p:${id.slice(0, 6)}`;
 }
 
-function resolvePlayerCtx(
-    link: BallPlayerInput,
-    allHoles: ScorecardHole[],
-    courseHoles: CourseHole[],
-): PlayerCtx {
-    const ph = link.playingHandicap ?? 0;
-    // Filter the participant's scorecard rows down to this player's source.
-    // `pickForSource` is row-level; we iterate it per hole below via the
-    // holes it matches. For efficiency we pre-filter the flat list once.
-    const playerHoles: ScorecardHole[] = [];
-    for (const h of allHoles) {
-        if (
-            h.sourcePlayerId === link.playerId &&
-            h.sourceGuestPlayerId === link.guestPlayerId
-        ) {
-            playerHoles.push(h);
-        }
-    }
+function resolveCtx(ball: BallInput, courseHoles: CourseHole[]): BallCtx {
+    const link = (ball.players ?? [])[0];
+    const ph = link?.playingHandicap ?? ball.playingHandicap ?? 0;
     return {
-        label: playerLabel(link),
-        link,
+        ball,
+        label: ballLabel(ball),
         strokesByHole: strokesGivenMap(ph, courseHoles),
-        holes: playerHoles,
     };
 }
 
-function outcomeFor(ctx: PlayerCtx, ch: CourseHole): StablefordHoleOutcome {
-    // `pickForSource` would do a linear scan of the unfiltered list; we
-    // already filtered in resolvePlayerCtx, so scan the short list here.
-    const matching = ctx.holes.find((h) => h.holeNumber === ch.holeNumber);
-    const strokes = matching === undefined ? undefined : matching.strokes;
+function outcomeFor(ctx: BallCtx, ch: CourseHole): StablefordHoleOutcome {
+    const row = ctx.ball.holes.find((h) => h.holeNumber === ch.holeNumber);
+    const strokes = row === undefined ? undefined : row.strokes;
     return stablefordOutcome(strokes, ch, ctx.strokesByHole.get(ch.holeNumber) ?? 0);
 }
 
@@ -91,16 +64,11 @@ function combineBestBall(
     a: StablefordHoleOutcome,
     b: StablefordHoleOutcome,
 ): { points: number | null; gross: number | null; net: number | null } {
-    // Points: max of the two non-null values; null if both null.
     let points: number | null = null;
     if (a.points !== null && b.points !== null) points = Math.max(a.points, b.points);
     else if (a.points !== null) points = a.points;
     else if (b.points !== null) points = b.points;
 
-    // Best-ball gross/net: min of the two non-null strokes values (lower is
-    // better); null if both null. Note: a scored hole has a gross; pickup,
-    // DNP, and no_event all have null gross — so the team's "best-ball
-    // gross" is the other player's gross when one of them didn't finish.
     const pickMin = (x: number | null, y: number | null): number | null => {
         if (x !== null && y !== null) return Math.min(x, y);
         return x ?? y;
@@ -109,28 +77,31 @@ function combineBestBall(
 }
 
 function computeTeam(
-    input: BallInput,
+    teamLabel: string,
+    ballIds: string[],
+    ballsById: Map<string, BallInput>,
     courseHoles: CourseHole[],
     slot: FormatSlot,
 ): BallResult {
-    const links = input.players ?? [];
-    if (links.length !== 2) {
+    if (ballIds.length !== 2) {
         throw new Error(
-            `stableford better-ball slot #${slot.slotIndex}: participant ${input.ballId} needs exactly 2 player links (got ${links.length})`,
+            `stableford better-ball slot #${slot.slotIndex}: team '${teamLabel}' needs exactly 2 own-balls (got ${ballIds.length})`,
+        );
+    }
+    const ballA = ballsById.get(ballIds[0]!);
+    const ballB = ballsById.get(ballIds[1]!);
+    if (!ballA || !ballB) {
+        throw new Error(
+            `stableford better-ball slot #${slot.slotIndex}: team '${teamLabel}' references ball id(s) not present in slot: ${ballIds.join(', ')}`,
         );
     }
 
-    const [ctxA, ctxB] = [
-        resolvePlayerCtx(links[0], input.holes, courseHoles),
-        resolvePlayerCtx(links[1], input.holes, courseHoles),
-    ];
+    const ctxA = resolveCtx(ballA, courseHoles);
+    const ctxB = resolveCtx(ballB, courseHoles);
 
     const resultHoles: HoleResult[] = [];
     let pointsTotal = 0;
     let pointsHasValue = false;
-    // "holes played" from the team's perspective — any hole where at least
-    // one player contributed a non-null points value (either a scored hole
-    // or a pickup). A hole where both are DNP / no-event doesn't count.
     let holesPlayed = 0;
 
     for (const ch of courseHoles) {
@@ -144,11 +115,6 @@ function computeTeam(
             holesPlayed++;
         }
 
-        // Per-hole note: show the team's chosen points + each player's
-        // individual contribution. Hand-verifiable at a glance.
-        //   "team 3 (p:abc 3, p:def 1)"
-        //   "team 2 (p:abc 0 pickup, p:def 2)"
-        //   "team 3 (p:abc dnp, p:def 3)"
         const describe = (o: StablefordHoleOutcome, label: string): string => {
             if (o.kind === 'scored') return `${label} ${o.points}`;
             if (o.kind === 'pickup') return `${label} 0 pickup`;
@@ -167,8 +133,10 @@ function computeTeam(
         });
     }
 
+    // Representative ball id — use the first own-ball's id so leaderboard
+    // keys stay stable across reads.
     return {
-        ballId: input.ballId,
+        ballId: ballA.ballId,
         slotIndex: slot.slotIndex,
         holes: resultHoles,
         totals: [
@@ -181,17 +149,19 @@ function computeTeam(
     };
 }
 
-// Unused import guard — we document `pickForSource` as the alternative
-// slicing API in the module comment. Strategies that don't pre-filter
-// can call it row-by-row.
-void pickForSource;
-
 export const stablefordBetterBall: FormatStrategy = {
     scoringMode: 'stableford',
     teamShape: 'better_ball',
     compute(input: SlotInput, slot: FormatSlot): SlotResult {
-        const ballResults = input.balls.map((p) =>
-            computeTeam(p, input.courseHoles, slot),
+        const teams = input.teams ?? [];
+        if (teams.length === 0) {
+            throw new Error(
+                `stableford better-ball slot #${slot.slotIndex}: needs at least one team grouping (SlotInput.teams) — did the compiler emit slot_ball_teams?`,
+            );
+        }
+        const ballsById = new Map(input.balls.map((b) => [b.ballId, b]));
+        const ballResults = teams.map((t) =>
+            computeTeam(t.teamLabel, t.ballIds, ballsById, input.courseHoles, slot),
         );
         return { ballResults };
     },

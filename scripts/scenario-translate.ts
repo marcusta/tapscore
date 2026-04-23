@@ -166,8 +166,18 @@ export function draftToDefinition(
     const producers: ProducerDefinition[] = draft.producers.map((p) =>
         toProducerDefinition(p, resolved),
     );
+    // Compute the producer set for the shared own-ball strategy — only
+    // producers that land in at least one non-foursomes slot. Multi-slot
+    // rounds that mix foursomes + individual (see
+    // `seeds/multi-slot-series-round.ts`) would otherwise orphan foursomes
+    // producers' own-balls: `collectStrategyProducers` defaults to all
+    // round producers when no composition is present. Passing an explicit
+    // composition narrows the set; own-ball ignores the composition
+    // shape at create time but honours the producer filter via
+    // `collectStrategyProducers`.
+    const ownBallProducerIds = collectOwnBallScopedProducerIds(draft);
     const ballStrategies: BallStrategyDefinition[] = draft.strategies.map((s) =>
-        toBallStrategyDefinition(s),
+        toBallStrategyDefinition(s, ownBallProducerIds),
     );
     const slots: SlotDefinition[] = draft.slots.map((s) =>
         toSlotDefinition(s, draft.strategies),
@@ -205,7 +215,10 @@ function toProducerDefinition(
     };
 }
 
-function toBallStrategyDefinition(s: StrategyDraft): BallStrategyDefinition {
+function toBallStrategyDefinition(
+    s: StrategyDraft,
+    ownBallProducerIds: Set<string>,
+): BallStrategyDefinition {
     const base: BallStrategyDefinition = {
         id: s.defId,
         strategyId: s.strategyId,
@@ -223,8 +236,40 @@ function toBallStrategyDefinition(s: StrategyDraft): BallStrategyDefinition {
                 producerDefIds: [...pair.producerDefIds],
             })),
         };
+    } else if (s.strategyId === 'own_ball_per_player' && ownBallProducerIds.size > 0) {
+        // Scope the own-ball strategy's producer set so multi-slot mixed
+        // (individual + foursomes) rounds don't spawn own-balls for
+        // foursomes-only producers. A single-team `composition` acts as a
+        // whitelist — see `compile.ts::collectStrategyProducers`.
+        base.composition = {
+            teams: [
+                {
+                    label: 'own-ball-scope',
+                    producerDefIds: [...ownBallProducerIds],
+                },
+            ],
+        };
     }
     return base;
+}
+
+function collectOwnBallScopedProducerIds(
+    draft: RoundDefinitionDraft,
+): Set<string> {
+    const out = new Set<string>();
+    // Single-slot rounds with individual/team-shape-that-uses-own-ball
+    // take every producer. Multi-slot rounds restrict to producers
+    // attached to a non-foursomes slot (via slot.scopeProducerDefIds).
+    const multiSlot = draft.slots.length > 1;
+    for (const slot of draft.slots) {
+        if (slot.teamShape === 'foursomes') continue;
+        if (multiSlot) {
+            for (const pid of slot.scopeProducerDefIds ?? []) out.add(pid);
+        } else {
+            for (const p of draft.producers) out.add(p.defId);
+        }
+    }
+    return out;
 }
 
 function toSlotDefinition(
@@ -247,8 +292,20 @@ function toSlotDefinition(
         formatId,
         allowanceConfig: s.allowanceConfig,
     };
+    // Ball selection — slice 3d.3 adds per-slot producer scoping for
+    // multi-slot rounds (`scopeProducerDefIds`). When a subset is set, we
+    // hand the compiler both the strategy def-id AND the producer filter
+    // so each slot ends up with only its own balls (round.service writes
+    // them into `slot_balls` via the compiler). When no subset, the
+    // strategy alone is enough.
     if (ownerStrategyId) {
-        out.ballSelector = { strategyDefIds: [ownerStrategyId] };
+        const selector: { strategyDefIds: string[]; producerDefIds?: string[] } = {
+            strategyDefIds: [ownerStrategyId],
+        };
+        if (s.scopeProducerDefIds && s.scopeProducerDefIds.length > 0) {
+            selector.producerDefIds = [...s.scopeProducerDefIds];
+        }
+        out.ballSelector = selector;
     }
     if (s.teamGroupings && s.teamGroupings.length >= 2) {
         out.teamGrouping = {
@@ -258,8 +315,21 @@ function toSlotDefinition(
             })),
         };
     }
+    // Unwrap `scopeConfig.config` → `formatConfig`. The scenario DSL passes
+    // the full FormatSlotConfig shape (`{ scope?, config? }`) for parity
+    // with `round_format_slots.scope_config`. The compiler-facing
+    // `formatConfig` only carries the inner format-specific blob;
+    // `round.service.create` re-wraps it back into `{ config: ... }` when
+    // writing the legacy row. Matches the inversion synthesize-legacy.ts
+    // does (line 188: `slotDef.formatConfig = scope.config`).
     if (s.scopeConfig !== undefined && s.scopeConfig !== null) {
-        out.formatConfig = s.scopeConfig;
+        const sc = s.scopeConfig as {
+            scope?: { participantIds?: string[] };
+            config?: unknown;
+        };
+        if (sc.config !== undefined) {
+            out.formatConfig = sc.config;
+        }
     }
     return out;
 }

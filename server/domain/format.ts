@@ -129,20 +129,20 @@ export interface BallPlayerInput {
 /**
  * Minimum ball context a strategy needs — strokes + snapshots for net.
  *
- * `holes` contains ALL scorecard rows for the ball, regardless of source.
- * For individual / foursomes every row has `sourcePlayerId = null` and
- * `sourceGuestPlayerId = null` — a single row per hole. For team formats
- * that populate the source columns (better-ball, Taliban, Umbrella) there
- * is one row per (hole, source-player) tuple. Strategies that don't
- * expect multi-source rows (stroke-play, stableford-individual, match-play,
- * köpenhamnare) get away with this because their callers never append
- * team-source events under the same ball — their rows are all null/null.
- * Team strategies use `pickForSource` from `scorecard.service` to slice
- * by player.
+ * Phase 2.6b own-ball topology: every ball represents ONE producer. Team
+ * formats (better-ball / four-ball) consume `SlotInput.teams` to learn
+ * which own-balls group together; each ball has exactly ONE entry in
+ * `players`. Foursomes is the sole remaining multi-player-per-ball shape
+ * (2 members on one alternating-shot ball).
  *
- * `players` carries per-player PHs for team formats. Empty array or omitted
- * for individual / foursomes — those formats ignore it. Team formats
- * validate count (better-ball: exactly 2).
+ * `holes` contains ALL scorecard rows for the ball. For own-balls (team
+ * formats) and individual shapes every row has `sourcePlayerId = null` /
+ * `sourceGuestPlayerId = null` — one row per hole. Strategies read
+ * `holes` directly; no source-key filtering.
+ *
+ * `players` — 1-element for own-balls, 2-element for foursomes. Team
+ * formats read per-player PH off each own-ball's single entry; foursomes
+ * keeps the 2-element shape for per-player PH fallbacks.
  */
 export interface BallInput {
     ballId: string;
@@ -151,17 +151,16 @@ export interface BallInput {
     /** Null if the ball has no frozen playing handicap (stroke-play gross only). */
     playingHandicap: number | null;
     /**
-     * Per-player links + PHs for team formats. Optional — defaults to []
-     * so existing individual-format tests don't need updating. Team
-     * strategies (better-ball, Taliban, Umbrella) throw if the count is
-     * wrong for their shape.
+     * Per-player links + PHs. Own-balls (team formats): 1 entry. Foursomes:
+     * 2 entries. Individual strokes/stableford/etc. ignore this.
      */
     players?: BallPlayerInput[];
     /**
-     * Optional team / ball display label — `participants.team_label`.
-     * Taliban's pair-summary renders `"{labelA} {ptsA} − {ptsB} {labelB}"`
-     * using this when present; falls back to a short id otherwise. Other
-     * strategies ignore it.
+     * Optional ball display label — `balls.label` (the compiler stamps this
+     * from the producer's display name for own-balls, or the team label for
+     * pair/team balls). Team-format strategies derive the pair's display
+     * label from the team grouping (`SlotInput.teams[].teamLabel`) and fall
+     * back to this per-ball label otherwise.
      */
     teamLabel?: string | null;
 }
@@ -171,10 +170,18 @@ export interface BallInput {
  * course holes. Course holes live on the slot (not on each ball) because
  * a slot by definition plays one course — de-duplicating here avoids
  * drift between balls of the same slot.
+ *
+ * `teams` — populated for team-shape slots (`better_ball`, `four_ball`) by
+ * Phase 2.6b's own-ball topology: the compiler emits ONE ball per producer
+ * (N own-balls per team), plus `slot_ball_teams` rows that group those
+ * own-balls into teams. Team-format strategies read THIS field to know
+ * which own-balls belong together — NOT `balls.players`. Individual /
+ * foursomes slots leave it undefined.
  */
 export interface SlotInput {
     balls: BallInput[];
     courseHoles: CourseHole[];
+    teams?: { teamLabel: string; ballIds: string[] }[];
 }
 
 /** Slot-level strategy output. Always has per-ball results; pair results optional. */

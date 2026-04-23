@@ -80,7 +80,14 @@ describe('draftToDefinition', () => {
             teeId: 'tee-y',
         });
         expect(def.ballStrategies).toHaveLength(1);
-        expect(def.ballStrategies[0].composition).toBeUndefined();
+        // own-ball gets an `own-ball-scope` composition in single-slot
+        // mode listing every producer in the round. It's a whitelist for
+        // `compile.ts::collectStrategyProducers` (own-ball ignores the
+        // shape at create() time) that keeps multi-slot mixed rounds from
+        // orphaning foursomes-only producers as own-balls.
+        expect(def.ballStrategies[0].composition).toEqual({
+            teams: [{ label: 'own-ball-scope', producerDefIds: ['p1'] }],
+        });
         expect(def.slots).toHaveLength(1);
         expect(def.slots[0].formatId).toBe('stroke_play_individual');
         expect(def.slots[0].ballSelector).toEqual({
@@ -228,9 +235,10 @@ describe('draftToDefinition', () => {
             strategyDefIds: ['strat-own-ball'],
         });
         expect(def.slots[0].teamGrouping?.teams).toHaveLength(2);
-        expect(def.slots[0].formatConfig).toEqual({
-            config: { birdieRule: 'gross' },
-        });
+        // Translator unwraps `scopeConfig.config` → `formatConfig` so
+        // round.service can re-wrap into `{ config: ... }` without double
+        // nesting. Mirrors synthesize-legacy.ts line 188.
+        expect(def.slots[0].formatConfig).toEqual({ birdieRule: 'gross' });
     });
 
     test('taliban 2v2 — 4 producers, 2 teams, own-ball', () => {
@@ -303,14 +311,14 @@ describe('draftToDefinition', () => {
                     scoringMode: 'stableford',
                     teamShape: 'individual',
                     allowanceConfig: { type: 'flat', pct: 95 },
-                    scopeConfig: { scope: { participantIds: ['pa-1', 'pa-2'] } },
+                    scopeProducerDefIds: ['p1', 'p2'],
                 },
                 {
                     defId: 'slot-1',
                     scoringMode: 'stroke_play',
                     teamShape: 'foursomes',
                     allowanceConfig: { type: 'flat', pct: 50 },
-                    scopeConfig: { scope: { participantIds: ['pa-3', 'pa-4'] } },
+                    scopeProducerDefIds: ['p3', 'p4', 'p5', 'p6'],
                 },
             ],
         });
@@ -329,20 +337,22 @@ describe('draftToDefinition', () => {
             ],
         });
 
+        // Slot 0 — only Alice+Bob. `scopeProducerDefIds` becomes
+        // `ballSelector.producerDefIds` so compiler routes the right
+        // own-ball balls into the slot.
         expect(def.slots[0].formatId).toBe('stableford_individual');
         expect(def.slots[0].ballSelector).toEqual({
             strategyDefIds: ['strat-own-ball'],
-        });
-        expect(def.slots[0].formatConfig).toEqual({
-            scope: { participantIds: ['pa-1', 'pa-2'] },
+            producerDefIds: ['p1', 'p2'],
         });
 
+        // Slot 1 — foursomes teams; alt-shot strategy + pair producer
+        // filter. The compiler expects ballSelector.producerDefIds to
+        // cover every producer in the kept balls (2-producer pair balls).
         expect(def.slots[1].formatId).toBe('stroke_play_foursomes');
         expect(def.slots[1].ballSelector).toEqual({
             strategyDefIds: ['strat-alt-shot'],
-        });
-        expect(def.slots[1].formatConfig).toEqual({
-            scope: { participantIds: ['pa-3', 'pa-4'] },
+            producerDefIds: ['p3', 'p4', 'p5', 'p6'],
         });
     });
 

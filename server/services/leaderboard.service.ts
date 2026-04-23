@@ -115,8 +115,36 @@ export class LeaderboardService {
                 'sb.ball_id',
                 'sb.playing_handicap_snapshot',
                 's.slot_def_id',
+                's.id as slot_id',
+                's.team_shape',
             ])
             .execute();
+
+        // slot_ball_teams — per (slot, team_label, ball). Forwarded to the
+        // strategy as `SlotInput.teams` so team-format strategies iterate
+        // team groupings (not the flat ball list). Slots without any
+        // slot_ball_teams rows pass `teams: undefined` through — the
+        // individual / foursomes strategies ignore it.
+        const slotBallTeamRows = await this.db
+            .selectFrom('slot_ball_teams as sbt')
+            .innerJoin('slots as s', 's.id', 'sbt.slot_id')
+            .where('s.round_id', '=', roundId)
+            .select(['sbt.slot_id', 'sbt.team_label', 'sbt.ball_id'])
+            .execute();
+
+        // slotId → Map<teamLabel, ballIds> — preserves row-insertion order
+        // so team iteration is deterministic by team_label.
+        const teamsBySlot = new Map<string, Map<string, string[]>>();
+        for (const r of slotBallTeamRows) {
+            let bySlot = teamsBySlot.get(r.slot_id);
+            if (!bySlot) {
+                bySlot = new Map();
+                teamsBySlot.set(r.slot_id, bySlot);
+            }
+            const list = bySlot.get(r.team_label) ?? [];
+            list.push(r.ball_id);
+            bySlot.set(r.team_label, list);
+        }
 
         // slot_def_id → slotIndex (strip `slot-` prefix).
         function parseSlotIndex(slotDefId: string): number {
@@ -137,10 +165,15 @@ export class LeaderboardService {
         // --- Build ball inputs per slot. ---
 
         const ballInputsBySlotIndex = new Map<number, BallInput[]>();
+        const teamsBySlotIndex = new Map<
+            number,
+            { teamLabel: string; ballIds: string[] }[]
+        >();
         for (const s of round.formatSlots) {
             ballInputsBySlotIndex.set(s.slotIndex, []);
         }
 
+        const slotIndexBySlotId = new Map<string, number>();
         const ballsSeen = new Set<string>();
         for (const row of slotBallRows) {
             const slotIndex = parseSlotIndex(row.slot_def_id);
@@ -150,14 +183,28 @@ export class LeaderboardService {
                     `round ${roundId}: slot index ${slotIndex} present in slots table but missing from round_format_slots`,
                 );
             }
-            bucket.push({
+            slotIndexBySlotId.set(row.slot_id, slotIndex);
+            const input: BallInput = {
                 ballId: row.ball_id,
                 playingHandicap: row.playing_handicap_snapshot,
                 holes: cardByBall.get(row.ball_id)?.holes ?? [],
                 teamLabel: teamLabelByBall.get(row.ball_id) ?? null,
                 players: playersByBall.get(row.ball_id) ?? [],
-            });
+            };
+            bucket.push(input);
             ballsSeen.add(row.ball_id);
+        }
+
+        // Attach team groupings per slot so team-format strategies can
+        // iterate them directly (no collapsing / merging of own-balls).
+        for (const [slotId, teams] of teamsBySlot) {
+            const slotIndex = slotIndexBySlotId.get(slotId);
+            if (slotIndex === undefined) continue;
+            const list: { teamLabel: string; ballIds: string[] }[] = [];
+            for (const [teamLabel, ballIds] of teams) {
+                list.push({ teamLabel, ballIds });
+            }
+            teamsBySlotIndex.set(slotIndex, list);
         }
 
         // Every ball in the round must have landed in at least one slot —
@@ -176,6 +223,7 @@ export class LeaderboardService {
             // `courseHoles` comes from the round's single course — all slots
             // share it. Multi-slot routing doesn't change the course axis.
             courseHoles: allHoles,
+            teams: teamsBySlotIndex.get(slot.slotIndex),
         }));
 
         const lb = computeLeaderboard({ slotGroups });

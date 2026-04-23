@@ -28,14 +28,14 @@
 import { createDb } from '@basics/core/server/db';
 import type { Database, TeeGender, ScoringMode, TeamShape } from '../server/db/schema';
 import { createServices } from '../server/services/index';
-import type { Club } from '../server/services/club.service';
 import type { Course, Hole } from '../server/services/course.service';
 import type { Tee, TeeRating } from '../server/services/tee.service';
 import type { Player } from '../server/services/player.service';
 import type { GuestPlayer } from '../server/services/guest-player.service';
-import type { Participant } from '../server/services/participant.service';
 import type { Round, FormatSlot, FormatSlotConfig } from '../server/services/round.service';
-import { seedBallsFromParticipants } from '../server/testing/balls';
+import { registerBuiltInBallCreationStrategies } from '../server/domain/strategies/ball-creation';
+import { registerBuiltInFormatStrategies } from '../server/domain/strategies/formats';
+import { resolveProducers, draftToDefinition } from './scenario-translate';
 
 const DEFAULT_DB_PATH = process.env.DB_PATH ?? './data/app.sqlite';
 
@@ -121,9 +121,18 @@ export interface AddParticipantInit {
      * foursomes teams auto-average member indices.
      */
     handicapIndexOverride?: number;
-    skipSnapshot?: boolean; // for bare participants
+    /** @deprecated Throws on use — the RoundCompiler always stamps ball_players snapshots. */
+    skipSnapshot?: boolean;
     teamLabel?: string | null;
     categorySnapshot?: string | null;
+    /**
+     * Multi-slot scope. When the round has >1 slot, pass the slot index
+     * this participant's producers belong to. Only that slot will see the
+     * corresponding balls (via `ballSelector.producerDefIds`). Omitted on
+     * single-slot rounds; mixing scoped and un-scoped participants on a
+     * multi-slot round throws.
+     */
+    slotIndex?: number;
 }
 
 /** sparse map: hole number → strokes. `null` = DNP, `0` = pickup, `n` = strokes. */
@@ -187,6 +196,13 @@ export type SlotDraft = {
     /** Pass-through for now (scope routing etc.). */
     scopeConfig?: unknown;
     teamGroupings?: { teamLabel: string; producerDefIds: string[] }[];
+    /**
+     * Per-slot producer scoping for multi-slot rounds. When set, the
+     * translator emits `ballSelector.producerDefIds` so the compiler
+     * routes only the listed producers' balls into this slot. `slotIndex`
+     * on `AddParticipantInit` accumulates into this list.
+     */
+    scopeProducerDefIds?: string[];
 };
 
 export type RoundDefinitionDraft = {
@@ -238,6 +254,12 @@ export interface TeeRef {
 // --- Scenario ---
 
 export async function startScenario(dbPath = DEFAULT_DB_PATH): Promise<Scenario> {
+    // Slice 2.6b/3d.3 cutover — scenario.round() runs the RoundCompiler
+    // lazily, which needs ball-creation + format strategies registered.
+    // Both registrations are idempotent, so calling them on every
+    // `startScenario()` is cheap.
+    registerBuiltInBallCreationStrategies();
+    registerBuiltInFormatStrategies();
     const db = createDb<Database>(dbPath);
     const services = createServices(db);
     return new Scenario(db, services);
@@ -388,6 +410,14 @@ export class Scenario {
 
     // --- round ---
 
+    /**
+     * Phase 2.6b/3d.3 — the scenario builder no longer writes a round
+     * eagerly. `s.round(...)` captures the round config into a draft;
+     * the round materialises on the first `.play()` / `.clear()` call
+     * via `RoundScenarioRef.ensureCompiled()`, which runs the translator
+     * + `roundService.create({ definition })`. `RoundScenarioRef.id` is
+     * unavailable before that first compile — accessing it throws.
+     */
     async round(init: RoundInit): Promise<RoundScenarioRef> {
         let courseId = init.courseId;
         if (!courseId) {
@@ -397,24 +427,6 @@ export class Scenario {
             const c = await this.findCourse(init.clubName, init.courseName);
             courseId = c.id;
         }
-        const slots: FormatSlot[] = init.formatSlots.map((s, i) => ({
-            slotIndex: i,
-            scoringMode: s.scoringMode,
-            teamShape: s.teamShape,
-            allowancePct: s.allowancePct,
-            scopeConfig: s.scopeConfig ?? null,
-        }));
-        const round = await this.services.roundService.createLegacy({
-            courseId,
-            date: init.date,
-            roundType: init.roundType,
-            venueType: init.venueType,
-            startListMode: init.startListMode,
-            windowStart: init.windowStart ?? null,
-            windowEnd: init.windowEnd ?? null,
-            selfOrganize: init.selfOrganize ?? false,
-            formatSlots: slots,
-        });
         const draft: RoundDefinitionDraft = {
             courseId,
             playedAt: init.date,
@@ -430,9 +442,15 @@ export class Scenario {
                 allowanceConfig: { type: 'flat', pct: s.allowancePct },
                 scopeConfig: s.scopeConfig ?? undefined,
                 teamGroupings: undefined,
+                scopeProducerDefIds: undefined,
             })),
         };
-        return new RoundScenarioRef(this, round, draft);
+        const meta: RoundMeta = {
+            windowStart: init.windowStart ?? null,
+            windowEnd: init.windowEnd ?? null,
+            selfOrganize: init.selfOrganize ?? false,
+        };
+        return new RoundScenarioRef(this, draft, meta);
     }
 
     // --- helpers ---
@@ -441,82 +459,222 @@ export class Scenario {
         this.eventCounter += 1;
         return `scen-${Date.now().toString(36)}-${this.eventCounter}`;
     }
+}
 
-    /**
-     * Resolve the ball_id that carries events for a given participant within
-     * a round. Since 3b.3.2 the score-event service speaks `ballId` directly;
-     * scenario.play() / clear() still accept a participant-keyed reference
-     * and translate here. Throws if no ball has been compiled for the
-     * participant — seeds must run the compiler (or a test-style ball seed)
-     * before playing scores.
-     */
-    async resolveBallId(
-        roundId: string,
-        participantId: string,
-        sourcePlayerId: string | null,
-        sourceGuestPlayerId: string | null,
-    ): Promise<string> {
-        const lookup = async (): Promise<string | undefined> => {
-            const rows = await this.db
-                .selectFrom('ball_players as bp')
-                .innerJoin('participant_players as pp', 'pp.id', 'bp.producer_def_id')
-                .innerJoin('balls as b', 'b.id', 'bp.ball_id')
-                .select('bp.ball_id')
-                .where('b.round_id', '=', roundId)
-                .where('pp.participant_id', '=', participantId)
-                .$if(sourcePlayerId !== null, (qb) =>
-                    qb.where('bp.player_id', '=', sourcePlayerId!),
-                )
-                .$if(sourceGuestPlayerId !== null, (qb) =>
-                    qb.where('bp.guest_player_id', '=', sourceGuestPlayerId!),
-                )
-                .limit(1)
-                .execute();
-            return rows[0]?.ball_id;
-        };
-
-        let ballId = await lookup();
-        if (!ballId) {
-            // Seeds use the legacy participant-centric builder. Stamp the
-            // compiler-output topology lazily the first time we need a
-            // ballId for this round, then retry.
-            await seedBallsFromParticipants(this.db, roundId);
-            ballId = await lookup();
-        }
-        if (!ballId) {
-            throw new Error(
-                `scenario: no ball found for round ${roundId}, participant ${participantId}, ` +
-                    `source player=${sourcePlayerId ?? 'null'}, source guest=${sourceGuestPlayerId ?? 'null'}. ` +
-                    `The round compiler (or a ball-seeding helper) must run before play().`,
-            );
-        }
-        return ballId;
-    }
+/**
+ * Round-level metadata the draft doesn't carry (because the draft = compiler
+ * input and the compiler doesn't care). Held on the `RoundScenarioRef` until
+ * the round is compiled and `roundService.create({ definition })` writes it
+ * into the `rounds` row via `RoundDefinition.windowStart` / `windowEnd` /
+ * `selfOrganize`.
+ */
+interface RoundMeta {
+    windowStart: string | null;
+    windowEnd: string | null;
+    selfOrganize: boolean;
 }
 
 export class RoundScenarioRef {
     /**
      * Declarative mirror of every addParticipant / slot call made against
-     * this round. Slice 3d.2 will translate it into a `RoundDefinition`;
-     * slice 3d.3 will swap the write path to the RoundCompiler. Exposed
-     * for tests via `__draftForTest(round)`; do not read it from seeds.
+     * this round. Slice 3d.3 swapped the write path to consume this draft
+     * via the RoundCompiler — the draft is now load-bearing. Exposed for
+     * tests via `__draftForTest(round)`; do not read it from seeds.
      */
     readonly draft: RoundDefinitionDraft;
     private producerCounter = 0;
+    private readonly meta: RoundMeta;
+
+    // --- Compile state ------------------------------------------------------
+    //
+    // Slice 2.6b/3d.3 — the scenario lazily compiles the draft on the first
+    // `.play()` / `.clear()` call. `compiled` holds the live `Round` after
+    // compile; `compilePromise` guards against concurrent triggers (the same
+    // awaited Promise resolves for every simultaneous caller). Post-compile
+    // caches make `resolveBallId` a trio of Map lookups.
+    private compiled: Round | null = null;
+    private compilePromise: Promise<void> | null = null;
+
+    /** producerDefId → ballId. Built from `ball_players` after compile. */
+    private producerDefIdToBallId: Map<string, string> = new Map();
+    /** playerId → producerDefId (own or team member). Built from the draft. */
+    private playerIdToProducerDefId: Map<string, string> = new Map();
+    /** guest-player id → producerDefId. Built from the draft. */
+    private guestIdToProducerDefId: Map<string, string> = new Map();
 
     constructor(
         private readonly s: Scenario,
-        public readonly round: Round,
         draft: RoundDefinitionDraft,
+        meta: RoundMeta,
     ) {
         this.draft = draft;
+        this.meta = meta;
     }
 
+    /**
+     * Live round id. Throws before the first compile — the scenario no
+     * longer writes the round eagerly. If you need the id, either call
+     * `ensureCompiled()` explicitly or trigger it via `.play()` /
+     * `.clear()` on any participant first. Seeds typically print the id
+     * after scoring, which is already past the first compile.
+     */
     get id(): string {
-        return this.round.id;
+        if (!this.compiled) {
+            throw new Error(
+                'RoundScenarioRef.id: round has not been compiled yet. ' +
+                    'Call ensureCompiled() or run a ParticipantScenarioRef.play() / .clear() first.',
+            );
+        }
+        return this.compiled.id;
+    }
+
+    /** True once the draft has been compiled + persisted. */
+    get isCompiled(): boolean {
+        return this.compiled !== null;
+    }
+
+    /** Ambient services — used by `ParticipantScenarioRef.play()` below. */
+    get services(): Scenario['services'] {
+        return this.s.services;
+    }
+
+    nextClientEventId(): string {
+        return this.s.nextClientEventId();
+    }
+
+    /**
+     * Resolve the ballId for a scoring event. Must be called after
+     * `ensureCompiled()` — otherwise the caches are empty.
+     *
+     * Three lookup modes, in order:
+     *   1. `sourcePlayerId` set → map playerId → producerDefId → ballId.
+     *   2. `sourceGuestPlayerId` set → same via the guest map.
+     *   3. Neither set → fall back to the participant's own producers
+     *      (individual has one; foursomes shares a team ball so any
+     *      member's producerDefId lands on the same ballId).
+     *
+     * Throws with context if any lookup step misses.
+     */
+    resolveBallId(
+        participantProducerDefIds: readonly string[],
+        sourcePlayerId: string | null,
+        sourceGuestPlayerId: string | null,
+    ): string {
+        if (!this.compiled) {
+            throw new Error(
+                'RoundScenarioRef.resolveBallId: round not compiled yet. ' +
+                    'Call ensureCompiled() first (or go through ParticipantScenarioRef.play()).',
+            );
+        }
+
+        let producerDefId: string | undefined;
+        if (sourcePlayerId !== null) {
+            producerDefId = this.playerIdToProducerDefId.get(sourcePlayerId);
+            if (!producerDefId) {
+                throw new Error(
+                    `RoundScenarioRef.resolveBallId: sourcePlayerId ${sourcePlayerId} ` +
+                        `is not a producer on round ${this.compiled.id}`,
+                );
+            }
+        } else if (sourceGuestPlayerId !== null) {
+            producerDefId = this.guestIdToProducerDefId.get(sourceGuestPlayerId);
+            if (!producerDefId) {
+                throw new Error(
+                    `RoundScenarioRef.resolveBallId: sourceGuestPlayerId ${sourceGuestPlayerId} ` +
+                        `is not a producer on round ${this.compiled.id}`,
+                );
+            }
+        } else {
+            // Individual / foursomes — take the first producer on this
+            // participant. Foursomes teams have 2 producers mapped to the
+            // SAME team ball, so picking the first is correct either way.
+            producerDefId = participantProducerDefIds[0];
+            if (!producerDefId) {
+                throw new Error(
+                    `RoundScenarioRef.resolveBallId: participant has no producers on round ${this.compiled.id}`,
+                );
+            }
+        }
+
+        const ballId = this.producerDefIdToBallId.get(producerDefId);
+        if (!ballId) {
+            throw new Error(
+                `RoundScenarioRef.resolveBallId: no ball for producer ${producerDefId} ` +
+                    `on round ${this.compiled.id} (compiler did not stamp it).`,
+            );
+        }
+        return ballId;
+    }
+
+    /**
+     * Compile + persist the draft iff it hasn't happened yet. Idempotent —
+     * returns the same Promise for concurrent callers. After this resolves,
+     * `this.compiled`, `this.producerDefIdToBallId`, `this.playerIdToProducerDefId`,
+     * and `this.guestIdToProducerDefId` are all populated.
+     */
+    async ensureCompiled(): Promise<void> {
+        if (this.compiled) return;
+        if (!this.compilePromise) {
+            this.compilePromise = this.doCompile();
+        }
+        await this.compilePromise;
+    }
+
+    private async doCompile(): Promise<void> {
+        // 1. Resolve producer snapshots (HI, gender, teeId) via services.
+        const resolved = await resolveProducers(this.draft, this.s.services);
+
+        // 2. Pure map → RoundDefinition. Overlay round-level metadata (the
+        //    compiler ignores these but round.service.create reads them
+        //    off `def.*` to stamp the rounds row).
+        const definition = draftToDefinition(this.draft, resolved);
+        definition.windowStart = this.meta.windowStart;
+        definition.windowEnd = this.meta.windowEnd;
+        definition.selfOrganize = this.meta.selfOrganize;
+
+        // 3. Run the compiler + persist inside one transaction.
+        const round = await this.s.services.roundService.create({ definition });
+        this.compiled = round;
+
+        // 4. Build caches.
+        //
+        // playerId / guestId → producerDefId comes straight off the draft;
+        // the compiler preserved producer def-ids as-is. For foursomes
+        // teams (2 producers per ball), both map to the same ballId via
+        // the next cache.
+        for (const p of this.draft.producers) {
+            if (p.playerRef.kind === 'player') {
+                this.playerIdToProducerDefId.set(p.playerRef.id, p.defId);
+            } else {
+                this.guestIdToProducerDefId.set(p.playerRef.id, p.defId);
+            }
+        }
+
+        // producerDefId → ballId: query ball_players for the round.
+        const bpRows = await this.s.services.db
+            .selectFrom('ball_players as bp')
+            .innerJoin('balls as b', 'b.id', 'bp.ball_id')
+            .where('b.round_id', '=', round.id)
+            .select(['bp.producer_def_id', 'bp.ball_id'])
+            .execute();
+        for (const row of bpRows) {
+            this.producerDefIdToBallId.set(row.producer_def_id, row.ball_id);
+        }
     }
 
     async addParticipant(init: AddParticipantInit): Promise<ParticipantScenarioRef> {
+        if (this.compiled) {
+            throw new Error(
+                'RoundScenarioRef.addParticipant: round already compiled; ' +
+                    'add all participants before the first .play() / .clear() call.',
+            );
+        }
+        if (init.skipSnapshot) {
+            throw new Error(
+                'RoundScenarioRef.addParticipant: skipSnapshot is no longer supported — ' +
+                    'the RoundCompiler always stamps ball_players snapshots.',
+            );
+        }
         const hasSingle = init.player || init.guest;
         const hasTeam = init.team && init.team.length > 0;
         if (init.player && init.guest) {
@@ -529,95 +687,27 @@ export class RoundScenarioRef {
             throw new Error('addParticipant: pass a player, guest, or team');
         }
 
+        // Resolve tee id (needed for snapshot resolution downstream; the
+        // translator will re-resolve via teeName, so we only need this to
+        // validate the tee exists and to surface it to the draft).
         let teeId = init.teeId;
         if (!teeId && init.teeName) {
-            const tees = await this.s.services.teeService.listByCourse(this.round.courseId);
+            const tees = await this.s.services.teeService.listByCourse(this.draft.courseId);
             const match = tees.find((t) => t.name === init.teeName);
             if (!match) throw new Error(`tee ${init.teeName} not found on course`);
             teeId = match.id;
         }
 
-        // Snapshot owner: the first team member supplies the participant-row
-        // snapshot by default. Per-player snapshots are frozen separately on
-        // each link by participant.service.ts when `snapshot` is provided.
+        // Record first snapshot player (if any) so the ParticipantScenarioRef
+        // can tag events via `recorded_by_player_id`. Team participants with
+        // a player as first member become the default recorder.
         const firstMember = init.team?.[0];
         const snapshotPlayer: PlayerRef | undefined = init.player ?? firstMember?.player;
-        const snapshotGuest: GuestRef | undefined = init.guest ?? firstMember?.guest;
 
-        const teamAvgIndex =
-            init.team && init.team.length >= 2 && init.teamShape === 'foursomes'
-                ? await this.avgTeamIndex(init.team)
-                : null;
-
-        const snapshot = init.skipSnapshot
-            ? undefined
-            : teeId && init.gender
-              ? init.handicapIndexOverride !== undefined
-                  ? {
-                        teeId,
-                        gender: init.gender,
-                        handicapIndex: init.handicapIndexOverride,
-                        allowancePct: init.allowancePct ?? 100,
-                    }
-                  : teamAvgIndex !== null
-                    ? {
-                          teeId,
-                          gender: init.gender,
-                          handicapIndex: teamAvgIndex,
-                          allowancePct: init.allowancePct ?? 100,
-                      }
-                    : snapshotPlayer
-                      ? {
-                            teeId,
-                            gender: init.gender,
-                            fromPlayerId: snapshotPlayer.id,
-                            allowancePct: init.allowancePct ?? 100,
-                        }
-                      : snapshotGuest
-                        ? {
-                              teeId,
-                              gender: init.gender,
-                              handicapIndex: snapshotGuest.handicapIndex ?? undefined,
-                              allowancePct: init.allowancePct ?? 100,
-                          }
-                        : undefined
-              : undefined;
-
-        const linkInputs: { playerId?: string; guestPlayerId?: string }[] = [];
-        if (init.player) linkInputs.push({ playerId: init.player.id });
-        else if (init.guest) linkInputs.push({ guestPlayerId: init.guest.id });
-        else if (init.team) {
-            for (const member of init.team) {
-                if (member.player && member.guest) {
-                    throw new Error('addParticipant.team: each member passes player OR guest, not both');
-                }
-                if (!member.player && !member.guest) {
-                    throw new Error('addParticipant.team: each member needs a player or guest');
-                }
-                linkInputs.push(
-                    member.player
-                        ? { playerId: member.player.id }
-                        : { guestPlayerId: member.guest!.id },
-                );
-            }
-        }
-
-        const p = await this.s.services.participantService.create({
-            roundId: this.round.id,
-            teamLabel: init.teamLabel ?? null,
-            categorySnapshot: init.categorySnapshot ?? null,
-            snapshot,
-            players: linkInputs,
-        });
-
-        // --- Mirror into draft (slice 2.6b/3d.1) ---------------------------
-        //
-        // Declarative twin of the DB write above; slice 3d.3 will swap the
-        // write path to consume this draft via the RoundCompiler. The DB
-        // write stays authoritative for now.
+        // --- Buffer into draft ---------------------------------------------
         const producerDefIds = await this.mirrorIntoDraft(init, teeId);
 
-        return new ParticipantScenarioRef(this.s, p, this.round, snapshotPlayer?.id, producerDefIds);
+        return new ParticipantScenarioRef(this, snapshotPlayer?.id, producerDefIds);
     }
 
     /**
@@ -634,7 +724,7 @@ export class RoundScenarioRef {
         // Resolve tee name for the draft; prefer the caller-supplied one.
         let teeName = init.teeName;
         if (!teeName && teeId) {
-            const tees = await this.s.services.teeService.listByCourse(this.round.courseId);
+            const tees = await this.s.services.teeService.listByCourse(this.draft.courseId);
             teeName = tees.find((t) => t.id === teeId)?.name;
         }
         if (!teeName) teeName = '';
@@ -706,13 +796,23 @@ export class RoundScenarioRef {
         }
 
         // Update per-slot team groupings when this call carried a team
-        // label. Groupings are keyed by teamLabel so successive
+        // label. On multi-slot rounds the `slotIndex` param limits the
+        // grouping to that slot; single-slot rounds apply it to the
+        // only slot. Groupings are keyed by teamLabel so successive
         // addParticipant calls with the same label accumulate (rare, but
         // harmless).
         if (teamLabel) {
-            for (const slot of this.draft.slots) {
+            const targetSlotIndices =
+                init.slotIndex !== undefined
+                    ? [init.slotIndex]
+                    : this.draft.slots.map((_, i) => i);
+            for (const idx of targetSlotIndices) {
+                const slot = this.draft.slots[idx];
+                if (!slot) continue;
                 if (!slot.teamGroupings) slot.teamGroupings = [];
-                const existing = slot.teamGroupings.find((g) => g.teamLabel === teamLabel);
+                const existing = slot.teamGroupings.find(
+                    (g) => g.teamLabel === teamLabel,
+                );
                 if (existing) {
                     existing.producerDefIds.push(...newProducerIds);
                 } else {
@@ -724,12 +824,17 @@ export class RoundScenarioRef {
             }
         }
 
-        // Ensure the strategy set reflects the first slot's teamShape.
-        // `individual` / `four_ball` / `taliban` / `better_ball` →
-        // single shared OwnBallPerPlayer. `foursomes` → one AltShotPair
-        // per addParticipant({team}) call (pairings accumulate).
-        if (firstSlot) {
-            const shape = firstSlot.teamShape;
+        // Strategy decisions are made per-slot, NOT just from the first
+        // slot. Multi-slot rounds may mix individual + foursomes in the
+        // same round (see multi-slot-series-round seed). Each slot's
+        // teamShape decides whether it needs the shared own-ball strategy
+        // or a pair strategy; both can coexist.
+        for (const slot of this.draft.slots) {
+            const shape = slot.teamShape;
+            const slotIndexOfThis = this.draft.slots.indexOf(slot);
+            const targetsThisSlot =
+                this.draft.slots.length === 1 ||
+                init.slotIndex === slotIndexOfThis;
             if (shape === 'foursomes') {
                 let strategy = this.draft.strategies.find(
                     (s) => s.strategyId === 'alt_shot_pair',
@@ -743,9 +848,24 @@ export class RoundScenarioRef {
                     };
                     this.draft.strategies.push(strategy);
                 }
-                if (isTeam && newProducerIds.length >= 2) {
+                // Append a pairing only if this call carried a team AND
+                // (a) the round has a single slot, OR (b) the caller
+                // targeted this slot explicitly via `slotIndex`. That
+                // keeps multi-slot rounds that mix individual + foursomes
+                // from accidentally promoting all team-shaped slots.
+                //
+                // Pairings de-dupe so each 2-slot iteration doesn't
+                // double-register the same team.
+                if (isTeam && newProducerIds.length >= 2 && targetsThisSlot) {
                     strategy.pairings = strategy.pairings ?? [];
-                    strategy.pairings.push({ producerDefIds: [...newProducerIds] });
+                    const already = strategy.pairings.some(
+                        (p) =>
+                            p.producerDefIds.length === newProducerIds.length &&
+                            p.producerDefIds.every((id, i) => id === newProducerIds[i]),
+                    );
+                    if (!already) {
+                        strategy.pairings.push({ producerDefIds: [...newProducerIds] });
+                    }
                 }
             } else {
                 let strategy = this.draft.strategies.find(
@@ -759,6 +879,38 @@ export class RoundScenarioRef {
                     };
                     this.draft.strategies.push(strategy);
                 }
+            }
+        }
+
+        // --- Per-slot producer scoping (multi-slot rounds) -----------------
+        //
+        // When the caller passed `slotIndex`, only that slot owns the
+        // new producers; accumulate into its `scopeProducerDefIds`. When
+        // absent, the producers land in every slot (default — single-slot
+        // rounds never need scoping).
+        if (init.slotIndex !== undefined) {
+            const slot = this.draft.slots[init.slotIndex];
+            if (!slot) {
+                throw new Error(
+                    `addParticipant: slotIndex ${init.slotIndex} out of range (round has ${this.draft.slots.length} slots)`,
+                );
+            }
+            if (!slot.scopeProducerDefIds) slot.scopeProducerDefIds = [];
+            slot.scopeProducerDefIds.push(...newProducerIds);
+        }
+
+        // Validate `slotIndex` usage: once one participant on a multi-slot
+        // round scopes explicitly, every participant on that round must
+        // (otherwise the un-scoped ones silently bleed across slots).
+        if (this.draft.slots.length > 1) {
+            const anyScoped = this.draft.slots.some(
+                (s) => (s.scopeProducerDefIds?.length ?? 0) > 0,
+            );
+            if (anyScoped && init.slotIndex === undefined) {
+                throw new Error(
+                    'addParticipant: this round has >1 slot and other participants declared ' +
+                        'slotIndex — pass slotIndex on this call too.',
+                );
             }
         }
 
@@ -793,25 +945,31 @@ export class RoundScenarioRef {
 
 export class ParticipantScenarioRef {
     /**
-     * Draft-producer def-ids owned by this addParticipant call. Slice
-     * 3d.3 will use these to thread the RoundCompiler's compiled
-     * producers back to scenario-level `.play()` calls; today it is
-     * read-only scaffolding.
+     * Draft-producer def-ids owned by this addParticipant call. Used by
+     * `resolveBallId` as the fallback key when no source player/guest is
+     * supplied (individual / foursomes alt-shot). For individual there's
+     * exactly one producer; for foursomes the two team producers share
+     * the same team ball, so picking any works.
      */
     public readonly producerDefIds: string[];
 
     constructor(
-        private readonly s: Scenario,
-        public readonly participant: Participant,
-        private readonly round: Round,
+        private readonly round: RoundScenarioRef,
         private readonly recordedByPlayerId: string | undefined,
         producerDefIds: string[] = [],
     ) {
         this.producerDefIds = producerDefIds;
     }
 
+    /**
+     * Synthetic local-only handle derived from the first producer def-id
+     * (`p1`, `p2`, ...). Not a DB id — post-cutover the scenario builder
+     * does not create legacy `participants` rows. Consumers that need
+     * real participant ids have to go via `round.id` + a service query
+     * after `ensureCompiled()`.
+     */
     get id(): string {
-        return this.participant.id;
+        return this.producerDefIds[0] ?? 'unknown-participant';
     }
 
     /**
@@ -826,8 +984,11 @@ export class ParticipantScenarioRef {
      * recording for a specific player inside a team participant (better-ball,
      * Taliban, Umbrella). Default (both null) is the individual /
      * foursomes shape.
+     *
+     * Triggers `round.ensureCompiled()` on first invocation.
      */
     async play(scores: HoleScores, options: PlayOptions = {}): Promise<void> {
+        await this.round.ensureCompiled();
         const baseMs = Date.now();
         let offset = 0;
         const holeNumbers = Object.keys(scores)
@@ -839,20 +1000,19 @@ export class ParticipantScenarioRef {
                 options.metadataFor !== undefined
                     ? options.metadataFor(hole)
                     : (options.metadata ?? null);
-            const ballId = await this.s.resolveBallId(
-                this.round.id,
-                this.participant.id,
+            const ballId = this.round.resolveBallId(
+                this.producerDefIds,
                 options.sourcePlayerId ?? null,
                 options.sourceGuestPlayerId ?? null,
             );
-            await this.s.services.scoreEventService.append({
+            await this.round.services.scoreEventService.append({
                 roundId: this.round.id,
                 ballId,
                 hole,
                 strokes,
                 eventType: 'score_entered',
                 recordedByPlayerId: this.recordedByPlayerId ?? null,
-                clientEventId: this.s.nextClientEventId(),
+                clientEventId: this.round.nextClientEventId(),
                 recordedAt: new Date(baseMs + offset).toISOString(),
                 sourcePlayerId: options.sourcePlayerId ?? null,
                 sourceGuestPlayerId: options.sourceGuestPlayerId ?? null,
@@ -863,20 +1023,20 @@ export class ParticipantScenarioRef {
     }
 
     async clear(hole: number, options: PlayOptions = {}): Promise<void> {
-        const ballId = await this.s.resolveBallId(
-            this.round.id,
-            this.participant.id,
+        await this.round.ensureCompiled();
+        const ballId = this.round.resolveBallId(
+            this.producerDefIds,
             options.sourcePlayerId ?? null,
             options.sourceGuestPlayerId ?? null,
         );
-        await this.s.services.scoreEventService.append({
+        await this.round.services.scoreEventService.append({
             roundId: this.round.id,
             ballId,
             hole,
             strokes: null,
             eventType: 'score_cleared',
             recordedByPlayerId: this.recordedByPlayerId ?? null,
-            clientEventId: this.s.nextClientEventId(),
+            clientEventId: this.round.nextClientEventId(),
             recordedAt: new Date().toISOString(),
             sourcePlayerId: options.sourcePlayerId ?? null,
             sourceGuestPlayerId: options.sourceGuestPlayerId ?? null,
