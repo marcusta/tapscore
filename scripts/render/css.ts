@@ -1,0 +1,41 @@
+// Shared CSS for index + round HTML pages.
+
+export const ROUND_CSS = `
+  :root { color-scheme: light dark; --muted: #888; --dim: #bbb; --border: #d0d0d0; --sum-bg: #f3f3f3; --link: #0366d6; }
+  @media (prefers-color-scheme: dark) { :root { --border: #333; --sum-bg: #222; --dim: #555; --link: #58a6ff; } }
+  body { font: 13px/1.4 -apple-system, system-ui, sans-serif; margin: 2rem; max-width: 1400px; }
+  h1 { margin: 0 0 .25rem 0; }
+  h1 .sub { font-size: .6em; color: var(--muted); font-weight: normal; }
+  h2 { margin-top: 2rem; border-bottom: 1px solid var(--border); padding-bottom: .25rem; }
+  section { margin-bottom: 2rem; }
+  table { border-collapse: collapse; }
+  .scorecard, .grid, .kv { border: 1px solid var(--border); }
+  .scorecard th, .scorecard td { border: 1px solid var(--border); padding: 4px 8px; text-align: center; min-width: 28px; }
+  .scorecard .rowlabel { text-align: left; background: var(--sum-bg); font-weight: 600; }
+  .scorecard .sum { background: var(--sum-bg); font-weight: 600; }
+  .scorecard .si, .scorecard .given { color: var(--muted); font-size: 11px; }
+  .scorecard .dim td { color: var(--muted); }
+  .grid th, .grid td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+  .grid th { background: var(--sum-bg); }
+  .kv th, .kv td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
+  .kv th { background: var(--sum-bg); min-width: 120px; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); }
+  .dnp { color: var(--dim); }
+  .pickup { color: #c00; font-weight: bold; }
+  .arithmetic { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--muted); }
+  .arithmetic .match { color: inherit; font-weight: 700; }
+  .hint { color: var(--muted); font-size: 12px; }
+  .scorecard-card { border: 1px solid var(--border); padding: 1rem; margin-bottom: 1rem; border-radius: 6px; }
+  .scorecard-card header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: .5rem; }
+  .scorecard-card h3 { margin: 0; }
+  .totals { list-style: none; padding: 0; margin: .5rem 0 0 0; display: flex; gap: 1rem; }
+  .lb-row { display: flex; gap: 2rem; flex-wrap: wrap; }
+  .lb-col { min-width: 320px; }
+  .lb-slot { margin-bottom: 1.5rem; }
+  .lb-slot h3 { font-size: 1em; margin: .25rem 0 .5rem 0; color: var(--muted); font-weight: 600; border-bottom: 1px dashed var(--border); padding-bottom: .25rem; }
+  .lb-slot h4 { font-size: .9em; margin: 0 0 .25rem 0; text-transform: lowercase; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--muted); }
+`;
