@@ -18,8 +18,8 @@ import type {
     CourseHole,
     FormatStrategy,
     HoleResult,
-    ParticipantInput,
-    ParticipantResult,
+    BallInput,
+    BallResult,
     SlotInput,
     SlotResult,
 } from '../format';
@@ -38,7 +38,7 @@ interface PlayerHoleScore {
 }
 
 interface ParticipantCtx {
-    participant: ParticipantInput;
+    participant: BallInput;
     strokesByHole: Map<number, number>;
 }
 
@@ -58,13 +58,13 @@ function readBirdieRule(slot: FormatSlot): UmbrellaBirdieRule {
     );
 }
 
-function resolveParticipants(input: SlotInput, slot: FormatSlot): ParticipantInput[] {
-    if (input.participants.length !== 3) {
+function resolveParticipants(input: SlotInput, slot: FormatSlot): BallInput[] {
+    if (input.balls.length !== 3) {
         throw new Error(
-            `umbrella individual slot #${slot.slotIndex}: needs exactly 3 participants (got ${input.participants.length})`,
+            `umbrella individual slot #${slot.slotIndex}: needs exactly 3 participants (got ${input.balls.length})`,
         );
     }
-    return input.participants;
+    return input.balls;
 }
 
 function playerHoleScore(ctx: ParticipantCtx, ch: CourseHole): PlayerHoleScore {
@@ -155,9 +155,9 @@ export const umbrellaIndividual: FormatStrategy = {
         const holesPlayedByParticipant = new Map<string, number>();
 
         for (const p of participants) {
-            holesByParticipant.set(p.participantId, []);
-            totalsByParticipant.set(p.participantId, 0);
-            holesPlayedByParticipant.set(p.participantId, 0);
+            holesByParticipant.set(p.ballId, []);
+            totalsByParticipant.set(p.ballId, 0);
+            holesPlayedByParticipant.set(p.ballId, 0);
         }
 
         for (const ch of ordered) {
@@ -175,8 +175,8 @@ export const umbrellaIndividual: FormatStrategy = {
             for (const { participant, score } of scores) {
                 if (score.hasEvent) {
                     holesPlayedByParticipant.set(
-                        participant.participantId,
-                        (holesPlayedByParticipant.get(participant.participantId) ?? 0) + 1,
+                        participant.ballId,
+                        (holesPlayedByParticipant.get(participant.ballId) ?? 0) + 1,
                     );
                 }
 
@@ -195,11 +195,11 @@ export const umbrellaIndividual: FormatStrategy = {
                 const sweep = catSum === 4;
                 const points = catSum * ch.holeNumber * (sweep ? 2 : 1);
                 totalsByParticipant.set(
-                    participant.participantId,
-                    (totalsByParticipant.get(participant.participantId) ?? 0) + points,
+                    participant.ballId,
+                    (totalsByParticipant.get(participant.ballId) ?? 0) + points,
                 );
 
-                holesByParticipant.get(participant.participantId)!.push({
+                holesByParticipant.get(participant.ballId)!.push({
                     holeNumber: ch.holeNumber,
                     gross: score.gross,
                     net: score.net,
@@ -216,14 +216,14 @@ export const umbrellaIndividual: FormatStrategy = {
             }
         }
 
-        const participantResults: ParticipantResult[] = participants.map((p) => ({
-            participantId: p.participantId,
+        const ballResults: BallResult[] = participants.map((p) => ({
+            ballId: p.ballId,
             slotIndex: slot.slotIndex,
-            holes: holesByParticipant.get(p.participantId)!,
-            totals: [{ scoringType: 'points', value: totalsByParticipant.get(p.participantId) ?? 0 }],
-            holesPlayed: holesPlayedByParticipant.get(p.participantId) ?? 0,
+            holes: holesByParticipant.get(p.ballId)!,
+            totals: [{ scoringType: 'points', value: totalsByParticipant.get(p.ballId) ?? 0 }],
+            holesPlayed: holesPlayedByParticipant.get(p.ballId) ?? 0,
         }));
 
-        return { participantResults };
+        return { ballResults };
     },
 };

@@ -49,7 +49,7 @@
 // 1 down entering hole N and makes a gross eagle to win: A scores 5 here,
 // A's new total = previous (−1) + 5 = +4 → A is now 4 up entering hole N+1.
 //
-// --- ParticipantResult shape ---
+// --- BallResult shape ---
 //
 // Per-player `HoleResult.gross` / `.net` / `.points` are THAT PLAYER's own
 // per-hole numbers — not the team's. (`.points` is null on Taliban — points
@@ -69,7 +69,7 @@
 // Bob 7 − 3 Carol & Dan"`, `"Team-A 4 − 4 Team-B"`). `result` = `won` / `lost`
 // from A's perspective when totals differ, `halved` when equal at the last
 // hole, `in_progress` when any hole remains undecided. `winner` = the
-// leading team's participantId (null on halved / in-progress).
+// leading team's ballId (null on halved / in-progress).
 
 import type {
     CourseHole,
@@ -77,9 +77,9 @@ import type {
     HoleResult,
     PairHoleResult,
     PairResult,
-    ParticipantInput,
-    ParticipantPlayerInput,
-    ParticipantResult,
+    BallInput,
+    BallPlayerInput,
+    BallResult,
     SlotInput,
     SlotResult,
 } from '../format';
@@ -89,7 +89,7 @@ import { strokesGivenMap } from './_stableford-scoring';
 
 interface PlayerCtx {
     label: string;
-    link: ParticipantPlayerInput;
+    link: BallPlayerInput;
     strokesByHole: Map<number, number>;
     /** Only this player's scorecard rows (pre-filtered by source). */
     holes: ScorecardHole[];
@@ -112,13 +112,13 @@ interface TeamBall {
     eagleBy: string | null;
 }
 
-function playerLabel(link: ParticipantPlayerInput): string {
+function playerLabel(link: BallPlayerInput): string {
     const id = link.playerId ?? link.guestPlayerId ?? 'unknown';
     return `p:${id.slice(0, 6)}`;
 }
 
 function resolvePlayerCtx(
-    link: ParticipantPlayerInput,
+    link: BallPlayerInput,
     teamPH: number | null,
     allHoles: ScorecardHole[],
     courseHoles: CourseHole[],
@@ -239,27 +239,27 @@ function pairSummary(
     return `${labelA} ${raw}${progressTag} +${delta} ${labelB}`;
 }
 
-function participantLabel(p: ParticipantInput): string {
+function participantLabel(p: BallInput): string {
     // Short id for a readable default when no team label is available.
-    return p.participantId.slice(0, 8);
+    return p.ballId.slice(0, 8);
 }
 
 function computePair(
-    teamA: ParticipantInput,
-    teamB: ParticipantInput,
+    teamA: BallInput,
+    teamB: BallInput,
     courseHoles: CourseHole[],
     slot: FormatSlot,
-): { pair: PairResult; resultA: ParticipantResult; resultB: ParticipantResult } {
+): { pair: PairResult; resultA: BallResult; resultB: BallResult } {
     const linksA = teamA.players ?? [];
     const linksB = teamB.players ?? [];
     if (linksA.length !== 2) {
         throw new Error(
-            `taliban better-ball slot #${slot.slotIndex}: participant ${teamA.participantId} needs exactly 2 player links (got ${linksA.length})`,
+            `taliban better-ball slot #${slot.slotIndex}: participant ${teamA.ballId} needs exactly 2 player links (got ${linksA.length})`,
         );
     }
     if (linksB.length !== 2) {
         throw new Error(
-            `taliban better-ball slot #${slot.slotIndex}: participant ${teamB.participantId} needs exactly 2 player links (got ${linksB.length})`,
+            `taliban better-ball slot #${slot.slotIndex}: participant ${teamB.ballId} needs exactly 2 player links (got ${linksB.length})`,
         );
     }
 
@@ -461,10 +461,10 @@ function computePair(
         winner = null;
     } else if (totalA > totalB) {
         result = 'won';
-        winner = teamA.participantId;
+        winner = teamA.ballId;
     } else if (totalA < totalB) {
         result = 'lost';
-        winner = teamB.participantId;
+        winner = teamB.ballId;
     } else {
         result = 'halved';
         winner = null;
@@ -480,22 +480,22 @@ function computePair(
 
     const pair: PairResult = {
         slotIndex: slot.slotIndex,
-        participants: [teamA.participantId, teamB.participantId],
+        balls: [teamA.ballId, teamB.ballId],
         holes: pairHoles,
         summary,
         result,
         winner,
     };
 
-    const resultA: ParticipantResult = {
-        participantId: teamA.participantId,
+    const resultA: BallResult = {
+        ballId: teamA.ballId,
         slotIndex: slot.slotIndex,
         holes: holesA,
         totals: [],
         holesPlayed: Math.max(holesPlayedA1, holesPlayedA2),
     };
-    const resultB: ParticipantResult = {
-        participantId: teamB.participantId,
+    const resultB: BallResult = {
+        ballId: teamB.ballId,
         slotIndex: slot.slotIndex,
         holes: holesB,
         totals: [],
@@ -556,7 +556,7 @@ function hasEvent(ctx: PlayerCtx, ch: CourseHole): boolean {
 /**
  * Team-level HoleResults from the pair's per-hole output. Used for the
  * participant's own `holes` list so `render-lib` can read per-hole team
- * notes off `ParticipantResult.holes[].note`.
+ * notes off `BallResult.holes[].note`.
  *
  * `gross` / `net` on these rows are intentionally null — team-level gross/
  * net aren't a meaningful Taliban summary (we show per-player rows in the
@@ -614,15 +614,15 @@ export const talibanBetterBall: FormatStrategy = {
     scoringMode: 'taliban',
     teamShape: 'better_ball',
     compute(input: SlotInput, slot: FormatSlot): SlotResult {
-        if (input.participants.length !== 2) {
+        if (input.balls.length !== 2) {
             throw new Error(
-                `taliban better-ball slot #${slot.slotIndex}: needs exactly 2 team participants (got ${input.participants.length})`,
+                `taliban better-ball slot #${slot.slotIndex}: needs exactly 2 team participants (got ${input.balls.length})`,
             );
         }
-        const [teamA, teamB] = input.participants;
+        const [teamA, teamB] = input.balls;
         const { pair, resultA, resultB } = computePair(teamA, teamB, input.courseHoles, slot);
         return {
-            participantResults: [resultA, resultB],
+            ballResults: [resultA, resultB],
             pairResults: [pair],
         };
     },

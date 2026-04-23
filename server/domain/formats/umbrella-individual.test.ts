@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { findFormat, type CourseHole, type ParticipantInput, type SlotInput } from '../format';
+import { findFormat, type CourseHole, type BallInput, type SlotInput } from '../format';
 import type { FormatSlot } from '../../services/round.service';
 import type { ScorecardHole } from '../../services/scorecard.service';
 
@@ -45,9 +45,9 @@ function player(
     holes: ScorecardHole[],
     ph = 0,
     label = id,
-): ParticipantInput {
+): BallInput {
     return {
-        participantId: id,
+        ballId: id,
         playingHandicap: ph,
         holes,
         teamLabel: label,
@@ -56,12 +56,12 @@ function player(
 }
 
 function threeBall(
-    a: ParticipantInput,
-    b: ParticipantInput,
-    c: ParticipantInput,
+    a: BallInput,
+    b: BallInput,
+    c: BallInput,
     courseHoles: CourseHole[],
 ): SlotInput {
-    return { participants: [a, b, c], courseHoles };
+    return { balls: [a, b, c], courseHoles };
 }
 
 test('umbrella individual: low gross + fairway on hole 1 = 2 points', () => {
@@ -71,8 +71,8 @@ test('umbrella individual: low gross + fairway on hole 1 = 2 points', () => {
     const bob = player('bob', [makeHole(1, 5)]);
     const carol = player('carol', [makeHole(1, 6)]);
     const result = s.compute(threeBall(alice, bob, carol, holes), slot());
-    const aliceResult = result.participantResults.find((r) => r.participantId === 'alice')!;
-    const bobResult = result.participantResults.find((r) => r.participantId === 'bob')!;
+    const aliceResult = result.ballResults.find((r) => r.ballId === 'alice')!;
+    const bobResult = result.ballResults.find((r) => r.ballId === 'bob')!;
     expect(aliceResult.holes[0].points).toBe(2);
     expect(bobResult.holes[0].points).toBe(0);
 });
@@ -90,7 +90,7 @@ test('umbrella individual: sweep on hole 5 = 4 × 5 × 2 = 40', () => {
     const bob = player('bob', [makeHole(5, 5)]);
     const carol = player('carol', [makeHole(5, 6)]);
     const result = s.compute(threeBall(alice, bob, carol, holes), slot());
-    const aliceResult = result.participantResults.find((r) => r.participantId === 'alice')!;
+    const aliceResult = result.ballResults.find((r) => r.ballId === 'alice')!;
     expect(aliceResult.holes[4].points).toBe(40);
     expect(aliceResult.holes[4].note).toContain('☂');
     expect(aliceResult.totals[0].value).toBe(40);
@@ -103,8 +103,8 @@ test('umbrella individual: low gross ties award full LG point to each tied playe
     const bob = player('bob', [makeHole(1, 4, { fairway: true })]);
     const carol = player('carol', [makeHole(1, 5)]);
     const result = s.compute(threeBall(alice, bob, carol, holes), slot());
-    const aliceResult = result.participantResults.find((r) => r.participantId === 'alice')!;
-    const bobResult = result.participantResults.find((r) => r.participantId === 'bob')!;
+    const aliceResult = result.ballResults.find((r) => r.ballId === 'alice')!;
+    const bobResult = result.ballResults.find((r) => r.ballId === 'bob')!;
     expect(aliceResult.holes[0].points).toBe(1);
     expect(bobResult.holes[0].points).toBe(2);
 });
@@ -116,7 +116,7 @@ test('umbrella individual: fairway only counts on par 4/5 holes', () => {
     const bob = player('bob', [makeHole(1, 3)]);
     const carol = player('carol', [makeHole(1, 4)]);
     const result = s.compute(threeBall(alice, bob, carol, holes), slot());
-    const aliceResult = result.participantResults.find((r) => r.participantId === 'alice')!;
+    const aliceResult = result.ballResults.find((r) => r.ballId === 'alice')!;
     expect(aliceResult.holes[0].points).toBe(3);
     expect(aliceResult.holes[0].note).not.toContain('FWY');
 });
@@ -128,9 +128,9 @@ test("umbrella individual: net birdie via config.birdieRule='net'", () => {
     const bob = player('bob', [makeHole(1, 4)]);
     const carol = player('carol', [makeHole(1, 5)]);
     const result = s.compute(threeBall(alice, bob, carol, holes), slot({ birdieRule: 'net' }));
-    const aliceResult = result.participantResults.find((r) => r.participantId === 'alice')!;
+    const aliceResult = result.ballResults.find((r) => r.ballId === 'alice')!;
     const grossResult = s.compute(threeBall(alice, bob, carol, holes), slot({ birdieRule: 'gross' }));
-    const grossAlice = grossResult.participantResults.find((r) => r.participantId === 'alice')!;
+    const grossAlice = grossResult.ballResults.find((r) => r.ballId === 'alice')!;
     expect(aliceResult.holes[0].points).toBe(2);
     expect(grossAlice.holes[0].points).toBe(1);
 });
@@ -141,7 +141,7 @@ test('umbrella individual: validation — needs exactly 3 participants', () => {
     expect(() =>
         s.compute(
             {
-                participants: [player('alice', []), player('bob', [])],
+                balls: [player('alice', []), player('bob', [])],
                 courseHoles: holes,
             },
             slot(),
@@ -156,8 +156,8 @@ test('umbrella individual: totals emit one points entry per participant and hole
     const bob = player('bob', [makeHole(1, 5)]);
     const carol = player('carol', []);
     const result = s.compute(threeBall(alice, bob, carol, holes), slot());
-    const aliceResult = result.participantResults.find((r) => r.participantId === 'alice')!;
-    const carolResult = result.participantResults.find((r) => r.participantId === 'carol')!;
+    const aliceResult = result.ballResults.find((r) => r.ballId === 'alice')!;
+    const carolResult = result.ballResults.find((r) => r.ballId === 'carol')!;
     expect(aliceResult.totals).toEqual([{ scoringType: 'points', value: 1 }]);
     expect(aliceResult.holesPlayed).toBe(2);
     expect(carolResult.holesPlayed).toBe(0);

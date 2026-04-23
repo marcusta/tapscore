@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import {
     findFormat,
     type CourseHole,
-    type ParticipantInput,
+    type BallInput,
     type SlotInput,
 } from '../format';
 import type { FormatSlot } from '../../services/round.service';
@@ -37,8 +37,8 @@ function slot(): FormatSlot {
     };
 }
 
-function singleSlot(p: ParticipantInput, courseHoles: CourseHole[]): SlotInput {
-    return { participants: [p], courseHoles };
+function singleSlot(p: BallInput, courseHoles: CourseHole[]): SlotInput {
+    return { balls: [p], courseHoles };
 }
 
 const ALICE = 'alice-id';
@@ -56,12 +56,12 @@ function hole(holeNumber: number, strokes: number | null): ScorecardHole {
 }
 
 function teamParticipant(opts: {
-    participantId?: string;
+    ballId?: string;
     teamPh: number | null;
     holes: ScorecardHole[];
-}): ParticipantInput {
+}): BallInput {
     return {
-        participantId: opts.participantId ?? 'team1',
+        ballId: opts.ballId ?? 'team1',
         playingHandicap: opts.teamPh,
         holes: opts.holes,
         players: [
@@ -76,7 +76,7 @@ test('foursomes: par on every hole of an 18-hole (par 72) round → gross = 72, 
     const holes = par72Course();
     const scored: ScorecardHole[] = holes.map((h) => hole(h.holeNumber, h.par));
     const team = teamParticipant({ teamPh: 10, holes: scored });
-    const r = s.compute(singleSlot(team, holes), slot()).participantResults[0];
+    const r = s.compute(singleSlot(team, holes), slot()).ballResults[0];
     const gross = r.totals.find((t) => t.scoringType === 'gross')!.value;
     const net = r.totals.find((t) => t.scoringType === 'net')!.value;
     expect(gross).toBe(72);
@@ -90,7 +90,7 @@ test('foursomes: team PH 14 on a 72-par course → net total reflects 14-stroke 
     // Team shoots par every hole → gross 72, net = 72 − 14 = 58.
     const scored: ScorecardHole[] = holes.map((h) => hole(h.holeNumber, h.par));
     const team = teamParticipant({ teamPh: 14, holes: scored });
-    const r = s.compute(singleSlot(team, holes), slot()).participantResults[0];
+    const r = s.compute(singleSlot(team, holes), slot()).ballResults[0];
     expect(r.totals.find((t) => t.scoringType === 'gross')!.value).toBe(72);
     expect(r.totals.find((t) => t.scoringType === 'net')!.value).toBe(58);
 });
@@ -99,16 +99,16 @@ test('foursomes: validation — != 2 player links throws', () => {
     const s = findFormat('stroke_play', 'foursomes');
     const holes = par4Course(1);
 
-    const tooFew: ParticipantInput = {
-        participantId: 'team1',
+    const tooFew: BallInput = {
+        ballId: 'team1',
         playingHandicap: 0,
         holes: [],
         players: [{ playerId: ALICE, guestPlayerId: null, playingHandicap: null }],
     };
     expect(() => s.compute(singleSlot(tooFew, holes), slot())).toThrow(/exactly 2 player links/);
 
-    const tooMany: ParticipantInput = {
-        participantId: 'team1',
+    const tooMany: BallInput = {
+        ballId: 'team1',
         playingHandicap: 0,
         holes: [],
         players: [
@@ -119,8 +119,8 @@ test('foursomes: validation — != 2 player links throws', () => {
     };
     expect(() => s.compute(singleSlot(tooMany, holes), slot())).toThrow(/exactly 2 player links/);
 
-    const missingPlayers: ParticipantInput = {
-        participantId: 'team1',
+    const missingPlayers: BallInput = {
+        ballId: 'team1',
         playingHandicap: 0,
         holes: [],
         // players omitted entirely — falls back to []
@@ -136,7 +136,7 @@ test('foursomes: DNP on a hole voids gross and net totals, same as individual', 
         hole(18, null), // DNP
     ];
     const team = teamParticipant({ teamPh: 0, holes: scored });
-    const r = s.compute(singleSlot(team, holes), slot()).participantResults[0];
+    const r = s.compute(singleSlot(team, holes), slot()).ballResults[0];
     // Per-hole DNP value is null; team's card not complete → totals null.
     expect(r.holes.find((h) => h.holeNumber === 18)!.gross).toBeNull();
     expect(r.totals.find((t) => t.scoringType === 'gross')!.value).toBeNull();
@@ -151,7 +151,7 @@ test('foursomes: pickup resolves to par + 2 + strokes given (WHS net-double)', (
     // Team PH 18 → 1 stroke on every hole (baseline).
     const scored: ScorecardHole[] = [hole(1, 0)]; // pickup on hole 1 (par 4, +1 stroke)
     const team = teamParticipant({ teamPh: 18, holes: scored });
-    const r = s.compute(singleSlot(team, holes), slot()).participantResults[0];
+    const r = s.compute(singleSlot(team, holes), slot()).ballResults[0];
     const h1 = r.holes.find((h) => h.holeNumber === 1)!;
     // Par 4 + 2 + 1 stroke given = 7 gross; net = 6.
     expect(h1.gross).toBe(7);
@@ -182,17 +182,17 @@ test('foursomes ≡ individual on identical inputs (proves the shared helper)', 
         allowancePct: 100,
         scopeConfig: null,
     };
-    const indInput: ParticipantInput = {
-        participantId: 'p1',
+    const indInput: BallInput = {
+        ballId: 'p1',
         playingHandicap: 10,
         holes: scored,
     };
     const indR = individualStrategy.compute(singleSlot(indInput, holes), indSlot)
-        .participantResults[0];
+        .ballResults[0];
 
     const foursomesStrategy = findFormat('stroke_play', 'foursomes');
-    const team = teamParticipant({ participantId: 'p1', teamPh: 10, holes: scored });
-    const fouR = foursomesStrategy.compute(singleSlot(team, holes), slot()).participantResults[0];
+    const team = teamParticipant({ ballId: 'p1', teamPh: 10, holes: scored });
+    const fouR = foursomesStrategy.compute(singleSlot(team, holes), slot()).ballResults[0];
 
     // Totals match exactly.
     expect(fouR.totals.find((t) => t.scoringType === 'gross')!.value).toBe(
@@ -216,16 +216,16 @@ test('foursomes: a clean 18-hole card produces non-null totals and one result pe
     const t1Scored: ScorecardHole[] = holes.map((h) => hole(h.holeNumber, h.par + 1));
     const t2Scored: ScorecardHole[] = holes.map((h) => hole(h.holeNumber, h.par));
 
-    const t1 = teamParticipant({ participantId: 'team1', teamPh: 10, holes: t1Scored });
-    const t2 = teamParticipant({ participantId: 'team2', teamPh: 8, holes: t2Scored });
+    const t1 = teamParticipant({ ballId: 'team1', teamPh: 10, holes: t1Scored });
+    const t2 = teamParticipant({ ballId: 'team2', teamPh: 8, holes: t2Scored });
 
-    const out = s.compute({ participants: [t1, t2], courseHoles: holes }, slot());
-    expect(out.participantResults).toHaveLength(2);
+    const out = s.compute({ balls: [t1, t2], courseHoles: holes }, slot());
+    expect(out.ballResults).toHaveLength(2);
     expect(out.pairResults).toBeUndefined();
     // t1 shot 72 + 18 = 90, team PH 10 → net 80.
-    expect(out.participantResults[0].totals.find((t) => t.scoringType === 'gross')!.value).toBe(90);
-    expect(out.participantResults[0].totals.find((t) => t.scoringType === 'net')!.value).toBe(80);
+    expect(out.ballResults[0].totals.find((t) => t.scoringType === 'gross')!.value).toBe(90);
+    expect(out.ballResults[0].totals.find((t) => t.scoringType === 'net')!.value).toBe(80);
     // t2 shot par — 72, team PH 8 → net 64.
-    expect(out.participantResults[1].totals.find((t) => t.scoringType === 'gross')!.value).toBe(72);
-    expect(out.participantResults[1].totals.find((t) => t.scoringType === 'net')!.value).toBe(64);
+    expect(out.ballResults[1].totals.find((t) => t.scoringType === 'gross')!.value).toBe(72);
+    expect(out.ballResults[1].totals.find((t) => t.scoringType === 'net')!.value).toBe(64);
 });

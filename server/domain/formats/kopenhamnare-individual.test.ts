@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { findFormat, type CourseHole, type ParticipantInput, type SlotInput } from '../format';
+import { findFormat, type CourseHole, type BallInput, type SlotInput } from '../format';
 import type { FormatSlot, FormatSlotConfig } from '../../services/round.service';
 
 function par4Course(n: number): CourseHole[] {
@@ -21,17 +21,17 @@ function slotWith(config?: FormatSlotConfig | null): FormatSlot {
 }
 
 function trio(
-    a: ParticipantInput,
-    b: ParticipantInput,
-    c: ParticipantInput,
+    a: BallInput,
+    b: BallInput,
+    c: BallInput,
     courseHoles: CourseHole[],
 ): SlotInput {
-    return { participants: [a, b, c], courseHoles };
+    return { balls: [a, b, c], courseHoles };
 }
 
-function mk(id: string, ph: number | null, scores: Record<number, number | null>): ParticipantInput {
+function mk(id: string, ph: number | null, scores: Record<number, number | null>): BallInput {
     return {
-        participantId: id,
+        ballId: id,
         playingHandicap: ph,
         holes: Object.entries(scores).map(([h, v]) => ({
             holeNumber: +h,
@@ -66,7 +66,7 @@ test('18 distinct-score holes: total across all 3 players = 108 (6 × 18)', () =
         Object.fromEntries(holes.map((h) => [h.holeNumber, 5])),
     );
     const result = s.compute(trio(a, b, c, holes), slotWith());
-    const totals = result.participantResults.map(
+    const totals = result.ballResults.map(
         (r) => r.totals.find((t) => t.scoringType === 'points')!.value,
     );
     // A sole best every hole → 4 × 18 = 72. B middle → 2 × 18 = 36. C worst → 0.
@@ -81,11 +81,11 @@ test('all three distinct (4 / 2 / 0) — annotated per-hole', () => {
     const b = mk('B', 0, { 1: 4 });
     const c = mk('C', 0, { 1: 5 });
     const result = s.compute(trio(a, b, c, holes), slotWith());
-    const points = result.participantResults.map((r) => r.holes[0].points);
+    const points = result.ballResults.map((r) => r.holes[0].points);
     expect(points).toEqual([4, 2, 0]);
-    expect(result.participantResults[0].holes[0].note).toBe('4 of 6 (sole best)');
-    expect(result.participantResults[1].holes[0].note).toBe('2 of 6 (middle)');
-    expect(result.participantResults[2].holes[0].note).toBe('0 of 6 (sole worst)');
+    expect(result.ballResults[0].holes[0].note).toBe('4 of 6 (sole best)');
+    expect(result.ballResults[1].holes[0].note).toBe('2 of 6 (middle)');
+    expect(result.ballResults[2].holes[0].note).toBe('0 of 6 (sole worst)');
 });
 
 test('sole best + two tied (4 / 1 / 1)', () => {
@@ -95,10 +95,10 @@ test('sole best + two tied (4 / 1 / 1)', () => {
     const b = mk('B', 0, { 1: 5 });
     const c = mk('C', 0, { 1: 5 });
     const result = s.compute(trio(a, b, c, holes), slotWith());
-    expect(result.participantResults.map((r) => r.holes[0].points)).toEqual([4, 1, 1]);
-    expect(result.participantResults[0].holes[0].note).toBe('4 of 6 (sole best)');
-    expect(result.participantResults[1].holes[0].note).toBe('1 of 6 (tied rest)');
-    expect(result.participantResults[2].holes[0].note).toBe('1 of 6 (tied rest)');
+    expect(result.ballResults.map((r) => r.holes[0].points)).toEqual([4, 1, 1]);
+    expect(result.ballResults[0].holes[0].note).toBe('4 of 6 (sole best)');
+    expect(result.ballResults[1].holes[0].note).toBe('1 of 6 (tied rest)');
+    expect(result.ballResults[2].holes[0].note).toBe('1 of 6 (tied rest)');
 });
 
 test('two tied for best + sole worst (3 / 3 / 0)', () => {
@@ -108,10 +108,10 @@ test('two tied for best + sole worst (3 / 3 / 0)', () => {
     const b = mk('B', 0, { 1: 4 }); // tied best
     const c = mk('C', 0, { 1: 6 }); // worst
     const result = s.compute(trio(a, b, c, holes), slotWith());
-    expect(result.participantResults.map((r) => r.holes[0].points)).toEqual([3, 3, 0]);
-    expect(result.participantResults[0].holes[0].note).toBe('3 of 6 (tied best)');
-    expect(result.participantResults[1].holes[0].note).toBe('3 of 6 (tied best)');
-    expect(result.participantResults[2].holes[0].note).toBe('0 of 6 (sole worst)');
+    expect(result.ballResults.map((r) => r.holes[0].points)).toEqual([3, 3, 0]);
+    expect(result.ballResults[0].holes[0].note).toBe('3 of 6 (tied best)');
+    expect(result.ballResults[1].holes[0].note).toBe('3 of 6 (tied best)');
+    expect(result.ballResults[2].holes[0].note).toBe('0 of 6 (sole worst)');
 });
 
 test('all three equal (2 / 2 / 2)', () => {
@@ -121,8 +121,8 @@ test('all three equal (2 / 2 / 2)', () => {
     const b = mk('B', 0, { 1: 4 });
     const c = mk('C', 0, { 1: 4 });
     const result = s.compute(trio(a, b, c, holes), slotWith());
-    expect(result.participantResults.map((r) => r.holes[0].points)).toEqual([2, 2, 2]);
-    expect(result.participantResults[0].holes[0].note).toBe('2 of 6 (all equal)');
+    expect(result.ballResults.map((r) => r.holes[0].points)).toEqual([2, 2, 2]);
+    expect(result.ballResults[0].holes[0].note).toBe('2 of 6 (all equal)');
 });
 
 // --- Handicap modes ---
@@ -142,10 +142,10 @@ test('standard handicap: each player uses own PH for strokes', () => {
         trio(a, b, c, holes),
         slotWith({ config: { handicapMode: 'standard' } }),
     );
-    const h1 = result.participantResults.map(
+    const h1 = result.ballResults.map(
         (r) => r.holes.find((h) => h.holeNumber === 1)!.points,
     );
-    const h10 = result.participantResults.map(
+    const h10 = result.ballResults.map(
         (r) => r.holes.find((h) => h.holeNumber === 10)!.points,
     );
     expect(h1).toEqual([0, 3, 3]);
@@ -166,7 +166,7 @@ test('delta_from_min: lowest-PH player plays off 0, others get delta strokes', (
         trio(a, b, c, holes),
         slotWith({ config: { handicapMode: 'delta_from_min' } }),
     );
-    const h1 = result.participantResults.map(
+    const h1 = result.ballResults.map(
         (r) => r.holes.find((h) => h.holeNumber === 1)!.points,
     );
     expect(h1).toEqual([0, 3, 3]);
@@ -194,7 +194,7 @@ test('throws when participant count is not 3 (2)', () => {
     const a = mk('A', 0, { 1: 4 });
     const b = mk('B', 0, { 1: 5 });
     expect(() =>
-        s.compute({ participants: [a, b], courseHoles: holes }, slotWith()),
+        s.compute({ balls: [a, b], courseHoles: holes }, slotWith()),
     ).toThrow(/exactly 3 participants/);
 });
 
@@ -203,7 +203,7 @@ test('throws when participant count is not 3 (4)', () => {
     const holes = par4Course(1);
     const ps = ['A', 'B', 'C', 'D'].map((id) => mk(id, 0, { 1: 4 }));
     expect(() =>
-        s.compute({ participants: ps, courseHoles: holes }, slotWith()),
+        s.compute({ balls: ps, courseHoles: holes }, slotWith()),
     ).toThrow(/exactly 3 participants/);
 });
 
@@ -220,7 +220,7 @@ test('slot index is named in the error message', () => {
         scopeConfig: null,
     };
     expect(() =>
-        s.compute({ participants: [a, b], courseHoles: holes }, slot),
+        s.compute({ balls: [a, b], courseHoles: holes }, slot),
     ).toThrow(/slot #7/);
 });
 
@@ -245,12 +245,12 @@ test('mid-round: hole with no event on one player → all three get null points'
     const b = mk('B', 0, bScores);
     const c = mk('C', 0, cScores);
     const result = s.compute(trio(a, b, c, holes), slotWith());
-    const h11 = result.participantResults.map(
+    const h11 = result.ballResults.map(
         (r) => r.holes.find((h) => h.holeNumber === 11)!.points,
     );
     expect(h11).toEqual([null, null, null]);
     // Running totals only reflect holes 1..10 (A sole best every hole → 40).
-    const totals = result.participantResults.map(
+    const totals = result.ballResults.map(
         (r) => r.totals.find((t) => t.scoringType === 'points')!.value,
     );
     expect(totals).toEqual([40, 20, 0]);
@@ -263,8 +263,8 @@ test('DNP event on one player: that hole is null for all three', () => {
     // Hole 2: B is DNP (strokes=null event) → hole nulled for all three.
     // Hole 3: everyone scored distinct → 4/2/0 again.
     const a = mk('A', 0, { 1: 3, 2: 3, 3: 3 });
-    const b: ParticipantInput = {
-        participantId: 'B',
+    const b: BallInput = {
+        ballId: 'B',
         playingHandicap: 0,
         holes: [
             { holeNumber: 1, strokes: 4, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null },
@@ -274,19 +274,19 @@ test('DNP event on one player: that hole is null for all three', () => {
     };
     const c = mk('C', 0, { 1: 5, 2: 5, 3: 5 });
     const result = s.compute(trio(a, b, c, holes), slotWith());
-    const h1 = result.participantResults.map(
+    const h1 = result.ballResults.map(
         (r) => r.holes.find((h) => h.holeNumber === 1)!.points,
     );
-    const h2 = result.participantResults.map(
+    const h2 = result.ballResults.map(
         (r) => r.holes.find((h) => h.holeNumber === 2)!.points,
     );
-    const h3 = result.participantResults.map(
+    const h3 = result.ballResults.map(
         (r) => r.holes.find((h) => h.holeNumber === 3)!.points,
     );
     expect(h1).toEqual([4, 2, 0]);
     expect(h2).toEqual([null, null, null]);
     expect(h3).toEqual([4, 2, 0]);
-    const totals = result.participantResults.map(
+    const totals = result.ballResults.map(
         (r) => r.totals.find((t) => t.scoringType === 'points')!.value,
     );
     expect(totals).toEqual([8, 4, 0]);
@@ -299,10 +299,10 @@ test('pickup by one player: pickup ranks last, others still get points', () => {
     const b = mk('B', 0, { 1: 0 }); // pickup → automatic last
     const c = mk('C', 0, { 1: 5 });
     const result = s.compute(trio(a, b, c, holes), slotWith());
-    expect(result.participantResults.map((r) => r.holes[0].points)).toEqual([4, 0, 2]);
-    expect(result.participantResults[1].holes[0].gross).toBe(0);
-    expect(result.participantResults[1].holes[0].net).toBeNull();
-    expect(result.participantResults[1].holes[0].note).toBe('0 of 6 (sole worst)');
+    expect(result.ballResults.map((r) => r.holes[0].points)).toEqual([4, 0, 2]);
+    expect(result.ballResults[1].holes[0].gross).toBe(0);
+    expect(result.ballResults[1].holes[0].net).toBeNull();
+    expect(result.ballResults[1].holes[0].note).toBe('0 of 6 (sole worst)');
 });
 
 test('two pickups tie for last: scored player gets 4, pickups get 1 each', () => {
@@ -312,9 +312,9 @@ test('two pickups tie for last: scored player gets 4, pickups get 1 each', () =>
     const b = mk('B', 0, { 1: 0 });
     const c = mk('C', 0, { 1: 0 });
     const result = s.compute(trio(a, b, c, holes), slotWith());
-    expect(result.participantResults.map((r) => r.holes[0].points)).toEqual([4, 1, 1]);
-    expect(result.participantResults[1].holes[0].note).toBe('1 of 6 (tied rest)');
-    expect(result.participantResults[2].holes[0].note).toBe('1 of 6 (tied rest)');
+    expect(result.ballResults.map((r) => r.holes[0].points)).toEqual([4, 1, 1]);
+    expect(result.ballResults[1].holes[0].note).toBe('1 of 6 (tied rest)');
+    expect(result.ballResults[2].holes[0].note).toBe('1 of 6 (tied rest)');
 });
 
 test('no events at all → null points total, holesPlayed 0', () => {
@@ -324,7 +324,7 @@ test('no events at all → null points total, holesPlayed 0', () => {
     const b = mk('B', 0, {});
     const c = mk('C', 0, {});
     const result = s.compute(trio(a, b, c, holes), slotWith());
-    for (const r of result.participantResults) {
+    for (const r of result.ballResults) {
         expect(r.totals.find((t) => t.scoringType === 'points')!.value).toBeNull();
         expect(r.holesPlayed).toBe(0);
     }

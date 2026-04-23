@@ -1,49 +1,37 @@
 import type { Kysely } from 'kysely';
 import type { Database } from '../db/schema';
 import type { RoundService } from './round.service';
-import type { ParticipantService } from './participant.service';
 import type { ScorecardService } from './scorecard.service';
 import type { CourseService } from './course.service';
 import { computeLeaderboard, type Leaderboard, type SlotGroup } from '../domain/leaderboard';
-import type { ParticipantInput, CourseHole } from '../domain/format';
+import type { BallInput, BallPlayerInput, CourseHole } from '../domain/format';
 import { courseHolesForRound } from '../domain/round-holes';
 
 /**
- * Materialises the inputs to `computeLeaderboard` — course holes, participants
+ * Materialises the inputs to `computeLeaderboard` — course holes, balls
  * with scorecards + snapshots, and format slots — then runs it.
  *
- * Slot routing (Phase 2.5i):
- *   - Single-slot round (one format slot, no `scope.participantIds` on it):
- *     every participant lands in that slot. This is the 9-seed
- *     backwards-compat branch — none of the existing seeds populate scope.
- *   - Multi-slot round: every slot MUST have `scopeConfig.scope.participantIds`
- *     populated. Each participant is routed to the slot whose scope lists
- *     their id. Hard errors (before touching the strategy) if:
- *       a) any slot has no scope on a multi-slot round,
- *       b) a participant matches zero slots' scope,
- *       c) a participant matches more than one slot's scope.
+ * Slot routing is read straight off the compiler tables: `slot_balls`
+ * (joined with `slots` on `slot_id`) partitions balls per slot. The
+ * `slots.slot_def_id` column encodes the legacy slotIndex via the
+ * `slot-${index}` pattern written by `synthesize-legacy.ts` — we parse it
+ * back to recover the slotIndex that strategies + leaderboard buckets key on.
  *
- * Contract on `ParticipantInput.holes`: this service passes EVERY scorecard
- * row for a participant through as-is, with no source filtering. For
- * individual / foursomes that's one row per hole (null / null source). For
- * team formats (better-ball from 2.5e on) it's up to two rows per hole
- * (one per player source). Individual strategies stay correct because
- * their upstream seeds never append team-source events under their
- * participants, so every row they read is null-source. Team strategies
- * slice the flat list internally (via `pickForSource` from
- * `scorecard.service` or by pre-filtering in their own loop).
+ * Hard errors (before touching the strategy) if:
+ *   a) round has no format slots;
+ *   b) a ball exists under the round but lands in zero slots (compiler
+ *      drift — ball created outside any slot_balls entry);
+ *   c) a `slots.slot_def_id` does not parse as `slot-${N}`.
  *
- * Per-player snapshots live on `participant_players` (migration 015).
- * Team formats consume the linked players' own frozen playing handicaps;
- * only when an old row predates the migration (or was added without enough
- * snapshot context to backfill accurately) do we fall back to the team's
- * participant-level `playingHandicapSnapshot`.
+ * Contract on `BallInput.holes`: this service passes EVERY scorecard row
+ * for a ball through as-is, with no source filtering. Team strategies slice
+ * the flat list internally (via `pickForSource` from `scorecard.service`
+ * or by pre-filtering in their own loop).
  */
 export class LeaderboardService {
     constructor(
         private db: Kysely<Database>,
         private roundService: RoundService,
-        private participantService: ParticipantService,
         private scorecardService: ScorecardService,
         private courseService: CourseService,
     ) {}
@@ -63,85 +51,138 @@ export class LeaderboardService {
         // Stroke allocation happens against the course's FULL SI distribution
         // (WHS rule: on a 9-hole round, you get whichever strokes from your
         // full-course allocation happen to land on the holes you play — not a
-        // fresh allocation over 9). We therefore pass `allHoles` to the strategy
-        // and trim the result's per-hole rows to the played set afterwards.
+        // fresh allocation over 9). We therefore pass `allHoles` to the
+        // strategy and trim the result's per-hole rows to the played set
+        // afterwards.
         const playedSet = new Set(
             courseHolesForRound(round.roundType, allHoles).map((h) => h.holeNumber),
         );
-
-        const participants = await this.participantService.listByRound(roundId);
-        const scorecards = await this.scorecardService.forRound(roundId);
-        const cardByParticipant = new Map(scorecards.map((s) => [s.participantId, s]));
-
-        const participantInputs: ParticipantInput[] = participants.map((p) => ({
-            participantId: p.id,
-            playingHandicap: p.playingHandicapSnapshot,
-            holes: cardByParticipant.get(p.id)?.holes ?? [],
-            teamLabel: p.teamLabel,
-            players: p.players.map((link) => ({
-                playerId: link.playerId,
-                guestPlayerId: link.guestPlayerId,
-                playingHandicap:
-                    link.playingHandicapSnapshot ?? p.playingHandicapSnapshot,
-            })),
-        }));
 
         if (round.formatSlots.length === 0) {
             throw new Error(`round ${roundId} has no format slots`);
         }
 
-        // Route participants to slots via `scopeConfig.scope.participantIds`.
-        // Single-slot rounds with no scope fall back to "everyone in slot 0"
-        // (the existing 9 seeds all hit this branch byte-for-byte).
-        const participantsBySlotIndex = new Map<number, ParticipantInput[]>();
-        for (const s of round.formatSlots) {
-            participantsBySlotIndex.set(s.slotIndex, []);
+        // --- Enumerate balls for the round + their per-slot assignments. ---
+
+        const ballRows = await this.db
+            .selectFrom('balls')
+            .where('round_id', '=', roundId)
+            .select(['id', 'label'])
+            .execute();
+
+        // ball_players — per-player snapshot (player_id / guest xor,
+        // per-producer CH snapshot used as PH fallback for team formats).
+        const ballPlayerRows = await this.db
+            .selectFrom('ball_players as bp')
+            .innerJoin('balls as b', 'b.id', 'bp.ball_id')
+            .where('b.round_id', '=', roundId)
+            .select([
+                'bp.ball_id',
+                'bp.player_id',
+                'bp.guest_player_id',
+                'bp.course_handicap_snapshot',
+            ])
+            .execute();
+
+        const playersByBall = new Map<string, BallPlayerInput[]>();
+        for (const r of ballPlayerRows) {
+            const list = playersByBall.get(r.ball_id) ?? [];
+            list.push({
+                playerId: r.player_id,
+                guestPlayerId: r.guest_player_id,
+                playingHandicap: r.course_handicap_snapshot,
+            });
+            playersByBall.set(r.ball_id, list);
         }
 
-        const singleSlotNoScope =
-            round.formatSlots.length === 1 &&
-            (round.formatSlots[0]!.scopeConfig?.scope?.participantIds ?? null) === null;
+        // Surface team_label from `participants` via the ball_players →
+        // participant_players bridge. One participant per ball (topology
+        // invariant established by the compiler / seed helper).
+        const teamLabelRows = await this.db
+            .selectFrom('ball_players as bp')
+            .innerJoin('participant_players as pp', 'pp.id', 'bp.producer_def_id')
+            .innerJoin('participants as p', 'p.id', 'pp.participant_id')
+            .innerJoin('balls as b', 'b.id', 'bp.ball_id')
+            .where('b.round_id', '=', roundId)
+            .select(['bp.ball_id', 'p.team_label'])
+            .distinct()
+            .execute();
+        const teamLabelByBall = new Map<string, string | null>();
+        for (const r of teamLabelRows) {
+            teamLabelByBall.set(r.ball_id, r.team_label);
+        }
 
-        if (singleSlotNoScope) {
-            participantsBySlotIndex.get(round.formatSlots[0]!.slotIndex)!.push(...participantInputs);
-        } else {
-            // Multi-slot (or single-slot with explicit scope) — every slot
-            // must carry a scope; participants must match exactly one slot.
-            for (const slot of round.formatSlots) {
-                const ids = slot.scopeConfig?.scope?.participantIds;
-                if (!ids) {
-                    throw new Error(
-                        `slot #${slot.slotIndex} in round ${roundId} has no scope.participantIds — multi-slot rounds require explicit participant scoping`,
-                    );
-                }
-            }
-            for (const pin of participantInputs) {
-                const matches = round.formatSlots.filter((slot) =>
-                    slot.scopeConfig!.scope!.participantIds.includes(pin.participantId),
+        // slot_balls joined with slots — per (ball, slot-index, PH).
+        const slotBallRows = await this.db
+            .selectFrom('slot_balls as sb')
+            .innerJoin('slots as s', 's.id', 'sb.slot_id')
+            .where('s.round_id', '=', roundId)
+            .select([
+                'sb.ball_id',
+                'sb.playing_handicap_snapshot',
+                's.slot_def_id',
+            ])
+            .execute();
+
+        // slot_def_id → slotIndex (strip `slot-` prefix).
+        function parseSlotIndex(slotDefId: string): number {
+            const m = /^slot-(\d+)$/.exec(slotDefId);
+            if (!m) {
+                throw new Error(
+                    `round ${roundId}: cannot parse slot_def_id '${slotDefId}' — expected 'slot-<N>'`,
                 );
-                if (matches.length === 0) {
-                    throw new Error(
-                        `participant ${pin.participantId} in round ${roundId} is not assigned to any slot's scope`,
-                    );
-                }
-                if (matches.length > 1) {
-                    throw new Error(
-                        `participant ${pin.participantId} in round ${roundId} is assigned to multiple slots' scope (#${matches.map((m) => m.slotIndex).join(', #')})`,
-                    );
-                }
-                participantsBySlotIndex.get(matches[0]!.slotIndex)!.push(pin);
+            }
+            return Number.parseInt(m[1]!, 10);
+        }
+
+        // --- Read scorecards. ---
+
+        const scorecards = await this.scorecardService.forRound(roundId);
+        const cardByBall = new Map(scorecards.map((s) => [s.ballId, s]));
+
+        // --- Build ball inputs per slot. ---
+
+        const ballInputsBySlotIndex = new Map<number, BallInput[]>();
+        for (const s of round.formatSlots) {
+            ballInputsBySlotIndex.set(s.slotIndex, []);
+        }
+
+        const ballsSeen = new Set<string>();
+        for (const row of slotBallRows) {
+            const slotIndex = parseSlotIndex(row.slot_def_id);
+            const bucket = ballInputsBySlotIndex.get(slotIndex);
+            if (!bucket) {
+                throw new Error(
+                    `round ${roundId}: slot index ${slotIndex} present in slots table but missing from round_format_slots`,
+                );
+            }
+            bucket.push({
+                ballId: row.ball_id,
+                playingHandicap: row.playing_handicap_snapshot,
+                holes: cardByBall.get(row.ball_id)?.holes ?? [],
+                teamLabel: teamLabelByBall.get(row.ball_id) ?? null,
+                players: playersByBall.get(row.ball_id) ?? [],
+            });
+            ballsSeen.add(row.ball_id);
+        }
+
+        // Every ball in the round must have landed in at least one slot —
+        // otherwise the compiler (or seed helper) drifted.
+        for (const b of ballRows) {
+            if (!ballsSeen.has(b.id)) {
+                throw new Error(
+                    `ball ${b.id} in round ${roundId} is not assigned to any slot (slot_balls has no row for it)`,
+                );
             }
         }
 
         const slotGroups: SlotGroup[] = round.formatSlots.map((slot) => ({
             slot,
-            participants: participantsBySlotIndex.get(slot.slotIndex) ?? [],
+            balls: ballInputsBySlotIndex.get(slot.slotIndex) ?? [],
             // `courseHoles` comes from the round's single course — all slots
             // share it. Multi-slot routing doesn't change the course axis.
             courseHoles: allHoles,
         }));
-
-        void this.db;
 
         const lb = computeLeaderboard({ slotGroups });
 
@@ -150,7 +191,7 @@ export class LeaderboardService {
         // null-gross holes, so they are unaffected by this trim.
         return {
             ...lb,
-            participantResults: lb.participantResults.map((r) => ({
+            ballResults: lb.ballResults.map((r) => ({
                 ...r,
                 holes: r.holes.filter((h) => playedSet.has(h.holeNumber)),
             })),

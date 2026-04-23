@@ -28,17 +28,17 @@ import type {
     CourseHole,
     FormatStrategy,
     HoleResult,
-    ParticipantInput,
-    ParticipantResult,
+    BallInput,
+    BallResult,
     SlotResult,
 } from '../format';
 import type { FormatSlot } from '../../services/round.service';
 
 function computeOne(
-    input: ParticipantInput,
+    input: BallInput,
     courseHoles: CourseHole[],
     slot: FormatSlot,
-): ParticipantResult {
+): BallResult {
     const holes: HoleResult[] = [];
     let pointsTotal = 0;
     let pointsHasValue = false;
@@ -106,7 +106,7 @@ function computeOne(
     }
 
     return {
-        participantId: input.participantId,
+        ballId: input.ballId,
         slotIndex: slot.slotIndex,
         holes,
         totals: [
@@ -123,9 +123,9 @@ export const stablefordIndividual: FormatStrategy = {
     scoringMode: 'stableford',
     teamShape: 'individual',
     compute(input, slot): SlotResult {
-        const participantResults = input.participants.map((p) =>
+        const ballResults = input.balls.map((p) =>
             computeOne(p, input.courseHoles, slot),
         );
-        return { participantResults };
+        return { ballResults };
     },
 };

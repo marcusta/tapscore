@@ -3,6 +3,13 @@ import { createTestDb } from '../testing/db';
 import { seedBallsFromParticipants } from '../testing/balls';
 import { pickForSource } from './scorecard.service';
 
+// The seed helper stamps `ball-${participantId}` as each participant's ball
+// id (see testing/balls.ts). Tests use this deterministic mapping to drive
+// `forBall` reads without re-querying the bridge.
+function ballFor(participantId: string): string {
+    return `ball-${participantId}`;
+}
+
 async function setup() {
     const ctx = await createTestDb();
     const club = await ctx.clubService.create({ name: 'Halmstad GK' });
@@ -47,7 +54,7 @@ test('trigger creates scorecard row on event insert', async () => {
         eventType: 'score_entered',
         clientEventId: 'c1',
     });
-    const sc = await scorecardService.forParticipant(p1Id);
+    const sc = await scorecardService.forBall(ballFor(p1Id));
     expect(sc.holes).toHaveLength(1);
     expect(sc.holes[0]).toMatchObject({ holeNumber: 1, strokes: 4 });
 });
@@ -72,7 +79,7 @@ test('later event for same hole overwrites scorecard row', async () => {
         clientEventId: 'c2',
         recordedAt: '2026-05-01T10:05:00.000Z',
     });
-    const sc = await scorecardService.forParticipant(p1Id);
+    const sc = await scorecardService.forBall(ballFor(p1Id));
     expect(sc.holes).toHaveLength(1);
     expect(sc.holes[0].strokes).toBe(5);
 });
@@ -97,7 +104,7 @@ test('score_cleared wipes strokes but keeps row', async () => {
         clientEventId: 'c2',
         recordedAt: '2026-05-01T10:05:00.000Z',
     });
-    const sc = await scorecardService.forParticipant(p1Id);
+    const sc = await scorecardService.forBall(ballFor(p1Id));
     expect(sc.holes).toHaveLength(1);
     expect(sc.holes[0].strokes).toBeNull();
 });
@@ -124,7 +131,7 @@ test('out-of-order insert converges on latest recorded_at', async () => {
         clientEventId: 'early',
         recordedAt: '2026-05-01T10:00:00.000Z',
     });
-    const sc = await scorecardService.forParticipant(p1Id);
+    const sc = await scorecardService.forBall(ballFor(p1Id));
     expect(sc.holes[0].strokes).toBe(5); // latest (by recorded_at) wins
 });
 
@@ -146,21 +153,21 @@ test('null strokes (DNP) and zero strokes (pickup) are both preserved', async ()
         eventType: 'score_entered',
         clientEventId: 'c2',
     });
-    const sc = await scorecardService.forParticipant(p1Id);
+    const sc = await scorecardService.forBall(ballFor(p1Id));
     const hole1 = sc.holes.find((h) => h.holeNumber === 1)!;
     const hole2 = sc.holes.find((h) => h.holeNumber === 2)!;
     expect(hole1.strokes).toBe(0);
     expect(hole2.strokes).toBeNull();
 });
 
-test('forRound groups by participant', async () => {
+test('forRound groups by ball', async () => {
     const { scoreEventService, scorecardService, roundId, p1Id, p2Id } = await setup();
     await scoreEventService.append({ roundId, participantId: p1Id, hole: 1, strokes: 4, eventType: 'score_entered', clientEventId: 'a' });
     await scoreEventService.append({ roundId, participantId: p2Id, hole: 1, strokes: 5, eventType: 'score_entered', clientEventId: 'b' });
     await scoreEventService.append({ roundId, participantId: p1Id, hole: 2, strokes: 3, eventType: 'score_entered', clientEventId: 'c' });
     const list = await scorecardService.forRound(roundId);
     expect(list).toHaveLength(2);
-    const p1Card = list.find((s) => s.participantId === p1Id)!;
+    const p1Card = list.find((s) => s.ballId === ballFor(p1Id))!;
     expect(p1Card.holes).toHaveLength(2);
 });
 
@@ -203,7 +210,7 @@ test('two events at same (participant, hole) with different sourcePlayerId persi
         eventType: 'score_entered', clientEventId: 'b1', sourcePlayerId: bobId,
         recordedAt: '2026-05-01T10:01:00.000Z',
     });
-    const sc = await scorecardService.forParticipant(teamId);
+    const sc = await scorecardService.forBall(ballFor(teamId));
     expect(sc.holes).toHaveLength(2);
     const aliceHole = sc.holes.find((h) => h.sourcePlayerId === aliceId)!;
     const bobHole = sc.holes.find((h) => h.sourcePlayerId === bobId)!;
@@ -223,7 +230,7 @@ test('two events at same (participant, hole) with same sourcePlayerId — later 
         eventType: 'score_entered', clientEventId: 'a2', sourcePlayerId: aliceId,
         recordedAt: '2026-05-01T10:05:00.000Z',
     });
-    const sc = await scorecardService.forParticipant(teamId);
+    const sc = await scorecardService.forBall(ballFor(teamId));
     expect(sc.holes).toHaveLength(1);
     expect(sc.holes[0].strokes).toBe(6);
     expect(sc.holes[0].sourcePlayerId).toBe(aliceId);
@@ -247,7 +254,7 @@ test('null source row coexists separately from per-player rows on same hole', as
         eventType: 'score_entered', clientEventId: 'team2',
         recordedAt: '2026-05-01T10:02:00.000Z',
     });
-    const sc = await scorecardService.forParticipant(teamId);
+    const sc = await scorecardService.forBall(ballFor(teamId));
     expect(sc.holes).toHaveLength(2);
     const nullHole = sc.holes.find((h) => h.sourcePlayerId === null && h.sourceGuestPlayerId === null)!;
     const aliceHole = sc.holes.find((h) => h.sourcePlayerId === aliceId)!;
@@ -265,7 +272,7 @@ test('pickForSource returns the matching hole, null otherwise', async () => {
         roundId, participantId: teamId, hole: 1, strokes: 5,
         eventType: 'score_entered', clientEventId: 'b1', sourcePlayerId: bobId,
     });
-    const sc = await scorecardService.forParticipant(teamId);
+    const sc = await scorecardService.forBall(ballFor(teamId));
     expect(pickForSource(sc.holes, aliceId, null)?.strokes).toBe(4);
     expect(pickForSource(sc.holes, bobId, null)?.strokes).toBe(5);
     expect(pickForSource(sc.holes, 'nonexistent', null)).toBeNull();
@@ -285,9 +292,9 @@ test('scorecard row surfaces metadata from latest event (null source)', async ()
         clientEventId: 'c1',
         metadata: { gir: true },
     });
-    const sc = await scorecardService.forParticipant(p1Id);
+    const sc = await scorecardService.forBall(ballFor(p1Id));
     expect(sc.holes[0].metadata).toEqual({ gir: true });
-    // forRound returns the same metadata through the multi-participant path.
+    // forRound returns the same metadata through the multi-ball path.
     const all = await scorecardService.forRound(roundId);
     expect(all[0].holes[0].metadata).toEqual({ gir: true });
 });
@@ -315,7 +322,7 @@ test('scorecard row surfaces metadata from latest event (per-player source)', as
         sourcePlayerId: bobId,
         metadata: { gir: false },
     });
-    const sc = await scorecardService.forParticipant(teamId);
+    const sc = await scorecardService.forBall(ballFor(teamId));
     const aliceHole = sc.holes.find((h) => h.sourcePlayerId === aliceId)!;
     const bobHole = sc.holes.find((h) => h.sourcePlayerId === bobId)!;
     expect(aliceHole.metadata).toEqual({ gir: true });
@@ -344,7 +351,7 @@ test('later event overwrites earlier metadata in the materialised view', async (
         recordedAt: '2026-05-01T10:05:00.000Z',
         metadata: { gir: true, putts: 2 },
     });
-    const sc = await scorecardService.forParticipant(p1Id);
+    const sc = await scorecardService.forBall(ballFor(p1Id));
     expect(sc.holes).toHaveLength(1);
     expect(sc.holes[0].strokes).toBe(5);
     expect(sc.holes[0].metadata).toEqual({ gir: true, putts: 2 });
@@ -360,6 +367,6 @@ test('scorecard metadata defaults to null when unset', async () => {
         eventType: 'score_entered',
         clientEventId: 'c1',
     });
-    const sc = await scorecardService.forParticipant(p1Id);
+    const sc = await scorecardService.forBall(ballFor(p1Id));
     expect(sc.holes[0].metadata).toBeNull();
 });

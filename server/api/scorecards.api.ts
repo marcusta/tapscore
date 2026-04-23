@@ -4,7 +4,7 @@ import type { ScorecardService } from '../services/scorecard.service';
 
 // --- Input schemas ---
 
-const ByParticipantInput = Type.Object({ participantId: Type.String() });
+const ByBallInput = Type.Object({ ballId: Type.String() });
 const ByRoundInput = Type.Object({ roundId: Type.String() });
 
 // --- API descriptor ---
@@ -12,7 +12,7 @@ const ByRoundInput = Type.Object({ roundId: Type.String() });
 export function createScorecardsApi(svc: ScorecardService) {
     const mw = [requireAuth()];
     return {
-        forParticipant: { method: 'GET' as const, path: '/scorecards/for-participant', fn: (input: Static<typeof ByParticipantInput>) => svc.forParticipant(input.participantId), schema: ByParticipantInput, middleware: mw },
-        forRound:       { method: 'GET' as const, path: '/scorecards/for-round',       fn: (input: Static<typeof ByRoundInput>)       => svc.forRound(input.roundId),             schema: ByRoundInput,       middleware: mw },
+        forBall:  { method: 'GET' as const, path: '/scorecards/for-ball',  fn: (input: Static<typeof ByBallInput>)  => svc.forBall(input.ballId),   schema: ByBallInput,  middleware: mw },
+        forRound: { method: 'GET' as const, path: '/scorecards/for-round', fn: (input: Static<typeof ByRoundInput>) => svc.forRound(input.roundId), schema: ByRoundInput, middleware: mw },
     };
 }

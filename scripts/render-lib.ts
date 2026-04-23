@@ -15,9 +15,27 @@ import type { Player } from '../server/services/player.service';
 import type { GuestPlayer } from '../server/services/guest-player.service';
 import type { Club } from '../server/services/club.service';
 import type { ScoreEvent } from '../server/services/score-event.service';
-import type { Scorecard, ScorecardHole } from '../server/services/scorecard.service';
-import type { Leaderboard } from '../server/domain/leaderboard';
-import type { ParticipantResult, CourseHole, PairResult, PairHoleResult, HoleResult } from '../server/domain/format';
+import type { Scorecard as BallScorecard, ScorecardHole } from '../server/services/scorecard.service';
+import type { Leaderboard as BallLeaderboard } from '../server/domain/leaderboard';
+import type { BallResult, CourseHole, PairResult as BallPairResult, PairHoleResult, HoleResult } from '../server/domain/format';
+
+// --- Local participant-keyed view types ---
+//
+// Phase 2.6b/3b.3.1 flipped the domain read-side to be ball-keyed, but
+// render-lib still renders per-participant (one card per participant, pair
+// cards keyed by participant pairs). We translate at `collectRoundContext`
+// time using the `ball_players → participant_players` bridge and expose
+// participant-keyed shapes below. Render code stays unchanged.
+export type Scorecard = { participantId: string; holes: ScorecardHole[] };
+export type ParticipantResult = Omit<BallResult, 'ballId'> & { participantId: string };
+export type PairResult = Omit<BallPairResult, 'balls'> & { participants: [string, string]; winner: string | null };
+export type LeaderboardEntry = { participantId: string; position: number; total: number | null; holesPlayed: number };
+export type LeaderboardByType = { slotIndex: number; scoringType: string; entries: LeaderboardEntry[] };
+export interface Leaderboard {
+    byScoringType: LeaderboardByType[];
+    participantResults: ParticipantResult[];
+    pairResults: PairResult[];
+}
 import { courseHolesForRound } from '../server/domain/round-holes';
 import { stablefordOutcome, type StablefordHoleOutcome } from '../server/domain/formats/_stableford-scoring';
 import { normalizeMatchPlayHandicaps } from '../server/domain/formats/_match-play-handicap';
@@ -327,8 +345,63 @@ export async function collectRoundContext(
     if (!course) throw new Error(`course ${round.courseId} not found`);
     const participants = await svc.participantService.listByRound(roundId);
     const events = await svc.scoreEventService.listByRound(roundId);
-    const leaderboard = await svc.leaderboardService.forRound(roundId);
-    const scorecards = await svc.scorecardService.forRound(roundId);
+    const ballLeaderboard = await svc.leaderboardService.forRound(roundId);
+    const ballScorecards = await svc.scorecardService.forRound(roundId);
+
+    // Bridge: ball_id → participant_id via ball_players → participant_players.
+    // Topology guarantees one participant per ball (compiler + seed helper
+    // both uphold this), so a single scalar projection is enough.
+    const bridgeRows = await svc.db
+        .selectFrom('ball_players as bp')
+        .innerJoin('participant_players as pp', 'pp.id', 'bp.producer_def_id')
+        .innerJoin('balls as b', 'b.id', 'bp.ball_id')
+        .where('b.round_id', '=', roundId)
+        .select(['bp.ball_id', 'pp.participant_id'])
+        .distinct()
+        .execute();
+    const participantIdByBallId = new Map<string, string>();
+    for (const r of bridgeRows) participantIdByBallId.set(r.ball_id, r.participant_id);
+
+    const toParticipantId = (ballId: string): string => {
+        const pid = participantIdByBallId.get(ballId);
+        if (!pid) throw new Error(`render-lib: no participant bridge for ball ${ballId}`);
+        return pid;
+    };
+
+    const leaderboard: Leaderboard = {
+        byScoringType: ballLeaderboard.byScoringType.map((b) => ({
+            slotIndex: b.slotIndex,
+            scoringType: b.scoringType,
+            entries: b.entries.map((e) => ({
+                participantId: toParticipantId(e.ballId),
+                position: e.position,
+                total: e.total,
+                holesPlayed: e.holesPlayed,
+            })),
+        })),
+        participantResults: ballLeaderboard.ballResults.map((r) => ({
+            participantId: toParticipantId(r.ballId),
+            slotIndex: r.slotIndex,
+            holes: r.holes,
+            totals: r.totals,
+            holesPlayed: r.holesPlayed,
+        })),
+        pairResults: ballLeaderboard.pairResults.map((pr) => ({
+            slotIndex: pr.slotIndex,
+            participants: [
+                toParticipantId(pr.balls[0]),
+                toParticipantId(pr.balls[1]),
+            ] as [string, string],
+            holes: pr.holes,
+            summary: pr.summary,
+            result: pr.result,
+            winner: pr.winner === null ? null : toParticipantId(pr.winner),
+        })),
+    };
+    const scorecards: Scorecard[] = ballScorecards.map((sc) => ({
+        participantId: toParticipantId(sc.ballId),
+        holes: sc.holes,
+    }));
 
     const playerIds = new Set<string>();
     const guestIds = new Set<string>();

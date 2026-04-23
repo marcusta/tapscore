@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { findFormat, type CourseHole, type ParticipantInput, type SlotInput } from '../format';
+import { findFormat, type CourseHole, type BallInput, type SlotInput } from '../format';
 import type { FormatSlot } from '../../services/round.service';
 
 function par4Course(n: number): CourseHole[] {
@@ -20,15 +20,15 @@ function slot(): FormatSlot {
     };
 }
 
-function singleSlot(p: ParticipantInput, courseHoles: CourseHole[]): SlotInput {
-    return { participants: [p], courseHoles };
+function singleSlot(p: BallInput, courseHoles: CourseHole[]): SlotInput {
+    return { balls: [p], courseHoles };
 }
 
 test('stroke-play × individual: gross total sums strokes', () => {
     const s = findFormat('stroke_play', 'individual');
     const holes = par4Course(18);
-    const input: ParticipantInput = {
-        participantId: 'p1',
+    const input: BallInput = {
+        ballId: 'p1',
         playingHandicap: null,
         holes: Array.from({ length: 18 }, (_, i) => ({
             holeNumber: i + 1,
@@ -40,7 +40,7 @@ test('stroke-play × individual: gross total sums strokes', () => {
         })),
     };
     const result = s.compute(singleSlot(input, holes), slot());
-    const r = result.participantResults[0];
+    const r = result.ballResults[0];
     const gross = r.totals.find((t) => t.scoringType === 'gross')!;
     expect(gross.value).toBe(72);
     expect(r.holesPlayed).toBe(18);
@@ -50,8 +50,8 @@ test('net total applies stroke allocation by stroke index', () => {
     const s = findFormat('stroke_play', 'individual');
     const holes = par4Course(18);
     // Playing handicap 18 → 1 stroke on every hole.
-    const input: ParticipantInput = {
-        participantId: 'p1',
+    const input: BallInput = {
+        ballId: 'p1',
         playingHandicap: 18,
         holes: holes.map((h) => ({
             holeNumber: h.holeNumber,
@@ -63,7 +63,7 @@ test('net total applies stroke allocation by stroke index', () => {
         })),
     };
     const result = s.compute(singleSlot(input, holes), slot());
-    const r = result.participantResults[0];
+    const r = result.ballResults[0];
     const gross = r.totals.find((t) => t.scoringType === 'gross')!.value!;
     const net = r.totals.find((t) => t.scoringType === 'net')!.value!;
     expect(gross).toBe(90);
@@ -73,8 +73,8 @@ test('net total applies stroke allocation by stroke index', () => {
 test('net total is null when playing handicap is null', () => {
     const s = findFormat('stroke_play', 'individual');
     const holes = par4Course(18);
-    const input: ParticipantInput = {
-        participantId: 'p1',
+    const input: BallInput = {
+        ballId: 'p1',
         playingHandicap: null,
         holes: holes.map((h) => ({
             holeNumber: h.holeNumber,
@@ -86,15 +86,15 @@ test('net total is null when playing handicap is null', () => {
         })),
     };
     const result = s.compute(singleSlot(input, holes), slot());
-    const r = result.participantResults[0];
+    const r = result.ballResults[0];
     expect(r.totals.find((t) => t.scoringType === 'net')!.value).toBeNull();
 });
 
 test('low-stroke-index holes get extras first (playing handicap 9)', () => {
     const s = findFormat('stroke_play', 'individual');
     const holes = par4Course(18);
-    const input: ParticipantInput = {
-        participantId: 'p1',
+    const input: BallInput = {
+        ballId: 'p1',
         playingHandicap: 9, // 1 stroke on holes with SI 1..9; 0 on SI 10..18
         holes: holes.map((h) => ({
             holeNumber: h.holeNumber,
@@ -106,7 +106,7 @@ test('low-stroke-index holes get extras first (playing handicap 9)', () => {
         })),
     };
     const result = s.compute(singleSlot(input, holes), slot());
-    const r = result.participantResults[0];
+    const r = result.ballResults[0];
     // SI 1..9 (holes 1..9) give 1 stroke each → net 3. SI 10..18 give 0 → net 4.
     const holeNet1 = r.holes.find((h) => h.holeNumber === 1)!.net;
     const holeNet10 = r.holes.find((h) => h.holeNumber === 10)!.net;
@@ -117,8 +117,8 @@ test('low-stroke-index holes get extras first (playing handicap 9)', () => {
 test('any pickup voids the stroke-play gross and net totals (no completed card)', () => {
     const s = findFormat('stroke_play', 'individual');
     const holes = par4Course(18);
-    const input: ParticipantInput = {
-        participantId: 'p1',
+    const input: BallInput = {
+        ballId: 'p1',
         playingHandicap: 18,
         holes: [
             ...Array.from({ length: 8 }, (_, i) => ({
@@ -133,7 +133,7 @@ test('any pickup voids the stroke-play gross and net totals (no completed card)'
         ],
     };
     const result = s.compute(singleSlot(input, holes), slot());
-    const r = result.participantResults[0];
+    const r = result.ballResults[0];
     // Per-hole net-double still recorded for WHS / display.
     expect(r.holes.find((h) => h.holeNumber === 9)!.gross).toBe(7); // par 4 + 2 + 1 given
     // But the totals are null — Frank doesn't get a stroke-play result.
@@ -144,8 +144,8 @@ test('any pickup voids the stroke-play gross and net totals (no completed card)'
 test('pickup (0 strokes) counts as net-double', () => {
     const s = findFormat('stroke_play', 'individual');
     const holes = par4Course(18);
-    const input: ParticipantInput = {
-        participantId: 'p1',
+    const input: BallInput = {
+        ballId: 'p1',
         playingHandicap: 18, // 1 stroke / hole
         holes: [
             {
@@ -159,7 +159,7 @@ test('pickup (0 strokes) counts as net-double', () => {
         ],
     };
     const result = s.compute(singleSlot(input, holes), slot());
-    const r = result.participantResults[0];
+    const r = result.ballResults[0];
     const hole1 = r.holes.find((h) => h.holeNumber === 1)!;
     // Par 4 + 2 + 1 stroke given = 7 gross; net = 6.
     expect(hole1.gross).toBe(7);
@@ -169,8 +169,8 @@ test('pickup (0 strokes) counts as net-double', () => {
 test('DNP event leaves the hole null, counts as engaged, voids stroke-play total', () => {
     const s = findFormat('stroke_play', 'individual');
     const holes = par4Course(18);
-    const input: ParticipantInput = {
-        participantId: 'p1',
+    const input: BallInput = {
+        ballId: 'p1',
         playingHandicap: 0,
         holes: [
             { holeNumber: 1, strokes: 4, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null },
@@ -178,7 +178,7 @@ test('DNP event leaves the hole null, counts as engaged, voids stroke-play total
         ],
     };
     const result = s.compute(singleSlot(input, holes), slot());
-    const r = result.participantResults[0];
+    const r = result.ballResults[0];
     expect(r.holes.find((h) => h.holeNumber === 2)!.gross).toBeNull();
     expect(r.holes.find((h) => h.holeNumber === 2)!.net).toBeNull();
     // Both events count as engagement — the player is thru 2 holes on the course.
@@ -192,8 +192,8 @@ test('mid-round participant with no events past hole N keeps their partial total
     // This is NOT the same as DNP — they simply haven't gotten there yet.
     const s = findFormat('stroke_play', 'individual');
     const holes = par4Course(18);
-    const input: ParticipantInput = {
-        participantId: 'p1',
+    const input: BallInput = {
+        ballId: 'p1',
         playingHandicap: 0,
         holes: [
             { holeNumber: 1, strokes: 4, recordedBy: null, recordedAt: '', sourcePlayerId: null, sourceGuestPlayerId: null },
@@ -201,7 +201,7 @@ test('mid-round participant with no events past hole N keeps their partial total
         ],
     };
     const result = s.compute(singleSlot(input, holes), slot());
-    const r = result.participantResults[0];
+    const r = result.ballResults[0];
     expect(r.holesPlayed).toBe(2);
     expect(r.totals.find((t) => t.scoringType === 'gross')!.value).toBe(9);
 });
@@ -209,8 +209,8 @@ test('mid-round participant with no events past hole N keeps their partial total
 test('stroke-play slot with multiple participants returns one result per participant', () => {
     const s = findFormat('stroke_play', 'individual');
     const holes = par4Course(18);
-    const p1: ParticipantInput = {
-        participantId: 'p1',
+    const p1: BallInput = {
+        ballId: 'p1',
         playingHandicap: null,
         holes: holes.map((h) => ({
             holeNumber: h.holeNumber,
@@ -221,8 +221,8 @@ test('stroke-play slot with multiple participants returns one result per partici
             sourceGuestPlayerId: null,
         })),
     };
-    const p2: ParticipantInput = {
-        participantId: 'p2',
+    const p2: BallInput = {
+        ballId: 'p2',
         playingHandicap: null,
         holes: holes.map((h) => ({
             holeNumber: h.holeNumber,
@@ -233,11 +233,11 @@ test('stroke-play slot with multiple participants returns one result per partici
             sourceGuestPlayerId: null,
         })),
     };
-    const out = s.compute({ participants: [p1, p2], courseHoles: holes }, slot());
-    expect(out.participantResults).toHaveLength(2);
+    const out = s.compute({ balls: [p1, p2], courseHoles: holes }, slot());
+    expect(out.ballResults).toHaveLength(2);
     expect(out.pairResults).toBeUndefined();
-    expect(out.participantResults[0].totals.find((t) => t.scoringType === 'gross')!.value).toBe(72);
-    expect(out.participantResults[1].totals.find((t) => t.scoringType === 'gross')!.value).toBe(90);
+    expect(out.ballResults[0].totals.find((t) => t.scoringType === 'gross')!.value).toBe(72);
+    expect(out.ballResults[1].totals.find((t) => t.scoringType === 'gross')!.value).toBe(90);
 });
 
 test('findFormat throws for unregistered combination', () => {

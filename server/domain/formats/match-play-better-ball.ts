@@ -14,7 +14,7 @@
 // equal nets halve the hole. If neither team has a playable ball, the hole
 // remains undecided and the running state does not change.
 //
-// Totals on `ParticipantResult` are intentionally empty — plain match-play
+// Totals on `BallResult` are intentionally empty — plain match-play
 // has no scalar scoring type. Pair results drive the leaderboard.
 
 import type {
@@ -23,9 +23,9 @@ import type {
     HoleResult,
     PairHoleResult,
     PairResult,
-    ParticipantInput,
-    ParticipantPlayerInput,
-    ParticipantResult,
+    BallInput,
+    BallPlayerInput,
+    BallResult,
     SlotInput,
     SlotResult,
 } from '../format';
@@ -35,7 +35,7 @@ import { normalizeMatchPlayHandicaps } from './_match-play-handicap';
 import { strokesGivenMap } from './_stableford-scoring';
 
 interface PlayerCtx {
-    link: ParticipantPlayerInput;
+    link: BallPlayerInput;
     strokesByHole: Map<number, number>;
     holes: ScorecardHole[];
 }
@@ -55,7 +55,7 @@ interface TeamBall {
 }
 
 function resolvePlayerCtx(
-    link: ParticipantPlayerInput,
+    link: BallPlayerInput,
     effectivePlayingHandicap: number,
     allHoles: ScorecardHole[],
     courseHoles: CourseHole[],
@@ -167,21 +167,21 @@ function invertStatus(s: 'won' | 'lost' | 'halved'): 'won' | 'lost' | 'halved' {
 }
 
 function computePair(
-    teamA: ParticipantInput,
-    teamB: ParticipantInput,
+    teamA: BallInput,
+    teamB: BallInput,
     courseHoles: CourseHole[],
     slot: FormatSlot,
-): { pair: PairResult; resultA: ParticipantResult; resultB: ParticipantResult } {
+): { pair: PairResult; resultA: BallResult; resultB: BallResult } {
     const linksA = teamA.players ?? [];
     const linksB = teamB.players ?? [];
     if (linksA.length !== 2) {
         throw new Error(
-            `match-play better-ball slot #${slot.slotIndex}: participant ${teamA.participantId} needs exactly 2 player links (got ${linksA.length})`,
+            `match-play better-ball slot #${slot.slotIndex}: participant ${teamA.ballId} needs exactly 2 player links (got ${linksA.length})`,
         );
     }
     if (linksB.length !== 2) {
         throw new Error(
-            `match-play better-ball slot #${slot.slotIndex}: participant ${teamB.participantId} needs exactly 2 player links (got ${linksB.length})`,
+            `match-play better-ball slot #${slot.slotIndex}: participant ${teamB.ballId} needs exactly 2 player links (got ${linksB.length})`,
         );
     }
 
@@ -313,29 +313,29 @@ function computePair(
 
     const pair: PairResult = {
         slotIndex: slot.slotIndex,
-        participants: [teamA.participantId, teamB.participantId],
+        balls: [teamA.ballId, teamB.ballId],
         holes: pairHoles,
         summary: summaryState.summary,
         result: summaryState.result,
         winner:
             summaryState.result === 'won'
-                ? teamA.participantId
+                ? teamA.ballId
                 : summaryState.result === 'lost'
-                  ? teamB.participantId
+                  ? teamB.ballId
                   : null,
     };
 
     return {
         pair,
         resultA: {
-            participantId: teamA.participantId,
+            ballId: teamA.ballId,
             slotIndex: slot.slotIndex,
             holes: holesA,
             totals: [],
             holesPlayed: holesPlayedA,
         },
         resultB: {
-            participantId: teamB.participantId,
+            ballId: teamB.ballId,
             slotIndex: slot.slotIndex,
             holes: holesB,
             totals: [],
@@ -345,14 +345,14 @@ function computePair(
 }
 
 function computeOddOut(
-    input: ParticipantInput,
+    input: BallInput,
     courseHoles: CourseHole[],
     slot: FormatSlot,
-): ParticipantResult {
+): BallResult {
     const links = input.players ?? [];
     if (links.length !== 2) {
         throw new Error(
-            `match-play better-ball slot #${slot.slotIndex}: participant ${input.participantId} needs exactly 2 player links (got ${links.length})`,
+            `match-play better-ball slot #${slot.slotIndex}: participant ${input.ballId} needs exactly 2 player links (got ${links.length})`,
         );
     }
     const [ctxA, ctxB] = [
@@ -376,7 +376,7 @@ function computeOddOut(
         });
     }
     return {
-        participantId: input.participantId,
+        ballId: input.ballId,
         slotIndex: slot.slotIndex,
         holes,
         totals: [],
@@ -388,22 +388,22 @@ export const matchPlayBetterBall: FormatStrategy = {
     scoringMode: 'match_play',
     teamShape: 'better_ball',
     compute(input: SlotInput, slot: FormatSlot): SlotResult {
-        const participantResults: ParticipantResult[] = [];
+        const ballResults: BallResult[] = [];
         const pairResults: PairResult[] = [];
 
-        for (let i = 0; i + 1 < input.participants.length; i += 2) {
-            const a = input.participants[i]!;
-            const b = input.participants[i + 1]!;
+        for (let i = 0; i + 1 < input.balls.length; i += 2) {
+            const a = input.balls[i]!;
+            const b = input.balls[i + 1]!;
             const { pair, resultA, resultB } = computePair(a, b, input.courseHoles, slot);
-            participantResults.push(resultA, resultB);
+            ballResults.push(resultA, resultB);
             pairResults.push(pair);
         }
 
-        if (input.participants.length % 2 === 1) {
-            const odd = input.participants[input.participants.length - 1]!;
-            participantResults.push(computeOddOut(odd, input.courseHoles, slot));
+        if (input.balls.length % 2 === 1) {
+            const odd = input.balls[input.balls.length - 1]!;
+            ballResults.push(computeOddOut(odd, input.courseHoles, slot));
         }
 
-        return { participantResults, pairResults };
+        return { ballResults, pairResults };
     },
 };

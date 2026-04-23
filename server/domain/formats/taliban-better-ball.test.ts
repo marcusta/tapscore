@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { findFormat, type CourseHole, type ParticipantInput, type SlotInput } from '../format';
+import { findFormat, type CourseHole, type BallInput, type SlotInput } from '../format';
 import type { FormatSlot } from '../../services/round.service';
 import type { ScorecardHole } from '../../services/scorecard.service';
 
@@ -41,9 +41,9 @@ const BOB = 'bob-id';
 const CAROL = 'carol-id';
 const DAN = 'dan-id';
 
-function teamA(holes: ScorecardHole[], label = 'Alice & Bob'): ParticipantInput {
+function teamA(holes: ScorecardHole[], label = 'Alice & Bob'): BallInput {
     return {
-        participantId: 'teamA',
+        ballId: 'teamA',
         playingHandicap: 0,
         holes,
         teamLabel: label,
@@ -54,9 +54,9 @@ function teamA(holes: ScorecardHole[], label = 'Alice & Bob'): ParticipantInput 
     };
 }
 
-function teamB(holes: ScorecardHole[], label = 'Carol & Dan'): ParticipantInput {
+function teamB(holes: ScorecardHole[], label = 'Carol & Dan'): BallInput {
     return {
-        participantId: 'teamB',
+        ballId: 'teamB',
         playingHandicap: 0,
         holes,
         teamLabel: label,
@@ -67,8 +67,8 @@ function teamB(holes: ScorecardHole[], label = 'Carol & Dan'): ParticipantInput 
     };
 }
 
-function twoTeamSlot(a: ParticipantInput, b: ParticipantInput, courseHoles: CourseHole[]): SlotInput {
-    return { participants: [a, b], courseHoles };
+function twoTeamSlot(a: BallInput, b: BallInput, courseHoles: CourseHole[]): SlotInput {
+    return { balls: [a, b], courseHoles };
 }
 
 test('taliban: normal hole — team A better-ball 4 vs team B 5 on par 4 → A +1', () => {
@@ -332,11 +332,11 @@ test('taliban: validation — needs exactly 2 team participants', () => {
     const holes = par4Course(1);
     // 1 team — throws.
     expect(() =>
-        s.compute({ participants: [teamA([])], courseHoles: holes }, slot()),
+        s.compute({ balls: [teamA([])], courseHoles: holes }, slot()),
     ).toThrow(/2 team participants/);
     // 3 teams — throws.
-    const third: ParticipantInput = {
-        participantId: 'teamC',
+    const third: BallInput = {
+        ballId: 'teamC',
         playingHandicap: 0,
         holes: [],
         teamLabel: 'Third',
@@ -346,22 +346,22 @@ test('taliban: validation — needs exactly 2 team participants', () => {
         ],
     };
     expect(() =>
-        s.compute({ participants: [teamA([]), teamB([]), third], courseHoles: holes }, slot()),
+        s.compute({ balls: [teamA([]), teamB([]), third], courseHoles: holes }, slot()),
     ).toThrow(/2 team participants/);
 });
 
 test('taliban: validation — each team needs exactly 2 player links', () => {
     const s = findFormat('taliban', 'better_ball');
     const holes = par4Course(1);
-    const onePlayer: ParticipantInput = {
-        participantId: 'teamBad',
+    const onePlayer: BallInput = {
+        ballId: 'teamBad',
         playingHandicap: 0,
         holes: [],
         teamLabel: 'Bad',
         players: [{ playerId: 'a', guestPlayerId: null, playingHandicap: 0 }],
     };
     expect(() =>
-        s.compute({ participants: [onePlayer, teamB([])], courseHoles: holes }, slot()),
+        s.compute({ balls: [onePlayer, teamB([])], courseHoles: holes }, slot()),
     ).toThrow(/exactly 2 player links/);
 });
 
@@ -405,7 +405,7 @@ test('taliban: totals on participant results are empty', () => {
     const aHoles: ScorecardHole[] = [makeHole(1, 4, ALICE), makeHole(1, 4, BOB)];
     const bHoles: ScorecardHole[] = [makeHole(1, 5, CAROL), makeHole(1, 5, DAN)];
     const result = s.compute(twoTeamSlot(teamA(aHoles), teamB(bHoles), holes), slot());
-    for (const r of result.participantResults) {
+    for (const r of result.ballResults) {
         expect(r.totals).toEqual([]);
     }
 });
@@ -446,8 +446,8 @@ test('taliban: team-level hole note — W+2 / L / AS / W+5 on participant holes'
         makeHole(4, 5, DAN),
     ];
     const result = s.compute(twoTeamSlot(teamA(aHoles), teamB(bHoles), holes), slot());
-    const aResult = result.participantResults.find((r) => r.participantId === 'teamA')!;
-    const bResult = result.participantResults.find((r) => r.participantId === 'teamB')!;
+    const aResult = result.ballResults.find((r) => r.ballId === 'teamA')!;
+    const bResult = result.ballResults.find((r) => r.ballId === 'teamB')!;
     expect(aResult.holes[0].note).toBe('W+2');
     expect(bResult.holes[0].note).toBe('L');
     expect(aResult.holes[1].note).toBe('AS');

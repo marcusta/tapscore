@@ -17,8 +17,8 @@
 import type {
     CourseHole,
     HoleResult,
-    ParticipantInput,
-    ParticipantResult,
+    BallInput,
+    BallResult,
 } from '../format';
 import type { FormatSlot } from '../../services/round.service';
 
@@ -53,10 +53,10 @@ function strokesGivenByHole(
  * display / handicap-posting paths.
  */
 export function scoreOneBall(
-    input: ParticipantInput,
+    input: BallInput,
     courseHoles: CourseHole[],
     slot: FormatSlot,
-): ParticipantResult {
+): BallResult {
     const holes: HoleResult[] = [];
     let grossTotal = 0;
     let netTotal = 0;
@@ -102,7 +102,7 @@ export function scoreOneBall(
     }
 
     return {
-        participantId: input.participantId,
+        ballId: input.ballId,
         slotIndex: slot.slotIndex,
         holes,
         totals: [

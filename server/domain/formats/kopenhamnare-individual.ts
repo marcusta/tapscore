@@ -35,7 +35,7 @@
 // alongside the points value — the scorecard render uses it as the Points
 // cell tooltip, same pattern stableford uses.
 //
-// Totals on `ParticipantResult` emit one `points` entry; strategies with
+// Totals on `BallResult` emit one `points` entry; strategies with
 // `points` already sort high-to-low in `leaderboard.ts`. We deliberately
 // reuse the existing `points` scoring type rather than inventing
 // `kopenhamnare_points` — per-slot label collisions between stableford and
@@ -45,8 +45,8 @@ import type {
     CourseHole,
     FormatStrategy,
     HoleResult,
-    ParticipantInput,
-    ParticipantResult,
+    BallInput,
+    BallResult,
     SlotInput,
     SlotResult,
 } from '../format';
@@ -64,14 +64,14 @@ function readHandicapMode(slot: FormatSlot): KopenhamnareHandicapMode {
 }
 
 function effectivePH(
-    participants: ParticipantInput[],
+    participants: BallInput[],
     mode: KopenhamnareHandicapMode,
     slotIndex: number,
 ): Map<string, number> {
     const out = new Map<string, number>();
     if (mode === 'standard') {
         for (const p of participants) {
-            out.set(p.participantId, p.playingHandicap ?? 0);
+            out.set(p.ballId, p.playingHandicap ?? 0);
         }
         return out;
     }
@@ -85,7 +85,7 @@ function effectivePH(
     const phs = participants.map((p) => p.playingHandicap as number);
     const min = Math.min(...phs);
     for (const p of participants) {
-        out.set(p.participantId, (p.playingHandicap as number) - min);
+        out.set(p.ballId, (p.playingHandicap as number) - min);
     }
     return out;
 }
@@ -113,7 +113,7 @@ interface HoleState {
 }
 
 function resolveHole(
-    p: ParticipantInput,
+    p: BallInput,
     ch: CourseHole,
     strokesGiven: number,
 ): HoleState {
@@ -187,19 +187,19 @@ export const kopenhamnareIndividual: FormatStrategy = {
     scoringMode: 'kopenhamnare',
     teamShape: 'individual',
     compute(input: SlotInput, slot: FormatSlot): SlotResult {
-        if (input.participants.length !== 3) {
+        if (input.balls.length !== 3) {
             throw new Error(
-                `kopenhamnare slot #${slot.slotIndex}: exactly 3 participants required (got ${input.participants.length})`,
+                `kopenhamnare slot #${slot.slotIndex}: exactly 3 participants required (got ${input.balls.length})`,
             );
         }
 
         const mode = readHandicapMode(slot);
-        const phByParticipant = effectivePH(input.participants, mode, slot.slotIndex);
+        const phByParticipant = effectivePH(input.balls, mode, slot.slotIndex);
 
         const strokesMaps = new Map<string, Map<number, number>>();
-        for (const p of input.participants) {
-            const ph = phByParticipant.get(p.participantId) ?? 0;
-            strokesMaps.set(p.participantId, strokesByHoleFor(ph, input.courseHoles));
+        for (const p of input.balls) {
+            const ph = phByParticipant.get(p.ballId) ?? 0;
+            strokesMaps.set(p.ballId, strokesByHoleFor(ph, input.courseHoles));
         }
 
         // Per-participant accumulators.
@@ -207,31 +207,31 @@ export const kopenhamnareIndividual: FormatStrategy = {
         const totalsByPid = new Map<string, number>();
         const pointsHasValueByPid = new Map<string, boolean>();
         const holesPlayedByPid = new Map<string, number>();
-        for (const p of input.participants) {
-            holesByPid.set(p.participantId, []);
-            totalsByPid.set(p.participantId, 0);
-            pointsHasValueByPid.set(p.participantId, false);
-            holesPlayedByPid.set(p.participantId, 0);
+        for (const p of input.balls) {
+            holesByPid.set(p.ballId, []);
+            totalsByPid.set(p.ballId, 0);
+            pointsHasValueByPid.set(p.ballId, false);
+            holesPlayedByPid.set(p.ballId, 0);
         }
 
         const ordered = [...input.courseHoles].sort((x, y) => x.holeNumber - y.holeNumber);
-        const [pA, pB, pC] = input.participants;
+        const [pA, pB, pC] = input.balls;
 
         for (const ch of ordered) {
             const stateA = resolveHole(
                 pA,
                 ch,
-                strokesMaps.get(pA.participantId)!.get(ch.holeNumber) ?? 0,
+                strokesMaps.get(pA.ballId)!.get(ch.holeNumber) ?? 0,
             );
             const stateB = resolveHole(
                 pB,
                 ch,
-                strokesMaps.get(pB.participantId)!.get(ch.holeNumber) ?? 0,
+                strokesMaps.get(pB.ballId)!.get(ch.holeNumber) ?? 0,
             );
             const stateC = resolveHole(
                 pC,
                 ch,
-                strokesMaps.get(pC.participantId)!.get(ch.holeNumber) ?? 0,
+                strokesMaps.get(pC.ballId)!.get(ch.holeNumber) ?? 0,
             );
 
             // Count engagement per participant (has an event on this hole).
@@ -243,8 +243,8 @@ export const kopenhamnareIndividual: FormatStrategy = {
                 const played = p.holes.find((h) => h.holeNumber === ch.holeNumber);
                 if (played !== undefined) {
                     holesPlayedByPid.set(
-                        p.participantId,
-                        (holesPlayedByPid.get(p.participantId) ?? 0) + 1,
+                        p.ballId,
+                        (holesPlayedByPid.get(p.ballId) ?? 0) + 1,
                     );
                 }
                 void state;
@@ -263,7 +263,7 @@ export const kopenhamnareIndividual: FormatStrategy = {
                     [pB, stateB],
                     [pC, stateC],
                 ] as const) {
-                    holesByPid.get(p.participantId)!.push({
+                    holesByPid.get(p.ballId)!.push({
                         holeNumber: ch.holeNumber,
                         gross: state.gross,
                         net: state.net,
@@ -285,11 +285,11 @@ export const kopenhamnareIndividual: FormatStrategy = {
             ] as const;
             for (const [p, state, hp] of pairs) {
                 totalsByPid.set(
-                    p.participantId,
-                    (totalsByPid.get(p.participantId) ?? 0) + hp.points,
+                    p.ballId,
+                    (totalsByPid.get(p.ballId) ?? 0) + hp.points,
                 );
-                pointsHasValueByPid.set(p.participantId, true);
-                holesByPid.get(p.participantId)!.push({
+                pointsHasValueByPid.set(p.ballId, true);
+                holesByPid.get(p.ballId)!.push({
                     holeNumber: ch.holeNumber,
                     gross: state.gross,
                     net: state.net,
@@ -299,21 +299,21 @@ export const kopenhamnareIndividual: FormatStrategy = {
             }
         }
 
-        const participantResults: ParticipantResult[] = input.participants.map((p) => ({
-            participantId: p.participantId,
+        const ballResults: BallResult[] = input.balls.map((p) => ({
+            ballId: p.ballId,
             slotIndex: slot.slotIndex,
-            holes: holesByPid.get(p.participantId)!,
+            holes: holesByPid.get(p.ballId)!,
             totals: [
                 {
                     scoringType: 'points',
-                    value: pointsHasValueByPid.get(p.participantId)
-                        ? (totalsByPid.get(p.participantId) ?? 0)
+                    value: pointsHasValueByPid.get(p.ballId)
+                        ? (totalsByPid.get(p.ballId) ?? 0)
                         : null,
                 },
             ],
-            holesPlayed: holesPlayedByPid.get(p.participantId) ?? 0,
+            holesPlayed: holesPlayedByPid.get(p.ballId) ?? 0,
         }));
 
-        return { participantResults };
+        return { ballResults };
     },
 };

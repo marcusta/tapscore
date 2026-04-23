@@ -3,22 +3,21 @@
 // Designed to compose without conditional branches on either axis:
 //
 //   1. `FormatStrategy.compute(input, slot)` sees the WHOLE SLOT at once —
-//      every participant assigned to the slot plus the course holes. The
-//      strategy decides internally whether to iterate per-participant
-//      (stroke-play, stableford, foursomes), per-pair (match-play, Taliban),
-//      per-trio (Köpenhamnare), or per-hole-across-all (Umbrella). This
-//      slot-level visibility is why the interface takes `SlotInput` instead
-//      of `ParticipantInput`: pair-level and slot-level formats can't be
-//      computed one participant at a time.
+//      every ball assigned to the slot plus the course holes. The strategy
+//      decides internally whether to iterate per-ball (stroke-play,
+//      stableford, foursomes), per-pair (match-play, Taliban), per-trio
+//      (Köpenhamnare), or per-hole-across-all (Umbrella). This slot-level
+//      visibility is why the interface takes `SlotInput` instead of
+//      `BallInput`: pair-level and slot-level formats can't be computed one
+//      ball at a time.
 //
-//   2. Strategies return a `SlotResult = { participantResults, pairResults? }`.
-//      `participantResults` is always populated — every strategy produces
-//      per-participant scorecards (match-play writes the running status as
-//      a `note` on each `HoleResult`). `pairResults` is present only for
-//      pair-level formats (match-play and Taliban); simple formats leave
-//      it undefined.
+//   2. Strategies return a `SlotResult = { ballResults, pairResults? }`.
+//      `ballResults` is always populated — every strategy produces per-ball
+//      scorecards (match-play writes the running status as a `note` on
+//      each `HoleResult`). `pairResults` is present only for pair-level
+//      formats (match-play and Taliban); simple formats leave it undefined.
 //
-//   3. Each strategy declares its own scoring types on `ParticipantResult.totals`.
+//   3. Each strategy declares its own scoring types on `BallResult.totals`.
 //      Stroke-play has gross + net; stableford has points; match-play has
 //      no scalar total (empty totals array — pair results drive the
 //      leaderboard section instead).
@@ -34,8 +33,8 @@
 //   module-init hazard between the registry and the strategies that depend
 //   on its types.
 //
-// §14.6 (results row keyed by `(participant, scoring_type)`): strategies can
-// emit multiple `ParticipantResult.totals` rows (typically gross + net) — the
+// §14.6 (results row keyed by `(ball, scoring_type)`): strategies can emit
+// multiple `BallResult.totals` rows (typically gross + net) — the
 // leaderboard aggregates across slots per scoring type.
 // §14.7 (no-result vs pickup) surfaces on `HoleResult`: gross/net/points null
 // for either, and strategies distinguish the two through the source event.
@@ -62,9 +61,9 @@ export interface HoleResult {
     note?: string;
 }
 
-/** Participant-level rollup produced by a strategy after all holes are seen. */
-export interface ParticipantResult {
-    participantId: string;
+/** Ball-level rollup produced by a strategy after all holes are seen. */
+export interface BallResult {
+    ballId: string;
     slotIndex: number;
     holes: HoleResult[];
     /**
@@ -100,56 +99,56 @@ export interface PairHoleResult {
 /** Pair-level rollup — match-play today, Taliban later. */
 export interface PairResult {
     slotIndex: number;
-    /** [participantIdA, participantIdB] — the ordered pairing for this match. */
-    participants: [string, string];
+    /** [ballIdA, ballIdB] — the ordered pairing for this match. */
+    balls: [string, string];
     holes: PairHoleResult[];
     /** Golf-idiom one-line summary: "3 & 2", "2 UP thru 14", "AS", "AS thru 9". */
     summary: string;
     result: 'won' | 'lost' | 'halved' | 'in_progress';
-    /** Participant id of the match winner. Null if halved or in progress. */
+    /** Ball id of the match winner. Null if halved or in progress. */
     winner: string | null;
 }
 
 /**
- * Per-player link inside a team participant. Team formats (better-ball 2.5e,
+ * Per-player link inside a team ball. Team formats (better-ball 2.5e,
  * Taliban 2.5g, Umbrella 2.5h) read per-player playing handicaps for strokes-
  * given allocation. Individual-shape formats ignore this — they read
- * `ParticipantInput.playingHandicap` (the team-level snapshot).
+ * `BallInput.playingHandicap` (the team-level snapshot).
  *
  * Exactly one of `playerId` / `guestPlayerId` is populated (same xor rule as
- * `participant_players`). `playingHandicap` is the per-player PH frozen on
- * the link row; callers may still fall back to the team PH for legacy rows
+ * `ball_players`). `playingHandicap` is the per-player PH frozen on the
+ * link row; callers may still fall back to the team PH for legacy rows
  * that predate the per-link snapshot migration.
  */
-export interface ParticipantPlayerInput {
+export interface BallPlayerInput {
     playerId: string | null;
     guestPlayerId: string | null;
     playingHandicap: number | null;
 }
 
 /**
- * Minimum participant context a strategy needs — strokes + snapshots for net.
+ * Minimum ball context a strategy needs — strokes + snapshots for net.
  *
- * `holes` contains ALL scorecard rows for the participant, regardless of
- * source. For individual / foursomes every row has `sourcePlayerId = null`
- * and `sourceGuestPlayerId = null` — a single row per hole. For team
- * formats that populate the source columns (better-ball, Taliban, Umbrella)
- * there is one row per (hole, source-player) tuple. Strategies that don't
+ * `holes` contains ALL scorecard rows for the ball, regardless of source.
+ * For individual / foursomes every row has `sourcePlayerId = null` and
+ * `sourceGuestPlayerId = null` — a single row per hole. For team formats
+ * that populate the source columns (better-ball, Taliban, Umbrella) there
+ * is one row per (hole, source-player) tuple. Strategies that don't
  * expect multi-source rows (stroke-play, stableford-individual, match-play,
  * köpenhamnare) get away with this because their callers never append
- * team-source events under the same participant — their rows are all
- * null/null. Team strategies use `pickForSource` from `scorecard.service`
- * to slice by player.
+ * team-source events under the same ball — their rows are all null/null.
+ * Team strategies use `pickForSource` from `scorecard.service` to slice
+ * by player.
  *
  * `players` carries per-player PHs for team formats. Empty array or omitted
  * for individual / foursomes — those formats ignore it. Team formats
  * validate count (better-ball: exactly 2).
  */
-export interface ParticipantInput {
-    participantId: string;
+export interface BallInput {
+    ballId: string;
     /** Sparse — holes with no event have no entry. null strokes = DNP; 0 = pickup. */
     holes: ScorecardHole[];
-    /** Null if the participant has no frozen playing handicap (stroke-play gross only). */
+    /** Null if the ball has no frozen playing handicap (stroke-play gross only). */
     playingHandicap: number | null;
     /**
      * Per-player links + PHs for team formats. Optional — defaults to []
@@ -157,9 +156,9 @@ export interface ParticipantInput {
      * strategies (better-ball, Taliban, Umbrella) throw if the count is
      * wrong for their shape.
      */
-    players?: ParticipantPlayerInput[];
+    players?: BallPlayerInput[];
     /**
-     * Optional team / participant display label — `participants.team_label`.
+     * Optional team / ball display label — `participants.team_label`.
      * Taliban's pair-summary renders `"{labelA} {ptsA} − {ptsB} {labelB}"`
      * using this when present; falls back to a short id otherwise. Other
      * strategies ignore it.
@@ -168,19 +167,19 @@ export interface ParticipantInput {
 }
 
 /**
- * Slot-level strategy input. Every participant assigned to the slot + the
- * slot's course holes. Course holes live on the slot (not on each participant)
- * because a slot by definition plays one course — de-duplicating here avoids
- * drift between participants of the same slot.
+ * Slot-level strategy input. Every ball assigned to the slot + the slot's
+ * course holes. Course holes live on the slot (not on each ball) because
+ * a slot by definition plays one course — de-duplicating here avoids
+ * drift between balls of the same slot.
  */
 export interface SlotInput {
-    participants: ParticipantInput[];
+    balls: BallInput[];
     courseHoles: CourseHole[];
 }
 
-/** Slot-level strategy output. Always has per-participant results; pair results optional. */
+/** Slot-level strategy output. Always has per-ball results; pair results optional. */
 export interface SlotResult {
-    participantResults: ParticipantResult[];
+    ballResults: BallResult[];
     /** Populated only by pair-level formats (match-play, Taliban). */
     pairResults?: PairResult[];
 }

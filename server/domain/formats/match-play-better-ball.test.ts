@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { findFormat, type CourseHole, type ParticipantInput, type SlotInput } from '../format';
+import { findFormat, type CourseHole, type BallInput, type SlotInput } from '../format';
 import type { FormatSlot } from '../../services/round.service';
 import type { ScorecardHole } from '../../services/scorecard.service';
 
@@ -51,9 +51,9 @@ function team(
     bId: string,
     bPh: number,
     holes: ScorecardHole[],
-): ParticipantInput {
+): BallInput {
     return {
-        participantId: id,
+        ballId: id,
         teamLabel: label,
         playingHandicap: null,
         holes,
@@ -64,8 +64,8 @@ function team(
     };
 }
 
-function pairSlot(a: ParticipantInput, b: ParticipantInput, courseHoles: CourseHole[]): SlotInput {
-    return { participants: [a, b], courseHoles };
+function pairSlot(a: BallInput, b: BallInput, courseHoles: CourseHole[]): SlotInput {
+    return { balls: [a, b], courseHoles };
 }
 
 test('match-play better-ball: lower team better-ball net wins the hole', () => {
@@ -128,7 +128,7 @@ test('match-play better-ball: one team with no ball loses the hole when it engag
     const pair = result.pairResults![0];
     expect(pair.holes[0].status).toBe('won');
     expect(pair.holes[0].note).toContain('no ball');
-    expect(result.participantResults.find((r) => r.participantId === 'A')!.holes[0]!.note).toContain(
+    expect(result.ballResults.find((r) => r.ballId === 'A')!.holes[0]!.note).toContain(
         'W (no ball)',
     );
 });
@@ -161,9 +161,9 @@ test('match-play better-ball: odd team out gets participant result with no oppon
     const b = team('B', 'Eve & Hugo', EVE, 0, HUGO, 0, [hole(1, 4, EVE), hole(1, 5, HUGO)]);
     const c = team('C', 'Carol & Dan', CAROL, 0, DAN, 0, [hole(1, 4, CAROL), hole(1, 5, DAN)]);
 
-    const result = s.compute({ participants: [a, b, c], courseHoles: holes }, slot());
+    const result = s.compute({ balls: [a, b, c], courseHoles: holes }, slot());
     expect(result.pairResults).toHaveLength(1);
-    const odd = result.participantResults.find((r) => r.participantId === 'C')!;
+    const odd = result.ballResults.find((r) => r.ballId === 'C')!;
     expect(odd.holes[0]!.note).toBe('no opponent');
     expect(odd.holesPlayed).toBe(1);
 });

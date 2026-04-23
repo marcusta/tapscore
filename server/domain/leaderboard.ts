@@ -1,11 +1,11 @@
 // Round leaderboard — pure computation over scorecards + format slots.
 //
 // One leaderboard per round, produced by running each SLOT through its format
-// strategy (not each participant individually). The strategy sees every
-// participant assigned to the slot + the slot's course holes, and returns a
-// `SlotResult` with per-participant and optional pair-level results. The
-// leaderboard groups participant results by scoring type (gross / net /
-// points / …) and ranks them; pair-level results are collected separately.
+// strategy (not each ball individually). The strategy sees every ball
+// assigned to the slot + the slot's course holes, and returns a `SlotResult`
+// with per-ball and optional pair-level results. The leaderboard groups
+// ball results by scoring type (gross / net / points / …) and ranks them;
+// pair-level results are collected separately.
 //
 // Separation: leaderboard does NOT know which scoring type ranks high-to-low
 // or low-to-high — strategies declare that implicitly by label convention
@@ -15,10 +15,10 @@
 
 import {
     findFormat,
+    type BallInput,
+    type BallResult,
     type CourseHole,
     type PairResult,
-    type ParticipantInput,
-    type ParticipantResult,
     type SlotInput,
 } from './format';
 import type { FormatSlot } from '../services/round.service';
@@ -26,7 +26,7 @@ import type { FormatSlot } from '../services/round.service';
 // --- Public types ---
 
 export interface LeaderboardEntry {
-    participantId: string;
+    ballId: string;
     /** 1-based position within this scoring type. Ties share a position. */
     position: number;
     total: number | null;
@@ -34,7 +34,7 @@ export interface LeaderboardEntry {
 }
 
 /**
- * One ranked bucket of participants on a given slot × scoring-type axis.
+ * One ranked bucket of balls on a given slot × scoring-type axis.
  *
  * The `(slotIndex, scoringType)` pair keys the bucket so multi-slot rounds
  * don't collapse different slots' outputs into the same bucket (Phase 2.5i
@@ -59,21 +59,21 @@ export interface Leaderboard {
      * working for them.
      */
     byScoringType: LeaderboardByType[];
-    /** Raw strategy output per participant — exposed for UI detail views. */
-    participantResults: ParticipantResult[];
+    /** Raw strategy output per ball — exposed for UI detail views. */
+    ballResults: BallResult[];
     /** Pair-level results from pair-level formats (match-play today). */
     pairResults: PairResult[];
 }
 
-/** One slot's worth of input: which participants, what course holes. */
+/** One slot's worth of input: which balls, what course holes. */
 export interface SlotGroup {
     slot: FormatSlot;
-    participants: ParticipantInput[];
+    balls: BallInput[];
     courseHoles: CourseHole[];
 }
 
 export interface LeaderboardInput {
-    /** Slot groups in slot-index order. Each group carries its participants + holes. */
+    /** Slot groups in slot-index order. Each group carries its balls + holes. */
     slotGroups: SlotGroup[];
 }
 
@@ -110,7 +110,7 @@ function rank(values: LeaderboardEntry[], direction: Direction): LeaderboardEntr
 // --- Entry point ---
 
 export function computeLeaderboard(input: LeaderboardInput): Leaderboard {
-    const participantResults: ParticipantResult[] = [];
+    const ballResults: BallResult[] = [];
     const pairResults: PairResult[] = [];
     // Bucket entries per (slotIndex, scoringType). Using a nested map keeps
     // the partition explicit and preserves insertion order (slot iteration
@@ -120,14 +120,14 @@ export function computeLeaderboard(input: LeaderboardInput): Leaderboard {
     for (const group of input.slotGroups) {
         const strategy = findFormat(group.slot.scoringMode, group.slot.teamShape);
         const slotInput: SlotInput = {
-            participants: group.participants,
+            balls: group.balls,
             courseHoles: group.courseHoles,
         };
         const out = strategy.compute(slotInput, group.slot);
-        participantResults.push(...out.participantResults);
+        ballResults.push(...out.ballResults);
         if (out.pairResults) pairResults.push(...out.pairResults);
 
-        // Bucket this slot's participants strictly under its own slotIndex —
+        // Bucket this slot's balls strictly under its own slotIndex —
         // never mixed with other slots, even when two slots emit the same
         // scoring-type label (e.g. stableford 'points' + umbrella 'points').
         let typeBuckets = bySlotType.get(group.slot.slotIndex);
@@ -135,11 +135,11 @@ export function computeLeaderboard(input: LeaderboardInput): Leaderboard {
             typeBuckets = new Map();
             bySlotType.set(group.slot.slotIndex, typeBuckets);
         }
-        for (const r of out.participantResults) {
+        for (const r of out.ballResults) {
             for (const total of r.totals) {
                 const bucket = typeBuckets.get(total.scoringType) ?? [];
                 bucket.push({
-                    participantId: r.participantId,
+                    ballId: r.ballId,
                     position: 0,
                     total: total.value,
                     holesPlayed: r.holesPlayed,
@@ -164,5 +164,5 @@ export function computeLeaderboard(input: LeaderboardInput): Leaderboard {
         }
     }
 
-    return { byScoringType, participantResults, pairResults };
+    return { byScoringType, ballResults, pairResults };
 }

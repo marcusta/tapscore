@@ -177,7 +177,7 @@ test('full round flow: 4 participants, events, leaderboard, idempotency, replay'
     await scoreEventService.append({ roundId, participantId: pDan,   hole: 1, strokes: 4, eventType: 'score_entered', clientEventId: 'dan-h1',   recordedAt: '2026-05-01T09:03:00.000Z' });
 
     // Scorecards reflect events.
-    const aliceCard = await scorecardService.forParticipant(pAlice);
+    const aliceCard = await scorecardService.forBall(`ball-${pAlice}`);
     expect(aliceCard.holes).toHaveLength(2);
     expect(aliceCard.holes.map((h) => h.strokes)).toEqual([4, 5]);
 
@@ -189,9 +189,14 @@ test('full round flow: 4 participants, events, leaderboard, idempotency, replay'
     // Dan has only 1 stroke total (4), tied with Alice and Bob having 2 holes played.
     // Among played totals: Dan=4, Alice=9, Bob=11, Carol=6.
     // So order: Dan (4), Carol (6), Alice (9), Bob (11).
-    expect(firstEntry.participantId).toBe(pDan);
+    expect(firstEntry.ballId).toBe(`ball-${pDan}`);
     expect(firstEntry.total).toBe(4);
-    expect(gross.entries.map((e) => e.participantId)).toEqual([pDan, pCarol, pAlice, pBob]);
+    expect(gross.entries.map((e) => e.ballId)).toEqual([
+        `ball-${pDan}`,
+        `ball-${pCarol}`,
+        `ball-${pAlice}`,
+        `ball-${pBob}`,
+    ]);
 });
 
 test('replay determinism: events inserted out of order converge to same state', async () => {
@@ -233,7 +238,7 @@ test('replay determinism: events inserted out of order converge to same state', 
     });
 
     // Scorecard should reflect the LATEST (by recorded_at) event: strokes=5.
-    const card = await scorecardService.forParticipant(pAlice);
+    const card = await scorecardService.forBall(`ball-${pAlice}`);
     expect(card.holes).toHaveLength(1);
     expect(card.holes[0].strokes).toBe(5);
 });
@@ -251,7 +256,7 @@ test('score_cleared wipes strokes and clears the leaderboard contribution', asyn
         clientEventId: 'a1',
         recordedAt: '2026-05-01T09:00:00.000Z',
     });
-    let card = await scorecardService.forParticipant(pAlice);
+    let card = await scorecardService.forBall(`ball-${pAlice}`);
     expect(card.holes[0].strokes).toBe(4);
 
     await scoreEventService.append({
@@ -263,7 +268,7 @@ test('score_cleared wipes strokes and clears the leaderboard contribution', asyn
         clientEventId: 'a2',
         recordedAt: '2026-05-01T09:00:05.000Z',
     });
-    card = await scorecardService.forParticipant(pAlice);
+    card = await scorecardService.forBall(`ball-${pAlice}`);
     expect(card.holes[0].strokes).toBeNull();
 
     // Leaderboard: everyone has null totals now → all sort last, no winner.

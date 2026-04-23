@@ -29,9 +29,9 @@ import type {
     CourseHole,
     FormatStrategy,
     HoleResult,
-    ParticipantInput,
-    ParticipantPlayerInput,
-    ParticipantResult,
+    BallInput,
+    BallPlayerInput,
+    BallResult,
     SlotInput,
     SlotResult,
 } from '../format';
@@ -43,18 +43,18 @@ import { strokesGivenMap, stablefordOutcome, type StablefordHoleOutcome } from '
 interface PlayerCtx {
     /** Stable short display label for the note (first 8 of player id if nothing better). */
     label: string;
-    link: ParticipantPlayerInput;
+    link: BallPlayerInput;
     strokesByHole: Map<number, number>;
     holes: ScorecardHole[]; // only this player's rows
 }
 
-function playerLabel(link: ParticipantPlayerInput): string {
+function playerLabel(link: BallPlayerInput): string {
     const id = link.playerId ?? link.guestPlayerId ?? 'unknown';
     return `p:${id.slice(0, 6)}`;
 }
 
 function resolvePlayerCtx(
-    link: ParticipantPlayerInput,
+    link: BallPlayerInput,
     allHoles: ScorecardHole[],
     courseHoles: CourseHole[],
 ): PlayerCtx {
@@ -109,14 +109,14 @@ function combineBestBall(
 }
 
 function computeTeam(
-    input: ParticipantInput,
+    input: BallInput,
     courseHoles: CourseHole[],
     slot: FormatSlot,
-): ParticipantResult {
+): BallResult {
     const links = input.players ?? [];
     if (links.length !== 2) {
         throw new Error(
-            `stableford better-ball slot #${slot.slotIndex}: participant ${input.participantId} needs exactly 2 player links (got ${links.length})`,
+            `stableford better-ball slot #${slot.slotIndex}: participant ${input.ballId} needs exactly 2 player links (got ${links.length})`,
         );
     }
 
@@ -168,7 +168,7 @@ function computeTeam(
     }
 
     return {
-        participantId: input.participantId,
+        ballId: input.ballId,
         slotIndex: slot.slotIndex,
         holes: resultHoles,
         totals: [
@@ -190,9 +190,9 @@ export const stablefordBetterBall: FormatStrategy = {
     scoringMode: 'stableford',
     teamShape: 'better_ball',
     compute(input: SlotInput, slot: FormatSlot): SlotResult {
-        const participantResults = input.participants.map((p) =>
+        const ballResults = input.balls.map((p) =>
             computeTeam(p, input.courseHoles, slot),
         );
-        return { participantResults };
+        return { ballResults };
     },
 };

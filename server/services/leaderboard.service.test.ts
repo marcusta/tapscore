@@ -11,6 +11,9 @@ const slot: FormatSlot = {
     scopeConfig: null,
 };
 
+/** seed helper stamps `ball-${participantId}` as each participant's ball id. */
+const ballFor = (participantId: string): string => `ball-${participantId}`;
+
 /**
  * Shared setup: an 18-hole par-4 course at HGC with a single tee rated so
  * `courseHandicap(index=9)` = 9 (slope 113, CR 72, par 72 → slope/113 = 1,
@@ -70,7 +73,7 @@ test('front_9 round distributes PH across the 9 played holes only', async () => 
     const net = lb.byScoringType.find((b) => b.scoringType === 'net')!;
     expect(gross.entries[0].total).toBe(45); // 9 × bogey 5
     expect(net.entries[0].total).toBe(36);   // minus 9 strokes given
-    expect(lb.participantResults[0].holes.map((h) => h.holeNumber)).toEqual(
+    expect(lb.ballResults[0].holes.map((h) => h.holeNumber)).toEqual(
         [1, 2, 3, 4, 5, 6, 7, 8, 9],
     );
 });
@@ -102,7 +105,7 @@ test('back_9 round uses holes 10..18 only', async () => {
     const lb = await leaderboardService.forRound(round.id);
     const gross = lb.byScoringType.find((b) => b.scoringType === 'gross')!;
     expect(gross.entries[0].total).toBe(36); // 9 × par 4
-    expect(lb.participantResults[0].holes.map((h) => h.holeNumber)).toEqual(
+    expect(lb.ballResults[0].holes.map((h) => h.holeNumber)).toEqual(
         [10, 11, 12, 13, 14, 15, 16, 17, 18],
     );
 });
@@ -222,7 +225,7 @@ test('full_18 round still covers all 18 holes', async () => {
         });
     }
     const lb = await leaderboardService.forRound(round.id);
-    expect(lb.participantResults[0].holes).toHaveLength(18);
+    expect(lb.ballResults[0].holes).toHaveLength(18);
 });
 
 test('better-ball leaderboard uses each linked player\'s own frozen PH', async () => {
@@ -293,7 +296,7 @@ test('better-ball leaderboard uses each linked player\'s own frozen PH', async (
     });
 
     const lb = await leaderboardService.forRound(round.id);
-    const result = lb.participantResults[0]!;
+    const result = lb.ballResults[0]!;
     expect(result.holes.find((h) => h.holeNumber === 5)!.points).toBe(3);
     expect(result.totals.find((t) => t.scoringType === 'points')!.value).toBe(3);
 });
@@ -341,7 +344,7 @@ test('single-slot round with no scope defaults every participant to slot 0 (back
     expect(lb.byScoringType).toHaveLength(2); // gross + net
     for (const b of lb.byScoringType) {
         expect(b.slotIndex).toBe(0);
-        expect(b.entries.map((e) => e.participantId).sort()).toEqual([p1.id, p2.id].sort());
+        expect(b.entries.map((e) => e.ballId).sort()).toEqual([ballFor(p1.id), ballFor(p2.id)].sort());
     }
 });
 
@@ -394,6 +397,8 @@ test('multi-slot round routes each participant to the slot whose scope lists the
             },
         ],
     });
+    // Re-seed slots/slot_balls to mirror the post-update format slot shape.
+    await seedBallsFromParticipants(db, bootstrap.id);
 
     for (let h = 1; h <= 18; h++) {
         await scoreEventService.append({ roundId: bootstrap.id, participantId: pA.id, hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `a-h${h}` });
@@ -412,59 +417,36 @@ test('multi-slot round routes each participant to the slot whose scope lists the
     // Cross-slot leakage check: slot 0's buckets only contain pA & pB;
     // slot 1's points bucket only contains pC.
     for (const b of slot0Buckets) {
-        expect(b.entries.map((e) => e.participantId).sort()).toEqual([pA.id, pB.id].sort());
+        expect(b.entries.map((e) => e.ballId).sort()).toEqual([ballFor(pA.id), ballFor(pB.id)].sort());
     }
     for (const b of slot1Buckets) {
-        expect(b.entries.map((e) => e.participantId)).toEqual([pC.id]);
+        expect(b.entries.map((e) => e.ballId)).toEqual([ballFor(pC.id)]);
     }
 
-    // Participant results carry the slotIndex the strategy ran under.
-    const resultA = lb.participantResults.find((r) => r.participantId === pA.id)!;
-    const resultC = lb.participantResults.find((r) => r.participantId === pC.id)!;
+    // Ball results carry the slotIndex the strategy ran under.
+    const resultA = lb.ballResults.find((r) => r.ballId === ballFor(pA.id))!;
+    const resultC = lb.ballResults.find((r) => r.ballId === ballFor(pC.id))!;
     expect(resultA.slotIndex).toBe(0);
     expect(resultC.slotIndex).toBe(1);
 });
 
-test('multi-slot round missing scope on any slot throws', async () => {
-    const { roundService, participantService, leaderboardService, courseId, teeId } = await setup18();
+test('ball not assigned to any slot (slot_balls missing) throws', async () => {
+    // Compiler-drift check: seed only pA into any slot_balls row; pOrphan's
+    // ball exists in `balls` but has no slot_balls row → leaderboard must
+    // surface that so it isn't silently dropped from every bucket.
+    const { db, roundService, participantService, leaderboardService, courseId, teeId } = await setup18();
     const bootstrap = await roundService.create({
         courseId, date: '2026-05-01', roundType: 'full_18',
         venueType: 'outdoor', startListMode: 'structured',
-        formatSlots: [slot],
-    });
-    const pA = await participantService.create({
-        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
-    });
-    await roundService.update(bootstrap.id, {
         formatSlots: [
             {
                 slotIndex: 0,
                 scoringMode: 'stroke_play',
                 teamShape: 'individual',
                 allowancePct: 100,
-                scopeConfig: { scope: { participantIds: [pA.id] } },
-            },
-            {
-                slotIndex: 1,
-                scoringMode: 'stableford',
-                teamShape: 'individual',
-                allowancePct: 100,
-                scopeConfig: null, // missing scope
+                scopeConfig: null,
             },
         ],
-    });
-
-    expect(leaderboardService.forRound(bootstrap.id)).rejects.toThrow(
-        /slot #1 in round .* has no scope\.participantIds/,
-    );
-});
-
-test('participant not matched by any slot scope throws', async () => {
-    const { roundService, participantService, leaderboardService, courseId, teeId } = await setup18();
-    const bootstrap = await roundService.create({
-        courseId, date: '2026-05-01', roundType: 'full_18',
-        venueType: 'outdoor', startListMode: 'structured',
-        formatSlots: [slot],
     });
     const pA = await participantService.create({
         roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
@@ -472,61 +454,36 @@ test('participant not matched by any slot scope throws', async () => {
     const pOrphan = await participantService.create({
         roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
     });
-    await roundService.update(bootstrap.id, {
-        formatSlots: [
-            {
-                slotIndex: 0,
-                scoringMode: 'stroke_play',
-                teamShape: 'individual',
-                allowancePct: 100,
-                scopeConfig: { scope: { participantIds: [pA.id] } },
-            },
-            {
-                slotIndex: 1,
-                scoringMode: 'stableford',
-                teamShape: 'individual',
-                allowancePct: 100,
-                scopeConfig: { scope: { participantIds: [] } }, // empty, excludes pOrphan
-            },
-        ],
-    });
+    await seedBallsFromParticipants(db, bootstrap.id);
+    // Manually delete the orphan's slot_balls row to simulate compiler drift.
+    await db.deleteFrom('slot_balls').where('ball_id', '=', ballFor(pOrphan.id)).execute();
+    // Keep pA in the picture so the round has SOME data.
+    void pA;
 
     expect(leaderboardService.forRound(bootstrap.id)).rejects.toThrow(
-        new RegExp(`participant ${pOrphan.id} in round .* is not assigned to any slot's scope`),
+        new RegExp(`ball ${ballFor(pOrphan.id)} in round .* is not assigned to any slot`),
     );
 });
 
-test('participant in multiple slot scopes throws', async () => {
-    const { roundService, participantService, leaderboardService, courseId, teeId } = await setup18();
-    const bootstrap = await roundService.create({
+test('slots row with unparseable slot_def_id throws', async () => {
+    // Drift check: a `slots` row whose `slot_def_id` doesn't match the
+    // `slot-<N>` pattern written by synthesize-legacy can't be mapped back
+    // to a slotIndex. Surface rather than silently partition to slot 0.
+    const { db, roundService, participantService, leaderboardService, courseId, teeId } = await setup18();
+    const round = await roundService.create({
         courseId, date: '2026-05-01', roundType: 'full_18',
         venueType: 'outdoor', startListMode: 'structured',
         formatSlots: [slot],
     });
-    const pA = await participantService.create({
-        roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+    await participantService.create({
+        roundId: round.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
     });
-    await roundService.update(bootstrap.id, {
-        formatSlots: [
-            {
-                slotIndex: 0,
-                scoringMode: 'stroke_play',
-                teamShape: 'individual',
-                allowancePct: 100,
-                scopeConfig: { scope: { participantIds: [pA.id] } },
-            },
-            {
-                slotIndex: 1,
-                scoringMode: 'stableford',
-                teamShape: 'individual',
-                allowancePct: 100,
-                scopeConfig: { scope: { participantIds: [pA.id] } }, // duplicate!
-            },
-        ],
-    });
+    await seedBallsFromParticipants(db, round.id);
+    // Corrupt the slot_def_id.
+    await db.updateTable('slots').set({ slot_def_id: 'nonsense' }).where('round_id', '=', round.id).execute();
 
-    expect(leaderboardService.forRound(bootstrap.id)).rejects.toThrow(
-        /is assigned to multiple slots/,
+    expect(leaderboardService.forRound(round.id)).rejects.toThrow(
+        /cannot parse slot_def_id 'nonsense'/,
     );
 });
 
@@ -565,6 +522,7 @@ test('multi-slot round with overlapping scoringType label across slots keeps buc
             },
         ],
     });
+    await seedBallsFromParticipants(db, bootstrap.id);
     for (let h = 1; h <= 18; h++) {
         await scoreEventService.append({ roundId: bootstrap.id, participantId: pA.id, hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `a-h${h}` });
         await scoreEventService.append({ roundId: bootstrap.id, participantId: pB.id, hole: h, strokes: 5, eventType: 'score_entered', clientEventId: `b-h${h}` });
@@ -575,6 +533,6 @@ test('multi-slot round with overlapping scoringType label across slots keeps buc
     // TWO separate points buckets, one per slot — 2.5h's collision is resolved.
     expect(pointsBuckets).toHaveLength(2);
     expect(pointsBuckets.map((b) => b.slotIndex).sort()).toEqual([0, 1]);
-    expect(pointsBuckets[0]!.entries.map((e) => e.participantId)).toEqual([pA.id]);
-    expect(pointsBuckets[1]!.entries.map((e) => e.participantId)).toEqual([pB.id]);
+    expect(pointsBuckets[0]!.entries.map((e) => e.ballId)).toEqual([ballFor(pA.id)]);
+    expect(pointsBuckets[1]!.entries.map((e) => e.ballId)).toEqual([ballFor(pB.id)]);
 });

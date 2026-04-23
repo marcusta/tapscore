@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { findFormat, type CourseHole, type ParticipantInput, type SlotInput } from '../format';
+import { findFormat, type CourseHole, type BallInput, type SlotInput } from '../format';
 import type { FormatSlot } from '../../services/round.service';
 import type { ScorecardHole } from '../../services/scorecard.service';
 
@@ -46,9 +46,9 @@ const BOB = 'bob-id';
 const CAROL = 'carol-id';
 const DAN = 'dan-id';
 
-function teamA(holes: ScorecardHole[], label = 'Alice & Bob', ph = 0): ParticipantInput {
+function teamA(holes: ScorecardHole[], label = 'Alice & Bob', ph = 0): BallInput {
     return {
-        participantId: 'teamA',
+        ballId: 'teamA',
         playingHandicap: ph,
         holes,
         teamLabel: label,
@@ -59,9 +59,9 @@ function teamA(holes: ScorecardHole[], label = 'Alice & Bob', ph = 0): Participa
     };
 }
 
-function teamB(holes: ScorecardHole[], label = 'Carol & Dan', ph = 0): ParticipantInput {
+function teamB(holes: ScorecardHole[], label = 'Carol & Dan', ph = 0): BallInput {
     return {
-        participantId: 'teamB',
+        ballId: 'teamB',
         playingHandicap: ph,
         holes,
         teamLabel: label,
@@ -72,8 +72,8 @@ function teamB(holes: ScorecardHole[], label = 'Carol & Dan', ph = 0): Participa
     };
 }
 
-function twoTeamSlot(a: ParticipantInput, b: ParticipantInput, courseHoles: CourseHole[]): SlotInput {
-    return { participants: [a, b], courseHoles };
+function twoTeamSlot(a: BallInput, b: BallInput, courseHoles: CourseHole[]): SlotInput {
+    return { balls: [a, b], courseHoles };
 }
 
 // --- plain hole: low gross + LT to A, no GIR, no birdie ---
@@ -86,8 +86,8 @@ test('umbrella: plain hole — team A wins LG + LT on par 4 → 2 × 1 = 2 point
     const aHoles = [makeHole(1, 4, ALICE), makeHole(1, 5, BOB)];
     const bHoles = [makeHole(1, 5, CAROL), makeHole(1, 5, DAN)];
     const result = s.compute(twoTeamSlot(teamA(aHoles), teamB(bHoles), holes), slot());
-    const rA = result.participantResults.find((r) => r.participantId === 'teamA')!;
-    const rB = result.participantResults.find((r) => r.participantId === 'teamB')!;
+    const rA = result.ballResults.find((r) => r.ballId === 'teamA')!;
+    const rB = result.ballResults.find((r) => r.ballId === 'teamB')!;
     expect(rA.holes[0].points).toBe(2); // (LG 1 + LT 1) * 1 = 2
     expect(rB.holes[0].points).toBe(0);
     expect(rA.totals[0]).toEqual({ scoringType: 'points', value: 2 });
@@ -115,8 +115,8 @@ test('umbrella: sweep on hole 5 → 5 × 5 × 2 = 50 (umbrella multiplier)', () 
     const aHoles = [makeHole(5, 3, ALICE, true), makeHole(5, 3, BOB, true)];
     const bHoles = [makeHole(5, 5, CAROL), makeHole(5, 5, DAN)];
     const result = s.compute(twoTeamSlot(teamA(aHoles), teamB(bHoles), holes), slot());
-    const rA = result.participantResults.find((r) => r.participantId === 'teamA')!;
-    const rB = result.participantResults.find((r) => r.participantId === 'teamB')!;
+    const rA = result.ballResults.find((r) => r.ballId === 'teamA')!;
+    const rB = result.ballResults.find((r) => r.ballId === 'teamB')!;
     // holes[4] is hole 5 (0-indexed).
     expect(rA.holes[4].points).toBe(50);
     expect(rB.holes[4].points).toBe(0);
@@ -135,8 +135,8 @@ test('umbrella: cross-team LG + LT tie → both teams get full category (1 each)
     const aHoles = [makeHole(1, 4, ALICE), makeHole(1, 5, BOB)];
     const bHoles = [makeHole(1, 4, CAROL), makeHole(1, 5, DAN)];
     const result = s.compute(twoTeamSlot(teamA(aHoles), teamB(bHoles), holes), slot());
-    const rA = result.participantResults.find((r) => r.participantId === 'teamA')!;
-    const rB = result.participantResults.find((r) => r.participantId === 'teamB')!;
+    const rA = result.ballResults.find((r) => r.ballId === 'teamA')!;
+    const rB = result.ballResults.find((r) => r.ballId === 'teamB')!;
     expect(rA.holes[0].points).toBe(2);
     expect(rB.holes[0].points).toBe(2);
 });
@@ -151,8 +151,8 @@ test('umbrella: LG tied within team A — team A gets full LG point, team B gets
     const aHoles = [makeHole(1, 4, ALICE), makeHole(1, 4, BOB)];
     const bHoles = [makeHole(1, 5, CAROL), makeHole(1, 5, DAN)];
     const result = s.compute(twoTeamSlot(teamA(aHoles), teamB(bHoles), holes), slot());
-    const rA = result.participantResults.find((r) => r.participantId === 'teamA')!;
-    const rB = result.participantResults.find((r) => r.participantId === 'teamB')!;
+    const rA = result.ballResults.find((r) => r.ballId === 'teamA')!;
+    const rB = result.ballResults.find((r) => r.ballId === 'teamB')!;
     expect(rA.holes[0].points).toBe(2);
     expect(rB.holes[0].points).toBe(0);
 });
@@ -168,8 +168,8 @@ test('umbrella: gross birdie on par 4 hole 3 → team gets BIRD category × 3', 
     const aHoles = [makeHole(3, 3, ALICE), makeHole(3, 4, BOB)];
     const bHoles = [makeHole(3, 4, CAROL), makeHole(3, 4, DAN)];
     const result = s.compute(twoTeamSlot(teamA(aHoles), teamB(bHoles), holes), slot());
-    const rA = result.participantResults.find((r) => r.participantId === 'teamA')!;
-    const rB = result.participantResults.find((r) => r.participantId === 'teamB')!;
+    const rA = result.ballResults.find((r) => r.ballId === 'teamA')!;
+    const rB = result.ballResults.find((r) => r.ballId === 'teamB')!;
     expect(rA.holes[2].points).toBe(9);
     expect(rA.holes[2].note).toContain('BIRD');
     expect(rB.holes[2].points).toBe(0);
@@ -194,8 +194,8 @@ test("umbrella: net birdie via config.birdieRule='net' — team gets BIRD when n
         twoTeamSlot(teamA(aHoles, 'A&B', 1), teamB(bHoles, 'C&D', 0), holes),
         slot({ birdieRule: 'net' }),
     );
-    const rA = result.participantResults.find((r) => r.participantId === 'teamA')!;
-    const rB = result.participantResults.find((r) => r.participantId === 'teamB')!;
+    const rA = result.ballResults.find((r) => r.ballId === 'teamA')!;
+    const rB = result.ballResults.find((r) => r.ballId === 'teamB')!;
     // A cats: LG 1 + LT 0 + BIRD 1 = 2. Points = 2 × 1 = 2.
     // B cats: LG 1 + LT 1 + BIRD 0 = 2. Points = 2 × 1 = 2.
     expect(rA.holes[0].points).toBe(2);
@@ -205,7 +205,7 @@ test("umbrella: net birdie via config.birdieRule='net' — team gets BIRD when n
         twoTeamSlot(teamA(aHoles, 'A&B', 1), teamB(bHoles, 'C&D', 0), holes),
         slot({ birdieRule: 'gross' }),
     );
-    const grossA = grossResult.participantResults.find((r) => r.participantId === 'teamA')!;
+    const grossA = grossResult.ballResults.find((r) => r.ballId === 'teamA')!;
     // Gross mode: Alice gross 4 ≤ 3? No. No gross birdie. BIRD for A = 0.
     // A cats: LG 1 + LT 0 + BIRD 0 = 1. Points = 1 × 1 = 1.
     expect(grossA.holes[0].points).toBe(1);
@@ -222,7 +222,7 @@ test('umbrella: GIR metadata present awards GIR-A/GIR-B categories', () => {
     const aHoles = [makeHole(1, 4, ALICE, true), makeHole(1, 5, BOB, true)];
     const bHoles = [makeHole(1, 5, CAROL), makeHole(1, 5, DAN)];
     const result = s.compute(twoTeamSlot(teamA(aHoles), teamB(bHoles), holes), slot());
-    const rA = result.participantResults.find((r) => r.participantId === 'teamA')!;
+    const rA = result.ballResults.find((r) => r.ballId === 'teamA')!;
     expect(rA.holes[0].points).toBe(4);
     expect(rA.holes[0].note).toContain('GIR-A');
     expect(rA.holes[0].note).toContain('GIR-B');
@@ -235,7 +235,7 @@ test('umbrella: missing metadata → no GIR category, no error', () => {
     const aHoles = [makeHole(1, 4, ALICE), makeHole(1, 5, BOB)];
     const bHoles = [makeHole(1, 5, CAROL), makeHole(1, 5, DAN)];
     const result = s.compute(twoTeamSlot(teamA(aHoles), teamB(bHoles), holes), slot());
-    const rA = result.participantResults.find((r) => r.participantId === 'teamA')!;
+    const rA = result.ballResults.find((r) => r.ballId === 'teamA')!;
     // LG 1 + LT 1 + 0 + 0 + 0 = 2. Points = 2 × 1 = 2.
     expect(rA.holes[0].points).toBe(2);
     expect(rA.holes[0].note).not.toContain('GIR');
@@ -252,8 +252,8 @@ test('umbrella: pickup excludes player from LG / LT', () => {
     const aHoles = [makeHole(1, 0, ALICE), makeHole(1, 6, BOB)]; // Alice pickup
     const bHoles = [makeHole(1, 5, CAROL), makeHole(1, 7, DAN)];
     const result = s.compute(twoTeamSlot(teamA(aHoles), teamB(bHoles), holes), slot());
-    const rA = result.participantResults.find((r) => r.participantId === 'teamA')!;
-    const rB = result.participantResults.find((r) => r.participantId === 'teamB')!;
+    const rA = result.ballResults.find((r) => r.ballId === 'teamA')!;
+    const rB = result.ballResults.find((r) => r.ballId === 'teamB')!;
     expect(rA.holes[0].points).toBe(0);
     expect(rB.holes[0].points).toBe(2);
     // Confirm the team LT (gross column) is null on A (can't form a 2-ball).
@@ -268,8 +268,8 @@ test('umbrella: DNP excludes player from LG / LT', () => {
     const aHoles = [makeHole(1, null, ALICE), makeHole(1, 6, BOB)];
     const bHoles = [makeHole(1, 5, CAROL), makeHole(1, 7, DAN)];
     const result = s.compute(twoTeamSlot(teamA(aHoles), teamB(bHoles), holes), slot());
-    const rA = result.participantResults.find((r) => r.participantId === 'teamA')!;
-    const rB = result.participantResults.find((r) => r.participantId === 'teamB')!;
+    const rA = result.ballResults.find((r) => r.ballId === 'teamA')!;
+    const rB = result.ballResults.find((r) => r.ballId === 'teamB')!;
     expect(rA.holes[0].points).toBe(0);
     expect(rB.holes[0].points).toBe(2);
 });
@@ -280,10 +280,10 @@ test('umbrella: validation — needs exactly 2 team participants', () => {
     const s = findFormat('umbrella', 'four_ball');
     const holes = parCourse([{ par: 4 }]);
     expect(() =>
-        s.compute({ participants: [teamA([])], courseHoles: holes }, slot()),
+        s.compute({ balls: [teamA([])], courseHoles: holes }, slot()),
     ).toThrow(/2 team participants/);
-    const third: ParticipantInput = {
-        participantId: 'teamC',
+    const third: BallInput = {
+        ballId: 'teamC',
         playingHandicap: 0,
         holes: [],
         teamLabel: 'C',
@@ -293,22 +293,22 @@ test('umbrella: validation — needs exactly 2 team participants', () => {
         ],
     };
     expect(() =>
-        s.compute({ participants: [teamA([]), teamB([]), third], courseHoles: holes }, slot()),
+        s.compute({ balls: [teamA([]), teamB([]), third], courseHoles: holes }, slot()),
     ).toThrow(/2 team participants/);
 });
 
 test('umbrella: validation — each team needs exactly 2 player links', () => {
     const s = findFormat('umbrella', 'four_ball');
     const holes = parCourse([{ par: 4 }]);
-    const onePlayer: ParticipantInput = {
-        participantId: 'teamBad',
+    const onePlayer: BallInput = {
+        ballId: 'teamBad',
         playingHandicap: 0,
         holes: [],
         teamLabel: 'Bad',
         players: [{ playerId: 'a', guestPlayerId: null, playingHandicap: 0 }],
     };
     expect(() =>
-        s.compute({ participants: [onePlayer, teamB([])], courseHoles: holes }, slot()),
+        s.compute({ balls: [onePlayer, teamB([])], courseHoles: holes }, slot()),
     ).toThrow(/exactly 2 player links/);
 });
 
@@ -352,8 +352,8 @@ test('umbrella: 18-hole round with one umbrella hole — running totals match ha
         makeHole(10, 5, CAROL), makeHole(10, 6, DAN),
     ];
     const result = s.compute(twoTeamSlot(teamA(aHoles), teamB(bHoles), holes), slot());
-    const rA = result.participantResults.find((r) => r.participantId === 'teamA')!;
-    const rB = result.participantResults.find((r) => r.participantId === 'teamB')!;
+    const rA = result.ballResults.find((r) => r.ballId === 'teamA')!;
+    const rB = result.ballResults.find((r) => r.ballId === 'teamB')!;
 
     expect(rA.holes[0].points).toBe(2);
     expect(rA.holes[4].points).toBe(50); // hole 5 sweep
@@ -375,7 +375,7 @@ test('umbrella: per-hole note carries category breakdown and hole-number arithme
     const aHoles = [makeHole(3, 4, ALICE), makeHole(3, 5, BOB)];
     const bHoles = [makeHole(3, 5, CAROL), makeHole(3, 5, DAN)];
     const result = s.compute(twoTeamSlot(teamA(aHoles), teamB(bHoles), holes), slot());
-    const rA = result.participantResults.find((r) => r.participantId === 'teamA')!;
+    const rA = result.ballResults.find((r) => r.ballId === 'teamA')!;
     expect(rA.holes[2].note).toContain('× 3');
     expect(rA.holes[2].note).toContain('= 6');
 });
@@ -388,7 +388,7 @@ test('umbrella: totals emit one points entry per participant', () => {
     const aHoles = [makeHole(1, 4, ALICE), makeHole(1, 5, BOB)];
     const bHoles = [makeHole(1, 5, CAROL), makeHole(1, 5, DAN)];
     const result = s.compute(twoTeamSlot(teamA(aHoles), teamB(bHoles), holes), slot());
-    for (const r of result.participantResults) {
+    for (const r of result.ballResults) {
         expect(r.totals).toHaveLength(1);
         expect(r.totals[0].scoringType).toBe('points');
     }

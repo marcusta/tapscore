@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { findFormat, type CourseHole, type ParticipantInput, type SlotInput } from '../format';
+import { findFormat, type CourseHole, type BallInput, type SlotInput } from '../format';
 import type { FormatSlot } from '../../services/round.service';
 import type { ScorecardHole } from '../../services/scorecard.service';
 
@@ -21,8 +21,8 @@ function slot(): FormatSlot {
     };
 }
 
-function singleSlot(p: ParticipantInput, courseHoles: CourseHole[]): SlotInput {
-    return { participants: [p], courseHoles };
+function singleSlot(p: BallInput, courseHoles: CourseHole[]): SlotInput {
+    return { balls: [p], courseHoles };
 }
 
 function makeHole(
@@ -46,13 +46,13 @@ const ALICE = 'alice-id';
 const BOB = 'bob-id';
 
 function teamParticipant(opts: {
-    participantId?: string;
+    ballId?: string;
     phAlice: number | null;
     phBob: number | null;
     holes: ScorecardHole[];
-}): ParticipantInput {
+}): BallInput {
     return {
-        participantId: opts.participantId ?? 'team1',
+        ballId: opts.ballId ?? 'team1',
         playingHandicap: null, // ignored by better-ball
         holes: opts.holes,
         players: [
@@ -71,7 +71,7 @@ test('better-ball: both players par every hole → team takes 2 pts × 18 = 36',
         allHoles.push(makeHole(h.holeNumber, 4, BOB));
     }
     const team = teamParticipant({ phAlice: 0, phBob: 0, holes: allHoles });
-    const r = s.compute(singleSlot(team, holes), slot()).participantResults[0];
+    const r = s.compute(singleSlot(team, holes), slot()).ballResults[0];
     const points = r.totals.find((t) => t.scoringType === 'points')!.value;
     expect(points).toBe(36);
     expect(r.holesPlayed).toBe(18);
@@ -88,7 +88,7 @@ test('better-ball: one player birdies (3pts), other bogeys (1pt) → team takes 
         makeHole(1, 5, BOB), // bogey → 1 pt
     ];
     const team = teamParticipant({ phAlice: 0, phBob: 0, holes: allHoles });
-    const r = s.compute(singleSlot(team, holes), slot()).participantResults[0];
+    const r = s.compute(singleSlot(team, holes), slot()).ballResults[0];
     expect(r.holes[0].points).toBe(3);
     // Best-ball gross is min of the two → 3.
     expect(r.holes[0].gross).toBe(3);
@@ -104,7 +104,7 @@ test('better-ball: one player pickup (0pts), partner par (2pts) → team takes 2
         makeHole(1, 4, BOB), // par → 2 pts
     ];
     const team = teamParticipant({ phAlice: 0, phBob: 0, holes: allHoles });
-    const r = s.compute(singleSlot(team, holes), slot()).participantResults[0];
+    const r = s.compute(singleSlot(team, holes), slot()).ballResults[0];
     expect(r.holes[0].points).toBe(2);
     // Alice pickup = null gross; Bob scored 4 → best-ball gross is 4.
     expect(r.holes[0].gross).toBe(4);
@@ -121,7 +121,7 @@ test('better-ball: both DNP one hole → team points null, but total still count
         makeHole(2, null, BOB),
     ];
     const team = teamParticipant({ phAlice: 0, phBob: 0, holes: allHoles });
-    const r = s.compute(singleSlot(team, holes), slot()).participantResults[0];
+    const r = s.compute(singleSlot(team, holes), slot()).ballResults[0];
     expect(r.holes.find((h) => h.holeNumber === 1)!.points).toBe(2);
     expect(r.holes.find((h) => h.holeNumber === 2)!.points).toBeNull();
     expect(r.holes.find((h) => h.holeNumber === 2)!.gross).toBeNull();
@@ -137,7 +137,7 @@ test('better-ball: one player DNP, other par → team takes the other player\'s 
         makeHole(1, 4, BOB), // par → 2
     ];
     const team = teamParticipant({ phAlice: 0, phBob: 0, holes: allHoles });
-    const r = s.compute(singleSlot(team, holes), slot()).participantResults[0];
+    const r = s.compute(singleSlot(team, holes), slot()).ballResults[0];
     expect(r.holes[0].points).toBe(2);
     expect(r.holes[0].gross).toBe(4);
     expect(r.totals.find((t) => t.scoringType === 'points')!.value).toBe(2);
@@ -153,23 +153,23 @@ test('better-ball: mixed strokes given — Bob\'s stroke makes him net-birdie (3
     const holes = par4Course(18);
     const allHoles: ScorecardHole[] = [makeHole(5, 4, ALICE), makeHole(5, 4, BOB)];
     const team = teamParticipant({ phAlice: 0, phBob: 14, holes: allHoles });
-    const r = s.compute(singleSlot(team, holes), slot()).participantResults[0];
+    const r = s.compute(singleSlot(team, holes), slot()).ballResults[0];
     expect(r.holes.find((h) => h.holeNumber === 5)!.points).toBe(3);
 });
 
 test('better-ball: validation — != 2 player links throws', () => {
     const s = findFormat('stableford', 'better_ball');
     const holes = par4Course(1);
-    const tooFew: ParticipantInput = {
-        participantId: 'team1',
+    const tooFew: BallInput = {
+        ballId: 'team1',
         playingHandicap: null,
         holes: [],
         players: [{ playerId: ALICE, guestPlayerId: null, playingHandicap: 0 }],
     };
     expect(() => s.compute(singleSlot(tooFew, holes), slot())).toThrow(/exactly 2 player links/);
 
-    const tooMany: ParticipantInput = {
-        participantId: 'team1',
+    const tooMany: BallInput = {
+        ballId: 'team1',
         playingHandicap: null,
         holes: [],
         players: [
@@ -180,8 +180,8 @@ test('better-ball: validation — != 2 player links throws', () => {
     };
     expect(() => s.compute(singleSlot(tooMany, holes), slot())).toThrow(/exactly 2 player links/);
 
-    const missingPlayers: ParticipantInput = {
-        participantId: 'team1',
+    const missingPlayers: BallInput = {
+        ballId: 'team1',
         playingHandicap: null,
         holes: [],
         // players omitted entirely — falls back to []
@@ -195,7 +195,7 @@ test('better-ball: no-event hole leaves points null for the team', () => {
     const s = findFormat('stableford', 'better_ball');
     const holes = par4Course(1);
     const team = teamParticipant({ phAlice: 0, phBob: 0, holes: [] });
-    const r = s.compute(singleSlot(team, holes), slot()).participantResults[0];
+    const r = s.compute(singleSlot(team, holes), slot()).ballResults[0];
     expect(r.holes[0].points).toBeNull();
     expect(r.totals.find((t) => t.scoringType === 'points')!.value).toBeNull();
 });
@@ -205,7 +205,7 @@ test('better-ball: note surfaces each player\'s contribution', () => {
     const holes = par4Course(1);
     const allHoles: ScorecardHole[] = [makeHole(1, 3, ALICE), makeHole(1, 5, BOB)];
     const team = teamParticipant({ phAlice: 0, phBob: 0, holes: allHoles });
-    const r = s.compute(singleSlot(team, holes), slot()).participantResults[0];
+    const r = s.compute(singleSlot(team, holes), slot()).ballResults[0];
     expect(r.holes[0].note).toContain('team 3');
     // Both players' labels appear with their pts.
     expect(r.holes[0].note).toContain('3');

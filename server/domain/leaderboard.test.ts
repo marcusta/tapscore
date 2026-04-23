@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { computeLeaderboard, type SlotGroup } from './leaderboard';
-import type { CourseHole, ParticipantInput } from './format';
+import type { CourseHole, BallInput } from './format';
 import type { FormatSlot } from '../services/round.service';
 
 function par4Course(n: number): CourseHole[] {
@@ -21,10 +21,10 @@ function strokeSlot(): FormatSlot {
     };
 }
 
-function makeParticipant(id: string, strokesPerHole: number): ParticipantInput {
+function makeBall(id: string, strokesPerHole: number): BallInput {
     const courseHoles = par4Course(18);
     return {
-        participantId: id,
+        ballId: id,
         playingHandicap: null,
         holes: courseHoles.map((h) => ({
             holeNumber: h.holeNumber,
@@ -37,19 +37,19 @@ function makeParticipant(id: string, strokesPerHole: number): ParticipantInput {
     };
 }
 
-function singleGroup(participants: ParticipantInput[], slot: FormatSlot = strokeSlot()): SlotGroup {
-    return { slot, participants, courseHoles: par4Course(18) };
+function singleGroup(balls: BallInput[], slot: FormatSlot = strokeSlot()): SlotGroup {
+    return { slot, balls, courseHoles: par4Course(18) };
 }
 
 test('leaderboard ranks gross low-to-high', () => {
     const lb = computeLeaderboard({
-        slotGroups: [singleGroup([makeParticipant('p1', 4), makeParticipant('p2', 5)])],
+        slotGroups: [singleGroup([makeBall('p1', 4), makeBall('p2', 5)])],
     });
     const gross = lb.byScoringType.find((b) => b.scoringType === 'gross')!;
-    expect(gross.entries[0].participantId).toBe('p1');
+    expect(gross.entries[0].ballId).toBe('p1');
     expect(gross.entries[0].total).toBe(72);
     expect(gross.entries[0].position).toBe(1);
-    expect(gross.entries[1].participantId).toBe('p2');
+    expect(gross.entries[1].ballId).toBe('p2');
     expect(gross.entries[1].total).toBe(90);
     expect(gross.entries[1].position).toBe(2);
 });
@@ -58,9 +58,9 @@ test('ties share the same position', () => {
     const lb = computeLeaderboard({
         slotGroups: [
             singleGroup([
-                makeParticipant('p1', 4),
-                makeParticipant('p2', 4),
-                makeParticipant('p3', 5),
+                makeBall('p1', 4),
+                makeBall('p2', 4),
+                makeBall('p3', 5),
             ]),
         ],
     });
@@ -71,17 +71,17 @@ test('ties share the same position', () => {
 });
 
 test('partial scorecards have total reflecting played holes only; sort last when null', () => {
-    const empty: ParticipantInput = {
-        participantId: 'empty',
+    const empty: BallInput = {
+        ballId: 'empty',
         playingHandicap: null,
         holes: [], // nobody's hit a ball
     };
     const lb = computeLeaderboard({
-        slotGroups: [singleGroup([makeParticipant('p1', 4), empty])],
+        slotGroups: [singleGroup([makeBall('p1', 4), empty])],
     });
     const gross = lb.byScoringType.find((b) => b.scoringType === 'gross')!;
-    expect(gross.entries[0].participantId).toBe('p1');
-    expect(gross.entries[1].participantId).toBe('empty');
+    expect(gross.entries[0].ballId).toBe('p1');
+    expect(gross.entries[1].ballId).toBe('empty');
     expect(gross.entries[1].total).toBeNull();
 });
 
@@ -90,7 +90,7 @@ test('empty slot group produces an empty leaderboard (no results, no pairs)', ()
         slotGroups: [singleGroup([])],
     });
     expect(lb.byScoringType).toHaveLength(0);
-    expect(lb.participantResults).toHaveLength(0);
+    expect(lb.ballResults).toHaveLength(0);
     expect(lb.pairResults).toHaveLength(0);
 });
 
@@ -107,7 +107,7 @@ test('unregistered format throws via findFormat', () => {
             slotGroups: [
                 {
                     slot,
-                    participants: [makeParticipant('p1', 4)],
+                    balls: [makeBall('p1', 4)],
                     courseHoles: par4Course(18),
                 },
             ],
@@ -117,8 +117,8 @@ test('unregistered format throws via findFormat', () => {
 
 test('net leaderboard ranks using handicap-adjusted total', () => {
     const courseHoles = par4Course(18);
-    const scratch: ParticipantInput = {
-        participantId: 'scratch',
+    const scratch: BallInput = {
+        ballId: 'scratch',
         playingHandicap: 0,
         holes: courseHoles.map((h) => ({
             holeNumber: h.holeNumber,
@@ -129,8 +129,8 @@ test('net leaderboard ranks using handicap-adjusted total', () => {
             sourceGuestPlayerId: null,
         })),
     };
-    const bogeyPlayer: ParticipantInput = {
-        participantId: 'bogey',
+    const bogeyPlayer: BallInput = {
+        ballId: 'bogey',
         playingHandicap: 18,
         holes: courseHoles.map((h) => ({
             holeNumber: h.holeNumber,
@@ -146,7 +146,7 @@ test('net leaderboard ranks using handicap-adjusted total', () => {
     });
     const net = lb.byScoringType.find((b) => b.scoringType === 'net')!;
     // Bogey player wins net (72 vs null for scratch — scratch has ph=0 so net=gross=90).
-    expect(net.entries[0].participantId).toBe('bogey');
+    expect(net.entries[0].ballId).toBe('bogey');
     expect(net.entries[0].total).toBe(72);
     expect(net.entries[1].total).toBe(90);
 });

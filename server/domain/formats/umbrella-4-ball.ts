@@ -91,9 +91,9 @@ import type {
     CourseHole,
     FormatStrategy,
     HoleResult,
-    ParticipantInput,
-    ParticipantPlayerInput,
-    ParticipantResult,
+    BallInput,
+    BallPlayerInput,
+    BallResult,
     SlotInput,
     SlotResult,
 } from '../format';
@@ -114,7 +114,7 @@ function readBirdieRule(slot: FormatSlot): UmbrellaBirdieRule {
 
 interface PlayerCtx {
     label: string;
-    link: ParticipantPlayerInput;
+    link: BallPlayerInput;
     team: 'A' | 'B';
     /** Slot within the team: index 0 = "player A of this team", 1 = "player B". */
     teamSlot: 0 | 1;
@@ -132,13 +132,13 @@ interface PlayerHoleScore {
     gir: boolean;
 }
 
-function playerLabel(link: ParticipantPlayerInput): string {
+function playerLabel(link: BallPlayerInput): string {
     const id = link.playerId ?? link.guestPlayerId ?? 'unknown';
     return `p:${id.slice(0, 6)}`;
 }
 
 function resolvePlayerCtx(
-    link: ParticipantPlayerInput,
+    link: BallPlayerInput,
     teamPH: number | null,
     allHoles: ScorecardHole[],
     courseHoles: CourseHole[],
@@ -203,18 +203,18 @@ function sumCats(c: HoleCats): number {
 function resolveParticipants(
     input: SlotInput,
     slot: FormatSlot,
-): { teamA: ParticipantInput; teamB: ParticipantInput } {
-    if (input.participants.length !== 2) {
+): { teamA: BallInput; teamB: BallInput } {
+    if (input.balls.length !== 2) {
         throw new Error(
-            `umbrella four-ball slot #${slot.slotIndex}: needs exactly 2 team participants (got ${input.participants.length})`,
+            `umbrella four-ball slot #${slot.slotIndex}: needs exactly 2 team participants (got ${input.balls.length})`,
         );
     }
-    const [teamA, teamB] = input.participants;
-    const validate = (p: ParticipantInput) => {
+    const [teamA, teamB] = input.balls;
+    const validate = (p: BallInput) => {
         const links = p.players ?? [];
         if (links.length !== 2) {
             throw new Error(
-                `umbrella four-ball slot #${slot.slotIndex}: participant ${p.participantId} needs exactly 2 player links (got ${links.length})`,
+                `umbrella four-ball slot #${slot.slotIndex}: participant ${p.ballId} needs exactly 2 player links (got ${links.length})`,
             );
         }
     };
@@ -261,8 +261,8 @@ export const umbrellaFourBall: FormatStrategy = {
         const { teamA, teamB } = resolveParticipants(input, slot);
         const birdieRule = readBirdieRule(slot);
 
-        const linksA = teamA.players as ParticipantPlayerInput[];
-        const linksB = teamB.players as ParticipantPlayerInput[];
+        const linksA = teamA.players as BallPlayerInput[];
+        const linksB = teamB.players as BallPlayerInput[];
 
         const ctxA1 = resolvePlayerCtx(linksA[0], teamA.playingHandicap, teamA.holes, input.courseHoles, 'A', 0);
         const ctxA2 = resolvePlayerCtx(linksA[1], teamA.playingHandicap, teamA.holes, input.courseHoles, 'A', 1);
@@ -394,21 +394,21 @@ export const umbrellaFourBall: FormatStrategy = {
         const normalizedA = Math.max(0, totalA - totalB);
         const normalizedB = Math.max(0, totalB - totalA);
 
-        const resultA: ParticipantResult = {
-            participantId: teamA.participantId,
+        const resultA: BallResult = {
+            ballId: teamA.ballId,
             slotIndex: slot.slotIndex,
             holes: holesA,
             totals: [{ scoringType: 'points', value: normalizedA }],
             holesPlayed: holesPlayedA,
         };
-        const resultB: ParticipantResult = {
-            participantId: teamB.participantId,
+        const resultB: BallResult = {
+            ballId: teamB.ballId,
             slotIndex: slot.slotIndex,
             holes: holesB,
             totals: [{ scoringType: 'points', value: normalizedB }],
             holesPlayed: holesPlayedB,
         };
-        return { participantResults: [resultA, resultB] };
+        return { ballResults: [resultA, resultB] };
     },
 };
 

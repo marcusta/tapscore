@@ -2,7 +2,7 @@
 //
 // Pairs the slot's participants in the order they arrive: `[0]` vs `[1]`,
 // `[2]` vs `[3]`, and so on. If the slot has an odd number of participants,
-// the trailing singleton still gets a `ParticipantResult` (with a "no
+// the trailing singleton still gets a `BallResult` (with a "no
 // opponent" note on every hole) but no `PairResult` — the degenerate case
 // is silently dropped from the pair leaderboard section. Multi-slot routing
 // (2.5i) is the general fix; 2.5b's pair-in-order pairing is deliberately
@@ -28,7 +28,7 @@
 // match handicaps 0 vs 12. Those effective handicaps then allocate strokes
 // by SI via the same baseline-plus-extras rule as stroke-play/stableford.
 //
-// Totals on `ParticipantResult` are intentionally empty — match-play has no
+// Totals on `BallResult` are intentionally empty — match-play has no
 // scalar scoring type. The leaderboard renders pair results instead of a
 // numeric table; `byScoringType` stays empty for pure match-play rounds.
 
@@ -38,8 +38,8 @@ import type {
     HoleResult,
     PairHoleResult,
     PairResult,
-    ParticipantInput,
-    ParticipantResult,
+    BallInput,
+    BallResult,
     SlotInput,
     SlotResult,
 } from '../format';
@@ -65,7 +65,7 @@ function strokesGiven(playingHandicap: number | null, courseHoles: CourseHole[])
 
 /** Net strokes for a participant on a given hole, or null if DNP / no event. */
 function netForHole(
-    input: ParticipantInput,
+    input: BallInput,
     ch: CourseHole,
     given: StrokesGivenSide,
 ): { net: number | null; gross: number | null; engaged: boolean } {
@@ -134,11 +134,11 @@ function perspectiveNote(leadFromPerspective: number, remaining: number): string
 }
 
 function computePair(
-    a: ParticipantInput,
-    b: ParticipantInput,
+    a: BallInput,
+    b: BallInput,
     courseHoles: CourseHole[],
     slot: FormatSlot,
-): { pair: PairResult; resultA: ParticipantResult; resultB: ParticipantResult } {
+): { pair: PairResult; resultA: BallResult; resultB: BallResult } {
     const [effectiveA, effectiveB] = normalizeMatchPlayHandicaps([
         a.playingHandicap,
         b.playingHandicap,
@@ -267,29 +267,29 @@ function computePair(
 
     const winner =
         summaryState.result === 'won'
-            ? a.participantId
+            ? a.ballId
             : summaryState.result === 'lost'
-              ? b.participantId
+              ? b.ballId
               : null;
 
     const pair: PairResult = {
         slotIndex: slot.slotIndex,
-        participants: [a.participantId, b.participantId],
+        balls: [a.ballId, b.ballId],
         holes: pairHoles,
         summary: summaryState.summary,
         result: summaryState.result,
         winner,
     };
 
-    const resultA: ParticipantResult = {
-        participantId: a.participantId,
+    const resultA: BallResult = {
+        ballId: a.ballId,
         slotIndex: slot.slotIndex,
         holes: holesA,
         totals: [],
         holesPlayed: holesPlayedA,
     };
-    const resultB: ParticipantResult = {
-        participantId: b.participantId,
+    const resultB: BallResult = {
+        ballId: b.ballId,
         slotIndex: slot.slotIndex,
         holes: holesB,
         totals: [],
@@ -309,10 +309,10 @@ function invertStatus(s: 'won' | 'lost' | 'halved'): 'won' | 'lost' | 'halved' {
 }
 
 function computeOddOut(
-    input: ParticipantInput,
+    input: BallInput,
     courseHoles: CourseHole[],
     slot: FormatSlot,
-): ParticipantResult {
+): BallResult {
     const holes: HoleResult[] = [];
     let holesPlayed = 0;
     for (const ch of courseHoles) {
@@ -337,7 +337,7 @@ function computeOddOut(
         });
     }
     return {
-        participantId: input.participantId,
+        ballId: input.ballId,
         slotIndex: slot.slotIndex,
         holes,
         totals: [],
@@ -349,14 +349,14 @@ export const matchPlayIndividual: FormatStrategy = {
     scoringMode: 'match_play',
     teamShape: 'individual',
     compute(input: SlotInput, slot: FormatSlot): SlotResult {
-        const participantResults: ParticipantResult[] = [];
+        const ballResults: BallResult[] = [];
         const pairResults: PairResult[] = [];
 
-        for (let i = 0; i + 1 < input.participants.length; i += 2) {
-            const a = input.participants[i];
-            const b = input.participants[i + 1];
+        for (let i = 0; i + 1 < input.balls.length; i += 2) {
+            const a = input.balls[i];
+            const b = input.balls[i + 1];
             const { pair, resultA, resultB } = computePair(a, b, input.courseHoles, slot);
-            participantResults.push(resultA, resultB);
+            ballResults.push(resultA, resultB);
             pairResults.push(pair);
         }
 
@@ -366,11 +366,11 @@ export const matchPlayIndividual: FormatStrategy = {
         // match-play is fundamentally two-sided — seeding a one-sided pair
         // would render wrong. The participant's scorecard still appears so
         // the seed is visually honest.
-        if (input.participants.length % 2 === 1) {
-            const odd = input.participants[input.participants.length - 1];
-            participantResults.push(computeOddOut(odd, input.courseHoles, slot));
+        if (input.balls.length % 2 === 1) {
+            const odd = input.balls[input.balls.length - 1];
+            ballResults.push(computeOddOut(odd, input.courseHoles, slot));
         }
 
-        return { participantResults, pairResults };
+        return { ballResults, pairResults };
     },
 };

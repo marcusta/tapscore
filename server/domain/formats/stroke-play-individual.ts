@@ -26,9 +26,9 @@ export const strokePlayIndividual: FormatStrategy = {
     scoringMode: 'stroke_play',
     teamShape: 'individual',
     compute(input, slot): SlotResult {
-        const participantResults = input.participants.map((p) =>
+        const ballResults = input.balls.map((p) =>
             scoreOneBall(p, input.courseHoles, slot),
         );
-        return { participantResults };
+        return { ballResults };
     },
 };

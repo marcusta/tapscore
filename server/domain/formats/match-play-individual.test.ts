@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { findFormat, type CourseHole, type ParticipantInput, type SlotInput } from '../format';
+import { findFormat, type CourseHole, type BallInput, type SlotInput } from '../format';
 import type { FormatSlot } from '../../services/round.service';
 
 function par4Course(n: number): CourseHole[] {
@@ -20,8 +20,8 @@ function slot(): FormatSlot {
     };
 }
 
-function pairSlot(a: ParticipantInput, b: ParticipantInput, courseHoles: CourseHole[]): SlotInput {
-    return { participants: [a, b], courseHoles };
+function pairSlot(a: BallInput, b: BallInput, courseHoles: CourseHole[]): SlotInput {
+    return { balls: [a, b], courseHoles };
 }
 
 function holeEvent(holeNumber: number, strokes: number | null): {
@@ -54,13 +54,13 @@ test('match-play: A up 3 after 16 with 2 to play → "3 & 2"', () => {
         aScores[i] = 4; // par
         bScores[i] = i <= 3 ? 5 : 4;
     }
-    const a: ParticipantInput = {
-        participantId: 'A',
+    const a: BallInput = {
+        ballId: 'A',
         playingHandicap: 0,
         holes: Object.entries(aScores).map(([h, v]) => holeEvent(+h, v)),
     };
-    const b: ParticipantInput = {
-        participantId: 'B',
+    const b: BallInput = {
+        ballId: 'B',
         playingHandicap: 0,
         holes: Object.entries(bScores).map(([h, v]) => holeEvent(+h, v)),
     };
@@ -70,25 +70,25 @@ test('match-play: A up 3 after 16 with 2 to play → "3 & 2"', () => {
     expect(pair.summary).toBe('3 & 2');
     expect(pair.result).toBe('won');
     expect(pair.winner).toBe('A');
-    // participantResults populated for both sides.
-    expect(result.participantResults.map((r) => r.participantId).sort()).toEqual(['A', 'B']);
+    // ballResults populated for both sides.
+    expect(result.ballResults.map((r) => r.ballId).sort()).toEqual(['A', 'B']);
     // Per-hole notes for A after hole 1: "W · 1UP"
-    const aHole1 = result.participantResults[0].holes.find((h) => h.holeNumber === 1)!;
+    const aHole1 = result.ballResults[0].holes.find((h) => h.holeNumber === 1)!;
     expect(aHole1.note).toContain('1UP');
     // Totals are empty for match-play.
-    expect(result.participantResults[0].totals).toEqual([]);
+    expect(result.ballResults[0].totals).toEqual([]);
 });
 
 test('match-play: all 18 holes halved → "AS"', () => {
     const s = findFormat('match_play', 'individual');
     const holes = par4Course(18);
-    const a: ParticipantInput = {
-        participantId: 'A',
+    const a: BallInput = {
+        ballId: 'A',
         playingHandicap: 0,
         holes: holes.map((h) => holeEvent(h.holeNumber, 4)),
     };
-    const b: ParticipantInput = {
-        participantId: 'B',
+    const b: BallInput = {
+        ballId: 'B',
         playingHandicap: 0,
         holes: holes.map((h) => holeEvent(h.holeNumber, 4)),
     };
@@ -103,8 +103,8 @@ test('match-play: in-progress after 7 holes, A 1 up → "1 UP thru 7"', () => {
     const s = findFormat('match_play', 'individual');
     const holes = par4Course(18);
     // A wins hole 1, halves 2..7, no events past that.
-    const a: ParticipantInput = {
-        participantId: 'A',
+    const a: BallInput = {
+        ballId: 'A',
         playingHandicap: 0,
         holes: [
             holeEvent(1, 3),
@@ -116,8 +116,8 @@ test('match-play: in-progress after 7 holes, A 1 up → "1 UP thru 7"', () => {
             holeEvent(7, 4),
         ],
     };
-    const b: ParticipantInput = {
-        participantId: 'B',
+    const b: BallInput = {
+        ballId: 'B',
         playingHandicap: 0,
         holes: [
             holeEvent(1, 4),
@@ -139,13 +139,13 @@ test('match-play: hole undecided when one side has no event; running lead unchan
     const s = findFormat('match_play', 'individual');
     const holes = par4Course(18);
     // Both halve hole 1. Hole 2: A scored, B has no event.
-    const a: ParticipantInput = {
-        participantId: 'A',
+    const a: BallInput = {
+        ballId: 'A',
         playingHandicap: 0,
         holes: [holeEvent(1, 4), holeEvent(2, 4)],
     };
-    const b: ParticipantInput = {
-        participantId: 'B',
+    const b: BallInput = {
+        ballId: 'B',
         playingHandicap: 0,
         holes: [holeEvent(1, 4)],
     };
@@ -184,13 +184,13 @@ test('match-play: strokes given — A (PH=14) beats B (PH=0) on low-SI holes via
         else if (i <= 14) aHoles[i] = 6; // gross bogey, net par
         else aHoles[i] = 5; // gross bogey (no stroke here), matches B
     }
-    const a: ParticipantInput = {
-        participantId: 'A',
+    const a: BallInput = {
+        ballId: 'A',
         playingHandicap: 14,
         holes: Object.entries(aHoles).map(([h, v]) => holeEvent(+h, v)),
     };
-    const b: ParticipantInput = {
-        participantId: 'B',
+    const b: BallInput = {
+        ballId: 'B',
         playingHandicap: 0,
         holes: holes.map((h) => holeEvent(h.holeNumber, 5)), // bogey everywhere, gross 90
     };
@@ -211,13 +211,13 @@ test('match-play: strokes given — A (PH=14) beats B (PH=0) on low-SI holes via
 test('match-play: handicaps are normalized to the low player within the pair', () => {
     const s = findFormat('match_play', 'individual');
     const holes = par4Course(18);
-    const a: ParticipantInput = {
-        participantId: 'A',
+    const a: BallInput = {
+        ballId: 'A',
         playingHandicap: 2,
         holes: [holeEvent(1, 5)],
     };
-    const b: ParticipantInput = {
-        participantId: 'B',
+    const b: BallInput = {
+        ballId: 'B',
         playingHandicap: 14,
         holes: [holeEvent(1, 5)],
     };
@@ -233,25 +233,25 @@ test('match-play: handicaps are normalized to the low player within the pair', (
     expect(h1.status).toBe('lost');
 });
 
-test('match-play: odd-participant slot — one pair + a no-opponent ParticipantResult', () => {
+test('match-play: odd-participant slot — one pair + a no-opponent BallResult', () => {
     const s = findFormat('match_play', 'individual');
     const holes = par4Course(18);
-    const mk = (id: string): ParticipantInput => ({
-        participantId: id,
+    const mk = (id: string): BallInput => ({
+        ballId: id,
         playingHandicap: 0,
         holes: holes.map((h) => holeEvent(h.holeNumber, 4)),
     });
     const result = s.compute(
-        { participants: [mk('A'), mk('B'), mk('C')], courseHoles: holes },
+        { balls: [mk('A'), mk('B'), mk('C')], courseHoles: holes },
         slot(),
     );
-    // 1 pair (A vs B); C gets a ParticipantResult but no PairResult.
+    // 1 pair (A vs B); C gets a BallResult but no PairResult.
     expect(result.pairResults).toHaveLength(1);
-    expect(result.pairResults![0].participants).toEqual(['A', 'B']);
-    const ids = result.participantResults.map((r) => r.participantId).sort();
+    expect(result.pairResults![0].balls).toEqual(['A', 'B']);
+    const ids = result.ballResults.map((r) => r.ballId).sort();
     expect(ids).toEqual(['A', 'B', 'C']);
     // C's per-hole notes read "no opponent".
-    const cResult = result.participantResults.find((r) => r.participantId === 'C')!;
+    const cResult = result.ballResults.find((r) => r.ballId === 'C')!;
     expect(cResult.holes[0].note).toBe('no opponent');
     // Odd-count stranded participant is silently dropped from the pair
     // leaderboard (no ghost PairResult). Multi-slot routing in 2.5i is the

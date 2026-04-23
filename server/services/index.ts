@@ -30,7 +30,6 @@ export function createServices(db: Kysely<Database>) {
     const leaderboardService = new LeaderboardService(
         db,
         roundService,
-        participantService,
         scorecardService,
         courseService,
     );
