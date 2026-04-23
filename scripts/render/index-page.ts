@@ -49,7 +49,7 @@ export function renderIndexHtml(rows: IndexRow[]): string {
   <td>${esc(row.round.venueType)}</td>
   <td>${esc(slots)}</td>
   <td>${esc(row.round.status)}</td>
-  <td class="num">${row.participantCount}</td>
+  <td class="num">${row.ballCount}</td>
   <td class="num">${row.eventCount}</td>
 </tr>`;
         })
@@ -68,7 +68,7 @@ export function renderIndexHtml(rows: IndexRow[]): string {
     <tr>
       <th>id</th><th>date</th><th>club</th><th>course</th>
       <th>type</th><th>venue</th><th>format</th><th>status</th>
-      <th>participants</th><th>events</th>
+      <th>balls</th><th>events</th>
     </tr>
   </thead>
   <tbody>${body}</tbody>

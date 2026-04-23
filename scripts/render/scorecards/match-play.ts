@@ -1,20 +1,20 @@
 // Unified pair scorecard — one table for BOTH sides of a match-play or
-// Taliban pair. Previously each team rendered its own scorecard, so the
-// two tables often had different column widths and you couldn't compare
-// hole-by-hole vertically. This renderer stacks: shared hole header → Par
-// / SI → Side A block (Given / Gross / Net per player, + team row for
-// Taliban) → Side B block → per-hole Status row (verbatim from the
-// participant's own note) → cumulative Match row (idiom-specific:
-// match-play "1UP"/"AS"/"NDN", Taliban "+N"/"-N"/"AS").
+// Taliban pair. Stacks: shared hole header → Par / SI → Side A block
+// (Given / Gross / Net per producer) → Side A points + running → Side B
+// block → Side B points + running → per-hole Status row → cumulative
+// Match row (idiom-specific).
 //
-// `kind` decides the per-player layout: individual = 1 player/side, no
-// team row; team = 2 players/side + a team row (gross/net = better-ball;
-// the "team points earned" cell uses `PairHoleResult.fromA|fromB`).
+// `kind` decides the per-producer layout: individual = 1 producer/side,
+// team = 2 producers/side.
 
-import type { Participant } from '../../../server/services/participant.service';
 import type { ScorecardHole } from '../../../server/services/scorecard.service';
-import type { CourseHole, PairHoleResult } from '../../../server/domain/format';
-import type { ParticipantResult, PairResult, RoundRenderContext } from '../types';
+import type {
+    BallResult,
+    CourseHole,
+    PairHoleResult,
+    PairResult,
+} from '../../../server/domain/format';
+import type { BallInfo, RoundRenderContext } from '../types';
 import type { RoundRenderState } from '../round-state';
 import {
     esc,
@@ -32,24 +32,28 @@ export function renderPairScorecard(
     state: RoundRenderState,
     pair: PairResult,
     kind: PairScorecardKind,
-    partA: Participant,
-    partB: Participant,
-    _resA: ParticipantResult,
-    _resB: ParticipantResult,
+    ballA: BallInfo,
+    ballB: BallInfo,
+    _resA: BallResult,
+    _resB: BallResult,
     courseHoles: CourseHole[],
 ): string {
     const { round } = ctx;
     const {
         allCourseHoles,
-        effectivePHByLinkId,
-        effectivePHByParticipant,
-        participantLabel,
-        playerLinkLabel,
-        scorecardByParticipant,
+        ballLabel,
+        ballPlayingHandicapInSlot,
+        effectivePHByBall,
+        effectivePHByProducer,
+        producerName,
+        scorecardByBall,
     } = state;
 
     const groups = splitHoleGroups(courseHoles);
     const includeTotColumn = groups.length > 1;
+
+    const producerKey = (ballId: string, producerDefId: string): string =>
+        `${ballId}:${producerDefId}`;
 
     const row = (
         label: string,
@@ -106,27 +110,26 @@ export function renderPairScorecard(
     const parRow = row('Par', (h) => `<td>${h.par}</td>`, (holes) => String(holes.reduce((a, b) => a + b.par, 0)));
     const siRow = row('SI', (h) => `<td class="si">${h.strokeIndex}</td>`, () => '—', 'dim');
 
-    // Build one side's player rows (Given / Gross / Net per player). For
-    // match-play individual the participant has 1 player link; for Taliban
-    // it has 2. Gross/Net come from the raw scorecard rows (source-filtered)
-    // so we get the pickup / DNP semantics right per player. Strokes-given
-    // uses the link's own frozen PH, with a participant-level fallback for
-    // legacy rows that predate the per-link snapshot migration.
-    const sideBlock = (p: Participant): string => {
-        const scorecard = scorecardByParticipant.get(p.id);
+    const sideBlock = (b: BallInfo): string => {
+        const scorecard = scorecardByBall.get(b.id);
         const allRows = scorecard?.holes ?? [];
-        const blocks = p.players.map((link) => {
-            const name = playerLinkLabel(link);
-            const playerPh =
-                effectivePHByLinkId.get(link.id) ??
-                effectivePHByParticipant.get(p.id) ??
-                link.playingHandicapSnapshot ??
-                p.playingHandicapSnapshot ??
+        const teamPh = ballPlayingHandicapInSlot(b, pair.slotIndex);
+        const blocks = b.producers.map((prod) => {
+            const name = producerName(prod);
+            const effProducer = effectivePHByProducer.get(
+                producerKey(b.id, prod.producerDefId),
+            );
+            const effBall = effectivePHByBall.get(b.id);
+            const producerPh =
+                effProducer ??
+                effBall ??
+                prod.courseHandicapSnapshot ??
+                teamPh ??
                 0;
-            const strokesGiven = strokesGivenMap(playerPh, allCourseHoles);
-            const playerRows = pairSideScorecardRows(kind, link, allRows);
+            const strokesGiven = strokesGivenMap(producerPh, allCourseHoles);
+            const producerRows = pairSideScorecardRows(kind, prod, allRows);
             const byHole = new Map<number, ScorecardHole>();
-            for (const r of playerRows) byHole.set(r.holeNumber, r);
+            for (const r of producerRows) byHole.set(r.holeNumber, r);
 
             const givenRow = row(
                 `${esc(name)} Given`,
@@ -259,10 +262,6 @@ export function renderPairScorecard(
             })(),
         );
 
-    // Status row — per-hole outcome only, from the pair-level note.
-    // Match-play: "W" / "L" / "AS" (+ "(dormie)"); Taliban: "W+1" / "W+2
-    // (birdie)" / "W+5 (down eagle)" / "L" / "AS". The Match row below
-    // carries the running cumulative — keep them non-overlapping.
     const statusRow = row(
         'Status',
         (h) => {
@@ -272,23 +271,16 @@ export function renderPairScorecard(
         () => '—',
     );
 
-    // Match row — cumulative from A's perspective, idiom-specific.
-    // Running sum of `PairHoleResult.pointsDelta`; null holes contribute 0
-    // (no change in running state). Match-play: AS / NUP / NDN. Taliban:
-    // AS / +N / -N (signed integer delta).
     const formatRunning = (running: number): string => {
         if (kind === 'match_play_individual' || kind === 'match_play_better_ball') {
             if (running === 0) return 'AS';
             if (running > 0) return `${running}UP`;
             return `${-running}DN`;
         }
-        // taliban
         if (running === 0) return 'AS';
         if (running > 0) return `+${running}`;
         return `−${-running}`;
     };
-    // Precompute running after each hole by natural ordering (same as
-    // pair.holes is built hole-by-hole in the strategy).
     const runningByHole = new Map<number, number>();
     let running = 0;
     const orderedHoles = [...pair.holes].sort((a, b) => a.holeNumber - b.holeNumber);
@@ -306,14 +298,14 @@ export function renderPairScorecard(
         () => '—',
     );
 
-    const title = `${esc(participantLabel(partA))} vs. ${esc(participantLabel(partB))}`;
+    const title = `${esc(ballLabel(ballA))} vs. ${esc(ballLabel(ballB))}`;
     const slotFormat = round.formatSlots[pair.slotIndex];
     const slotDescr = slotFormat
         ? `slot #${pair.slotIndex} · ${esc(slotFormat.scoringMode)} × ${esc(slotFormat.teamShape)} @ ${slotFormat.allowancePct}%`
         : `slot #${pair.slotIndex}`;
 
-    const labelA = esc(participantLabel(partA));
-    const labelB = esc(participantLabel(partB));
+    const labelA = esc(ballLabel(ballA));
+    const labelB = esc(ballLabel(ballB));
 
     return `
 <article class="scorecard-card">
@@ -328,10 +320,10 @@ export function renderPairScorecard(
     <tbody>
       ${parRow}
       ${siRow}
-      ${sideBlock(partA)}
+      ${sideBlock(ballA)}
       ${pointsRowForSide('A', labelA)}
       ${runningRowForSide('A', labelA, runningAByHole)}
-      ${sideBlock(partB)}
+      ${sideBlock(ballB)}
       ${pointsRowForSide('B', labelB)}
       ${runningRowForSide('B', labelB, runningBByHole)}
       ${statusRow}

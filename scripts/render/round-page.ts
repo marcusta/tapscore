@@ -7,7 +7,7 @@ import type { RoundRenderContext } from './types';
 import { esc, short } from './util';
 import { renderMeta } from './sections/meta';
 import { renderCourseMetadata, renderSnapshotTables } from './sections/course';
-import { renderParticipantsTable } from './sections/participants';
+import { renderBallsTable } from './sections/balls';
 import { renderEvents } from './sections/events';
 import { renderLeaderboard } from './sections/leaderboard';
 import { renderScorecards } from './scorecards/index';
@@ -32,7 +32,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
 ${renderMeta(ctx)}
 ${renderCourseMetadata(ctx, state.playedCourseHoles)}
 ${renderSnapshotTables(ctx)}
-${renderParticipantsTable(ctx, state)}
+${renderBallsTable(ctx, state)}
 ${renderScorecards(ctx, state)}
 ${renderLeaderboard(ctx, state)}
 ${renderEvents(ctx, state)}

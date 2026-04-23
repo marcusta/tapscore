@@ -1,6 +1,10 @@
-// Collect data from services into the participant-keyed shapes the
-// rendering code consumes. The ball-keyed domain reads get bridged to
-// participants here via `ball_players → participant_players`.
+// Collect data from services + the compiler tables (`balls`, `ball_players`,
+// `slots`, `slot_balls`, `slot_ball_teams`, `round_ball_strategies`) into
+// the ball-native shape the rendering code consumes.
+//
+// Phase 2.6b/3c.2 dropped the participant-keyed view layer — domain
+// leaderboard / scorecards / events flow through unchanged, and each ball
+// carries its producers + per-slot PH + team grouping in `BallInfo`.
 
 import type { Course } from '../../server/services/course.service';
 import type { Club } from '../../server/services/club.service';
@@ -8,13 +12,12 @@ import type { Player } from '../../server/services/player.service';
 import type { GuestPlayer } from '../../server/services/guest-player.service';
 import type { Tee } from '../../server/services/tee.service';
 import type {
+    BallInfo,
+    BallProducerInfo,
     IndexRow,
-    Leaderboard,
-    RenderedEvent,
     RoundCourseHoleSnapshot,
     RoundRenderContext,
     RoundTeeHoleSnapshot,
-    Scorecard,
     Services,
 } from './types';
 
@@ -35,9 +38,19 @@ export async function collectIndexRows(svc: Services): Promise<IndexRow[]> {
             club = (await svc.clubService.list()).find((c) => c.id === course.clubId) ?? null;
             if (club) clubById.set(course.clubId, club);
         }
-        const participants = await svc.participantService.listByRound(r.id);
+        const ballCount = await svc.db
+            .selectFrom('balls')
+            .where('round_id', '=', r.id)
+            .select((eb) => eb.fn.countAll<number>().as('c'))
+            .executeTakeFirst();
         const events = await svc.scoreEventService.listByRound(r.id);
-        rows.push({ round: r, course, club, participantCount: participants.length, eventCount: events.length });
+        rows.push({
+            round: r,
+            course,
+            club,
+            ballCount: Number(ballCount?.c ?? 0),
+            eventCount: events.length,
+        });
     }
     return rows;
 }
@@ -51,78 +64,159 @@ export async function collectRoundContext(
     if (!round) throw new Error(`round ${roundId} not found`);
     const course = await svc.courseService.getById(round.courseId);
     if (!course) throw new Error(`course ${round.courseId} not found`);
-    const participants = await svc.participantService.listByRound(roundId);
+
     const events = await svc.scoreEventService.listByRound(roundId);
-    const ballLeaderboard = await svc.leaderboardService.forRound(roundId);
-    const ballScorecards = await svc.scorecardService.forRound(roundId);
+    const leaderboard = await svc.leaderboardService.forRound(roundId);
+    const scorecards = await svc.scorecardService.forRound(roundId);
 
-    // Bridge: ball_id → participant_id via ball_players → participant_players.
-    // Topology guarantees one participant per ball (compiler + seed helper
-    // both uphold this), so a single scalar projection is enough.
-    const bridgeRows = await svc.db
-        .selectFrom('ball_players as bp')
-        .innerJoin('participant_players as pp', 'pp.id', 'bp.producer_def_id')
-        .innerJoin('balls as b', 'b.id', 'bp.ball_id')
+    // --- ball-native context -------------------------------------------------
+
+    const ballRows = await svc.db
+        .selectFrom('balls as b')
+        .leftJoin('round_ball_strategies as rbs', 'rbs.id', 'b.round_ball_strategy_id')
         .where('b.round_id', '=', roundId)
-        .select(['bp.ball_id', 'pp.participant_id'])
-        .distinct()
+        .select([
+            'b.id as id',
+            'b.label as label',
+            'b.course_handicap_snapshot as course_handicap_snapshot',
+            'rbs.strategy_id as strategy_id',
+        ])
         .execute();
-    const participantIdByBallId = new Map<string, string>();
-    for (const r of bridgeRows) participantIdByBallId.set(r.ball_id, r.participant_id);
 
-    const toParticipantId = (ballId: string): string => {
-        const pid = participantIdByBallId.get(ballId);
-        if (!pid) throw new Error(`render-lib: no participant bridge for ball ${ballId}`);
-        return pid;
-    };
+    if (ballRows.length === 0) {
+        // Legacy rounds that pre-date migration 019 (ball-backfill) cannot
+        // be rendered under the ball-native pipeline. Clean-break per
+        // Phase 2.6b/3c.2 — fail loudly rather than silently falling back.
+        throw new Error(
+            `render-lib: round ${roundId} has no balls — legacy fixture outside the ball-native pipeline. Re-seed or run the 019 backfill.`,
+        );
+    }
 
-    const leaderboard: Leaderboard = {
-        byScoringType: ballLeaderboard.byScoringType.map((b) => ({
-            slotIndex: b.slotIndex,
-            scoringType: b.scoringType,
-            entries: b.entries.map((e) => ({
-                participantId: toParticipantId(e.ballId),
-                position: e.position,
-                total: e.total,
-                holesPlayed: e.holesPlayed,
-            })),
-        })),
-        participantResults: ballLeaderboard.ballResults.map((r) => ({
-            participantId: toParticipantId(r.ballId),
-            slotIndex: r.slotIndex,
-            holes: r.holes,
-            totals: r.totals,
-            holesPlayed: r.holesPlayed,
-        })),
-        pairResults: ballLeaderboard.pairResults.map((pr) => ({
-            slotIndex: pr.slotIndex,
-            participants: [
-                toParticipantId(pr.balls[0]),
-                toParticipantId(pr.balls[1]),
-            ] as [string, string],
-            holes: pr.holes,
-            summary: pr.summary,
-            result: pr.result,
-            winner: pr.winner === null ? null : toParticipantId(pr.winner),
-        })),
-    };
-    const scorecards: Scorecard[] = ballScorecards.map((sc) => ({
-        participantId: toParticipantId(sc.ballId),
-        holes: sc.holes,
-    }));
-    const renderedEvents: RenderedEvent[] = events.map((e) => {
-        const { ballId, ...rest } = e;
-        return { ...rest, participantId: toParticipantId(ballId) };
+    const ballIds = ballRows.map((b) => b.id);
+
+    const ballPlayerRows = await svc.db
+        .selectFrom('ball_players')
+        .where('ball_id', 'in', ballIds)
+        .select([
+            'ball_id',
+            'producer_def_id',
+            'player_id',
+            'guest_player_id',
+            'display_name_snapshot',
+            'handicap_index_snapshot',
+            'course_handicap_snapshot',
+            'tee_id',
+            'tee_name_snapshot',
+        ])
+        .execute();
+
+    const producersByBall = new Map<string, BallProducerInfo[]>();
+    for (const bp of ballPlayerRows) {
+        const arr = producersByBall.get(bp.ball_id) ?? [];
+        arr.push({
+            producerDefId: bp.producer_def_id,
+            playerId: bp.player_id,
+            guestPlayerId: bp.guest_player_id,
+            displayName: bp.display_name_snapshot,
+            handicapIndexSnapshot: bp.handicap_index_snapshot,
+            courseHandicapSnapshot: bp.course_handicap_snapshot,
+            teeId: bp.tee_id,
+            teeNameSnapshot: bp.tee_name_snapshot,
+        });
+        producersByBall.set(bp.ball_id, arr);
+    }
+
+    const slotRows = await svc.db
+        .selectFrom('slots')
+        .where('round_id', '=', roundId)
+        .select(['id', 'slot_def_id'])
+        .execute();
+    const slotIds = slotRows.map((s) => s.id);
+
+    const slotBallRows =
+        slotIds.length > 0
+            ? await svc.db
+                  .selectFrom('slot_balls')
+                  .where('slot_id', 'in', slotIds)
+                  .where('ball_id', 'in', ballIds)
+                  .select(['slot_id', 'ball_id', 'playing_handicap_snapshot'])
+                  .execute()
+            : [];
+
+    const slotBallTeamRows =
+        slotIds.length > 0
+            ? await svc.db
+                  .selectFrom('slot_ball_teams')
+                  .where('slot_id', 'in', slotIds)
+                  .where('ball_id', 'in', ballIds)
+                  .select(['slot_id', 'ball_id', 'team_label'])
+                  .execute()
+            : [];
+
+    // slots.id → slot_def_id → formatSlots slotIndex.
+    // `round_format_slots` stores slot_index directly on the row; the
+    // compiler's `slots` row shares stable identity via `slot_def_id`. We
+    // join via slot_def_id. If no stable mapping exists (legacy round with
+    // mismatched slot_def_id convention) we fall back to slot-index-order
+    // zipping: the compiler writes slots in the same order as the round
+    // definition, and round_format_slots is parallel to that.
+    const formatSlotsOrdered = [...round.formatSlots].sort(
+        (a, b) => a.slotIndex - b.slotIndex,
+    );
+    const slotIndexByCompilerSlotId = new Map<string, number>();
+    // Preferred: slot_def_id parity. Compiler convention: `slot_def_id`
+    // matches `RoundDefinition.slots[].id`, and `round_format_slots` is
+    // emitted in the same order.
+    if (slotRows.length === formatSlotsOrdered.length) {
+        // Order by slot_def_id sorted deterministically against the
+        // formatSlots list's order? Simplest: the compiler writes slots
+        // in definition order, so `slotRows` sorted by slot_def_id alone
+        // doesn't help — we use positional zipping when lengths match.
+        for (let i = 0; i < slotRows.length; i++) {
+            slotIndexByCompilerSlotId.set(slotRows[i]!.id, i);
+        }
+    } else {
+        // Mismatch — best-effort: each compiler slot maps to 0 (single-slot
+        // round pattern the compiler currently emits exclusively).
+        for (const s of slotRows) slotIndexByCompilerSlotId.set(s.id, 0);
+    }
+
+    const balls: BallInfo[] = ballRows.map((br) => {
+        const producers = producersByBall.get(br.id) ?? [];
+        const teamLabelBySlot = new Map<string, string>();
+        const playingHandicapBySlot = new Map<string, number | null>();
+        const mySlotIds: string[] = [];
+        for (const sb of slotBallRows) {
+            if (sb.ball_id !== br.id) continue;
+            playingHandicapBySlot.set(sb.slot_id, sb.playing_handicap_snapshot);
+            mySlotIds.push(sb.slot_id);
+        }
+        for (const st of slotBallTeamRows) {
+            if (st.ball_id !== br.id) continue;
+            teamLabelBySlot.set(st.slot_id, st.team_label);
+        }
+        return {
+            id: br.id,
+            label: br.label,
+            strategyId: br.strategy_id,
+            courseHandicapSnapshot: br.course_handicap_snapshot,
+            producers,
+            teamLabelBySlot,
+            playingHandicapBySlot,
+            slotIds: mySlotIds,
+        };
     });
+
+    // --- lookup caches -------------------------------------------------------
 
     const playerIds = new Set<string>();
     const guestIds = new Set<string>();
     const teeIds = new Set<string>();
-    for (const p of participants) {
-        if (p.teeIdSnapshot) teeIds.add(p.teeIdSnapshot);
-        for (const link of p.players) {
-            if (link.playerId) playerIds.add(link.playerId);
-            if (link.guestPlayerId) guestIds.add(link.guestPlayerId);
+    for (const b of balls) {
+        for (const p of b.producers) {
+            if (p.playerId) playerIds.add(p.playerId);
+            if (p.guestPlayerId) guestIds.add(p.guestPlayerId);
+            if (p.teeId) teeIds.add(p.teeId);
         }
     }
     for (const e of events) if (e.recordedByPlayerId) playerIds.add(e.recordedByPlayerId);
@@ -142,6 +236,8 @@ export async function collectRoundContext(
         const t = await svc.teeService.getById(id);
         if (t) teesById.set(id, t);
     }
+
+    // --- snapshots -----------------------------------------------------------
 
     const courseHolesSnapshotRows = await svc.db
         .selectFrom('round_course_holes')
@@ -176,5 +272,19 @@ export async function collectRoundContext(
         strokeIndexOverride: r.stroke_index_override,
     }));
 
-    return { round, course, participants, events: renderedEvents, leaderboard, scorecards, playersById, guestsById, teesById, courseHolesSnapshot, teeHolesSnapshot, dbPath };
+    return {
+        round,
+        course,
+        balls,
+        events,
+        leaderboard,
+        scorecards,
+        playersById,
+        guestsById,
+        teesById,
+        courseHolesSnapshot,
+        teeHolesSnapshot,
+        slotIndexByCompilerSlotId,
+        dbPath,
+    };
 }

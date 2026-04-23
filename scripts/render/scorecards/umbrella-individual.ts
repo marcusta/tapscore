@@ -1,11 +1,10 @@
-// Umbrella 3-player individual scorecard — per-participant card with
-// Par / SI / Given / Gross / Net / LG / FIR / GIR / BIRD / Points (+
-// Running) rows. The FIR / GIR rows read the raw scorecard metadata
-// (set by the scorer); LG / BIRD come from the strategy-written note.
+// Umbrella 3-player individual scorecard — per-ball card with Par / SI /
+// Given / Gross / Net / LG / FIR / GIR / BIRD / Points (+ Running) rows.
+// FIR / GIR read the raw scorecard metadata (set by the scorer); LG /
+// BIRD come from the strategy-written note.
 
-import type { Participant } from '../../../server/services/participant.service';
-import type { CourseHole, HoleResult } from '../../../server/domain/format';
-import type { ParticipantResult, RoundRenderContext } from '../types';
+import type { BallResult, CourseHole, HoleResult } from '../../../server/domain/format';
+import type { BallInfo, RoundRenderContext } from '../types';
 import type { RoundRenderState } from '../round-state';
 import { esc, netCell, numericCell, splitHoleGroups, strokesCell, strokesGivenMap } from '../util';
 import { formatSlotSummary } from '../index-page';
@@ -13,24 +12,26 @@ import { formatSlotSummary } from '../index-page';
 export function renderUmbrellaIndividualScorecard(
     ctx: RoundRenderContext,
     state: RoundRenderState,
-    result: ParticipantResult,
-    p: Participant,
+    result: BallResult,
+    b: BallInfo,
     courseHoles: CourseHole[],
 ): string {
     const { round } = ctx;
     const {
         allCourseHoles,
-        normalizedRunningByParticipant,
-        participantLabel,
-        scorecardByParticipant,
+        ballLabel,
+        ballPlayingHandicapInSlot,
+        normalizedRunningByBall,
+        scorecardByBall,
         umbrellaBirdieRuleFor,
     } = state;
 
     const byHole = new Map(result.holes.map((h) => [h.holeNumber, h]));
     const groups = splitHoleGroups(courseHoles);
     const includeTotColumn = groups.length > 1;
-    const strokesGiven = strokesGivenMap(p.playingHandicapSnapshot, allCourseHoles);
-    const scorecard = scorecardByParticipant.get(p.id);
+    const ballPh = ballPlayingHandicapInSlot(b, result.slotIndex);
+    const strokesGiven = strokesGivenMap(ballPh, allCourseHoles);
+    const scorecard = scorecardByBall.get(b.id);
     const rawByHole = new Map(
         (scorecard?.holes ?? [])
             .filter((h) => h.sourcePlayerId === null && h.sourceGuestPlayerId === null)
@@ -192,7 +193,7 @@ export function renderUmbrellaIndividualScorecard(
         },
     );
 
-    const runningByHole = normalizedRunningByParticipant.get(p.id);
+    const runningByHole = normalizedRunningByBall.get(b.id);
     const runningRow =
         runningByHole
             ? stateRow(
@@ -227,12 +228,15 @@ export function renderUmbrellaIndividualScorecard(
             ? `slot #${result.slotIndex} · ${esc(formatSlotSummary(slotFormat))} · birdieRule ${esc(umbrellaBirdieRuleFor(slotFormat) ?? 'gross')}`
             : `slot #${result.slotIndex}`;
 
+    const hIdxCell = b.producers[0]?.handicapIndexSnapshot ?? '—';
+    const chCell = b.courseHandicapSnapshot ?? '—';
+
     return `
 <article class="scorecard-card">
   <header>
-    <h3>${esc(participantLabel(p))}</h3>
+    <h3>${esc(ballLabel(b))}</h3>
     <span class="muted">
-      ${umbrellaHeader} · H idx ${p.handicapIndexSnapshot ?? '—'} · CH ${p.courseHandicapSnapshot ?? '—'} · PH ${p.playingHandicapSnapshot ?? '—'} · holes played ${result.holesPlayed}
+      ${umbrellaHeader} · H idx ${hIdxCell} · CH ${chCell} · PH ${ballPh ?? '—'} · holes played ${result.holesPlayed}
     </span>
   </header>
   <table class="scorecard">

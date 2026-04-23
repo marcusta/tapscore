@@ -1,53 +1,47 @@
-// Stroke-play / stableford / foursomes individual scorecard — "one card
-// per participant" layout. Emits Par / SI / Given / Gross / Net / Points
-// (+ optional Running + Status) rows.
+// Stroke-play / stableford-individual / foursomes scorecard — "one card
+// per ball" layout. Emits Par / SI / Given / Gross / Net / Points rows
+// (+ optional Running + Status). For foursomes the ball represents the
+// pair; the header label shows both producer names joined by " & ".
 
-import type { Participant } from '../../../server/services/participant.service';
 import type { CourseHole } from '../../../server/domain/format';
-import type { ParticipantResult, RoundRenderContext } from '../types';
+import type { BallResult } from '../../../server/domain/format';
+import type { BallInfo, RoundRenderContext } from '../types';
 import type { RoundRenderState } from '../round-state';
 import { esc, netCell, numericCell, splitHoleGroups, strokesCell, strokesGivenMap } from '../util';
 
 export function renderScorecard(
     ctx: RoundRenderContext,
     state: RoundRenderState,
-    result: ParticipantResult,
-    p: Participant,
+    result: BallResult,
+    b: BallInfo,
     courseHoles: CourseHole[],
 ): string {
     const { round } = ctx;
     const {
         allCourseHoles,
-        effectivePHByParticipant,
+        ballLabel,
+        ballPlayingHandicapInSlot,
+        effectivePHByBall,
         isFoursomesSlot,
         isKopenhamnareSlot,
         kopenHandicapModeFor,
-        normalizedRunningByParticipant,
-        pairResultsByParticipant,
-        participantLabel,
-        slotByParticipantId,
+        normalizedRunningByBall,
+        pairResultByBall,
+        slotForBall,
     } = state;
 
     const byHole = new Map(result.holes.map((h) => [h.holeNumber, h]));
     const groups = splitHoleGroups(courseHoles);
     const includeTotColumn = groups.length > 1;
-    // Allocation always against the full 18 SI distribution — a 9-hole round
-    // inherits the strokes that fall on its holes, not a fresh 9-hole allocation.
-    // For Köpenhamnare under delta_from_min, the Given row shows the EFFECTIVE
-    // strokes (lowest-PH player plays off 0; others get their delta).
-    const participantSlot = slotByParticipantId.get(p.id);
-    const isKopenhamnareParticipant = isKopenhamnareSlot(participantSlot);
-    const phForStrokes = effectivePHByParticipant.has(p.id)
-        ? (effectivePHByParticipant.get(p.id) ?? p.playingHandicapSnapshot)
-        : p.playingHandicapSnapshot;
+
+    const slot = slotForBall(b);
+    const isKopenhamnareBall = isKopenhamnareSlot(slot);
+    const snapshotPh = ballPlayingHandicapInSlot(b, result.slotIndex);
+    const phForStrokes = effectivePHByBall.has(b.id)
+        ? (effectivePHByBall.get(b.id) ?? snapshotPh)
+        : snapshotPh;
     const strokesGiven = strokesGivenMap(phForStrokes, allCourseHoles);
-    // A Status row is rendered for pair-level formats (match-play today,
-    // Taliban later) — we signal via participation in a pair result. The
-    // strategy populates each `HoleResult.note` with the running status
-    // from that participant's perspective (e.g. `1UP`, `AS`, `2DN`,
-    // `dormie`). Stableford etc. also populate `note`, but for arithmetic;
-    // they don't appear in pairResults so the Status row is skipped.
-    const isPair = pairResultsByParticipant.has(p.id);
+    const isPair = pairResultByBall.has(b.id);
 
     const row = (
         label: string,
@@ -165,7 +159,7 @@ export function renderScorecard(
           )
         : '';
 
-    const runningByHole = normalizedRunningByParticipant.get(p.id);
+    const runningByHole = normalizedRunningByBall.get(b.id);
     const runningRow =
         pointsAny && runningByHole
             ? stateRow(
@@ -193,9 +187,6 @@ export function renderScorecard(
           )
         : '';
 
-    // When any hole carries a `note` (e.g. stableford arithmetic), surface
-    // the per-hole breakdown under the scorecard so the points row's
-    // numbers are immediately hand-verifiable.
     const annotatedHoles = result.holes.filter((h) => h.note && h.points !== null);
     const pointsArithmetic =
         annotatedHoles.length > 0
@@ -208,37 +199,33 @@ export function renderScorecard(
         .map((t) => `<li>${esc(t.scoringType)} = <strong>${t.value ?? '—'}</strong></li>`)
         .join('');
 
-    // Köpenhamnare header annotation: declare mode + effective PH next to
-    // the snapshot so the reader can see e.g. "PH 23 → eff 19 (delta_from_min)".
     const kopenAnnotation =
-        isKopenhamnareParticipant
+        isKopenhamnareBall
             ? (() => {
-                  const eff = effectivePHByParticipant.get(p.id);
-                  const modeLabel = esc(kopenHandicapModeFor(participantSlot) ?? 'standard');
+                  const eff = effectivePHByBall.get(b.id);
+                  const modeLabel = esc(kopenHandicapModeFor(slot) ?? 'standard');
                   if (eff === undefined || eff === null) return ` · mode ${modeLabel}`;
-                  if (p.playingHandicapSnapshot !== null && eff !== p.playingHandicapSnapshot) {
-                      return ` · eff PH ${eff} (mode ${modeLabel})`;
-                  }
                   return ` · eff PH ${eff} (mode ${modeLabel})`;
               })()
             : '';
 
-    // Foursomes header annotation: foursomes cards re-use the individual
-    // scorecard layout (one ball → one Gross row, one Net row) but the
-    // header should surface that this is a team format and the typical
-    // 50% allowance.
     const slotFormat = round.formatSlots[result.slotIndex];
     const foursomesAnnotation =
         isFoursomesSlot(slotFormat) && slotFormat
             ? ` · ${esc(slotFormat.scoringMode)} × ${esc(slotFormat.teamShape)} @ ${slotFormat.allowancePct}%`
             : '';
 
+    // Header handicap summary — use the ball's frozen CH/PH.
+    const phCell = snapshotPh ?? '—';
+    const chCell = b.courseHandicapSnapshot ?? '—';
+    const hIdxCell = b.producers[0]?.handicapIndexSnapshot ?? '—';
+
     return `
 <article class="scorecard-card">
   <header>
-    <h3>${esc(participantLabel(p))}</h3>
+    <h3>${esc(ballLabel(b))}</h3>
     <span class="muted">
-      slot #${result.slotIndex}${foursomesAnnotation} · H idx ${p.handicapIndexSnapshot ?? '—'} · CH ${p.courseHandicapSnapshot ?? '—'} · PH ${p.playingHandicapSnapshot ?? '—'}${kopenAnnotation} · holes played ${result.holesPlayed}
+      slot #${result.slotIndex}${foursomesAnnotation} · H idx ${hIdxCell} · CH ${chCell} · PH ${phCell}${kopenAnnotation} · holes played ${result.holesPlayed}
     </span>
   </header>
   <table class="scorecard">

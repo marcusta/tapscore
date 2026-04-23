@@ -1,30 +1,28 @@
-// Umbrella 4-ball scorecard: per-player Gross + GIR sub-rows, then a
+// Umbrella 4-ball scorecard: per-producer Gross + GIR sub-rows, then a
 // team category matrix row per hole (LG / LT / GA / GB / B), then a
 // team Points row with sweep badge. Category matrix cells show ✓ / ½ /
-// — for each category, compact but legible. The team LT (2-ball total)
-// lives as the team's gross column (set by the strategy).
+// — for each category.
 
-import type { Participant } from '../../../server/services/participant.service';
 import type { ScorecardHole } from '../../../server/services/scorecard.service';
-import type { CourseHole } from '../../../server/domain/format';
-import type { ParticipantResult, RoundRenderContext } from '../types';
+import type { BallResult, CourseHole } from '../../../server/domain/format';
+import type { BallInfo, RoundRenderContext } from '../types';
 import type { RoundRenderState } from '../round-state';
 import { esc, numericCell, splitHoleGroups, strokesCell } from '../util';
 
 export function renderUmbrellaScorecard(
     ctx: RoundRenderContext,
     state: RoundRenderState,
-    result: ParticipantResult,
-    p: Participant,
+    result: BallResult,
+    b: BallInfo,
     courseHoles: CourseHole[],
 ): string {
     const { round } = ctx;
     const {
-        normalizedRunningByParticipant,
-        participantLabel,
-        playerLinkLabel,
-        playerPhSummary,
-        scorecardByParticipant,
+        ballLabel,
+        normalizedRunningByBall,
+        producerName,
+        producerPhSummary,
+        scorecardByBall,
         umbrellaBirdieRuleFor,
     } = state;
 
@@ -32,7 +30,7 @@ export function renderUmbrellaScorecard(
     const includeTotColumn = groups.length > 1;
 
     const teamByHole = new Map(result.holes.map((h) => [h.holeNumber, h]));
-    const scorecard = scorecardByParticipant.get(p.id);
+    const scorecard = scorecardByBall.get(b.id);
     const allRows = scorecard?.holes ?? [];
 
     const row = (
@@ -90,30 +88,30 @@ export function renderUmbrellaScorecard(
     const parRow = row('Par', (h) => `<td>${h.par}</td>`, (holes) => String(holes.reduce((a, b) => a + b.par, 0)));
     const siRow = row('SI', (h) => `<td class="si">${h.strokeIndex}</td>`, () => '—', 'dim');
 
-    const playerBlocks = p.players.map((link) => {
-        const name = playerLinkLabel(link);
-        const playerRows: ScorecardHole[] = allRows.filter((hole) => {
-            if (link.playerId) return hole.sourcePlayerId === link.playerId;
-            if (link.guestPlayerId) return hole.sourceGuestPlayerId === link.guestPlayerId;
+    const producerBlocks = b.producers.map((prod) => {
+        const name = producerName(prod);
+        const producerRows: ScorecardHole[] = allRows.filter((hole) => {
+            if (prod.playerId) return hole.sourcePlayerId === prod.playerId;
+            if (prod.guestPlayerId) return hole.sourceGuestPlayerId === prod.guestPlayerId;
             return false;
         });
         const byHole = new Map<number, ScorecardHole>();
-        for (const r of playerRows) byHole.set(r.holeNumber, r);
+        for (const r of producerRows) byHole.set(r.holeNumber, r);
 
         const grossRow = row(
             `${esc(name)} Gross`,
             (h) => {
-                const r = byHole.get(h.holeNumber);
-                if (!r) return `<td>${strokesCell(null)}</td>`;
-                return `<td>${strokesCell(r.strokes)}</td>`;
+                const rr = byHole.get(h.holeNumber);
+                if (!rr) return `<td>${strokesCell(null)}</td>`;
+                return `<td>${strokesCell(rr.strokes)}</td>`;
             },
             (holes) => {
                 let total = 0;
                 let any = false;
                 for (const h of holes) {
-                    const r = byHole.get(h.holeNumber);
-                    if (r && r.strokes !== null && r.strokes !== 0) {
-                        total += r.strokes;
+                    const rr = byHole.get(h.holeNumber);
+                    if (rr && rr.strokes !== null && rr.strokes !== 0) {
+                        total += rr.strokes;
                         any = true;
                     }
                 }
@@ -123,15 +121,15 @@ export function renderUmbrellaScorecard(
         const girRow = row(
             `${esc(name)} GIR`,
             (h) => {
-                const r = byHole.get(h.holeNumber);
-                const gir = r?.metadata?.gir === true;
+                const rr = byHole.get(h.holeNumber);
+                const gir = rr?.metadata?.gir === true;
                 return `<td class="given">${gir ? '✓' : ''}</td>`;
             },
             (holes) => {
                 let count = 0;
                 for (const h of holes) {
-                    const r = byHole.get(h.holeNumber);
-                    if (r?.metadata?.gir === true) count++;
+                    const rr = byHole.get(h.holeNumber);
+                    if (rr?.metadata?.gir === true) count++;
                 }
                 return count > 0 ? String(count) : '—';
             },
@@ -140,9 +138,6 @@ export function renderUmbrellaScorecard(
         return [grossRow, girRow].join('');
     });
 
-    // Team LT (gross) row — 2-ball total per hole, drawn from the
-    // strategy's `HoleResult.gross` (which Umbrella sets to the LT team
-    // total when computable, null otherwise).
     const teamLtRow = row(
         'Team LT',
         (h) => {
@@ -163,11 +158,6 @@ export function renderUmbrellaScorecard(
         },
     );
 
-    // Category matrix row — parse the per-hole `note` which carries
-    // the breakdown produced by the strategy. The note format is:
-    //   "LG 1 + LT 1 + GIR-A 1 + BIRD 1 = 4 × 3 = 12 (p:abc=3, p:def=4)"
-    // or "LG 0.5 + LT 0.5 = 1.0 × 5 = 5 (..)"
-    // We extract each category's value; empty values render as "—".
     const catMatrixRow = row(
         'Cat (LG/LT/GA/GB/B)',
         (h) => {
@@ -175,7 +165,6 @@ export function renderUmbrellaScorecard(
             if (!hr) return `<td class="given">—</td>`;
             const note = hr.note ?? '';
             const cell = (key: string): string => {
-                // `LG 1` / `LT 0.5` / `GIR-A 1` / `GIR-B 1` / `BIRD 1`
                 const re = new RegExp(`${key}\\s+([0-9]*\\.?[0-9]+)`);
                 const m = note.match(re);
                 if (!m) return '—';
@@ -192,7 +181,6 @@ export function renderUmbrellaScorecard(
         'dim',
     );
 
-    // Team Points row with sweep badge.
     const teamPointsRow = row(
         'Team Points',
         (h) => {
@@ -216,7 +204,7 @@ export function renderUmbrellaScorecard(
         },
     );
 
-    const runningByHole = normalizedRunningByParticipant.get(p.id);
+    const runningByHole = normalizedRunningByBall.get(b.id);
     const runningRow = runningByHole
         ? stateRow(
               'Running',
@@ -232,7 +220,6 @@ export function renderUmbrellaScorecard(
           )
         : '';
 
-    // Per-hole arithmetic line under the card for hand verification.
     const annotatedHoles = result.holes.filter((h) => h.note && h.points !== null && h.points !== 0);
     const arithmetic =
         annotatedHoles.length > 0
@@ -254,9 +241,9 @@ export function renderUmbrellaScorecard(
     return `
 <article class="scorecard-card">
   <header>
-    <h3>${esc(participantLabel(p))}</h3>
+    <h3>${esc(ballLabel(b))}</h3>
     <span class="muted">
-      ${umbrellaHeader} · ${playerPhSummary(p)} · holes played ${result.holesPlayed}
+      ${umbrellaHeader} · ${producerPhSummary(b)} · holes played ${result.holesPlayed}
     </span>
   </header>
   <table class="scorecard">
@@ -264,7 +251,7 @@ export function renderUmbrellaScorecard(
     <tbody>
       ${parRow}
       ${siRow}
-      ${playerBlocks.join('')}
+      ${producerBlocks.join('')}
       ${teamLtRow}
       ${catMatrixRow}
       ${teamPointsRow}

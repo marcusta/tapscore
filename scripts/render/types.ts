@@ -1,47 +1,73 @@
-// Shared types for the render subsystem. Participant-keyed local views
-// that bridge the ball-keyed domain reads (leaderboard, scorecards, events)
-// back to participants for rendering.
+// Shared types for the render subsystem — ball-native after Phase 2.6b/3c.2.
+// The participant-keyed view layer is gone; render consumes domain types
+// directly (Leaderboard / BallResult / PairResult / Scorecard / ScoreEvent)
+// and a local `BallInfo` describing each ball's producers, team grouping,
+// per-slot PH, and strategy assignment.
 
 import type { createServices } from '../../server/services/index';
-import type { Participant } from '../../server/services/participant.service';
 import type { Round } from '../../server/services/round.service';
 import type { Course } from '../../server/services/course.service';
 import type { Tee } from '../../server/services/tee.service';
 import type { Player } from '../../server/services/player.service';
 import type { GuestPlayer } from '../../server/services/guest-player.service';
 import type { Club } from '../../server/services/club.service';
+import type { Scorecard } from '../../server/services/scorecard.service';
 import type { ScoreEvent } from '../../server/services/score-event.service';
-import type { ScorecardHole } from '../../server/services/scorecard.service';
-import type { BallResult, PairResult as BallPairResult } from '../../server/domain/format';
-
-// Phase 2.6b/3b.3.1 flipped the domain read-side to be ball-keyed, but
-// render-lib still renders per-participant (one card per participant, pair
-// cards keyed by participant pairs). We translate at `collectRoundContext`
-// time using the `ball_players → participant_players` bridge and expose
-// participant-keyed shapes below. Render code stays unchanged.
-export type Scorecard = { participantId: string; holes: ScorecardHole[] };
-export type ParticipantResult = Omit<BallResult, 'ballId'> & { participantId: string };
-export type PairResult = Omit<BallPairResult, 'balls'> & { participants: [string, string]; winner: string | null };
-export type LeaderboardEntry = { participantId: string; position: number; total: number | null; holesPlayed: number };
-export type LeaderboardByType = { slotIndex: number; scoringType: string; entries: LeaderboardEntry[] };
-export interface Leaderboard {
-    byScoringType: LeaderboardByType[];
-    participantResults: ParticipantResult[];
-    pairResults: PairResult[];
-}
-
-// Local participant-keyed event shape. Since 3b.3.2 the score-event service
-// emits `ballId`; render-lib translates at the seam so the rendering code
-// below stays participant-keyed.
-export type RenderedEvent = Omit<ScoreEvent, 'ballId'> & { participantId: string };
+import type { Leaderboard } from '../../server/domain/leaderboard';
 
 export type Services = ReturnType<typeof createServices>;
+
+/**
+ * Per-producer (player / guest) row on a ball — the frozen snapshot from
+ * `ball_players`. One ball can have one producer (own-ball-per-player,
+ * foursomes when each player IS a ball via alt-shot pairing is handled
+ * through 2 producers on one ball), two producers (better-ball / taliban
+ * / umbrella four-ball team balls), or N producers (scramble, etc.). All
+ * snapshot fields are frozen at compile time.
+ */
+export interface BallProducerInfo {
+    /** `ball_players.producer_def_id` — stable across recompile. */
+    producerDefId: string;
+    /** XOR — exactly one of playerId / guestPlayerId is non-null. */
+    playerId: string | null;
+    guestPlayerId: string | null;
+    displayName: string;
+    handicapIndexSnapshot: number | null;
+    courseHandicapSnapshot: number | null;
+    /** Live FK — null after tee deletion; frozen identity lives in teeNameSnapshot. */
+    teeId: string | null;
+    teeNameSnapshot: string | null;
+}
+
+/**
+ * Render-time ball record. Combines `balls` + `ball_players` + `slot_balls`
+ * + `slot_ball_teams` into one friendly per-ball shape the render code can
+ * consume without doing its own joins. One ball may participate in 0..N
+ * slots (per-slot PH lives in `slot_balls.playing_handicap_snapshot`, team
+ * grouping in `slot_ball_teams.team_label`).
+ */
+export interface BallInfo {
+    id: string;
+    /** `balls.label` — may be null (own-ball / un-labelled). */
+    label: string | null;
+    /** `round_ball_strategies.strategy_id` — own_ball_per_player, alt_shot_pair, … */
+    strategyId: string | null;
+    /** `balls.course_handicap_snapshot` — derived ball CH. */
+    courseHandicapSnapshot: number;
+    producers: BallProducerInfo[];
+    /** slotId → `slot_ball_teams.team_label` (if any). */
+    teamLabelBySlot: Map<string, string>;
+    /** slotId → `slot_balls.playing_handicap_snapshot`. */
+    playingHandicapBySlot: Map<string, number | null>;
+    /** Every slot this ball participates in. */
+    slotIds: string[];
+}
 
 export interface IndexRow {
     round: Round;
     course: Course;
     club: Club | null;
-    participantCount: number;
+    ballCount: number;
     eventCount: number;
 }
 
@@ -60,18 +86,35 @@ export interface RoundTeeHoleSnapshot {
     strokeIndexOverride: number | null;
 }
 
+/**
+ * Render-time mapping of `slots.slot_def_id` → `round_format_slots.slot_index`.
+ * The domain leaderboard / BallResult / PairResult key by slotIndex (off
+ * `round_format_slots`), but `slot_balls` / `slot_ball_teams` key by the
+ * compiler's `slots.id`. Render code needs both views — the map bridges
+ * them so ball-native data (keyed by ball id) can be correlated to a
+ * slotIndex.
+ */
+export interface SlotIndexByCompilerSlotId {
+    /** slots.id (compiler) → slot_def_id (stable) */
+    slotDefById: Map<string, string>;
+    /** slot_def_id → slotIndex on the round_format_slots side */
+    slotIndexByDef: Map<string, number>;
+}
+
 export interface RoundRenderContext {
     round: Round;
     course: Course;
-    participants: Participant[];
-    events: RenderedEvent[];
+    balls: BallInfo[];
+    events: ScoreEvent[];
     leaderboard: Leaderboard;
-    /** Raw per-participant scorecards (source-tagged rows). Better-ball renders per-player sub-rows from these. */
+    /** Raw per-ball scorecards (source-tagged rows). Team renderers split by source where needed. */
     scorecards: Scorecard[];
     playersById: Map<string, Player>;
     guestsById: Map<string, GuestPlayer>;
     teesById: Map<string, Tee>;
     courseHolesSnapshot: RoundCourseHoleSnapshot[];
     teeHolesSnapshot: RoundTeeHoleSnapshot[];
+    /** slots.id → slotIndex (from `slots.slot_def_id` → `round_format_slots.slot_index`). */
+    slotIndexByCompilerSlotId: Map<string, number>;
     dbPath: string;
 }

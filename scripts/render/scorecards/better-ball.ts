@@ -1,42 +1,43 @@
-// Better-ball scorecard: 4 rows per player (Given / Gross / Net / Points)
-// plus 1 team Points row. Reads raw per-player scorecard rows from the
-// team participant's scorecard, runs the same stableford primitives the
-// strategy uses (`stablefordOutcome`), and emits the team row from the
-// already-computed `result`.
+// Better-ball scorecard: 4 rows per producer (Given / Gross / Net / Points)
+// plus 1 team Points row. Reads raw per-producer scorecard rows from the
+// team ball's scorecard, runs the same stableford primitives the strategy
+// uses (`stablefordOutcome`), and emits the team row from the already-
+// computed `result`.
 
-import type { Participant } from '../../../server/services/participant.service';
 import type { ScorecardHole } from '../../../server/services/scorecard.service';
-import type { CourseHole } from '../../../server/domain/format';
+import type { BallResult, CourseHole } from '../../../server/domain/format';
 import {
     stablefordOutcome,
     type StablefordHoleOutcome,
 } from '../../../server/domain/formats/_stableford-scoring';
-import type { ParticipantResult, RoundRenderContext } from '../types';
+import type { BallInfo, RoundRenderContext } from '../types';
 import type { RoundRenderState } from '../round-state';
 import { esc, netCell, splitHoleGroups, strokesCell, strokesGivenMap } from '../util';
 
 export function renderBetterBallScorecard(
     ctx: RoundRenderContext,
     state: RoundRenderState,
-    result: ParticipantResult,
-    p: Participant,
+    result: BallResult,
+    b: BallInfo,
     courseHoles: CourseHole[],
 ): string {
     const { round } = ctx;
     const {
         allCourseHoles,
-        participantLabel,
-        playerLinkLabel,
-        playerPhSummary,
-        scorecardByParticipant,
+        ballLabel,
+        ballPlayingHandicapInSlot,
+        producerName,
+        producerPhSummary,
+        scorecardByBall,
     } = state;
 
     const groups = splitHoleGroups(courseHoles);
     const includeTotColumn = groups.length > 1;
 
     const teamByHole = new Map(result.holes.map((h) => [h.holeNumber, h]));
-    const scorecard = scorecardByParticipant.get(p.id);
+    const scorecard = scorecardByBall.get(b.id);
     const allRows = scorecard?.holes ?? [];
+    const teamPh = ballPlayingHandicapInSlot(b, result.slotIndex);
 
     const row = (
         label: string,
@@ -75,27 +76,26 @@ export function renderBetterBallScorecard(
     const parRow = row('Par', (h) => `<td>${h.par}</td>`, (holes) => String(holes.reduce((a, b) => a + b.par, 0)));
     const siRow = row('SI', (h) => `<td class="si">${h.strokeIndex}</td>`, () => '—', 'dim');
 
-    // Per-player sub-rows. Each player's strokes-given map is based on
-    // their own frozen PH on the link row, with a team-PH fallback for
-    // legacy rows that predate per-link snapshots.
-    const playerBlocks = p.players.map((link) => {
-        const name = playerLinkLabel(link);
-        const playerPh = link.playingHandicapSnapshot ?? p.playingHandicapSnapshot ?? 0;
-        const strokesGiven = strokesGivenMap(playerPh, allCourseHoles);
-        // Source filter: pick this player's rows from the flat list.
-        const playerRows: ScorecardHole[] = allRows.filter((h) => {
-            if (link.playerId) return h.sourcePlayerId === link.playerId;
-            if (link.guestPlayerId) return h.sourceGuestPlayerId === link.guestPlayerId;
+    // Per-producer sub-rows. Each producer's strokes-given map uses their
+    // own frozen CH (the domain uses playingHandicap per player, but the
+    // per-player PH isn't stored on ball_players — use courseHandicapSnapshot
+    // as the producer-level handicap fallback; legacy teamPh wins when set).
+    const producerBlocks = b.producers.map((prod) => {
+        const name = producerName(prod);
+        const producerPh = prod.courseHandicapSnapshot ?? teamPh ?? 0;
+        const strokesGiven = strokesGivenMap(producerPh, allCourseHoles);
+        const producerRows: ScorecardHole[] = allRows.filter((h) => {
+            if (prod.playerId) return h.sourcePlayerId === prod.playerId;
+            if (prod.guestPlayerId) return h.sourceGuestPlayerId === prod.guestPlayerId;
             return false;
         });
-        const playerRowByHole = new Map<number, ScorecardHole>();
-        for (const r of playerRows) playerRowByHole.set(r.holeNumber, r);
+        const producerRowByHole = new Map<number, ScorecardHole>();
+        for (const r of producerRows) producerRowByHole.set(r.holeNumber, r);
 
-        // Per-hole stableford outcomes for this player.
         const outcomeByHole = new Map<number, StablefordHoleOutcome>();
         for (const ch of allCourseHoles) {
-            const row = playerRowByHole.get(ch.holeNumber);
-            const strokes = row === undefined ? undefined : row.strokes;
+            const rr = producerRowByHole.get(ch.holeNumber);
+            const strokes = rr === undefined ? undefined : rr.strokes;
             outcomeByHole.set(
                 ch.holeNumber,
                 stablefordOutcome(strokes, ch, strokesGiven.get(ch.holeNumber) ?? 0),
@@ -115,7 +115,6 @@ export function renderBetterBallScorecard(
             `${esc(name)} Gross`,
             (h) => {
                 const o = outcomeByHole.get(h.holeNumber)!;
-                // "pickup" shows P; "dnp" and "no_event" show dash; scored shows gross.
                 if (o.kind === 'pickup') return `<td><span class="pickup">P</span></td>`;
                 return `<td>${strokesCell(o.gross)}</td>`;
             },
@@ -155,7 +154,6 @@ export function renderBetterBallScorecard(
             `${esc(name)} Points`,
             (h) => {
                 const o = outcomeByHole.get(h.holeNumber)!;
-                // Tooltip: per-player arithmetic.
                 let tip = '';
                 if (o.kind === 'scored') {
                     const diff = o.netPar - (o.gross as number);
@@ -185,7 +183,6 @@ export function renderBetterBallScorecard(
         return [givenRow, grossRow, netRow, pointsRow].join('');
     });
 
-    // Team points row — uses the strategy's already-computed values.
     const teamRow = row(
         'Team Points',
         (h) => {
@@ -207,7 +204,6 @@ export function renderBetterBallScorecard(
         },
     );
 
-    // Per-hole arithmetic line — team's chosen points + each player's share.
     const annotatedHoles = result.holes.filter((h) => h.note && h.points !== null);
     const arithmetic =
         annotatedHoles.length > 0
@@ -224,9 +220,9 @@ export function renderBetterBallScorecard(
     return `
 <article class="scorecard-card">
   <header>
-    <h3>${esc(participantLabel(p))}</h3>
+    <h3>${esc(ballLabel(b))}</h3>
     <span class="muted">
-      slot #${result.slotIndex} · ${esc(slotFormat?.scoringMode ?? '')} × ${esc(slotFormat?.teamShape ?? '')} · ${playerPhSummary(p)} · holes played ${result.holesPlayed}
+      slot #${result.slotIndex} · ${esc(slotFormat?.scoringMode ?? '')} × ${esc(slotFormat?.teamShape ?? '')} · ${producerPhSummary(b)} · holes played ${result.holesPlayed}
     </span>
   </header>
   <table class="scorecard">
@@ -234,7 +230,7 @@ export function renderBetterBallScorecard(
     <tbody>
       ${parRow}
       ${siRow}
-      ${playerBlocks.join('')}
+      ${producerBlocks.join('')}
       ${teamRow}
     </tbody>
   </table>

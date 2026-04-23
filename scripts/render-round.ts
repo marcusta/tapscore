@@ -58,7 +58,7 @@ try {
     fs.writeFileSync(indexPath, renderIndexHtml(indexRows));
 
     console.log(`wrote ${outPath}`);
-    console.log(`  ${ctx.participants.length} participants · ${ctx.events.length} events`);
+    console.log(`  ${ctx.balls.length} balls · ${ctx.events.length} events`);
     console.log(`index: ${indexPath} (${indexRows.length} rounds)`);
 
     if (openInBrowser) openPathInBrowser(outPath);

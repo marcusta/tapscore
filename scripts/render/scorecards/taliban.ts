@@ -1,39 +1,39 @@
-// Taliban scorecard: like better-ball (per-player Given / Gross / Net
+// Taliban scorecard: like better-ball (per-producer Given / Gross / Net
 // sub-rows), but replaces the team Points row with a team Status row
 // (`W+2` / `L` / `AS` / `W+5 (down eagle)` per hole). Taliban is
 // pair-level — team points totals live in the Match results section
-// of the leaderboard, not here. `result.holes[i].note` already carries
-// the per-hole team-perspective status (strategy populates it).
+// of the leaderboard, not here.
 
-import type { Participant } from '../../../server/services/participant.service';
 import type { ScorecardHole } from '../../../server/services/scorecard.service';
-import type { CourseHole } from '../../../server/domain/format';
-import type { ParticipantResult, RoundRenderContext } from '../types';
+import type { BallResult, CourseHole } from '../../../server/domain/format';
+import type { BallInfo, RoundRenderContext } from '../types';
 import type { RoundRenderState } from '../round-state';
 import { esc, netCell, splitHoleGroups, strokesCell, strokesGivenMap } from '../util';
 
 export function renderTalibanScorecard(
     ctx: RoundRenderContext,
     state: RoundRenderState,
-    result: ParticipantResult,
-    p: Participant,
+    result: BallResult,
+    b: BallInfo,
     courseHoles: CourseHole[],
 ): string {
     const { round } = ctx;
     const {
         allCourseHoles,
-        participantLabel,
-        playerLinkLabel,
-        playerPhSummary,
-        scorecardByParticipant,
+        ballLabel,
+        ballPlayingHandicapInSlot,
+        producerName,
+        producerPhSummary,
+        scorecardByBall,
     } = state;
 
     const groups = splitHoleGroups(courseHoles);
     const includeTotColumn = groups.length > 1;
 
     const teamByHole = new Map(result.holes.map((h) => [h.holeNumber, h]));
-    const scorecard = scorecardByParticipant.get(p.id);
+    const scorecard = scorecardByBall.get(b.id);
     const allRows = scorecard?.holes ?? [];
+    const teamPh = ballPlayingHandicapInSlot(b, result.slotIndex);
 
     const row = (
         label: string,
@@ -72,19 +72,17 @@ export function renderTalibanScorecard(
     const parRow = row('Par', (h) => `<td>${h.par}</td>`, (holes) => String(holes.reduce((a, b) => a + b.par, 0)));
     const siRow = row('SI', (h) => `<td class="si">${h.strokeIndex}</td>`, () => '—', 'dim');
 
-    // Per-player sub-rows — Given / Gross / Net. No per-player Points
-    // (Taliban has no per-player stableford-style points).
-    const playerBlocks = p.players.map((link) => {
-        const name = playerLinkLabel(link);
-        const playerPh = link.playingHandicapSnapshot ?? p.playingHandicapSnapshot ?? 0;
-        const strokesGiven = strokesGivenMap(playerPh, allCourseHoles);
-        const playerRows: ScorecardHole[] = allRows.filter((h) => {
-            if (link.playerId) return h.sourcePlayerId === link.playerId;
-            if (link.guestPlayerId) return h.sourceGuestPlayerId === link.guestPlayerId;
+    const producerBlocks = b.producers.map((prod) => {
+        const name = producerName(prod);
+        const producerPh = prod.courseHandicapSnapshot ?? teamPh ?? 0;
+        const strokesGiven = strokesGivenMap(producerPh, allCourseHoles);
+        const producerRows: ScorecardHole[] = allRows.filter((h) => {
+            if (prod.playerId) return h.sourcePlayerId === prod.playerId;
+            if (prod.guestPlayerId) return h.sourceGuestPlayerId === prod.guestPlayerId;
             return false;
         });
-        const playerRowByHole = new Map<number, ScorecardHole>();
-        for (const r of playerRows) playerRowByHole.set(r.holeNumber, r);
+        const producerRowByHole = new Map<number, ScorecardHole>();
+        for (const r of producerRows) producerRowByHole.set(r.holeNumber, r);
 
         const givenRow = row(
             `${esc(name)} Given`,
@@ -98,17 +96,17 @@ export function renderTalibanScorecard(
         const grossRow = row(
             `${esc(name)} Gross`,
             (h) => {
-                const row = playerRowByHole.get(h.holeNumber);
-                if (!row) return `<td>${strokesCell(null)}</td>`;
-                return `<td>${strokesCell(row.strokes)}</td>`;
+                const rr = producerRowByHole.get(h.holeNumber);
+                if (!rr) return `<td>${strokesCell(null)}</td>`;
+                return `<td>${strokesCell(rr.strokes)}</td>`;
             },
             (holes) => {
                 let total = 0;
                 let any = false;
                 for (const h of holes) {
-                    const row = playerRowByHole.get(h.holeNumber);
-                    if (row && row.strokes !== null && row.strokes !== 0) {
-                        total += row.strokes;
+                    const rr = producerRowByHole.get(h.holeNumber);
+                    if (rr && rr.strokes !== null && rr.strokes !== 0) {
+                        total += rr.strokes;
                         any = true;
                     }
                 }
@@ -118,21 +116,21 @@ export function renderTalibanScorecard(
         const netRow = row(
             `${esc(name)} Net`,
             (h) => {
-                const row = playerRowByHole.get(h.holeNumber);
-                if (!row || row.strokes === null || row.strokes === 0) {
+                const rr = producerRowByHole.get(h.holeNumber);
+                if (!rr || rr.strokes === null || rr.strokes === 0) {
                     return `<td>${netCell(null)}</td>`;
                 }
                 const given = strokesGiven.get(h.holeNumber) ?? 0;
-                return `<td>${netCell(row.strokes - given)}</td>`;
+                return `<td>${netCell(rr.strokes - given)}</td>`;
             },
             (holes) => {
                 let total = 0;
                 let any = false;
                 for (const h of holes) {
-                    const row = playerRowByHole.get(h.holeNumber);
-                    if (row && row.strokes !== null && row.strokes !== 0) {
+                    const rr = producerRowByHole.get(h.holeNumber);
+                    if (rr && rr.strokes !== null && rr.strokes !== 0) {
                         const given = strokesGiven.get(h.holeNumber) ?? 0;
-                        total += row.strokes - given;
+                        total += rr.strokes - given;
                         any = true;
                     }
                 }
@@ -142,8 +140,6 @@ export function renderTalibanScorecard(
         return [givenRow, grossRow, netRow].join('');
     });
 
-    // Team Status row — per-hole team-perspective annotation. No TOT
-    // (team totals live in the Match results section).
     const statusRow = row(
         'Status',
         (h) => {
@@ -158,9 +154,9 @@ export function renderTalibanScorecard(
     return `
 <article class="scorecard-card">
   <header>
-    <h3>${esc(participantLabel(p))}</h3>
+    <h3>${esc(ballLabel(b))}</h3>
     <span class="muted">
-      slot #${result.slotIndex} · ${esc(slotFormat?.scoringMode ?? '')} × ${esc(slotFormat?.teamShape ?? '')} @ ${slotFormat?.allowancePct ?? 100}% · ${playerPhSummary(p)} · holes played ${result.holesPlayed}
+      slot #${result.slotIndex} · ${esc(slotFormat?.scoringMode ?? '')} × ${esc(slotFormat?.teamShape ?? '')} @ ${slotFormat?.allowancePct ?? 100}% · ${producerPhSummary(b)} · holes played ${result.holesPlayed}
     </span>
   </header>
   <table class="scorecard">
@@ -168,7 +164,7 @@ export function renderTalibanScorecard(
     <tbody>
       ${parRow}
       ${siRow}
-      ${playerBlocks.join('')}
+      ${producerBlocks.join('')}
       ${statusRow}
     </tbody>
   </table>

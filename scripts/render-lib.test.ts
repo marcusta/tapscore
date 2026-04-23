@@ -1,17 +1,18 @@
 import { expect, test } from 'bun:test';
-import type { ParticipantPlayerLink } from '../server/services/participant.service';
 import type { ScorecardHole } from '../server/services/scorecard.service';
+import type { BallProducerInfo } from './render-lib';
 import { formatSlotSummary, pairSideScorecardRows } from './render-lib';
 
-function link(overrides: Partial<ParticipantPlayerLink>): ParticipantPlayerLink {
+function producer(overrides: Partial<BallProducerInfo>): BallProducerInfo {
     return {
-        id: 'link-1',
-        participantId: 'participant-1',
+        producerDefId: 'prod-1',
         playerId: null,
         guestPlayerId: null,
+        displayName: 'test',
         handicapIndexSnapshot: null,
         courseHandicapSnapshot: null,
-        playingHandicapSnapshot: null,
+        teeId: null,
+        teeNameSnapshot: null,
         ...overrides,
     };
 }
@@ -39,7 +40,7 @@ test('pairSideScorecardRows keeps null-source rows for match-play individual', (
         hole(3, { sourcePlayerId: 'alice' }),
     ];
 
-    expect(pairSideScorecardRows('match_play_individual', link({ playerId: 'alice' }), rows)).toEqual([
+    expect(pairSideScorecardRows('match_play_individual', producer({ playerId: 'alice' }), rows)).toEqual([
         rows[0],
         rows[1],
     ]);
@@ -52,7 +53,7 @@ test('pairSideScorecardRows still slices team scorecards by source for taliban',
         hole(2, { sourcePlayerId: 'alice', strokes: 3 }),
     ];
 
-    expect(pairSideScorecardRows('taliban_better_ball', link({ playerId: 'alice' }), rows)).toEqual([
+    expect(pairSideScorecardRows('taliban_better_ball', producer({ playerId: 'alice' }), rows)).toEqual([
         rows[0],
         rows[2],
     ]);
@@ -66,7 +67,7 @@ test('pairSideScorecardRows slices team scorecards by source for match-play bett
     ];
 
     expect(
-        pairSideScorecardRows('match_play_better_ball', link({ playerId: 'alice' }), rows),
+        pairSideScorecardRows('match_play_better_ball', producer({ playerId: 'alice' }), rows),
     ).toEqual([rows[0], rows[2]]);
 });
 

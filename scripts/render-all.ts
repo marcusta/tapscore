@@ -44,7 +44,7 @@ try {
         const html = renderRoundHtml(ctx);
         const outPath = path.join(tmpDir, `round-${short(ctx.round.id)}.html`);
         fs.writeFileSync(outPath, html);
-        console.log(`wrote ${outPath} (${ctx.participants.length}p · ${ctx.events.length}e)`);
+        console.log(`wrote ${outPath} (${ctx.balls.length}b · ${ctx.events.length}e)`);
     }
 
     const indexRows = await collectIndexRows(svc);

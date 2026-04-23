@@ -11,18 +11,14 @@ export function renderLeaderboard(
     ctx: RoundRenderContext,
     state: RoundRenderState,
 ): string {
-    const { round, participants, leaderboard } = ctx;
-    const { participantLabel, isTalibanSlot } = state;
+    const { round, balls, leaderboard } = ctx;
+    const { ballLabel, isTalibanSlot } = state;
 
-    const participantName = (id: string) => {
-        const p = participants.find((x) => x.id === id);
-        return p ? participantLabel(p) : short(id);
+    const ballName = (id: string) => {
+        const b = balls.find((x) => x.id === id);
+        return b ? ballLabel(b) : short(id);
     };
 
-    // Group scoring-type buckets by slot so multi-slot rounds render as
-    // one sub-section per slot (each with its own format sub-header and
-    // one-or-more scoring-type columns). Single-slot rounds still get
-    // the sub-header — it's cheap information, worth keeping consistent.
     const bucketsBySlot = new Map<number, typeof leaderboard.byScoringType>();
     for (const bucket of leaderboard.byScoringType) {
         const arr = bucketsBySlot.get(bucket.slotIndex) ?? [];
@@ -35,7 +31,7 @@ export function renderLeaderboard(
             (e) => `
 <tr>
   <td class="num">${e.position}</td>
-  <td>${esc(participantName(e.participantId))}</td>
+  <td>${esc(ballName(e.ballId))}</td>
   <td class="num">${e.total ?? '—'}</td>
   <td class="num muted">${e.holesPlayed}</td>
 </tr>`,
@@ -44,13 +40,12 @@ export function renderLeaderboard(
 <div class="lb-col">
   <h4>${esc(b.scoringType)}</h4>
   <table class="grid">
-    <thead><tr><th>pos</th><th>participant</th><th>total</th><th>holes</th></tr></thead>
+    <thead><tr><th>pos</th><th>ball</th><th>total</th><th>holes</th></tr></thead>
     <tbody>${rows.join('')}</tbody>
   </table>
 </div>`;
     };
 
-    // Emit per-slot sub-sections in slotIndex order.
     const slotIndices = [...bucketsBySlot.keys()].sort((a, b) => a - b);
     const slotSections = slotIndices.map((slotIndex) => {
         const slot = round.formatSlots[slotIndex];
@@ -58,28 +53,23 @@ export function renderLeaderboard(
             ? `Slot #${slot.slotIndex} · ${esc(formatSlotSummary(slot))}`
             : `Slot #${slotIndex}`;
         const cols = (bucketsBySlot.get(slotIndex) ?? []).map(renderBucket).join('');
-        // Per-slot pair-results subsection — only the pairs whose
-        // `slotIndex` matches. Taliban today is single-slot, so it falls
-        // naturally into its slot's section.
         const slotPairs = leaderboard.pairResults.filter((pr) => pr.slotIndex === slotIndex);
         const slotIsTaliban = isTalibanSlot(slot);
         const pairSection = slotPairs.length > 0
             ? (() => {
                   const rows = slotPairs.map((pr) => {
-                      const a = participantName(pr.participants[0]);
-                      const b = participantName(pr.participants[1]);
+                      const a = ballName(pr.balls[0]);
+                      const b = ballName(pr.balls[1]);
                       let line: string;
                       if (slotIsTaliban) {
                           line = esc(pr.summary);
                       } else if (pr.result === 'won') {
-                          const winnerName = pr.winner === pr.participants[0] ? a : b;
-                          const loserName = pr.winner === pr.participants[0] ? b : a;
+                          const winnerName = pr.winner === pr.balls[0] ? a : b;
+                          const loserName = pr.winner === pr.balls[0] ? b : a;
                           line = `${esc(winnerName)} d. ${esc(loserName)}, ${esc(pr.summary)}`;
                       } else if (pr.result === 'lost') {
                           line = `${esc(b)} d. ${esc(a)}, ${esc(pr.summary)}`;
                       } else if (pr.result === 'halved') {
-                          // Golf idiom: unresolved matches use "vs." — resolved
-                          // results use "d." (defeated) or "& k" shorthand.
                           line = `${esc(a)} vs. ${esc(b)} halved, ${esc(pr.summary)}`;
                       } else {
                           line = `${esc(a)} vs. ${esc(b)}, ${esc(pr.summary)} (in progress)`;
@@ -103,10 +93,6 @@ export function renderLeaderboard(
 </div>`;
     });
 
-    // Catch-all for pair-results whose slot didn't emit any scoring-type
-    // bucket (pure match-play slots emit empty `totals` arrays — they
-    // appear in `pairResults` only, so their slotIndex never makes it
-    // into `bucketsBySlot`). Render them under their own slot header.
     const orphanedPairSlots = [
         ...new Set(
             leaderboard.pairResults
@@ -122,14 +108,14 @@ export function renderLeaderboard(
         const slotPairs = leaderboard.pairResults.filter((pr) => pr.slotIndex === slotIndex);
         const slotIsTaliban = isTalibanSlot(slot);
         const rows = slotPairs.map((pr) => {
-            const a = participantName(pr.participants[0]);
-            const b = participantName(pr.participants[1]);
+            const a = ballName(pr.balls[0]);
+            const b = ballName(pr.balls[1]);
             let line: string;
             if (slotIsTaliban) {
                 line = esc(pr.summary);
             } else if (pr.result === 'won') {
-                const winnerName = pr.winner === pr.participants[0] ? a : b;
-                const loserName = pr.winner === pr.participants[0] ? b : a;
+                const winnerName = pr.winner === pr.balls[0] ? a : b;
+                const loserName = pr.winner === pr.balls[0] ? b : a;
                 line = `${esc(winnerName)} d. ${esc(loserName)}, ${esc(pr.summary)}`;
             } else if (pr.result === 'lost') {
                 line = `${esc(b)} d. ${esc(a)}, ${esc(pr.summary)}`;

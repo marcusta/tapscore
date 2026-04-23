@@ -1,9 +1,9 @@
 // Low-level render helpers: HTML escaping, cell formatters, hole grouping,
 // strokes-given allocation, pair-side scorecard row filtering.
 
-import type { ParticipantPlayerLink } from '../../server/services/participant.service';
 import type { ScorecardHole } from '../../server/services/scorecard.service';
 import type { CourseHole } from '../../server/domain/format';
+import type { BallProducerInfo } from './types';
 
 export function esc(s: unknown): string {
     return String(s ?? '')
@@ -87,20 +87,20 @@ export type PairScorecardKind =
 
 export function pairSideScorecardRows(
     kind: PairScorecardKind,
-    link: ParticipantPlayerLink,
+    producer: BallProducerInfo,
     allRows: ScorecardHole[],
 ): ScorecardHole[] {
     if (kind === 'match_play_individual') {
-        // Individual match-play events are recorded against the participant
+        // Individual match-play events are recorded against the ball
         // with null source columns, so the scorecard must read the shared
-        // participant rows instead of filtering by player id.
+        // ball rows instead of filtering by player id.
         return allRows.filter(
             (h) => h.sourcePlayerId === null && h.sourceGuestPlayerId === null,
         );
     }
     return allRows.filter((h) => {
-        if (link.playerId) return h.sourcePlayerId === link.playerId;
-        if (link.guestPlayerId) return h.sourceGuestPlayerId === link.guestPlayerId;
+        if (producer.playerId) return h.sourcePlayerId === producer.playerId;
+        if (producer.guestPlayerId) return h.sourceGuestPlayerId === producer.guestPlayerId;
         return h.sourcePlayerId === null && h.sourceGuestPlayerId === null;
     });
 }

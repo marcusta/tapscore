@@ -1,6 +1,6 @@
-// Scorecards section — one card per participant, except pair-level
-// formats (match-play individual, match-play better-ball, Taliban
-// better-ball) which render ONE unified card per pair.
+// Scorecards section — one card per ball, except pair-level formats
+// (match-play individual, match-play better-ball, Taliban better-ball)
+// which render ONE unified card per pair of balls.
 
 import type { RoundRenderContext } from '../types';
 import type { RoundRenderState } from '../round-state';
@@ -15,37 +15,32 @@ export function renderScorecards(
     ctx: RoundRenderContext,
     state: RoundRenderState,
 ): string {
-    const { leaderboard, participants } = ctx;
+    const { leaderboard, balls } = ctx;
     const {
-        isParticipantBetterBall,
-        isParticipantTaliban,
-        isParticipantUmbrellaFourBall,
-        isParticipantUmbrellaIndividual,
+        isBallBetterBall,
+        isBallTaliban,
+        isBallUmbrellaFourBall,
+        isBallUmbrellaIndividual,
         isTalibanSlot,
         playedCourseHoles,
-        slotByParticipantId,
+        resultByBall,
+        formatSlotByIndex,
     } = state;
 
-    const resultByParticipant = new Map(leaderboard.participantResults.map((r) => [r.participantId, r]));
-    const partById = new Map(participants.map((p) => [p.id, p]));
-    // Pair-level formats (match-play individual, Taliban better-ball)
-    // render ONE unified scorecard per pair instead of a separate card
-    // per participant — so you can compare hole-by-hole vertically.
-    // We track which participants have already been folded into a pair
-    // card to avoid double-rendering; orphans (odd-count match-play)
-    // still fall through to the individual renderer below.
+    const ballById = new Map(balls.map((b) => [b.id, b]));
+    // Pair-level formats render ONE unified scorecard per pair of balls;
+    // we track which balls have been folded in to avoid double-rendering
+    // them as individual cards below.
     const foldedIntoPair = new Set<string>();
     const cards: string[] = [];
     for (const pr of leaderboard.pairResults) {
-        const [idA, idB] = pr.participants;
-        const partA = partById.get(idA);
-        const partB = partById.get(idB);
-        const resA = resultByParticipant.get(idA);
-        const resB = resultByParticipant.get(idB);
-        if (!partA || !partB || !resA || !resB) continue;
-        // Use participant A's slot to detect the format kind — both
-        // participants of a pair share a slot by construction.
-        const slot = slotByParticipantId.get(idA);
+        const [idA, idB] = pr.balls;
+        const ballA = ballById.get(idA);
+        const ballB = ballById.get(idB);
+        const resA = resultByBall.get(idA);
+        const resB = resultByBall.get(idB);
+        if (!ballA || !ballB || !resA || !resB) continue;
+        const slot = formatSlotByIndex.get(pr.slotIndex);
         let kind:
             | 'match_play_individual'
             | 'match_play_better_ball'
@@ -56,20 +51,20 @@ export function renderScorecards(
             kind = 'match_play_individual';
         else if (slot?.scoringMode === 'match_play' && slot?.teamShape === 'better_ball')
             kind = 'match_play_better_ball';
-        if (!kind) continue; // pair from a future pair-level format — leave as-is
-        cards.push(renderPairScorecard(ctx, state, pr, kind, partA, partB, resA, resB, playedCourseHoles));
+        if (!kind) continue;
+        cards.push(renderPairScorecard(ctx, state, pr, kind, ballA, ballB, resA, resB, playedCourseHoles));
         foldedIntoPair.add(idA);
         foldedIntoPair.add(idB);
     }
-    for (const p of participants) {
-        if (foldedIntoPair.has(p.id)) continue;
-        const r = resultByParticipant.get(p.id);
+    for (const b of balls) {
+        if (foldedIntoPair.has(b.id)) continue;
+        const r = resultByBall.get(b.id);
         if (!r) continue;
-        if (isParticipantBetterBall(p)) cards.push(renderBetterBallScorecard(ctx, state, r, p, playedCourseHoles));
-        else if (isParticipantTaliban(p)) cards.push(renderTalibanScorecard(ctx, state, r, p, playedCourseHoles));
-        else if (isParticipantUmbrellaFourBall(p)) cards.push(renderUmbrellaScorecard(ctx, state, r, p, playedCourseHoles));
-        else if (isParticipantUmbrellaIndividual(p)) cards.push(renderUmbrellaIndividualScorecard(ctx, state, r, p, playedCourseHoles));
-        else cards.push(renderScorecard(ctx, state, r, p, playedCourseHoles));
+        if (isBallBetterBall(b)) cards.push(renderBetterBallScorecard(ctx, state, r, b, playedCourseHoles));
+        else if (isBallTaliban(b)) cards.push(renderTalibanScorecard(ctx, state, r, b, playedCourseHoles));
+        else if (isBallUmbrellaFourBall(b)) cards.push(renderUmbrellaScorecard(ctx, state, r, b, playedCourseHoles));
+        else if (isBallUmbrellaIndividual(b)) cards.push(renderUmbrellaIndividualScorecard(ctx, state, r, b, playedCourseHoles));
+        else cards.push(renderScorecard(ctx, state, r, b, playedCourseHoles));
     }
     return `
 <section>
