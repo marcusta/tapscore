@@ -10,6 +10,7 @@
 
 import { test, expect } from 'bun:test';
 import { createTestDb } from './testing/db';
+import { seedBallsFromParticipants } from './testing/balls';
 
 async function fullSetup() {
     const ctx = await createTestDb();
@@ -102,6 +103,8 @@ async function fullSetup() {
         snapshot: { teeId: tee.id, gender: 'M', handicapIndex: 5.0, allowancePct: 100 },
         players: [{ guestPlayerId: guestDan.id }],
     });
+
+    await seedBallsFromParticipants(ctx.db, round.id);
 
     return {
         ...ctx,

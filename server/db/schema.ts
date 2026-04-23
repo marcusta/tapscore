@@ -145,7 +145,7 @@ export type ScoreEventType =
 export interface ScoreEventsTable {
     id: string;
     round_id: string;
-    participant_id: string;
+    ball_id: string;
     hole: number;
     strokes: number | null;
     event_type: ScoreEventType;
@@ -153,7 +153,7 @@ export interface ScoreEventsTable {
     recorded_at: Generated<string>;
     client_event_id: string;
     /**
-     * When the event belongs to a per-player slot within a team participant
+     * When the event belongs to a per-player slot within a team ball
      * (better-ball, Taliban, Umbrella), identifies the specific player.
      * Individual and foursomes leave both source columns null. Invariant:
      * either both null, or exactly one non-null — enforced in
@@ -171,7 +171,7 @@ export interface ScoreEventsTable {
 }
 
 export interface ScorecardsTable {
-    participant_id: string;
+    ball_id: string;
     hole: number;
     strokes: number | null;
     recorded_by_player_id: string | null;
@@ -181,8 +181,8 @@ export interface ScorecardsTable {
     source_guest_player_id: string | null;
     /**
      * Generated column: `COALESCE(source_player_id, source_guest_player_id, '')`.
-     * Participates in the `(participant_id, hole, source_key)` unique index
-     * so one row exists per (participant, hole, source). Never written
+     * Participates in the `(ball_id, hole, source_key)` unique index
+     * so one row exists per (ball, hole, source). Never written
      * directly — SQLite maintains it.
      */
     source_key: Generated<string>;

@@ -1,5 +1,6 @@
 import { test, expect } from 'bun:test';
 import { createTestDb } from '../testing/db';
+import { seedBallsFromParticipants } from '../testing/balls';
 import { pickForSource } from './scorecard.service';
 
 async function setup() {
@@ -26,8 +27,13 @@ async function setup() {
             },
         ],
     });
-    const p1 = await ctx.participantService.create({ roundId: round.id });
-    const p2 = await ctx.participantService.create({ roundId: round.id });
+    // Give each bare participant exactly one player — service translation
+    // needs a participant_players row to resolve participant_id ↔ ball_id.
+    const alice = await ctx.playerService.register({ username: 'alice', password: 'password123', displayName: 'Alice' });
+    const bob = await ctx.playerService.register({ username: 'bob', password: 'password123', displayName: 'Bob' });
+    const p1 = await ctx.participantService.create({ roundId: round.id, players: [{ playerId: alice.id }] });
+    const p2 = await ctx.participantService.create({ roundId: round.id, players: [{ playerId: bob.id }] });
+    await seedBallsFromParticipants(ctx.db, round.id);
     return { ...ctx, roundId: round.id, p1Id: p1.id, p2Id: p2.id };
 }
 
@@ -181,6 +187,7 @@ async function setupWithTeam() {
         teamLabel: 'A&B',
         players: [{ playerId: alice.id }, { playerId: bob.id }],
     });
+    await seedBallsFromParticipants(ctx.db, round.id);
     return { ...ctx, roundId: round.id, teamId: team.id, aliceId: alice.id, bobId: bob.id };
 }
 

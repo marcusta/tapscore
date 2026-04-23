@@ -1,5 +1,5 @@
-import type { Kysely, Selectable } from 'kysely';
-import type { Database, ScoreEventsTable, ScoreEventType } from '../db/schema';
+import { sql, type Kysely, type Transaction } from 'kysely';
+import type { Database, ScoreEventType } from '../db/schema';
 import type { RoundService } from './round.service';
 import { toIsoUtc } from '../domain/time';
 
@@ -66,10 +66,39 @@ export interface AppendResult {
 }
 
 // --- Row mapping ---
+//
+// Migration 020 flipped `score_events` from `participant_id` to `ball_id`.
+// Public API still speaks in `participantId` — translation happens here:
+//
+//   write  : `resolveBallId()` joins ball_players → participant_players to
+//            find the ball that owns `(participantId, source*)`, inserted
+//            before the event row.
+//   read   : every SELECT projects a virtual `participant_id` column via a
+//            correlated subquery (`selectWithParticipant()`). Row mapper
+//            reads it back out transparently.
+//
+// A single ball can belong to multiple participant_players (foursomes),
+// but all those rows share the same participant_id by construction — so
+// the reverse projection is well-defined under source-null, and becomes
+// exact under source-present (match on player_id / guest_player_id).
 
-type ScoreEventRow = Selectable<ScoreEventsTable>;
+interface ScoreEventRowWithParticipant {
+    id: string;
+    round_id: string;
+    ball_id: string;
+    participant_id: string;
+    hole: number;
+    strokes: number | null;
+    event_type: ScoreEventType;
+    recorded_by_player_id: string | null;
+    recorded_at: string;
+    client_event_id: string;
+    source_player_id: string | null;
+    source_guest_player_id: string | null;
+    metadata: string | null;
+}
 
-function toEvent(row: ScoreEventRow): ScoreEvent {
+function toEvent(row: ScoreEventRowWithParticipant): ScoreEvent {
     return {
         id: row.id,
         roundId: row.round_id,
@@ -111,6 +140,8 @@ function parseMetadata(raw: string | null): Record<string, unknown> | null {
     return parsed as Record<string, unknown>;
 }
 
+type DbOrTrx = Kysely<Database> | Transaction<Database>;
+
 export class ScoreEventService {
     constructor(
         private db: Kysely<Database>,
@@ -118,45 +149,54 @@ export class ScoreEventService {
     ) {}
 
     // --- Queries (read) ---
+    //
+    // Every read must project the virtual `participant_id` column so the
+    // row mapper keeps its pre-020 shape. Factored into one helper so the
+    // correlated subquery lives in exactly one place.
 
-    private events() {
-        return this.db.selectFrom('score_events').selectAll();
+    private selectWithParticipant(db: DbOrTrx = this.db) {
+        return db
+            .selectFrom('score_events as se')
+            .select((eb) => [
+                'se.id',
+                'se.round_id',
+                'se.ball_id',
+                'se.hole',
+                'se.strokes',
+                'se.event_type',
+                'se.recorded_by_player_id',
+                'se.recorded_at',
+                'se.client_event_id',
+                'se.source_player_id',
+                'se.source_guest_player_id',
+                'se.metadata',
+                sql<string>`(
+                    SELECT DISTINCT pp.participant_id
+                    FROM ball_players bp
+                    JOIN participant_players pp ON pp.id = bp.producer_def_id
+                    WHERE bp.ball_id = se.ball_id
+                      AND (
+                          (se.source_player_id IS NULL AND se.source_guest_player_id IS NULL)
+                          OR (se.source_player_id IS NOT NULL AND bp.player_id = se.source_player_id)
+                          OR (se.source_guest_player_id IS NOT NULL AND bp.guest_player_id = se.source_guest_player_id)
+                      )
+                    LIMIT 1
+                )`.as('participant_id'),
+            ]);
     }
 
     private byId(id: string) {
-        return this.events().where('id', '=', id);
+        return this.selectWithParticipant().where('se.id', '=', id);
     }
 
     private byRound(roundId: string) {
-        return this.events().where('round_id', '=', roundId);
+        return this.selectWithParticipant().where('se.round_id', '=', roundId);
     }
 
     private byRoundClientKey(roundId: string, clientEventId: string) {
-        return this.events()
-            .where('round_id', '=', roundId)
-            .where('client_event_id', '=', clientEventId);
-    }
-
-    // --- Queries (write) ---
-
-    private insertEvent(
-        values: {
-            id: string;
-            round_id: string;
-            participant_id: string;
-            hole: number;
-            strokes: number | null;
-            event_type: ScoreEventType;
-            recorded_by_player_id: string | null;
-            client_event_id: string;
-            recorded_at?: string;
-            source_player_id: string | null;
-            source_guest_player_id: string | null;
-            metadata: string | null;
-        },
-        trx: Kysely<Database> = this.db,
-    ) {
-        return trx.insertInto('score_events').values(values);
+        return this.selectWithParticipant()
+            .where('se.round_id', '=', roundId)
+            .where('se.client_event_id', '=', clientEventId);
     }
 
     // --- Methods ---
@@ -177,6 +217,11 @@ export class ScoreEventService {
      * `participant_players.player_id xor guest_player_id` shape and is
      * enforced here because SQLite cannot `ALTER TABLE ADD CHECK` cheaply
      * (see migration 013).
+     *
+     * Ball resolution: since migration 020, `score_events` is keyed on
+     * `ball_id` — we translate the public `participantId` to a ball via
+     * `resolveBallId` inside the same transaction as the insert so the
+     * write is fully consistent.
      */
     async append(input: AppendScoreEventInput): Promise<AppendResult> {
         const sourcePlayerId = input.sourcePlayerId ?? null;
@@ -190,7 +235,7 @@ export class ScoreEventService {
         const existing = await this.byRoundClientKey(input.roundId, input.clientEventId)
             .executeTakeFirst();
         if (existing) {
-            return { event: toEvent(existing), inserted: false };
+            return { event: toEvent(existing as ScoreEventRowWithParticipant), inserted: false };
         }
 
         const metadata = input.metadata ?? null;
@@ -198,10 +243,29 @@ export class ScoreEventService {
 
         const id = crypto.randomUUID();
         await this.db.transaction().execute(async (trx) => {
-            const values: Parameters<typeof this.insertEvent>[0] = {
+            const ballId = await this.resolveBallId(
+                trx,
+                input.participantId,
+                sourcePlayerId,
+                sourceGuestPlayerId,
+            );
+            const values: {
+                id: string;
+                round_id: string;
+                ball_id: string;
+                hole: number;
+                strokes: number | null;
+                event_type: ScoreEventType;
+                recorded_by_player_id: string | null;
+                client_event_id: string;
+                recorded_at?: string;
+                source_player_id: string | null;
+                source_guest_player_id: string | null;
+                metadata: string | null;
+            } = {
                 id,
                 round_id: input.roundId,
-                participant_id: input.participantId,
+                ball_id: ballId,
                 hole: input.hole,
                 strokes: input.strokes,
                 event_type: input.eventType,
@@ -212,22 +276,70 @@ export class ScoreEventService {
                 metadata: metadataText,
             };
             if (input.recordedAt !== undefined) values.recorded_at = input.recordedAt;
-            await this.insertEvent(values, trx).execute();
+            await trx.insertInto('score_events').values(values).execute();
             await this.roundService.recordLatestEvent(input.roundId, id, trx);
         });
 
         const row = await this.byId(id).executeTakeFirstOrThrow();
-        return { event: toEvent(row), inserted: true };
+        return { event: toEvent(row as ScoreEventRowWithParticipant), inserted: true };
     }
 
     async listByRound(roundId: string): Promise<ScoreEvent[]> {
-        const rows = await this.byRound(roundId).orderBy('recorded_at').orderBy('id').execute();
-        return rows.map(toEvent);
+        const rows = await this.byRound(roundId)
+            .orderBy('se.recorded_at')
+            .orderBy('se.id')
+            .execute();
+        return rows.map((row) => toEvent(row as ScoreEventRowWithParticipant));
     }
 
     async getById(id: string): Promise<ScoreEvent | null> {
         const row = await this.byId(id).executeTakeFirst();
         if (!row) return null;
-        return toEvent(row);
+        return toEvent(row as ScoreEventRowWithParticipant);
+    }
+
+    /**
+     * Translate a public `(participantId, sourcePlayerId,
+     * sourceGuestPlayerId)` tuple to the ball_id the event should persist
+     * under.
+     *
+     * For source-present events (per-player team formats) the ball is the
+     * one whose `ball_players` row matches the specific player within a
+     * participant-owned producer. For source-null events (individual /
+     * foursomes) every ball_player for the participant points at the same
+     * ball, so `LIMIT 1` is deterministic.
+     *
+     * Throws when no ball resolves — callers must have seeded compiler
+     * output (via the compiler persist path, or `seedBallsFromParticipants`
+     * in tests) before appending events.
+     */
+    private async resolveBallId(
+        trx: DbOrTrx,
+        participantId: string,
+        sourcePlayerId: string | null,
+        sourceGuestPlayerId: string | null,
+    ): Promise<string> {
+        const row = await sql<{ ball_id: string }>`
+            SELECT DISTINCT bp.ball_id AS ball_id
+            FROM ball_players bp
+            JOIN participant_players pp ON pp.id = bp.producer_def_id
+            WHERE pp.participant_id = ${participantId}
+              AND (
+                  (${sourcePlayerId} IS NULL AND ${sourceGuestPlayerId} IS NULL)
+                  OR (${sourcePlayerId} IS NOT NULL AND bp.player_id = ${sourcePlayerId})
+                  OR (${sourceGuestPlayerId} IS NOT NULL AND bp.guest_player_id = ${sourceGuestPlayerId})
+              )
+            LIMIT 1
+        `.execute(trx);
+        const ballId = row.rows[0]?.ball_id;
+        if (!ballId) {
+            throw new Error(
+                `score-event append: no ball found for participant ${participantId}, ` +
+                    `source player=${sourcePlayerId ?? 'null'}, ` +
+                    `source guest=${sourceGuestPlayerId ?? 'null'}. ` +
+                    `Balls/ball_players must be compiled (see RoundCompiler) before appending events.`,
+            );
+        }
+        return ballId;
     }
 }

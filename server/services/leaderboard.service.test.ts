@@ -1,5 +1,6 @@
 import { test, expect } from 'bun:test';
 import { createTestDb } from '../testing/db';
+import { seedBallsFromParticipants } from '../testing/balls';
 import type { FormatSlot } from './round.service';
 
 const slot: FormatSlot = {
@@ -35,7 +36,7 @@ async function setup18() {
 }
 
 test('front_9 round distributes PH across the 9 played holes only', async () => {
-    const { roundService, participantService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
+    const { db, roundService, participantService, playerService, handicapService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
     const round = await roundService.create({
         courseId,
         date: '2026-05-01',
@@ -44,10 +45,14 @@ test('front_9 round distributes PH across the 9 played holes only', async () => 
         startListMode: 'structured',
         formatSlots: [slot],
     });
+    const pl = await playerService.register({ username: 'front9-p1', password: 'password123', displayName: 'Front9 P1' });
+    await handicapService.record({ playerId: pl.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
     const p = await participantService.create({
         roundId: round.id,
         snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+        players: [{ playerId: pl.id }],
     });
+    await seedBallsFromParticipants(db, round.id);
     // PH 9 over 9 holes: baseline = 1, extras = 0 → +1 stroke on every hole.
     for (let h = 1; h <= 9; h++) {
         await scoreEventService.append({
@@ -71,7 +76,7 @@ test('front_9 round distributes PH across the 9 played holes only', async () => 
 });
 
 test('back_9 round uses holes 10..18 only', async () => {
-    const { roundService, participantService, scoreEventService, leaderboardService, courseId } = await setup18();
+    const { db, roundService, participantService, playerService, scoreEventService, leaderboardService, courseId } = await setup18();
     const round = await roundService.create({
         courseId,
         date: '2026-05-01',
@@ -80,7 +85,9 @@ test('back_9 round uses holes 10..18 only', async () => {
         startListMode: 'structured',
         formatSlots: [slot],
     });
-    const p = await participantService.create({ roundId: round.id });
+    const pl = await playerService.register({ username: 'back9-p1', password: 'password123', displayName: 'Back9 P1' });
+    const p = await participantService.create({ roundId: round.id, players: [{ playerId: pl.id }] });
+    await seedBallsFromParticipants(db, round.id);
     for (let h = 10; h <= 18; h++) {
         await scoreEventService.append({
             roundId: round.id,
@@ -132,10 +139,14 @@ test('9-hole allocation follows full-18 SI distribution (strokes land only where
         startListMode: 'structured',
         formatSlots: [slot],
     });
+    const plFront = await ctx.playerService.register({ username: 'si-front', password: 'password123', displayName: 'SI Front' });
+    await ctx.handicapService.record({ playerId: plFront.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
     const pFront = await ctx.participantService.create({
         roundId: frontRound.id,
         snapshot: { teeId: tee.id, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+        players: [{ playerId: plFront.id }],
     });
+    await seedBallsFromParticipants(ctx.db, frontRound.id);
     for (let h = 1; h <= 9; h++) {
         await ctx.scoreEventService.append({
             roundId: frontRound.id,
@@ -161,10 +172,14 @@ test('9-hole allocation follows full-18 SI distribution (strokes land only where
         startListMode: 'structured',
         formatSlots: [slot],
     });
+    const plBack = await ctx.playerService.register({ username: 'si-back', password: 'password123', displayName: 'SI Back' });
+    await ctx.handicapService.record({ playerId: plBack.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
     const pBack = await ctx.participantService.create({
         roundId: backRound.id,
         snapshot: { teeId: tee.id, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+        players: [{ playerId: plBack.id }],
     });
+    await seedBallsFromParticipants(ctx.db, backRound.id);
     for (let h = 10; h <= 18; h++) {
         await ctx.scoreEventService.append({
             roundId: backRound.id,
@@ -184,7 +199,7 @@ test('9-hole allocation follows full-18 SI distribution (strokes land only where
 });
 
 test('full_18 round still covers all 18 holes', async () => {
-    const { roundService, participantService, scoreEventService, leaderboardService, courseId } = await setup18();
+    const { db, roundService, participantService, playerService, scoreEventService, leaderboardService, courseId } = await setup18();
     const round = await roundService.create({
         courseId,
         date: '2026-05-01',
@@ -193,7 +208,9 @@ test('full_18 round still covers all 18 holes', async () => {
         startListMode: 'structured',
         formatSlots: [slot],
     });
-    const p = await participantService.create({ roundId: round.id });
+    const pl = await playerService.register({ username: 'full18-p1', password: 'password123', displayName: 'Full18 P1' });
+    const p = await participantService.create({ roundId: round.id, players: [{ playerId: pl.id }] });
+    await seedBallsFromParticipants(db, round.id);
     for (let h = 1; h <= 18; h++) {
         await scoreEventService.append({
             roundId: round.id,
@@ -255,6 +272,7 @@ test('better-ball leaderboard uses each linked player\'s own frozen PH', async (
         players: [{ playerId: alice.id }, { playerId: bob.id }],
         teamLabel: 'Alice & Bob',
     });
+    await seedBallsFromParticipants(ctx.db, round.id);
     await scoreEventService.append({
         roundId: round.id,
         participantId: team.id,
@@ -283,7 +301,7 @@ test('better-ball leaderboard uses each linked player\'s own frozen PH', async (
 // --- Multi-slot scope routing (Phase 2.5i) ---
 
 test('single-slot round with no scope defaults every participant to slot 0 (back-compat)', async () => {
-    const { roundService, participantService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
+    const { db, roundService, participantService, playerService, handicapService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
     const round = await roundService.create({
         courseId,
         date: '2026-05-01',
@@ -292,14 +310,21 @@ test('single-slot round with no scope defaults every participant to slot 0 (back
         startListMode: 'structured',
         formatSlots: [slot], // no scopeConfig
     });
+    const pl1 = await playerService.register({ username: 'ss-p1', password: 'password123', displayName: 'SS P1' });
+    const pl2 = await playerService.register({ username: 'ss-p2', password: 'password123', displayName: 'SS P2' });
+    await handicapService.record({ playerId: pl1.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
+    await handicapService.record({ playerId: pl2.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
     const p1 = await participantService.create({
         roundId: round.id,
         snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+        players: [{ playerId: pl1.id }],
     });
     const p2 = await participantService.create({
         roundId: round.id,
         snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+        players: [{ playerId: pl2.id }],
     });
+    await seedBallsFromParticipants(db, round.id);
     for (let h = 1; h <= 18; h++) {
         await scoreEventService.append({
             roundId: round.id, participantId: p1.id, hole: h, strokes: 4,
@@ -321,7 +346,7 @@ test('single-slot round with no scope defaults every participant to slot 0 (back
 });
 
 test('multi-slot round routes each participant to the slot whose scope lists them', async () => {
-    const { roundService, participantService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
+    const { db, roundService, participantService, playerService, handicapService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
 
     // Bootstrap round with a single throwaway slot so we can mint participant ids,
     // then update the round with two slots whose scopes reference those ids.
@@ -330,15 +355,25 @@ test('multi-slot round routes each participant to the slot whose scope lists the
         venueType: 'outdoor', startListMode: 'structured',
         formatSlots: [slot],
     });
+    const plA = await playerService.register({ username: 'ms-a', password: 'password123', displayName: 'MS A' });
+    const plB = await playerService.register({ username: 'ms-b', password: 'password123', displayName: 'MS B' });
+    const plC = await playerService.register({ username: 'ms-c', password: 'password123', displayName: 'MS C' });
+    await handicapService.record({ playerId: plA.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
+    await handicapService.record({ playerId: plB.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
+    await handicapService.record({ playerId: plC.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
     const pA = await participantService.create({
         roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+        players: [{ playerId: plA.id }],
     });
     const pB = await participantService.create({
         roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+        players: [{ playerId: plB.id }],
     });
     const pC = await participantService.create({
         roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+        players: [{ playerId: plC.id }],
     });
+    await seedBallsFromParticipants(db, bootstrap.id);
 
     // Now widen to two slots with explicit per-slot scopes.
     await roundService.update(bootstrap.id, {
@@ -499,18 +534,25 @@ test('multi-slot round with overlapping scoringType label across slots keeps buc
     // Two stableford slots (individual + individual) both emit `points`.
     // The legacy single-bucket-per-scoringType behaviour would have merged
     // them; 2.5i partitions per slot so each lives in its own bucket.
-    const { roundService, participantService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
+    const { db, roundService, participantService, playerService, handicapService, scoreEventService, leaderboardService, courseId, teeId } = await setup18();
     const bootstrap = await roundService.create({
         courseId, date: '2026-05-01', roundType: 'full_18',
         venueType: 'outdoor', startListMode: 'structured',
         formatSlots: [slot],
     });
+    const plA = await playerService.register({ username: 'ov-a', password: 'password123', displayName: 'OV A' });
+    const plB = await playerService.register({ username: 'ov-b', password: 'password123', displayName: 'OV B' });
+    await handicapService.record({ playerId: plA.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
+    await handicapService.record({ playerId: plB.id, handicapIndex: 9, source: 'manual', effectiveDate: '2026-04-01' });
     const pA = await participantService.create({
         roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+        players: [{ playerId: plA.id }],
     });
     const pB = await participantService.create({
         roundId: bootstrap.id, snapshot: { teeId, gender: 'M', handicapIndex: 9, allowancePct: 100 },
+        players: [{ playerId: plB.id }],
     });
+    await seedBallsFromParticipants(db, bootstrap.id);
     await roundService.update(bootstrap.id, {
         formatSlots: [
             {
