@@ -36,17 +36,23 @@ async function setup() {
         players: [{ playerId: alice.id }],
     });
     // Seed minimal compiler output (balls + ball_players) so the
-    // score-event service can resolve ball_id from participantId.
-    // The RoundCompiler would normally do this; tests fake the topology.
+    // score-event service can resolve ball_id. The RoundCompiler would
+    // normally do this; tests fake the topology. The helper stamps
+    // `ball-${participantId}` as each ball's id.
     await seedBallsFromParticipants(ctx.db, round.id);
-    return { ...ctx, roundId: round.id, participantId: p.id, aliceId: alice.id };
+    return {
+        ...ctx,
+        roundId: round.id,
+        ballId: `ball-${p.id}`,
+        aliceId: alice.id,
+    };
 }
 
 test('append inserts event and bumps rounds.latest_event_id', async () => {
-    const { scoreEventService, roundService, roundId, participantId, aliceId } = await setup();
+    const { scoreEventService, roundService, roundId, ballId, aliceId } = await setup();
     const res = await scoreEventService.append({
         roundId,
-        participantId,
+        ballId,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -55,15 +61,16 @@ test('append inserts event and bumps rounds.latest_event_id', async () => {
     });
     expect(res.inserted).toBe(true);
     expect(res.event.strokes).toBe(4);
+    expect(res.event.ballId).toBe(ballId);
     const round = await roundService.getById(roundId);
     expect(round!.latestEventId).toBe(res.event.id);
 });
 
 test('replaying the same clientEventId is deduped, returns original row', async () => {
-    const { scoreEventService, roundId, participantId } = await setup();
+    const { scoreEventService, roundId, ballId } = await setup();
     const first = await scoreEventService.append({
         roundId,
-        participantId,
+        ballId,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -71,7 +78,7 @@ test('replaying the same clientEventId is deduped, returns original row', async 
     });
     const second = await scoreEventService.append({
         roundId,
-        participantId,
+        ballId,
         hole: 1,
         strokes: 99, // different payload; server ignores, returns original
         eventType: 'score_entered',
@@ -83,10 +90,10 @@ test('replaying the same clientEventId is deduped, returns original row', async 
 });
 
 test('listByRound returns events in recorded_at order', async () => {
-    const { scoreEventService, roundId, participantId } = await setup();
+    const { scoreEventService, roundId, ballId } = await setup();
     await scoreEventService.append({
         roundId,
-        participantId,
+        ballId,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -95,7 +102,7 @@ test('listByRound returns events in recorded_at order', async () => {
     });
     await scoreEventService.append({
         roundId,
-        participantId,
+        ballId,
         hole: 2,
         strokes: 3,
         eventType: 'score_entered',
@@ -107,7 +114,7 @@ test('listByRound returns events in recorded_at order', async () => {
 });
 
 test('clientEventId uniqueness is scoped per round', async () => {
-    const { scoreEventService, roundService, courseService, clubService, participantService, playerService, db, roundId, participantId } = await setup();
+    const { scoreEventService, roundService, courseService, clubService, participantService, playerService, db, roundId, ballId } = await setup();
     // Another round with its own participant, same clientEventId → should work.
     const club2 = await clubService.create({ name: 'Other GK' });
     const course2 = await courseService.create({ clubId: club2.id, name: 'Other', holeCount: 18 });
@@ -125,26 +132,26 @@ test('clientEventId uniqueness is scoped per round', async () => {
     const p2 = await participantService.create({ roundId: round2.id, players: [{ playerId: carol.id }] });
     await seedBallsFromParticipants(db, round2.id);
 
-    const a = await scoreEventService.append({ roundId, participantId, hole: 1, strokes: 4, eventType: 'score_entered', clientEventId: 'shared' });
-    const b = await scoreEventService.append({ roundId: round2.id, participantId: p2.id, hole: 1, strokes: 5, eventType: 'score_entered', clientEventId: 'shared' });
+    const a = await scoreEventService.append({ roundId, ballId, hole: 1, strokes: 4, eventType: 'score_entered', clientEventId: 'shared' });
+    const b = await scoreEventService.append({ roundId: round2.id, ballId: `ball-${p2.id}`, hole: 1, strokes: 5, eventType: 'score_entered', clientEventId: 'shared' });
     expect(a.inserted).toBe(true);
     expect(b.inserted).toBe(true);
     expect(a.event.id).not.toBe(b.event.id);
 });
 
 test('round delete cascades events', async () => {
-    const { scoreEventService, roundService, roundId, participantId } = await setup();
-    await scoreEventService.append({ roundId, participantId, hole: 1, strokes: 4, eventType: 'score_entered', clientEventId: 'c1' });
+    const { scoreEventService, roundService, roundId, ballId } = await setup();
+    await scoreEventService.append({ roundId, ballId, hole: 1, strokes: 4, eventType: 'score_entered', clientEventId: 'c1' });
     await roundService.remove(roundId);
     const list = await scoreEventService.listByRound(roundId);
     expect(list).toHaveLength(0);
 });
 
 test('append with sourcePlayerId persists and round-trips', async () => {
-    const { scoreEventService, roundId, participantId, aliceId } = await setup();
+    const { scoreEventService, roundId, ballId, aliceId } = await setup();
     const res = await scoreEventService.append({
         roundId,
-        participantId,
+        ballId,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -159,9 +166,7 @@ test('append with sourcePlayerId persists and round-trips', async () => {
 });
 
 test('append with sourceGuestPlayerId persists and round-trips', async () => {
-    // Use a fresh context where a guest is part of the participant — the
-    // service resolves ball_id by matching source identity against a
-    // ball_player on the participant's ball.
+    // Use a fresh context where a guest is part of the participant.
     const ctx = await createTestDb();
     const club = await ctx.clubService.create({ name: 'Halmstad GK' });
     const course = await ctx.courseService.create({ clubId: club.id, name: 'North', holeCount: 18 });
@@ -180,10 +185,10 @@ test('append with sourceGuestPlayerId persists and round-trips', async () => {
     await seedBallsFromParticipants(ctx.db, round.id);
     const { scoreEventService } = ctx;
     const roundId = round.id;
-    const participantId = p.id;
+    const ballId = `ball-${p.id}`;
     const res = await scoreEventService.append({
         roundId,
-        participantId,
+        ballId,
         hole: 1,
         strokes: 5,
         eventType: 'score_entered',
@@ -195,12 +200,12 @@ test('append with sourceGuestPlayerId persists and round-trips', async () => {
 });
 
 test('append with both source ids throws', async () => {
-    const { scoreEventService, guestPlayerService, roundId, participantId, aliceId } = await setup();
+    const { scoreEventService, guestPlayerService, roundId, ballId, aliceId } = await setup();
     const guest = await guestPlayerService.create({ displayName: 'Guest', gender: 'M', handicapIndex: 12 });
     await expect(
         scoreEventService.append({
             roundId,
-            participantId,
+            ballId,
             hole: 1,
             strokes: 4,
             eventType: 'score_entered',
@@ -212,10 +217,10 @@ test('append with both source ids throws', async () => {
 });
 
 test('append with both source ids null persists (individual / foursomes path)', async () => {
-    const { scoreEventService, roundId, participantId } = await setup();
+    const { scoreEventService, roundId, ballId } = await setup();
     const res = await scoreEventService.append({
         roundId,
-        participantId,
+        ballId,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -229,10 +234,10 @@ test('append with both source ids null persists (individual / foursomes path)', 
 // --- metadata (phase 2.5h / migration 014) ---
 
 test('append with metadata populated — persisted + round-trip JSON parse', async () => {
-    const { scoreEventService, roundId, participantId } = await setup();
+    const { scoreEventService, roundId, ballId } = await setup();
     const res = await scoreEventService.append({
         roundId,
-        participantId,
+        ballId,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -247,10 +252,10 @@ test('append with metadata populated — persisted + round-trip JSON parse', asy
 });
 
 test('append with metadata null — works and round-trips as null', async () => {
-    const { scoreEventService, roundId, participantId } = await setup();
+    const { scoreEventService, roundId, ballId } = await setup();
     const res = await scoreEventService.append({
         roundId,
-        participantId,
+        ballId,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -261,10 +266,10 @@ test('append with metadata null — works and round-trips as null', async () => 
 });
 
 test('append with metadata unset — defaults to null', async () => {
-    const { scoreEventService, roundId, participantId } = await setup();
+    const { scoreEventService, roundId, ballId } = await setup();
     const res = await scoreEventService.append({
         roundId,
-        participantId,
+        ballId,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -277,7 +282,7 @@ test('malformed metadata in DB throws a clear error on read', async () => {
     const ctx = await setup();
     await ctx.scoreEventService.append({
         roundId: ctx.roundId,
-        participantId: ctx.participantId,
+        ballId: ctx.ballId,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -300,7 +305,7 @@ test('non-object JSON metadata throws a clear error on read', async () => {
     const ctx = await setup();
     await ctx.scoreEventService.append({
         roundId: ctx.roundId,
-        participantId: ctx.participantId,
+        ballId: ctx.ballId,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',

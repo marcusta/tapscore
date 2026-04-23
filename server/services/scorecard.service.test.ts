@@ -48,7 +48,7 @@ test('trigger creates scorecard row on event insert', async () => {
     const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
     await scoreEventService.append({
         roundId,
-        participantId: p1Id,
+        ballId: ballFor(p1Id),
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -63,7 +63,7 @@ test('later event for same hole overwrites scorecard row', async () => {
     const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
     await scoreEventService.append({
         roundId,
-        participantId: p1Id,
+        ballId: ballFor(p1Id),
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -72,7 +72,7 @@ test('later event for same hole overwrites scorecard row', async () => {
     });
     await scoreEventService.append({
         roundId,
-        participantId: p1Id,
+        ballId: ballFor(p1Id),
         hole: 1,
         strokes: 5,
         eventType: 'score_entered',
@@ -88,7 +88,7 @@ test('score_cleared wipes strokes but keeps row', async () => {
     const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
     await scoreEventService.append({
         roundId,
-        participantId: p1Id,
+        ballId: ballFor(p1Id),
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -97,7 +97,7 @@ test('score_cleared wipes strokes but keeps row', async () => {
     });
     await scoreEventService.append({
         roundId,
-        participantId: p1Id,
+        ballId: ballFor(p1Id),
         hole: 1,
         strokes: null,
         eventType: 'score_cleared',
@@ -114,7 +114,7 @@ test('out-of-order insert converges on latest recorded_at', async () => {
     // Insert the LATER event first.
     await scoreEventService.append({
         roundId,
-        participantId: p1Id,
+        ballId: ballFor(p1Id),
         hole: 1,
         strokes: 5,
         eventType: 'score_entered',
@@ -124,7 +124,7 @@ test('out-of-order insert converges on latest recorded_at', async () => {
     // Then the EARLIER event. Trigger must NOT overwrite.
     await scoreEventService.append({
         roundId,
-        participantId: p1Id,
+        ballId: ballFor(p1Id),
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -139,7 +139,7 @@ test('null strokes (DNP) and zero strokes (pickup) are both preserved', async ()
     const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
     await scoreEventService.append({
         roundId,
-        participantId: p1Id,
+        ballId: ballFor(p1Id),
         hole: 1,
         strokes: 0,
         eventType: 'score_entered',
@@ -147,7 +147,7 @@ test('null strokes (DNP) and zero strokes (pickup) are both preserved', async ()
     });
     await scoreEventService.append({
         roundId,
-        participantId: p1Id,
+        ballId: ballFor(p1Id),
         hole: 2,
         strokes: null,
         eventType: 'score_entered',
@@ -162,9 +162,9 @@ test('null strokes (DNP) and zero strokes (pickup) are both preserved', async ()
 
 test('forRound groups by ball', async () => {
     const { scoreEventService, scorecardService, roundId, p1Id, p2Id } = await setup();
-    await scoreEventService.append({ roundId, participantId: p1Id, hole: 1, strokes: 4, eventType: 'score_entered', clientEventId: 'a' });
-    await scoreEventService.append({ roundId, participantId: p2Id, hole: 1, strokes: 5, eventType: 'score_entered', clientEventId: 'b' });
-    await scoreEventService.append({ roundId, participantId: p1Id, hole: 2, strokes: 3, eventType: 'score_entered', clientEventId: 'c' });
+    await scoreEventService.append({ roundId, ballId: ballFor(p1Id), hole: 1, strokes: 4, eventType: 'score_entered', clientEventId: 'a' });
+    await scoreEventService.append({ roundId, ballId: ballFor(p2Id), hole: 1, strokes: 5, eventType: 'score_entered', clientEventId: 'b' });
+    await scoreEventService.append({ roundId, ballId: ballFor(p1Id), hole: 2, strokes: 3, eventType: 'score_entered', clientEventId: 'c' });
     const list = await scorecardService.forRound(roundId);
     expect(list).toHaveLength(2);
     const p1Card = list.find((s) => s.ballId === ballFor(p1Id))!;
@@ -201,12 +201,12 @@ async function setupWithTeam() {
 test('two events at same (participant, hole) with different sourcePlayerId persist as separate rows', async () => {
     const { scoreEventService, scorecardService, roundId, teamId, aliceId, bobId } = await setupWithTeam();
     await scoreEventService.append({
-        roundId, participantId: teamId, hole: 1, strokes: 4,
+        roundId, ballId: ballFor(teamId), hole: 1, strokes: 4,
         eventType: 'score_entered', clientEventId: 'a1', sourcePlayerId: aliceId,
         recordedAt: '2026-05-01T10:00:00.000Z',
     });
     await scoreEventService.append({
-        roundId, participantId: teamId, hole: 1, strokes: 5,
+        roundId, ballId: ballFor(teamId), hole: 1, strokes: 5,
         eventType: 'score_entered', clientEventId: 'b1', sourcePlayerId: bobId,
         recordedAt: '2026-05-01T10:01:00.000Z',
     });
@@ -221,12 +221,12 @@ test('two events at same (participant, hole) with different sourcePlayerId persi
 test('two events at same (participant, hole) with same sourcePlayerId — later overwrites (idempotent replay)', async () => {
     const { scoreEventService, scorecardService, roundId, teamId, aliceId } = await setupWithTeam();
     await scoreEventService.append({
-        roundId, participantId: teamId, hole: 1, strokes: 4,
+        roundId, ballId: ballFor(teamId), hole: 1, strokes: 4,
         eventType: 'score_entered', clientEventId: 'a1', sourcePlayerId: aliceId,
         recordedAt: '2026-05-01T10:00:00.000Z',
     });
     await scoreEventService.append({
-        roundId, participantId: teamId, hole: 1, strokes: 6,
+        roundId, ballId: ballFor(teamId), hole: 1, strokes: 6,
         eventType: 'score_entered', clientEventId: 'a2', sourcePlayerId: aliceId,
         recordedAt: '2026-05-01T10:05:00.000Z',
     });
@@ -239,18 +239,18 @@ test('two events at same (participant, hole) with same sourcePlayerId — later 
 test('null source row coexists separately from per-player rows on same hole', async () => {
     const { scoreEventService, scorecardService, roundId, teamId, aliceId } = await setupWithTeam();
     await scoreEventService.append({
-        roundId, participantId: teamId, hole: 1, strokes: 4,
+        roundId, ballId: ballFor(teamId), hole: 1, strokes: 4,
         eventType: 'score_entered', clientEventId: 'a1', sourcePlayerId: aliceId,
         recordedAt: '2026-05-01T10:00:00.000Z',
     });
     await scoreEventService.append({
-        roundId, participantId: teamId, hole: 1, strokes: 7,
+        roundId, ballId: ballFor(teamId), hole: 1, strokes: 7,
         eventType: 'score_entered', clientEventId: 'team1',
         recordedAt: '2026-05-01T10:01:00.000Z',
     });
     // Later null-source event at the same hole overwrites only the null bucket.
     await scoreEventService.append({
-        roundId, participantId: teamId, hole: 1, strokes: 8,
+        roundId, ballId: ballFor(teamId), hole: 1, strokes: 8,
         eventType: 'score_entered', clientEventId: 'team2',
         recordedAt: '2026-05-01T10:02:00.000Z',
     });
@@ -265,11 +265,11 @@ test('null source row coexists separately from per-player rows on same hole', as
 test('pickForSource returns the matching hole, null otherwise', async () => {
     const { scoreEventService, scorecardService, roundId, teamId, aliceId, bobId } = await setupWithTeam();
     await scoreEventService.append({
-        roundId, participantId: teamId, hole: 1, strokes: 4,
+        roundId, ballId: ballFor(teamId), hole: 1, strokes: 4,
         eventType: 'score_entered', clientEventId: 'a1', sourcePlayerId: aliceId,
     });
     await scoreEventService.append({
-        roundId, participantId: teamId, hole: 1, strokes: 5,
+        roundId, ballId: ballFor(teamId), hole: 1, strokes: 5,
         eventType: 'score_entered', clientEventId: 'b1', sourcePlayerId: bobId,
     });
     const sc = await scorecardService.forBall(ballFor(teamId));
@@ -285,7 +285,7 @@ test('scorecard row surfaces metadata from latest event (null source)', async ()
     const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
     await scoreEventService.append({
         roundId,
-        participantId: p1Id,
+        ballId: ballFor(p1Id),
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -304,7 +304,7 @@ test('scorecard row surfaces metadata from latest event (per-player source)', as
         await setupWithTeam();
     await scoreEventService.append({
         roundId,
-        participantId: teamId,
+        ballId: ballFor(teamId),
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -314,7 +314,7 @@ test('scorecard row surfaces metadata from latest event (per-player source)', as
     });
     await scoreEventService.append({
         roundId,
-        participantId: teamId,
+        ballId: ballFor(teamId),
         hole: 1,
         strokes: 5,
         eventType: 'score_entered',
@@ -333,7 +333,7 @@ test('later event overwrites earlier metadata in the materialised view', async (
     const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
     await scoreEventService.append({
         roundId,
-        participantId: p1Id,
+        ballId: ballFor(p1Id),
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -343,7 +343,7 @@ test('later event overwrites earlier metadata in the materialised view', async (
     });
     await scoreEventService.append({
         roundId,
-        participantId: p1Id,
+        ballId: ballFor(p1Id),
         hole: 1,
         strokes: 5,
         eventType: 'score_entered',
@@ -361,7 +361,7 @@ test('scorecard metadata defaults to null when unset', async () => {
     const { scoreEventService, scorecardService, roundId, p1Id } = await setup();
     await scoreEventService.append({
         roundId,
-        participantId: p1Id,
+        ballId: ballFor(p1Id),
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',

@@ -140,7 +140,7 @@ test('full round flow: 4 participants, events, leaderboard, idempotency, replay'
     // First event — Alice makes 4 on hole 1.
     const e1 = await scoreEventService.append({
         roundId,
-        participantId: pAlice,
+        ballId: `ball-${pAlice}`,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -156,7 +156,7 @@ test('full round flow: 4 participants, events, leaderboard, idempotency, replay'
     // Idempotent retry — same clientEventId, returns original.
     const e1Retry = await scoreEventService.append({
         roundId,
-        participantId: pAlice,
+        ballId: `ball-${pAlice}`,
         hole: 1,
         strokes: 99,
         eventType: 'score_entered',
@@ -170,11 +170,11 @@ test('full round flow: 4 participants, events, leaderboard, idempotency, replay'
     expect(roundAfter!.latestEventId).toBe(e1.event.id);
 
     // More events for every participant.
-    await scoreEventService.append({ roundId, participantId: pAlice, hole: 2, strokes: 5, eventType: 'score_entered', clientEventId: 'alice-h2', recordedAt: '2026-05-01T09:05:00.000Z' });
-    await scoreEventService.append({ roundId, participantId: pBob,   hole: 1, strokes: 5, eventType: 'score_entered', clientEventId: 'bob-h1',   recordedAt: '2026-05-01T09:01:00.000Z' });
-    await scoreEventService.append({ roundId, participantId: pBob,   hole: 2, strokes: 6, eventType: 'score_entered', clientEventId: 'bob-h2',   recordedAt: '2026-05-01T09:06:00.000Z' });
-    await scoreEventService.append({ roundId, participantId: pCarol, hole: 1, strokes: 6, eventType: 'score_entered', clientEventId: 'carol-h1', recordedAt: '2026-05-01T09:02:00.000Z' });
-    await scoreEventService.append({ roundId, participantId: pDan,   hole: 1, strokes: 4, eventType: 'score_entered', clientEventId: 'dan-h1',   recordedAt: '2026-05-01T09:03:00.000Z' });
+    await scoreEventService.append({ roundId, ballId: `ball-${pAlice}`, hole: 2, strokes: 5, eventType: 'score_entered', clientEventId: 'alice-h2', recordedAt: '2026-05-01T09:05:00.000Z' });
+    await scoreEventService.append({ roundId, ballId: `ball-${pBob}`,   hole: 1, strokes: 5, eventType: 'score_entered', clientEventId: 'bob-h1',   recordedAt: '2026-05-01T09:01:00.000Z' });
+    await scoreEventService.append({ roundId, ballId: `ball-${pBob}`,   hole: 2, strokes: 6, eventType: 'score_entered', clientEventId: 'bob-h2',   recordedAt: '2026-05-01T09:06:00.000Z' });
+    await scoreEventService.append({ roundId, ballId: `ball-${pCarol}`, hole: 1, strokes: 6, eventType: 'score_entered', clientEventId: 'carol-h1', recordedAt: '2026-05-01T09:02:00.000Z' });
+    await scoreEventService.append({ roundId, ballId: `ball-${pDan}`,   hole: 1, strokes: 4, eventType: 'score_entered', clientEventId: 'dan-h1',   recordedAt: '2026-05-01T09:03:00.000Z' });
 
     // Scorecards reflect events.
     const aliceCard = await scorecardService.forBall(`ball-${pAlice}`);
@@ -211,7 +211,7 @@ test('replay determinism: events inserted out of order converge to same state', 
     // Insert them OUT of order: last one first, then first, then middle.
     await scoreEventService.append({
         roundId,
-        participantId: pAlice,
+        ballId: `ball-${pAlice}`,
         hole: 1,
         strokes: 5,
         eventType: 'score_entered',
@@ -220,7 +220,7 @@ test('replay determinism: events inserted out of order converge to same state', 
     });
     await scoreEventService.append({
         roundId,
-        participantId: pAlice,
+        ballId: `ball-${pAlice}`,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -229,7 +229,7 @@ test('replay determinism: events inserted out of order converge to same state', 
     });
     await scoreEventService.append({
         roundId,
-        participantId: pAlice,
+        ballId: `ball-${pAlice}`,
         hole: 1,
         strokes: 6,
         eventType: 'score_entered',
@@ -249,7 +249,7 @@ test('score_cleared wipes strokes and clears the leaderboard contribution', asyn
 
     await scoreEventService.append({
         roundId,
-        participantId: pAlice,
+        ballId: `ball-${pAlice}`,
         hole: 1,
         strokes: 4,
         eventType: 'score_entered',
@@ -261,7 +261,7 @@ test('score_cleared wipes strokes and clears the leaderboard contribution', asyn
 
     await scoreEventService.append({
         roundId,
-        participantId: pAlice,
+        ballId: `ball-${pAlice}`,
         hole: 1,
         strokes: null,
         eventType: 'score_cleared',

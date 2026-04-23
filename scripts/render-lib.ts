@@ -36,6 +36,10 @@ export interface Leaderboard {
     participantResults: ParticipantResult[];
     pairResults: PairResult[];
 }
+// Local participant-keyed event shape. Since 3b.3.2 the score-event service
+// emits `ballId`; render-lib translates at the seam so the rendering code
+// below stays participant-keyed.
+export type RenderedEvent = Omit<ScoreEvent, 'ballId'> & { participantId: string };
 import { courseHolesForRound } from '../server/domain/round-holes';
 import { stablefordOutcome, type StablefordHoleOutcome } from '../server/domain/formats/_stableford-scoring';
 import { normalizeMatchPlayHandicaps } from '../server/domain/formats/_match-play-handicap';
@@ -322,7 +326,7 @@ export interface RoundRenderContext {
     round: Round;
     course: Course;
     participants: Participant[];
-    events: ScoreEvent[];
+    events: RenderedEvent[];
     leaderboard: Leaderboard;
     /** Raw per-participant scorecards (source-tagged rows). Better-ball renders per-player sub-rows from these. */
     scorecards: Scorecard[];
@@ -402,6 +406,10 @@ export async function collectRoundContext(
         participantId: toParticipantId(sc.ballId),
         holes: sc.holes,
     }));
+    const renderedEvents: RenderedEvent[] = events.map((e) => {
+        const { ballId, ...rest } = e;
+        return { ...rest, participantId: toParticipantId(ballId) };
+    });
 
     const playerIds = new Set<string>();
     const guestIds = new Set<string>();
@@ -464,7 +472,7 @@ export async function collectRoundContext(
         strokeIndexOverride: r.stroke_index_override,
     }));
 
-    return { round, course, participants, events, leaderboard, scorecards, playersById, guestsById, teesById, courseHolesSnapshot, teeHolesSnapshot, dbPath };
+    return { round, course, participants, events: renderedEvents, leaderboard, scorecards, playersById, guestsById, teesById, courseHolesSnapshot, teeHolesSnapshot, dbPath };
 }
 
 export function renderRoundHtml(ctx: RoundRenderContext): string {
@@ -2492,7 +2500,7 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
     };
 
     const renderEvents = (): string => {
-        const rows = events.map((e: ScoreEvent) => {
+        const rows = events.map((e: RenderedEvent) => {
             const participant = participants.find((p) => p.id === e.participantId);
             const sourceName =
                 e.sourcePlayerId !== null

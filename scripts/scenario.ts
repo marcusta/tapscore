@@ -371,6 +371,46 @@ export class Scenario {
         this.eventCounter += 1;
         return `scen-${Date.now().toString(36)}-${this.eventCounter}`;
     }
+
+    /**
+     * Resolve the ball_id that carries events for a given participant within
+     * a round. Since 3b.3.2 the score-event service speaks `ballId` directly;
+     * scenario.play() / clear() still accept a participant-keyed reference
+     * and translate here. Throws if no ball has been compiled for the
+     * participant — seeds must run the compiler (or a test-style ball seed)
+     * before playing scores.
+     */
+    async resolveBallId(
+        roundId: string,
+        participantId: string,
+        sourcePlayerId: string | null,
+        sourceGuestPlayerId: string | null,
+    ): Promise<string> {
+        const rows = await this.db
+            .selectFrom('ball_players as bp')
+            .innerJoin('participant_players as pp', 'pp.id', 'bp.producer_def_id')
+            .innerJoin('balls as b', 'b.id', 'bp.ball_id')
+            .select('bp.ball_id')
+            .where('b.round_id', '=', roundId)
+            .where('pp.participant_id', '=', participantId)
+            .$if(sourcePlayerId !== null, (qb) =>
+                qb.where('bp.player_id', '=', sourcePlayerId!),
+            )
+            .$if(sourceGuestPlayerId !== null, (qb) =>
+                qb.where('bp.guest_player_id', '=', sourceGuestPlayerId!),
+            )
+            .limit(1)
+            .execute();
+        const ballId = rows[0]?.ball_id;
+        if (!ballId) {
+            throw new Error(
+                `scenario: no ball found for round ${roundId}, participant ${participantId}, ` +
+                    `source player=${sourcePlayerId ?? 'null'}, source guest=${sourceGuestPlayerId ?? 'null'}. ` +
+                    `The round compiler (or a ball-seeding helper) must run before play().`,
+            );
+        }
+        return ballId;
+    }
 }
 
 export class RoundScenarioRef {
@@ -542,9 +582,15 @@ export class ParticipantScenarioRef {
                 options.metadataFor !== undefined
                     ? options.metadataFor(hole)
                     : (options.metadata ?? null);
+            const ballId = await this.s.resolveBallId(
+                this.round.id,
+                this.participant.id,
+                options.sourcePlayerId ?? null,
+                options.sourceGuestPlayerId ?? null,
+            );
             await this.s.services.scoreEventService.append({
                 roundId: this.round.id,
-                participantId: this.participant.id,
+                ballId,
                 hole,
                 strokes,
                 eventType: 'score_entered',
@@ -560,9 +606,15 @@ export class ParticipantScenarioRef {
     }
 
     async clear(hole: number, options: PlayOptions = {}): Promise<void> {
+        const ballId = await this.s.resolveBallId(
+            this.round.id,
+            this.participant.id,
+            options.sourcePlayerId ?? null,
+            options.sourceGuestPlayerId ?? null,
+        );
         await this.s.services.scoreEventService.append({
             roundId: this.round.id,
-            participantId: this.participant.id,
+            ballId,
             hole,
             strokes: null,
             eventType: 'score_cleared',

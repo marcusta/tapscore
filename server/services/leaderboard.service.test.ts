@@ -60,7 +60,7 @@ test('front_9 round distributes PH across the 9 played holes only', async () => 
     for (let h = 1; h <= 9; h++) {
         await scoreEventService.append({
             roundId: round.id,
-            participantId: p.id,
+            ballId: ballFor(p.id),
             hole: h,
             strokes: 5, // bogey
             eventType: 'score_entered',
@@ -94,7 +94,7 @@ test('back_9 round uses holes 10..18 only', async () => {
     for (let h = 10; h <= 18; h++) {
         await scoreEventService.append({
             roundId: round.id,
-            participantId: p.id,
+            ballId: ballFor(p.id),
             hole: h,
             strokes: 4,
             eventType: 'score_entered',
@@ -153,7 +153,7 @@ test('9-hole allocation follows full-18 SI distribution (strokes land only where
     for (let h = 1; h <= 9; h++) {
         await ctx.scoreEventService.append({
             roundId: frontRound.id,
-            participantId: pFront.id,
+            ballId: ballFor(pFront.id),
             hole: h,
             strokes: 5,
             eventType: 'score_entered',
@@ -186,7 +186,7 @@ test('9-hole allocation follows full-18 SI distribution (strokes land only where
     for (let h = 10; h <= 18; h++) {
         await ctx.scoreEventService.append({
             roundId: backRound.id,
-            participantId: pBack.id,
+            ballId: ballFor(pBack.id),
             hole: h,
             strokes: 5,
             eventType: 'score_entered',
@@ -217,7 +217,7 @@ test('full_18 round still covers all 18 holes', async () => {
     for (let h = 1; h <= 18; h++) {
         await scoreEventService.append({
             roundId: round.id,
-            participantId: p.id,
+            ballId: ballFor(p.id),
             hole: h,
             strokes: 4,
             eventType: 'score_entered',
@@ -278,7 +278,7 @@ test('better-ball leaderboard uses each linked player\'s own frozen PH', async (
     await seedBallsFromParticipants(ctx.db, round.id);
     await scoreEventService.append({
         roundId: round.id,
-        participantId: team.id,
+        ballId: ballFor(team.id),
         hole: 5,
         strokes: 4,
         eventType: 'score_entered',
@@ -287,7 +287,7 @@ test('better-ball leaderboard uses each linked player\'s own frozen PH', async (
     });
     await scoreEventService.append({
         roundId: round.id,
-        participantId: team.id,
+        ballId: ballFor(team.id),
         hole: 5,
         strokes: 4,
         eventType: 'score_entered',
@@ -330,11 +330,11 @@ test('single-slot round with no scope defaults every participant to slot 0 (back
     await seedBallsFromParticipants(db, round.id);
     for (let h = 1; h <= 18; h++) {
         await scoreEventService.append({
-            roundId: round.id, participantId: p1.id, hole: h, strokes: 4,
+            roundId: round.id, ballId: ballFor(p1.id), hole: h, strokes: 4,
             eventType: 'score_entered', clientEventId: `p1-h${h}`,
         });
         await scoreEventService.append({
-            roundId: round.id, participantId: p2.id, hole: h, strokes: 5,
+            roundId: round.id, ballId: ballFor(p2.id), hole: h, strokes: 5,
             eventType: 'score_entered', clientEventId: `p2-h${h}`,
         });
     }
@@ -401,9 +401,9 @@ test('multi-slot round routes each participant to the slot whose scope lists the
     await seedBallsFromParticipants(db, bootstrap.id);
 
     for (let h = 1; h <= 18; h++) {
-        await scoreEventService.append({ roundId: bootstrap.id, participantId: pA.id, hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `a-h${h}` });
-        await scoreEventService.append({ roundId: bootstrap.id, participantId: pB.id, hole: h, strokes: 5, eventType: 'score_entered', clientEventId: `b-h${h}` });
-        await scoreEventService.append({ roundId: bootstrap.id, participantId: pC.id, hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `c-h${h}` });
+        await scoreEventService.append({ roundId: bootstrap.id, ballId: ballFor(pA.id), hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `a-h${h}` });
+        await scoreEventService.append({ roundId: bootstrap.id, ballId: ballFor(pB.id), hole: h, strokes: 5, eventType: 'score_entered', clientEventId: `b-h${h}` });
+        await scoreEventService.append({ roundId: bootstrap.id, ballId: ballFor(pC.id), hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `c-h${h}` });
     }
 
     const lb = await leaderboardService.forRound(bootstrap.id);
@@ -524,8 +524,8 @@ test('multi-slot round with overlapping scoringType label across slots keeps buc
     });
     await seedBallsFromParticipants(db, bootstrap.id);
     for (let h = 1; h <= 18; h++) {
-        await scoreEventService.append({ roundId: bootstrap.id, participantId: pA.id, hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `a-h${h}` });
-        await scoreEventService.append({ roundId: bootstrap.id, participantId: pB.id, hole: h, strokes: 5, eventType: 'score_entered', clientEventId: `b-h${h}` });
+        await scoreEventService.append({ roundId: bootstrap.id, ballId: ballFor(pA.id), hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `a-h${h}` });
+        await scoreEventService.append({ roundId: bootstrap.id, ballId: ballFor(pB.id), hole: h, strokes: 5, eventType: 'score_entered', clientEventId: `b-h${h}` });
     }
 
     const lb = await leaderboardService.forRound(bootstrap.id);
