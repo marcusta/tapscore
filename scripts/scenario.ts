@@ -26,7 +26,7 @@
 //   await s.close();
 
 import { createDb } from '@basics/core/server/db';
-import type { Database, TeeGender } from '../server/db/schema';
+import type { Database, TeeGender, ScoringMode, TeamShape } from '../server/db/schema';
 import { createServices } from '../server/services/index';
 import type { Club } from '../server/services/club.service';
 import type { Course, Hole } from '../server/services/course.service';
@@ -35,6 +35,7 @@ import type { Player } from '../server/services/player.service';
 import type { GuestPlayer } from '../server/services/guest-player.service';
 import type { Participant } from '../server/services/participant.service';
 import type { Round, FormatSlot, FormatSlotConfig } from '../server/services/round.service';
+import { seedBallsFromParticipants } from '../server/testing/balls';
 
 const DEFAULT_DB_PATH = process.env.DB_PATH ?? './data/app.sqlite';
 
@@ -146,6 +147,57 @@ export interface PlayOptions {
     metadata?: Record<string, unknown> | null;
     metadataFor?: (hole: number) => Record<string, unknown> | null;
 }
+
+// --- Draft types (slice 2.6b/3d.1) ---
+//
+// Internal, declarative mirror of what `addParticipant(...)` will later
+// compile into a `RoundDefinition` (see
+// `server/domain/round-definition.ts`). Populated eagerly on each
+// `s.round(...)` / `round.addParticipant(...)` call so slice 3d.2 can
+// translate the draft into a real `RoundDefinition` and slice 3d.3 can
+// swap the write path from `participantService.create` to the
+// RoundCompiler. Deliberately un-exported — shape may change.
+
+type ProducerDraft = {
+    /** Stable, deterministic def-id (`p1`, `p2`, …). */
+    defId: string;
+    playerRef: { kind: 'player'; id: string } | { kind: 'guest'; id: string };
+    teeName: string;
+    gender: TeeGender;
+    handicapIndexOverride?: number | null;
+    /** Non-null when this producer is grouped into a team within a slot. */
+    teamLabel?: string | null;
+};
+
+type StrategyDraft = {
+    defId: string;
+    /** Registry id — e.g. `own_ball_per_player`, `alt_shot_pair`. */
+    strategyId: string;
+    derivationConfig: unknown;
+    /** Populated for pair strategies (foursomes alt-shot). */
+    pairings?: { producerDefIds: string[] }[];
+};
+
+type SlotDraft = {
+    defId: string;
+    scoringMode: ScoringMode;
+    teamShape: TeamShape;
+    allowanceConfig: { type: 'flat'; pct: number };
+    /** Pass-through for now (scope routing etc.). */
+    scopeConfig?: unknown;
+    teamGroupings?: { teamLabel: string; producerDefIds: string[] }[];
+};
+
+type RoundDefinitionDraft = {
+    courseId: string;
+    playedAt: string;
+    roundType: RoundInit['roundType'];
+    venueType: RoundInit['venueType'];
+    startListMode: RoundInit['startListMode'];
+    producers: ProducerDraft[];
+    strategies: StrategyDraft[];
+    slots: SlotDraft[];
+};
 
 // --- Refs ---
 
@@ -362,7 +414,24 @@ export class Scenario {
             selfOrganize: init.selfOrganize ?? false,
             formatSlots: slots,
         });
-        return new RoundScenarioRef(this, round);
+        const draft: RoundDefinitionDraft = {
+            courseId,
+            playedAt: init.date,
+            roundType: init.roundType,
+            venueType: init.venueType,
+            startListMode: init.startListMode,
+            producers: [],
+            strategies: [],
+            slots: init.formatSlots.map((s, i) => ({
+                defId: `slot-${i}`,
+                scoringMode: s.scoringMode,
+                teamShape: s.teamShape,
+                allowanceConfig: { type: 'flat', pct: s.allowancePct },
+                scopeConfig: s.scopeConfig ?? undefined,
+                teamGroupings: undefined,
+            })),
+        };
+        return new RoundScenarioRef(this, round, draft);
     }
 
     // --- helpers ---
@@ -386,22 +455,33 @@ export class Scenario {
         sourcePlayerId: string | null,
         sourceGuestPlayerId: string | null,
     ): Promise<string> {
-        const rows = await this.db
-            .selectFrom('ball_players as bp')
-            .innerJoin('participant_players as pp', 'pp.id', 'bp.producer_def_id')
-            .innerJoin('balls as b', 'b.id', 'bp.ball_id')
-            .select('bp.ball_id')
-            .where('b.round_id', '=', roundId)
-            .where('pp.participant_id', '=', participantId)
-            .$if(sourcePlayerId !== null, (qb) =>
-                qb.where('bp.player_id', '=', sourcePlayerId!),
-            )
-            .$if(sourceGuestPlayerId !== null, (qb) =>
-                qb.where('bp.guest_player_id', '=', sourceGuestPlayerId!),
-            )
-            .limit(1)
-            .execute();
-        const ballId = rows[0]?.ball_id;
+        const lookup = async (): Promise<string | undefined> => {
+            const rows = await this.db
+                .selectFrom('ball_players as bp')
+                .innerJoin('participant_players as pp', 'pp.id', 'bp.producer_def_id')
+                .innerJoin('balls as b', 'b.id', 'bp.ball_id')
+                .select('bp.ball_id')
+                .where('b.round_id', '=', roundId)
+                .where('pp.participant_id', '=', participantId)
+                .$if(sourcePlayerId !== null, (qb) =>
+                    qb.where('bp.player_id', '=', sourcePlayerId!),
+                )
+                .$if(sourceGuestPlayerId !== null, (qb) =>
+                    qb.where('bp.guest_player_id', '=', sourceGuestPlayerId!),
+                )
+                .limit(1)
+                .execute();
+            return rows[0]?.ball_id;
+        };
+
+        let ballId = await lookup();
+        if (!ballId) {
+            // Seeds use the legacy participant-centric builder. Stamp the
+            // compiler-output topology lazily the first time we need a
+            // ballId for this round, then retry.
+            await seedBallsFromParticipants(this.db, roundId);
+            ballId = await lookup();
+        }
         if (!ballId) {
             throw new Error(
                 `scenario: no ball found for round ${roundId}, participant ${participantId}, ` +
@@ -414,10 +494,22 @@ export class Scenario {
 }
 
 export class RoundScenarioRef {
+    /**
+     * Declarative mirror of every addParticipant / slot call made against
+     * this round. Slice 3d.2 will translate it into a `RoundDefinition`;
+     * slice 3d.3 will swap the write path to the RoundCompiler. Exposed
+     * for tests via `__draftForTest(round)`; do not read it from seeds.
+     */
+    readonly draft: RoundDefinitionDraft;
+    private producerCounter = 0;
+
     constructor(
         private readonly s: Scenario,
         public readonly round: Round,
-    ) {}
+        draft: RoundDefinitionDraft,
+    ) {
+        this.draft = draft;
+    }
 
     get id(): string {
         return this.round.id;
@@ -516,7 +608,160 @@ export class RoundScenarioRef {
             snapshot,
             players: linkInputs,
         });
-        return new ParticipantScenarioRef(this.s, p, this.round, snapshotPlayer?.id);
+
+        // --- Mirror into draft (slice 2.6b/3d.1) ---------------------------
+        //
+        // Declarative twin of the DB write above; slice 3d.3 will swap the
+        // write path to consume this draft via the RoundCompiler. The DB
+        // write stays authoritative for now.
+        const producerDefIds = await this.mirrorIntoDraft(init, teeId);
+
+        return new ParticipantScenarioRef(this.s, p, this.round, snapshotPlayer?.id, producerDefIds);
+    }
+
+    /**
+     * Append ProducerDrafts for this addParticipant call, update slot team
+     * groupings, and create/extend the StrategyDraft implied by the first
+     * slot's `teamShape`. Returns the producer def-ids created by this
+     * call (one per player/guest). Read by slice 3d.3 via
+     * `ParticipantScenarioRef.producerDefIds`.
+     */
+    private async mirrorIntoDraft(
+        init: AddParticipantInit,
+        teeId: string | undefined,
+    ): Promise<string[]> {
+        // Resolve tee name for the draft; prefer the caller-supplied one.
+        let teeName = init.teeName;
+        if (!teeName && teeId) {
+            const tees = await this.s.services.teeService.listByCourse(this.round.courseId);
+            teeName = tees.find((t) => t.id === teeId)?.name;
+        }
+        if (!teeName) teeName = '';
+
+        const gender: TeeGender = init.gender ?? 'M';
+
+        // Expand the call into individual producer entries.
+        type Member = { player?: PlayerRef; guest?: GuestRef };
+        const members: Member[] = [];
+        if (init.player) members.push({ player: init.player });
+        else if (init.guest) members.push({ guest: init.guest });
+        else if (init.team) members.push(...init.team);
+
+        const isTeam = (init.team?.length ?? 0) > 0;
+        const teamLabel = init.teamLabel ?? null;
+
+        // Defensive guard — once a round's producers have been populated,
+        // later calls must agree on the "is this addParticipant a single
+        // producer or a team?" shape implied by the first slot's
+        // teamShape. Mixing team=[...] with single player/guest in a
+        // single-slot individual round (or the reverse) means the
+        // strategy shape is ambiguous.
+        const firstSlot = this.draft.slots[0];
+        if (firstSlot && this.draft.slots.length === 1) {
+            const shape = firstSlot.teamShape;
+            if (shape === 'individual' && isTeam) {
+                throw new Error(
+                    `scenario.addParticipant: first slot teamShape=individual but a team was passed; ` +
+                        `mixing team participants with an individual-only round is not supported here.`,
+                );
+            }
+            if (
+                (shape === 'foursomes' ||
+                    shape === 'four_ball' ||
+                    shape === 'better_ball') &&
+                !isTeam
+            ) {
+                throw new Error(
+                    `scenario.addParticipant: first slot teamShape=${shape} but a single participant ` +
+                        `was passed; team-shaped rounds expect team=[...] for every addParticipant call.`,
+                );
+            }
+        }
+
+        const newProducerIds: string[] = [];
+        for (const m of members) {
+            if (m.player && m.guest) continue; // already rejected above
+            const ref = m.player
+                ? ({ kind: 'player', id: m.player.id } as const)
+                : ({ kind: 'guest', id: m.guest!.id } as const);
+            this.producerCounter += 1;
+            const defId = `p${this.producerCounter}`;
+            // Carry the explicit index override when the caller passed
+            // one; otherwise leave null so slice 3d.2 can resolve via the
+            // same lookup the legacy path uses (handicap_history / guest).
+            const handicapIndexOverride =
+                init.handicapIndexOverride !== undefined
+                    ? init.handicapIndexOverride
+                    : null;
+            this.draft.producers.push({
+                defId,
+                playerRef: ref,
+                teeName: teeName!,
+                gender,
+                handicapIndexOverride,
+                teamLabel,
+            });
+            newProducerIds.push(defId);
+        }
+
+        // Update per-slot team groupings when this call carried a team
+        // label. Groupings are keyed by teamLabel so successive
+        // addParticipant calls with the same label accumulate (rare, but
+        // harmless).
+        if (teamLabel) {
+            for (const slot of this.draft.slots) {
+                if (!slot.teamGroupings) slot.teamGroupings = [];
+                const existing = slot.teamGroupings.find((g) => g.teamLabel === teamLabel);
+                if (existing) {
+                    existing.producerDefIds.push(...newProducerIds);
+                } else {
+                    slot.teamGroupings.push({
+                        teamLabel,
+                        producerDefIds: [...newProducerIds],
+                    });
+                }
+            }
+        }
+
+        // Ensure the strategy set reflects the first slot's teamShape.
+        // `individual` / `four_ball` / `taliban` / `better_ball` →
+        // single shared OwnBallPerPlayer. `foursomes` → one AltShotPair
+        // per addParticipant({team}) call (pairings accumulate).
+        if (firstSlot) {
+            const shape = firstSlot.teamShape;
+            if (shape === 'foursomes') {
+                let strategy = this.draft.strategies.find(
+                    (s) => s.strategyId === 'alt_shot_pair',
+                );
+                if (!strategy) {
+                    strategy = {
+                        defId: 'strat-alt-shot',
+                        strategyId: 'alt_shot_pair',
+                        derivationConfig: { type: 'avg' },
+                        pairings: [],
+                    };
+                    this.draft.strategies.push(strategy);
+                }
+                if (isTeam && newProducerIds.length >= 2) {
+                    strategy.pairings = strategy.pairings ?? [];
+                    strategy.pairings.push({ producerDefIds: [...newProducerIds] });
+                }
+            } else {
+                let strategy = this.draft.strategies.find(
+                    (s) => s.strategyId === 'own_ball_per_player',
+                );
+                if (!strategy) {
+                    strategy = {
+                        defId: 'strat-own-ball',
+                        strategyId: 'own_ball_per_player',
+                        derivationConfig: { type: 'single' },
+                    };
+                    this.draft.strategies.push(strategy);
+                }
+            }
+        }
+
+        return newProducerIds;
     }
 
     private async avgTeamIndex(
@@ -546,12 +791,23 @@ export class RoundScenarioRef {
 }
 
 export class ParticipantScenarioRef {
+    /**
+     * Draft-producer def-ids owned by this addParticipant call. Slice
+     * 3d.3 will use these to thread the RoundCompiler's compiled
+     * producers back to scenario-level `.play()` calls; today it is
+     * read-only scaffolding.
+     */
+    public readonly producerDefIds: string[];
+
     constructor(
         private readonly s: Scenario,
         public readonly participant: Participant,
         private readonly round: Round,
         private readonly recordedByPlayerId: string | undefined,
-    ) {}
+        producerDefIds: string[] = [],
+    ) {
+        this.producerDefIds = producerDefIds;
+    }
 
     get id(): string {
         return this.participant.id;
@@ -632,4 +888,14 @@ export class ParticipantScenarioRef {
 
 function capitalise(s: string): string {
     return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/**
+ * Slice 3d.2 will use this — unit tests can observe the draft populated
+ * by `addParticipant(...)` without touching private state. Not part of
+ * the public scenario API; the underscore prefix signals "internal".
+ */
+// eslint-disable-next-line @typescript-eslint/naming-convention
+export function __draftForTest(round: RoundScenarioRef) {
+    return round.draft;
 }
