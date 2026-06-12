@@ -4,7 +4,7 @@ import { apiFetch } from '@basics/core/client/fetch';
 export interface ScoreEvent {
     id: string;
     roundId: string;
-    participantId: string;
+    ballId: string;
     hole: number;
     strokes: null | number;
     eventType: 'score_entered' | 'score_cleared' | 'score_confirmed' | 'manual_override';
@@ -23,7 +23,7 @@ export interface AppendResult {
 
 export interface ScoreEventsApi {
     listByRound(input: { roundId: string }): Promise<ScoreEvent[]>;
-    append(input: { roundId: string; participantId: string; hole: number; strokes: null | number; eventType: 'score_entered' | 'score_cleared' | 'score_confirmed' | 'manual_override'; clientEventId: string; sourcePlayerId?: null | string; sourceGuestPlayerId?: null | string; metadata?: null | Record<string, unknown> }): Promise<AppendResult>;
+    append(input: { sourcePlayerId?: null | string; sourceGuestPlayerId?: null | string; metadata?: null | { [x: string]: unknown; }; roundId: string; ballId: string; hole: number; strokes: null | number; eventType: 'score_entered' | 'score_cleared' | 'score_confirmed' | 'manual_override'; clientEventId: string }): Promise<AppendResult>;
 }
 
 export function createScoreEventsClient(baseUrl: string): ScoreEventsApi {

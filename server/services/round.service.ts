@@ -99,6 +99,37 @@ export interface CreateRoundInput {
     definition: RoundDefinition;
 }
 
+/**
+ * Read model for score-entry / results UIs: every ball under a round with
+ * its per-player snapshots (names included — no client-side joins) and its
+ * per-slot assignments. `slotIndex` is parsed from the `slot-${N}` def-id
+ * pattern; null when a definition uses a different id scheme.
+ */
+export interface RoundBallPlayer {
+    producerDefId: string;
+    playerId: string | null;
+    guestPlayerId: string | null;
+    displayName: string;
+    handicapIndex: number;
+    teeName: string;
+    courseHandicap: number;
+}
+
+export interface RoundBallSlot {
+    slotDefId: string;
+    slotIndex: number | null;
+    playingHandicap: number;
+    teamLabel: string | null;
+}
+
+export interface RoundBall {
+    id: string;
+    label: string | null;
+    courseHandicap: number;
+    players: RoundBallPlayer[];
+    slots: RoundBallSlot[];
+}
+
 export interface UpdateRoundInput {
     date?: string;
     roundType?: RoundType;
@@ -306,6 +337,85 @@ export class RoundService {
         if (!row) return null;
         const slots = await this.slotsFor(id).execute();
         return toRound(row, slots.map(toFormatSlot));
+    }
+
+    async ballsForRound(roundId: string): Promise<RoundBall[]> {
+        const ballRows = await this.db
+            .selectFrom('balls')
+            .where('round_id', '=', roundId)
+            .select(['id', 'label', 'course_handicap_snapshot'])
+            .execute();
+
+        const playerRows = await this.db
+            .selectFrom('ball_players as bp')
+            .innerJoin('balls as b', 'b.id', 'bp.ball_id')
+            .where('b.round_id', '=', roundId)
+            .select([
+                'bp.ball_id',
+                'bp.producer_def_id',
+                'bp.player_id',
+                'bp.guest_player_id',
+                'bp.display_name_snapshot',
+                'bp.handicap_index_snapshot',
+                'bp.tee_name_snapshot',
+                'bp.course_handicap_snapshot',
+            ])
+            .execute();
+
+        const slotBallRows = await this.db
+            .selectFrom('slot_balls as sb')
+            .innerJoin('slots as s', 's.id', 'sb.slot_id')
+            .where('s.round_id', '=', roundId)
+            .select(['sb.ball_id', 's.slot_def_id', 'sb.playing_handicap_snapshot'])
+            .execute();
+
+        const teamRows = await this.db
+            .selectFrom('slot_ball_teams as t')
+            .innerJoin('slots as s', 's.id', 't.slot_id')
+            .where('s.round_id', '=', roundId)
+            .select(['t.ball_id', 's.slot_def_id', 't.team_label'])
+            .execute();
+
+        const teamByBallSlot = new Map<string, string>();
+        for (const r of teamRows) {
+            teamByBallSlot.set(`${r.ball_id} ${r.slot_def_id}`, r.team_label);
+        }
+
+        const playersByBall = new Map<string, RoundBallPlayer[]>();
+        for (const r of playerRows) {
+            const list = playersByBall.get(r.ball_id) ?? [];
+            list.push({
+                producerDefId: r.producer_def_id,
+                playerId: r.player_id,
+                guestPlayerId: r.guest_player_id,
+                displayName: r.display_name_snapshot,
+                handicapIndex: r.handicap_index_snapshot,
+                teeName: r.tee_name_snapshot,
+                courseHandicap: r.course_handicap_snapshot,
+            });
+            playersByBall.set(r.ball_id, list);
+        }
+
+        const slotsByBall = new Map<string, RoundBallSlot[]>();
+        for (const r of slotBallRows) {
+            const list = slotsByBall.get(r.ball_id) ?? [];
+            const m = /^slot-(\d+)$/.exec(r.slot_def_id);
+            list.push({
+                slotDefId: r.slot_def_id,
+                slotIndex: m ? Number(m[1]) : null,
+                playingHandicap: r.playing_handicap_snapshot,
+                teamLabel: teamByBallSlot.get(`${r.ball_id} ${r.slot_def_id}`) ?? null,
+            });
+            slotsByBall.set(r.ball_id, list);
+        }
+
+        return ballRows.map((b) => ({
+            id: b.id,
+            label: b.label,
+            courseHandicap: b.course_handicap_snapshot,
+            players: playersByBall.get(b.id) ?? [],
+            slots: slotsByBall.get(b.id) ?? [],
+        }));
     }
 
     /**

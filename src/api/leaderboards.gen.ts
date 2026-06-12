@@ -3,7 +3,8 @@ import { apiFetch } from '@basics/core/client/fetch';
 
 export interface Leaderboard {
     byScoringType: LeaderboardByType[];
-    participantResults: ParticipantResult[];
+    ballResults: BallResult[];
+    pairResults: PairResult[];
 }
 
 export interface LeaderboardByType {
@@ -12,16 +13,25 @@ export interface LeaderboardByType {
     entries: LeaderboardEntry[];
 }
 
-export interface ParticipantResult {
-    participantId: string;
+export interface BallResult {
+    ballId: string;
     slotIndex: number;
     holes: HoleResult[];
     totals: ({ scoringType: string; value: null | number })[];
     holesPlayed: number;
 }
 
+export interface PairResult {
+    slotIndex: number;
+    balls: [string, string];
+    holes: PairHoleResult[];
+    summary: string;
+    result: 'won' | 'lost' | 'halved' | 'in_progress';
+    winner: null | string;
+}
+
 export interface LeaderboardEntry {
-    participantId: string;
+    ballId: string;
     position: number;
     total: null | number;
     holesPlayed: number;
@@ -32,6 +42,15 @@ export interface HoleResult {
     gross: null | number;
     net: null | number;
     points: null | number;
+    note?: string;
+}
+
+export interface PairHoleResult {
+    holeNumber: number;
+    status: null | 'won' | 'lost' | 'halved';
+    fromA: null | number;
+    fromB: null | number;
+    pointsDelta: null | number;
     note?: string;
 }
 

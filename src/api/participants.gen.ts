@@ -33,7 +33,7 @@ export interface ParticipantsApi {
     get(input: { id: string }): Promise<null | Participant>;
     create(input: { teamLabel?: null | string; categorySnapshot?: null | string; snapshot?: { handicapIndex?: number; fromPlayerId?: string; allowancePct?: number; gender: 'M' | 'F'; teeId: string }; players?: { playerId?: string; guestPlayerId?: string }[]; roundId: string }): Promise<Participant>;
     addPlayer(input: { playerId: string; participantId: string }): Promise<ParticipantPlayerLink>;
-    addGuest(input: { participantId: string; guestPlayerId: string }): Promise<ParticipantPlayerLink>;
+    addGuest(input: { guestPlayerId: string; participantId: string }): Promise<ParticipantPlayerLink>;
     listFor(input: { participantId: string }): Promise<ParticipantPlayerLink[]>;
     remove(input: { id: string }): Promise<{ ok: boolean }>;
 }

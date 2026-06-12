@@ -6,6 +6,7 @@ import { RoundDefinition } from '../domain/round-definition';
 // --- Input schemas ---
 
 const IdInput = Type.Object({ id: Type.String() });
+const ByRoundInput = Type.Object({ roundId: Type.String() });
 
 const RoundType = Type.Union([
     Type.Literal('full_18'),
@@ -93,6 +94,7 @@ export function createRoundsApi(svc: RoundService) {
     const mw = [requireAuth()];
     return {
         list:   { method: 'GET'    as const, path: '/rounds',        fn: ()                                        => svc.list(),                                                                                                                                                                                                                  middleware: mw },
+        balls:  { method: 'GET'    as const, path: '/rounds/balls',  fn: (input: Static<typeof ByRoundInput>)      => svc.ballsForRound(input.roundId),                                                                                                                                                                                            schema: ByRoundInput,     middleware: mw },
         get:    { method: 'GET'    as const, path: '/rounds/get',    fn: (input: Static<typeof IdInput>)           => svc.getById(input.id),                                                                                                                                                                                                       schema: IdInput,          middleware: mw },
         create: { method: 'POST'   as const, path: '/rounds',        fn: (input: Static<typeof CreateRoundInput>)  => svc.create({ definition: input.definition }),                                                                                                                                                                                schema: CreateRoundInput, middleware: mw },
         update: { method: 'POST'   as const, path: '/rounds/update', fn: (input: Static<typeof UpdateRoundInput>)  => svc.update(input.id, { date: input.date, roundType: input.roundType, venueType: input.venueType, startListMode: input.startListMode, windowStart: input.windowStart, windowEnd: input.windowEnd, selfOrganize: input.selfOrganize, status: input.status, formatSlots: input.formatSlots }), schema: UpdateRoundInput, middleware: mw },
