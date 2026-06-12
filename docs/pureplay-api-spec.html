@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PurePlay Tournament API — Design Spec (Proposal)</title>
+<style>
+  :root {
+    --fg: #1c2128;
+    --muted: #57606a;
+    --bg: #ffffff;
+    --bg-alt: #f6f8fa;
+    --border: #d0d7de;
+    --accent: #1f6feb;
+    --accent-soft: #ddf4ff;
+    --green: #1a7f37;
+    --amber: #9a6700;
+    --red: #cf222e;
+    --code-bg: #f6f8fa;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.55;
+    font-size: 16px;
+  }
+  .layout { display: flex; max-width: 1280px; margin: 0 auto; }
+  nav {
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    height: 100vh;
+    overflow-y: auto;
+    width: 270px;
+    flex: 0 0 270px;
+    padding: 24px 16px 48px;
+    border-right: 1px solid var(--border);
+    font-size: 13.5px;
+    background: var(--bg-alt);
+  }
+  nav h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 20px 0 6px; }
+  nav a { display: block; color: var(--fg); text-decoration: none; padding: 3px 8px; border-radius: 5px; }
+  nav a:hover { background: var(--accent-soft); color: var(--accent); }
+  nav .lvl2 { padding-left: 20px; color: var(--muted); font-size: 12.5px; }
+  main { flex: 1 1 auto; min-width: 0; padding: 40px 48px 120px; }
+  h1 { font-size: 30px; margin: 0 0 4px; letter-spacing: -.02em; }
+  .subtitle { color: var(--muted); font-size: 16px; margin: 0 0 8px; }
+  .badges { margin: 14px 0 32px; }
+  .badge { display: inline-block; font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); margin-right: 6px; background: var(--bg); }
+  h2.sec { font-size: 23px; margin: 52px 0 10px; padding-top: 14px; border-top: 2px solid var(--border); letter-spacing: -.01em; }
+  h3 { font-size: 18px; margin: 30px 0 8px; }
+  h4 { font-size: 15px; margin: 22px 0 6px; color: var(--fg); }
+  p { margin: 10px 0; }
+  code { font-family: var(--mono); font-size: 85%; background: var(--code-bg); padding: 1.5px 5px; border-radius: 5px; border: 1px solid var(--border); }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+  pre code { background: none; border: none; padding: 0; font-size: 13px; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 5px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--border); padding: 8px 11px; text-align: left; vertical-align: top; }
+  th { background: var(--bg-alt); font-weight: 600; }
+  tr:nth-child(even) td { background: #fbfcfd; }
+  .callout { border: 1px solid var(--border); border-left-width: 4px; border-radius: 7px; padding: 12px 16px; margin: 16px 0; background: var(--bg-alt); }
+  .callout.principle { border-left-color: var(--accent); background: var(--accent-soft); }
+  .callout.decision { border-left-color: var(--green); background: #e9f7ee; }
+  .callout.open { border-left-color: var(--amber); background: #fdf6e3; }
+  .callout.warn { border-left-color: var(--red); background: #ffebe9; }
+  .callout .label { font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; display: block; margin-bottom: 3px; }
+  .callout.principle .label { color: var(--accent); }
+  .callout.decision .label { color: var(--green); }
+  .callout.open .label { color: var(--amber); }
+  .callout.warn .label { color: var(--red); }
+  .ep { border: 1px solid var(--border); border-radius: 9px; margin: 18px 0; overflow: hidden; }
+  .ep-head { display: flex; align-items: center; gap: 11px; padding: 11px 15px; background: var(--bg-alt); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .method { font-family: var(--mono); font-weight: 700; font-size: 12px; padding: 3px 9px; border-radius: 6px; color: #fff; letter-spacing: .03em; }
+  .m-get { background: #1f6feb; }
+  .m-post { background: #1a7f37; }
+  .m-patch { background: #9a6700; }
+  .m-delete { background: #cf222e; }
+  .path { font-family: var(--mono); font-size: 14px; font-weight: 600; }
+  .ep-title { color: var(--muted); font-size: 13.5px; margin-left: auto; }
+  .ep-body { padding: 4px 16px 14px; }
+  .pill { display: inline-block; font-family: var(--mono); font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg); color: var(--muted); }
+  .flow { counter-reset: step; margin: 18px 0; padding: 0; list-style: none; }
+  .flow > li { position: relative; padding: 4px 0 18px 44px; border-left: 2px solid var(--border); margin-left: 14px; }
+  .flow > li:last-child { border-left-color: transparent; }
+  .flow > li::before { counter-increment: step; content: counter(step); position: absolute; left: -15px; top: 0; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+  .flow strong { font-size: 15px; }
+  a.anchor { color: var(--accent); text-decoration: none; }
+  a.anchor:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 28px 0; }
+  .muted { color: var(--muted); }
+  .tag-group { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; margin: 40px 0 0; }
+  @media (max-width: 900px) {
+    nav { display: none; }
+    main { padding: 24px 18px 80px; }
+  }
+  @media print {
+    nav { display: none; }
+    main { padding: 0; }
+    .ep, .callout, pre, table { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav>
+  <h2>Spec</h2>
+  <a href="#overview">Overview</a>
+  <a href="#ecosystem-lifecycle" class="lvl2">Overall lifecycle</a>
+  <a href="#provisioning" class="lvl2">Provisioning (facility setup)</a>
+  <a href="#roles">Roles &amp; terms</a>
+  <a href="#principles">Architecture principles</a>
+  <h2>Cross-cutting</h2>
+  <a href="#auth">Authentication</a>
+  <a href="#units">Units &amp; coordinates</a>
+  <a href="#concurrency">Revision &amp; concurrency</a>
+  <a href="#idempotency">Idempotency &amp; replay</a>
+  <a href="#errors">Error model</a>
+  <h2>Lifecycle</h2>
+  <a href="#lifecycle">The play loop</a>
+  <a href="#ux-modes">UX integration modes</a>
+  <a href="#players">Player handling modes</a>
+  <h2>Endpoints</h2>
+  <a href="#ep-setup" class="lvl2">Setup &amp; handshake</a>
+  <a href="#ep-course" class="lvl2">Course catalog sync</a>
+  <a href="#ep-content" class="lvl2">Content &amp; rounds</a>
+  <a href="#ep-play" class="lvl2">Play loop</a>
+  <a href="#ep-state" class="lvl2">State &amp; leaderboard</a>
+  <a href="#ep-standings" class="lvl2">Tours &amp; standings</a>
+  <a href="#ep-portal" class="lvl2">Provider portal launch</a>
+  <a href="#ep-resume" class="lvl2">Resume</a>
+  <a href="#ep-tamper" class="lvl2">Tamper / correction</a>
+  <h2>Data models</h2>
+  <a href="#m-shot">Shot &amp; lie</a>
+  <a href="#m-geometry">Course catalog &amp; geometry</a>
+  <a href="#m-strokes">Strokes &amp; scoring</a>
+  <a href="#m-team-formats">Team formats</a>
+  <a href="#m-stats">Stats</a>
+  <h2>Appendix</h2>
+  <a href="#defaults">Defaults &amp; open items</a>
+</nav>
+
+<main>
+  <h1>PurePlay Tournament API</h1>
+  <p class="subtitle">Human-readable design specification — vendor proposal</p>
+  <div class="badges">
+    <span class="badge">Status: Draft for discussion</span>
+    <span class="badge">Version: 0.1</span>
+    <span class="badge">Date: 2026-06-07</span>
+    <span class="badge">Next: OpenAPI specs</span>
+  </div>
+
+  <p>This document describes the contract a golf-simulator software (e.g. <strong>PurePlay</strong>) implements so that a
+  <strong>tournament provider</strong> can host its own tournaments, handicaps, and leaderboards on its own server, and have
+  them played on any compatible simulator bay. It is written generically so any provider can host and any vendor can implement,
+  but the immediate goal is a single facility running its own events for its guests.</p>
+
+  <p>This is the human-readable <strong>system-level integration spec</strong>. It describes the whole ecosystem and the boundaries
+  between actors. Formal OpenAPI specs follow as two separate documents, because the play API and hosted catalog API have different
+  owners, hosts, directions, and authentication models.</p>
+
+  <div class="callout decision">
+    <span class="label">OpenAPI split</span>
+    <strong>Provider Play API</strong>: PurePlay simulator → provider server, authenticated with bay/venue API key. Covers handshake,
+    roster resolution, content, rounds, shots, decisions, state, leaderboards, standings, resume, and resync.
+    <br><br>
+    <strong>PurePlay Course Catalog API</strong>: provider server → PurePlay cloud, authenticated with vendor/cloud credentials.
+    Covers hosted course catalog fetch, pagination, ETags, and incremental sync.
+  </div>
+
+  <!-- ===================== OVERVIEW ===================== -->
+  <h2 class="sec" id="overview">1. Overview</h2>
+  <p>The simulator vendor adds support for one configurable base URL (the provider's server). From there the simulator speaks
+  this protocol: it authenticates the bay, establishes the players present, lists playable content, retrieves a round
+  specification, and then streams shot-by-shot results back to the server while rendering server-computed scores, handicaps,
+  and leaderboards. The server is the authoritative source of truth for everything: scoring, handicaps, stroke allocation,
+  stats, and round state.</p>
+
+  <h3 id="ecosystem-lifecycle">Overall lifecycle</h3>
+  <p>The API fits into a larger facility/tournament lifecycle. Only the play-time portion happens on every bay visit; the other
+  steps are setup or provider-admin workflows.</p>
+  <ol>
+    <li><strong>Provision simulator installation.</strong> Staff enters the provider server endpoint and bay/venue API key into PurePlay once per installation.</li>
+    <li><strong>Sync course catalog.</strong> The provider imports PurePlay course data either by fetching PurePlay's online catalog or by receiving a simulator push.</li>
+    <li><strong>Set up tournaments/content.</strong> The provider configures events using synced courses, holes, tees, pin labels, formats, schedules, eligibility, handicap rules, leaderboard rules, and optional tour/series membership.</li>
+    <li><strong>Set up players.</strong> Optional and parallel: the provider may maintain its own player registry, or the facility may rely on PurePlay built-in players resolved during play.</li>
+    <li><strong>Play or resume rounds.</strong> The bay handshakes, establishes the roster, lists playable content or opens a provider portal, creates or resumes a round, and reports shots, penalties, decisions, and hole completions.</li>
+    <li><strong>Show leaderboards.</strong> The provider returns server-rendered live leaderboard and scorecard display models for the active tournament/round.</li>
+    <li><strong>Show tours, series, or league standings.</strong> Optional: the provider can expose aggregate standings across multiple events, such as order of merit, season points, rankings, or league tables.</li>
+  </ol>
+
+  <h3 id="provisioning">One-time provisioning (facility setup)</h3>
+  <p>Before any of the protocol below runs, the simulator software must expose a <strong>general system configuration screen</strong>
+  where facility personnel enter, once per installation:</p>
+  <ul>
+    <li><strong>Server endpoint</strong> — the provider's base URL (e.g. <code>https://tournaments.myfacility.com</code>).</li>
+    <li><strong>API key</strong> — the bay/venue key issued by the provider, used to authenticate every request.</li>
+  </ul>
+  <p>This is a vendor-side requirement, not an API endpoint: it is the configuration the software persists and then uses to
+  authenticate at <a class="anchor" href="#ep-setup">handshake</a>. It is set up once by staff and not touched by guests — distinct
+  from the per-visit, per-player <a class="anchor" href="#players">credential screen</a> that some providers require. Optionally the
+  software may validate the pair by performing a handshake immediately and surfacing a "connection OK / failed" result on this screen.</p>
+  <div class="callout principle">
+    <span class="label">Two separate screens, do not conflate</span>
+    <strong>System config</strong> (endpoint + API key) — staff, once, per installation. &nbsp;·&nbsp;
+    <strong>Player credentials</strong> (provider-hosted mode only) — guest, per visit, generated from the handshake form-spec.
+  </div>
+
+  <h3 id="roles">Roles &amp; terminology</h3>
+  <table>
+    <tr><th>Term</th><th>Meaning</th></tr>
+    <tr><td><strong>Provider / Server</strong></td><td>The host of tournaments (the facility). Owns all authoritative state. The same entity throughout — "provider" and "server" are used interchangeably.</td></tr>
+    <tr><td><strong>Simulator / Sim / Bay software</strong></td><td>The vendor's software running on a hitting bay. Always the HTTP <em>client</em>. Reports raw play, renders what the server returns.</td></tr>
+    <tr><td><strong>Bay</strong></td><td>A physical hitting station, identified by <code>bayId</code>, authenticated with an API key.</td></tr>
+    <tr><td><strong>Bay session</strong> (<code>sessionId</code>)</td><td>Created at handshake. Holds auth + the resolved player roster for the current visit. Short-lived; dies when the bay logs out / closes.</td></tr>
+    <tr><td><strong>Round</strong> (<code>roundId</code>)</td><td>One play-through of a piece of content by a roster. <strong>Outlives the bay session</strong> — this is what makes pause/resume and cross-bay recovery possible.</td></tr>
+    <tr><td><strong>Content</strong></td><td>A playable thing — a tournament, an event, a configured course round. A provider MUST host content to be a provider.</td></tr>
+    <tr><td><strong>Player</strong> (<code>playerId</code>)</td><td>A competitor. Either a built-in vendor account or a provider-registry entry — see <a class="anchor" href="#players">player modes</a>. Players are optional/secondary; content is primary.</td></tr>
+    <tr><td><strong>Pin label</strong></td><td>A pin-position label (conventionally <code>THU</code>/<code>FRI</code>/<code>SAT</code>/<code>SUN</code>, tour-style), <em>not</em> a calendar date. Free string; conventional values recommended.</td></tr>
+  </table>
+
+  <!-- ===================== PRINCIPLES ===================== -->
+  <h2 class="sec" id="principles">2. Architecture principles</h2>
+  <p>Six decisions shape the entire API. Everything else follows from them.</p>
+
+  <div class="callout principle">
+    <span class="label">Principle 1 — Server-authoritative</span>
+    The server owns scoring, handicap calculation, stroke allocation, stats, and round state. The simulator reports raw
+    observations (shots, lies, coordinates) and renders what the server computes. New formats and handicap rules ship
+    server-side with <em>no simulator change</em>.
+  </div>
+  <div class="callout principle">
+    <span class="label">Principle 2 — Simulator is a thin terminal</span>
+    The server returns <em>display models</em> (leaderboard rows, scorecard cells, points, net/gross, "thru 7"), not just raw
+    numbers. The simulator may compute optimistic local state for instant feedback, but server state is authoritative and
+    overrides on the next sync.
+  </div>
+  <div class="callout principle">
+    <span class="label">Principle 3 — Strictly software → server during play</span>
+    The simulator is <em>always</em> the client in the bay/play protocol; the server <em>never</em> calls a simulator installation.
+    This includes leaderboards (the sim polls) and corrections/tampering (the sim discovers them via the revision model). Any
+    near-real-time channel is a connection the simulator dials out (SSE/long-poll), still client-initiated. Separately, the
+    provider server may fetch course catalog data from a PurePlay-hosted online catalog service.
+  </div>
+  <div class="callout principle">
+    <span class="label">Principle 4 — Monotonic revision is the backbone</span>
+    Every round-state response carries a monotonically increasing <code>revision</code>. The sim acts, the server confirms with
+    a new revision, the sim reconciles. This single mechanism powers tampering, resume, hazard drops, and crash recovery.
+  </div>
+  <div class="callout principle">
+    <span class="label">Principle 5 — Two player modes collapse downstream</span>
+    Whether players are vendor built-in or provider-hosted, after handshake the server returns one uniform <em>resolved roster</em>.
+    The mode affects exactly one screen (an optional credential form); everything after is identical.
+  </div>
+  <div class="callout principle">
+    <span class="label">Principle 6 — Team formats are a server-issued state machine</span>
+    The simulator does not hard-code scramble, greensome, best-ball, or alternate-shot scoring rules. The server returns the
+    current eligible players, active balls, required player decision, and next origin; the simulator renders controls and
+    reports raw shots and decisions.
+  </div>
+
+  <!-- ===================== CROSS-CUTTING ===================== -->
+  <h2 class="sec">3. Cross-cutting concerns</h2>
+
+  <h3 id="auth">3.1 Authentication</h3>
+  <p>Each bay authenticates to the provider with an <strong>API key</strong> (issued per venue or per bay). The key is presented
+  on the handshake and on every subsequent request (e.g. <code>Authorization: Bearer &lt;key&gt;</code>). The handshake exchanges
+  the bay identity for a <code>sessionId</code> used as visit context for the rest of the visit; it is not a replacement bearer
+  credential. Player credentials (provider-hosted mode) are a separate, second factor handled during
+  <a class="anchor" href="#players">player establishment</a> — they never replace the bay key.</p>
+
+  <h3 id="units">3.2 Units &amp; coordinate frame</h3>
+  <p>Declared once at handshake and applied to every payload thereafter, so vendors using different conventions interoperate.</p>
+  <ul>
+    <li><strong>Unit system</strong> — <code>metric</code> (default: metres, m/s) or <code>imperial</code> (yards, mph). Declared by the bay, echoed/agreed by the server.</li>
+    <li><strong>Coordinate frame</strong> — declared explicitly: origin, axis orientation, handedness, and units. <em>Default: per-hole local frame</em> with the tee as origin. Sufficient for all stats and simpler than a course-global frame.</li>
+  </ul>
+  <div class="callout warn">
+    <span class="label">Why this matters</span>
+    Without a declared coordinate frame, 3D positions are meaningless across vendors and across holes. Every coordinate in the
+    API (shot start/end, optional synced geometry, <code>nextShotOrigin</code>) is interpreted in the frame declared at handshake.
+  </div>
+
+  <h3 id="concurrency">3.3 Revision &amp; optimistic concurrency</h3>
+  <p>The server's round state has a monotonic integer <code>revision</code>. The rules:</p>
+  <ul>
+    <li>Every round-state / leaderboard / play response includes the current <code>revision</code>.</li>
+    <li>Every <strong>write</strong> (shot, penalty, hole-complete, etc.) carries the <code>baseRevision</code> the sim believes it is writing against.</li>
+    <li>If <code>baseRevision</code> ≠ server's current revision, the write is rejected with <code>409 stale_state</code> and the
+    <em>current authoritative state is returned inline</em> so the sim can reconcile immediately.</li>
+    <li>Any server-side mutation (a correction, a reset) bumps <code>revision</code>. The sim notices on its next poll, or on the next rejected write — whichever comes first.</li>
+  </ul>
+  <p>This is plain optimistic concurrency control — no CRDTs, no merge logic. The server is truth; the sim rebuilds from truth.</p>
+
+  <h3 id="idempotency">3.4 Idempotency, sequencing &amp; offline replay</h3>
+  <p>Venue networks drop. The protocol assumes it.</p>
+  <ul>
+    <li><strong>Idempotency key</strong> — every write carries a client-generated key. Retried writes are de-duplicated server-side.</li>
+    <li><strong>Shot identity</strong> — every reported shot carries a stable <code>shotId</code> plus idempotency key. Counting stroke order is separate from reported-shot identity, which matters for scramble/greensome candidate shots.</li>
+    <li><strong>Sequence identity</strong> — every shot carries <code>(roundId, holeNumber, playerId, ballId, strokeOrdinal, shotId)</code> so the server can order, de-duplicate, and score regardless of arrival time. Sequence is server-authoritative; the sim reads active balls, required actions, and expected <code>strokeOrdinal</code> values from round state.</li>
+    <li><strong>Replay rebase</strong> — buffered writes are replayed one at a time. After each accepted write, the sim rebases the next buffered write onto the <code>revision</code> returned by the server. If a write is rejected as stale, the sim drops the remaining buffer and reconciles from authoritative state.</li>
+    <li><strong>Offline buffering</strong> — the sim queues writes while offline and replays them in order on reconnect. Combined with <code>baseRevision</code>, this means buffered writes against a since-corrected round are cleanly rejected (see <a class="anchor" href="#ep-tamper">tampering</a>) rather than corrupting state.</li>
+  </ul>
+
+  <h3 id="errors">3.5 Error model</h3>
+  <p>Typed, machine-readable error codes the sim can branch on:</p>
+  <table>
+    <tr><th>Code</th><th>HTTP</th><th>Meaning &amp; sim action</th></tr>
+    <tr><td><code>unauthorized</code></td><td>401/403</td><td>Bad/expired bay key or session. Re-handshake.</td></tr>
+    <tr><td><code>validation</code></td><td>400</td><td>Malformed payload. Fix and resend; do not blind-retry.</td></tr>
+    <tr><td><code>stale_state</code></td><td>409</td><td>Write's <code>baseRevision</code> is behind. Current state returned inline — discard optimistic local, re-render, resume from <code>nextShotOrigin</code>.</td></tr>
+    <tr><td><code>round_closed</code></td><td>409</td><td>Round/tournament window closed (e.g. event ended overnight). Cannot resume or write. Show message.</td></tr>
+    <tr><td><code>not_found</code></td><td>404</td><td>Unknown id (round, content, player).</td></tr>
+    <tr><td><code>conflict_lease</code></td><td>409</td><td>Round is actively leased by another session (see <a class="anchor" href="#ep-resume">resume lease</a>).</td></tr>
+  </table>
+
+  <!-- ===================== LIFECYCLE ===================== -->
+  <h2 class="sec" id="lifecycle">4. The play loop</h2>
+  <ol class="flow">
+    <li><strong>Handshake.</strong> Using the endpoint + API key from <a class="anchor" href="#provisioning">one-time provisioning</a>, the bay authenticates; declares units, coordinate frame, capabilities, and API version. Server returns the player mode, (if provider-hosted) a credential form-spec, and a <code>sessionId</code>.</li>
+    <li><strong>Establish players.</strong> In native mode, done on the sim based on the handshake. Built-in mode: the sim sends the player profiles it already has. Provider-hosted mode: the sim renders the credential form, collects input, sends it. In provider-portal mode, the portal may handle player flows and the launch token resolves to the selected roster when redeemed. Either way, round creation returns a uniform <em>resolved roster</em> (provider id, optional external identity, name, handicap value, ranking, avatar).</li>
+    <li><strong>List or browse content.</strong> In native mode, the sim retrieves tournaments/events playable by this roster and renders them in the PurePlay UI. In provider-portal mode, the sim opens the provider's web UI, which may show competitions, tours, standings, and player flows before launching a round.</li>
+    <li><strong>Select content.</strong> The sim picks content + which players play, or redeems a portal launch token. The server creates a <code>roundId</code> and returns the full <strong>round spec</strong>: resolved roster, sides/teams if applicable, hole array (hole number, par, stroke index, pin label, and tee assignments), format, and authoritative stroke allocations by player or side. The server prescribes play; the simulator owns the playable geometry.</li>
+    <li><strong>Play, hole by hole.</strong> On each new hole the sim sends hole-start, optionally carrying tee/aim/pin/green coordinates for server accumulation. On each shot it reports start/end coordinates + lies + shot data. Penalties, drops, and team-format decisions are reported as they happen. When the hole ends the sim sends a hole-complete report (full shot array + aggregate + end status).</li>
+    <li><strong>Render state &amp; leaderboard.</strong> Throughout, the sim polls round state and the leaderboard (ETag + server-controlled interval) and renders server-computed scores. It detects corrections via <code>revision</code> bumps.</li>
+    <li><strong>Finish.</strong> After the last hole the sim shows an end screen: the server-rendered scorecard and final leaderboard.</li>
+  </ol>
+
+  <h3 id="ux-modes">4.1 UX integration modes (discussion proposal)</h3>
+  <p>Because PurePlay's software is not released yet, the best UX integration path should be discussed between the provider
+  community and PurePlay. Two compatible modes are worth considering. A vendor could implement one or both.</p>
+  <table>
+    <tr><th>Mode</th><th>What PurePlay implements</th><th>What the provider controls</th><th>Trade-off</th></tr>
+    <tr><td><strong>Native selection mode</strong></td><td>PurePlay renders native screens using API responses for content, leaderboards, standings, and resume.</td><td>Data, scoring, eligibility, display rows, and ranking rules.</td><td>Feels fully native, but PurePlay must build more browsing UI and update it as providers need new presentation patterns.</td></tr>
+    <tr><td><strong>Provider portal mode</strong></td><td>PurePlay embeds a provider webview and exposes a narrow host bridge command to start play.</td><td>Competition browsing, player flows, standings pages, copy, layout, sponsor/context content, and launch decisions.</td><td>Maximum provider flexibility with less vendor UI work, but requires a secure webview and a small launch-token bridge.</td></tr>
+  </table>
+  <p>Provider portal mode is especially attractive for tours, series, leagues, and rich competition navigation: the provider can
+  show its own UI, then hand off to PurePlay only when actual simulator play starts. Native endpoints still matter as a fallback,
+  for simpler installations, and for vendors who prefer a fully native experience.</p>
+
+  <h3 id="players">4.2 Player handling modes</h3>
+  <p>The handshake response declares which mode applies. Both converge on a single resolved roster (Principle 5).</p>
+  <table>
+    <tr><th></th><th>Built-in players</th><th>Provider-hosted players</th></tr>
+    <tr><td><strong>Identity source</strong></td><td>The vendor's own player accounts already signed in on the bay.</td><td>The provider's own registry.</td></tr>
+    <tr><td><strong>Extra UI</strong></td><td>None — proceed straight to content.</td><td>The sim renders a credential form generated from the handshake's form-spec (labeled text fields).</td></tr>
+    <tr><td><strong>What the sim sends</strong></td><td>The player profiles it holds.</td><td>The collected credential values.</td></tr>
+    <tr><td><strong>Handicap</strong></td><td colspan="2">The <strong>server</strong> owns the handicap value in <em>both</em> modes (calculated from prior results or however the provider determines). It is returned in the resolved roster for display and converted into per-hole <code>strokeAllocations</code> in the round spec.</td></tr>
+  </table>
+
+  <h4>Credential form-spec</h4>
+  <p>Deliberately minimal — a constrained mini-form, not an arbitrary UI language. An array of field descriptors:</p>
+<pre><code>{
+  "fields": [
+    { "key": "memberNumber", "label": "Member number", "type": "text",     "required": true },
+    { "key": "pin",          "label": "PIN",           "type": "password", "required": true }
+  ]
+}</code></pre>
+  <p>Field <code>type</code> is limited to <code>text | number | password</code>. The sim renders labeled inputs and posts the
+  key/value map back. The provider resolves it against its registry and returns the roster — the sim never sees registry internals.</p>
+
+  <!-- ===================== ENDPOINTS ===================== -->
+  <h2 class="sec">5. Endpoints</h2>
+  <p>The play-time surface is one specification (the <strong>Provider Play API</strong>), organized into two tag groups:
+  <strong>Setup</strong> (handshake, simulator-push course catalog sync, content) and <strong>Play</strong> (the loop, state, resume,
+  corrections). The online course-catalog fetch is a separate PurePlay-hosted spec (the <strong>PurePlay Course Catalog API</strong>),
+  with its own server and auth. Paths are conceptual; exact shapes are finalized in the relevant OpenAPI spec.</p>
+
+  <p class="tag-group">Tag group: Setup</p>
+
+  <h3 id="ep-setup">5.1 Setup &amp; handshake</h3>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-post">POST</span><span class="path">/v1/handshake</span><span class="ep-title">Authenticate bay, negotiate, open session</span></div>
+    <div class="ep-body">
+      <p>Bay presents its API key and declares capabilities. Server returns the player mode, optional credential form-spec, and a session.</p>
+      <p><strong>Request</strong> — <code>bayId</code>, <code>apiVersion</code>, <code>unitSystem</code>, <code>coordinateFrame</code>, <code>capabilities</code> (supported formats, team-format state machine support, shot-data fields, optional geometry support).</p>
+      <p><strong>Response</strong> — <code>sessionId</code>, <code>playerMode</code> (<code>builtin</code> | <code>provider_hosted</code>), <code>credentialForm</code> (if provider-hosted), agreed <code>unitSystem</code>, server <code>capabilities</code>.</p>
+    </div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-post">POST</span><span class="path">/v1/sessions/{sessionId}/players</span><span class="ep-title">Native mode: establish &amp; resolve the roster</span></div>
+    <div class="ep-body">
+      <p>Native selection mode only. Built-in: send held player profiles. Provider-hosted: send collected credential values. In
+      provider portal mode, the portal handles player flow and the launch token resolves the selected roster during round creation.</p>
+      <p><strong>Response</strong> — resolved roster: array of <code>{ playerId, externalPlayerRef, name, handicapValue, ranking, avatarUrl }</code>. In built-in mode, <code>externalPlayerRef</code> preserves the PurePlay identity used for future matching/resume.</p>
+    </div>
+  </div>
+
+  <h3 id="ep-course">5.2 Course catalog sync</h3>
+  <p>This is primarily a catalog sync, not a geometry sync. The goal is to let the provider configure tournaments against the
+  simulator's course library: course names, tee boxes, ratings/slopes, pin labels, hole numbers, par, and stroke index.
+  Coordinates are optional enrichment.</p>
+  <p>Two ingestion options should be supported. A provider can use either or both:</p>
+  <ul>
+    <li><strong>Online catalog fetch</strong> — the provider server periodically fetches course catalog data from a PurePlay-hosted online catalog service. This is the easiest operational model: no staff member needs to open the simulator software and press sync.</li>
+    <li><strong>Simulator push</strong> — a simulator installation can push the course catalog to the provider server. This works when no online catalog service exists, or when a facility has local/private course data.</li>
+    <li><strong>Optional geometry enrichment</strong> — either ingestion option may include tee/aim/pin coordinates when PurePlay can expose them, so the provider can render richer scorecards and compute spatial stats.</li>
+    <li><strong>Opportunistic accumulation</strong> — every hole-start payload may also carry coordinates; the server accumulates them keyed by <code>(courseId, holeNumber, teeId, pinLabel)</code>. This enriches the catalog but is not required for play.</li>
+  </ul>
+  <p>The online catalog fetch is outside the bay play loop: it is provider-server → PurePlay-cloud, not provider-server →
+  simulator. The simulator remains the HTTP client for all play-time traffic. In OpenAPI, simulator push belongs to the
+  Provider Play API; online catalog fetch belongs to the separate PurePlay Course Catalog API.</p>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-post">POST</span><span class="path">/v1/courses/catalog</span><span class="ep-title">Bulk-sync course catalog</span></div>
+    <div class="ep-body">
+      <p>Upload one or more courses with hole lists, tee definitions, rating/slope, tee-specific par where applicable, stroke index,
+      and pin labels. Optional coordinates may be included for tee boxes, aim points, pins, and green polygons. Idempotent per
+      <code>courseId</code>; re-syncing overwrites the known catalog for that course.</p>
+    </div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-get">GET</span><span class="path">PurePlay catalog service: /v1/courses/catalog</span><span class="ep-title">Fetch online course catalog</span></div>
+    <div class="ep-body">
+      <p>Optional vendor-hosted surface, belonging to the separate PurePlay Course Catalog API spec. The provider server calls PurePlay's online catalog service on a schedule or on demand
+      and imports the same <a class="anchor" href="#m-geometry">CourseCatalog</a> shape used by simulator push. Supports pagination,
+      incremental sync via <code>updatedSince</code> or ETag, and vendor authentication separate from bay API keys.</p>
+    </div>
+  </div>
+
+  <p class="tag-group">Tag group: Play</p>
+
+  <h3 id="ep-content">5.3 Content &amp; rounds</h3>
+  <p>Content can be reached through either native selection mode or provider portal mode. In native mode, the simulator uses
+  the listing endpoints below and renders its own UI. In provider portal mode, the provider webview handles browsing and uses a
+  launch token to hand off into the same round-creation flow.</p>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-get">GET</span><span class="path">/v1/sessions/{sessionId}/content</span><span class="ep-title">List playable content for this roster</span></div>
+    <div class="ep-body">
+      <p>Tournaments/events the resolved roster may play. Each item carries enough to render a selection card (name, format, course, status, leaderboard availability).</p>
+    </div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-post">POST</span><span class="path">/v1/sessions/{sessionId}/rounds</span><span class="ep-title">Select content → create a round</span></div>
+    <div class="ep-body">
+      <p>Pick content + participating players, or redeem a provider-portal <code>launchToken</code>. Server creates a <code>roundId</code> and returns the resolved roster + round spec.</p>
+      <p><strong>Round spec contains:</strong> format; sides/teams if applicable; ordered hole array — per hole: <code>holeNumber</code>, <code>par</code>, <code>strokeIndex</code>, <code>pinLabel</code>, and tee assignments; and authoritative <code>strokeAllocations</code> keyed by player or side (already accounting for slope/course rating, playing handicap, team handicap formulas, and any match-play normalization). It may include cached coordinates for display, but the simulator owns playable geometry. Initial <code>revision</code>.</p>
+    </div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-get">GET</span><span class="path">/v1/rounds/{roundId}/spec</span><span class="ep-title">Re-fetch the round spec</span></div>
+    <div class="ep-body"><p>Idempotent retrieval (e.g. after a crash, before resume). Same content as creation.</p></div>
+  </div>
+
+  <h3 id="ep-play">5.4 Play loop</h3>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-post">POST</span><span class="path">/v1/rounds/{roundId}/holes/{holeNumber}/start</span><span class="ep-title">Begin a hole</span></div>
+    <div class="ep-body">
+      <p>Signals the sim is starting this hole. Carries <code>baseRevision</code> and may carry the hole's tee/aim/pin/green coordinates for server accumulation. The coordinates enrich the provider catalog; they are not needed for the simulator to play the hole.</p>
+    </div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-post">POST</span><span class="path">/v1/rounds/{roundId}/holes/{holeNumber}/shots</span><span class="ep-title">Report one shot</span></div>
+    <div class="ep-body">
+      <p>One reported shot for one player. Carries <code>shotId</code>, <code>playerId</code>, <code>sideId</code> (if team play), <code>ballId</code>, <code>shotGroupId</code> (if multiple candidate shots are being compared), <code>strokeOrdinal</code>, <code>baseRevision</code>, idempotency key, and the <a class="anchor" href="#m-shot">shot record</a> (start coord+lie, end coord+lie, shot data).</p>
+    </div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-post">POST</span><span class="path">/v1/rounds/{roundId}/holes/{holeNumber}/penalties</span><span class="ep-title">Report a penalty / drop</span></div>
+    <div class="ep-body">
+      <p>Unplayable, OOB, water/hazard, etc. Carries the penalty <code>type</code>, stroke cost, and the resulting drop point (coordinate + lie) so the server records where play resumes. The server reflects this as <code>nextShotOrigin</code> in round state.</p>
+    </div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-post">POST</span><span class="path">/v1/rounds/{roundId}/holes/{holeNumber}/decisions</span><span class="ep-title">Report a player/team decision</span></div>
+    <div class="ep-body">
+      <p>Used when the server's current state asks the simulator to render a choice: e.g. choose the best tee shot in greensome,
+      choose the selected ball in scramble, concede a hole, or accept a gimme. Carries <code>baseRevision</code>, idempotency key,
+      <code>sideId</code>, <code>playerId</code> where relevant, and a typed decision payload such as <code>{ type: "choose_ball", selectedShotId }</code>.</p>
+    </div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-post">POST</span><span class="path">/v1/rounds/{roundId}/holes/{holeNumber}/complete</span><span class="ep-title">Complete a hole for a player or side</span></div>
+    <div class="ep-body">
+      <p>Sent when the hole ends for a player, ball, or side depending on the format. Carries <code>playerId</code>/<code>sideId</code>/<code>ballId</code> as applicable, the full shot array (redundant with streamed shots — a cross-check), the aggregate stroke count, and <code>endStatus</code>: <code>holed | conceded | gimme | picked_up | max_score | did_not_finish</code>.</p>
+    </div>
+  </div>
+
+  <h3 id="ep-state">5.5 State &amp; leaderboard</h3>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-get">GET</span><span class="path">/v1/rounds/{roundId}/state</span><span class="ep-title">Authoritative round state</span></div>
+    <div class="ep-body">
+      <p>The single source of truth the sim renders and reconciles against. Carries <code>revision</code>, round <code>status</code>, correction metadata, and per player/side: current hole, turn order, active balls, per-hole shot history, strokes, status, computed stats, <code>activeTurn</code>, any <code>requiredAction</code>, and <strong><code>nextShotOrigin</code></strong> = <code>{ coordinate, lie }</code> (where to place the ball next — used for resume, drops, and corrections). Supports ETag.</p>
+    </div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-get">GET</span><span class="path">/v1/rounds/{roundId}/leaderboard</span><span class="ep-title">Server-rendered leaderboard</span></div>
+    <div class="ep-body">
+      <p>Poll-based. Returns ready-to-render rows (position, name, score/points, thru) plus a server-controlled <code>pollIntervalSeconds</code> hint and ETag. No client scoring logic. (Optional future: a sim-initiated SSE channel for near-real-time, still client-dialed.)</p>
+    </div>
+  </div>
+
+  <h3 id="ep-standings">5.6 Tours, series &amp; league standings</h3>
+  <p>Leaderboards answer "who is leading this tournament right now?" Standings answer "where does this player/team sit across
+  a tour, series, season, order of merit, or league?" Standings are optional and adjacent to play: useful on content-selection,
+  pre-round, post-round, and attract screens, but not required to run a round.</p>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-get">GET</span><span class="path">/v1/sessions/{sessionId}/series</span><span class="ep-title">List relevant tours / series / leagues</span></div>
+    <div class="ep-body">
+      <p>Returns series relevant to the resolved roster and/or facility: name, type (<code>tour | series | league | season</code>),
+      current status, associated content, and whether standings are available.</p>
+    </div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-get">GET</span><span class="path">/v1/series/{seriesId}/standings</span><span class="ep-title">Server-rendered aggregate standings</span></div>
+    <div class="ep-body">
+      <p>Returns ready-to-render rows for aggregate standings: position, player/team display name, points/ranking value, events
+      played, movement, tie markers, and optional current-player highlighting. The server owns all ranking rules and tie-breaks.</p>
+    </div>
+  </div>
+
+  <h3 id="ep-portal">5.7 Provider portal launch (discussion proposal)</h3>
+  <p>Provider portal mode lets PurePlay expose a provider-hosted web UI inside the simulator software. The provider can show
+  competitions, leaderboards, tours, series, leagues, player flows, and facility-specific content. When the player chooses to
+  play, the webview asks PurePlay to start simulator play through a narrow host bridge command.</p>
+
+  <div class="callout open">
+    <span class="label">Discussion material for PurePlay</span>
+    This section is a proposed integration option, not a demand that PurePlay must choose it. The goal is to find the lowest-effort
+    path that gives providers rich flexibility while keeping the simulator's play implementation focused and stable.
+  </div>
+
+  <h4>Host bridge command</h4>
+<pre><code>// provider webview → PurePlay host bridge
+PurePlay.startRound({
+  launchToken: "short-lived-provider-token"
+})</code></pre>
+  <p>The bridge should be intentionally narrow. The webview does not pass the full round spec and does not become the source of
+  truth. It only passes a short-lived token representing the provider-approved selection: content, players, teams, eligibility,
+  and any portal-side choices.</p>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-post">POST</span><span class="path">/v1/sessions/{sessionId}/rounds</span><span class="ep-title">Redeem portal launch token</span></div>
+    <div class="ep-body">
+      <p>Same endpoint as native round creation, but request carries <code>{ launchToken }</code>. The server validates the token,
+      creates or resumes the appropriate round, and returns the normal <code>roundId</code> + round spec. The token should be
+      short-lived, single-use, scoped to the current provider/session, and safe to discard if launch fails.</p>
+    </div>
+  </div>
+
+  <h3 id="ep-resume">5.8 Resume</h3>
+  <p>Because round state lives server-side keyed by <code>roundId</code> (which outlives the bay session), stopping mid-round and
+  picking up later — even on a different bay — works with minimal additions.</p>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-post">POST</span><span class="path">/v1/rounds/{roundId}/suspend</span><span class="ep-title">Stop mid-round</span></div>
+    <div class="ep-body"><p>Transitions the round to <code>suspended</code> (e.g. time's up at the bay). Server may also auto-suspend on inactivity timeout.</p></div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-get">GET</span><span class="path">/v1/sessions/{sessionId}/resumable-rounds</span><span class="ep-title">Find rounds to resume</span></div>
+    <div class="ep-body">
+      <p>For the current resolved roster, lists rounds in <code>in_progress</code> / <code>suspended</code> state — including ones started on another bay. Returns <code>roundId</code>, the tournament, and a resume cursor (current hole/player). Without this, the sim cannot find the round to resume.</p>
+    </div>
+  </div>
+
+  <div class="ep">
+    <div class="ep-head"><span class="method m-post">POST</span><span class="path">/v1/rounds/{roundId}/resume</span><span class="ep-title">Re-attach &amp; claim a lease</span></div>
+    <div class="ep-body">
+      <p>Binds the round to the new <code>sessionId</code> and issues a <strong>lease</strong>. While leased, writes from any other session are rejected (<code>conflict_lease</code> / <code>stale_state</code>) — preventing two bays from playing the same round at once. Returns full authoritative state so the sim renders straight back into the loop from <code>nextShotOrigin</code>. Rejected with <code>round_closed</code> if the tournament window has closed.</p>
+    </div>
+  </div>
+
+  <div class="callout decision">
+    <span class="label">Round status enum</span>
+    <code>in_progress</code> · <code>suspended</code> · <code>completed</code> · <code>abandoned</code>. Suspend/resume move between the first two; the tournament window gates whether resume is allowed.
+  </div>
+
+  <h3 id="ep-tamper">5.9 Tamper / correction</h3>
+  <p>Corrections originate <em>out of band</em> from the provider's own admin/web UI — never through the sim (Principle 3). A
+  correction is simply a server-side state edit that bumps <code>revision</code>. The sim discovers it via the revision model and
+  re-syncs. Polling, write rejection, and manual resync are the v1 baseline; a future SSE channel can speed up notification
+  while still being opened by the simulator.</p>
+
+  <h4>How the sim finds out</h4>
+  <ol>
+    <li><strong>Poll-detect</strong> — the sim's existing state/leaderboard poll sees <code>revision</code> changed → discards optimistic local state → re-fetches authoritative state → re-renders. Bounded by <code>pollIntervalSeconds</code>.</li>
+    <li><strong>Write-reject (immediate)</strong> — a shot lands mid-edit with a stale <code>baseRevision</code> → <code>409 stale_state</code> with current state inline → the sim reconciles at once, no waiting for the next poll.</li>
+    <li><strong>Manual resync</strong> — the sim exposes an explicit "resync" / "sync now" UI control. If a player has requested an admin correction, they can press it immediately instead of waiting for polling or the next rejected write.</li>
+  </ol>
+
+  <h4>Manual resync behavior</h4>
+  <p>Manual resync uses the existing state endpoint; it does not require new state semantics:</p>
+  <ol>
+    <li>Discard optimistic local UI state.</li>
+    <li>Pause or clear unsent local buffered writes, depending on whether they were created before the correction.</li>
+    <li><code>GET /v1/rounds/{roundId}/state</code>.</li>
+    <li>Re-render from authoritative state: <code>revision</code>, <code>nextShotOrigin</code>, <code>activeTurn</code>, <code>requiredAction</code>, scorecard, and correction metadata.</li>
+  </ol>
+
+  <h4>Future: sim-initiated critical update stream</h4>
+  <p>A future version may add an optional SSE or long-poll channel opened by the simulator, for critical updates such as
+  corrections and resets. This still respects the play-time direction rule because the simulator establishes the connection.</p>
+<pre><code>GET /v1/rounds/{roundId}/events
+
+Event examples:
+round.corrected
+round.reset
+score.adjusted
+player.withdrawn
+leaderboard.updated</code></pre>
+  <p>Polling and manual resync should remain the v1 baseline. SSE is a progressive enhancement for faster notification.</p>
+
+  <h4>Correction operations (admin-side; each bumps <code>revision</code>)</h4>
+  <table>
+    <tr><th>Operation</th><th>Effect on state</th></tr>
+    <tr><td>Reset to tee</td><td>Truncate the current hole's shots; <code>nextShotOrigin</code> = tee.</td></tr>
+    <tr><td>Reset to previous position</td><td>Truncate shots after N; <code>nextShotOrigin</code> = that shot's end coord + lie.</td></tr>
+    <tr><td>Reset hole</td><td>Clear the hole; back to its tee.</td></tr>
+    <tr><td>Reset full round</td><td>Clear all holes; back to hole 1 tee.</td></tr>
+    <tr><td>Adjust score</td><td>Override an aggregate without touching the shot history.</td></tr>
+    <tr><td>DQ / withdraw player</td><td>Player status change.</td></tr>
+  </table>
+  <p>Round state includes a small correction marker, for example <code>{ correctionReason, correctionMessage, correctedAt }</code>,
+  so the simulator can explain a sudden reset or score change instead of silently moving the ball.</p>
+
+  <div class="callout decision">
+    <span class="label">One field carries all resets</span>
+    The reset target is communicated by <code>nextShotOrigin = { coordinate, lie }</code> in round state — "place the ball here, on
+    this lie." The sim reads it; it never infers position. The <em>same</em> field also drives hazard-drop resumption.
+  </div>
+
+  <div class="callout warn">
+    <span class="label">Offline-buffer safety (the nasty case)</span>
+    The sim is offline, buffers shots; meanwhile an admin resets the round. On reconnect the buffered writes carry an old
+    <code>baseRevision</code> → all rejected with <code>stale_state</code> → the sim <strong>drops its buffer</strong>, re-fetches, and
+    resumes from <code>nextShotOrigin</code>. This is exactly why <code>baseRevision</code> on every write is mandatory, not optional —
+    it is what stops stale buffered shots from corrupting a corrected round.
+  </div>
+
+  <p><strong>Tamper, resume, hazard drops, and crash recovery are all the same machinery:</strong> server-authoritative state +
+  monotonic <code>revision</code> + <code>baseRevision</code> on writes + <code>nextShotOrigin</code> in state.</p>
+
+  <!-- ===================== DATA MODELS ===================== -->
+  <h2 class="sec">6. Data models</h2>
+
+  <h3 id="m-shot">6.1 Shot &amp; lie</h3>
+  <p>The atomic unit of play. The server derives scoring and most stats from the stream of these.</p>
+<pre><code>Shot {
+  shotId:        string         // stable reported-shot identity
+  strokeOrdinal: integer        // counting-stroke candidate number within the active ball/side context
+  playerId:     string
+  sideId?:      string         // team/side, when team play is active
+  ballId:       string         // one physical/virtual ball lineage
+  shotGroupId?: string         // candidate shots hit from the same origin
+  start: { coordinate: Vec3, lie: Lie }
+  end:   { coordinate: Vec3, lie: Lie }
+  data: {                      // some or all may be present, per capabilities
+    ballSpeed:    number       // m/s (or mph if imperial)
+    carry:        number       // m / yd
+    roll:         number       // m / yd
+    offline:      number       // signed lateral deviation from intended line
+    curvature:    number       // shot bend
+    peakHeight:   number       // apex
+    club:         string       // selected club
+    // ... additional vendor fields permitted
+  }
+}
+
+Vec3 { x: number, y: number, z: number }   // in the declared coordinate frame
+Lie  = "tee" | "fairway" | "rough" | "deep_rough" | "sand" | "green"
+     | "fringe" | "water" | "recovery" | "out_of_bounds"</code></pre>
+  <p><code>shotId</code> identifies the reported shot event. <code>strokeOrdinal</code> identifies the counting stroke candidate. In a
+  scramble tee shot, four players might all report candidate shots with <code>strokeOrdinal = 1</code> and the same
+  <code>shotGroupId</code>; after <code>choose_ball</code>, only the selected shot advances the active ball lineage. Non-selected
+  candidates remain recorded for audit/stats but do not become counting strokes.</p>
+
+  <h3 id="m-geometry">6.2 Course catalog &amp; optional geometry</h3>
+  <p>The required sync surface is the course catalog. Geometry is optional enrichment. The simulator owns playable geometry;
+  the provider stores synced coordinates only for authoring, display, and stats.</p>
+<pre><code>CourseCatalog {
+  courseId:    string
+  name:        string
+  provider:    string          // e.g. "PurePlay"
+  holes:       HoleDefinition[]
+}
+
+HoleDefinition {
+  holeNumber:  integer
+  strokeIndex: integer
+  pinLabels:   string[]        // "THU" | "FRI" | "SAT" | "SUN" | custom
+  tees:        TeeDefinition[]
+  aimPoints?:  Vec3[]          // optional dogleg / target points
+  pins?:       { label: string, coordinate: Vec3 }[]
+  green?:      Vec3[]          // optional boundary polygon
+}
+
+TeeDefinition {
+  teeId:       string
+  name:        string          // e.g. "58", "55", "Blue", "White"
+  color?:      string
+  par:         integer         // tee-specific; some courses vary par by tee
+  rating?:     number
+  slope?:      integer
+  length?:     number          // m / yd, per declared units
+  coordinate?: Vec3
+}</code></pre>
+
+  <h3 id="m-strokes">6.3 Strokes &amp; scoring</h3>
+  <p>The server computes <em>everything</em> here (Principle 1). The sim renders the results and never does slope/course-rating math.</p>
+  <ul>
+    <li><strong>Handicap value</strong> — returned in the resolved roster, for display only.</li>
+    <li><strong><code>strokeAllocations</code></strong> — per player or per side, per hole, in the round spec. Already accounts for slope,
+    course rating, playing handicap, team handicap formulas, and match-play normalization. The sim renders dots/allowances; it
+    does not allocate them.</li>
+    <li><strong>Scores &amp; points</strong> — gross, net, Stableford points (incl. variant scoring like enhanced birdie/eagle
+    points), match status — all server-computed and returned as display models.</li>
+  </ul>
+  <div class="callout decision">
+    <span class="label">Match play vs stroke play</span>
+    Both are handled server-side. Match-play stroke normalization (lowest plays off scratch, others receive the difference) is
+    just another allocation rule baked into <code>strokeAllocations</code>. The simulator is <em>identical</em> for both formats.
+  </div>
+<pre><code>StrokeAllocation {
+  subjectType: "player" | "side"
+  subjectId:   string
+  holes:       { holeNumber: integer, strokes: integer }[]
+}</code></pre>
+  <p>Individual stroke play and best-ball can allocate strokes to players. Scramble, greensome, and other combined-handicap team
+  formats can allocate strokes to sides. The resolved roster may still show each player's handicap value for display.</p>
+
+  <h3 id="m-team-formats">6.4 Team formats</h3>
+  <p>Team formats are included from v1, but the simulator still does not implement format rules. The server exposes a small
+  state machine that tells the simulator who may hit, which balls are active, and whether the players must make a decision.</p>
+<pre><code>ActiveTurn {
+  sideId:          string
+  phase:           "hit_shots" | "choose_ball" | "play_ball" | "alternate_shot" | "complete_hole"
+  eligiblePlayers: string[]
+  ballIds:         string[]
+  origin:          { coordinate: Vec3, lie: Lie }
+  requiredAction?: RequiredAction
+}
+
+RequiredAction =
+  | { type: "hit_shots", players: string[], shotGroupId: string }
+  | { type: "choose_ball", candidates: { shotId: string, playerId: string, ballId: string }[] }
+  | { type: "concede_hole", sideId: string }
+  | { type: "accept_gimme", playerId: string, ballId: string }
+
+Decision {
+  type:            "choose_ball" | "concede_hole" | "accept_gimme"
+  sideId?:         string
+  playerId?:       string
+  selectedShotId?: string
+}</code></pre>
+  <table>
+    <tr><th>Format family</th><th>How the generic model handles it</th></tr>
+    <tr><td><strong>Scramble</strong></td><td>All players on a side hit from the same <code>origin</code> with the same <code>shotGroupId</code>. Server returns <code>choose_ball</code>; sim shows candidate balls; selected shot becomes the next origin.</td></tr>
+    <tr><td><strong>Greensome</strong></td><td>Several tee shots are reported as candidates, then the server asks for <code>choose_ball</code>. After selection, the server controls alternate-shot eligibility through <code>eligiblePlayers</code>.</td></tr>
+    <tr><td><strong>Best ball</strong></td><td>Each player has their own <code>ballId</code>. The sim reports each ball independently; the server decides which completed player score counts for the side and returns display models.</td></tr>
+    <tr><td><strong>Alternate shot</strong></td><td>The server returns one active <code>ballId</code> and the currently eligible player(s). The sim renders only those players as available to hit.</td></tr>
+  </table>
+  <p>The only team-format logic the simulator needs is generic rendering: show eligible players, collect shots, show server-provided
+  choices, and post the selected decision. New named formats can be added server-side if they fit this state-machine vocabulary.</p>
+
+  <h3 id="m-stats">6.5 Stats</h3>
+  <p>Server-computed from the shot stream. The sim may compute its own for instant feedback, but the server is authoritative.
+  Stats split by what data they need:</p>
+  <table>
+    <tr><th>Tier</th><th>Needs</th><th>Examples</th></tr>
+    <tr><td><strong>Non-spatial</strong></td><td>Lie + shot count only (no geometry)</td><td>Score, GIR, fairways hit, up-and-down, sand saves, putts.</td></tr>
+    <tr><td><strong>Spatial</strong></td><td>Geometry (positions; "right of green" needs the green polygon)</td><td>Proximity to pin, dispersion, driving distance vs hole length, left/right of green, strokes-gained.</td></tr>
+  </table>
+  <p>Spatial stats are a capability gated on geometry availability. A vendor that never exposes geometry still gets the full
+  non-spatial set. Geometry can arrive through online catalog fetch, simulator push, or opportunistic accumulation during play,
+  so the spatial layer fills in as data becomes available.</p>
+
+  <!-- ===================== APPENDIX ===================== -->
+  <h2 class="sec" id="defaults">7. Defaults &amp; open items</h2>
+
+  <h3>Confirmed defaults</h3>
+  <div class="callout decision"><span class="label">Decided</span>
+    <ul style="margin:6px 0 0;">
+      <li>Server owns scoring, handicap value, stroke allocation, and stats. Simulator is a thin terminal.</li>
+      <li>Strictly software → server during play. Leaderboard is poll-based; corrections are pull-discovered. Course catalog fetch may be provider-server → PurePlay-cloud.</li>
+      <li>Manual resync is a required play UI affordance: the simulator can explicitly re-fetch authoritative round state after an admin correction.</li>
+      <li>Authentication uses the bay API key on every request. <code>sessionId</code> is visit context, not a replacement bearer credential.</li>
+      <li>Handicap value is server-owned in <em>both</em> player modes; <code>strokeAllocations</code> are server-computed by player or side (incl. match-play normalization and team handicap formulas).</li>
+      <li>Course catalog sync is required for tournament authoring and can be ingested either by provider-server fetch from PurePlay's online catalog or by simulator push. Coordinates are optional enrichment owned by PurePlay/simulator data. Spatial stats are gated on geometry availability.</li>
+      <li>Team formats are in v1 via a generic server-issued state machine: eligible players, balls, shot groups, and required decisions.</li>
+      <li>Coordinate frame: per-hole local (tee = origin), declared at handshake.</li>
+      <li>Units: metric default, declared at handshake; imperial supported.</li>
+      <li>Pin positions are labels (<code>THU</code>–<code>SUN</code>/custom), not dates.</li>
+      <li>Tours, series, and leagues are optional aggregate result surfaces. The server owns standings/ranking rules; the simulator renders returned rows.</li>
+      <li>Native selection mode and provider portal mode are both discussion proposals for PurePlay; either can launch the same server-authoritative play loop.</li>
+      <li>One system-level specification, with two OpenAPI outputs: Provider Play API and PurePlay Course Catalog API.</li>
+      <li>Resume supported: <code>roundId</code> outlives sessions; status enum + resumable-rounds listing + lease + resume cursor.</li>
+    </ul>
+  </div>
+
+  <h3>Open items to settle before/within the OpenAPI</h3>
+  <div class="callout open"><span class="label">Open</span>
+    <ul style="margin:6px 0 0;">
+      <li><strong>OpenAPI packaging</strong> — final filenames, ownership, publication location, and versioning strategy for the Provider Play API and PurePlay Course Catalog API specs.</li>
+      <li><strong>Auth operations</strong> — API-key issuance, rotation, revocation, and whether keys are scoped per bay, venue, or installation.</li>
+      <li><strong>Online catalog auth</strong> — authentication, tenant scoping, rate limits, and incremental sync semantics for provider-server access to PurePlay's hosted course catalog.</li>
+      <li><strong>Capability negotiation surface</strong> — exact list of negotiable shot-data fields and formats, and how a vendor advertises partial support.</li>
+      <li><strong>Lease semantics</strong> — lease TTL, renewal cadence, and force-takeover (admin moves a stuck round to a new bay).</li>
+      <li><strong>Inactivity auto-suspend</strong> — server-side timeout value and whether it is configurable per provider.</li>
+      <li><strong>Format state-machine vocabulary</strong> — exact enum values for phases and decision controls, plus the minimum UI controls the simulator must render.</li>
+      <li><strong>Standings vocabulary</strong> — exact naming for tours vs series vs leagues, ranking value display, movement indicators, tie-break display, and whether standings can be scoped to player/team/facility.</li>
+      <li><strong>Provider portal bridge</strong> — whether PurePlay wants to support embedded provider UI, what webview security model applies, and the exact host bridge command shape.</li>
+      <li><strong>Mulligans / re-hits / practice swings</strong> — how the round spec declares allowances and how the sim flags non-counting shots.</li>
+      <li><strong>Concession granularity</strong> — match play needs hole concession <em>and</em> match concession, distinct from per-shot gimme.</li>
+      <li><strong>Optional SSE channel</strong> — whether to include the sim-initiated critical update stream in v1 or defer it to a later version.</li>
+    </ul>
+  </div>
+
+  <hr>
+  <p class="muted">PurePlay Tournament API — design proposal v0.1 · human-readable system spec · two OpenAPI specs to follow.</p>
+</main>
+</div>
+</body>
+</html>
