@@ -1,0 +1,61 @@
+import { createTokens } from '@basics/core/client/core';
+
+// "Clubhouse scorecard" — warm cream paper, deep fairway-green ink, brass
+// accent. High contrast for sunlight; numerals tabular everywhere.
+
+const base = {
+    radius: '12px',
+    'radius-pill': '999px',
+    'radius-sm': '6px',
+    'font-display': "'Fraunces', Georgia, serif",
+    shadow: '0 1px 2px rgba(30, 53, 38, 0.08)',
+    'shadow-elevated': '0 4px 16px rgba(30, 53, 38, 0.14)',
+};
+
+export const t = createTokens({
+    ...base,
+    bg: '#f2eee2',
+    surface: '#fbf9f1',
+    'surface-sunken': '#e9e4d4',
+    primary: '#2c5e3f',
+    'primary-text': '#f7f4ea',
+    'btn-bg': '#fbf9f1',
+    'btn-hover': '#efeada',
+    text: '#1e3526',
+    'text-muted': '#6b7a6e',
+    border: '#d8d2bf',
+    'topbar-bg': '#1e3526',
+    'active-bg': '#1e3526',
+    'active-text': '#f7f4ea',
+    'hover-bg': '#ece7d7',
+    'input-bg': '#ffffff',
+    accent: '#b08d3e',
+    'accent-soft': '#f0e6cd',
+    error: '#a0463c',
+    'under-par': '#a0463c',
+    'over-par': '#345b8a',
+}, {
+    ...base,
+    bg: '#15231a',
+    surface: '#1d2f22',
+    'surface-sunken': '#101b14',
+    primary: '#5d9b75',
+    'primary-text': '#0f1a13',
+    'btn-bg': '#24392b',
+    'btn-hover': '#2e4836',
+    text: '#e6e1d2',
+    'text-muted': '#8da093',
+    border: '#33493a',
+    'topbar-bg': '#0f1a13',
+    'active-bg': '#5d9b75',
+    'active-text': '#0f1a13',
+    'hover-bg': '#273c2e',
+    'input-bg': '#101b14',
+    accent: '#cfa84f',
+    'accent-soft': '#3a3320',
+    error: '#d48a82',
+    'under-par': '#d48a82',
+    'over-par': '#8db2e0',
+    shadow: '0 1px 2px rgba(0, 0, 0, 0.3)',
+    'shadow-elevated': '0 4px 16px rgba(0, 0, 0, 0.4)',
+});
