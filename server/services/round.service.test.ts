@@ -371,3 +371,92 @@ test('an unknown registered (canary) format id round-trips without becoming cust
     expect(row.format_id).toBe(CANARY_FORMAT_ID);
     expect(row.scoring_mode).not.toBe('custom');
 });
+
+// --- Itinerary + playing-group read model (Slice 3b) -----------------------
+
+test('read model: conventional round exposes itinerary, route meta, default group', async () => {
+    const { roundService, courseId, teeId, aliceId } = await setupWithTeeAndPlayer();
+    const round = await roundService.create({
+        definition: singlePlayerDef({ courseId, teeId, playerId: aliceId }),
+    });
+
+    expect(round.playHoles).toHaveLength(18);
+    expect(round.playHoles.map((p) => p.ordinal)).toEqual(
+        Array.from({ length: 18 }, (_, i) => i + 1),
+    );
+    expect(round.playHoles[0].playHoleDefId).toBe('ph-1');
+
+    expect(round.routeSi.mode).toBe('official');
+    expect(round.routeSi.allocationCycleSize).toBe(18);
+    expect(round.routeHandicapPolicy.type).toBe('official_route');
+    expect(round.routeHandicapPolicy.postingEligible).toBe(true);
+    expect(round.routeSections.map((s) => s.label)).toEqual(['Out', 'In']);
+
+    expect(round.playingGroups).toHaveLength(1);
+    const g = round.playingGroups[0];
+    expect(g.startOrdinal).toBe(1);
+    expect(g.endOrdinal).toBe(18);
+    expect(g.playedOrder).toHaveLength(18);
+    expect(g.playedOrder[0].groupRelativeOrder).toBe(1);
+    expect(g.ballIds).toHaveLength(1);
+});
+
+test('read model: repeated holes + two group starts (1..10,1..8)', async () => {
+    const ctx = await setupWithTeeAndPlayer();
+    const bob = await ctx.playerService.register({
+        username: 'bob-3b',
+        password: 'password123',
+        displayName: 'Bob',
+    });
+    // 10-hole-course style route played as 18 with distinct SI on the 2nd loop.
+    const playHoles = [
+        ...Array.from({ length: 10 }, (_, i) => ({
+            id: `ph-${i + 1}`,
+            courseHoleNumber: i + 1,
+            baseStrokeIndexOverride: i + 1,
+        })),
+        ...Array.from({ length: 8 }, (_, i) => ({
+            id: `ph-${i + 11}`,
+            courseHoleNumber: i + 1,
+            baseStrokeIndexOverride: i + 11,
+        })),
+    ];
+    const def: RoundDefinition = {
+        courseId: ctx.courseId,
+        playedAt: '2026-05-01',
+        roundType: 'custom_holes',
+        producers: [
+            { id: 'prod-a', playerRef: { kind: 'player', id: ctx.aliceId }, handicapIndex: 10, gender: 'M', teeId: ctx.teeId },
+            { id: 'prod-b', playerRef: { kind: 'player', id: bob.id }, handicapIndex: 10, gender: 'M', teeId: ctx.teeId },
+        ],
+        ballStrategies: [{ id: 'own', strategyId: 'own_ball_per_player', derivationConfig: { type: 'single' } }],
+        slots: [{ id: 'slot-0', formatId: 'stableford_individual', allowanceConfig: { type: 'flat', pct: 95 }, ballSelector: { strategyDefIds: ['own'] } }],
+        routeSi: { mode: 'custom', allocationCycleSize: 18 },
+        routeHandicapPolicy: { type: 'explicit', postingEligible: false },
+        playHoles,
+        playingGroups: [
+            { id: 'g1', startTime: '08:00', startOrdinal: 1, capacity: 1, producerDefIds: ['prod-a'] },
+            { id: 'g2', startTime: '08:10', startOrdinal: 11, capacity: 1, producerDefIds: ['prod-b'] },
+        ],
+    };
+    const round = await ctx.roundService.create({ definition: def });
+
+    expect(round.playHoles).toHaveLength(18);
+    // Course hole 1 occurs twice with distinct ids + distinct SI.
+    const hole1 = round.playHoles.filter((p) => p.courseHoleNumber === 1);
+    expect(hole1).toHaveLength(2);
+    expect(new Set(hole1.map((p) => p.id)).size).toBe(2);
+    expect(hole1.map((p) => p.baseStrokeIndex).sort((a, b) => a - b)).toEqual([1, 11]);
+
+    expect(round.routeSi.mode).toBe('custom');
+    expect(round.routeHandicapPolicy.postingEligible).toBe(false);
+
+    expect(round.playingGroups).toHaveLength(2);
+    const g2 = round.playingGroups.find((g) => g.startOrdinal === 11)!;
+    expect(g2).toBeTruthy();
+    // Group starting at ordinal 11 plays 11..18 then 1..10 → ends on ordinal 10.
+    expect(g2.endOrdinal).toBe(10);
+    expect(g2.playedOrder[0].ordinal).toBe(11);
+    expect(g2.playedOrder[g2.playedOrder.length - 1].ordinal).toBe(10);
+    expect(g2.ballIds).toHaveLength(1);
+});

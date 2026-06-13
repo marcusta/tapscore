@@ -116,6 +116,115 @@ const SlotTeamGrouping = Type.Object({
     ),
 });
 
+// --- Route itinerary, SI provenance, handicap policy (Slice 3b) ------------
+//
+// These describe the Round's explicit play-hole itinerary and the frozen
+// route metadata around it (SI provenance, handicap policy, sections). All
+// are OPTIONAL on the authoring input (`RoundDefinitionInput`): a conventional
+// round omits them and the compiler's `normalize` step fills defaults. The
+// persisted, fully-explicit form is `ResolvedRoundDefinition` below.
+
+/** SI provenance. `custom`/`difficulty` must be declared explicitly. */
+const RouteSiInput = Type.Object({
+    mode: Type.Union([
+        Type.Literal('official'),
+        Type.Literal('difficulty'),
+        Type.Literal('custom'),
+    ]),
+    sourceLabel: Type.Optional(Type.String()),
+    sourceVersion: Type.Optional(Type.String()),
+    /** Allocation cycle size. Defaults to the course hole count when omitted. */
+    allocationCycleSize: Type.Optional(Type.Integer({ minimum: 1 })),
+});
+
+const RouteSiResolved = Type.Object({
+    mode: Type.Union([
+        Type.Literal('official'),
+        Type.Literal('difficulty'),
+        Type.Literal('custom'),
+    ]),
+    sourceLabel: Type.Optional(Type.String()),
+    sourceVersion: Type.Optional(Type.String()),
+    allocationCycleSize: Type.Integer({ minimum: 1 }),
+});
+
+const RouteHandicapPolicy = Type.Object({
+    type: Type.Union([
+        Type.Literal('official_route'),
+        Type.Literal('full_course_casual'),
+        Type.Literal('prorated_casual'),
+        Type.Literal('explicit'),
+    ]),
+    postingEligible: Type.Boolean(),
+    postingIneligibleReason: Type.Optional(Type.String()),
+});
+
+const RouteSection = Type.Object({
+    id: Type.String({ minLength: 1 }),
+    label: Type.String({ minLength: 1 }),
+    fromCanonicalOrdinal: Type.Integer({ minimum: 1 }),
+    toCanonicalOrdinal: Type.Integer({ minimum: 1 }),
+});
+
+/** Per-occurrence, per-tee override. */
+const PlayHoleTeeOverride = Type.Object({
+    teeId: Type.String({ minLength: 1 }),
+    lengthM: Type.Optional(Type.Integer({ minimum: 1 })),
+    strokeIndexOverride: Type.Optional(Type.Integer({ minimum: 1 })),
+});
+
+/** Authoring shape — array order is the canonical itinerary order. */
+const PlayHoleInput = Type.Object({
+    /** Stable def-id. Generated (`ph-{ordinal}`) when omitted. */
+    id: Type.Optional(Type.String({ minLength: 1 })),
+    courseHoleNumber: Type.Integer({ minimum: 1 }),
+    parOverride: Type.Optional(Type.Integer({ minimum: 3, maximum: 6 })),
+    baseStrokeIndexOverride: Type.Optional(Type.Integer({ minimum: 1 })),
+    teeOverrides: Type.Optional(Type.Array(PlayHoleTeeOverride)),
+});
+
+/** Fully-resolved occurrence — par/SI defaulted, def-id assigned. */
+const PlayHoleResolved = Type.Object({
+    id: Type.String({ minLength: 1 }),
+    courseHoleNumber: Type.Integer({ minimum: 1 }),
+    par: Type.Integer({ minimum: 3, maximum: 6 }),
+    baseStrokeIndex: Type.Integer({ minimum: 1 }),
+    teeOverrides: Type.Optional(Type.Array(PlayHoleTeeOverride)),
+});
+
+/** Authoring shape — references the itinerary by def-id or 1-based ordinal. */
+const PlayingGroupInput = Type.Object({
+    id: Type.Optional(Type.String({ minLength: 1 })),
+    startTime: Type.String({ minLength: 1 }),
+    /** Reference the start occurrence by def-id … */
+    startPlayHoleDefId: Type.Optional(Type.String({ minLength: 1 })),
+    /** … or, more ergonomically, by 1-based itinerary ordinal. */
+    startOrdinal: Type.Optional(Type.Integer({ minimum: 1 })),
+    capacity: Type.Integer({ minimum: 1 }),
+    hittingBay: Type.Optional(Type.String()),
+    /** Producers assigned to this group; the compiler derives ball membership. */
+    producerDefIds: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+});
+
+const PlayingGroupResolved = Type.Object({
+    id: Type.String({ minLength: 1 }),
+    startTime: Type.String({ minLength: 1 }),
+    startPlayHoleDefId: Type.String({ minLength: 1 }),
+    capacity: Type.Integer({ minimum: 1 }),
+    hittingBay: Type.Optional(Type.String()),
+    producerDefIds: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+});
+
+export type RouteSiInput = Static<typeof RouteSiInput>;
+export type RouteSiResolved = Static<typeof RouteSiResolved>;
+export type RouteHandicapPolicy = Static<typeof RouteHandicapPolicy>;
+export type RouteSection = Static<typeof RouteSection>;
+export type PlayHoleInput = Static<typeof PlayHoleInput>;
+export type PlayHoleResolved = Static<typeof PlayHoleResolved>;
+export type PlayHoleTeeOverride = Static<typeof PlayHoleTeeOverride>;
+export type PlayingGroupInput = Static<typeof PlayingGroupInput>;
+export type PlayingGroupResolved = Static<typeof PlayingGroupResolved>;
+
 const SlotDefinition = Type.Object({
     /** Stable def-id → `slots.slot_def_id`. */
     id: Type.String({ minLength: 1 }),
@@ -153,7 +262,14 @@ const StartListMode = Type.Union([
     Type.Literal('open_window'),
 ]);
 
-export const RoundDefinition = Type.Object({
+// --- RoundDefinitionInput ---
+//
+// The loose authoring shape (HTTP / admin / fixtures). The route itinerary,
+// SI provenance, handicap policy, sections, and playing groups are all
+// OPTIONAL — `normalize` (server/domain/compiler/normalize.ts) fills
+// conventional defaults and produces the fully-explicit
+// `ResolvedRoundDefinition` that the compiler and persistence consume.
+export const RoundDefinitionInput = Type.Object({
     courseId: Type.String({ minLength: 1 }),
     playedAt: Type.String({ minLength: 1 }),
     roundType: Type.Optional(RoundType),
@@ -162,12 +278,54 @@ export const RoundDefinition = Type.Object({
     windowStart: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     windowEnd: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     selfOrganize: Type.Optional(Type.Boolean()),
+    routeSi: Type.Optional(RouteSiInput),
+    routeHandicapPolicy: Type.Optional(RouteHandicapPolicy),
+    routeSections: Type.Optional(Type.Array(RouteSection)),
+    playHoles: Type.Optional(Type.Array(PlayHoleInput, { minItems: 1 })),
     producers: Type.Array(ProducerDefinition, { minItems: 1 }),
     ballStrategies: Type.Array(BallStrategyDefinition, { minItems: 1 }),
+    playingGroups: Type.Optional(Type.Array(PlayingGroupInput, { minItems: 1 })),
     slots: Type.Array(SlotDefinition, { minItems: 1 }),
 });
 
-export type RoundDefinition = Static<typeof RoundDefinition>;
+export type RoundDefinitionInput = Static<typeof RoundDefinitionInput>;
+
+/**
+ * Back-compat alias. Existing call sites import `RoundDefinition`; it now
+ * names the loose authoring input. The fully-resolved persisted form is
+ * `ResolvedRoundDefinition`.
+ */
+export const RoundDefinition = RoundDefinitionInput;
+export type RoundDefinition = RoundDefinitionInput;
+
+// --- ResolvedRoundDefinition ---
+//
+// The canonical, fully-explicit form produced by `normalize`. Persisted
+// verbatim as `round_definitions.definition_json` (tagged
+// `schemaVersion: 'resolved-v1'`) so reads and recompiles never re-infer
+// defaults. Every conventional default has been materialised; every
+// non-standard route carries an explicit handicap policy.
+export const ResolvedRoundDefinition = Type.Object({
+    schemaVersion: Type.Literal('resolved-v1'),
+    courseId: Type.String({ minLength: 1 }),
+    playedAt: Type.String({ minLength: 1 }),
+    roundType: RoundType,
+    venueType: VenueType,
+    startListMode: StartListMode,
+    windowStart: Type.Union([Type.String(), Type.Null()]),
+    windowEnd: Type.Union([Type.String(), Type.Null()]),
+    selfOrganize: Type.Boolean(),
+    routeSi: RouteSiResolved,
+    routeHandicapPolicy: RouteHandicapPolicy,
+    routeSections: Type.Array(RouteSection),
+    playHoles: Type.Array(PlayHoleResolved, { minItems: 1 }),
+    producers: Type.Array(ProducerDefinition, { minItems: 1 }),
+    ballStrategies: Type.Array(BallStrategyDefinition, { minItems: 1 }),
+    playingGroups: Type.Array(PlayingGroupResolved, { minItems: 1 }),
+    slots: Type.Array(SlotDefinition, { minItems: 1 }),
+});
+
+export type ResolvedRoundDefinition = Static<typeof ResolvedRoundDefinition>;
 export type ProducerDefinition = Static<typeof ProducerDefinition>;
 export type BallStrategyDefinition = Static<typeof BallStrategyDefinition>;
 export type SlotDefinition = Static<typeof SlotDefinition>;

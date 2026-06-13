@@ -14,6 +14,10 @@ export interface Database {
     rounds: RoundsTable;
     round_course_holes: RoundCourseHolesTable;
     round_tee_holes: RoundTeeHolesTable;
+    round_play_holes: RoundPlayHolesTable;
+    round_play_tee_holes: RoundPlayTeeHolesTable;
+    playing_groups: PlayingGroupsTable;
+    playing_group_balls: PlayingGroupBallsTable;
     round_format_slots: RoundFormatSlotsTable;
     participants: ParticipantsTable;
     participant_players: ParticipantPlayersTable;
@@ -69,6 +73,52 @@ export interface RoundTeeHolesTable {
     hole_number: number;
     length_m: number;
     stroke_index_override: number | null;
+}
+
+// --- Slice 3b — hole itinerary + playing groups ---
+
+export interface RoundPlayHolesTable {
+    /** `hash(round_id, play_hole_def_id)`. */
+    id: string;
+    /** Recompile-stable id from `ResolvedRoundDefinition.playHoles[].id`. */
+    play_hole_def_id: string;
+    round_id: string;
+    /** 1..N canonical itinerary order. */
+    ordinal: number;
+    /** References the frozen `round_course_holes` snapshot. */
+    course_hole_number: number;
+    /** Occurrence snapshot; defaults from the physical hole. */
+    par: number;
+    /** Occurrence snapshot; may differ on a repeated loop. Cycle-bounded by the compiler. */
+    base_stroke_index: number;
+}
+
+export interface RoundPlayTeeHolesTable {
+    round_play_hole_id: string;
+    /** Immutable tee snapshot key (original tee id); survives tee deletion. */
+    tee_ref: string;
+    tee_name_snapshot: string;
+    /** Live FK for navigation; nulls on tee deletion. */
+    tee_id: string | null;
+    length_m: number;
+    /** Per-occurrence × tee SI override; null falls back to `base_stroke_index`. */
+    stroke_index_override: number | null;
+}
+
+export interface PlayingGroupsTable {
+    /** `hash(round_id, group_def_id)`. */
+    id: string;
+    round_id: string;
+    start_time: string;
+    /** References `round_play_holes.id` in the SAME round (composite FK). */
+    start_play_hole_id: string;
+    capacity: number;
+    hitting_bay: string | null;
+}
+
+export interface PlayingGroupBallsTable {
+    playing_group_id: string;
+    ball_id: string;
 }
 
 export type ScoringMode =

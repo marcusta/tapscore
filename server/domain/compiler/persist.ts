@@ -102,12 +102,19 @@ export async function persistCompiledRound(
                 .execute();
         }
 
+        // Itinerary first — playing_groups' composite FK targets
+        // round_play_holes, and the legacy output tables are independent.
+        await syncPlayHoles(trx, compiled);
+        await syncPlayTeeHoles(trx, compiled);
         await syncStrategies(trx, compiled);
         await syncBalls(trx, compiled);
         await syncSlots(trx, compiled);
         await syncBallPlayers(trx, compiled);
         await syncSlotBalls(trx, compiled);
         await syncSlotBallTeams(trx, compiled);
+        // Groups after both round_play_holes (start FK) and balls (membership).
+        await syncPlayingGroups(trx, compiled);
+        await syncPlayingGroupBalls(trx, compiled);
 
         return { version: nextVersion, isRecompile };
     };
@@ -127,6 +134,146 @@ async function maxVersion(trx: Exec, roundId: string): Promise<number | null> {
         .limit(1)
         .execute();
     return existing[0]?.version ?? null;
+}
+
+// Park survivors at this ordinal offset during a reorder so the in-place
+// updates never transiently collide with the UNIQUE(round_id, ordinal) index
+// (e.g. swapping ordinals 1↔2). The offset stays >= 1 (CHECK ordinal >= 1).
+const ORDINAL_PARK_OFFSET = 1_000_000;
+
+/**
+ * Diff-upsert `round_play_holes` by content-addressed id. A reorder keeps
+ * every id (id is independent of ordinal) and only changes `ordinal`, so
+ * events that key on the occurrence stay valid; an added occurrence inserts;
+ * a removed one is deleted (cascading its tee rows). Full
+ * `orphaned_events_after_correction` surfacing lands in Slice 3c, when
+ * score events begin keying on `play_hole_id`.
+ *
+ * Two-phase ordinal write avoids transient UNIQUE(round_id, ordinal)
+ * violations: phase 1 upserts every surviving/new row at a parked ordinal,
+ * phase 2 settles each to its final ordinal.
+ */
+async function syncPlayHoles(trx: Exec, compiled: CompiledRound): Promise<void> {
+    const keepIds = compiled.playHoles.map((p) => p.id);
+    let del = trx.deleteFrom('round_play_holes').where('round_id', '=', compiled.roundId);
+    if (keepIds.length > 0) del = del.where('id', 'not in', keepIds);
+    await del.execute();
+
+    for (const p of compiled.playHoles) {
+        const parked = p.ordinal + ORDINAL_PARK_OFFSET;
+        await trx
+            .insertInto('round_play_holes')
+            .values({
+                id: p.id,
+                play_hole_def_id: p.playHoleDefId,
+                round_id: compiled.roundId,
+                ordinal: parked,
+                course_hole_number: p.courseHoleNumber,
+                par: p.par,
+                base_stroke_index: p.baseStrokeIndex,
+            })
+            .onConflict((oc) =>
+                oc.column('id').doUpdateSet({
+                    play_hole_def_id: p.playHoleDefId,
+                    ordinal: parked,
+                    course_hole_number: p.courseHoleNumber,
+                    par: p.par,
+                    base_stroke_index: p.baseStrokeIndex,
+                }),
+            )
+            .execute();
+    }
+    for (const p of compiled.playHoles) {
+        await trx
+            .updateTable('round_play_holes')
+            .set({ ordinal: p.ordinal })
+            .where('id', '=', p.id)
+            .execute();
+    }
+}
+
+/**
+ * Child of `round_play_holes` — no event-log FKs point here, so delete the
+ * tee rows of surviving occurrences and re-insert (rows for removed
+ * occurrences are already gone via cascade).
+ */
+async function syncPlayTeeHoles(trx: Exec, compiled: CompiledRound): Promise<void> {
+    const phIds = compiled.playHoles.map((p) => p.id);
+    if (phIds.length > 0) {
+        await trx
+            .deleteFrom('round_play_tee_holes')
+            .where('round_play_hole_id', 'in', phIds)
+            .execute();
+    }
+    if (compiled.playTeeHoles.length === 0) return;
+    await trx
+        .insertInto('round_play_tee_holes')
+        .values(
+            compiled.playTeeHoles.map((t) => ({
+                round_play_hole_id: t.roundPlayHoleId,
+                tee_ref: t.teeRef,
+                tee_name_snapshot: t.teeNameSnapshot,
+                tee_id: t.teeId,
+                length_m: t.lengthM,
+                stroke_index_override: t.strokeIndexOverride,
+            })),
+        )
+        .execute();
+}
+
+/** Diff-upsert `playing_groups` by id (deleting removed groups cascades their balls). */
+async function syncPlayingGroups(trx: Exec, compiled: CompiledRound): Promise<void> {
+    const keepIds = compiled.playingGroups.map((g) => g.id);
+    let del = trx.deleteFrom('playing_groups').where('round_id', '=', compiled.roundId);
+    if (keepIds.length > 0) del = del.where('id', 'not in', keepIds);
+    await del.execute();
+
+    for (const g of compiled.playingGroups) {
+        await trx
+            .insertInto('playing_groups')
+            .values({
+                id: g.id,
+                round_id: compiled.roundId,
+                start_time: g.startTime,
+                start_play_hole_id: g.startPlayHoleId,
+                capacity: g.capacity,
+                hitting_bay: g.hittingBay,
+            })
+            .onConflict((oc) =>
+                oc.column('id').doUpdateSet({
+                    start_time: g.startTime,
+                    start_play_hole_id: g.startPlayHoleId,
+                    capacity: g.capacity,
+                    hitting_bay: g.hittingBay,
+                }),
+            )
+            .execute();
+    }
+}
+
+/**
+ * Membership child — delete the rows of surviving groups and re-insert
+ * (removed groups' rows cascade). `syncPlayingGroups` runs first so a ball
+ * moving off a removed group doesn't trip the UNIQUE(ball_id) constraint.
+ */
+async function syncPlayingGroupBalls(trx: Exec, compiled: CompiledRound): Promise<void> {
+    const groupIds = compiled.playingGroups.map((g) => g.id);
+    if (groupIds.length > 0) {
+        await trx
+            .deleteFrom('playing_group_balls')
+            .where('playing_group_id', 'in', groupIds)
+            .execute();
+    }
+    if (compiled.playingGroupBalls.length === 0) return;
+    await trx
+        .insertInto('playing_group_balls')
+        .values(
+            compiled.playingGroupBalls.map((m) => ({
+                playing_group_id: m.playingGroupId,
+                ball_id: m.ballId,
+            })),
+        )
+        .execute();
 }
 
 async function syncStrategies(trx: Exec, compiled: CompiledRound): Promise<void> {

@@ -63,6 +63,16 @@ export interface CreateCompiledRoundInput {
     players: PlayerSlotPlayer[];
     date?: string;
     roundType?: 'full_18' | 'front_9' | 'back_9' | 'custom_holes';
+    /**
+     * Explicit route itinerary + provenance/policy/groups (Slice 3b). Omit for
+     * a conventional round (the compiler derives the default itinerary + a
+     * single playing group). Supply for repeated-hole / multi-group / custom-SI
+     * scenarios — non-standard routes must also pass `routeHandicapPolicy`.
+     */
+    playHoles?: RoundDefinition['playHoles'];
+    routeSi?: RoundDefinition['routeSi'];
+    routeHandicapPolicy?: RoundDefinition['routeHandicapPolicy'];
+    playingGroups?: RoundDefinition['playingGroups'];
 }
 
 /**
@@ -211,6 +221,13 @@ export async function createCompiledRound(
     });
 
     void usesTeam;
+
+    // Explicit route / groups pass-through (Slice 3b).
+    if (input.playHoles !== undefined) definition.playHoles = input.playHoles;
+    if (input.routeSi !== undefined) definition.routeSi = input.routeSi;
+    if (input.routeHandicapPolicy !== undefined)
+        definition.routeHandicapPolicy = input.routeHandicapPolicy;
+    if (input.playingGroups !== undefined) definition.playingGroups = input.playingGroups;
 
     const round = await ctx.roundService.create({ definition });
 

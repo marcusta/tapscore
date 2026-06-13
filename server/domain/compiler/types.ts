@@ -45,7 +45,11 @@ export type CompileResult =
 
 export interface CompiledRound {
     roundId: string;
-    /** Canonical serialised `RoundDefinition` for `round_definitions.definition_json`. */
+    /**
+     * Canonical serialised `ResolvedRoundDefinition` for
+     * `round_definitions.definition_json` — fully explicit (normalized),
+     * tagged `schemaVersion: 'resolved-v1'`.
+     */
     definitionJson: string;
     definitionVersion: number;
     strategies: CompiledStrategy[];
@@ -54,6 +58,47 @@ export interface CompiledRound {
     slots: CompiledSlot[];
     slotBalls: CompiledSlotBall[];
     slotBallTeams: CompiledSlotBallTeam[];
+    playHoles: CompiledPlayHole[];
+    playTeeHoles: CompiledPlayTeeHole[];
+    playingGroups: CompiledPlayingGroup[];
+    playingGroupBalls: CompiledPlayingGroupBall[];
+}
+
+export interface CompiledPlayHole {
+    /** `hash(round_id, play_hole_def_id)`. */
+    id: string;
+    playHoleDefId: string;
+    ordinal: number;
+    courseHoleNumber: number;
+    par: number;
+    baseStrokeIndex: number;
+}
+
+export interface CompiledPlayTeeHole {
+    roundPlayHoleId: string;
+    /** Immutable tee snapshot key. */
+    teeRef: string;
+    teeNameSnapshot: string;
+    /** Live FK; null only when the source tee is unknown. */
+    teeId: string | null;
+    lengthM: number;
+    strokeIndexOverride: number | null;
+}
+
+export interface CompiledPlayingGroup {
+    /** `hash(round_id, group_def_id)`. */
+    id: string;
+    groupDefId: string;
+    startTime: string;
+    /** `round_play_holes.id` of the start occurrence. */
+    startPlayHoleId: string;
+    capacity: number;
+    hittingBay: string | null;
+}
+
+export interface CompiledPlayingGroupBall {
+    playingGroupId: string;
+    ballId: string;
 }
 
 export interface CompiledStrategy {

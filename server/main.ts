@@ -16,7 +16,6 @@ import { createRoundsApi } from './api/rounds.api';
 // single live write boundary for round setup; the `participants` /
 // `participant_players` tables stay for legacy fixture paths + the
 // render-lib bridge, but no HTTP routes target them.
-import { createTeeTimesApi } from './api/tee-times.api';
 import { createScoreEventsApi } from './api/score-events.api';
 import { createScorecardsApi } from './api/scorecards.api';
 import { createLeaderboardsApi } from './api/leaderboards.api';
@@ -44,7 +43,6 @@ const {
     guestPlayerService,
     handicapService,
     roundService,
-    teeTimeService,
     scoreEventService,
     scorecardService,
     leaderboardService,
@@ -62,7 +60,6 @@ mount(app, '/api', createTeesApi(teeService));
 mount(app, '/api', createGuestPlayersApi(guestPlayerService));
 mount(app, '/api', createHandicapApi(handicapService));
 mount(app, '/api', createRoundsApi(roundService));
-mount(app, '/api', createTeeTimesApi(teeTimeService));
 mount(app, '/api', createScoreEventsApi(scoreEventService));
 mount(app, '/api', createScorecardsApi(scorecardService));
 mount(app, '/api', createLeaderboardsApi(leaderboardService));

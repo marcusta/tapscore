@@ -302,3 +302,109 @@ describe('persistCompiledRound', () => {
         ).rejects.toThrow(/requires source_event_id/);
     });
 });
+
+describe('persistCompiledRound — itinerary + playing groups (Slice 3b)', () => {
+    // Explicit reordered/edited itinerary input (non-standard → needs policy).
+    function mkInputWithPlayHoles(
+        playHoles: { id: string; courseHoleNumber: number; baseStrokeIndexOverride: number }[],
+    ): CompilerInput {
+        return {
+            ...mkInput(),
+            definition: {
+                ...definition,
+                routeSi: { mode: 'custom', allocationCycleSize: 18 },
+                routeHandicapPolicy: { type: 'explicit', postingEligible: false },
+                playHoles,
+            },
+        };
+    }
+    const fullExplicit = Array.from({ length: 18 }, (_, i) => ({
+        id: `ph-${i + 1}`,
+        courseHoleNumber: i + 1,
+        baseStrokeIndexOverride: i + 1,
+    }));
+
+    test('writes the itinerary + a default playing group with every ball', async () => {
+        const ctx = await setupRound();
+        const res = compile(mkInput());
+        if (!res.ok) throw new Error(JSON.stringify(res.diagnostics));
+        await persistCompiledRound(ctx.db, res.compiled);
+
+        const holes = await ctx.db
+            .selectFrom('round_play_holes')
+            .selectAll()
+            .where('round_id', '=', 'r1')
+            .orderBy('ordinal')
+            .execute();
+        expect(holes).toHaveLength(18);
+        expect(holes.map((h) => h.ordinal)).toEqual(Array.from({ length: 18 }, (_, i) => i + 1));
+
+        const groups = await ctx.db
+            .selectFrom('playing_groups')
+            .selectAll()
+            .where('round_id', '=', 'r1')
+            .execute();
+        expect(groups).toHaveLength(1);
+
+        const members = await ctx.db
+            .selectFrom('playing_group_balls')
+            .selectAll()
+            .where('playing_group_id', '=', groups[0].id)
+            .execute();
+        expect(members).toHaveLength(3);
+    });
+
+    test('reorder preserves play-hole ids (swapped ordinals, same id set)', async () => {
+        const ctx = await setupRound();
+        const v1 = compile(mkInput());
+        if (!v1.ok) throw new Error(JSON.stringify(v1.diagnostics));
+        await persistCompiledRound(ctx.db, v1.compiled);
+        const before = await ctx.db
+            .selectFrom('round_play_holes')
+            .select(['id', 'ordinal', 'play_hole_def_id'])
+            .where('round_id', '=', 'r1')
+            .execute();
+        const ph1Id = before.find((h) => h.play_hole_def_id === 'ph-1')!.id;
+
+        // Swap the first two occurrences; ids (keyed on def-id) must persist.
+        const swapped = [fullExplicit[1], fullExplicit[0], ...fullExplicit.slice(2)];
+        const v2 = compile(mkInputWithPlayHoles(swapped));
+        if (!v2.ok) throw new Error(JSON.stringify(v2.diagnostics));
+        await persistCompiledRound(ctx.db, v2.compiled, {
+            sourceKind: 'setup_correction',
+            sourceEventId: 'evt-1',
+        });
+
+        const after = await ctx.db
+            .selectFrom('round_play_holes')
+            .select(['id', 'ordinal', 'play_hole_def_id'])
+            .where('round_id', '=', 'r1')
+            .execute();
+        expect(new Set(after.map((h) => h.id))).toEqual(new Set(before.map((h) => h.id)));
+        // 'ph-1' kept its id but moved from ordinal 1 to ordinal 2.
+        const ph1After = after.find((h) => h.id === ph1Id)!;
+        expect(ph1After.play_hole_def_id).toBe('ph-1');
+        expect(ph1After.ordinal).toBe(2);
+    });
+
+    test('removing an occurrence deletes its row (and its tee rows cascade)', async () => {
+        const ctx = await setupRound();
+        const v1 = compile(mkInput());
+        if (!v1.ok) throw new Error(JSON.stringify(v1.diagnostics));
+        await persistCompiledRound(ctx.db, v1.compiled);
+        const dropped = fullExplicit.slice(0, 17); // drop ph-18
+        const v2 = compile(mkInputWithPlayHoles(dropped));
+        if (!v2.ok) throw new Error(JSON.stringify(v2.diagnostics));
+        await persistCompiledRound(ctx.db, v2.compiled, {
+            sourceKind: 'setup_correction',
+            sourceEventId: 'evt-2',
+        });
+        const holes = await ctx.db
+            .selectFrom('round_play_holes')
+            .select(['play_hole_def_id'])
+            .where('round_id', '=', 'r1')
+            .execute();
+        expect(holes).toHaveLength(17);
+        expect(holes.some((h) => h.play_hole_def_id === 'ph-18')).toBe(false);
+    });
+});

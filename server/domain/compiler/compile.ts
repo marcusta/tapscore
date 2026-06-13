@@ -24,9 +24,11 @@
 
 import { hashId, sortProducerSet, type ProducerRef } from '../deterministic-id';
 import { courseHandicap } from '../handicap';
+import { normalize } from './normalize';
 import type {
     BallStrategyDefinition,
     ProducerDefinition,
+    ResolvedRoundDefinition,
     RoundDefinition,
     SlotDefinition,
 } from '../round-definition';
@@ -44,6 +46,10 @@ import type {
 import type {
     CompiledBall,
     CompiledBallPlayer,
+    CompiledPlayHole,
+    CompiledPlayingGroup,
+    CompiledPlayingGroupBall,
+    CompiledPlayTeeHole,
     CompiledRound,
     CompiledSlot,
     CompiledSlotBall,
@@ -83,10 +89,23 @@ interface ResolvedBall {
 export function compile(input: CompilerInput): CompileResult {
     const diags: CompilerDiagnostic[] = [];
 
-    const producers = resolveProducers(input, diags);
+    // Step 0 — normalize the loose authoring input into the fully-explicit
+    // ResolvedRoundDefinition exactly once. Everything downstream operates on
+    // the resolved def; it is also what gets persisted as definition_json.
+    const norm = normalize(input);
+    if (!norm.ok) return { ok: false, diagnostics: norm.diagnostics };
+    const resolved = norm.resolved;
+    const rinput: CompilerInput = { ...input, definition: resolved };
+
+    // Itinerary occurrences + per-tee occurrence snapshots. Independent of
+    // balls; structural diagnostics (missing tee hole) accumulate here.
+    const { playHoles, playTeeHoles } = buildItinerary(input.roundId, resolved, input.tees, diags);
     if (diags.length > 0) return { ok: false, diagnostics: diags };
 
-    const strategies = resolveStrategies(input, producers, diags);
+    const producers = resolveProducers(rinput, diags);
+    if (diags.length > 0) return { ok: false, diagnostics: diags };
+
+    const strategies = resolveStrategies(rinput, producers, diags);
     if (diags.length > 0) return { ok: false, diagnostics: diags };
 
     // Dedupe balls across strategies where allowed. Ball id is content-
@@ -115,14 +134,22 @@ export function compile(input: CompilerInput): CompileResult {
     const slotBalls: CompiledSlotBall[] = [];
     const slotBallTeams: CompiledSlotBallTeam[] = [];
 
-    for (const slotDef of input.definition.slots) {
-        compileSlot(slotDef, input, strategies, allBalls, slots, slotBalls, slotBallTeams, diags);
+    for (const slotDef of resolved.slots) {
+        compileSlot(slotDef, rinput, strategies, allBalls, slots, slotBalls, slotBallTeams, diags);
     }
+    if (diags.length > 0) return { ok: false, diagnostics: diags };
+
+    const { playingGroups, playingGroupBalls } = compilePlayingGroups(
+        input.roundId,
+        resolved,
+        allBalls,
+        diags,
+    );
     if (diags.length > 0) return { ok: false, diagnostics: diags };
 
     const compiled: CompiledRound = {
         roundId: input.roundId,
-        definitionJson: JSON.stringify(input.definition),
+        definitionJson: JSON.stringify(resolved),
         definitionVersion: 1,
         strategies: strategies.map((s) => s.row),
         balls: allBalls.map((b) => b.row),
@@ -130,8 +157,146 @@ export function compile(input: CompilerInput): CompileResult {
         slots,
         slotBalls,
         slotBallTeams,
+        playHoles,
+        playTeeHoles,
+        playingGroups,
+        playingGroupBalls,
     };
     return { ok: true, compiled };
+}
+
+// --- Itinerary --------------------------------------------------------------
+
+/**
+ * Build `round_play_holes` + per-tee occurrence snapshots from the resolved
+ * itinerary. The runtime id is content-addressed on the stable def-id, so a
+ * reorder (which only changes `ordinal`) keeps every id — events stay valid.
+ * Per-occurrence tee length/SI come from the producer tees, with route
+ * `teeOverrides` winning over the frozen `round_tee_holes` snapshot.
+ */
+function buildItinerary(
+    roundId: string,
+    resolved: ResolvedRoundDefinition,
+    tees: Map<string, CompilerTeeContext>,
+    diags: CompilerDiagnostic[],
+): { playHoles: CompiledPlayHole[]; playTeeHoles: CompiledPlayTeeHole[] } {
+    const playHoles: CompiledPlayHole[] = [];
+    const playTeeHoles: CompiledPlayTeeHole[] = [];
+
+    resolved.playHoles.forEach((ph, i) => {
+        const id = hashId('tapscore:round_play_hole:v1', roundId, ph.id);
+        playHoles.push({
+            id,
+            playHoleDefId: ph.id,
+            ordinal: i + 1,
+            courseHoleNumber: ph.courseHoleNumber,
+            par: ph.par,
+            baseStrokeIndex: ph.baseStrokeIndex,
+        });
+
+        for (const [teeId, teeCtx] of tees) {
+            const override = ph.teeOverrides?.find((o) => o.teeId === teeId);
+            const teeHole = teeCtx.holes.find((h) => h.holeNumber === ph.courseHoleNumber);
+            const lengthM = override?.lengthM ?? teeHole?.lengthM;
+            // Length is per-occurrence display data. A tee with no length row
+            // for this hole (minimal fixtures, partially-entered courses)
+            // simply contributes no occurrence-tee snapshot — SI still falls
+            // back to the occurrence base SI. Not a compile error.
+            if (lengthM === undefined) continue;
+            playTeeHoles.push({
+                roundPlayHoleId: id,
+                teeRef: teeId,
+                teeNameSnapshot: teeCtx.teeName,
+                teeId,
+                lengthM,
+                strokeIndexOverride:
+                    override?.strokeIndexOverride ?? teeHole?.strokeIndexOverride ?? null,
+            });
+        }
+    });
+
+    return { playHoles, playTeeHoles };
+}
+
+// --- Playing groups ---------------------------------------------------------
+
+/**
+ * Resolve playing-group ball membership. Producers partition into groups
+ * (every producer in EXACTLY one group); a ball belongs to the single group
+ * its producers share. A team ball whose producers span groups, or any
+ * producer left unassigned / double-assigned, is a hard diagnostic.
+ */
+function compilePlayingGroups(
+    roundId: string,
+    resolved: ResolvedRoundDefinition,
+    allBalls: ResolvedBall[],
+    diags: CompilerDiagnostic[],
+): { playingGroups: CompiledPlayingGroup[]; playingGroupBalls: CompiledPlayingGroupBall[] } {
+    const producerToGroupDef = new Map<string, string>();
+    for (const g of resolved.playingGroups) {
+        for (const pid of g.producerDefIds) {
+            const prior = producerToGroupDef.get(pid);
+            if (prior !== undefined) {
+                diags.push({
+                    code: 'producer_in_multiple_groups',
+                    message: `producer '${pid}' is assigned to groups '${prior}' and '${g.id}'`,
+                    path: `playingGroups`,
+                });
+            } else {
+                producerToGroupDef.set(pid, g.id);
+            }
+        }
+    }
+    for (const p of resolved.producers) {
+        if (!producerToGroupDef.has(p.id)) {
+            diags.push({
+                code: 'producer_not_in_any_group',
+                message: `producer '${p.id}' is not assigned to any playing group`,
+                path: `playingGroups`,
+            });
+        }
+    }
+
+    const playingGroups: CompiledPlayingGroup[] = resolved.playingGroups.map((g) => ({
+        id: hashId('tapscore:playing_group:v1', roundId, g.id),
+        groupDefId: g.id,
+        startTime: g.startTime,
+        startPlayHoleId: hashId('tapscore:round_play_hole:v1', roundId, g.startPlayHoleDefId),
+        capacity: g.capacity,
+        hittingBay: g.hittingBay ?? null,
+    }));
+    const groupRuntimeIdByDef = new Map(playingGroups.map((g) => [g.groupDefId, g.id]));
+
+    const playingGroupBalls: CompiledPlayingGroupBall[] = [];
+    for (const b of allBalls) {
+        const groupDefs = new Set(
+            b.producerDefIds.map((pid) => producerToGroupDef.get(pid)),
+        );
+        if (groupDefs.has(undefined)) {
+            // The offending producer is already diagnosed above; skip.
+            continue;
+        }
+        if (groupDefs.size > 1) {
+            diags.push({
+                code: 'team_ball_crosses_playing_groups',
+                message: `ball ${b.row.id} has producers across multiple playing groups (${[...groupDefs].join(', ')})`,
+            });
+            continue;
+        }
+        if (groupDefs.size === 0) {
+            diags.push({
+                code: 'ball_not_assigned_to_group',
+                message: `ball ${b.row.id} could not be assigned to a playing group`,
+            });
+            continue;
+        }
+        const groupDef = [...groupDefs][0] as string;
+        const groupId = groupRuntimeIdByDef.get(groupDef);
+        if (groupId === undefined) continue;
+        playingGroupBalls.push({ playingGroupId: groupId, ballId: b.row.id });
+    }
+
+    return { playingGroups, playingGroupBalls };
 }
 
 function resolveProducers(

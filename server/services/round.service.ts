@@ -11,10 +11,21 @@ import type {
     ScoringMode,
     TeamShape,
 } from '../db/schema';
-import type { FormatAllowanceConfig, RoundDefinition } from '../domain/round-definition';
+import type {
+    FormatAllowanceConfig,
+    ResolvedRoundDefinition,
+    RoundDefinition,
+    RouteHandicapPolicy,
+    RouteSection,
+    RouteSiResolved,
+} from '../domain/round-definition';
 import type { CompilerInput, CompilerTeeContext, Gender } from '../domain/compiler/types';
 import { compile } from '../domain/compiler/compile';
 import { persistCompiledRound } from '../domain/compiler/persist';
+import {
+    conventionalRouteHandicapPolicy,
+    defaultRouteSections,
+} from '../domain/compiler/normalize';
 
 // --- Output types ---
 
@@ -76,6 +87,71 @@ export interface LegacyFormatSlotInput {
     scopeConfig: FormatSlotConfig | null;
 }
 
+// --- Itinerary + playing-group read model (Slice 3b) -----------------------
+
+/** Effective per-occurrence × tee snapshot. `strokeIndex` resolves the tee override → base SI. */
+export interface RoundPlayHoleTee {
+    teeRef: string;
+    teeName: string;
+    lengthM: number;
+    strokeIndex: number;
+}
+
+/** One ordered itinerary occurrence with its frozen par/SI + per-tee snapshots. */
+export interface RoundPlayHole {
+    id: string;
+    playHoleDefId: string;
+    ordinal: number;
+    courseHoleNumber: number;
+    par: number;
+    baseStrokeIndex: number;
+    tees: RoundPlayHoleTee[];
+}
+
+export interface RoundRouteSi {
+    mode: 'official' | 'difficulty' | 'custom';
+    sourceLabel: string | null;
+    sourceVersion: string | null;
+    allocationCycleSize: number;
+}
+
+export interface RoundRoutePolicy {
+    type: 'official_route' | 'full_course_casual' | 'prorated_casual' | 'explicit';
+    postingEligible: boolean;
+    postingIneligibleReason: string | null;
+}
+
+export interface RoundRouteSection {
+    id: string;
+    label: string;
+    fromCanonicalOrdinal: number;
+    toCanonicalOrdinal: number;
+}
+
+/** One occurrence in a group's rotated played order. */
+export interface RoundGroupPlayedHole {
+    playHoleId: string;
+    ordinal: number;
+    courseHoleNumber: number;
+    /** 1..N position within THIS group's rotated sequence. */
+    groupRelativeOrder: number;
+}
+
+export interface RoundPlayingGroup {
+    id: string;
+    startTime: string;
+    capacity: number;
+    hittingBay: string | null;
+    startPlayHoleId: string;
+    startOrdinal: number;
+    /** The occurrence this group finishes on (itinerary rotated from start). */
+    endPlayHoleId: string;
+    endOrdinal: number;
+    ballIds: string[];
+    /** Itinerary rotated to this group's start — its effective played order. */
+    playedOrder: RoundGroupPlayedHole[];
+}
+
 export interface Round {
     id: string;
     courseId: string;
@@ -90,6 +166,11 @@ export interface Round {
     latestEventId: string | null;
     courseNameSnapshot: string | null;
     formatSlots: FormatSlot[];
+    playHoles: RoundPlayHole[];
+    routeSi: RoundRouteSi;
+    routeHandicapPolicy: RoundRoutePolicy;
+    routeSections: RoundRouteSection[];
+    playingGroups: RoundPlayingGroup[];
 }
 
 /**
@@ -221,7 +302,16 @@ function toFormatSlots(rows: SlotRow[]): FormatSlot[] {
         .sort((a, b) => a.slotIndex - b.slotIndex);
 }
 
-function toRound(row: RoundRow, formatSlots: FormatSlot[]): Round {
+interface RoundParts {
+    formatSlots: FormatSlot[];
+    playHoles: RoundPlayHole[];
+    routeSi: RoundRouteSi;
+    routeHandicapPolicy: RoundRoutePolicy;
+    routeSections: RoundRouteSection[];
+    playingGroups: RoundPlayingGroup[];
+}
+
+function toRound(row: RoundRow, parts: RoundParts): Round {
     return {
         id: row.id,
         courseId: row.course_id,
@@ -235,7 +325,164 @@ function toRound(row: RoundRow, formatSlots: FormatSlot[]): Round {
         status: row.status,
         latestEventId: row.latest_event_id,
         courseNameSnapshot: row.course_name_snapshot,
-        formatSlots,
+        formatSlots: parts.formatSlots,
+        playHoles: parts.playHoles,
+        routeSi: parts.routeSi,
+        routeHandicapPolicy: parts.routeHandicapPolicy,
+        routeSections: parts.routeSections,
+        playingGroups: parts.playingGroups,
+    };
+}
+
+// --- Itinerary + group assembly --------------------------------------------
+
+interface PlayHoleRow {
+    id: string;
+    play_hole_def_id: string;
+    ordinal: number;
+    course_hole_number: number;
+    par: number;
+    base_stroke_index: number;
+}
+interface PlayTeeHoleRow {
+    round_play_hole_id: string;
+    tee_ref: string;
+    tee_name_snapshot: string;
+    length_m: number;
+    stroke_index_override: number | null;
+}
+
+function buildPlayHoles(holes: PlayHoleRow[], teeRows: PlayTeeHoleRow[]): RoundPlayHole[] {
+    const teesByHole = new Map<string, RoundPlayHoleTee[]>();
+    for (const t of teeRows) {
+        const list = teesByHole.get(t.round_play_hole_id) ?? [];
+        list.push({
+            teeRef: t.tee_ref,
+            teeName: t.tee_name_snapshot,
+            lengthM: t.length_m,
+            // Effective SI: per-tee occurrence override wins over the base SI.
+            strokeIndex: t.stroke_index_override ?? 0,
+        });
+        teesByHole.set(t.round_play_hole_id, list);
+    }
+    return [...holes]
+        .sort((a, b) => a.ordinal - b.ordinal)
+        .map((h) => ({
+            id: h.id,
+            playHoleDefId: h.play_hole_def_id,
+            ordinal: h.ordinal,
+            courseHoleNumber: h.course_hole_number,
+            par: h.par,
+            baseStrokeIndex: h.base_stroke_index,
+            tees: (teesByHole.get(h.id) ?? []).map((t) => ({
+                ...t,
+                // Resolve the "no override" sentinel to the occurrence base SI.
+                strokeIndex: t.strokeIndex === 0 ? h.base_stroke_index : t.strokeIndex,
+            })),
+        }));
+}
+
+function buildPlayingGroups(
+    groupRows: { id: string; start_time: string; start_play_hole_id: string; capacity: number; hitting_bay: string | null }[],
+    ballRows: { playing_group_id: string; ball_id: string }[],
+    playHoles: RoundPlayHole[],
+): RoundPlayingGroup[] {
+    const ballsByGroup = new Map<string, string[]>();
+    for (const b of ballRows) {
+        const list = ballsByGroup.get(b.playing_group_id) ?? [];
+        list.push(b.ball_id);
+        ballsByGroup.set(b.playing_group_id, list);
+    }
+    const ordered = [...playHoles].sort((a, b) => a.ordinal - b.ordinal);
+    const startIndexById = new Map(ordered.map((p, i) => [p.id, i]));
+
+    return groupRows.map((g) => {
+        const startIdx = startIndexById.get(g.start_play_hole_id) ?? 0;
+        // Itinerary rotated to this group's start — its effective played order.
+        const playedOrder: RoundGroupPlayedHole[] = ordered.map((_, k) => {
+            const ph = ordered[(startIdx + k) % ordered.length];
+            return {
+                playHoleId: ph.id,
+                ordinal: ph.ordinal,
+                courseHoleNumber: ph.courseHoleNumber,
+                groupRelativeOrder: k + 1,
+            };
+        });
+        const end = playedOrder[playedOrder.length - 1];
+        return {
+            id: g.id,
+            startTime: g.start_time,
+            capacity: g.capacity,
+            hittingBay: g.hitting_bay,
+            startPlayHoleId: g.start_play_hole_id,
+            startOrdinal: ordered[startIdx]?.ordinal ?? 1,
+            endPlayHoleId: end?.playHoleId ?? g.start_play_hole_id,
+            endOrdinal: end?.ordinal ?? 1,
+            ballIds: ballsByGroup.get(g.id) ?? [],
+            playedOrder,
+        };
+    });
+}
+
+/**
+ * Route SI provenance / handicap policy / sections. A resolved-v1 definition
+ * carries them verbatim; a legacy (pre-3b) definition is normalized on read —
+ * conventional official route, policy by full-course coverage, default
+ * sections — without rewriting history (the next recompile upgrades it).
+ */
+function buildRouteMeta(
+    definitionJson: string | null,
+    playHoles: RoundPlayHole[],
+    courseHoleCount: number,
+): { routeSi: RoundRouteSi; routeHandicapPolicy: RoundRoutePolicy; routeSections: RoundRouteSection[] } {
+    const parsed = definitionJson ? (JSON.parse(definitionJson) as Partial<ResolvedRoundDefinition>) : null;
+    if (parsed && parsed.schemaVersion === 'resolved-v1') {
+        const si = parsed.routeSi as RouteSiResolved;
+        const policy = parsed.routeHandicapPolicy as RouteHandicapPolicy;
+        const sections = (parsed.routeSections ?? []) as RouteSection[];
+        return {
+            routeSi: {
+                mode: si.mode,
+                sourceLabel: si.sourceLabel ?? null,
+                sourceVersion: si.sourceVersion ?? null,
+                allocationCycleSize: si.allocationCycleSize,
+            },
+            routeHandicapPolicy: {
+                type: policy.type,
+                postingEligible: policy.postingEligible,
+                postingIneligibleReason: policy.postingIneligibleReason ?? null,
+            },
+            routeSections: sections.map((s) => ({
+                id: s.id,
+                label: s.label,
+                fromCanonicalOrdinal: s.fromCanonicalOrdinal,
+                toCanonicalOrdinal: s.toCanonicalOrdinal,
+            })),
+        };
+    }
+    // Legacy normalize-on-read.
+    const distinct = new Set(playHoles.map((p) => p.courseHoleNumber));
+    const coversFullCourse =
+        playHoles.length === courseHoleCount && distinct.size === courseHoleCount;
+    const policy = conventionalRouteHandicapPolicy(coversFullCourse);
+    return {
+        routeSi: {
+            mode: 'official',
+            sourceLabel: null,
+            sourceVersion: null,
+            allocationCycleSize: courseHoleCount || playHoles.length,
+        },
+        routeHandicapPolicy: {
+            type: policy.type,
+            postingEligible: policy.postingEligible,
+            postingIneligibleReason: policy.postingIneligibleReason ?? null,
+        },
+        routeSections: defaultRouteSections(playHoles.length).map((s) => ({
+            id: s.id,
+            label: s.label,
+            fromCanonicalOrdinal: s.fromCanonicalOrdinal,
+            toCanonicalOrdinal: s.toCanonicalOrdinal,
+        })),
     };
 }
 
@@ -260,6 +507,77 @@ export class RoundService {
     // as a deprecated write bridge for `createLegacy` / `update`.)
     private slotsFor(roundId: string) {
         return this.db.selectFrom('slots').selectAll().where('round_id', '=', roundId);
+    }
+
+    /**
+     * Fetch every per-round read-model part (slots, itinerary, route meta,
+     * playing groups) and assemble a `Round`. Shared by `list` / `getById`.
+     */
+    private async hydrate(row: RoundRow): Promise<Round> {
+        const roundId = row.id;
+        const [slots, holes, teeHoles, groups, groupBalls, courseHoleCountRow, latestDef] =
+            await Promise.all([
+                this.slotsFor(roundId).execute(),
+                this.db
+                    .selectFrom('round_play_holes')
+                    .select([
+                        'id',
+                        'play_hole_def_id',
+                        'ordinal',
+                        'course_hole_number',
+                        'par',
+                        'base_stroke_index',
+                    ])
+                    .where('round_id', '=', roundId)
+                    .execute(),
+                this.db
+                    .selectFrom('round_play_tee_holes as t')
+                    .innerJoin('round_play_holes as h', 'h.id', 't.round_play_hole_id')
+                    .where('h.round_id', '=', roundId)
+                    .select([
+                        't.round_play_hole_id',
+                        't.tee_ref',
+                        't.tee_name_snapshot',
+                        't.length_m',
+                        't.stroke_index_override',
+                    ])
+                    .execute(),
+                this.db
+                    .selectFrom('playing_groups')
+                    .select(['id', 'start_time', 'start_play_hole_id', 'capacity', 'hitting_bay'])
+                    .where('round_id', '=', roundId)
+                    .orderBy('start_time')
+                    .execute(),
+                this.db
+                    .selectFrom('playing_group_balls as pgb')
+                    .innerJoin('playing_groups as pg', 'pg.id', 'pgb.playing_group_id')
+                    .where('pg.round_id', '=', roundId)
+                    .select(['pgb.playing_group_id', 'pgb.ball_id'])
+                    .execute(),
+                this.db
+                    .selectFrom('round_course_holes')
+                    .select((eb) => eb.fn.countAll<number>().as('n'))
+                    .where('round_id', '=', roundId)
+                    .executeTakeFirst(),
+                this.db
+                    .selectFrom('round_definitions')
+                    .select('definition_json')
+                    .where('round_id', '=', roundId)
+                    .where('superseded_by_version', 'is', null)
+                    .executeTakeFirst(),
+            ]);
+
+        const playHoles = buildPlayHoles(holes, teeHoles);
+        const courseHoleCount = Number(courseHoleCountRow?.n ?? 0);
+        const route = buildRouteMeta(latestDef?.definition_json ?? null, playHoles, courseHoleCount);
+        return toRound(row, {
+            formatSlots: toFormatSlots(slots),
+            playHoles,
+            routeSi: route.routeSi,
+            routeHandicapPolicy: route.routeHandicapPolicy,
+            routeSections: route.routeSections,
+            playingGroups: buildPlayingGroups(groups, groupBalls, playHoles),
+        });
     }
 
     // --- Queries (write) ---
@@ -314,8 +632,7 @@ export class RoundService {
         const rows = await this.rounds().orderBy('date', 'desc').execute();
         const result: Round[] = [];
         for (const row of rows) {
-            const slots = await this.slotsFor(row.id).execute();
-            result.push(toRound(row, toFormatSlots(slots)));
+            result.push(await this.hydrate(row));
         }
         return result;
     }
@@ -323,8 +640,7 @@ export class RoundService {
     async getById(id: string): Promise<Round | null> {
         const row = await this.byId(id).executeTakeFirst();
         if (!row) return null;
-        const slots = await this.slotsFor(id).execute();
-        return toRound(row, toFormatSlots(slots));
+        return this.hydrate(row);
     }
 
     async ballsForRound(roundId: string): Promise<RoundBall[]> {

@@ -18,7 +18,9 @@ const HASH_LENGTH = 20;
 export type IdNamespace =
     | 'tapscore:ball:v1'
     | 'tapscore:slot:v1'
-    | 'tapscore:round_ball_strategy:v1';
+    | 'tapscore:round_ball_strategy:v1'
+    | 'tapscore:round_play_hole:v1'
+    | 'tapscore:playing_group:v1';
 
 /**
  * Deterministic id for compiler outputs. Pure function of `(namespace,

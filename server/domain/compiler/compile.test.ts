@@ -235,3 +235,113 @@ describe('compile — diagnostics', () => {
         expect(res.diagnostics.some((d) => d.code === 'slot_ball_count_below_min')).toBe(true);
     });
 });
+
+describe('compile — itinerary + playing groups (Slice 3b)', () => {
+    const singles: RoundDefinition = {
+        courseId: 'c1',
+        playedAt: '2026-01-01',
+        producers: ['p1', 'p2', 'p3'].map((id) => ({
+            id,
+            playerRef: { kind: 'player', id },
+            handicapIndex: 10,
+            gender: 'M',
+            teeId: 'tee-y',
+        })),
+        ballStrategies: [
+            { id: 'own', strategyId: 'own_ball_per_player', derivationConfig: { type: 'single' } },
+        ],
+        slots: [
+            {
+                id: 'slot-1',
+                formatId: 'stableford_individual',
+                allowanceConfig: { type: 'flat', pct: 95 },
+                ballSelector: { strategyDefIds: ['own'] },
+            },
+        ],
+    };
+
+    test('conventional round emits 18 occurrences + per-tee snapshots', () => {
+        const res = compile(mkInput(singles, ['p1', 'p2', 'p3']));
+        if (!res.ok) throw new Error(JSON.stringify(res.diagnostics));
+        expect(res.compiled.playHoles).toHaveLength(18);
+        expect(res.compiled.playHoles[0].ordinal).toBe(1);
+        // One tee × 18 occurrences = 18 occurrence-tee rows.
+        expect(res.compiled.playTeeHoles).toHaveLength(18);
+        // Runtime id is content-addressed on the stable def-id.
+        const distinctIds = new Set(res.compiled.playHoles.map((p) => p.id));
+        expect(distinctIds.size).toBe(18);
+    });
+
+    test('default single group contains every ball', () => {
+        const res = compile(mkInput(singles, ['p1', 'p2', 'p3']));
+        if (!res.ok) throw new Error(JSON.stringify(res.diagnostics));
+        expect(res.compiled.playingGroups).toHaveLength(1);
+        expect(res.compiled.playingGroupBalls).toHaveLength(3);
+        const groupIds = new Set(res.compiled.playingGroupBalls.map((m) => m.playingGroupId));
+        expect(groupIds.size).toBe(1);
+    });
+
+    test('producer left out of every group → producer_not_in_any_group', () => {
+        const res = compile(
+            mkInput(
+                {
+                    ...singles,
+                    playingGroups: [
+                        { startTime: '08:00', startOrdinal: 1, capacity: 4, producerDefIds: ['p1', 'p2'] },
+                    ],
+                },
+                ['p1', 'p2', 'p3'],
+            ),
+        );
+        expect(res.ok).toBe(false);
+        if (res.ok) return;
+        expect(res.diagnostics.some((d) => d.code === 'producer_not_in_any_group')).toBe(true);
+    });
+
+    test('team ball whose producers span groups → team_ball_crosses_playing_groups', () => {
+        const foursomes: RoundDefinition = {
+            courseId: 'c1',
+            playedAt: '2026-01-01',
+            producers: ['p1', 'p2', 'p3', 'p4'].map((id) => ({
+                id,
+                playerRef: { kind: 'player', id },
+                handicapIndex: 10,
+                gender: 'M',
+                teeId: 'tee-y',
+            })),
+            ballStrategies: [
+                {
+                    id: 'pairs',
+                    strategyId: 'alt_shot_pair',
+                    derivationConfig: { type: 'avg' },
+                    composition: {
+                        teams: [
+                            { label: 'AB', producerDefIds: ['p1', 'p2'] },
+                            { label: 'CD', producerDefIds: ['p3', 'p4'] },
+                        ],
+                    },
+                },
+            ],
+            slots: [
+                {
+                    id: 'slot-1',
+                    formatId: 'stroke_play_foursomes',
+                    allowanceConfig: { type: 'flat', pct: 50 },
+                    ballSelector: { strategyDefIds: ['pairs'] },
+                },
+            ],
+            // Groups split each pair across two groups — every producer is
+            // assigned exactly once, but the AB / CD team balls cross groups.
+            playingGroups: [
+                { startTime: '08:00', startOrdinal: 1, capacity: 2, producerDefIds: ['p1', 'p3'] },
+                { startTime: '08:10', startOrdinal: 1, capacity: 2, producerDefIds: ['p2', 'p4'] },
+            ],
+        };
+        const res = compile(mkInput(foursomes, ['p1', 'p2', 'p3', 'p4']));
+        expect(res.ok).toBe(false);
+        if (res.ok) return;
+        expect(
+            res.diagnostics.some((d) => d.code === 'team_ball_crosses_playing_groups'),
+        ).toBe(true);
+    });
+});
