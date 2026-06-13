@@ -29,9 +29,9 @@ interface Player {
 interface Scenario {
     formatId: RoundFormatId;
     players: Player[];
-    /** Expect at least one `byScoringType` bucket of this scoringType. */
+    /** Expect at least one ranked leaderboard section with this metric id. */
     expectBucket?: string;
-    /** Expect this many pair results. */
+    /** Expect this many match-summary lines (pair/state-only formats). */
     expectPairs?: number;
 }
 
@@ -84,26 +84,35 @@ for (const s of SCENARIOS) {
             }
         }
 
-        const lb = await ctx.leaderboardService.forRound(round.id);
+        const rr = await ctx.leaderboardService.resultForRound(round.id);
+        const ranked = rr.slots.flatMap((sl) =>
+            sl.leaderboard.filter((l) => l.kind === 'ranked'),
+        );
+        const matchLines = rr.slots.flatMap((sl) =>
+            sl.leaderboard.filter((l) => l.kind === 'match_summary').flatMap((m) => m.lines),
+        );
+        // Every ball id that surfaces in a result section is a REAL ball id —
+        // the builder resolves `team:<label>` aggregates to member ball ids.
+        const sectionBallIds = [
+            ...ranked.flatMap((r) => r.entries.flatMap((e) => e.ballIds)),
+            ...matchLines.flatMap((line) =>
+                line.segments.flatMap((seg) => ('ballIds' in seg ? seg.ballIds : [])),
+            ),
+        ];
+        for (const id of sectionBallIds) expect(id.startsWith('team:')).toBe(false);
 
         if (s.expectBucket) {
-            const bucket = lb.byScoringType.find((b) => b.scoringType === s.expectBucket);
-            expect(bucket, `expected a '${s.expectBucket}' bucket for ${s.formatId}`).toBeDefined();
-            expect(bucket!.entries.length).toBeGreaterThan(0);
-            // Every ranked entry keys on a real ball id (no `team:<label>` leak).
-            for (const e of bucket!.entries) expect(e.ballId.startsWith('team:')).toBe(false);
+            const section = ranked.find((r) => r.metricId === s.expectBucket);
+            expect(section, `expected a '${s.expectBucket}' ranked section for ${s.formatId}`).toBeDefined();
+            expect(section!.entries.length).toBeGreaterThan(0);
         }
         if (s.expectPairs !== undefined) {
-            expect(lb.pairResults).toHaveLength(s.expectPairs);
-            for (const pr of lb.pairResults) {
-                expect(pr.balls[0].startsWith('team:')).toBe(false);
-                expect(pr.balls[1].startsWith('team:')).toBe(false);
-            }
+            expect(matchLines).toHaveLength(s.expectPairs);
         }
     });
 }
 
-test('forRound resolves formats from the canonical registry (cleared registry → fails loud)', async () => {
+test('resultForRound resolves formats from the canonical registry (cleared registry → fails loud)', async () => {
     const { ctx, courseId, teeId } = await setup();
     const pl = await ctx.playerService.register({ username: `reg-proof-${seq++}`, password: 'password123', displayName: 'Reg' });
     const { round } = await createCompiledRound(ctx, {
@@ -116,7 +125,7 @@ test('forRound resolves formats from the canonical registry (cleared registry �
     // Empty the canonical format registry: scoring must fail because it
     // resolves the plugin from THIS registry (no legacy fallback).
     resetBuiltInFormats();
-    await expect(ctx.leaderboardService.forRound(round.id)).rejects.toThrow(
+    await expect(ctx.leaderboardService.resultForRound(round.id)).rejects.toThrow(
         /no format plugin registered/,
     );
 });

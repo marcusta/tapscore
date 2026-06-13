@@ -1,6 +1,5 @@
 import { test, expect } from 'bun:test';
-import { courseHolesForRound } from './round-holes';
-import type { CourseHole } from './format';
+import { courseHolesForRound, type CourseHole } from './round-holes';
 
 const ALL_18: CourseHole[] = Array.from({ length: 18 }, (_, i) => ({
     holeNumber: i + 1,

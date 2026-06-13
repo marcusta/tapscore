@@ -1,7 +1,7 @@
 import { Computed, Signal } from '@basics/core/client/core';
 import { request, type RequestError } from '@basics/core/client/request';
 import { api } from '../api';
-import type { Leaderboard } from '../api/leaderboards.gen';
+import type { RoundResult } from '../api/leaderboards.gen';
 import type { Round, RoundBall } from '../api/rounds.gen';
 
 export class ResultsService {
@@ -10,7 +10,12 @@ export class ResultsService {
 
     readonly roundId = new Signal<string | null>(null);
     readonly round = new Signal<Round | null>(null);
-    readonly leaderboard = new Signal<Leaderboard | null>(null);
+    // Slice 2c: the leaderboard API now returns the canonical `RoundResult`
+    // (per-slot serializable result sections). The mobile results view is
+    // rebuilt against these sections in 2.6e (M4 — section-driven results);
+    // until then the service holds the payload and the component renders a
+    // placeholder. The authoritative result surface is the static fixtures.
+    readonly result = new Signal<RoundResult | null>(null);
     readonly balls = new Signal<RoundBall[]>([]);
 
     readonly labelByBall = new Computed(() => {
@@ -21,8 +26,6 @@ export class ResultsService {
         return m;
     });
 
-    readonly buckets = new Computed(() => this.leaderboard.get()?.byScoringType ?? []);
-
     async load(roundId: string): Promise<void> {
         this.roundId.set(roundId);
         const [round, balls] = await Promise.all([
@@ -31,8 +34,8 @@ export class ResultsService {
         ]);
         if (round) this.round.set(round);
         if (balls) this.balls.set(balls);
-        const lb = await request(this.loading, this.error, () =>
+        const rr = await request(this.loading, this.error, () =>
             api.leaderboards.forRound({ roundId }));
-        if (lb) this.leaderboard.set(lb);
+        if (rr) this.result.set(rr);
     }
 }

@@ -3,7 +3,7 @@
 // player so the per-player GIR rows surface in the scorecard.
 //
 // Umbrella is a 2v2 points-per-hole game with 5 categories and a "umbrella"
-// (sweep) doubling rule. See `server/domain/formats/umbrella-4-ball.ts`.
+// (sweep) doubling rule. See `server/domain/strategies/formats/umbrella-4-ball.ts`.
 //
 // Per-player events via `sourcePlayerId` (the 2.5d channel) and per-player
 // GIR flags via `metadata: {gir}` (the 2.5h channel). All players at

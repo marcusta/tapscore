@@ -1,5 +1,16 @@
 import type { RoundType } from '../db/schema';
-import type { CourseHole } from './format';
+
+/**
+ * Format-agnostic per-hole course metadata — par + stroke index, keyed by
+ * hole number. Strategies and stroke allocation read this shape; it carries
+ * no scoring or format knowledge. (Moved here from the deleted legacy
+ * `domain/format.ts` in Slice 2c.)
+ */
+export interface CourseHole {
+    holeNumber: number;
+    par: number;
+    strokeIndex: number;
+}
 
 /**
  * Which holes of a course a round actually plays. Stroke allocation, scoring,

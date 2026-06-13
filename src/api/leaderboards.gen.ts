@@ -1,61 +1,80 @@
 // GENERATED — DO NOT EDIT
 import { apiFetch } from '@basics/core/client/fetch';
 
-export interface Leaderboard {
-    byScoringType: LeaderboardByType[];
-    ballResults: BallResult[];
-    pairResults: PairResult[];
+export interface RoundResult {
+    slots: SlotResultView[];
 }
 
-export interface LeaderboardByType {
+export interface SlotResultView {
     slotIndex: number;
-    scoringType: string;
-    entries: LeaderboardEntry[];
+    slotDefId: string;
+    formatId: string;
+    formatLabel: string;
+    scoringMode: string;
+    teamShape: string;
+    allowanceLabel: string;
+    cards: ScoreGridSection[];
+    leaderboard: (RankedSection | MatchSummarySection)[];
 }
 
-export interface BallResult {
-    ballId: string;
-    slotIndex: number;
-    holes: HoleResult[];
-    totals: ({ scoringType: string; value: null | number })[];
-    holesPlayed: number;
+export interface ScoreGridSection {
+    kind: 'score_grid';
+    title: { groups: string[][]; joiner: string };
+    subjectBallIds: string[];
+    holes: HoleRef[];
+    subtitleFacts: string[];
+    rows: GridRow[];
+    footnotes: string[];
+    totals: ({ label: string; value: null | number })[];
 }
 
-export interface PairResult {
-    slotIndex: number;
-    balls: [string, string];
-    holes: PairHoleResult[];
-    summary: string;
-    result: 'won' | 'lost' | 'halved' | 'in_progress';
-    winner: null | string;
+export interface RankedSection {
+    kind: 'ranked';
+    metricId: string;
+    metricLabel: string;
+    entries: RankedEntry[];
 }
 
-export interface LeaderboardEntry {
-    ballId: string;
-    position: number;
+export interface MatchSummarySection {
+    kind: 'match_summary';
+    title: string;
+    lines: MatchLine[];
+}
+
+export interface HoleRef {
+    holeNumber: number;
+}
+
+export interface GridRow {
+    label: string;
+    subjectBallId?: string;
+    kind: 'par' | 'si' | 'given' | 'gross' | 'net' | 'points' | 'running' | 'status' | 'category' | 'free';
+    cells: GridCell[];
+    aggregate: 'sum' | 'last' | 'none';
+    emphasis?: boolean;
+}
+
+export interface RankedEntry {
+    ballIds: string[];
     total: null | number;
     holesPlayed: number;
+    position: number;
 }
 
-export interface HoleResult {
-    holeNumber: number;
-    gross: null | number;
-    net: null | number;
-    points: null | number;
-    note?: string;
+export interface MatchLine {
+    segments: ({ text: string } | { ballIds: string[] })[];
+    result: 'won' | 'lost' | 'halved' | 'in_progress';
 }
 
-export interface PairHoleResult {
+export interface GridCell {
     holeNumber: number;
-    status: null | 'won' | 'lost' | 'halved';
-    fromA: null | number;
-    fromB: null | number;
-    pointsDelta: null | number;
-    note?: string;
+    value: null | number;
+    display?: string;
+    title?: string;
 }
 
 export interface LeaderboardsApi {
-    forRound(input: { roundId: string }): Promise<Leaderboard>;
+    forRound(input: { roundId: string }): Promise<RoundResult>;
 }
 
 export function createLeaderboardsClient(baseUrl: string): LeaderboardsApi {

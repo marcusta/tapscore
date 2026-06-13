@@ -2,7 +2,7 @@
 //
 // Taliban is a 2v2 match-play variant with gross-birdie / eagle bonuses and
 // a running "down team" multiplier. See
-// `server/domain/formats/taliban-better-ball.ts` for the rules.
+// `server/domain/strategies/formats/taliban-better-ball.ts` for the rules.
 //
 // Two teams, four players, per-player events via `sourcePlayerId` (the 2.5d
 // event-sourcing channel). All players are set to handicap 0 (PH=0 on any

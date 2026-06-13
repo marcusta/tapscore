@@ -11,6 +11,17 @@
 import { test, expect } from 'bun:test';
 import { createTestDb } from './testing/db';
 import { createCompiledRound } from './testing/compiler-rounds';
+import type { RankedSection, RoundResult } from './domain/strategies/result-sections';
+
+/** The ranked leaderboard section for `metricId` in a slot (default slot 0). */
+function rankedSection(rr: RoundResult, metricId: string, slotIndex = 0): RankedSection {
+    const slot = rr.slots.find((s) => s.slotIndex === slotIndex);
+    const sec = slot?.leaderboard.find(
+        (l): l is RankedSection => l.kind === 'ranked' && l.metricId === metricId,
+    );
+    if (!sec) throw new Error(`no ranked '${metricId}' section in slot ${slotIndex}`);
+    return sec;
+}
 
 async function fullSetup() {
     const ctx = await createTestDb();
@@ -142,16 +153,16 @@ test('full round flow: 4 participants, events, leaderboard, idempotency, replay'
     expect(aliceCard.holes.map((h) => h.strokes)).toEqual([4, 5]);
 
     // Leaderboard updates — gross ranking respects strokes so far.
-    const lb = await leaderboardService.forRound(roundId);
-    const gross = lb.byScoringType.find((b) => b.scoringType === 'gross')!;
+    const rr = await leaderboardService.resultForRound(roundId);
+    const gross = rankedSection(rr, 'gross');
     expect(gross.entries).toHaveLength(4);
-    const firstEntry = gross.entries[0];
+    const firstEntry = gross.entries[0]!;
     // Dan has only 1 stroke total (4), tied with Alice and Bob having 2 holes played.
     // Among played totals: Dan=4, Alice=9, Bob=11, Carol=6.
     // So order: Dan (4), Carol (6), Alice (9), Bob (11).
-    expect(firstEntry.ballId).toBe(danBall);
+    expect(firstEntry.ballIds).toEqual([danBall]);
     expect(firstEntry.total).toBe(4);
-    expect(gross.entries.map((e) => e.ballId)).toEqual([
+    expect(gross.entries.map((e) => e.ballIds[0])).toEqual([
         danBall,
         carolBall,
         aliceBall,
@@ -232,7 +243,7 @@ test('score_cleared wipes strokes and clears the leaderboard contribution', asyn
     expect(card.holes[0].strokes).toBeNull();
 
     // Leaderboard: everyone has null totals now → all sort last, no winner.
-    const lb = await leaderboardService.forRound(roundId);
-    const gross = lb.byScoringType.find((b) => b.scoringType === 'gross')!;
+    const rr = await leaderboardService.resultForRound(roundId);
+    const gross = rankedSection(rr, 'gross');
     expect(gross.entries.every((e) => e.total === null)).toBe(true);
 });

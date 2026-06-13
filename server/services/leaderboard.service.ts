@@ -2,20 +2,17 @@ import { sql, type Kysely } from 'kysely';
 import type { Database } from '../db/schema';
 import type { Round, RoundService } from './round.service';
 import type { CourseService } from './course.service';
-import type { Leaderboard } from '../domain/leaderboard';
 import {
     materializeRound,
-    scoreRound,
     type MaterializeBallPlayer,
     type RoundLeaderboardInput,
-} from '../domain/leaderboard-engine';
+} from '../domain/round-materializer';
 import { findFormatPlugin } from '../domain/formats/plugin';
 import { buildSlotResult } from '../domain/strategies/result-builder';
 import type { RoundResult } from '../domain/strategies/result-sections';
 import type { RoundDefinition } from '../domain/round-definition';
 import type { StrategyEvent } from '../domain/strategies/types';
-import { courseHolesForRound } from '../domain/round-holes';
-import type { CourseHole } from '../domain/format';
+import { courseHolesForRound, type CourseHole } from '../domain/round-holes';
 
 /**
  * Materialises the inputs to the canonical scoring engine — round-context
@@ -27,8 +24,9 @@ import type { CourseHole } from '../domain/format';
  * `format_id` is recovered from the latest `round_definitions` version keyed
  * by the stable `slot_def_id` — never from slot array position. The legacy
  * `(scoring_mode, team_shape)` columns on `slots` are not used as a lookup
- * key. The engine adapts each plugin's `StrategyResult` back to the
- * `Leaderboard` shape the static renderer + mobile still consume.
+ * key. Each plugin's `StrategyResult` is reshaped by the pure `result-builder`
+ * into serializable {@link RoundResult} sections — there is no `Leaderboard`
+ * adapter (the legacy engine + `forRound()` were deleted in Slice 2c).
  *
  * Hard errors (before scoring) if:
  *   a) round has no compiled slots;
@@ -206,31 +204,6 @@ export class LeaderboardService {
         };
 
         return { input, round, playedSet };
-    }
-
-    /**
-     * Legacy `Leaderboard` shape — still consumed by the round API + mobile
-     * (`src/`) until 2.6e. Built through the canonical plugin engine, then
-     * adapted back to the legacy types in `leaderboard-engine.ts`. The static
-     * renderer no longer calls this; it uses {@link resultForRound}.
-     */
-    async forRound(roundId: string): Promise<Leaderboard> {
-        const { input, playedSet } = await this.buildInput(roundId);
-        const lb = scoreRound(materializeRound(input), findFormatPlugin);
-
-        // Trim per-hole rows to the played set so consumers see a clean 9-hole
-        // (or 18-hole) view. Totals already exclude null-gross holes.
-        return {
-            ...lb,
-            ballResults: lb.ballResults.map((r) => ({
-                ...r,
-                holes: r.holes.filter((h) => playedSet.has(h.holeNumber)),
-            })),
-            pairResults: lb.pairResults.map((pr) => ({
-                ...pr,
-                holes: pr.holes.filter((h) => playedSet.has(h.holeNumber)),
-            })),
-        };
     }
 
     /**

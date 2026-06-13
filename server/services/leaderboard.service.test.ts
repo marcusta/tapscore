@@ -1,6 +1,59 @@
 import { test, expect } from 'bun:test';
 import { createTestDb } from '../testing/db';
 import { createCompiledRound } from '../testing/compiler-rounds';
+import type {
+    RankedSection,
+    RoundResult,
+    ScoreGridSection,
+} from '../domain/strategies/result-sections';
+
+// --- Section helpers (the service now returns canonical RoundResult) --------
+
+/** The ranked leaderboard section for `metricId` within a given slot. */
+function ranked(rr: RoundResult, slotIndex: number, metricId: string): RankedSection {
+    const slot = rr.slots.find((s) => s.slotIndex === slotIndex);
+    if (!slot) throw new Error(`no slot ${slotIndex} in result`);
+    const sec = slot.leaderboard.find(
+        (l): l is RankedSection => l.kind === 'ranked' && l.metricId === metricId,
+    );
+    if (!sec) throw new Error(`no ranked '${metricId}' section in slot ${slotIndex}`);
+    return sec;
+}
+
+/** All ranked sections for `metricId` across every slot, in slot order. */
+function rankedAcrossSlots(rr: RoundResult, metricId: string): (RankedSection & { slotIndex: number })[] {
+    return rr.slots
+        .flatMap((s) =>
+            s.leaderboard
+                .filter((l): l is RankedSection => l.kind === 'ranked' && l.metricId === metricId)
+                .map((l) => ({ ...l, slotIndex: s.slotIndex })),
+        );
+}
+
+/** The metric ids of every ranked section in a slot, sorted. */
+function rankedMetrics(rr: RoundResult, slotIndex: number): string[] {
+    const slot = rr.slots.find((s) => s.slotIndex === slotIndex);
+    return (slot?.leaderboard ?? [])
+        .filter((l): l is RankedSection => l.kind === 'ranked')
+        .map((l) => l.metricId)
+        .sort();
+}
+
+/** Played hole numbers for a slot's first card (= the trimmed grid columns). */
+function cardHoleNumbers(rr: RoundResult, slotIndex: number): number[] {
+    const slot = rr.slots.find((s) => s.slotIndex === slotIndex);
+    const card = slot?.cards[0];
+    if (!card) throw new Error(`no card in slot ${slotIndex}`);
+    return card.holes.map((h) => h.holeNumber);
+}
+
+/** The card whose subjects include `ballId`. */
+function cardFor(rr: RoundResult, slotIndex: number, ballId: string): ScoreGridSection {
+    const slot = rr.slots.find((s) => s.slotIndex === slotIndex);
+    const card = slot?.cards.find((c) => c.subjectBallIds.includes(ballId));
+    if (!card) throw new Error(`no card for ball ${ballId} in slot ${slotIndex}`);
+    return card;
+}
 
 /**
  * Shared setup: an 18-hole par-4 course at HGC with a single tee rated so
@@ -49,14 +102,10 @@ test('front_9 round distributes PH across the 9 played holes only', async () => 
         });
     }
 
-    const lb = await leaderboardService.forRound(round.id);
-    const gross = lb.byScoringType.find((b) => b.scoringType === 'gross')!;
-    const net = lb.byScoringType.find((b) => b.scoringType === 'net')!;
-    expect(gross.entries[0].total).toBe(45); // 9 × bogey 5
-    expect(net.entries[0].total).toBe(36);   // minus 9 strokes given
-    expect(lb.ballResults[0].holes.map((h) => h.holeNumber)).toEqual(
-        [1, 2, 3, 4, 5, 6, 7, 8, 9],
-    );
+    const rr = await leaderboardService.resultForRound(round.id);
+    expect(ranked(rr, 0, 'gross').entries[0]!.total).toBe(45); // 9 × bogey 5
+    expect(ranked(rr, 0, 'net').entries[0]!.total).toBe(36);   // minus 9 strokes given
+    expect(cardHoleNumbers(rr, 0)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
 });
 
 test('back_9 round uses holes 10..18 only', async () => {
@@ -82,12 +131,9 @@ test('back_9 round uses holes 10..18 only', async () => {
         });
     }
 
-    const lb = await leaderboardService.forRound(round.id);
-    const gross = lb.byScoringType.find((b) => b.scoringType === 'gross')!;
-    expect(gross.entries[0].total).toBe(36); // 9 × par 4
-    expect(lb.ballResults[0].holes.map((h) => h.holeNumber)).toEqual(
-        [10, 11, 12, 13, 14, 15, 16, 17, 18],
-    );
+    const rr = await leaderboardService.resultForRound(round.id);
+    expect(ranked(rr, 0, 'gross').entries[0]!.total).toBe(36); // 9 × par 4
+    expect(cardHoleNumbers(rr, 0)).toEqual([10, 11, 12, 13, 14, 15, 16, 17, 18]);
 });
 
 test('9-hole allocation follows full-18 SI distribution (strokes land only where they fall)', async () => {
@@ -133,12 +179,10 @@ test('9-hole allocation follows full-18 SI distribution (strokes land only where
             clientEventId: `f${h}`,
         });
     }
-    const frontLb = await ctx.leaderboardService.forRound(frontRound.id);
-    const frontGross = frontLb.byScoringType.find((b) => b.scoringType === 'gross')!;
-    const frontNet = frontLb.byScoringType.find((b) => b.scoringType === 'net')!;
+    const frontRr = await ctx.leaderboardService.resultForRound(frontRound.id);
     // 9 bogeys, no strokes given on any of these holes → net = gross.
-    expect(frontGross.entries[0].total).toBe(45);
-    expect(frontNet.entries[0].total).toBe(45);
+    expect(ranked(frontRr, 0, 'gross').entries[0]!.total).toBe(45);
+    expect(ranked(frontRr, 0, 'net').entries[0]!.total).toBe(45);
 
     const plBack = await ctx.playerService.register({ username: 'si-back', password: 'password123', displayName: 'SI Back' });
     const { round: backRound, ballByProducerIndex: backBalls } = await createCompiledRound(ctx, {
@@ -159,12 +203,10 @@ test('9-hole allocation follows full-18 SI distribution (strokes land only where
             clientEventId: `b${h}`,
         });
     }
-    const backLb = await ctx.leaderboardService.forRound(backRound.id);
-    const backGross = backLb.byScoringType.find((b) => b.scoringType === 'gross')!;
-    const backNet = backLb.byScoringType.find((b) => b.scoringType === 'net')!;
+    const backRr = await ctx.leaderboardService.resultForRound(backRound.id);
     // 9 bogeys, every hole gets +1 → net = gross − 9 = 36.
-    expect(backGross.entries[0].total).toBe(45);
-    expect(backNet.entries[0].total).toBe(36);
+    expect(ranked(backRr, 0, 'gross').entries[0]!.total).toBe(45);
+    expect(ranked(backRr, 0, 'net').entries[0]!.total).toBe(36);
 });
 
 test('full_18 round still covers all 18 holes', async () => {
@@ -188,8 +230,8 @@ test('full_18 round still covers all 18 holes', async () => {
             clientEventId: `h${h}`,
         });
     }
-    const lb = await leaderboardService.forRound(round.id);
-    expect(lb.ballResults[0].holes).toHaveLength(18);
+    const rr = await leaderboardService.resultForRound(round.id);
+    expect(cardHoleNumbers(rr, 0)).toHaveLength(18);
 });
 
 test("better-ball leaderboard uses each linked player's own frozen PH", async () => {
@@ -253,13 +295,17 @@ test("better-ball leaderboard uses each linked player's own frozen PH", async ()
         clientEventId: 'bob-h5',
     });
 
-    const lb = await leaderboardService.forRound(round.id);
-    // Team result's representative ballId is the first own-ball in the team —
-    // the "Alice & Bob" team's first producer is alice, so the team result
-    // keys off alice's ball id.
-    const teamResult = lb.ballResults.find((r) => r.ballId === aliceBall)!;
-    expect(teamResult.holes.find((h) => h.holeNumber === 5)!.points).toBe(3);
-    expect(teamResult.totals.find((t) => t.scoringType === 'points')!.value).toBe(3);
+    const rr = await leaderboardService.resultForRound(round.id);
+    // The team's ranked points entry resolves to its member ball ids (no
+    // synthetic `team:` id leaks into the sections), and the team card's
+    // per-hole "Team points" row shows the better-ball pick on hole 5.
+    const pts = ranked(rr, 0, 'points');
+    const teamEntry = pts.entries.find((e) => e.ballIds.includes(aliceBall))!;
+    expect(teamEntry.total).toBe(3);
+    const card = cardFor(rr, 0, aliceBall);
+    const teamPointsRow = card.rows.find((r) => r.label === 'Team points')!;
+    expect(teamPointsRow.cells.find((c) => c.holeNumber === 5)!.value).toBe(3);
+    expect(card.totals.find((t) => t.label === 'points')!.value).toBe(3);
 });
 
 // --- Multi-slot scope routing (Phase 2.5i) ---
@@ -291,12 +337,13 @@ test('single-slot round with no scope defaults every participant to slot 0 (back
         });
     }
 
-    const lb = await leaderboardService.forRound(round.id);
-    // Both producers land in slot 0; one bucket per scoring type at slotIndex 0.
-    expect(lb.byScoringType).toHaveLength(2); // gross + net
-    for (const b of lb.byScoringType) {
-        expect(b.slotIndex).toBe(0);
-        expect(b.entries.map((e) => e.ballId).sort()).toEqual([ball1, ball2].sort());
+    const rr = await leaderboardService.resultForRound(round.id);
+    // Both producers land in slot 0; one ranked section per scoring type there.
+    expect(rr.slots).toHaveLength(1);
+    expect(rankedMetrics(rr, 0)).toEqual(['gross', 'net']);
+    for (const metric of ['gross', 'net']) {
+        const entries = ranked(rr, 0, metric).entries;
+        expect(entries.flatMap((e) => e.ballIds).sort()).toEqual([ball1, ball2].sort());
     }
 });
 
@@ -329,28 +376,25 @@ test('multi-slot round routes each producer to the slot whose selector lists the
         await scoreEventService.append({ roundId: round.id, ballId: ballC, hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `c-h${h}` });
     }
 
-    const lb = await leaderboardService.forRound(round.id);
+    const rr = await leaderboardService.resultForRound(round.id);
 
     // Slot 0 is stroke-play → emits gross + net; slot 1 is stableford → emits points.
-    const slot0Buckets = lb.byScoringType.filter((b) => b.slotIndex === 0);
-    const slot1Buckets = lb.byScoringType.filter((b) => b.slotIndex === 1);
-    expect(slot0Buckets.map((b) => b.scoringType).sort()).toEqual(['gross', 'net']);
-    expect(slot1Buckets.map((b) => b.scoringType)).toEqual(['points']);
+    expect(rankedMetrics(rr, 0)).toEqual(['gross', 'net']);
+    expect(rankedMetrics(rr, 1)).toEqual(['points']);
 
-    // Cross-slot leakage check: slot 0's buckets only contain ballA & ballB;
-    // slot 1's points bucket only contains ballC.
-    for (const b of slot0Buckets) {
-        expect(b.entries.map((e) => e.ballId).sort()).toEqual([ballA, ballB].sort());
+    // Cross-slot leakage check: slot 0's sections only contain ballA & ballB;
+    // slot 1's points section only contains ballC.
+    for (const metric of ['gross', 'net']) {
+        expect(ranked(rr, 0, metric).entries.flatMap((e) => e.ballIds).sort()).toEqual(
+            [ballA, ballB].sort(),
+        );
     }
-    for (const b of slot1Buckets) {
-        expect(b.entries.map((e) => e.ballId)).toEqual([ballC]);
-    }
+    expect(ranked(rr, 1, 'points').entries.flatMap((e) => e.ballIds)).toEqual([ballC]);
 
-    // Ball results carry the slotIndex the strategy ran under.
-    const resultA = lb.ballResults.find((r) => r.ballId === ballA)!;
-    const resultC = lb.ballResults.find((r) => r.ballId === ballC)!;
-    expect(resultA.slotIndex).toBe(0);
-    expect(resultC.slotIndex).toBe(1);
+    // Each ball's scorecard lives under the slot whose selector routed it.
+    expect(cardFor(rr, 0, ballA).subjectBallIds).toContain(ballA);
+    expect(cardFor(rr, 1, ballC).subjectBallIds).toContain(ballC);
+    expect(rr.slots.find((s) => s.slotIndex === 1)!.cards.some((c) => c.subjectBallIds.includes(ballA))).toBe(false);
 });
 
 test('ball not assigned to any slot (slot_balls missing) throws', async () => {
@@ -373,7 +417,7 @@ test('ball not assigned to any slot (slot_balls missing) throws', async () => {
     const orphanBall = ballByProducerIndex[1]!;
     await db.deleteFrom('slot_balls').where('ball_id', '=', orphanBall).execute();
 
-    expect(leaderboardService.forRound(round.id)).rejects.toThrow(
+    expect(leaderboardService.resultForRound(round.id)).rejects.toThrow(
         new RegExp(`ball ${orphanBall} in round .* is not assigned to any slot`),
     );
 });
@@ -393,7 +437,7 @@ test('slots row with unparseable slot_def_id throws', async () => {
     // Corrupt the slot_def_id.
     await db.updateTable('slots').set({ slot_def_id: 'nonsense' }).where('round_id', '=', round.id).execute();
 
-    expect(leaderboardService.forRound(round.id)).rejects.toThrow(
+    expect(leaderboardService.resultForRound(round.id)).rejects.toThrow(
         /cannot parse slot_def_id 'nonsense'/,
     );
 });
@@ -426,11 +470,11 @@ test('multi-slot round with overlapping scoringType label across slots keeps buc
         await scoreEventService.append({ roundId: round.id, ballId: ballB, hole: h, strokes: 5, eventType: 'score_entered', clientEventId: `b-h${h}` });
     }
 
-    const lb = await leaderboardService.forRound(round.id);
-    const pointsBuckets = lb.byScoringType.filter((b) => b.scoringType === 'points');
-    // TWO separate points buckets, one per slot — 2.5h's collision is resolved.
-    expect(pointsBuckets).toHaveLength(2);
-    expect(pointsBuckets.map((b) => b.slotIndex).sort()).toEqual([0, 1]);
-    expect(pointsBuckets[0]!.entries.map((e) => e.ballId)).toEqual([ballA]);
-    expect(pointsBuckets[1]!.entries.map((e) => e.ballId)).toEqual([ballB]);
+    const rr = await leaderboardService.resultForRound(round.id);
+    const pointsSections = rankedAcrossSlots(rr, 'points');
+    // TWO separate points sections, one per slot — 2.5h's collision is resolved.
+    expect(pointsSections).toHaveLength(2);
+    expect(pointsSections.map((s) => s.slotIndex).sort()).toEqual([0, 1]);
+    expect(ranked(rr, 0, 'points').entries.flatMap((e) => e.ballIds)).toEqual([ballA]);
+    expect(ranked(rr, 1, 'points').entries.flatMap((e) => e.ballIds)).toEqual([ballB]);
 });

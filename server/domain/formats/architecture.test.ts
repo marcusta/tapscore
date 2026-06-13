@@ -29,8 +29,11 @@ const CANONICAL_FORMAT_REGISTRAR = 'server/domain/formats/plugin.ts';
 /** Files permitted to DEFINE a format registry (`export function register…`). */
 const ALLOWED_FORMAT_REGISTRARS = new Set([
     CANONICAL_FORMAT_REGISTRAR, // canonical
-    'server/domain/format.ts', // legacy (scoringMode×teamShape) registry — removed in Slice 2c
-    'server/domain/strategies/format-strategy.ts', // legacy strategy registry — removed in Slice 2c
+    // The compiler-facing strategy registry. Not a second *format* catalog —
+    // it holds the pure (deriveSlotBalls + score) seam the compiler resolves
+    // by id; `plugin.ts` is the authoritative descriptor catalog. Slice 3
+    // folds the compiler onto the plugin registry and retires this one.
+    'server/domain/strategies/format-strategy.ts',
 ]);
 
 /** Files permitted to hold a format-id → behaviour decomposition map. */
