@@ -15,13 +15,26 @@
 // pair-only formats (match-play, taliban) emit no scalar totals, so their
 // single metric is nominal and never ranked.
 //
-// `planSetup` is genuinely Slice 5 (the RoundDefinitionBuilder); it is not
-// exercised by the 2a scoring path, so it fails loud rather than guessing a
-// half-correct plan here. `validateConfig` returns clean until Slice 4
-// deepens config validation — the strategies still defend themselves.
+// `planSetup` (Slice 5) translates a UI-level format selection into the
+// ball-creation needs + slot this format contributes. It is derived from the
+// descriptor's OWN ball requirement — no per-format-id table — so the
+// RoundDefinitionBuilder stays format-agnostic:
+//   - `ballMode: 'team'` (foursomes) → an `alt_shot_pair`/`avg` team ball,
+//     composed from the supplied teams.
+//   - own-ball + `requiresSlotTeamGrouping` (better-ball, taliban, umbrella-4)
+//     → one shared `own_ball_per_player` strategy + slot-level team grouping.
+//   - plain own-ball (stroke/stableford/match/köpenhamnare/umbrella) → one
+//     shared `own_ball_per_player` strategy, no grouping.
+// Missing teams are NOT an error here — planSetup is a pure translation; the
+// compiler surfaces a structured `missing_composition`/`missing_team_grouping`
+// diagnostic when a team format is built without teams. `validateConfig`
+// returns clean for the metricless built-ins; the strategies still defend
+// themselves in `score()`.
 
-import type { FormatMetric, FormatPlugin } from './plugin';
+import type { FormatMetric, FormatPlugin, FormatSetupInput, FormatSetupPlan, PlannedSlot } from './plugin';
 import type { FormatStrategy } from '../strategies/format-strategy';
+import { OWN_BALL_PER_PLAYER_ID } from '../strategies/ball-creation/own-ball-per-player';
+import { ALT_SHOT_PAIR_ID } from '../strategies/ball-creation/alt-shot-pair';
 
 import { strokePlayIndividual } from '../strategies/formats/stroke-play-individual';
 import { stablefordIndividual } from '../strategies/formats/stableford-individual';
@@ -143,6 +156,43 @@ const BUILTINS: BuiltinMeta[] = [
 
 function toPlugin(meta: BuiltinMeta): FormatPlugin {
     const { strategy } = meta;
+    const req = strategy.ballRequirement();
+    const defaults = { allowanceConfig: { type: 'flat', pct: 100 } as const };
+
+    function planSetup(input: FormatSetupInput): FormatSetupPlan {
+        const allowanceConfig = input.allowanceConfig ?? defaults.allowanceConfig;
+        const slot: PlannedSlot = {
+            formatId: strategy.id,
+            allowanceConfig,
+            ...(input.formatConfig !== undefined ? { formatConfig: input.formatConfig } : {}),
+        };
+
+        // Team-ball format (alternate-shot foursomes): the ball itself is a
+        // pair ball, derived from the two players' average index.
+        if (req.ballMode === 'team') {
+            return {
+                ballStrategies: [
+                    {
+                        strategyId: ALT_SHOT_PAIR_ID,
+                        derivationConfig: { type: 'avg' },
+                        ...(input.teams ? { composition: { teams: input.teams } } : {}),
+                    },
+                ],
+                slot,
+            };
+        }
+
+        // Own-ball format. Team variants (better-ball / taliban / umbrella-4)
+        // group those own-balls at the slot; plain individual formats don't.
+        if (req.requiresSlotTeamGrouping && input.teams) {
+            slot.teamGrouping = { teams: input.teams };
+        }
+        return {
+            ballStrategies: [{ strategyId: OWN_BALL_PER_PLAYER_ID, derivationConfig: { type: 'single' } }],
+            slot,
+        };
+    }
+
     return {
         descriptor: {
             id: strategy.id,
@@ -150,17 +200,13 @@ function toPlugin(meta: BuiltinMeta): FormatPlugin {
             description: meta.description,
             scoringMode: meta.scoringMode,
             teamShape: meta.teamShape,
-            requirements: { balls: strategy.ballRequirement() },
-            defaults: { allowanceConfig: { type: 'flat', pct: 100 } },
+            requirements: { balls: req },
+            defaults,
             metrics: meta.metrics,
             ...(meta.resultDisplay ? { resultDisplay: meta.resultDisplay } : {}),
             clientAdapterId: null,
         },
-        planSetup() {
-            throw new Error(
-                `planSetup for '${strategy.id}' lands in Slice 5 (RoundDefinitionBuilder); not used by the 2a scoring path`,
-            );
-        },
+        planSetup,
         validateConfig() {
             return [];
         },

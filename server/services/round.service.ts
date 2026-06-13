@@ -19,9 +19,11 @@ import type {
     RouteSection,
     RouteSiResolved,
 } from '../domain/round-definition';
-import type { CompilerInput, CompilerTeeContext, Gender } from '../domain/compiler/types';
+import type { CompilerDiagnostic, CompilerInput, CompilerTeeContext, Gender } from '../domain/compiler/types';
 import { compile } from '../domain/compiler/compile';
 import { persistCompiledRound } from '../domain/compiler/persist';
+import { buildRoundDefinition } from '../domain/round-setup/builder';
+import type { DraftRoute, RoundSetupDraft } from '../domain/round-setup/draft';
 import {
     conventionalRouteHandicapPolicy,
     defaultRouteSections,
@@ -268,7 +270,23 @@ export interface RoundServiceDeps {
     getGuestProfile(
         guestId: string,
     ): Promise<{ displayName: string; gender?: Gender } | null>;
+    /**
+     * Resolve + freeze a named course-route template into explicit draft route
+     * fields. Required only for the `createFromDraft` template path; the
+     * composition root wires it to `CourseRouteTemplateService.resolveForRound`.
+     */
+    resolveRouteTemplate?(templateId: string): Promise<DraftRoute>;
 }
+
+/**
+ * Result of the mobile `createFromDraft` path. A failure carries structured
+ * compiler diagnostics (builder-level + compile-level, same `{code,message,path}`
+ * shape) the wizard attaches to the offending format / team / player / route
+ * control — never a thrown 500 for ordinary invalid setup.
+ */
+export type CreateFromDraftResult =
+    | { ok: true; round: Round }
+    | { ok: false; diagnostics: CompilerDiagnostic[] };
 
 // --- Row mapping ---
 
@@ -729,13 +747,55 @@ export class RoundService {
      * longer writes the legacy `round_format_slots` table (Slice 3a).
      */
     async create(input: CreateRoundInput): Promise<Round> {
+        const result = await this.compileAndPersist(input.definition);
+        if (!result.ok) {
+            throw new Error(
+                `compile failed: ${result.diagnostics
+                    .map((d) => `${d.code}: ${d.message}`)
+                    .join('; ')}`,
+            );
+        }
+        return result.round;
+    }
+
+    /**
+     * Mobile-facing create. Builds a `RoundDefinition` from a format-agnostic
+     * `RoundSetupDraft` (server owns ball strategies, selectors, dedupe), then
+     * compiles + persists. A named `route.templateId` is resolved + FROZEN
+     * first. Returns structured diagnostics on builder/compile failure rather
+     * than throwing — the wizard attaches them to the offending control. Direct
+     * `RoundDefinition` creation stays the internal/admin/testing `create`.
+     */
+    async createFromDraft(draft: RoundSetupDraft): Promise<CreateFromDraftResult> {
+        let resolved = draft;
+        if (draft.route?.templateId) {
+            if (!this.deps?.resolveRouteTemplate) {
+                throw new Error('route templates require a resolveRouteTemplate dep');
+            }
+            const frozen = await this.deps.resolveRouteTemplate(draft.route.templateId);
+            resolved = { ...draft, route: frozen };
+        }
+
+        const built = buildRoundDefinition(resolved);
+        if (!built.ok) return { ok: false, diagnostics: built.diagnostics };
+
+        return this.compileAndPersist(built.definition);
+    }
+
+    /**
+     * Build the `CompilerInput`, compile, and (on success) persist a v1 round
+     * in one transaction. Returns structured compiler diagnostics on failure
+     * WITHOUT persisting — nothing half-writes. Reference-resolution failures
+     * (course/tee/player missing) still throw, since they are setup-integrity
+     * errors, not per-field validation the wizard can attach.
+     */
+    private async compileAndPersist(def: RoundDefinition): Promise<CreateFromDraftResult> {
         if (!this.deps) {
             throw new Error(
                 'RoundService.create requires RoundServiceDeps (use createLegacy from test contexts that stub compiler input).',
             );
         }
         const deps = this.deps;
-        const def = input.definition;
         const id = crypto.randomUUID();
 
         // --- Build CompilerInput ---
@@ -791,11 +851,7 @@ export class RoundService {
 
         const compileResult = compile(compilerInput);
         if (!compileResult.ok) {
-            throw new Error(
-                `compile failed for round ${id}: ${compileResult.diagnostics
-                    .map((d) => `${d.code}: ${d.message}`)
-                    .join('; ')}`,
-            );
+            return { ok: false, diagnostics: compileResult.diagnostics };
         }
 
         await this.db.transaction().execute(async (trx) => {
@@ -819,9 +875,9 @@ export class RoundService {
             });
         });
 
-        const result = await this.getById(id);
-        if (!result) throw new Error(`Round ${id} not found after create`);
-        return result;
+        const round = await this.getById(id);
+        if (!round) throw new Error(`Round ${id} not found after create`);
+        return { ok: true, round };
     }
 
     /**

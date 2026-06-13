@@ -1,0 +1,97 @@
+// Phase 2.6b-final / Slice 5 — the UI-level RoundSetupDraft.
+//
+// `RoundSetupDraft` is what the mobile round-setup wizard submits. It is a
+// declarative, format-AGNOSTIC description of intent: who is playing, on what
+// course/date, over which route, in which formats. It deliberately carries NO
+// ball-creation-strategy ids, NO selectors, NO derivation/dedupe rules, and NO
+// compiler-output identity — the server is the authority on what each format
+// needs. The `RoundDefinitionBuilder` (builder.ts) turns a draft into the
+// canonical `RoundDefinitionInput` the compiler consumes.
+//
+// Route selection is one of three forms, resolved upstream of the pure builder:
+//   - a conventional preset (`roundType` only — the compiler's `normalize`
+//     derives the default itinerary);
+//   - an explicit ordered itinerary (`route.playHoles` + SI/policy/sections +
+//     playing-group starts by play-hole def-id);
+//   - a named course-route template (`route.templateId`) — the service resolves
+//     and FREEZES the template's already-compiled route into `route` before
+//     calling the builder, so the builder itself only ever sees explicit
+//     fields (it never reaches into the DB or the route compiler).
+
+import { Type, type Static } from '@sinclair/typebox';
+import {
+    FormatAllowanceConfig,
+    PlayHoleInput,
+    PlayerRef,
+    PlayingGroupInput,
+    RouteHandicapPolicy,
+    RouteSection,
+    RouteSiInput,
+} from '../round-definition';
+
+/** A producer in the round roster. Def-ids are assigned by the wizard. */
+export const DraftProducer = Type.Object({
+    producerDefId: Type.String({ minLength: 1 }),
+    playerRef: PlayerRef,
+    handicapIndex: Type.Number(),
+    gender: Type.Optional(Type.Union([Type.Literal('M'), Type.Literal('F')])),
+    teeId: Type.String({ minLength: 1 }),
+    category: Type.Optional(Type.String()),
+});
+
+/** A team grouping the wizard supplies for a team format. */
+export const DraftTeam = Type.Object({
+    label: Type.String({ minLength: 1 }),
+    producerDefIds: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+});
+
+/** One format the round runs, with its scope + per-format options. */
+export const DraftFormatSelection = Type.Object({
+    formatId: Type.String({ minLength: 1 }),
+    /** Allowance override; falls back to the descriptor default. */
+    allowanceConfig: Type.Optional(FormatAllowanceConfig),
+    /** Restrict this format to a subset of the roster. Default: every producer. */
+    producerDefIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+    /** Team grouping (team formats). */
+    teams: Type.Optional(Type.Array(DraftTeam)),
+    /** Opaque per-format config (handicapMode, birdieRule, …). */
+    formatConfig: Type.Optional(Type.Unknown()),
+});
+
+/**
+ * Route selection. A bare draft (no `route`, optional `roundType`) is a
+ * conventional preset. `templateId` is resolved + frozen by the service before
+ * the builder runs; the explicit fields below are the frozen result OR a
+ * directly-submitted custom itinerary.
+ */
+export const DraftRoute = Type.Object({
+    templateId: Type.Optional(Type.String({ minLength: 1 })),
+    playHoles: Type.Optional(Type.Array(PlayHoleInput, { minItems: 1 })),
+    routeSi: Type.Optional(RouteSiInput),
+    routeHandicapPolicy: Type.Optional(RouteHandicapPolicy),
+    routeSections: Type.Optional(Type.Array(RouteSection)),
+    playingGroups: Type.Optional(Type.Array(PlayingGroupInput, { minItems: 1 })),
+});
+
+export const RoundSetupDraft = Type.Object({
+    courseId: Type.String({ minLength: 1 }),
+    playedAt: Type.String({ minLength: 1 }),
+    roundType: Type.Optional(
+        Type.Union([
+            Type.Literal('full_18'),
+            Type.Literal('front_9'),
+            Type.Literal('back_9'),
+            Type.Literal('custom_holes'),
+        ]),
+    ),
+    venueType: Type.Optional(Type.Union([Type.Literal('outdoor'), Type.Literal('indoor')])),
+    route: Type.Optional(DraftRoute),
+    producers: Type.Array(DraftProducer, { minItems: 1 }),
+    formats: Type.Array(DraftFormatSelection),
+});
+
+export type DraftProducer = Static<typeof DraftProducer>;
+export type DraftTeam = Static<typeof DraftTeam>;
+export type DraftFormatSelection = Static<typeof DraftFormatSelection>;
+export type DraftRoute = Static<typeof DraftRoute>;
+export type RoundSetupDraft = Static<typeof RoundSetupDraft>;

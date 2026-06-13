@@ -2,6 +2,7 @@ import { Type, type Static } from '@sinclair/typebox';
 import { requireAuth } from '@basics/core/server/auth';
 import type { RoundService } from '../services/round.service';
 import { RoundDefinition } from '../domain/round-definition';
+import { RoundSetupDraft } from '../domain/round-setup/draft';
 
 // --- Input schemas ---
 
@@ -75,6 +76,18 @@ const CreateRoundInput = Type.Object({
     definition: RoundDefinition,
 });
 
+/**
+ * Slice 5 — the mobile-facing create path. The wizard submits a
+ * format-agnostic `RoundSetupDraft`; the server builds the `RoundDefinition`
+ * (ball strategies, selectors, dedupe, template freeze) and compiles it. The
+ * response is `{ ok: true, round } | { ok: false, diagnostics }` so the wizard
+ * attaches structured diagnostics to the offending control. Direct
+ * `RoundDefinition` creation (`POST /rounds`) stays the internal/admin path.
+ */
+const CreateFromDraftInput = Type.Object({
+    draft: RoundSetupDraft,
+});
+
 const UpdateRoundInput = Type.Object({
     id: Type.String(),
     date: Type.Optional(Type.String()),
@@ -97,6 +110,7 @@ export function createRoundsApi(svc: RoundService) {
         balls:  { method: 'GET'    as const, path: '/rounds/balls',  fn: (input: Static<typeof ByRoundInput>)      => svc.ballsForRound(input.roundId),                                                                                                                                                                                            schema: ByRoundInput,     middleware: mw },
         get:    { method: 'GET'    as const, path: '/rounds/get',    fn: (input: Static<typeof IdInput>)           => svc.getById(input.id),                                                                                                                                                                                                       schema: IdInput,          middleware: mw },
         create: { method: 'POST'   as const, path: '/rounds',        fn: (input: Static<typeof CreateRoundInput>)  => svc.create({ definition: input.definition }),                                                                                                                                                                                schema: CreateRoundInput, middleware: mw },
+        createFromDraft: { method: 'POST' as const, path: '/rounds/from-draft', fn: (input: Static<typeof CreateFromDraftInput>) => svc.createFromDraft(input.draft), schema: CreateFromDraftInput, middleware: mw },
         update: { method: 'POST'   as const, path: '/rounds/update', fn: (input: Static<typeof UpdateRoundInput>)  => svc.update(input.id, { date: input.date, roundType: input.roundType, venueType: input.venueType, startListMode: input.startListMode, windowStart: input.windowStart, windowEnd: input.windowEnd, selfOrganize: input.selfOrganize, status: input.status, formatSlots: input.formatSlots }), schema: UpdateRoundInput, middleware: mw },
         remove: { method: 'DELETE' as const, path: '/rounds/:id',    fn: (input: Static<typeof IdInput>)           => svc.remove(input.id),                                                                                                                                                                                                        schema: IdInput,          middleware: mw },
     };

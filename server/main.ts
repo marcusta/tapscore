@@ -19,6 +19,8 @@ import { createRoundsApi } from './api/rounds.api';
 import { createScoreEventsApi } from './api/score-events.api';
 import { createScorecardsApi } from './api/scorecards.api';
 import { createLeaderboardsApi } from './api/leaderboards.api';
+import { createFormatsApi } from './api/formats.api';
+import { createCourseRouteTemplatesApi } from './api/course-route-templates.api';
 import { seedDev } from './db/seeds/dev';
 import { registerBuiltInBallCreationStrategies } from './domain/strategies/ball-creation';
 import { registerBuiltInFormatStrategies } from './domain/strategies/formats';
@@ -39,6 +41,7 @@ const {
     playerService,
     clubService,
     courseService,
+    courseRouteTemplateService,
     teeService,
     guestPlayerService,
     handicapService,
@@ -63,6 +66,8 @@ mount(app, '/api', createRoundsApi(roundService));
 mount(app, '/api', createScoreEventsApi(scoreEventService));
 mount(app, '/api', createScorecardsApi(scorecardService));
 mount(app, '/api', createLeaderboardsApi(leaderboardService));
+mount(app, '/api', createFormatsApi());
+mount(app, '/api', createCourseRouteTemplatesApi(courseRouteTemplateService));
 
 // --- Dev seed ---
 

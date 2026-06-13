@@ -392,7 +392,18 @@ This section is the canonical cross-session handoff for 2.6b-final. Update it be
 
 Status values: `NOT STARTED` → `IN PROGRESS` → `AWAITING VISUAL VERIFY` → `COMPLETE` (or `BLOCKED`).
 
-**Resume here:** Slice 4 (compiler validation) is `COMPLETE` (commit `028c490`) on branch `slice-4-compiler-validation` — all items + gate green (353 pass, +17; 13 fixtures numerically identical). Next is **Slice 5 — catalog + server-side round-setup planner**. Slice 3c detail (still the live runtime state) is retained below.
+**Resume here:** Slice 5 (catalog + round-setup planner) is `COMPLETE` on branch `slice-5-catalog-planner` (branched off slice 4) — all task items + the gate green (376 pass, +23; 13 canonical fixtures numerically identical); visual gate `tmp/formats/slice-5-verify.html` user-approved 2026-06-13. Next is **Slice 6 — static deletion + extension proof**. NOTE the new **2.6d-bis — Non-flat allowance rulesets** phase added between 2.6d and 2.6e this session (deferred split/per-rank allowance within a slot; doc-only).
+
+Slice 5 — what landed (all on `slice-5-catalog-planner`):
+
+- **`GET /formats`** (`server/api/formats.api.ts`, mounted in `main.ts` + the route test) returns the registered serializable `FormatDescriptor[]` straight from `formatCatalog()`; authenticated. Proof: `server/api/formats.routes.test.ts`.
+- **`planSetup` per built-in** (`server/domain/formats/builtins.ts`): the throwing stubs are real. Derived from each descriptor's OWN ball requirement (no format-id table) — `ballMode:'team'`→`alt_shot_pair`/`avg` composed from teams; own-ball + `requiresSlotTeamGrouping`→shared `own_ball_per_player` + slot team grouping; plain own-ball→shared own-ball, no grouping. Missing teams are NOT an error here (the compiler surfaces `missing_composition`/`missing_team_grouping`). Proof: `builtins.planSetup.test.ts`.
+- **Pure `RoundDefinitionBuilder` + `RoundSetupDraft`** (`server/domain/round-setup/{builder,draft}.ts`): a format-agnostic draft (no selectors / strategy ids / def-ids) → canonical `RoundDefinitionInput`. Calls each plugin's `planSetup`, COALESCES ball strategies via the ball-creation registry's `allowsProducerSetDedupe()` (OwnBallPerPlayer→one shared `strat-N`; pair strategies never coalesce), emits server-owned `ballSelector` (strategy def-ids + producer def-ids for a subset) + team grouping, stamps `strat-N`/`slot-N`. Builder-level problems (no formats, unknown format, off-roster producer) return structured `{code,message,path}` diagnostics; the rest defer to the compiler. Proof: `round-setup/builder.test.ts` (incl. the gate: stableford+better-ball+foursomes → 1 own-ball + 1 pair; compiles to 4 own + 2 pair across 3 slots).
+- **Pure route compiler extracted** (`server/domain/compiler/route-compiler.ts`): `compileRoute()` owns itinerary + SI + policy + sections resolution. `normalize()` now calls it for the route part (then resolves producer-dependent playing groups) and re-exports `conventionalRouteHandicapPolicy`/`defaultRouteSections` from there. Behaviour-preserving — all compiler/itinerary tests + 13 fixtures unchanged.
+- **Course route templates** (migration `026_create_course_route_templates`, schema `CourseRouteTemplatesTable`, `server/domain/course-route-template.ts`, `course-route-template.service.ts`, `api/course-route-templates.api.ts` mounted): named per-course route authoring docs validated through the SAME `compileRoute`. `resolveForRound()` resolves + FREEZES the template into explicit play-hole inputs (`parOverride`/`baseStrokeIndexOverride`) so later edits never rewrite history. Invalid routes return structured diagnostics (`RouteTemplateValidationError` → API `{ok:false,diagnostics}`). Authorization: requireAuth only (admin enforcement deferred to the authorization phase, same as clubs/courses). Proof: `course-route-template.service.test.ts`.
+- **`createFromDraft`** (`round.service.ts`, `POST /rounds/from-draft`): mobile-facing. Resolves `route.templateId` (freeze), builds, compiles, persists; returns `{ok:true,round} | {ok:false,diagnostics}` (no 500 for ordinary invalid setup). `create()` (direct `RoundDefinition`) stays the internal/admin path via the shared private `compileAndPersist`. `resolveRouteTemplate` dep wired in the composition root. Proof: `round-from-draft.test.ts` + `api/round-setup.routes.test.ts`.
+
+**Deferred / not in Slice 5 scope:** reference-resolution failures (course/tee/player not found) still throw rather than returning per-field diagnostics; finer template/round authorization; difficulty-SI *import* from a named external source (the draft just declares mode + sourceLabel + ranks). Slice 3c/4 deferrals below are unchanged.
 
 Slice 4 — what landed:
 
@@ -428,7 +439,7 @@ Slice 3c (live runtime state):
 | 3b — Hole itinerary persistence | COMPLETE | `6ce0945` | Migrations 022/023/024 (round_play_holes + round_play_tee_holes + playing_groups + backfill); RoundDefinitionInput→normalize→ResolvedRoundDefinition (resolved-v1); compiler builds itinerary + exhaustive/exclusive group membership; persist diff-upserts (reorder preserves ids); read model exposes playHoles/routeSi/policy/sections/playingGroups; tee_times live path retired (table kept as backfill source). 319 pass, all typechecks green; visual gate approved |
 | 3c — Itinerary scoring migration | COMPLETE | `0fd1e92` | Migration 025 flips score_events/scorecards onto play_hole_id (trigger + unique index rekeyed, backfilled); central `strokesReceivedForStrokeIndex` allocator (cycle-driven, plus + PH>cycle); `createRoundContext` factory (occurrences + shotgun rotation + occurrence labels); all 10 built-ins iterate occurrences; result rows carry play-hole identity; round_type retired from scoring/render; renderer segments by routeSections. 336 tests pass, all typechecks green, 13 fixtures numerically identical; visual gate `tmp/formats/slice-3c-verify.html` (8 route scenarios) user-approved |
 | 4 — Compiler validation | COMPLETE | `028c490` | All items + gate green on branch `slice-4-compiler-validation`; 353 pass (+17), 13 fixtures identical |
-| 5 — Catalog + planner | NOT STARTED | — | Waits on Slice 4 |
+| 5 — Catalog + planner | COMPLETE | `<impl>` | On branch `slice-5-catalog-planner` (off slice 4). All items + gate green (376 pass, +23; 13 fixtures numerically identical). Visual gate `tmp/formats/slice-5-verify.html` (4 scenarios: mixed-format coalescing, producer subset, named template, custom difficulty-SI) user-approved 2026-06-13 |
 | 6 — Static deletion proof | NOT STARTED | — | Final 2.6b server/static acceptance slice |
 | 2.6e — Mobile repair + migration | DEFERRED | — | Starts only after 2.6c and 2.6d are complete |
 
@@ -649,23 +660,25 @@ src/formats/index.ts                     # exceptional client adapters only
 
 #### Slice 5 — Catalog + server-side round setup planner
 
-- [ ] Add authenticated `GET /formats` exposing registered serializable descriptors.
-- [ ] Add a UI-level `RoundSetupDraft`: course/date, producers/tees, selected format ids, team assignments, allowance overrides, and format-specific config.
-- [ ] Let `RoundSetupDraft` select a route preset or submit an explicit ordered hole itinerary. Include SI mode/provenance, allocation cycle, route handicap policy, occurrence overrides, route sections, and playing-group starts by play-hole def-id rather than unrestricted integer hole.
-- [ ] Add named, reusable course-route templates as setup conveniences (for example `10 + first 8`, `10 + first 6`, `clubhouse 6`, `difficulty SI`). Creating a Round copies and freezes the fully resolved template into its `RoundDefinition`; later template edits never rewrite history.
-- [ ] Persist templates in a course-owned `course_route_templates` table/document with stable id, unique course-local name, ordered occurrence definitions, route sections, SI source/config, allocation cycle, and route handicap policy. Validate through the same pure route compiler used by `RoundSetupDraft`.
-- [ ] Keep route/SI generation server-owned. Official mode copies course values; custom mode validates submitted ranks; difficulty mode resolves from an explicitly named/imported difficulty source. The mobile client never calculates or reorders SI itself.
-- [ ] Expose route templates and SI provenance through authenticated APIs with explicit authorization: course/club admins manage shared templates; a round creator may choose a template and, where round policy permits, make round-local overrides.
-- [ ] Add a pure `RoundDefinitionBuilder` that asks each selected plugin's `planSetup` for its slot/ball needs, coalesces reusable ball-creation strategies, and emits the canonical `RoundDefinition`.
-- [ ] Let setup plans declare static teams, scheduled team rotations, and played-order segment config without format ids leaking into the builder.
-- [ ] The mobile API creates from `RoundSetupDraft`; direct `RoundDefinition` creation remains an internal/admin/testing interface.
-- [ ] Return compiler diagnostics in a structured response the mobile wizard can attach to the relevant format/team/player control.
+- [x] Add authenticated `GET /formats` exposing registered serializable descriptors. → `server/api/formats.api.ts` (mounted; `formats.routes.test.ts`).
+- [x] Add a UI-level `RoundSetupDraft`: course/date, producers/tees, selected format ids, team assignments, allowance overrides, and format-specific config. → `server/domain/round-setup/draft.ts` (Typebox + types).
+- [x] Let `RoundSetupDraft` select a route preset or submit an explicit ordered hole itinerary. Include SI mode/provenance, allocation cycle, route handicap policy, occurrence overrides, route sections, and playing-group starts by play-hole def-id rather than unrestricted integer hole. → `DraftRoute` (preset via `roundType`, explicit `playHoles`+SI/policy/sections, groups by `startPlayHoleDefId`/`startOrdinal`).
+- [x] Add named, reusable course-route templates as setup conveniences (`10 + first 8`, … `difficulty SI`). Creating a Round copies and freezes the fully resolved template into its `RoundDefinition`; later template edits never rewrite history. → `CourseRouteTemplateService.resolveForRound` freezes resolved occurrences into explicit play-hole inputs; `createFromDraft` copies them.
+- [x] Persist templates in a course-owned `course_route_templates` table/document with stable id, unique course-local name, ordered occurrence definitions, route sections, SI source/config, allocation cycle, and route handicap policy. Validate through the same pure route compiler used by `RoundSetupDraft`. → migration `026`; `course-route-template.{service,test}.ts`; validates via the extracted `compileRoute`.
+- [x] Keep route/SI generation server-owned. Official mode copies course values; custom mode validates submitted ranks; difficulty mode resolves from an explicitly named source. The mobile client never calculates or reorders SI itself. → `compileRoute` is the single SI authority; `difficulty` mode declared with `sourceLabel` (external *import* deferred).
+- [x] Expose route templates and SI provenance through authenticated APIs. → `api/course-route-templates.api.ts` (mounted). Finer admin authorization deferred to the authorization phase (mirrors clubs/courses).
+- [x] Add a pure `RoundDefinitionBuilder` that asks each selected plugin's `planSetup` for its slot/ball needs, coalesces reusable ball-creation strategies, and emits the canonical `RoundDefinition`. → `server/domain/round-setup/builder.ts` (`builder.test.ts`).
+- [x] Let setup plans declare static teams … without format ids leaking into the builder. → builder resolves plugins by id only (no per-format branch); static team grouping + alt-shot composition flow through `planSetup`. Scheduled/dynamic topology stays a 2.6d compile-time rejection.
+- [x] The mobile API creates from `RoundSetupDraft`; direct `RoundDefinition` creation remains an internal/admin/testing interface. → `POST /rounds/from-draft` (`createFromDraft`); `POST /rounds` (`create`) stays admin/testing.
+- [x] Return compiler diagnostics in a structured response the mobile wizard can attach to the relevant format/team/player control. → `createFromDraft` returns `{ok:false,diagnostics}` (builder + compiler `{code,message,path}`); `round-from-draft.test.ts` + `round-setup.routes.test.ts`.
 
 This keeps ball-strategy ids, derivation config, selectors, and dedupe rules out of the mobile client. The server remains the authority on what a format needs.
 
-- [ ] **Gate:** mixed selections such as stableford + better-ball + foursomes produce one own-ball strategy plus the required pair-ball strategy without client conditionals; named `10 + first 8` and custom difficulty-SI drafts compile without client-side route logic.
+- [x] **Gate:** mixed selections such as stableford + better-ball + foursomes produce one own-ball strategy plus the required pair-ball strategy without client conditionals; named `10 + first 8` and custom difficulty-SI drafts compile without client-side route logic. → proven in `builder.test.ts` + `round-from-draft.test.ts`; visualised in `tmp/formats/slice-5-verify.html`.
 
-**Completion record:** commit `—` · verification `—` · handoff `—`
+- [x] **Human visual gate:** `tmp/formats/slice-5-verify.html` (`bun scripts/render-slice-5-verify.ts`) — 4 scenarios showing catalog → draft → server-built definition → compiled round. User-approved 2026-06-13.
+
+**Completion record:** commit `<impl>` · verification `check:server/check:client/check:test + bun test (376 pass, +23) green; seed:formats/render:formats/check:format-fixtures (13 rounds, numerically identical) green` · visual gate `tmp/formats/slice-5-verify.html (4 scenarios) — user-approved 2026-06-13` · handoff `Slice 6 — static deletion + extension proof`
 
 #### Slice 6 — Static deletion and extension proof
 
@@ -752,6 +765,18 @@ Per §17, corrections are typed — three distinct events instead of one generic
 - Stateful format-action seed: a test-only registered canary with rotating role and per-hole partner selection; render shows the action history and resulting side/points calculation.
 
 **Gate:** dashboard, soft-delete, all three typed correction flows, and the stateful format-action canary render correctly. Plugin deletion leaves no format-specific persistence/API branch. Set `AWAITING VISUAL VERIFY` and give one focused link. Required checks should normally be the route/SI correction audit, the stateful action replay/supersession, and one deleted-player historical scorecard; do not assign every dashboard/correction page. Commit after approval: `phase 2.6d complete: typed corrections + format actions + soft-delete + dashboard`.
+
+### 2.6d-bis — Non-flat allowance rulesets
+
+Stage-3 allowance (`slot.allowanceConfig` → per-ball PH) only has the `flat` variant today. This phase grows the `FormatAllowanceConfig` union to cover allowances that vary *within a single slot* — distinct from 2.6c, which grows ball-CH *derivation* (stage 2, combining participants), and from 2.6d's `allowance_override_event`, which only edits an existing flat allowance. Placed late (after corrections, before the mobile client) because no WHS built-in needs it — the demand is club-specific split/per-rank rules. The union is additive: no schema change, and `allowance_override_event` already proves allowance lives in the definition chain.
+
+- Add non-flat `FormatAllowanceConfig` variant(s) — e.g. `split` (per-rank or per-CH-band percentages applied across a slot's balls) and/or explicit per-producer overrides. Discriminated by `type`; `flat` stays the default.
+- Extend `deriveSlotBalls` (the shared `deriveFlat` path) so each format resolves PH per ball under the new shape. The slot still derives one PH per ball; only the percentage source changes.
+- `RoundSetupDraft.formats[].allowanceConfig` already accepts any `FormatAllowanceConfig` — the wizard gains controls, the builder/compiler/route paths need no change.
+- Compiler validation: reject malformed split tables (bad band bounds, percentages out of range, a producer/rank not covered) as structured diagnostics, mirroring the team-grouping validators.
+- Seed + render a fixture exercising one non-flat allowance (e.g. a better-ball where low-CH and high-CH players take different percentages off the same shared own-balls), proving per-ball PH visibly differs within the slot.
+
+**Gate:** new allowance variant scores correctly with visible per-ball PH arithmetic; `bun test` includes the variant + its compiler-rejection tests; existing flat-allowance fixtures stay numerically identical. Visual-gate per the standard slice protocol. Commit after approval: `phase 2.6d-bis complete: non-flat allowance rulesets`.
 
 ### 2.6e — Repair and migrate the mobile client (final 2.6 step)
 

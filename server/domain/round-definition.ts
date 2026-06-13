@@ -47,7 +47,8 @@ export type BallDerivationConfig = Static<typeof BallDerivationConfig>;
 // --- FormatAllowanceConfig --------------------------------------------------
 //
 // Lives on a slot. Determines `ball_PH` from `ball_CH`. Only `flat` exists
-// today; the union will grow when split-allowance / per-rank rulesets land.
+// today; the union grows with non-flat (split / per-rank) allowance rulesets
+// in phase 2.6d-bis (see PHASES.md) — additive, no schema change.
 
 const FormatAllowanceFlat = Type.Object({
     type: Type.Literal('flat'),
@@ -125,7 +126,7 @@ const SlotTeamGrouping = Type.Object({
 // persisted, fully-explicit form is `ResolvedRoundDefinition` below.
 
 /** SI provenance. `custom`/`difficulty` must be declared explicitly. */
-const RouteSiInput = Type.Object({
+export const RouteSiInput = Type.Object({
     mode: Type.Union([
         Type.Literal('official'),
         Type.Literal('difficulty'),
@@ -148,7 +149,7 @@ const RouteSiResolved = Type.Object({
     allocationCycleSize: Type.Integer({ minimum: 1 }),
 });
 
-const RouteHandicapPolicy = Type.Object({
+export const RouteHandicapPolicy = Type.Object({
     type: Type.Union([
         Type.Literal('official_route'),
         Type.Literal('full_course_casual'),
@@ -159,7 +160,7 @@ const RouteHandicapPolicy = Type.Object({
     postingIneligibleReason: Type.Optional(Type.String()),
 });
 
-const RouteSection = Type.Object({
+export const RouteSection = Type.Object({
     id: Type.String({ minLength: 1 }),
     label: Type.String({ minLength: 1 }),
     fromCanonicalOrdinal: Type.Integer({ minimum: 1 }),
@@ -174,7 +175,7 @@ const PlayHoleTeeOverride = Type.Object({
 });
 
 /** Authoring shape — array order is the canonical itinerary order. */
-const PlayHoleInput = Type.Object({
+export const PlayHoleInput = Type.Object({
     /** Stable def-id. Generated (`ph-{ordinal}`) when omitted. */
     id: Type.Optional(Type.String({ minLength: 1 })),
     courseHoleNumber: Type.Integer({ minimum: 1 }),
@@ -193,7 +194,7 @@ const PlayHoleResolved = Type.Object({
 });
 
 /** Authoring shape — references the itinerary by def-id or 1-based ordinal. */
-const PlayingGroupInput = Type.Object({
+export const PlayingGroupInput = Type.Object({
     id: Type.Optional(Type.String({ minLength: 1 })),
     startTime: Type.String({ minLength: 1 }),
     /** Reference the start occurrence by def-id … */

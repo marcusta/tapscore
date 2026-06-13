@@ -3,6 +3,7 @@ import type { Database } from '../db/schema';
 import { PlayerService } from './player.service';
 import { ClubService } from './club.service';
 import { CourseService } from './course.service';
+import { CourseRouteTemplateService } from './course-route-template.service';
 import { TeeService } from './tee.service';
 import { GuestPlayerService } from './guest-player.service';
 import { HandicapService } from './handicap.service';
@@ -24,8 +25,11 @@ function buildRoundServiceDeps(
     teeService: TeeService,
     playerService: PlayerService,
     guestPlayerService: GuestPlayerService,
+    courseRouteTemplateService: CourseRouteTemplateService,
 ): RoundServiceDeps {
     return {
+        resolveRouteTemplate: (templateId) =>
+            courseRouteTemplateService.resolveForRound(templateId),
         async getCourseHoles(courseId) {
             const course = await courseService.getById(courseId);
             if (!course) return [];
@@ -71,13 +75,20 @@ export function createServices(db: Kysely<Database>) {
     const playerService = new PlayerService(db);
     const clubService = new ClubService(db);
     const courseService = new CourseService(db);
+    const courseRouteTemplateService = new CourseRouteTemplateService(db);
     const teeService = new TeeService(db);
     const guestPlayerService = new GuestPlayerService(db);
     const handicapService = new HandicapService(db);
     const roleService = new RoleService(db);
     const roundService = new RoundService(
         db,
-        buildRoundServiceDeps(courseService, teeService, playerService, guestPlayerService),
+        buildRoundServiceDeps(
+            courseService,
+            teeService,
+            playerService,
+            guestPlayerService,
+            courseRouteTemplateService,
+        ),
     );
     // ParticipantService is retained for legacy fixture paths + render-lib
     // bridge reads. The `/participants` API is unmounted from main.ts —
@@ -98,6 +109,7 @@ export function createServices(db: Kysely<Database>) {
         playerService,
         clubService,
         courseService,
+        courseRouteTemplateService,
         teeService,
         guestPlayerService,
         handicapService,

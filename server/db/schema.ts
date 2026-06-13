@@ -5,6 +5,7 @@ export interface Database {
     clubs: ClubsTable;
     courses: CoursesTable;
     course_holes: CourseHolesTable;
+    course_route_templates: CourseRouteTemplatesTable;
     tees: TeesTable;
     tee_hole_lengths: TeeHoleLengthsTable;
     tee_ratings: TeeRatingsTable;
@@ -317,6 +318,20 @@ export interface CourseHolesTable {
     hole_number: number;
     par: number;
     stroke_index: number;
+}
+
+// Phase 2.6b-final / Slice 5 — named course-route templates (authoring data).
+// `definition_json` stores the route authoring input (occurrences + SI
+// source/config + allocation cycle + handicap policy + sections); typed schema
+// in `server/domain/course-route-template.ts`. Frozen into a RoundDefinition at
+// round-create time; template edits never rewrite historical rounds.
+export interface CourseRouteTemplatesTable {
+    id: string;
+    course_id: string;
+    name: string;
+    definition_json: string;
+    created_at: Generated<string>;
+    updated_at: Generated<string>;
 }
 
 export interface ClubsTable {
