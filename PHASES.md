@@ -10,11 +10,27 @@ Authoritative rebuild plan. Each phase ends at a hand-test gate. New sessions pi
 4. `git log --oneline -10` — confirm last commit matches the phase-complete marker.
 5. Start the phase. Stay inside its scope. Do not pull work forward from later phases.
 
-When a phase finishes: commit with `phase N complete: <one-liner>`, update this file's status, stop for hand-test.
+When implementation finishes: run automated gates and generate the verification artifact. For visible work, set `AWAITING VISUAL VERIFY`, give the user one clickable link plus focused expected-value checks, and stop. After explicit approval, mark complete and commit the completion record as `phase N complete: <one-liner>`.
 
 ## Verification via HTML render (standing rule)
 
 Every phase's gate includes an **HTML render** that shows the new entities and their computed views on a single static page, written to `tmp/` under the existing `scripts/render-all.ts` pipeline. The render is the primary hand-verification surface — tests prove the code runs, the render proves the *numbers are right* and the *shapes make sense to a human*.
+
+**Verification-surface decision:** until the final mobile migration, the generated static pages are the authoritative human-verification UI. The current mobile web client is itself incomplete/broken and must not be used as evidence that a server/domain/static-render slice is correct. Mobile is repaired and migrated only after the server contracts, static renderer, route model, formats, and typed events are stable.
+
+**Human visual gate workflow:**
+
+1. For every slice that changes visible data, arithmetic, scoring, setup shape, or result shape, the agent runs the canonical seed/render workflow and generates a focused page or index under `tmp/`.
+2. The agent's final response gives the user one primary clickable Markdown link with an absolute local path, for example `[Open Slice 2b verification](/Users/marcust/dev/github/tapscore/tmp/formats/slice-2b-verify.html)`.
+3. **The verification page MUST be self-contained and auditable — this is the default, not an upgrade.** It embeds the *actual rendered content* (the real per-hole grids, footnotes, computed totals, leaderboards — produced by the real render pipeline) inline, in ONE file, so the user verifies the arithmetic by eye and never has to trust the agent's prose. Hard rules learned the hard way:
+   - **No links to sibling files.** The user opens the page in a sandboxed preview panel that serves only that single file, so links to `round-*.html` resolve to blank pages. Inline the bodies of the relevant rendered pages into the verification page itself (strip the `<html>/<head>` wrapper, share one `<style>` block). Do not hand-write a high-level "summary" page whose numbers the user cannot check — that is worthless for verification.
+   - **Generate it with a small reproducible script** (e.g. `scripts/render-<slice>-verify.ts`) that rebuilds the canonical fixture DB and selects the required rounds by **stable format signature**, never by the random round id of a prior render (ids change every render). Commit the script with the slice. Mention the regenerate command in the completion record.
+   - **A green expected-value callout precedes each embedded fixture**, naming the exact section + expected total/status/arithmetic, so the user reads the claim and immediately sees the real grid under it to confirm.
+4. Do not ask the user to run commands, start a server, copy a path, or search the output directory. The agent prepares the artifact; the user only clicks and inspects it in the browser.
+5. Every visual handoff includes a concise **What to verify** brief, normally 2–5 items. Each item names the exact page/section, the behavior or arithmetic that changed, and the expected visible result. Call out the riskiest regression explicitly. Do not tell the user to inspect every page after every slice.
+6. Separate the review scope into **Required checks** and, only when useful, **Optional regression spot-checks**. A full-catalog sweep is reserved for phase/final acceptance gates or a change with genuinely broad rendering impact.
+7. A visually meaningful slice moves to `AWAITING VISUAL VERIFY` after automated checks and rendering pass. It becomes `COMPLETE` only after the user explicitly confirms the focused checks. Implementation may be committed before confirmation, followed by a small ledger/completion commit after approval.
+8. Pure internal slices with no meaningful visual consequence may say `visual gate: not applicable` and complete on automated gates, but this must be explicit in their completion record.
 
 What "include in the render" means in practice:
 - **Data on the page.** Every new field the phase introduces — snapshots, wrapper-level metadata, computed totals, points, standings — must appear. If it's not on the page, the phase isn't verifiable.
@@ -329,7 +345,7 @@ interface FormatStrategy {
 }
 ```
 
-Strategy inputs are per-producer (tee-aware). SI resolution in scoring: producer's `tee_id` → `round_tee_holes.stroke_index_override`, else `round_course_holes.base_stroke_index`.
+Strategy inputs are per-producer and tee-aware. The current physical-hole SI lookup remains during 2.6b; Slice 3c moves scoring to occurrence-aware resolution: `(play_hole_id, producer tee)` override, then the played occurrence's frozen base SI.
 
 **Concrete strategies in this slice (minimum to cover existing seeds):**
 - Ball creation: `OwnBallPerPlayer` (single derivation, `allowsProducerSetDedupe=true`), `AltShotPair` (avg derivation, `allowsProducerSetDedupe=false`).
@@ -360,36 +376,40 @@ Strategy inputs are per-producer (tee-aware). SI resolution in scoring: producer
 - Per-ball line: `ball_CH` (from ball creation) × format allowance = `ball_PH` — both stages visible, joined from `balls` + `slot_balls`.
 - Ball producers listed per ball row: `display_name_snapshot` (audit) + live player link (navigation) when available.
 
-### 2.6b-final — Registered format plugins + mobile client migration
+### 2.6b-final — Registered format plugins + canonical static verification
 
 Do this before 2.6c adds more formats. The ball model and new strategy contract are sound, but format identity and behaviour currently span two scoring engines, duplicated decomposition tables, a hardcoded client catalog, and format-specific render dispatch. Adding more formats before collapsing those paths would multiply the migration cost.
 
-**Target:** a format is a source-level plugin. In production code, adding a normal format means adding one self-contained server module and one central registration entry. A format may also register one client adapter when its setup, score-entry, or results presentation cannot use the generic mobile surfaces. No compiler, leaderboard, persistence, API schema, generic client, or renderer switch is edited for an individual format.
+**Sequencing decision:** this section completes the server plugin model and generic static verification surface. Mobile implementation is intentionally deferred to **2.6e**, after 2.6c and 2.6d. The mobile client is not a verification dependency for any earlier slice.
 
-**Acceptance test:** delete a format's module and registration entry. Every production trace of the format disappears. Restore them and the format appears in the catalog, can create a valid round, scores through the canonical engine, ranks correctly, and renders through either the generic client or its declared client adapter.
+**Target:** a format is a source-level plugin. In production code, adding a normal format means adding one self-contained server module and one central registration entry. A format may later register one client adapter when its setup, score-entry, or results presentation cannot use the generic mobile surfaces. No compiler, leaderboard, persistence, API schema, or static renderer switch is edited for an individual format.
+
+**2.6b acceptance test:** delete a format's module and registration entry. Every server/static production trace of the format disappears. Restore them and the format appears in the catalog, can create a valid round, scores through the canonical engine, ranks correctly, and renders through the generic static pages. The full mobile deletion proof runs in 2.6e.
 
 #### Execution ledger
 
 This section is the canonical cross-session handoff for 2.6b-final. Update it before ending every implementation session.
 
-Status values: `NOT STARTED` → `IN PROGRESS` → `BLOCKED` or `COMPLETE`.
+Status values: `NOT STARTED` → `IN PROGRESS` → `AWAITING VISUAL VERIFY` → `COMPLETE` (or `BLOCKED`).
 
-**Resume here:** start **Slice 2b** — move the `scripts/render/*` pipeline onto the canonical `StrategyResult` + registered descriptor so it stops importing `server/domain/format.ts` / legacy scoring helpers and stops format-id dispatch (`isBallTaliban` etc). The leaderboard now scores through plugins (Slice 2a) and adapts back to the legacy `Leaderboard` shape in `server/domain/leaderboard-engine.ts` (`adaptSlotBallResults` remaps `team:<label>` → representative ball id; `mapWinner` maps pair winners) — 2b deletes that adapter glue by defining structured serializable result sections the static renderer consumes generically. Render currently still consumes the adapted legacy shape via `leaderboardService.forRound()` (`scripts/render/collect.ts`).
+**Resume here:** Slice 2b is `COMPLETE` (focused visual checks approved). Start **Slice 2c — Delete the legacy engine**. Context for 2c: render now consumes `leaderboardService.resultForRound()` → `RoundResult` serializable sections (`server/domain/strategies/result-sections.ts` + the pure `result-builder.ts`); the whole `scripts/render/*` pipeline is free of `domain/format.ts` / `domain/leaderboard.ts` imports and format-id dispatch. The ONLY remaining users of the legacy `scoreRound`→`Leaderboard` adapter (`server/domain/leaderboard-engine.ts` with `adaptSlotBallResults`/`mapWinner`, plus `domain/format.ts` and `domain/leaderboard.ts`) are `leaderboardService.forRound()` and its consumers: the round API (`server/api/leaderboards.api.ts`, `server/api/scorecards.api.ts`) and the unmigrated mobile `src/` (`src/score/score.service.ts`, `src/results/results.service.ts`). Slice 2c deletes `domain/format.ts` + the legacy `server/domain/formats/*` strategy files + the engine adapter; it must either retire `forRound()` (and migrate/lightly stub the API + mobile types — mobile stays deferred to 2.6e, type-only edits allowed) or re-express `forRound()` on top of the section result. Run the deletion test on one built-in per the Slice 2c checklist.
 
 | Slice | Status | Commit | Resume note |
 |---|---|---|---|
 | Preflight — row-order fix | COMPLETE | `92872a6` | Preserves compiler insertion order for team balls |
 | 1 — Extension contract | COMPLETE | `1ad9c0b` | Plugin contract + canonical registry + canary + arch ratchet; no production path changed |
 | 2a — Canonical scoring | COMPLETE | `2016997` | Leaderboard scores through registered plugins; `leaderboard-engine.ts` materialises + adapts to legacy shape; `directionByType` gone |
-| 2b — Static rendering | NOT STARTED | — | Render onto canonical StrategyResult; delete the `team:<label>`/winner adapter glue in `leaderboard-engine.ts` |
+| 2b preflight — Köpenhamnare parity | COMPLETE | `6f447f7` | Rollup standings normalised to gap above last; per-hole 6-point distribution unchanged |
+| 2b preflight — 3-player shared-log fixture | COMPLETE | `bb2a90e` | Stableford + Köpenhamnare + match play share one event log in canonical fixtures |
+| 2b — Static rendering | COMPLETE | _pending_ | Render consumes `resultForRound()` → serializable sections; gates green, 13 fixtures rendered; focused checks approved. Legacy `leaderboard-engine.ts` adapter + `forRound()` retained for API/mobile, removed in 2c |
 | 2c — Legacy deletion | NOT STARTED | — | Waits on Slice 2b |
-| 3 — Slot persistence | NOT STARTED | — | Waits on Slice 2c |
-| 4 — Compiler validation | NOT STARTED | — | Waits on Slice 3 |
+| 3a — Slot persistence | NOT STARTED | — | Waits on Slice 2c |
+| 3b — Hole itinerary persistence | NOT STARTED | — | Waits on Slice 3a |
+| 3c — Itinerary scoring migration | NOT STARTED | — | Waits on Slice 3b |
+| 4 — Compiler validation | NOT STARTED | — | Waits on Slice 3c |
 | 5 — Catalog + planner | NOT STARTED | — | Waits on Slice 4 |
-| 6 — Mobile wizard | NOT STARTED | — | Waits on Slice 5 |
-| 7 — Mobile score entry | NOT STARTED | — | Waits on Slice 6 |
-| 8 — Mobile results | NOT STARTED | — | Waits on Slice 7 |
-| 9 — Deletion proof | NOT STARTED | — | Final acceptance slice |
+| 6 — Static deletion proof | NOT STARTED | — | Final 2.6b server/static acceptance slice |
+| 2.6e — Mobile repair + migration | DEFERRED | — | Starts only after 2.6c and 2.6d are complete |
 
 Session update rules:
 
@@ -399,6 +419,20 @@ Session update rules:
 4. Mark a slice `COMPLETE` only when its gate passes; record the commit hash.
 5. Rewrite **Resume here** with the precise next file/test/problem before stopping.
 6. Record blockers in the table's Resume note; do not hide partial work behind `COMPLETE`.
+7. For a visually meaningful slice, set `AWAITING VISUAL VERIFY`, render the artifact, and give the user one clickable absolute link plus a focused 2–5 item `What to verify` brief. Mark `COMPLETE` only after explicit human approval.
+
+Visual-gate map for 2.6b-final:
+
+| Slice | Human visual review | Focus |
+|---|---|---|
+| 2b — Static rendering | Required | New generic ranked/match sections; `multi-format-3p-round`; one complex category format; one pair-only format |
+| 2c — Legacy deletion | Not normally required | Automated/static regression only; output should be unchanged |
+| 3a — Slot persistence | Not normally required | Automated round-trip regression; no intended visible change |
+| 3b — Itinerary persistence | Required | Route summary, repeated occurrence identity, group starts, SI provenance/policy |
+| 3c — Itinerary scoring | Required | Repeated-hole scoring, custom SI stroke allocation, shotgun played order, route-derived totals |
+| 4 — Compiler validation | Not normally required | Structured diagnostic tests; render only if diagnostics gain a user-facing page |
+| 5 — Catalog + planner | Required | Focused static setup-plan page showing descriptor → draft → compiled definition for mixed formats/routes |
+| 6 — Static deletion proof | Required milestone | Agent selects the small high-risk subset; full catalog remains available but is not automatically assigned to the user |
 
 #### Plugin contract
 
@@ -431,6 +465,26 @@ registerFormat({
 - `clientAdapterId` is absent for generic formats. A specialised adapter is registered once in the client composition root and may contribute setup controls, score-entry controls, or results rendering.
 - Duplicate format ids and missing declared client adapters fail loudly in tests/startup.
 - Ball-creation strategies remain a separate registry because they are reusable across formats. A format's setup plan references them without reimplementing derivation.
+- **Stateful format actions are a reserved plugin capability, implemented in 2.6d.** Formats such as Wolf need append-only in-round decisions (rotating Wolf, partner selection, Lone Wolf declaration) that are neither strokes, metadata, setup corrections, nor rulings. The plugin contract may therefore declare action descriptors/schemas and consume replayed actions during `score()`. The generic persistence envelope, idempotent append API, replay rules, and mobile adapter transport land with the typed event work in 2.6d — not as Wolf-specific schema and not during the current renderer migration.
+
+#### Format pressure survey (2026-06-13)
+
+Pressure-tested against [GOLF+ games for friends](https://blog.golfplusvr.com/golf-games-to-play-with-friends/), [Golf GameBook Irish Rumble](https://support.golfgamebook.com/hc/en-us/articles/360002291314-Irish-Rumble), and [Wikipedia's variations of golf](https://en.wikipedia.org/wiki/Variations_of_golf). The one-plugin direction still holds, but the contract must cover these capabilities before claiming broad format extensibility:
+
+| Capability | Formats exposing it | Architectural response |
+|---|---|---|
+| Played order, distinct from printed hole number | Irish Rumble in a shotgun start, Wolf rotation, carried skins | The Round persists an ordered play-hole itinerary; each playing group may rotate it from any start entry. Scoring receives both stable play-hole identity and group-relative played ordinal. |
+| Hole-segment schedules | Irish Rumble 1/2/3/all counting scores, Nassau front/back/overall, Patsome format changes, Sixes partner rotations | Keep a plugin-validated schedule in `formatConfig`; each segment declares whether it addresses played ordinals or course hole numbers. Expose generic range/segment setup controls and structured segment results. |
+| Static, scheduled, and dynamic team topology | Fixed four-ball, Sixes/Round Robin, Wolf | Declare topology mode in requirements. Compile static/scheduled assignments; replay dynamic assignments from format actions. |
+| Ordered decisions within a hole | Wolf partner choice, scramble selected shot, Chapman/greensomes ball choice, Bingo Bango Bongo first/closest/first-out | Format actions carry stable ordering and subject references within a hole; the plugin validates the state transition. Do not add one table per game. |
+| Variable counting/contributing scores | Best ball, Low Ball/High Ball, Bowmaker, Irish Rumble | Structured results identify which scores contributed, rather than returning only the final team number. |
+| Awards, carryovers, possession, and transfers | Dots/Garbage, Skins, Snake, Nines, Acey Deucey, Sandies/Barkies/Arnies | Result sections support category awards, carry pools, state/possession, and abstract point/unit transfers. Money settlement stays outside the scoring core. |
+| Repeatable/configurable rules | Modified Stableford point tables, Dots achievement catalogs, Texas scramble minimum drives | Descriptor config schemas and the setup planner support repeatable tables/lists, with a client adapter only when generic controls are insufficient. |
+| Multiple games over the same play | Nassau or side games layered over stroke/match play | Model them as independent slots consuming the same balls/events. Reuse internal scoring helpers, but do not create runtime plugin nesting or another registry. |
+
+**Round routing decision:** `round_play_holes` is the source of truth for which holes count and in what canonical order. Each row has a stable `play_hole_def_id`/runtime id, ordinal, course hole number, and frozen occurrence-level par/SI; repeated course holes are valid (for example a 10-hole course routed as `1..10,1..8`). Occurrence values default from the physical hole but can differ on a later loop when the route's scorecard requires it. A playing group references any itinerary entry as its start and receives a rotated played order. Hole-scoped events target the stable play-hole id, never raw course hole number. `full_18`, `front_9`, and `back_9` become setup presets that generate an itinerary; arbitrary ordered subsets are equally valid. This supports conventional starts, full shotgun starts, wrapped rounds, start-anywhere/end-anywhere routes, repeated partial loops, and selected subsets with one model.
+
+**Fidelity boundary:** a score-only scramble can remain one team ball with one hole total. Enforcing shot-selection rules (Florida exclusion, Texas minimum drives, Chapman/greensomes choice) requires ordered format actions. That is still plugin-owned state, not a universal shot-tracking schema. A full shot-by-shot model is deferred until a product requirement needs lie, club, distance, or every attempted shot beyond format decisions.
 
 Suggested locality:
 
@@ -444,7 +498,7 @@ src/formats/index.ts                     # exceptional client adapters only
 
 #### Slice 1 — Lock the extension contract with tests
 
-- [x] Introduce `FormatPlugin`, `FormatDescriptor`, `FormatMetric`, setup-plan, and optional client-adapter contracts. → `server/domain/formats/plugin.ts` (`clientAdapterId` on the descriptor; the client-side adapter registry itself lands in Slice 6).
+- [x] Introduce `FormatPlugin`, `FormatDescriptor`, `FormatMetric`, setup-plan, and optional client-adapter contracts. → `server/domain/formats/plugin.ts` (`clientAdapterId` on the descriptor; the client-side adapter registry itself lands in 2.6e).
 - [x] Add registry contract tests: unique ids, descriptor validity, metric validity, config validation, and deterministic listing. → `plugin.test.ts`.
 - [x] Add a test-only canary plugin that uses a previously unknown format id and high-wins metric. Prove it registers, appears in the catalog, plans setup, compiles, scores, and ranks without editing infrastructure maps. → `_canary.testkit.ts` + `canary.test.ts` (full chain via the existing `compile()` + a throwaway materialiser).
 - [x] Add an architecture test that forbids a second **format** registry and catches format-id decomposition tables outside the canonical registry. Explicitly allow the separate `strategies/ball-creation/` registry: it is a different seam whose adapters are reusable across formats and own derivation rather than scoring. → `architecture.test.ts` (shrinking allowlist; ball-creation registry not flagged).
@@ -465,29 +519,54 @@ src/formats/index.ts                     # exceptional client adapters only
 
 **Completion record:** commit `2016997` · verification `check:server/check:client/check:test + bun test all green (414 pass); seed:formats + render:formats + check:format-fixtures green` · handoff `Slice 2b — move scripts/render onto canonical StrategyResult; delete the leaderboard-engine adapter glue`
 
+#### Slice 2b preflight — Hand-test corrections and coverage fixture
+
+- [x] Correct Köpenhamnare rollups to the established match-style convention: subtract the lowest decided cumulative total so last place is 0 and the others show their gap above last. Preserve raw per-hole 6-point distributions and null totals for players with no decided hole. → `6f447f7`.
+- [x] Add `multi-format-3p-round` to the canonical manual-format fixtures. Three own-balls and one shared score-event log feed Stableford, Köpenhamnare, and individual match play; the odd third match-play ball remains explicitly unpaired. → `bb2a90e`.
+- [x] Rebuild and render the dedicated fixture database after both commits. → 13 rounds under `tmp/formats/`; `check:format-fixtures` green.
+
+- [x] **Gate:** focused Köpenhamnare tests, all type checks, full suite, and canonical fixture workflow are green. → `check:server`, `check:client`, `check:test`; `bun test` 415 pass / 0 fail; `seed:formats`, `render:formats`, `check:format-fixtures` green on 2026-06-13.
+
+**Completion record:** commits `6f447f7`, `bb2a90e` · verification `415 tests + 13 canonical fixture rounds green` · handoff `Slice 2b result contract: metricless descriptors + ordered serializable sections, then generic ranked/match rendering against multi-format-3p-round`
+
 #### Slice 2b — Generic static fixture rendering
 
-- [ ] Move the `scripts/render/*` pipeline onto the canonical `StrategyResult` and registered descriptor. It must not import `server/domain/format.ts`, legacy scoring helpers, or identify formats with switches such as `isBallTaliban`.
-- [ ] Define structured, serializable result sections sufficient for the static verification pages: ranked metrics, ball hole tables, match/team comparisons, category matrices, derivation/allowance arithmetic, and strategy annotations.
-- [ ] Make the static renderer generic over those sections. Format-specific arithmetic and golf idiom originate in the plugin's structured result, not in a parallel scoring implementation inside the renderer.
-- [ ] Treat static HTML rendering as a first-class consumer of the plugin contract. It does not get a separate per-format registry or adapter mechanism; otherwise the acceptance test would merely move format coupling from the mobile client into `scripts/`.
-- [ ] Preserve the standing hand-verification quality: match-play status, Taliban multipliers, Köpenhamnare topology, Umbrella categories, and handicap arithmetic must remain visible.
+- [x] Move the `scripts/render/*` pipeline onto the canonical `StrategyResult` and registered descriptor. It must not import `server/domain/format.ts`, legacy scoring helpers, or identify formats with switches such as `isBallTaliban`. → render consumes `leaderboardService.resultForRound()` → `RoundResult` sections; `domain/format.ts` / `domain/leaderboard.ts` imports and all `isBall*` / `scoringMode===` classifiers removed from `scripts/render/`. Slot labels come from the descriptor catalog (`formatCatalog()`), not a switch.
+- [x] Amend the result contract so ranked metrics are optional rather than forcing a nominal metric onto pair/state-only games. → `assertValidDescriptor` accepts `metrics: []`; match-play + match-play-better-ball + taliban now declare zero metrics and render a match-summary section with no ranked column.
+- [x] Define structured, serializable result sections. → `server/domain/strategies/result-sections.ts`: `ScoreGridSection` (covers individual / pair / team-aggregate / category cards), `RankedSection`, `MatchSummarySection`, assembled by the pure `result-builder.ts`. Covers every current fixture (ranked metrics, ball hole tables, match/team comparisons, category/award matrices via per-hole notes, derivation/allowance + strategy annotations). Forward-looking kinds with no current fixture (segment summaries, contributing-score traces as a distinct section, carry pools, state/possession, abstract point transfers) are intentionally deferred to the slice that first exercises them — the union is additive.
+- [x] Make hole-addressed section rows structurally ready for stable `playHoleId`. → grid columns are a `HoleRef` struct (`{ holeNumber }`), extensible without changing row identity; documented in `result-sections.ts`.
+- [x] Make the static renderer generic over those sections. → `scripts/render/sections/result.ts` lays out grids/ranked/match with zero format knowledge; all arithmetic + golf idiom originate in `result-builder.ts` (domain), the only presentation arithmetic being `given = gross − net` and normalised running, both data-gated.
+- [x] Treat static HTML rendering as a first-class consumer of the plugin contract. → no per-format render registry or adapter; the renderer reads descriptors + sections only.
+- [x] Preserve the standing hand-verification quality. → match-play `Status`/`Match` rows, Taliban standalone summary + `W+n` badges, Köpenhamnare 6-point topology footnotes, Umbrella category math + sweep ☂ + normalised running, and per-hole handicap (Given/Net) all remain visible (verified in rendered pages).
 
-- [ ] **Gate:** `bun run seed:formats` + `bun run render:formats` produce complete pages from canonical plugin results only, with no legacy format imports or format-id dispatch in `scripts/render/`.
+- [x] **Gate:** `bun run seed:formats` + `bun run render:formats` produce complete pages from canonical plugin results only, with no legacy format imports or format-id dispatch in `scripts/render/`. → 13 rounds rendered; `check:server/client/test` + `bun test` (414) + `check:format-fixtures` green; repository grep over `scripts/render/` finds no `domain/format`/`domain/leaderboard` import and no format-id dispatch.
+- [x] **Human visual gate:** focused Slice 2b page generated at `tmp/formats/slice-2b-verify.html` via `bun scripts/render-slice-2b-verify.ts` — SELF-CONTAINED: it embeds the three required rounds' actual rendered scorecards + leaderboards inline (every per-hole grid auditable by eye, no external links), each preceded by an expected-value callout. Status set to `AWAITING VISUAL VERIFY`. Required checks: shared-log slot separation on `multi-format-3p-round` (Stableford 37/31/23, Köpenhamnare 35/22/0, match Alice d. Bob 7 & 5), pair-only `match-play-round` (match-summary only, no ranked metric; Alice d. Bob 3 & 2), and `umbrella-round` 4-ball category/running (Carol & Dan 70 / Alice & Bob 0, sweep ☂). Awaiting human confirmation.
 
-**Completion record:** commit `—` · verification `—` · handoff `—`
+**Completion record:** commit `_pending_` · verification `check:server/client/test + bun test (414 pass) + seed:formats/render:formats/check:format-fixtures (13 rounds) green; no legacy format imports or format-id dispatch in scripts/render/` · visual verification `tmp/formats/slice-2b-verify.html (self-contained, real embedded scorecards) — three focused checks approved by user 2026-06-13` · handoff `Slice 2c deletes the legacy engine (domain/format.ts, server/domain/formats/* strategies) + the leaderboard-engine adapter + forRound()`
 
 #### Slice 2c — Delete the legacy engine
 
 - [ ] Delete `server/domain/format.ts`, `server/domain/formats/*`, their duplicate tests, and obsolete format-specific files under `scripts/render/scorecards/`.
 - [ ] Move genuinely format-agnostic hole/course/result types into canonical modules rather than retaining the legacy file as a type barrel.
-- [ ] Run the deletion test on one built-in: remove its plugin module + central registration and prove server build, generic fixture renderer, and generic mobile surfaces contain no residual import, switch branch, label, or scoring rule for it.
+- [ ] Run the deletion test on one built-in: remove its plugin module + central registration and prove server build and generic fixture renderer contain no residual import, switch branch, label, or scoring rule for it. Mobile proof is deferred to 2.6e.
 
 - [ ] **Gate:** repository search finds one format registry, one scoring implementation per format, and no format-specific static render dispatch.
 
 **Completion record:** commit `—` · verification `—` · handoff `—`
 
-#### Slice 3 — Canonical slot persistence and read model
+#### Route and stroke-index invariants
+
+- A `course_hole` is the physical hole. A `round_play_hole` is one occurrence of that hole in this Round. All score-like events use the occurrence identity.
+- The Round owns one ordered itinerary shared by the field. Playing groups may start at different itinerary entries, but they play the same entries in rotated order. Different subsets require different Rounds.
+- Each occurrence freezes `par`, `base_stroke_index`, and per-tee length/SI. Defaults come from the physical-hole snapshots; route overrides never mutate the Course.
+- Store SI provenance on the Round definition/compiled itinerary: `official` (copied unchanged), `difficulty` (generated/imported from a named difficulty source and then frozen), or `custom` (manual). Persist the resolved numbers, not merely the generation mode.
+- Freeze a route handicap policy alongside the itinerary: allocation cycle size, how producer course handicap is obtained for this route (`official_route` | `full_course_casual` | `prorated_casual` | `explicit`), and posting eligibility/reason. Formats consume the resulting frozen CH/PH and occurrence SI; they do not invent route-handicap math.
+- A repeated physical hole has a separate stable `play_hole_def_id`, score-event key, par, SI, and tee data on each visit.
+- SI controls stroke allocation only. It does not silently change course handicap, playing handicap, rating, slope, or WHS eligibility. Route-specific handicap calculation/posting is an explicit policy decision with a visible diagnostic.
+- Validate occurrence SI as positive integers within the frozen allocation cycle and require uniqueness when the selected allocation policy expects a ranked sequence. Sparse official subsets may retain gaps (for example SI 2, 7, 13 with cycle 18). Do not infer the cycle from itinerary length; policy decides whether an arbitrary route is competitive, casual-only, or WHS-postable.
+- Generic formats use occurrence par/SI and group-relative played ordinal from `RoundContext`; they never index course arrays by raw hole number. A format that intentionally uses physical hole number declares that coordinate in its config.
+
+#### Slice 3a — Canonical slot persistence and read model
 
 - [ ] Add generic `format_id` and `format_config` columns to `slots`. No format-specific columns or tables.
 - [ ] Read rounds and slots from `slots` / `slot_balls`, not `round_format_slots`.
@@ -496,13 +575,49 @@ src/formats/index.ts                     # exceptional client adapters only
 - [ ] Keep `scoring_mode` and `team_shape` only as registry-derived query metadata if they remain useful; they are not lookup keys.
 - [ ] Retire `round_format_slots` after fixture/backfill parity proves no read or write path depends on it.
 
-- [ ] **Gate:** an unknown registered canary id round-trips through persistence without becoming `custom × custom`.
+- [ ] **Gate:** an unknown registered canary id round-trips through persistence without becoming `custom × custom`; no itinerary/event behaviour changes in this slice.
+
+**Completion record:** commit `—` · verification `—` · handoff `—`
+
+#### Slice 3b — Hole itinerary and playing-group persistence
+
+- [ ] Add `round_play_holes` with stable `play_hole_def_id`, deterministic runtime id, canonical ordinal, course hole number, and frozen occurrence-level par/base SI. Add per-occurrence tee snapshots for effective length/SI. Allow any non-empty ordered itinerary and repeated course holes; default from the physical-hole snapshots and validate explicit route overrides.
+- [ ] Promote the current `tee_times` rows into explicit `playing_groups` (preserving start time/capacity/bay), add ball membership, and replace raw `start_hole` with `start_play_hole_id`. Remove the 1-or-10 constraint: any itinerary entry is a valid normal or shotgun start.
+- [ ] Put itinerary entries and playing groups in the versioned `RoundDefinition` with stable def-ids. Group setup assigns producers; the compiler derives ball membership and rejects any team ball whose producers cross playing groups.
+- [ ] Persist route/SI provenance (`official` | `difficulty` | `custom`), optional source label/version, and the fully resolved occurrence values in `round_definitions` and compiled rows. Historical scoring never reruns a difficulty algorithm.
+- [ ] Persist the route handicap policy and allocation cycle in `RoundDefinition`. Non-standard routes require an explicit policy; the compiler freezes the resulting per-producer route CH before ball derivation and records posting eligibility/reason.
+- [ ] Give `round_play_holes` uniqueness/FK constraints for `(round_id, play_hole_def_id)` and `(round_id, ordinal)`; give per-occurrence tee rows and group starts same-round composite FKs so cross-round references cannot compile or persist.
+- [ ] Backfill every existing Round with a deterministic itinerary from its frozen holes and legacy `round_type`; map existing tee-time starts to the matching occurrence. Existing data has no repeated-hole ambiguity, so old hole numbers map one-to-one or fail migration with an explicit diagnostic.
+- [ ] Define itinerary recompile semantics: reorder preserves play-hole ids and events; adding creates new occurrences; removing retains affected events as `orphaned_events_after_correction`; changing par/SI updates the same occurrence and deterministically rescoring all consuming slots.
+- [ ] Reserve stable setup-correction target paths for itinerary entry add/remove/reorder, occurrence par/SI/tee override, SI provenance, playing-group membership, and group start. The compiler can recompile those definition changes here; append/replay transport lands in 2.6d.
+- [ ] Extend the Round read model/API with ordered occurrence snapshots, route/SI provenance, route handicap policy, posting eligibility, route sections, playing groups, group-relative order, and start/end occurrences. Historical reads require no live Course/template lookup.
+
+- [ ] **Gate:** schema/compiler tests persist official, difficulty-labelled, and custom-SI routes; invalid cross-round starts, duplicate ordinals, SI outside the allocation cycle, duplicate required SI ranks, missing non-standard route handicap policy, and team balls crossing playing groups fail atomically.
+
+**Completion record:** commit `—` · verification `—` · handoff `—`
+
+#### Slice 3c — Event, scoring, and scorecard itinerary migration
+
+- [ ] Migrate existing hole-scoped score/metadata references from raw hole number to stable `play_hole_id`; define future ruling/action schemas against the same occurrence identity. Compatibility reads may expose course hole number, but persistence and idempotent event identity use the played-hole occurrence.
+- [ ] Rebuild the scorecard materialisation/trigger key as `(ball_id, play_hole_id)` and backfill existing score/metadata rows transactionally. Update unique indexes, service inputs, API schemas, idempotent replay, clear/confirm flows, and conflict resolution together.
+- [ ] Materialise `playHoles`, `courseHoleNumber`, canonical ordinal, and `playedOrdinalFor(ballId, playHoleId)` into scoring context. A group starting midway receives the itinerary rotated from its start entry.
+- [ ] Change effective par/SI/length helpers to accept `playHoleId` plus ball/producer context. Update every built-in strategy and shared scoring helper to iterate itinerary occurrences rather than `courseHoles` or `1..18`; explicitly choose played ordinal versus physical hole coordinate for rule multipliers.
+- [ ] Centralise handicap-stroke allocation over `(playingHandicap, occurrenceStrokeIndex, allocationCycleSize)`, including plus handicaps and handicaps larger than one cycle. No format reimplements this arithmetic.
+- [ ] Replace hole-number-only result fields with stable play-hole identity plus display metadata (`courseHoleNumber`, canonical ordinal, group-relative played ordinal, occurrence label). Generic renderers and clients must distinguish repeated visits such as `3 (1st)` and `3 (2nd)`.
+- [ ] Make round completeness iterate the itinerary rather than assuming 9 or 18 course holes. Keep WHS-posting eligibility as a separate route policy so arbitrary subsets remain playable even when they are not postable.
+- [ ] Apply the frozen route handicap policy before ball creation/format allowance. WHS posting is allowed only through a policy that supplies valid rating/slope/par treatment; casual policies still score deterministically but completion returns a clear posting-ineligible reason.
+- [ ] Retire `round_type` as scoring authority. It may survive temporarily as the setup preset used to create an itinerary, but no compiler, scorer, completion check, or client navigation branches on it.
+- [ ] Render the route and SI provenance on canonical fixture pages, including occurrence par/SI, group start/end, played order, repeated-hole labels, and custom overrides. OUT/IN/TOT segmentation derives from route sections/config rather than hardcoded physical holes 1–9/10–18.
+
+- [ ] **Gate:** all built-ins and event services pass on occurrence ids; fixtures prove a hole-5 shotgun start, a wrapped route, an arbitrary subset, a 10-hole course routed as `1..10,1..8`, a repeated hole with a different second-occurrence SI, a sparse cycle-18 subset, plus handicap, and PH greater than one cycle without score/result collisions. Existing canonical fixtures remain numerically identical.
 
 **Completion record:** commit `—` · verification `—` · handoff `—`
 
 #### Slice 4 — Deepen compiler validation
 
-- [ ] Make the compiler enforce the full registered requirement: producer count, slot ball count, ball mode, team count, team size, disjointness, coverage, selector references, and format-config schema.
+- [ ] Make the compiler enforce the full registered requirement: producer count, slot ball count, ball mode, topology mode (`static` | `scheduled` | `dynamic`), team count, team size, disjointness, coverage, selector references, and format-config schema.
+- [ ] Validate hole-segment schedules against the played sequence: ranges cover valid ordinals, do not overlap unless the plugin allows it, and scheduled team assignments reference known balls exactly as declared.
+- [ ] Require plugin configuration to declare whether hole-based rules address `played_ordinal`, `canonical_ordinal`, or `course_hole_number`; reject ambiguous schedules/multipliers rather than guessing.
 - [ ] Implement requirement-based auto-selection when `ballSelector` is omitted; never default blindly to every ball in a mixed own-ball/team-ball round.
 - [ ] Validate `deriveSlotBalls()` output is one-for-one with the selected balls and contains no unknown/duplicate ids.
 - [ ] Return structured diagnostics with stable codes and paths. Plugin implementations may retain defensive checks, but invalid setup must normally stop at compile time.
@@ -515,71 +630,40 @@ src/formats/index.ts                     # exceptional client adapters only
 
 - [ ] Add authenticated `GET /formats` exposing registered serializable descriptors.
 - [ ] Add a UI-level `RoundSetupDraft`: course/date, producers/tees, selected format ids, team assignments, allowance overrides, and format-specific config.
+- [ ] Let `RoundSetupDraft` select a route preset or submit an explicit ordered hole itinerary. Include SI mode/provenance, allocation cycle, route handicap policy, occurrence overrides, route sections, and playing-group starts by play-hole def-id rather than unrestricted integer hole.
+- [ ] Add named, reusable course-route templates as setup conveniences (for example `10 + first 8`, `10 + first 6`, `clubhouse 6`, `difficulty SI`). Creating a Round copies and freezes the fully resolved template into its `RoundDefinition`; later template edits never rewrite history.
+- [ ] Persist templates in a course-owned `course_route_templates` table/document with stable id, unique course-local name, ordered occurrence definitions, route sections, SI source/config, allocation cycle, and route handicap policy. Validate through the same pure route compiler used by `RoundSetupDraft`.
+- [ ] Keep route/SI generation server-owned. Official mode copies course values; custom mode validates submitted ranks; difficulty mode resolves from an explicitly named/imported difficulty source. The mobile client never calculates or reorders SI itself.
+- [ ] Expose route templates and SI provenance through authenticated APIs with explicit authorization: course/club admins manage shared templates; a round creator may choose a template and, where round policy permits, make round-local overrides.
 - [ ] Add a pure `RoundDefinitionBuilder` that asks each selected plugin's `planSetup` for its slot/ball needs, coalesces reusable ball-creation strategies, and emits the canonical `RoundDefinition`.
+- [ ] Let setup plans declare static teams, scheduled team rotations, and played-order segment config without format ids leaking into the builder.
 - [ ] The mobile API creates from `RoundSetupDraft`; direct `RoundDefinition` creation remains an internal/admin/testing interface.
 - [ ] Return compiler diagnostics in a structured response the mobile wizard can attach to the relevant format/team/player control.
 
 This keeps ball-strategy ids, derivation config, selectors, and dedupe rules out of the mobile client. The server remains the authority on what a format needs.
 
-- [ ] **Gate:** mixed selections such as stableford + better-ball + foursomes produce one own-ball strategy plus the required pair-ball strategy without client conditionals.
+- [ ] **Gate:** mixed selections such as stableford + better-ball + foursomes produce one own-ball strategy plus the required pair-ball strategy without client conditionals; named `10 + first 8` and custom difficulty-SI drafts compile without client-side route logic.
 
 **Completion record:** commit `—` · verification `—` · handoff `—`
 
-#### Slice 6 — Migrate the mobile round wizard
+#### Slice 6 — Static deletion and extension proof
 
-- [ ] Replace `src/formats.ts`, `pairBall`, `needsTeams`, and client-side `RoundDefinition` construction with a `FormatCatalogService` backed by `GET /formats`.
-- [ ] Render labels, descriptions, allowance defaults, participant bounds, and grouping requirements from descriptors.
-- [ ] Replace the fixed A/B team editor with a generic team assignment editor driven by declared team count/size. Keep the touch-first mobile interaction.
-- [ ] Generic setup controls cover common scalar/choice config. A plugin with unusual setup UI uses its optional client adapter.
-- [ ] Submit `RoundSetupDraft`; display structured planner/compiler diagnostics inline.
-- [ ] Round list and slot labels use `formatId` + catalog descriptor, with a robust id fallback for historical/unavailable plugins.
+- [ ] Delete legacy scoring modules, decomposition maps, and format-specific static-render switches made obsolete by the canonical plugin/result contracts. Mobile legacy maps remain until 2.6e.
+- [ ] Keep the canonical fixture workflow: `bun run seed:formats`, then `bun run render:formats` from the rebuilt fixture DB.
+- [ ] Perform the server/static acceptance test with the canary plugin. Production infrastructure files must remain untouched beyond central registration; test/fixture registration is expected proof, not runtime coupling.
+- [ ] Repository search proves one canonical server registry, zero format decomposition maps, and no format-id dispatch under `scripts/render/`.
+- [ ] Generate a stable static verification index covering every built-in, the canary/deletion proof, pair-only results, multi-format shared logs, and unusual arithmetic. Give the user one clickable absolute link, but identify a small required subset for review; the remaining pages are regression coverage unless a broad renderer change requires a full sweep.
 
-- [ ] **Gate:** create and reopen individual, own-ball team, team-ball, and multi-slot rounds entirely through the mobile UI.
+**Final 2.6b automated gate:**
+- [ ] `bun run check:server`, `check:client`, `check:test`, `bun test`, and canonical format fixture checks green.
+- [ ] All existing format outputs remain numerically identical unless an explicitly approved correction is recorded.
+- [ ] One canonical server registry; zero server/static format decomposition maps or render switches.
+- [ ] Generic formats require one server plugin + central registration only.
 
-**Completion record:** commit `—` · verification `—` · handoff `—`
+- [ ] **Human visual gate:** set the slice to `AWAITING VISUAL VERIFY` and provide the generated static index as a clickable link plus a focused checklist of the changed/high-risk fixtures and their expected values. The user is not expected to inspect every fixture unless the agent explains why this milestone requires a full sweep.
+- [ ] Commit completion record: `phase 2.6b complete: registered format plugins + canonical static verification`.
 
-#### Slice 7 — Migrate mobile score entry
-
-- [ ] Treat the round's ball pool as the entry surface: one stroke entry per unique ball/hole, regardless of how many slots consume it.
-- [ ] Group or label own-balls and team-balls clearly when a round contains both; never duplicate entry controls per format slot.
-- [ ] Stop attaching producer source ids to ordinary own-ball score events after the canonical engine migration. Producer-specific metadata remains explicit metadata, not duplicated score rows.
-- [ ] Add score-entry capabilities to the descriptor. Generic controls handle strokes plus simple boolean/number metadata; specialised interactions use the optional client adapter.
-- [ ] Preserve optimistic entry and `client_event_id` idempotency. Isolate event transport in the score feature service so Phase 2.6d can replace embedded metadata with typed metadata events without rewriting components.
-
-- [ ] **Gate:** the kitchen-sink topology can enter four own-balls plus two team-balls once each per hole, and every slot updates from that shared log.
-
-**Completion record:** commit `—` · verification `—` · handoff `—`
-
-#### Slice 8 — Migrate mobile results
-
-- [ ] Replace the global `byScoringType + pairResults` presentation contract with ordered per-slot result views carrying `slotDefId`, `formatId`, descriptor label, and sections.
-- [ ] Generic sections cover ranked metrics and match/team-vs-team summaries. A plugin may emit a typed custom payload only when generic sections cannot express its golf idiom.
-- [ ] Build tabs from slots, not scalar metric buckets. This fixes pair-only match-play, which currently has no tab when it emits no scalar totals.
-- [ ] The server ranks using each registered metric's direction. The client displays rankings; it never interprets scoring-type strings.
-- [ ] Register specialised client results adapters only for formats whose presentation genuinely differs; unknown adapters fall back to a structured diagnostic view rather than hiding results.
-
-- [ ] **Gate:** stroke-play, stableford, individual match-play, better-ball match-play, Köpenhamnare, Taliban, and Umbrella all render correctly on mobile; pair-only slots are visible.
-
-**Completion record:** commit `—` · verification `—` · handoff `—`
-
-#### Slice 9 — Deletion and extension proof
-
-- [ ] Delete legacy client catalog/label maps, legacy scoring modules, decomposition maps, and format-specific generic render switches made obsolete by adapters.
-- [ ] Keep canonical fixture workflow: `bun run seed:formats`, then `bun run render:formats` from the rebuilt fixture DB.
-- [ ] Add client tests for catalog-driven setup, team validation, mixed topology, generic result sections, pair-only results, and missing-adapter fallback.
-- [ ] Hand-test the mobile web app at narrow and wide viewport sizes for round creation → score entry → results.
-- [ ] Perform the acceptance test with the canary plugin. Production infrastructure files must remain untouched beyond central registration; tests/fixture registration are expected proof, not runtime coupling.
-
-**Final 2.6b gate:**
-- [ ] `bun run check:server`, `check:client`, `check:test`, `bun test`, and format fixture checks green.
-- [ ] All existing format outputs remain numerically identical.
-- [ ] One canonical server registry; zero format decomposition maps.
-- [ ] Generic formats require no client code.
-- [ ] Special formats require at most one colocated client adapter + one client registration entry.
-- [ ] Mobile wizard, score entry, and results consume plugin-driven contracts end-to-end.
-- [ ] Commit: `phase 2.6b complete: registered format plugins + mobile client`.
-
-**Completion record:** commit `—` · verification `—` · handoff `—`
+**Completion record:** commit `—` · automated verification `—` · visual verification link/approval `—` · handoff `2.6c`
 
 ### 2.6c — New ball-creation & format coverage + kitchen-sink multi-slot seed
 
@@ -613,15 +697,25 @@ Exercise the new shape on formats flat `allowance_pct` couldn't express, plus pr
   - Bottom: 7 slot sections, each showing its ball subset + allowance line + `ball_PH` × hole strokes → result.
 - Same 4 own-balls feed 5 of the 7 slots with different PHs per slot, visibly demonstrating the split.
 
-**Gate:** new seeds + kitchen-sink render correct arithmetic; `bun test` includes new ball-creation + format + multi-slot tests. Commit `phase 2.6c complete: new strategies + multi-slot kitchen sink`.
+**Gate:** new seeds + kitchen-sink render correct arithmetic; `bun test` includes new ball-creation + format + multi-slot tests. Set `AWAITING VISUAL VERIFY` and give one focused link. Required checks should emphasize the kitchen-sink shared event log, one non-flat team-ball derivation, and the mixed-tee CH arithmetic; other new pages are optional regression checks. Commit after approval: `phase 2.6c complete: new strategies + multi-slot kitchen sink`.
 
 ### 2.6d — Typed corrections, soft-delete read path, player dashboard
 
 Per §17, corrections are typed — three distinct events instead of one generic override bus.
 
-- `setup_correction_event` — pre-finalization fix on `RoundDefinition` inputs only (wrong tee, wrong handicap index, wrong category, wrong ball composition, wrong slot declaration, wrong ball-strategy config). Targets: `producer_tee` | `producer_handicap_index` | `producer_category` | `ball_composition` | `slot_declaration` | `ball_strategy_config`. `target_ref` uses **stable def-ids only** (`producer_def_id`, `strategy_def_id`, `slot_def_id`), never compiler-output row ids. Derived outputs (`balls`, `slot_balls`, `slot_ball_teams`, ball CH, ball PH) are never targeted directly — the event mutates the latest `round_definitions` version into a new version, the compiler re-runs, and all downstream outputs are recomputed. Old + new input values retained in the event; the full definition chain is retained in `round_definitions`.
+**Stateful format actions (generic plugin event seam):**
+
+- Add append-only `format_action_events` keyed by `round_id`, stable `slot_def_id`, optional `play_hole_id`, stable sequence/ordinal within the played-hole occurrence, action type, schema version, optional subject ball/producer refs, JSON payload, actor, timestamp, and idempotent `client_event_id`.
+- A registered format plugin optionally declares its action types and validates each payload. Persistence owns only the generic envelope; no Wolf/Taliban/etc. columns, tables, or switch statements.
+- The append path verifies that the slot exists, its registered format owns the action type, the payload passes that plugin's schema, and the action is legal for the current round/play-hole state.
+- Materialisation replays the slot's validated format actions into `FormatPlugin.score()` alongside score, metadata, and ruling events. Stable `slot_def_id` keeps actions attached across recompiles.
+- Corrections remain append-only and auditable: an action may explicitly supersede a prior action according to plugin-declared replay rules; rows are never updated or deleted in place.
+- Mobile client adapters submit actions through one generic endpoint and receive structured diagnostics. Generic score entry remains unaware of individual action types.
+- Add a stateful canary plugin/fixture proving rotating role + per-hole partner choice + an ordered in-hole decision can be persisted, replayed deterministically, corrected by supersession, and reflected in structured results without infrastructure edits. This proves the seam required by Wolf, scramble selection, and Bingo Bango Bongo without implementing those formats in 2.6d.
+
+- `setup_correction_event` — pre-finalization fix on `RoundDefinition` inputs only (wrong tee, handicap index, category, ball composition, slot declaration, ball-strategy config, itinerary entry/order, occurrence par/SI/tee override, SI provenance, playing-group membership/start). Targets use **stable def-ids only** (`producer_def_id`, `strategy_def_id`, `slot_def_id`, `play_hole_def_id`, `playing_group_def_id`), never compiler-output row ids. Derived outputs (`balls`, `slot_balls`, `slot_ball_teams`, `round_play_holes`, ball CH, ball PH) are never targeted directly — the event mutates the latest `round_definitions` version into a new version, the compiler re-runs, and all downstream outputs are recomputed. Old + new input values retained in the event; the full definition chain is retained in `round_definitions`.
 - `allowance_override_event` — slot-level allowance change post-setup, keyed by `slot_def_id` (stable). Writes a new `round_definitions` version with `source_kind='allowance_override'`; compiler diff recognises the narrow change and fast-paths `format.deriveSlotBalls` on that slot only. Ball CH untouched. Survives subsequent `setup_correction_event` recompiles because it lives in the definition chain, not a separate overlay.
-- `ruling_event` — post-play competitive ruling (DQ, penalty strokes, hole adjudication, WD). Target: `ball_hole` | `ball_total` | `slot_ball_result`. Strategy reads during `score()` and applies as scoring-layer adjustment; no re-derivation.
+- `ruling_event` — post-play competitive ruling (DQ, penalty strokes, hole adjudication, WD). Target: `ball_play_hole` | `ball_total` | `slot_ball_result`; occurrence-scoped targets include `play_hole_id`. Strategy reads during `score()` and applies as a scoring-layer adjustment; no re-derivation.
 - Read path honours `players.deleted_at`: dashboard queries filter soft-deleted out; historical scorecard rendering uses `ball_players.display_name_snapshot` (always populated), so deleted-player rounds still render with the played-as name. Live player navigation links only appear when the player is active.
 - Player dashboard query + render: per §17 dashboard query, joining via `ball_players.player_id`.
 - Hard-delete (GDPR): nulls PII on `players` row, keeps `id` + `deleted_at` tombstone for FK integrity; snapshot columns on `ball_players` unaffected.
@@ -630,11 +724,81 @@ Per §17, corrections are typed — three distinct events instead of one generic
 - Dashboard seed: `player-dashboard-listing` renders a player's round history (own-ball and team-ball rounds, with per-slot PH and finishing position per slot).
 - Soft-delete seed: `soft-deleted-player-round` — historical round whose one producer is soft-deleted; render shows `display_name_snapshot` intact, no live link.
 - Setup correction seed: `setup-correction-round` — round with a `setup_correction_event` changing a producer's tee (wrong tee assigned initially); render shows original CH derivation, correction event with reason, post-correction CH derivation, and downstream slot_balls all updated.
+- Route correction seed: a custom itinerary whose second visit to a physical hole receives a corrected SI and whose group start is moved; render shows stable play-hole identity, retained score events, changed stroke allocation/order, and the append-only correction audit.
 - Allowance override seed: `allowance-override-round` — slot's allowance changed post-setup (e.g. club decided 95% → 90% stableford after scores were entered); render shows original slot_balls PHs, override event, new `round_definitions` version (`source_kind='allowance_override'`), re-derived slot_balls, scoring recomputed.
 - Override-then-correction seed: `allowance-override-then-setup-correction-round` — allowance override applied first, then a later `setup_correction_event` changes a producer's tee; render shows the override is preserved through the full recompile (final PHs reflect both the tee correction AND the earlier allowance override, proving single-source-of-truth reconciliation).
-- Ruling seed: `ruling-applied-round` — round with a `ruling_event` adding +2 penalty strokes on a specific ball/hole; render shows raw strokes, ruling event, final adjusted total.
+- Ruling seed: `ruling-applied-round` — round with a `ruling_event` adding +2 penalty strokes on a specific ball/play-hole occurrence; render shows raw strokes, ruling event, final adjusted total.
+- Stateful format-action seed: a test-only registered canary with rotating role and per-hole partner selection; render shows the action history and resulting side/points calculation.
 
-**Gate:** dashboard, soft-delete, all three typed correction flows render correctly by eye. Commit `phase 2.6d complete: typed corrections + soft-delete + dashboard`.
+**Gate:** dashboard, soft-delete, all three typed correction flows, and the stateful format-action canary render correctly. Plugin deletion leaves no format-specific persistence/API branch. Set `AWAITING VISUAL VERIFY` and give one focused link. Required checks should normally be the route/SI correction audit, the stateful action replay/supersession, and one deleted-player historical scorecard; do not assign every dashboard/correction page. Commit after approval: `phase 2.6d complete: typed corrections + format actions + soft-delete + dashboard`.
+
+### 2.6e — Repair and migrate the mobile client (final 2.6 step)
+
+Start only after 2.6b, 2.6c, and 2.6d are complete and visually approved through generated static pages. The existing mobile client is not a trustworthy verification surface: first stabilize it as a client, then migrate it to the already-proven server/plugin contracts. The canonical static fixtures remain the expected-result oracle throughout this phase.
+
+#### 2.6e execution ledger
+
+| Slice | Status | Commit | Resume note |
+|---|---|---|---|
+| M1 — Mobile stabilization | NOT STARTED | — | Reproduce and repair existing client breakage before architecture migration |
+| M2 — Catalog-driven wizard | NOT STARTED | — | Waits on M1 |
+| M3 — Ball/play-hole score entry | NOT STARTED | — | Waits on M2 |
+| M4 — Section-driven results | NOT STARTED | — | Waits on M3 |
+| M5 — Mobile deletion proof | NOT STARTED | — | Final mobile acceptance |
+
+#### M1 — Stabilize the existing client
+
+- [ ] Reproduce and document the existing broken round-list, setup, score-entry, and results behavior before changing architecture. Add focused client/service tests for each confirmed failure.
+- [ ] Repair framework integration, routing, state/loading/error handling, and API transport issues that are independent of format plugins. Keep these fixes separate from catalog/result-contract migration so regressions have clear ownership.
+- [ ] Establish a deterministic local mobile fixture account/round set sourced from the canonical fixture builder where practical.
+- [ ] Start the required local server/client processes for the user when visual review is needed; give one clickable localhost link. Never ask the user to run startup commands.
+
+- [ ] **Gate:** baseline client flows load reliably and focused failures are covered. Static pages, not the repaired client, remain the correctness oracle.
+
+#### M2 — Catalog-driven round wizard
+
+- [ ] Replace `src/formats.ts`, `pairBall`, `needsTeams`, and client-side `RoundDefinition` construction with a `FormatCatalogService` backed by `GET /formats`.
+- [ ] Render labels, descriptions, allowance defaults, participant bounds, and grouping requirements from descriptors.
+- [ ] Replace the fixed A/B team editor with a generic team assignment editor driven by declared team count/size.
+- [ ] Add a touch-friendly route editor: named presets, start/end generation, repeated partial loops, arbitrary ordered subsets, and per-group shotgun starts.
+- [ ] Add official/difficulty/custom SI controls plus route-handicap policy/allocation cycle. Repeated occurrences are independently editable.
+- [ ] Submit `RoundSetupDraft` and display planner/compiler diagnostics at the relevant control. Generic controls cover scalar/choice/table/segment config; exceptional interactions use one registered client adapter.
+
+- [ ] **Gate:** create and reopen individual, own-ball team, team-ball, multi-slot, repeated-hole, custom-SI, and shotgun rounds. Compare persisted definitions against the approved static fixtures/server output.
+
+#### M3 — Ball and play-hole score entry
+
+- [ ] Treat the ball pool as the entry surface: one score per unique `ballId + playHoleId`, regardless of how many slots consume it.
+- [ ] Navigate each playing group in effective itinerary order while labelling the physical course hole and repeated occurrence clearly.
+- [ ] Group own-balls and team-balls without duplicate entry controls. Stop attaching producer source ids to ordinary own-ball score events.
+- [ ] Drive generic strokes and simple metadata controls from descriptor capabilities. Format actions use the generic 2.6d append/replay endpoint through an optional adapter command interface.
+- [ ] Preserve optimistic entry, offline/error recovery, and `client_event_id` idempotency. Two visits to one physical hole must remain separate client state keys.
+
+- [ ] **Gate:** the kitchen-sink topology enters every ball once per occurrence, updates every consuming slot, survives retry, and matches the canonical static result.
+
+#### M4 — Section-driven mobile results
+
+- [ ] Replace `byScoringType + pairResults` with ordered per-slot views carrying `slotDefId`, `formatId`, descriptor label, and canonical result sections.
+- [ ] Generic views cover ranked metrics, matches, segments, contributors, awards, carry pools, state, and point/unit transfers. The client never interprets scoring-mode strings.
+- [ ] Build navigation from slots, including pair/state-only slots with no scalar metric. Missing custom adapters fall back to a visible structured diagnostic instead of hiding results.
+- [ ] Show route summary, SI provenance, repeated occurrences, and itinerary-derived totals/sections consistently with static pages.
+
+- [ ] **Gate:** selected high-risk mobile results match their approved static equivalents numerically and structurally.
+
+#### M5 — Mobile deletion and extension proof
+
+- [ ] Delete legacy client catalogs, labels, decomposition logic, and format switches made obsolete by descriptors/adapters.
+- [ ] Add client tests for catalog-driven setup, team validation, mixed topology, repeated routes, generic sections, pair-only results, format actions, and missing-adapter fallback.
+- [ ] Perform the full plugin deletion test across server + static + mobile: deleting the module and central registrations removes every production trace without editing generic infrastructure.
+- [ ] Verify narrow and wide viewport flows, but give the user a focused review brief rather than every permutation.
+
+**Final 2.6e gate:**
+
+- [ ] All checks/tests and canonical fixture workflows are green.
+- [ ] Static verification pages remain the approved arithmetic/result oracle.
+- [ ] One canonical server registry; generic formats require no client code; special formats require at most one colocated adapter + one client registration.
+- [ ] Agent starts the local app and gives one clickable browser link plus 2–5 required scenarios with exact expected outcomes. Full mobile browsing is not delegated to the user.
+- [ ] User confirms the focused scenarios; commit `phase 2.6e complete: repaired plugin-driven mobile client`.
 
 ---
 
@@ -645,15 +809,17 @@ Per §17, corrections are typed — three distinct events instead of one generic
 - `friendly_rounds` 1:1 extension of `rounds`: round_id (FK unique), creator_player_id, share_token (unique), post_to_handicap (boolean).
 - Share-token join flow: guest creates a `guest_player`, joins via token, reads scoped to the round.
 - WHS posting: if `post_to_handicap`, a completed round writes to `handicap_history` via `handicap.service`.
+- WHS posting first evaluates the frozen route policy. Standard eligible routes post normally; custom/repeated/subset routes without valid route rating/slope/par treatment complete and score normally but return a visible `route_not_whs_eligible` result instead of manufacturing a handicap record.
 - FriendlyRound leaderboard = Round leaderboard. No new engine.
 
 **HTML render expectations:**
 - Round page header shows the FriendlyRound wrapper metadata: creator, share token, `post_to_handicap` flag.
 - If the round is completed and `post_to_handicap` is true, the post-round section shows the WHS entries that would/did get written to `handicap_history` per participant, with the arithmetic.
 - Index page distinguishes friendly rounds from plain rounds (badge / column).
-- Seed: `friendly-round-with-posting` — creator + guest join via share token, round completes, handicap history row appears.
+- Seed: `friendly-round-with-posting` — creator + guest join via share token, standard eligible route completes, handicap history row appears.
+- Seed: `friendly-custom-route-not-postable` — repeated/custom-SI route completes with results but no handicap history write; page shows the exact ineligibility reason.
 
-**Mandatory stop + hand-test + review.** Commit `phase 3 complete: friendly round`.
+**Mandatory stop + focused visual review.** Generate the FriendlyRound verification page, give one clickable link, and ask the user to check only wrapper identity/share behavior plus the contrast between eligible posting and `route_not_whs_eligible`. Commit after approval: `phase 3 complete: friendly round`.
 
 ---
 

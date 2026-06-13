@@ -1,9 +1,7 @@
 // Low-level render helpers: HTML escaping, cell formatters, hole grouping,
 // strokes-given allocation, pair-side scorecard row filtering.
 
-import type { ScorecardHole } from '../../server/services/scorecard.service';
-import type { CourseHole } from '../../server/domain/format';
-import type { BallProducerInfo } from './types';
+import type { CourseHole } from './types';
 
 export function esc(s: unknown): string {
     return String(s ?? '')
@@ -62,47 +60,6 @@ export function splitHoleGroups(courseHoles: CourseHole[]): HoleGroup[] {
         ];
     }
     return [{ label: 'TOT', holes: courseHoles }];
-}
-
-export function strokesGivenMap(
-    playingHandicap: number | null,
-    courseHoles: CourseHole[],
-): Map<number, number> {
-    const m = new Map<number, number>();
-    const ph = playingHandicap ?? 0;
-    const n = courseHoles.length;
-    const baseline = n > 0 ? Math.floor(ph / n) : 0;
-    const extras = n > 0 ? ((ph % n) + n) % n : 0;
-    for (const ch of courseHoles) {
-        const extra = ch.strokeIndex <= extras ? 1 : 0;
-        m.set(ch.holeNumber, baseline + extra);
-    }
-    return m;
-}
-
-export type PairScorecardKind =
-    | 'match_play_individual'
-    | 'match_play_better_ball'
-    | 'taliban_better_ball';
-
-export function pairSideScorecardRows(
-    kind: PairScorecardKind,
-    producer: BallProducerInfo,
-    allRows: ScorecardHole[],
-): ScorecardHole[] {
-    if (kind === 'match_play_individual') {
-        // Individual match-play events are recorded against the ball
-        // with null source columns, so the scorecard must read the shared
-        // ball rows instead of filtering by player id.
-        return allRows.filter(
-            (h) => h.sourcePlayerId === null && h.sourceGuestPlayerId === null,
-        );
-    }
-    return allRows.filter((h) => {
-        if (producer.playerId) return h.sourcePlayerId === producer.playerId;
-        if (producer.guestPlayerId) return h.sourceGuestPlayerId === producer.guestPlayerId;
-        return h.sourcePlayerId === null && h.sourceGuestPlayerId === null;
-    });
 }
 
 export function titleCaseWords(raw: string): string {

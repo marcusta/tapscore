@@ -15,16 +15,7 @@ export function renderBallsTable(
         balls,
         teesById,
     } = ctx;
-    const {
-        effectivePHByBall,
-        effectivePHByProducer,
-        ballLabel,
-        producerName,
-        slotForBall,
-    } = state;
-
-    const producerKey = (ballId: string, producerDefId: string): string =>
-        `${ballId}:${producerDefId}`;
+    const { ballLabel, producerName } = state;
 
     const arithmeticLinesFor = (
         handicapIndexSnapshot: number | null,
@@ -74,10 +65,8 @@ export function renderBallsTable(
         // label uses the first producer's tee as representative.
         const headTee = b.producers[0]?.teeId ? teesById.get(b.producers[0].teeId) ?? null : null;
         const teeLabel = headTee ? headTee.name : (b.producers[0]?.teeNameSnapshot ?? '—');
-        const effectivePH = effectivePHByBall.get(b.id);
 
         const producerSnaps: {
-            key: string;
             label: string;
             handicapIndexSnapshot: number | null;
             courseHandicapSnapshot: number | null;
@@ -88,7 +77,6 @@ export function renderBallsTable(
             ? b.producers.map((prod: BallProducerInfo) => {
                   const tee = prod.teeId ? teesById.get(prod.teeId) ?? null : null;
                   return {
-                      key: producerKey(b.id, prod.producerDefId),
                       label: producerName(prod),
                       handicapIndexSnapshot: prod.handicapIndexSnapshot,
                       courseHandicapSnapshot: prod.courseHandicapSnapshot,
@@ -103,7 +91,6 @@ export function renderBallsTable(
               })
             : [
                   {
-                      key: b.id,
                       label: ballLabel(b),
                       handicapIndexSnapshot: null,
                       courseHandicapSnapshot: b.courseHandicapSnapshot,
@@ -133,29 +120,15 @@ export function renderBallsTable(
             .map((s) => numericCell(s.courseHandicapSnapshot))
             .join('<br>');
         const phCell = producerSnaps
-            .map((s) => {
-                const base = s.playingHandicapSnapshot;
-                const adjusted = effectivePHByProducer.get(s.key);
-                const effective =
-                    adjusted !== undefined
-                        ? adjusted
-                        : producerSnaps.length === 1 && effectivePH !== undefined
-                          ? effectivePH
-                          : base;
-                if (effective !== undefined && effective !== null && effective !== base) {
-                    return `${numericCell(base)} <span class="muted">→ ${numericCell(effective)}</span>`;
-                }
-                return numericCell(base);
-            })
+            .map((s) => numericCell(s.playingHandicapSnapshot))
             .join('<br>');
 
-        const slot = slotForBall(b);
         const teamLabelCell = (() => {
             const labels: string[] = [];
             for (const [, label] of b.teamLabelBySlot) labels.push(label);
             return Array.from(new Set(labels)).join(' / ') || '—';
         })();
-        const slotSummary = slot ? `#${slot.slotIndex}` : '—';
+        const slotSummary = b.slotIds.length > 0 ? String(b.slotIds.length) : '—';
         return `
 <tr>
   <td><code>${esc(short(b.id))}</code></td>

@@ -39,9 +39,9 @@ const GROSS_NET: FormatMetric[] = [
     { id: 'net', label: 'Net', direction: 'low' },
 ];
 const POINTS_HIGH: FormatMetric[] = [{ id: 'points', label: 'Points', direction: 'high' }];
-// Pair-only formats emit no scalar totals; this metric is never ranked but
-// the descriptor contract requires at least one.
-const MATCH: FormatMetric[] = [{ id: 'match', label: 'Match', direction: 'high' }];
+// Pair-only formats (match-play, taliban) rank nothing scalar — their result
+// is a match/comparison section, not a ranked metric. Empty metrics is valid.
+const MATCH: FormatMetric[] = [];
 
 interface BuiltinMeta {
     strategy: FormatStrategy;
@@ -50,7 +50,10 @@ interface BuiltinMeta {
     scoringMode: string;
     teamShape: string;
     metrics: FormatMetric[];
+    resultDisplay?: { runningTotals?: 'normalized' };
 }
+
+const NORMALIZED_RUNNING = { runningTotals: 'normalized' as const };
 
 const BUILTINS: BuiltinMeta[] = [
     {
@@ -84,6 +87,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'kopenhamnare',
         teamShape: 'individual',
         metrics: POINTS_HIGH,
+        resultDisplay: NORMALIZED_RUNNING,
     },
     {
         strategy: umbrellaIndividual,
@@ -92,6 +96,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'umbrella',
         teamShape: 'individual',
         metrics: POINTS_HIGH,
+        resultDisplay: NORMALIZED_RUNNING,
     },
     {
         strategy: strokePlayFoursomes,
@@ -132,6 +137,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'umbrella',
         teamShape: 'four_ball',
         metrics: POINTS_HIGH,
+        resultDisplay: NORMALIZED_RUNNING,
     },
 ];
 
@@ -147,6 +153,7 @@ function toPlugin(meta: BuiltinMeta): FormatPlugin {
             requirements: { balls: strategy.ballRequirement() },
             defaults: { allowanceConfig: { type: 'flat', pct: 100 } },
             metrics: meta.metrics,
+            ...(meta.resultDisplay ? { resultDisplay: meta.resultDisplay } : {}),
             clientAdapterId: null,
         },
         planSetup() {

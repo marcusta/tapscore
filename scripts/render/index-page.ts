@@ -1,35 +1,26 @@
 // Index page — one row per round, linking to the per-round page.
 
 import { ROUND_CSS } from './css';
+import { formatCatalog } from '../../server/domain/formats/plugin';
 import type { IndexRow } from './types';
 import { esc, short, titleCaseWords } from './util';
 
+/**
+ * Slot label from the canonical descriptor registry — NOT a hardcoded
+ * format switch. The static renderer is a first-class consumer of the plugin
+ * contract: it reads each format's serializable `label` keyed by
+ * `(scoringMode, teamShape)`. Falls back to a humanised key only when the
+ * registry has not been populated (e.g. a unit test that skips registration).
+ */
 export function formatSlotSummary(
     slot: { scoringMode: string; teamShape: string; allowancePct: number },
 ): string {
-    const key = `${slot.scoringMode}:${slot.teamShape}`;
+    const descriptor = formatCatalog().find(
+        (d) => d.scoringMode === slot.scoringMode && d.teamShape === slot.teamShape,
+    );
     const label =
-        key === 'stroke_play:individual'
-            ? 'Stroke Play (Individual)'
-            : key === 'stableford:individual'
-              ? 'Stableford (Individual)'
-              : key === 'stroke_play:foursomes'
-                ? 'Stroke Play (Foursomes)'
-                : key === 'stableford:better_ball'
-                  ? 'Stableford (Better Ball)'
-                  : key === 'match_play:individual'
-                    ? 'Match Play (Individual)'
-                    : key === 'match_play:better_ball'
-                      ? 'Match Play (Better Ball)'
-                      : key === 'taliban:better_ball'
-                        ? 'Taliban (Better Ball)'
-                        : key === 'kopenhamnare:individual'
-                          ? 'Kopenhamnare (Individual)'
-                          : key === 'umbrella:four_ball'
-                            ? 'Umbrella (4-Ball)'
-                            : key === 'umbrella:individual'
-                              ? 'Umbrella (3-Player Individual)'
-                              : `${titleCaseWords(slot.scoringMode)} x ${titleCaseWords(slot.teamShape)}`;
+        descriptor?.label ??
+        `${titleCaseWords(slot.scoringMode)} × ${titleCaseWords(slot.teamShape)}`;
     return `${label} @ ${slot.allowancePct}%`;
 }
 

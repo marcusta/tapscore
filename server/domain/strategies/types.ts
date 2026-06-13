@@ -254,6 +254,15 @@ export interface PairBallResult {
     result: 'won' | 'lost' | 'halved' | 'in_progress';
     /** Winning team label or ball id; null on halved / in-progress. */
     winner: string | null;
+    /**
+     * How a generic consumer renders the headline + per-side points:
+     *   'versus'     — match-play idiom: "Winner d. Loser, 3 & 2"; per-hole
+     *                  side points are won=1/halved=0 (default).
+     *   'standalone' — the `summary` is already a self-contained scoreline
+     *                  (taliban "A +3 (7-4) B"); per-side points are the
+     *                  per-hole `fromA`/`fromB` values.
+     */
+    summaryStyle?: 'versus' | 'standalone';
 }
 
 export interface StrategyResult {

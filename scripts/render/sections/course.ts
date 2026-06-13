@@ -2,8 +2,7 @@
 // the two snapshot tables (course holes + tee holes) sit close together
 // on the page and share DOM structure, so they live in one module.
 
-import type { CourseHole } from '../../../server/domain/format';
-import type { RoundRenderContext, RoundTeeHoleSnapshot } from '../types';
+import type { CourseHole, RoundRenderContext, RoundTeeHoleSnapshot } from '../types';
 import { esc, splitHoleGroups } from '../util';
 
 export function renderCourseMetadata(

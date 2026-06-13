@@ -38,6 +38,12 @@ export type MetricDirection = 'high' | 'low';
  * One ranked output a format produces. `id` MUST match the `scoringType`
  * the format emits on `BallResult.totals[]` — leaderboard code ranks by
  * this metric's `direction` and never guesses direction from a string.
+ *
+ * A descriptor may declare ZERO metrics: pair/state-only formats
+ * (match-play, taliban) produce no rankable scalar output — their result
+ * lives in match/comparison sections, not a ranked metric. Ordered result
+ * sections are authoritative; metrics describe only genuinely rankable
+ * scalar totals.
  */
 export interface FormatMetric {
     id: string;
@@ -77,8 +83,15 @@ export interface FormatDescriptor {
     teamShape: string;
     requirements: FormatRequirements;
     defaults: { allowanceConfig: FormatAllowanceConfig };
-    /** At least one; ids unique within the descriptor. */
+    /** Zero or more ranked metrics; ids unique. Empty for pair/state-only formats. */
     metrics: FormatMetric[];
+    /**
+     * Serializable presentation hints consumed by generic renderers. Declared
+     * by the plugin so the renderer never infers display behaviour from a
+     * format id. `runningTotals: 'normalized'` asks for a per-hole running row
+     * normalised so the trailing subject reads 0 (köpenhamnare, umbrella).
+     */
+    resultDisplay?: { runningTotals?: 'normalized' };
     /** Non-null id ⇒ this format declares a mobile client adapter. */
     clientAdapterId: string | null;
 }
@@ -187,8 +200,11 @@ export function assertValidDescriptor(d: FormatDescriptor): void {
         fail(id, 'defaults.allowanceConfig must be a valid FormatAllowanceConfig');
     }
 
-    if (!Array.isArray(d.metrics) || d.metrics.length === 0) {
-        fail(id, 'metrics must declare at least one metric');
+    // metrics may be empty — pair/state-only formats (match-play, taliban)
+    // rank nothing scalar; their result is carried by match/comparison
+    // sections. When present, each metric must still be well-formed + unique.
+    if (!Array.isArray(d.metrics)) {
+        fail(id, 'metrics must be an array (may be empty for pair/state-only formats)');
     }
     const seenMetric = new Set<string>();
     for (const m of d.metrics) {

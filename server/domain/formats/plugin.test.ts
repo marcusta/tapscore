@@ -91,13 +91,23 @@ describe('descriptor validation', () => {
         ['empty description', { description: '' }],
         ['empty scoringMode', { scoringMode: '' }],
         ['empty teamShape', { teamShape: '' }],
-        ['no metrics', { metrics: [] }],
     ];
     for (const [name, over] of bad) {
         it(`rejects: ${name}`, () => {
             expect(() => assertValidDescriptor(makePlugin(over).descriptor)).toThrow(/invalid format descriptor/);
         });
     }
+
+    it('accepts a metricless descriptor (pair/state-only formats rank nothing scalar)', () => {
+        const d = makePlugin({ metrics: [] }).descriptor;
+        expect(() => assertValidDescriptor(d)).not.toThrow();
+    });
+
+    it('registers a metricless plugin and lists it in the catalog', () => {
+        registerFormat(makePlugin({ id: 'pair_only', metrics: [] }));
+        expect(hasFormatPlugin('pair_only')).toBe(true);
+        expect(formatCatalog().find((d) => d.id === 'pair_only')?.metrics).toEqual([]);
+    });
 
     it('rejects an invalid producerCount', () => {
         const d = makePlugin({

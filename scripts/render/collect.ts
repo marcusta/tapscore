@@ -66,8 +66,7 @@ export async function collectRoundContext(
     if (!course) throw new Error(`course ${round.courseId} not found`);
 
     const events = await svc.scoreEventService.listByRound(roundId);
-    const leaderboard = await svc.leaderboardService.forRound(roundId);
-    const scorecards = await svc.scorecardService.forRound(roundId);
+    const roundResult = await svc.leaderboardService.resultForRound(roundId);
 
     // --- ball-native context -------------------------------------------------
 
@@ -152,34 +151,6 @@ export async function collectRoundContext(
                   .select(['slot_id', 'ball_id', 'team_label'])
                   .execute()
             : [];
-
-    // slots.id → slot_def_id → formatSlots slotIndex.
-    // `round_format_slots` stores slot_index directly on the row; the
-    // compiler's `slots` row shares stable identity via `slot_def_id`. We
-    // join via slot_def_id. If no stable mapping exists (legacy round with
-    // mismatched slot_def_id convention) we fall back to slot-index-order
-    // zipping: the compiler writes slots in the same order as the round
-    // definition, and round_format_slots is parallel to that.
-    const formatSlotsOrdered = [...round.formatSlots].sort(
-        (a, b) => a.slotIndex - b.slotIndex,
-    );
-    const slotIndexByCompilerSlotId = new Map<string, number>();
-    // Preferred: slot_def_id parity. Compiler convention: `slot_def_id`
-    // matches `RoundDefinition.slots[].id`, and `round_format_slots` is
-    // emitted in the same order.
-    if (slotRows.length === formatSlotsOrdered.length) {
-        // Order by slot_def_id sorted deterministically against the
-        // formatSlots list's order? Simplest: the compiler writes slots
-        // in definition order, so `slotRows` sorted by slot_def_id alone
-        // doesn't help — we use positional zipping when lengths match.
-        for (let i = 0; i < slotRows.length; i++) {
-            slotIndexByCompilerSlotId.set(slotRows[i]!.id, i);
-        }
-    } else {
-        // Mismatch — best-effort: each compiler slot maps to 0 (single-slot
-        // round pattern the compiler currently emits exclusively).
-        for (const s of slotRows) slotIndexByCompilerSlotId.set(s.id, 0);
-    }
 
     const balls: BallInfo[] = ballRows.map((br) => {
         const producers = producersByBall.get(br.id) ?? [];
@@ -277,14 +248,12 @@ export async function collectRoundContext(
         course,
         balls,
         events,
-        leaderboard,
-        scorecards,
+        roundResult,
         playersById,
         guestsById,
         teesById,
         courseHolesSnapshot,
         teeHolesSnapshot,
-        slotIndexByCompilerSlotId,
         dbPath,
     };
 }

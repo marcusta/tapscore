@@ -9,8 +9,7 @@ import { renderMeta } from './sections/meta';
 import { renderCourseMetadata, renderSnapshotTables } from './sections/course';
 import { renderBallsTable } from './sections/balls';
 import { renderEvents } from './sections/events';
-import { renderLeaderboard } from './sections/leaderboard';
-import { renderScorecards } from './scorecards/index';
+import { renderLeaderboard, renderScorecards } from './sections/result';
 
 export function renderRoundHtml(ctx: RoundRenderContext): string {
     const { round, course, dbPath } = ctx;

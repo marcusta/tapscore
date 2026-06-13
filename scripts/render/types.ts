@@ -11,9 +11,8 @@ import type { Tee } from '../../server/services/tee.service';
 import type { Player } from '../../server/services/player.service';
 import type { GuestPlayer } from '../../server/services/guest-player.service';
 import type { Club } from '../../server/services/club.service';
-import type { Scorecard } from '../../server/services/scorecard.service';
 import type { ScoreEvent } from '../../server/services/score-event.service';
-import type { Leaderboard } from '../../server/domain/leaderboard';
+import type { RoundResult } from '../../server/domain/strategies/result-sections';
 
 export type Services = ReturnType<typeof createServices>;
 
@@ -71,6 +70,13 @@ export interface IndexRow {
     eventCount: number;
 }
 
+/** Local hole shape for course-metadata layout (par/SI grouping). */
+export interface CourseHole {
+    holeNumber: number;
+    par: number;
+    strokeIndex: number;
+}
+
 export interface RoundCourseHoleSnapshot {
     holeNumber: number;
     par: number;
@@ -86,35 +92,17 @@ export interface RoundTeeHoleSnapshot {
     strokeIndexOverride: number | null;
 }
 
-/**
- * Render-time mapping of `slots.slot_def_id` → `round_format_slots.slot_index`.
- * The domain leaderboard / BallResult / PairResult key by slotIndex (off
- * `round_format_slots`), but `slot_balls` / `slot_ball_teams` key by the
- * compiler's `slots.id`. Render code needs both views — the map bridges
- * them so ball-native data (keyed by ball id) can be correlated to a
- * slotIndex.
- */
-export interface SlotIndexByCompilerSlotId {
-    /** slots.id (compiler) → slot_def_id (stable) */
-    slotDefById: Map<string, string>;
-    /** slot_def_id → slotIndex on the round_format_slots side */
-    slotIndexByDef: Map<string, number>;
-}
-
 export interface RoundRenderContext {
     round: Round;
     course: Course;
     balls: BallInfo[];
     events: ScoreEvent[];
-    leaderboard: Leaderboard;
-    /** Raw per-ball scorecards (source-tagged rows). Team renderers split by source where needed. */
-    scorecards: Scorecard[];
+    /** Canonical per-slot result: serializable sections from each format plugin. */
+    roundResult: RoundResult;
     playersById: Map<string, Player>;
     guestsById: Map<string, GuestPlayer>;
     teesById: Map<string, Tee>;
     courseHolesSnapshot: RoundCourseHoleSnapshot[];
     teeHolesSnapshot: RoundTeeHoleSnapshot[];
-    /** slots.id → slotIndex (from `slots.slot_def_id` → `round_format_slots.slot_index`). */
-    slotIndexByCompilerSlotId: Map<string, number>;
     dbPath: string;
 }

@@ -1,6 +1,6 @@
 import { sql, type Kysely } from 'kysely';
 import type { Database } from '../db/schema';
-import type { RoundService } from './round.service';
+import type { Round, RoundService } from './round.service';
 import type { CourseService } from './course.service';
 import type { Leaderboard } from '../domain/leaderboard';
 import {
@@ -10,6 +10,8 @@ import {
     type RoundLeaderboardInput,
 } from '../domain/leaderboard-engine';
 import { findFormatPlugin } from '../domain/formats/plugin';
+import { buildSlotResult } from '../domain/strategies/result-builder';
+import type { RoundResult } from '../domain/strategies/result-sections';
 import type { RoundDefinition } from '../domain/round-definition';
 import type { StrategyEvent } from '../domain/strategies/types';
 import { courseHolesForRound } from '../domain/round-holes';
@@ -40,7 +42,9 @@ export class LeaderboardService {
         private courseService: CourseService,
     ) {}
 
-    async forRound(roundId: string): Promise<Leaderboard> {
+    private async buildInput(
+        roundId: string,
+    ): Promise<{ input: RoundLeaderboardInput; round: Round; playedSet: Set<number> }> {
         const round = await this.roundService.getById(roundId);
         if (!round) throw new Error(`round ${roundId} not found`);
 
@@ -201,6 +205,17 @@ export class LeaderboardService {
             events,
         };
 
+        return { input, round, playedSet };
+    }
+
+    /**
+     * Legacy `Leaderboard` shape — still consumed by the round API + mobile
+     * (`src/`) until 2.6e. Built through the canonical plugin engine, then
+     * adapted back to the legacy types in `leaderboard-engine.ts`. The static
+     * renderer no longer calls this; it uses {@link resultForRound}.
+     */
+    async forRound(roundId: string): Promise<Leaderboard> {
+        const { input, playedSet } = await this.buildInput(roundId);
         const lb = scoreRound(materializeRound(input), findFormatPlugin);
 
         // Trim per-hole rows to the played set so consumers see a clean 9-hole
@@ -216,6 +231,53 @@ export class LeaderboardService {
                 holes: pr.holes.filter((h) => playedSet.has(h.holeNumber)),
             })),
         };
+    }
+
+    /**
+     * Canonical per-slot result for generic consumers (static render, and the
+     * mobile client in 2.6e). Each slot is scored through its registered
+     * plugin and reshaped — by the pure `result-builder` — into serializable
+     * sections: scorecard grids + ranked metrics + match summaries. No legacy
+     * `Leaderboard` adapter, no format-id branching downstream.
+     */
+    async resultForRound(roundId: string): Promise<RoundResult> {
+        const { input, round, playedSet } = await this.buildInput(roundId);
+        const materialized = materializeRound(input);
+        const playedHoles = materialized.roundContext.courseHoles
+            .filter((h) => playedSet.has(h.holeNumber))
+            .sort((a, b) => a.holeNumber - b.holeNumber);
+        const allowanceBySlot = new Map(
+            round.formatSlots.map((s) => [s.slotIndex, s.allowancePct] as const),
+        );
+
+        const slots = materialized.slots.map((slot) => {
+            const plugin = findFormatPlugin(slot.formatId);
+            const result = plugin.score({
+                roundContext: materialized.roundContext,
+                slotBalls: slot.slotBalls,
+                slotTeamGroupings: slot.slotTeamGroupings,
+                events: materialized.events,
+                formatConfig: slot.formatConfig,
+            });
+            const pct = allowanceBySlot.get(slot.slotIndex);
+            return buildSlotResult({
+                slotIndex: slot.slotIndex,
+                slotDefId: slot.slotDefId,
+                formatId: slot.formatId,
+                formatLabel: plugin.descriptor.label,
+                scoringMode: plugin.descriptor.scoringMode,
+                teamShape: plugin.descriptor.teamShape,
+                allowanceLabel: pct === undefined ? '—' : `${pct}%`,
+                metrics: plugin.descriptor.metrics,
+                runningNormalized: plugin.descriptor.resultDisplay?.runningTotals === 'normalized',
+                result,
+                slotBalls: slot.slotBalls,
+                slotTeamGroupings: slot.slotTeamGroupings,
+                courseHoles: playedHoles,
+            });
+        });
+
+        return { slots };
     }
 
     /** Latest `round_definitions` version → `slot_def_id` → format id + config. */

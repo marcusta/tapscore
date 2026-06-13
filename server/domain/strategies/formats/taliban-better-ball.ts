@@ -349,6 +349,7 @@ export const talibanBetterBall: FormatStrategy = {
             summary: pairSummary(teamA.teamLabel, totalA, teamB.teamLabel, totalB, inProgress, holesDecided),
             result,
             winner,
+            summaryStyle: 'standalone',
         };
 
         return { ballResults, pairResults: [pair] };
