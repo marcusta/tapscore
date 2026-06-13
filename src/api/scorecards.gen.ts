@@ -7,7 +7,11 @@ export interface Scorecard {
 }
 
 export interface ScorecardHole {
+    playHoleId: string;
     holeNumber: number;
+    courseHoleNumber: number;
+    canonicalOrdinal: number;
+    occurrenceLabel: string;
     strokes: null | number;
     recordedBy: null | string;
     recordedAt: string;

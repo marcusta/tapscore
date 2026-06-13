@@ -17,10 +17,12 @@
 // chain here without rewiring the production leaderboard.
 
 import type { RoundDefinition } from '../round-definition';
-import { deriveFlat, latestScoresByHole, orderedHoles } from '../strategies/formats/_shared';
+import { deriveFlat, latestScoresByPlayHole } from '../strategies/formats/_shared';
+import { createRoundContext } from '../strategies/round-context';
 import type {
     BallHoleResult,
     BallResult,
+    PlayHoleSnapshot,
     RoundContext,
     RoundCourseHoleSnapshot,
     RoundTeeHoleSnapshot,
@@ -99,34 +101,33 @@ export const canaryPlugin: FormatPlugin = {
 
     score({ roundContext, slotBalls, events, formatConfig }): StrategyResult {
         const cap = (formatConfig as CanaryConfig | undefined)?.pointsCap;
-        const ordered = orderedHoles(roundContext.courseHoles);
         const ballResults: BallResult[] = slotBalls.map((ball) => {
-            const scores = latestScoresByHole(events, ball.ballId);
+            const scores = latestScoresByPlayHole(events, ball.ballId);
             const holes: BallHoleResult[] = [];
             let total = 0;
             let hasValue = false;
             let holesPlayed = 0;
-            for (const ch of ordered) {
-                if (!scores.has(ch.holeNumber)) {
-                    holes.push({ holeNumber: ch.holeNumber, gross: null, net: null, points: null });
+            for (const occ of roundContext.playHoles) {
+                if (!scores.has(occ.playHoleId)) {
+                    holes.push({ holeNumber: occ.courseHoleNumber, gross: null, net: null, points: null });
                     continue;
                 }
                 holesPlayed++;
-                const strokes = scores.get(ch.holeNumber) ?? null;
+                const strokes = scores.get(occ.playHoleId) ?? null;
                 if (strokes === null) {
-                    holes.push({ holeNumber: ch.holeNumber, gross: null, net: null, points: null });
+                    holes.push({ holeNumber: occ.courseHoleNumber, gross: null, net: null, points: null });
                     continue;
                 }
                 hasValue = true;
-                let points = strokes === 0 ? 0 : Math.max(0, ch.par + 2 - strokes);
+                let points = strokes === 0 ? 0 : Math.max(0, occ.par + 2 - strokes);
                 if (cap !== undefined) points = Math.min(points, cap);
                 total += points;
                 holes.push({
-                    holeNumber: ch.holeNumber,
+                    holeNumber: occ.courseHoleNumber,
                     gross: strokes === 0 ? null : strokes,
                     net: null,
                     points,
-                    note: `${points} pts (par ${ch.par} + 2 − ${strokes})`,
+                    note: `${points} pts (par ${occ.par} + 2 − ${strokes})`,
                 });
             }
             return {
@@ -246,26 +247,25 @@ export function materializeSlot(
         });
     }
 
-    const roundContext: RoundContext = {
+    const orderedCourseHoles = [...input.courseHoles].sort((a, b) => a.holeNumber - b.holeNumber);
+    const playHoles: PlayHoleSnapshot[] = orderedCourseHoles.map((h, i) => ({
+        playHoleId: `ph-${h.holeNumber}`,
+        playHoleDefId: `ph-${h.holeNumber}`,
+        ordinal: i + 1,
+        courseHoleNumber: h.holeNumber,
+        par: h.par,
+        baseStrokeIndex: h.baseStrokeIndex,
+        tees: [],
+    }));
+
+    const roundContext = createRoundContext({
+        playHoles,
+        allocationCycleSize: input.courseHoles.length,
+        producers,
         courseHoles: input.courseHoles,
         teeHoles,
-        producers,
-        effectiveStrokeIndex(producerDefId, holeNumber) {
-            const p = producers.get(producerDefId);
-            if (!p) throw new Error(`unknown producerDefId ${producerDefId}`);
-            const list = teeHoles.get(p.tee.teeId);
-            const override = list?.find((h) => h.holeNumber === holeNumber)?.strokeIndexOverride ?? null;
-            if (override !== null) return override;
-            const base = input.courseHoles.find((h) => h.holeNumber === holeNumber)?.baseStrokeIndex;
-            if (base === undefined) throw new Error(`no courseHole for hole ${holeNumber}`);
-            return base;
-        },
-        parFor(holeNumber) {
-            const ch = input.courseHoles.find((h) => h.holeNumber === holeNumber);
-            if (!ch) throw new Error(`no courseHole for hole ${holeNumber}`);
-            return ch.par;
-        },
-    };
+        ballGroupStart: new Map(),
+    });
 
     const slot = compiled.slots.find((s) => s.slotDefId === slotDefId);
     if (!slot) throw new Error(`no compiled slot for slotDefId ${slotDefId}`);

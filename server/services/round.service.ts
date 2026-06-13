@@ -915,7 +915,26 @@ export class RoundService {
     }
 
     async remove(id: string): Promise<void> {
-        await this.deleteById(id).execute();
+        // score_events.play_hole_id and scorecards.play_hole_id are ON DELETE
+        // RESTRICT against round_play_holes (Slice 3c, migration 025). Deleting
+        // the round cascades to both round_play_holes AND these dependent rows,
+        // but SQLite may visit round_play_holes first and trip the RESTRICT FK.
+        // Clear the dependents explicitly before the round cascade fires.
+        await this.db.transaction().execute(async (trx) => {
+            await trx
+                .deleteFrom('score_events')
+                .where('round_id', '=', id)
+                .execute();
+            await trx
+                .deleteFrom('scorecards')
+                .where(
+                    'ball_id',
+                    'in',
+                    trx.selectFrom('balls').select('id').where('round_id', '=', id),
+                )
+                .execute();
+            await this.deleteById(id, trx).execute();
+        });
     }
 
     /**

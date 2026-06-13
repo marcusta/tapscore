@@ -21,13 +21,13 @@ import type {
 } from '../types';
 import {
     deriveFlat,
-    latestScoresByHole,
+    holeIdentity,
+    latestScoresByPlayHole,
     normalizeMatchPlayPHs,
-    orderedHoles,
     resolveSingleProducer,
     strokesGivenMapForProducer,
 } from './_shared';
-import type { RoundContext, RoundCourseHoleSnapshot, StrategyEvent } from '../types';
+import type { RoundContext, StrategyEvent } from '../types';
 
 export const MATCH_PLAY_INDIVIDUAL_ID = 'match_play_individual';
 
@@ -38,15 +38,15 @@ interface SideNet {
 }
 
 function netForHole(
-    scores: Map<number, number | null>,
-    given: Map<number, number>,
-    holeNumber: number,
+    scores: Map<string, number | null>,
+    given: Map<string, number>,
+    playHoleId: string,
 ): SideNet {
-    if (!scores.has(holeNumber)) return { net: null, gross: null, engaged: false };
-    const strokes = scores.get(holeNumber) ?? null;
+    if (!scores.has(playHoleId)) return { net: null, gross: null, engaged: false };
+    const strokes = scores.get(playHoleId) ?? null;
     if (strokes === null) return { net: null, gross: null, engaged: true };
     if (strokes === 0) return { net: null, gross: null, engaged: true }; // pickup concedes
-    const g = given.get(holeNumber) ?? 0;
+    const g = given.get(playHoleId) ?? 0;
     return { net: strokes - g, gross: strokes, engaged: true };
 }
 
@@ -96,7 +96,6 @@ function formatSummary(
 function computePair(
     ballA: SlotBall,
     ballB: SlotBall,
-    courseHoles: RoundCourseHoleSnapshot[],
     roundContext: RoundContext,
     events: StrategyEvent[],
 ): { pair: PairBallResult; resultA: BallResult; resultB: BallResult } {
@@ -106,10 +105,10 @@ function computePair(
         ballA.playingHandicapSnapshot,
         ballB.playingHandicapSnapshot,
     ]);
-    const givenA = strokesGivenMapForProducer(pA.producerDefId, effA, courseHoles, roundContext);
-    const givenB = strokesGivenMapForProducer(pB.producerDefId, effB, courseHoles, roundContext);
-    const scoresA = latestScoresByHole(events, ballA.ballId);
-    const scoresB = latestScoresByHole(events, ballB.ballId);
+    const givenA = strokesGivenMapForProducer(pA.producerDefId, effA, roundContext);
+    const givenB = strokesGivenMapForProducer(pB.producerDefId, effB, roundContext);
+    const scoresA = latestScoresByPlayHole(events, ballA.ballId);
+    const scoresB = latestScoresByPlayHole(events, ballB.ballId);
 
     const holesA: BallHoleResult[] = [];
     const holesB: BallHoleResult[] = [];
@@ -122,13 +121,17 @@ function computePair(
     let holesPlayedA = 0;
     let holesPlayedB = 0;
 
-    const ordered = orderedHoles(courseHoles);
+    // Match-play progresses in the pair's played order (both balls share a
+    // playing group, so the rotation is identical for A and B).
+    const ordered = roundContext.playedOrderForBall(ballA.ballId);
     const totalHoles = ordered.length;
 
     for (let i = 0; i < ordered.length; i++) {
-        const ch = ordered[i];
-        const sA = netForHole(scoresA, givenA, ch.holeNumber);
-        const sB = netForHole(scoresB, givenB, ch.holeNumber);
+        const occ = ordered[i];
+        const idA = holeIdentity(roundContext, ballA.ballId, occ);
+        const idB = holeIdentity(roundContext, ballB.ballId, occ);
+        const sA = netForHole(scoresA, givenA, occ.playHoleId);
+        const sB = netForHole(scoresB, givenB, occ.playHoleId);
         if (sA.engaged) holesPlayedA++;
         if (sB.engaged) holesPlayedB++;
 
@@ -165,14 +168,14 @@ function computePair(
         const holeNoteB = status === null ? noteB : `${statusShort(invert(status))} · ${noteB}`;
 
         holesA.push({
-            holeNumber: ch.holeNumber,
+            ...idA,
             gross: sA.gross,
             net: sA.net,
             points: null,
             note: holeNoteA,
         });
         holesB.push({
-            holeNumber: ch.holeNumber,
+            ...idB,
             gross: sB.gross,
             net: sB.net,
             points: null,
@@ -189,7 +192,7 @@ function computePair(
             status === null ? null : status === 'won' ? 1 : status === 'lost' ? -1 : 0;
 
         pairHoles.push({
-            holeNumber: ch.holeNumber,
+            ...idA,
             status,
             fromA: sA.net,
             fromB: sB.net,
@@ -243,32 +246,21 @@ function computePair(
 
 function computeOddOut(
     ball: SlotBall,
-    courseHoles: RoundCourseHoleSnapshot[],
+    roundContext: RoundContext,
     events: StrategyEvent[],
 ): BallResult {
-    const scores = latestScoresByHole(events, ball.ballId);
+    const scores = latestScoresByPlayHole(events, ball.ballId);
     const holes: BallHoleResult[] = [];
     let holesPlayed = 0;
-    for (const ch of orderedHoles(courseHoles)) {
-        if (!scores.has(ch.holeNumber)) {
-            holes.push({
-                holeNumber: ch.holeNumber,
-                gross: null,
-                net: null,
-                points: null,
-                note: 'no opponent',
-            });
+    for (const occ of roundContext.playedOrderForBall(ball.ballId)) {
+        const id = holeIdentity(roundContext, ball.ballId, occ);
+        if (!scores.has(occ.playHoleId)) {
+            holes.push({ ...id, gross: null, net: null, points: null, note: 'no opponent' });
             continue;
         }
         holesPlayed++;
-        const s = scores.get(ch.holeNumber) ?? null;
-        holes.push({
-            holeNumber: ch.holeNumber,
-            gross: s,
-            net: null,
-            points: null,
-            note: 'no opponent',
-        });
+        const s = scores.get(occ.playHoleId) ?? null;
+        holes.push({ ...id, gross: s, net: null, points: null, note: 'no opponent' });
     }
     return { ballId: ball.ballId, holes, totals: [], holesPlayed };
 }
@@ -295,7 +287,6 @@ export const matchPlayIndividual: FormatStrategy = {
             const { pair, resultA, resultB } = computePair(
                 slotBalls[i],
                 slotBalls[i + 1],
-                roundContext.courseHoles,
                 roundContext,
                 events,
             );
@@ -304,9 +295,7 @@ export const matchPlayIndividual: FormatStrategy = {
         }
 
         if (slotBalls.length % 2 === 1) {
-            ballResults.push(
-                computeOddOut(slotBalls[slotBalls.length - 1], roundContext.courseHoles, events),
-            );
+            ballResults.push(computeOddOut(slotBalls[slotBalls.length - 1], roundContext, events));
         }
 
         return { ballResults, pairResults };

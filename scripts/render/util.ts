@@ -1,7 +1,5 @@
-// Low-level render helpers: HTML escaping, cell formatters, hole grouping,
-// strokes-given allocation, pair-side scorecard row filtering.
-
-import type { CourseHole } from './types';
+// Low-level render helpers: HTML escaping, cell formatters, occurrence
+// labelling, strokes-given allocation, pair-side scorecard row filtering.
 
 export function esc(s: unknown): string {
     return String(s ?? '')
@@ -40,26 +38,24 @@ export function formatEventMetadata(metadata: Record<string, unknown> | null): s
     return `<code>${parts.join(' ')}</code>`;
 }
 
-export interface HoleGroup {
-    label: string; // "OUT" | "IN" | "TOT"
-    holes: CourseHole[];
-}
-
 /**
- * For an 18-hole round (holes from both halves): OUT + IN + TOT columns.
- * For a 9-hole round (only one half): a single TOT column.
- * Keeps the scorecard visually honest — no 9 empty IN cells on a front_9.
+ * English ordinal word for a 1-based occurrence index: 1 → "1st",
+ * 2 → "2nd", 3 → "3rd", 4 → "4th", … (handles the 11th/12th/13th
+ * exceptions). Used to disambiguate repeated-hole occurrence labels.
  */
-export function splitHoleGroups(courseHoles: CourseHole[]): HoleGroup[] {
-    const front = courseHoles.filter((h) => h.holeNumber <= 9);
-    const back = courseHoles.filter((h) => h.holeNumber > 9);
-    if (front.length > 0 && back.length > 0) {
-        return [
-            { label: 'OUT', holes: front },
-            { label: 'IN', holes: back },
-        ];
+export function ordinalWord(n: number): string {
+    const mod100 = n % 100;
+    if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+    switch (n % 10) {
+        case 1:
+            return `${n}st`;
+        case 2:
+            return `${n}nd`;
+        case 3:
+            return `${n}rd`;
+        default:
+            return `${n}th`;
     }
-    return [{ label: 'TOT', holes: courseHoles }];
 }
 
 export function titleCaseWords(raw: string): string {

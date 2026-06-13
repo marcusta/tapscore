@@ -9,7 +9,8 @@ export interface ScoreEvent {
     id: string;
     roundId: string;
     ballId: string;
-    hole: number;
+    /** Stable play-hole occurrence id (the scoring subject). */
+    playHoleId: string;
     strokes: number | null;
     eventType: ScoreEventType;
     recordedByPlayerId: string | null;
@@ -37,7 +38,7 @@ export interface ScoreEvent {
 export interface AppendScoreEventInput {
     roundId: string;
     ballId: string;
-    hole: number;
+    playHoleId: string;
     strokes: number | null;
     eventType: ScoreEventType;
     recordedByPlayerId?: string | null;
@@ -74,7 +75,7 @@ interface ScoreEventRow {
     id: string;
     round_id: string;
     ball_id: string;
-    hole: number;
+    play_hole_id: string;
     strokes: number | null;
     event_type: ScoreEventType;
     recorded_by_player_id: string | null;
@@ -90,7 +91,7 @@ function toEvent(row: ScoreEventRow): ScoreEvent {
         id: row.id,
         roundId: row.round_id,
         ballId: row.ball_id,
-        hole: row.hole,
+        playHoleId: row.play_hole_id,
         strokes: row.strokes,
         eventType: row.event_type,
         recordedByPlayerId: row.recorded_by_player_id,
@@ -180,7 +181,7 @@ export class ScoreEventService {
                 id: string;
                 round_id: string;
                 ball_id: string;
-                hole: number;
+                play_hole_id: string;
                 strokes: number | null;
                 event_type: ScoreEventType;
                 recorded_by_player_id: string | null;
@@ -193,7 +194,7 @@ export class ScoreEventService {
                 id,
                 round_id: input.roundId,
                 ball_id: input.ballId,
-                hole: input.hole,
+                play_hole_id: input.playHoleId,
                 strokes: input.strokes,
                 event_type: input.eventType,
                 recorded_by_player_id: input.recordedByPlayerId ?? null,

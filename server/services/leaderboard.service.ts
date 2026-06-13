@@ -8,11 +8,11 @@ import {
     type RoundLeaderboardInput,
 } from '../domain/round-materializer';
 import { findFormatPlugin } from '../domain/formats/plugin';
-import { buildSlotResult } from '../domain/strategies/result-builder';
+import { buildSlotResult, type ResultColumn } from '../domain/strategies/result-builder';
 import type { RoundResult } from '../domain/strategies/result-sections';
 import type { RoundDefinition } from '../domain/round-definition';
 import type { StrategyEvent } from '../domain/strategies/types';
-import { courseHolesForRound, type CourseHole } from '../domain/round-holes';
+import type { CourseHole } from '../domain/round-holes';
 
 /**
  * Materialises the inputs to the canonical scoring engine — round-context
@@ -42,25 +42,22 @@ export class LeaderboardService {
 
     private async buildInput(
         roundId: string,
-    ): Promise<{ input: RoundLeaderboardInput; round: Round; playedSet: Set<number> }> {
+    ): Promise<{ input: RoundLeaderboardInput; round: Round }> {
         const round = await this.roundService.getById(roundId);
         if (!round) throw new Error(`round ${roundId} not found`);
 
         const course = await this.courseService.getById(round.courseId);
         if (!course) throw new Error(`course ${round.courseId} not found`);
 
-        // Full course holes — stroke allocation runs against the course's FULL
-        // SI distribution (WHS: a 9-hole round keeps whichever of the full-
-        // course strokes land on the played holes). We score over all holes
-        // and trim the per-hole rows to the played set afterwards.
+        // Physical-course reference holes (par + base SI). Scoring iterates the
+        // round's explicit itinerary (round.playHoles), NOT this — round_type
+        // no longer decides which holes count. Stroke allocation runs over the
+        // frozen allocation cycle, not the itinerary length.
         const allHoles: CourseHole[] = course.holes.map((h) => ({
             holeNumber: h.holeNumber,
             par: h.par,
             strokeIndex: h.strokeIndex,
         }));
-        const playedSet = new Set(
-            courseHolesForRound(round.roundType, allHoles).map((h) => h.holeNumber),
-        );
 
         // --- format_id + format_config per slot_def_id, from the definition. ---
 
@@ -182,6 +179,24 @@ export class LeaderboardService {
                 par: h.par,
                 baseStrokeIndex: h.strokeIndex,
             })),
+            playHoles: round.playHoles.map((p) => ({
+                playHoleId: p.id,
+                playHoleDefId: p.playHoleDefId,
+                ordinal: p.ordinal,
+                courseHoleNumber: p.courseHoleNumber,
+                par: p.par,
+                baseStrokeIndex: p.baseStrokeIndex,
+                tees: p.tees.map((t) => ({
+                    teeId: t.teeRef,
+                    lengthM: t.lengthM,
+                    strokeIndexOverride: null,
+                })),
+            })),
+            allocationCycleSize: round.routeSi.allocationCycleSize,
+            playingGroups: round.playingGroups.map((g) => ({
+                startPlayHoleId: g.startPlayHoleId,
+                ballIds: g.ballIds,
+            })),
             ballPlayers,
             balls: ballRows.map((b) => ({
                 id: b.id,
@@ -203,7 +218,7 @@ export class LeaderboardService {
             events,
         };
 
-        return { input, round, playedSet };
+        return { input, round };
     }
 
     /**
@@ -214,11 +229,22 @@ export class LeaderboardService {
      * `Leaderboard` adapter, no format-id branching downstream.
      */
     async resultForRound(roundId: string): Promise<RoundResult> {
-        const { input, round, playedSet } = await this.buildInput(roundId);
+        const { input, round } = await this.buildInput(roundId);
         const materialized = materializeRound(input);
-        const playedHoles = materialized.roundContext.courseHoles
-            .filter((h) => playedSet.has(h.holeNumber))
-            .sort((a, b) => a.holeNumber - b.holeNumber);
+        const rc = materialized.roundContext;
+
+        // Scorecard columns = the explicit itinerary occurrences in canonical
+        // ordinal order, each carrying its occurrence label (so repeated holes
+        // render as `3 (1st)` / `3 (2nd)`). No round_type, no 1–9/10–18.
+        const columns: ResultColumn[] = rc.playHoles.map((p) => ({
+            playHoleId: p.playHoleId,
+            courseHoleNumber: p.courseHoleNumber,
+            canonicalOrdinal: p.ordinal,
+            occurrenceLabel: rc.occurrenceLabel(p.playHoleId),
+            par: p.par,
+            baseStrokeIndex: p.baseStrokeIndex,
+        }));
+
         const allowanceBySlot = new Map(
             round.formatSlots.map((s) => [s.slotIndex, s.allowancePct] as const),
         );
@@ -226,7 +252,7 @@ export class LeaderboardService {
         const slots = materialized.slots.map((slot) => {
             const plugin = findFormatPlugin(slot.formatId);
             const result = plugin.score({
-                roundContext: materialized.roundContext,
+                roundContext: rc,
                 slotBalls: slot.slotBalls,
                 slotTeamGroupings: slot.slotTeamGroupings,
                 events: materialized.events,
@@ -246,11 +272,23 @@ export class LeaderboardService {
                 result,
                 slotBalls: slot.slotBalls,
                 slotTeamGroupings: slot.slotTeamGroupings,
-                courseHoles: playedHoles,
+                columns,
             });
         });
 
-        return { slots };
+        return {
+            slots,
+            routeSections: round.routeSections.map((s) => ({
+                id: s.id,
+                label: s.label,
+                fromCanonicalOrdinal: s.fromCanonicalOrdinal,
+                toCanonicalOrdinal: s.toCanonicalOrdinal,
+            })),
+            posting: {
+                eligible: round.routeHandicapPolicy.postingEligible,
+                reason: round.routeHandicapPolicy.postingIneligibleReason,
+            },
+        };
     }
 
     /** Latest `round_definitions` version → `slot_def_id` → format id + config. */
@@ -283,7 +321,7 @@ export class LeaderboardService {
             .select([
                 'round_id',
                 'ball_id',
-                'hole',
+                'play_hole_id',
                 'strokes',
                 'recorded_by_player_id',
                 'recorded_at',
@@ -300,7 +338,7 @@ export class LeaderboardService {
                 kind: 'score',
                 roundId: r.round_id,
                 ballId: r.ball_id,
-                hole: r.hole,
+                playHoleId: r.play_hole_id,
                 strokes: r.strokes,
                 clientEventId: r.client_event_id,
                 recordedBy: r.recorded_by_player_id ?? '',
@@ -314,7 +352,7 @@ export class LeaderboardService {
                             kind: 'metadata',
                             roundId: r.round_id,
                             ballId: r.ball_id,
-                            hole: r.hole,
+                            playHoleId: r.play_hole_id,
                             producerPlayerId: r.source_player_id,
                             producerGuestPlayerId: r.source_guest_player_id,
                             type,

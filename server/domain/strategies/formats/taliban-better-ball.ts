@@ -23,7 +23,6 @@ import type {
     PairBallHoleResult,
     PairBallResult,
     RoundContext,
-    RoundCourseHoleSnapshot,
     SlotBall,
     StrategyEvent,
     StrategyResult,
@@ -31,8 +30,8 @@ import type {
 import {
     deriveFlat,
     groupBallsByTeam,
-    latestScoresByHole,
-    orderedHoles,
+    holeIdentity,
+    latestScoresByPlayHole,
     resolveSingleProducer,
     strokesGivenMapForProducer,
 } from './_shared';
@@ -41,8 +40,8 @@ export const TALIBAN_BETTER_BALL_ID = 'taliban_better_ball';
 
 interface BallCtx {
     ball: SlotBall;
-    strokesByHole: Map<number, number>;
-    scores: Map<number, number | null>;
+    strokesByPlayHole: Map<string, number>;
+    scores: Map<string, number | null>;
 }
 
 interface PlayerHole {
@@ -60,28 +59,26 @@ interface TeamBall {
 
 function buildCtx(
     ball: SlotBall,
-    courseHoles: RoundCourseHoleSnapshot[],
     ctx: RoundContext,
     events: StrategyEvent[],
 ): BallCtx {
     const p = resolveSingleProducer(ball);
     return {
         ball,
-        strokesByHole: strokesGivenMapForProducer(
+        strokesByPlayHole: strokesGivenMapForProducer(
             p.producerDefId,
             ball.playingHandicapSnapshot,
-            courseHoles,
             ctx,
         ),
-        scores: latestScoresByHole(events, ball.ballId),
+        scores: latestScoresByPlayHole(events, ball.ballId),
     };
 }
 
-function ballHoleScore(c: BallCtx, holeNumber: number): PlayerHole {
-    if (!c.scores.has(holeNumber)) return { gross: null, net: null, contributed: false };
-    const strokes = c.scores.get(holeNumber) ?? null;
+function ballHoleScore(c: BallCtx, playHoleId: string): PlayerHole {
+    if (!c.scores.has(playHoleId)) return { gross: null, net: null, contributed: false };
+    const strokes = c.scores.get(playHoleId) ?? null;
     if (strokes === null || strokes === 0) return { gross: null, net: null, contributed: false };
-    const given = c.strokesByHole.get(holeNumber) ?? 0;
+    const given = c.strokesByPlayHole.get(playHoleId) ?? 0;
     return { gross: strokes, net: strokes - given, contributed: true };
 }
 
@@ -155,12 +152,13 @@ export const talibanBetterBall: FormatStrategy = {
             }
         }
         const [teamA, teamB] = teams;
-        const ordered = orderedHoles(roundContext.courseHoles);
+        const refBallId = teamA.balls[0].ballId;
+        const ordered = roundContext.playedOrderForBall(refBallId);
 
-        const ctxA1 = buildCtx(teamA.balls[0], ordered, roundContext, events);
-        const ctxA2 = buildCtx(teamA.balls[1], ordered, roundContext, events);
-        const ctxB1 = buildCtx(teamB.balls[0], ordered, roundContext, events);
-        const ctxB2 = buildCtx(teamB.balls[1], ordered, roundContext, events);
+        const ctxA1 = buildCtx(teamA.balls[0], roundContext, events);
+        const ctxA2 = buildCtx(teamA.balls[1], roundContext, events);
+        const ctxB1 = buildCtx(teamB.balls[0], roundContext, events);
+        const ctxB2 = buildCtx(teamB.balls[1], roundContext, events);
 
         const ballResults: BallResult[] = [
             { ballId: ctxA1.ball.ballId, holes: [], totals: [], holesPlayed: 0 },
@@ -173,11 +171,12 @@ export const talibanBetterBall: FormatStrategy = {
         let totalA = 0;
         let totalB = 0;
 
-        for (const ch of ordered) {
-            const a1 = ballHoleScore(ctxA1, ch.holeNumber);
-            const a2 = ballHoleScore(ctxA2, ch.holeNumber);
-            const b1 = ballHoleScore(ctxB1, ch.holeNumber);
-            const b2 = ballHoleScore(ctxB2, ch.holeNumber);
+        for (const occ of ordered) {
+            const par = roundContext.parForPlayHole(occ.playHoleId);
+            const a1 = ballHoleScore(ctxA1, occ.playHoleId);
+            const a2 = ballHoleScore(ctxA2, occ.playHoleId);
+            const b1 = ballHoleScore(ctxB1, occ.playHoleId);
+            const b2 = ballHoleScore(ctxB2, occ.playHoleId);
             [
                 [a1, ctxA1, 0],
                 [a2, ctxA2, 1],
@@ -186,13 +185,13 @@ export const talibanBetterBall: FormatStrategy = {
             ].forEach(([s, c, idx]) => {
                 const score = s as PlayerHole;
                 const ctx = c as BallCtx;
-                if (score.contributed || ctx.scores.has(ch.holeNumber)) {
+                if (score.contributed || ctx.scores.has(occ.playHoleId)) {
                     ballResults[idx as number].holesPlayed++;
                 }
             });
 
-            const ballA = teamBall(a1, ctxA1, a2, ctxA2, ch.par);
-            const ballB = teamBall(b1, ctxB1, b2, ctxB2, ch.par);
+            const ballA = teamBall(a1, ctxA1, a2, ctxA2, par);
+            const ballB = teamBall(b1, ctxB1, b2, ctxB2, par);
 
             const leadBefore = totalA - totalB;
             const aDown = leadBefore < 0;
@@ -284,7 +283,7 @@ export const talibanBetterBall: FormatStrategy = {
             const pairNote = detail ? `${pairStatusStr} (${detail})` : pairStatusStr;
 
             pairHoles.push({
-                holeNumber: ch.holeNumber,
+                ...holeIdentity(roundContext, refBallId, occ),
                 status,
                 fromA: ballA.better,
                 fromB: ballB.better,
@@ -306,7 +305,7 @@ export const talibanBetterBall: FormatStrategy = {
 
             const pushBall = (idx: number, score: PlayerHole, n: string) => {
                 ballResults[idx].holes.push({
-                    holeNumber: ch.holeNumber,
+                    ...holeIdentity(roundContext, ballResults[idx].ballId, occ),
                     gross: score.gross,
                     net: score.net,
                     points: null,

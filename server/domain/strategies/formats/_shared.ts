@@ -6,16 +6,40 @@
 // so reading a strategy top-to-bottom tells the whole story.
 
 import type { FormatAllowanceConfig } from '../../round-definition';
-import { playingHandicap } from '../../handicap';
+import { playingHandicap, strokesReceivedForStrokeIndex } from '../../handicap';
 import type { DerivedSlotBall, DeriveSlotBallsInput } from '../format-strategy';
 import type {
+    HoleIdentity,
     PerProducerCh,
+    PlayHoleSnapshot,
     RoundContext,
     RoundCourseHoleSnapshot,
     ScoreEvent,
     SlotBall,
     StrategyEvent,
 } from '../types';
+
+/**
+ * Build the stable play-hole identity + display metadata for one occurrence
+ * as scored by one ball. Strategies spread this into every per-hole result
+ * row so generic renderers can distinguish repeated visits (`3 (1st)` /
+ * `3 (2nd)`) and order columns by canonical ordinal. `holeNumber` is kept
+ * equal to `courseHoleNumber` for back-compat with hole-number assertions.
+ */
+export function holeIdentity(
+    roundContext: RoundContext,
+    ballId: string,
+    ph: PlayHoleSnapshot,
+): HoleIdentity & { holeNumber: number } {
+    return {
+        holeNumber: ph.courseHoleNumber,
+        playHoleId: ph.playHoleId,
+        courseHoleNumber: ph.courseHoleNumber,
+        canonicalOrdinal: ph.ordinal,
+        playedOrdinal: roundContext.playedOrdinalFor(ballId, ph.playHoleId),
+        occurrenceLabel: roundContext.occurrenceLabel(ph.playHoleId),
+    };
+}
 
 /**
  * Default `deriveSlotBalls` for formats taking a flat allowance. Applies
@@ -34,48 +58,44 @@ export function deriveFlat({ balls, allowanceConfig }: DeriveSlotBallsInput): De
 }
 
 /**
- * WHS stroke distribution by SI, for one ball on one slot. Uses the ball's
- * `playingHandicapSnapshot` and resolves effective SI per hole via
- * `roundContext.effectiveStrokeIndex(producerDefId, hole)` — the first
- * producer of the ball is the reference (alt-shot / foursomes apply the
- * tee rating once at derivation; SI resolution here follows the same
- * "first producer" convention for shared-ball formats).
- *
- * Baseline = floor(PH / holeCount); extras = PH mod holeCount fall on
- * holes with the lowest effective SI first (same rule as legacy, just
- * keyed on effective SI instead of course-level SI).
+ * WHS stroke distribution per occurrence, for one ball on one slot. Resolves
+ * effective SI per occurrence via `effectiveStrokeIndexForPlayHole` and runs
+ * the central allocator over the frozen allocation cycle (NOT the itinerary
+ * length). The first producer of the ball is the SI reference (alt-shot /
+ * foursomes apply the tee rating once at derivation; SI resolution here
+ * follows the same "first producer" convention for shared-ball formats).
  */
 export function strokesGivenMapForBall(
     ball: SlotBall,
-    courseHoles: RoundCourseHoleSnapshot[],
     roundContext: RoundContext,
-): Map<number, number> {
+): Map<string, number> {
     if (ball.producers.length === 0) {
         throw new Error(`strokesGivenMapForBall: ball ${ball.ballId} has no producers`);
     }
     return strokesGivenMapForProducer(
         ball.producers[0].producerDefId,
         ball.playingHandicapSnapshot,
-        courseHoles,
         roundContext,
     );
 }
 
-/** Strokes-given for a specific producer (team-ball per-producer PH contexts). */
+/**
+ * Strokes-given per occurrence for a specific producer (team-ball per-producer
+ * PH contexts). Keyed by `playHoleId` so repeated holes get independent
+ * allocations from their own frozen stroke index.
+ */
 export function strokesGivenMapForProducer(
     producerDefId: string,
-    ph: number,
-    courseHoles: RoundCourseHoleSnapshot[],
+    playingHandicapValue: number,
     roundContext: RoundContext,
-): Map<number, number> {
-    const n = courseHoles.length;
-    const baseline = n > 0 ? Math.floor(ph / n) : 0;
-    const extras = n > 0 ? ((ph % n) + n) % n : 0;
-    const out = new Map<number, number>();
-    for (const ch of courseHoles) {
-        const si = roundContext.effectiveStrokeIndex(producerDefId, ch.holeNumber);
-        const extra = si <= extras ? 1 : 0;
-        out.set(ch.holeNumber, baseline + extra);
+): Map<string, number> {
+    const out = new Map<string, number>();
+    for (const occ of roundContext.playHoles) {
+        const si = roundContext.effectiveStrokeIndexForPlayHole(producerDefId, occ.playHoleId);
+        out.set(
+            occ.playHoleId,
+            strokesReceivedForStrokeIndex(playingHandicapValue, si, roundContext.allocationCycleSize),
+        );
     }
     return out;
 }
@@ -86,37 +106,37 @@ export function orderedHoles(courseHoles: RoundCourseHoleSnapshot[]): RoundCours
 }
 
 /**
- * Latest score per (ballId, hole). §17 replay semantics: later
+ * Latest score per (ballId, playHoleId). §17 replay semantics: later
  * `score_event` wins per key. Pickups (0), DNP (null) and real gross
  * (>0) all coexist — strategies distinguish at read time.
  *
- * Returns `undefined` for a hole with no event (not yet played); `null`
- * for an explicit DNP; `0` for a pickup; `n > 0` for gross strokes.
+ * Returns `undefined` for an occurrence with no event (not yet played);
+ * `null` for an explicit DNP; `0` for a pickup; `n > 0` for gross strokes.
  */
-export function latestScoresByHole(
+export function latestScoresByPlayHole(
     events: StrategyEvent[],
     ballId: string,
-): Map<number, number | null> {
-    const byHole = new Map<number, { ts: string; strokes: number | null }>();
+): Map<string, number | null> {
+    const byPlayHole = new Map<string, { ts: string; strokes: number | null }>();
     for (const e of events) {
         if (e.kind !== 'score') continue;
         const se = e as ScoreEvent;
         if (se.ballId !== ballId) continue;
-        const current = byHole.get(se.hole);
+        const current = byPlayHole.get(se.playHoleId);
         if (!current || current.ts <= se.recordedAt) {
-            byHole.set(se.hole, { ts: se.recordedAt, strokes: se.strokes });
+            byPlayHole.set(se.playHoleId, { ts: se.recordedAt, strokes: se.strokes });
         }
     }
-    const out = new Map<number, number | null>();
-    for (const [hole, v] of byHole) out.set(hole, v.strokes);
+    const out = new Map<string, number | null>();
+    for (const [playHoleId, v] of byPlayHole) out.set(playHoleId, v.strokes);
     return out;
 }
 
-/** Metadata value at (ballId, hole, type) — latest-wins, optionally filtered by producer. */
+/** Metadata value at (ballId, playHoleId, type) — latest-wins, optionally filtered by producer. */
 export function latestMetadata(
     events: StrategyEvent[],
     ballId: string,
-    hole: number,
+    playHoleId: string,
     type: string,
     opts: { producerPlayerId?: string | null; producerGuestPlayerId?: string | null } = {},
 ): unknown {
@@ -124,7 +144,7 @@ export function latestMetadata(
     for (const e of events) {
         if (e.kind !== 'metadata') continue;
         if (e.ballId !== ballId) continue;
-        if (e.hole !== hole) continue;
+        if (e.playHoleId !== playHoleId) continue;
         if (e.type !== type) continue;
         if (opts.producerPlayerId !== undefined && e.producerPlayerId !== opts.producerPlayerId) continue;
         if (opts.producerGuestPlayerId !== undefined && e.producerGuestPlayerId !== opts.producerGuestPlayerId)

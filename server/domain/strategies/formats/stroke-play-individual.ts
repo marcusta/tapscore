@@ -7,7 +7,7 @@
 
 import type { FormatStrategy } from '../format-strategy';
 import type { BallHoleResult, BallResult, StrategyResult } from '../types';
-import { deriveFlat, latestScoresByHole, orderedHoles, strokesGivenMapForBall } from './_shared';
+import { deriveFlat, holeIdentity, latestScoresByPlayHole, strokesGivenMapForBall } from './_shared';
 
 export const STROKE_PLAY_INDIVIDUAL_ID = 'stroke_play_individual';
 
@@ -25,36 +25,36 @@ export const strokePlayIndividual: FormatStrategy = {
     deriveSlotBalls: deriveFlat,
 
     score({ roundContext, slotBalls, events }): StrategyResult {
-        const ordered = orderedHoles(roundContext.courseHoles);
         const ballResults: BallResult[] = slotBalls.map((ball) => {
-            const strokesGiven = strokesGivenMapForBall(ball, ordered, roundContext);
-            const scores = latestScoresByHole(events, ball.ballId);
+            const strokesGiven = strokesGivenMapForBall(ball, roundContext);
+            const scores = latestScoresByPlayHole(events, ball.ballId);
             const holes: BallHoleResult[] = [];
             let grossTotal = 0;
             let netTotal = 0;
             let hasAny = false;
             let incomplete = false;
             let holesPlayed = 0;
-            for (const ch of ordered) {
-                const given = strokesGiven.get(ch.holeNumber) ?? 0;
-                if (!scores.has(ch.holeNumber)) {
-                    holes.push({ holeNumber: ch.holeNumber, gross: null, net: null, points: null });
+            for (const occ of roundContext.playHoles) {
+                const id = holeIdentity(roundContext, ball.ballId, occ);
+                const given = strokesGiven.get(occ.playHoleId) ?? 0;
+                if (!scores.has(occ.playHoleId)) {
+                    holes.push({ ...id, gross: null, net: null, points: null });
                     continue;
                 }
                 holesPlayed++;
-                const strokes = scores.get(ch.holeNumber) ?? null;
+                const strokes = scores.get(occ.playHoleId) ?? null;
                 if (strokes === null) {
                     incomplete = true;
-                    holes.push({ holeNumber: ch.holeNumber, gross: null, net: null, points: null });
+                    holes.push({ ...id, gross: null, net: null, points: null });
                     continue;
                 }
                 if (strokes === 0) incomplete = true;
-                const effGross = strokes === 0 ? ch.par + 2 + given : strokes;
+                const effGross = strokes === 0 ? occ.par + 2 + given : strokes;
                 const net = effGross - given;
                 grossTotal += effGross;
                 netTotal += net;
                 hasAny = true;
-                holes.push({ holeNumber: ch.holeNumber, gross: effGross, net, points: null });
+                holes.push({ ...id, gross: effGross, net, points: null });
             }
             return {
                 ballId: ball.ballId,

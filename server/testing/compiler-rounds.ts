@@ -109,6 +109,13 @@ export interface CreateCompiledRoundResult {
     ballByTeamLabel: Map<string, string[]>;
     /** Producer def-ids in declaration order (`p1`, `p2`, …). */
     producerDefIds: string[];
+    /**
+     * courseHoleNumber → play_hole_id (FIRST occurrence). Score events now key
+     * on the occurrence id; tests resolve it from the played hole number.
+     * For repeated-hole routes use `round.playHoles` directly (a course hole
+     * maps to multiple occurrences).
+     */
+    playHoleByCourseHole: Map<number, string>;
 }
 
 export async function createCompiledRound(
@@ -251,5 +258,12 @@ export async function createCompiledRound(
         ballByTeamLabel.set(r.label, list);
     }
 
-    return { round, ballByProducerIndex, ballByTeamLabel, producerDefIds };
+    const playHoleByCourseHole = new Map<number, string>();
+    for (const p of round.playHoles) {
+        if (!playHoleByCourseHole.has(p.courseHoleNumber)) {
+            playHoleByCourseHole.set(p.courseHoleNumber, p.id);
+        }
+    }
+
+    return { round, ballByProducerIndex, ballByTeamLabel, producerDefIds, playHoleByCourseHole };
 }

@@ -15,7 +15,7 @@ function metaEvent(ballId: string, hole: number, type: string, value: unknown): 
         kind: 'metadata',
         roundId: 'r',
         ballId,
-        hole,
+        playHoleId: `ph-${hole}`,
         type,
         value,
         clientEventId: `m-${ballId}-${hole}-${type}`,

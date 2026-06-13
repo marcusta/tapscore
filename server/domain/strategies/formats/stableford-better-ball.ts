@@ -13,8 +13,8 @@ import type { BallHoleResult, BallResult, StrategyResult } from '../types';
 import {
     deriveFlat,
     groupBallsByTeam,
-    latestScoresByHole,
-    orderedHoles,
+    holeIdentity,
+    latestScoresByPlayHole,
     strokesGivenMapForBall,
 } from './_shared';
 
@@ -38,7 +38,6 @@ export const stablefordBetterBall: FormatStrategy = {
         if (!slotTeamGroupings || slotTeamGroupings.length === 0) {
             throw new Error('stableford_better_ball: requires slotTeamGroupings');
         }
-        const ordered = orderedHoles(roundContext.courseHoles);
         const teams = groupBallsByTeam(slotBalls, slotTeamGroupings);
 
         const ballResults: BallResult[] = [];
@@ -51,8 +50,8 @@ export const stablefordBetterBall: FormatStrategy = {
             }
             const perBall = team.balls.map((b) => ({
                 ball: b,
-                strokesGiven: strokesGivenMapForBall(b, ordered, roundContext),
-                scores: latestScoresByHole(events, b.ballId),
+                strokesGiven: strokesGivenMapForBall(b, roundContext),
+                scores: latestScoresByPlayHole(events, b.ballId),
             }));
 
             const teamHoles: BallHoleResult[] = [];
@@ -60,14 +59,14 @@ export const stablefordBetterBall: FormatStrategy = {
             let pointsHasValue = false;
             let holesPlayed = 0;
 
-            for (const ch of ordered) {
+            for (const occ of roundContext.playHoles) {
                 const outcomes = perBall.map((pb) => {
-                    const given = pb.strokesGiven.get(ch.holeNumber) ?? 0;
-                    const netPar = ch.par + given;
-                    if (!pb.scores.has(ch.holeNumber)) {
+                    const given = pb.strokesGiven.get(occ.playHoleId) ?? 0;
+                    const netPar = occ.par + given;
+                    if (!pb.scores.has(occ.playHoleId)) {
                         return { gross: null, net: null, points: null, kind: 'no_event' as const };
                     }
-                    const s = pb.scores.get(ch.holeNumber) ?? null;
+                    const s = pb.scores.get(occ.playHoleId) ?? null;
                     if (s === null) return { gross: null, net: null, points: null, kind: 'dnp' as const };
                     if (s === 0) return { gross: null, net: null, points: 0, kind: 'pickup' as const };
                     const net = s - given;
@@ -97,7 +96,7 @@ export const stablefordBetterBall: FormatStrategy = {
                 }
 
                 teamHoles.push({
-                    holeNumber: ch.holeNumber,
+                    ...holeIdentity(roundContext, team.balls[0].ballId, occ),
                     gross,
                     net,
                     points,

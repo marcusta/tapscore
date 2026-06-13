@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { courseHandicap, playingHandicap } from './handicap';
+import { courseHandicap, playingHandicap, strokesReceivedForStrokeIndex } from './handicap';
 
 // --- Standard WHS examples ---
 
@@ -74,4 +74,71 @@ test('playingHandicap 100% is identity', () => {
 test('playingHandicap 50% (foursomes) halves and rounds', () => {
     expect(playingHandicap(15, 50)).toBe(8);
     expect(playingHandicap(14, 50)).toBe(7);
+});
+
+// --- Occurrence stroke allocation (central, cycle-driven) ---
+
+test('PH under one cycle: lowest SIs get the extra stroke', () => {
+    // PH 5, cycle 18 → SI 1..5 receive 1; SI 6..18 receive 0.
+    for (let si = 1; si <= 5; si++) {
+        expect(strokesReceivedForStrokeIndex(5, si, 18)).toBe(1);
+    }
+    expect(strokesReceivedForStrokeIndex(5, 6, 18)).toBe(0);
+    expect(strokesReceivedForStrokeIndex(5, 18, 18)).toBe(0);
+});
+
+test('PH equal to one cycle: every SI gets exactly one', () => {
+    for (let si = 1; si <= 18; si++) {
+        expect(strokesReceivedForStrokeIndex(18, si, 18)).toBe(1);
+    }
+});
+
+test('PH greater than one cycle: full stroke everywhere + remainder on lowest SIs', () => {
+    // PH 20, cycle 18 → 1 everywhere; SI 1..2 get 2.
+    expect(strokesReceivedForStrokeIndex(20, 1, 18)).toBe(2);
+    expect(strokesReceivedForStrokeIndex(20, 2, 18)).toBe(2);
+    expect(strokesReceivedForStrokeIndex(20, 3, 18)).toBe(1);
+    expect(strokesReceivedForStrokeIndex(20, 18, 18)).toBe(1);
+});
+
+test('PH 36 (two full cycles): every SI gets exactly two', () => {
+    for (let si = 1; si <= 18; si++) {
+        expect(strokesReceivedForStrokeIndex(36, si, 18)).toBe(2);
+    }
+});
+
+test('sparse official subset keeps cycle-18 allocation', () => {
+    // A front-nine occurrence carrying course SI 13 with PH 9 receives 0
+    // (only SI ≤ 9 get a stroke); SI 7 receives 1.
+    expect(strokesReceivedForStrokeIndex(9, 13, 18)).toBe(0);
+    expect(strokesReceivedForStrokeIndex(9, 7, 18)).toBe(1);
+    expect(strokesReceivedForStrokeIndex(9, 2, 18)).toBe(1);
+});
+
+test('plus handicap gives strokes back on the highest SIs', () => {
+    // +2 over cycle 18 → SI 17, 18 receive −1; the rest receive 0.
+    expect(strokesReceivedForStrokeIndex(-2, 18, 18)).toBe(-1);
+    expect(strokesReceivedForStrokeIndex(-2, 17, 18)).toBe(-1);
+    expect(strokesReceivedForStrokeIndex(-2, 16, 18)).toBe(0);
+    expect(strokesReceivedForStrokeIndex(-2, 1, 18)).toBe(0);
+});
+
+test('plus handicap beyond one cycle stacks the give-back', () => {
+    // −20 over cycle 18 → −1 everywhere; SI 17, 18 → −2.
+    expect(strokesReceivedForStrokeIndex(-20, 1, 18)).toBe(-1);
+    expect(strokesReceivedForStrokeIndex(-20, 17, 18)).toBe(-2);
+    expect(strokesReceivedForStrokeIndex(-20, 18, 18)).toBe(-2);
+});
+
+test('cycle smaller than 18 (10-hole route) allocates over its own cycle', () => {
+    // PH 12, cycle 10 → 1 everywhere; SI 1..2 → 2.
+    expect(strokesReceivedForStrokeIndex(12, 1, 10)).toBe(2);
+    expect(strokesReceivedForStrokeIndex(12, 2, 10)).toBe(2);
+    expect(strokesReceivedForStrokeIndex(12, 3, 10)).toBe(1);
+    expect(strokesReceivedForStrokeIndex(12, 10, 10)).toBe(1);
+});
+
+test('zero PH receives nothing; non-positive cycle is safe', () => {
+    expect(strokesReceivedForStrokeIndex(0, 1, 18)).toBe(0);
+    expect(strokesReceivedForStrokeIndex(10, 1, 0)).toBe(0);
 });

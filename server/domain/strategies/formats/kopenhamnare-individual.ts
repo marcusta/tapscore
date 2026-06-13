@@ -19,15 +19,14 @@ import type {
     BallHoleResult,
     BallResult,
     RoundContext,
-    RoundCourseHoleSnapshot,
     SlotBall,
     StrategyEvent,
     StrategyResult,
 } from '../types';
 import {
     deriveFlat,
-    latestScoresByHole,
-    orderedHoles,
+    holeIdentity,
+    latestScoresByPlayHole,
     resolveSingleProducer,
     strokesGivenMapForProducer,
 } from './_shared';
@@ -63,14 +62,14 @@ interface HoleState {
 }
 
 function resolveHoleState(
-    scores: Map<number, number | null>,
+    scores: Map<string, number | null>,
     given: number,
-    holeNumber: number,
+    playHoleId: string,
 ): HoleState {
-    if (!scores.has(holeNumber)) {
+    if (!scores.has(playHoleId)) {
         return { gross: null, net: null, rankingNet: null, engaged: false };
     }
-    const strokes = scores.get(holeNumber) ?? null;
+    const strokes = scores.get(playHoleId) ?? null;
     if (strokes === null) return { gross: null, net: null, rankingNet: null, engaged: true };
     if (strokes === 0) {
         return { gross: 0, net: null, rankingNet: Number.POSITIVE_INFINITY, engaged: true };
@@ -120,34 +119,32 @@ function distribute6(nets: [number, number, number]): [HolePoints, HolePoints, H
 function buildStrokeMaps(
     balls: SlotBall[],
     effPHs: number[],
-    courseHoles: RoundCourseHoleSnapshot[],
     ctx: RoundContext,
-): Map<number, number>[] {
+): Map<string, number>[] {
     return balls.map((b, i) => {
         const p = resolveSingleProducer(b);
-        return strokesGivenMapForProducer(p.producerDefId, effPHs[i], courseHoles, ctx);
+        return strokesGivenMapForProducer(p.producerDefId, effPHs[i], ctx);
     });
 }
 
 function computeKopenhamnare(
     balls: SlotBall[],
-    courseHoles: RoundCourseHoleSnapshot[],
     ctx: RoundContext,
     events: StrategyEvent[],
     mode: KopenhamnareHandicapMode,
 ): BallResult[] {
     const effPHs = effectivePHs(balls, mode);
-    const strokesMaps = buildStrokeMaps(balls, effPHs, courseHoles, ctx);
-    const scoresPer = balls.map((b) => latestScoresByHole(events, b.ballId));
+    const strokesMaps = buildStrokeMaps(balls, effPHs, ctx);
+    const scoresPer = balls.map((b) => latestScoresByPlayHole(events, b.ballId));
 
     const holesPer: BallHoleResult[][] = balls.map(() => []);
     const totals = balls.map(() => 0);
     const hasValue = balls.map(() => false);
     const holesPlayed = balls.map(() => 0);
 
-    for (const ch of orderedHoles(courseHoles)) {
+    for (const occ of ctx.playHoles) {
         const states = balls.map((_, i) =>
-            resolveHoleState(scoresPer[i], strokesMaps[i].get(ch.holeNumber) ?? 0, ch.holeNumber),
+            resolveHoleState(scoresPer[i], strokesMaps[i].get(occ.playHoleId) ?? 0, occ.playHoleId),
         );
         states.forEach((st, i) => {
             if (st.engaged) holesPlayed[i]++;
@@ -157,7 +154,7 @@ function computeKopenhamnare(
         if (!allScored) {
             states.forEach((st, i) =>
                 holesPer[i].push({
-                    holeNumber: ch.holeNumber,
+                    ...holeIdentity(ctx, balls[i].ballId, occ),
                     gross: st.gross,
                     net: st.net,
                     points: null,
@@ -174,7 +171,7 @@ function computeKopenhamnare(
             totals[i] += dist[i].points;
             hasValue[i] = true;
             holesPer[i].push({
-                holeNumber: ch.holeNumber,
+                ...holeIdentity(ctx, balls[i].ballId, occ),
                 gross: st.gross,
                 net: st.net,
                 points: dist[i].points,
@@ -222,13 +219,7 @@ export const kopenhamnareIndividual: FormatStrategy = {
         if (mode === 'delta_from_min') {
             // standard already treats PH as-is; delta requires concrete PHs (non-null by type).
         }
-        const ballResults = computeKopenhamnare(
-            slotBalls,
-            roundContext.courseHoles,
-            roundContext,
-            events,
-            mode,
-        );
+        const ballResults = computeKopenhamnare(slotBalls, roundContext, events, mode);
         return { ballResults };
     },
 };

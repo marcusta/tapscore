@@ -13,7 +13,6 @@ import type {
     PairBallHoleResult,
     PairBallResult,
     RoundContext,
-    RoundCourseHoleSnapshot,
     SlotBall,
     StrategyEvent,
     StrategyResult,
@@ -21,9 +20,9 @@ import type {
 import {
     deriveFlat,
     groupBallsByTeam,
-    latestScoresByHole,
+    holeIdentity,
+    latestScoresByPlayHole,
     normalizeMatchPlayPHs,
-    orderedHoles,
     resolveSingleProducer,
     strokesGivenMapForProducer,
 } from './_shared';
@@ -32,8 +31,8 @@ export const MATCH_PLAY_BETTER_BALL_ID = 'match_play_better_ball';
 
 interface BallCtx {
     ball: SlotBall;
-    strokesByHole: Map<number, number>;
-    scores: Map<number, number | null>;
+    strokesByPlayHole: Map<string, number>;
+    scores: Map<string, number | null>;
 }
 
 interface PlayerHole {
@@ -53,25 +52,24 @@ interface TeamBall {
 function buildCtx(
     ball: SlotBall,
     effPH: number,
-    courseHoles: RoundCourseHoleSnapshot[],
     ctx: RoundContext,
     events: StrategyEvent[],
 ): BallCtx {
     const p = resolveSingleProducer(ball);
     return {
         ball,
-        strokesByHole: strokesGivenMapForProducer(p.producerDefId, effPH, courseHoles, ctx),
-        scores: latestScoresByHole(events, ball.ballId),
+        strokesByPlayHole: strokesGivenMapForProducer(p.producerDefId, effPH, ctx),
+        scores: latestScoresByPlayHole(events, ball.ballId),
     };
 }
 
-function ballHole(c: BallCtx, holeNumber: number): PlayerHole {
-    if (!c.scores.has(holeNumber)) return { gross: null, net: null, contributed: false, engaged: false };
-    const strokes = c.scores.get(holeNumber) ?? null;
+function ballHole(c: BallCtx, playHoleId: string): PlayerHole {
+    if (!c.scores.has(playHoleId)) return { gross: null, net: null, contributed: false, engaged: false };
+    const strokes = c.scores.get(playHoleId) ?? null;
     if (strokes === null || strokes === 0) {
         return { gross: null, net: null, contributed: false, engaged: true };
     }
-    const given = c.strokesByHole.get(holeNumber) ?? 0;
+    const given = c.strokesByPlayHole.get(playHoleId) ?? 0;
     return { gross: strokes, net: strokes - given, contributed: true, engaged: true };
 }
 
@@ -158,12 +156,13 @@ export const matchPlayBetterBall: FormatStrategy = {
             }
         }
         const [teamA, teamB] = teams;
-        const ordered = orderedHoles(roundContext.courseHoles);
-
         const allBalls = [teamA.balls[0], teamA.balls[1], teamB.balls[0], teamB.balls[1]];
+        const refBallId = allBalls[0].ballId;
+        const ordered = roundContext.playedOrderForBall(refBallId);
+
         const effPHs = normalizeMatchPlayPHs(allBalls.map((b) => b.playingHandicapSnapshot));
         const [ca1, ca2, cb1, cb2] = allBalls.map((b, i) =>
-            buildCtx(b, effPHs[i], ordered, roundContext, events),
+            buildCtx(b, effPHs[i], roundContext, events),
         );
 
         const pairHoles: PairBallHoleResult[] = [];
@@ -177,8 +176,8 @@ export const matchPlayBetterBall: FormatStrategy = {
         const totalHoles = ordered.length;
 
         for (let i = 0; i < ordered.length; i++) {
-            const ch = ordered[i];
-            const holes = [ca1, ca2, cb1, cb2].map((c) => ballHole(c, ch.holeNumber));
+            const occ = ordered[i];
+            const holes = [ca1, ca2, cb1, cb2].map((c) => ballHole(c, occ.playHoleId));
             holes.forEach((h, j) => {
                 if (h.engaged) perBallHolesPlayed[j]++;
             });
@@ -222,7 +221,7 @@ export const matchPlayBetterBall: FormatStrategy = {
 
             holes.forEach((h, j) => {
                 perBallHoles[j].push({
-                    holeNumber: ch.holeNumber,
+                    ...holeIdentity(roundContext, allBalls[j].ballId, occ),
                     gross: h.gross,
                     net: h.net,
                     points: null,
@@ -238,7 +237,7 @@ export const matchPlayBetterBall: FormatStrategy = {
                 if (dormie) pairNote += ' (dormie)';
             }
             pairHoles.push({
-                holeNumber: ch.holeNumber,
+                ...holeIdentity(roundContext, refBallId, occ),
                 status,
                 fromA: tbA.net,
                 fromB: tbB.net,

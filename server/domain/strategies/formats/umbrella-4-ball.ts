@@ -15,8 +15,8 @@ import type { FormatStrategy } from '../format-strategy';
 import type {
     BallHoleResult,
     BallResult,
+    PlayHoleSnapshot,
     RoundContext,
-    RoundCourseHoleSnapshot,
     SlotBall,
     StrategyEvent,
     StrategyResult,
@@ -24,9 +24,9 @@ import type {
 import {
     deriveFlat,
     groupBallsByTeam,
+    holeIdentity,
     latestMetadata,
-    latestScoresByHole,
-    orderedHoles,
+    latestScoresByPlayHole,
     resolveSingleProducer,
     strokesGivenMapForProducer,
 } from './_shared';
@@ -47,8 +47,8 @@ function readBirdieRule(cfg: unknown): BirdieRule {
 
 interface BallCtx {
     ball: SlotBall;
-    strokesByHole: Map<number, number>;
-    scores: Map<number, number | null>;
+    strokesByHole: Map<string, number>;
+    scores: Map<string, number | null>;
 }
 
 interface PlayerHole {
@@ -61,7 +61,6 @@ interface PlayerHole {
 
 function buildCtx(
     ball: SlotBall,
-    courseHoles: RoundCourseHoleSnapshot[],
     ctx: RoundContext,
     events: StrategyEvent[],
 ): BallCtx {
@@ -71,23 +70,22 @@ function buildCtx(
         strokesByHole: strokesGivenMapForProducer(
             p.producerDefId,
             ball.playingHandicapSnapshot,
-            courseHoles,
             ctx,
         ),
-        scores: latestScoresByHole(events, ball.ballId),
+        scores: latestScoresByPlayHole(events, ball.ballId),
     };
 }
 
-function readHole(c: BallCtx, ch: RoundCourseHoleSnapshot, events: StrategyEvent[]): PlayerHole {
-    const gir = latestMetadata(events, c.ball.ballId, ch.holeNumber, 'gir') === true;
-    if (!c.scores.has(ch.holeNumber)) {
+function readHole(c: BallCtx, occ: PlayHoleSnapshot, events: StrategyEvent[]): PlayerHole {
+    const gir = latestMetadata(events, c.ball.ballId, occ.playHoleId, 'gir') === true;
+    if (!c.scores.has(occ.playHoleId)) {
         return { gross: null, net: null, contributed: false, hasEvent: false, gir };
     }
-    const strokes = c.scores.get(ch.holeNumber) ?? null;
+    const strokes = c.scores.get(occ.playHoleId) ?? null;
     if (strokes === null || strokes === 0) {
         return { gross: null, net: null, contributed: false, hasEvent: true, gir };
     }
-    const given = c.strokesByHole.get(ch.holeNumber) ?? 0;
+    const given = c.strokesByHole.get(occ.playHoleId) ?? 0;
     return { gross: strokes, net: strokes - given, contributed: true, hasEvent: true, gir };
 }
 
@@ -144,12 +142,11 @@ export const umbrella4Ball: FormatStrategy = {
         }
         const [teamA, teamB] = teams;
         const birdieRule = readBirdieRule(formatConfig);
-        const ordered = orderedHoles(roundContext.courseHoles);
 
-        const ctxA1 = buildCtx(teamA.balls[0], ordered, roundContext, events);
-        const ctxA2 = buildCtx(teamA.balls[1], ordered, roundContext, events);
-        const ctxB1 = buildCtx(teamB.balls[0], ordered, roundContext, events);
-        const ctxB2 = buildCtx(teamB.balls[1], ordered, roundContext, events);
+        const ctxA1 = buildCtx(teamA.balls[0], roundContext, events);
+        const ctxA2 = buildCtx(teamA.balls[1], roundContext, events);
+        const ctxB1 = buildCtx(teamB.balls[0], roundContext, events);
+        const ctxB2 = buildCtx(teamB.balls[1], roundContext, events);
 
         const perBallHoles: BallHoleResult[][] = [[], [], [], []];
         const perBallHolesPlayed = [0, 0, 0, 0];
@@ -158,11 +155,11 @@ export const umbrella4Ball: FormatStrategy = {
         let totalA = 0;
         let totalB = 0;
 
-        for (const ch of ordered) {
-            const a1 = readHole(ctxA1, ch, events);
-            const a2 = readHole(ctxA2, ch, events);
-            const b1 = readHole(ctxB1, ch, events);
-            const b2 = readHole(ctxB2, ch, events);
+        for (const occ of roundContext.playHoles) {
+            const a1 = readHole(ctxA1, occ, events);
+            const a2 = readHole(ctxA2, occ, events);
+            const b1 = readHole(ctxB1, occ, events);
+            const b2 = readHole(ctxB2, occ, events);
             [a1, a2, b1, b2].forEach((s, i) => {
                 if (s.hasEvent) perBallHolesPlayed[i]++;
             });
@@ -208,8 +205,8 @@ export const umbrella4Ball: FormatStrategy = {
             // BIRD
             const isBird = (s: PlayerHole): boolean => {
                 if (!s.contributed || s.gross === null) return false;
-                if (birdieRule === 'gross') return s.gross <= ch.par - 1;
-                return s.net !== null && s.net <= ch.par - 1;
+                if (birdieRule === 'gross') return s.gross <= occ.par - 1;
+                return s.net !== null && s.net <= occ.par - 1;
             };
             catsA.bird = isBird(a1) || isBird(a2) ? 1 : 0;
             catsB.bird = isBird(b1) || isBird(b2) ? 1 : 0;
@@ -218,29 +215,35 @@ export const umbrella4Ball: FormatStrategy = {
             const sB = sumCats(catsB);
             const sweepA = sA === 5;
             const sweepB = sB === 5;
-            const pA = sA * ch.holeNumber * (sweepA ? 2 : 1);
-            const pB = sB * ch.holeNumber * (sweepB ? 2 : 1);
+            const pA = sA * occ.courseHoleNumber * (sweepA ? 2 : 1);
+            const pB = sB * occ.courseHoleNumber * (sweepB ? 2 : 1);
             totalA += pA;
             totalB += pB;
 
             teamAHoles.push({
-                holeNumber: ch.holeNumber,
+                ...holeIdentity(roundContext, teamA.balls[0].ballId, occ),
                 gross: aT,
                 net: null,
                 points: pA,
-                note: fmtCatsNote(pA, ch.holeNumber, sweepA, catsA),
+                note: fmtCatsNote(pA, occ.courseHoleNumber, sweepA, catsA),
             });
             teamBHoles.push({
-                holeNumber: ch.holeNumber,
+                ...holeIdentity(roundContext, teamB.balls[0].ballId, occ),
                 gross: bT,
                 net: null,
                 points: pB,
-                note: fmtCatsNote(pB, ch.holeNumber, sweepB, catsB),
+                note: fmtCatsNote(pB, occ.courseHoleNumber, sweepB, catsB),
             });
 
-            [a1, a2, b1, b2].forEach((s, i) => {
+            [
+                teamA.balls[0],
+                teamA.balls[1],
+                teamB.balls[0],
+                teamB.balls[1],
+            ].forEach((ball, i) => {
+                const s = [a1, a2, b1, b2][i];
                 perBallHoles[i].push({
-                    holeNumber: ch.holeNumber,
+                    ...holeIdentity(roundContext, ball.ballId, occ),
                     gross: s.gross,
                     net: s.net,
                     points: null,

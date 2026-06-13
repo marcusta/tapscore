@@ -19,16 +19,27 @@
 // shape is intentionally a struct (`HoleRef`) rather than a bare number so
 // that extension is additive.
 
+/**
+ * One scorecard column — a single itinerary occurrence. `playHoleId` is the
+ * stable identity (cells align to columns by it); `occurrenceLabel` is the
+ * rendered header (`"3"`, `"3 (1st)"`); `canonicalOrdinal` drives section
+ * (OUT/IN/TOT) grouping. `holeNumber` == `courseHoleNumber` for back-compat.
+ */
 export interface HoleRef {
     holeNumber: number;
-    // Slice 3c: playHoleId, courseHoleNumber, canonicalOrdinal, playedOrdinal,
-    // occurrenceLabel — added here, not baked into row identity elsewhere.
+    playHoleId: string;
+    courseHoleNumber: number;
+    canonicalOrdinal: number;
+    occurrenceLabel: string;
 }
 
 /** How the renderer aggregates a row across OUT / IN / TOT column groups. */
 export type GridAggregate = 'sum' | 'last' | 'none';
 
 export interface GridCell {
+    /** Column identity — aligns the cell to its `HoleRef` column. */
+    playHoleId: string;
+    /** Physical hole number (display convenience / fallback). */
     holeNumber: number;
     /** Numeric value used for `sum`/`last` aggregation; null = nothing to add. */
     value: number | null;
@@ -36,6 +47,18 @@ export interface GridCell {
     display?: string;
     /** Hover annotation (e.g. stableford netPar arithmetic, umbrella categories). */
     title?: string;
+}
+
+/**
+ * A named ordinal range used for scorecard totals (OUT/IN/TOT etc.), derived
+ * from the round's frozen route sections — never hardcoded physical holes
+ * 1–9 / 10–18. `from`/`to` are canonical itinerary ordinals (1-based).
+ */
+export interface RouteSectionRef {
+    id: string;
+    label: string;
+    fromCanonicalOrdinal: number;
+    toCanonicalOrdinal: number;
 }
 
 export interface GridRow {
@@ -139,4 +162,12 @@ export interface SlotResultView {
 
 export interface RoundResult {
     slots: SlotResultView[];
+    /**
+     * Route sections (OUT/IN/TOT segmentation) by canonical ordinal — the
+     * renderer groups scorecard columns by these instead of hardcoded
+     * physical holes 1–9 / 10–18.
+     */
+    routeSections: RouteSectionRef[];
+    /** WHS posting eligibility for the round's frozen route handicap policy. */
+    posting: { eligible: boolean; reason: string | null };
 }

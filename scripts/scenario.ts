@@ -499,6 +499,10 @@ export class RoundScenarioRef {
 
     /** producerDefId → ballId. Built from `ball_players` after compile. */
     private producerDefIdToBallId: Map<string, string> = new Map();
+    /** courseHoleNumber → play_hole_id (FIRST occurrence). Built from round.playHoles. */
+    private playHoleIdByCourseHole: Map<number, string> = new Map();
+    /** canonical itinerary ordinal (1..N) → play_hole_id. */
+    private playHoleIdByOrdinal: Map<number, string> = new Map();
     /** playerId → producerDefId (own or team member). Built from the draft. */
     private playerIdToProducerDefId: Map<string, string> = new Map();
     /** guest-player id → producerDefId. Built from the draft. */
@@ -662,6 +666,37 @@ export class RoundScenarioRef {
         for (const row of bpRows) {
             this.producerDefIdToBallId.set(row.producer_def_id, row.ball_id);
         }
+
+        // play-hole occurrence caches: course-hole number → first occurrence,
+        // and canonical ordinal → occurrence (for repeated-hole routes).
+        for (const ph of round.playHoles) {
+            this.playHoleIdByOrdinal.set(ph.ordinal, ph.id);
+            if (!this.playHoleIdByCourseHole.has(ph.courseHoleNumber)) {
+                this.playHoleIdByCourseHole.set(ph.courseHoleNumber, ph.id);
+            }
+        }
+    }
+
+    /** Resolve the play-hole occurrence id for a course hole number (first occurrence). */
+    resolvePlayHoleId(courseHoleNumber: number): string {
+        const id = this.playHoleIdByCourseHole.get(courseHoleNumber);
+        if (!id) {
+            throw new Error(
+                `RoundScenarioRef.resolvePlayHoleId: course hole ${courseHoleNumber} is not in this round's itinerary`,
+            );
+        }
+        return id;
+    }
+
+    /** Resolve the play-hole occurrence id by canonical itinerary ordinal (1..N). */
+    resolvePlayHoleIdByOrdinal(ordinal: number): string {
+        const id = this.playHoleIdByOrdinal.get(ordinal);
+        if (!id) {
+            throw new Error(
+                `RoundScenarioRef.resolvePlayHoleIdByOrdinal: ordinal ${ordinal} is outside this round's itinerary`,
+            );
+        }
+        return id;
     }
 
     async addParticipant(init: AddParticipantInit): Promise<ParticipantScenarioRef> {
@@ -1010,7 +1045,48 @@ export class ParticipantScenarioRef {
             await this.round.services.scoreEventService.append({
                 roundId: this.round.id,
                 ballId,
-                hole,
+                playHoleId: this.round.resolvePlayHoleId(hole),
+                strokes,
+                eventType: 'score_entered',
+                recordedByPlayerId: this.recordedByPlayerId ?? null,
+                clientEventId: this.round.nextClientEventId(),
+                recordedAt: new Date(baseMs + offset).toISOString(),
+                sourcePlayerId: options.sourcePlayerId ?? null,
+                sourceGuestPlayerId: options.sourceGuestPlayerId ?? null,
+                metadata,
+            });
+            offset += 1000;
+        }
+    }
+
+    /**
+     * Like `play`, but the keys are canonical itinerary ORDINALS (1..N) rather
+     * than course hole numbers. Use this for repeated-hole / wrapped routes
+     * where a course hole appears more than once and the course-hole key is
+     * ambiguous — each ordinal targets a distinct play-hole occurrence.
+     */
+    async playByOrdinal(scores: HoleScores, options: PlayOptions = {}): Promise<void> {
+        await this.round.ensureCompiled();
+        const baseMs = Date.now();
+        let offset = 0;
+        const ordinals = Object.keys(scores)
+            .map(Number)
+            .sort((a, b) => a - b);
+        for (const ordinal of ordinals) {
+            const strokes = scores[ordinal];
+            const metadata =
+                options.metadataFor !== undefined
+                    ? options.metadataFor(ordinal)
+                    : (options.metadata ?? null);
+            const ballId = this.round.resolveBallId(
+                this.producerDefIds,
+                options.sourcePlayerId ?? null,
+                options.sourceGuestPlayerId ?? null,
+            );
+            await this.round.services.scoreEventService.append({
+                roundId: this.round.id,
+                ballId,
+                playHoleId: this.round.resolvePlayHoleIdByOrdinal(ordinal),
                 strokes,
                 eventType: 'score_entered',
                 recordedByPlayerId: this.recordedByPlayerId ?? null,
@@ -1034,7 +1110,7 @@ export class ParticipantScenarioRef {
         await this.round.services.scoreEventService.append({
             roundId: this.round.id,
             ballId,
-            hole,
+            playHoleId: this.round.resolvePlayHoleId(hole),
             strokes: null,
             eventType: 'score_cleared',
             recordedByPlayerId: this.recordedByPlayerId ?? null,

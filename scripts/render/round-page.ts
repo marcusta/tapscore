@@ -6,7 +6,7 @@ import { buildRoundRenderState } from './round-state';
 import type { RoundRenderContext } from './types';
 import { esc, short } from './util';
 import { renderMeta } from './sections/meta';
-import { renderCourseMetadata, renderSnapshotTables } from './sections/course';
+import { renderCourseMetadata, renderRouteSummary, renderSnapshotTables } from './sections/course';
 import { renderBallsTable } from './sections/balls';
 import { renderEvents } from './sections/events';
 import { renderLeaderboard, renderScorecards } from './sections/result';
@@ -29,7 +29,8 @@ export function renderRoundHtml(ctx: RoundRenderContext): string {
   <span class="sub">${esc(round.roundType)} · ${esc(round.venueType)} · ${esc(round.status)} · <code>${esc(short(round.id))}</code></span>
 </h1>
 ${renderMeta(ctx)}
-${renderCourseMetadata(ctx, state.playedCourseHoles)}
+${renderCourseMetadata(ctx, state.playedOccurrences)}
+${renderRouteSummary(ctx)}
 ${renderSnapshotTables(ctx)}
 ${renderBallsTable(ctx, state)}
 ${renderScorecards(ctx, state)}

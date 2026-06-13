@@ -77,6 +77,21 @@ export interface CourseHole {
     strokeIndex: number;
 }
 
+/**
+ * One itinerary occurrence derived from `round.playHoles`, ordered by
+ * `ordinal`. Columns key on `playHoleId`; `occurrenceLabel` disambiguates
+ * repeated physical holes (`"3 (1st)"`). Par/SI come from the occurrence's
+ * frozen snapshot, not the physical course.
+ */
+export interface PlayedOccurrence {
+    playHoleId: string;
+    courseHoleNumber: number;
+    ordinal: number;
+    par: number;
+    baseStrokeIndex: number;
+    occurrenceLabel: string;
+}
+
 export interface RoundCourseHoleSnapshot {
     holeNumber: number;
     par: number;

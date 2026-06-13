@@ -82,7 +82,7 @@ test('front_9 round distributes PH across the 9 played holes only', async () => 
     const ctx = await setup18();
     const { scoreEventService, leaderboardService, courseId, teeId } = ctx;
     const alice = await ctx.playerService.register({ username: 'front9-p1', password: 'password123', displayName: 'Front9 P1' });
-    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
+    const { round, ballByProducerIndex, playHoleByCourseHole } = await createCompiledRound(ctx, {
         courseId,
         teeId,
         roundType: 'front_9',
@@ -95,7 +95,7 @@ test('front_9 round distributes PH across the 9 played holes only', async () => 
         await scoreEventService.append({
             roundId: round.id,
             ballId: ball,
-            hole: h,
+            playHoleId: playHoleByCourseHole.get(h)!,
             strokes: 5, // bogey
             eventType: 'score_entered',
             clientEventId: `h${h}`,
@@ -112,7 +112,7 @@ test('back_9 round uses holes 10..18 only', async () => {
     const ctx = await setup18();
     const { scoreEventService, leaderboardService, courseId, teeId } = ctx;
     const pl = await ctx.playerService.register({ username: 'back9-p1', password: 'password123', displayName: 'Back9 P1' });
-    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
+    const { round, ballByProducerIndex, playHoleByCourseHole } = await createCompiledRound(ctx, {
         courseId,
         teeId,
         roundType: 'back_9',
@@ -124,7 +124,7 @@ test('back_9 round uses holes 10..18 only', async () => {
         await scoreEventService.append({
             roundId: round.id,
             ballId: ball,
-            hole: h,
+            playHoleId: playHoleByCourseHole.get(h)!,
             strokes: 4,
             eventType: 'score_entered',
             clientEventId: `h${h}`,
@@ -161,7 +161,7 @@ test('9-hole allocation follows full-18 SI distribution (strokes land only where
     });
 
     const plFront = await ctx.playerService.register({ username: 'si-front', password: 'password123', displayName: 'SI Front' });
-    const { round: frontRound, ballByProducerIndex: frontBalls } = await createCompiledRound(ctx, {
+    const { round: frontRound, ballByProducerIndex: frontBalls, playHoleByCourseHole: frontPlayHoles } = await createCompiledRound(ctx, {
         courseId: course.id,
         teeId: tee.id,
         roundType: 'front_9',
@@ -173,7 +173,7 @@ test('9-hole allocation follows full-18 SI distribution (strokes land only where
         await ctx.scoreEventService.append({
             roundId: frontRound.id,
             ballId: frontBall,
-            hole: h,
+            playHoleId: frontPlayHoles.get(h)!,
             strokes: 5,
             eventType: 'score_entered',
             clientEventId: `f${h}`,
@@ -185,7 +185,7 @@ test('9-hole allocation follows full-18 SI distribution (strokes land only where
     expect(ranked(frontRr, 0, 'net').entries[0]!.total).toBe(45);
 
     const plBack = await ctx.playerService.register({ username: 'si-back', password: 'password123', displayName: 'SI Back' });
-    const { round: backRound, ballByProducerIndex: backBalls } = await createCompiledRound(ctx, {
+    const { round: backRound, ballByProducerIndex: backBalls, playHoleByCourseHole: backPlayHoles } = await createCompiledRound(ctx, {
         courseId: course.id,
         teeId: tee.id,
         roundType: 'back_9',
@@ -197,7 +197,7 @@ test('9-hole allocation follows full-18 SI distribution (strokes land only where
         await ctx.scoreEventService.append({
             roundId: backRound.id,
             ballId: backBall,
-            hole: h,
+            playHoleId: backPlayHoles.get(h)!,
             strokes: 5,
             eventType: 'score_entered',
             clientEventId: `b${h}`,
@@ -213,7 +213,7 @@ test('full_18 round still covers all 18 holes', async () => {
     const ctx = await setup18();
     const { scoreEventService, leaderboardService, courseId, teeId } = ctx;
     const pl = await ctx.playerService.register({ username: 'full18-p1', password: 'password123', displayName: 'Full18 P1' });
-    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
+    const { round, ballByProducerIndex, playHoleByCourseHole } = await createCompiledRound(ctx, {
         courseId,
         teeId,
         slots: [{ formatId: 'stroke_play_individual' }],
@@ -224,7 +224,7 @@ test('full_18 round still covers all 18 holes', async () => {
         await scoreEventService.append({
             roundId: round.id,
             ballId: ball,
-            hole: h,
+            playHoleId: playHoleByCourseHole.get(h)!,
             strokes: 4,
             eventType: 'score_entered',
             clientEventId: `h${h}`,
@@ -265,7 +265,7 @@ test("better-ball leaderboard uses each linked player's own frozen PH", async ()
         password: 'password123',
         displayName: 'Dan BB',
     });
-    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
+    const { round, ballByProducerIndex, playHoleByCourseHole } = await createCompiledRound(ctx, {
         courseId,
         teeId,
         slots: [{ formatId: 'stableford_better_ball', allowancePct: 100 }],
@@ -281,7 +281,7 @@ test("better-ball leaderboard uses each linked player's own frozen PH", async ()
     await scoreEventService.append({
         roundId: round.id,
         ballId: aliceBall,
-        hole: 5,
+        playHoleId: playHoleByCourseHole.get(5)!,
         strokes: 4,
         eventType: 'score_entered',
         clientEventId: 'alice-h5',
@@ -289,7 +289,7 @@ test("better-ball leaderboard uses each linked player's own frozen PH", async ()
     await scoreEventService.append({
         roundId: round.id,
         ballId: bobBall,
-        hole: 5,
+        playHoleId: playHoleByCourseHole.get(5)!,
         strokes: 4,
         eventType: 'score_entered',
         clientEventId: 'bob-h5',
@@ -315,7 +315,7 @@ test('single-slot round with no scope defaults every participant to slot 0 (back
     const { scoreEventService, leaderboardService, courseId, teeId } = ctx;
     const pl1 = await ctx.playerService.register({ username: 'ss-p1', password: 'password123', displayName: 'SS P1' });
     const pl2 = await ctx.playerService.register({ username: 'ss-p2', password: 'password123', displayName: 'SS P2' });
-    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
+    const { round, ballByProducerIndex, playHoleByCourseHole } = await createCompiledRound(ctx, {
         courseId,
         teeId,
         slots: [{ formatId: 'stroke_play_individual' }],
@@ -328,11 +328,11 @@ test('single-slot round with no scope defaults every participant to slot 0 (back
     const ball2 = ballByProducerIndex[1]!;
     for (let h = 1; h <= 18; h++) {
         await scoreEventService.append({
-            roundId: round.id, ballId: ball1, hole: h, strokes: 4,
+            roundId: round.id, ballId: ball1, playHoleId: playHoleByCourseHole.get(h)!, strokes: 4,
             eventType: 'score_entered', clientEventId: `p1-h${h}`,
         });
         await scoreEventService.append({
-            roundId: round.id, ballId: ball2, hole: h, strokes: 5,
+            roundId: round.id, ballId: ball2, playHoleId: playHoleByCourseHole.get(h)!, strokes: 5,
             eventType: 'score_entered', clientEventId: `p2-h${h}`,
         });
     }
@@ -353,7 +353,7 @@ test('multi-slot round routes each producer to the slot whose selector lists the
     const plA = await ctx.playerService.register({ username: 'ms-a', password: 'password123', displayName: 'MS A' });
     const plB = await ctx.playerService.register({ username: 'ms-b', password: 'password123', displayName: 'MS B' });
     const plC = await ctx.playerService.register({ username: 'ms-c', password: 'password123', displayName: 'MS C' });
-    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
+    const { round, ballByProducerIndex, playHoleByCourseHole } = await createCompiledRound(ctx, {
         courseId,
         teeId,
         slots: [
@@ -371,9 +371,9 @@ test('multi-slot round routes each producer to the slot whose selector lists the
     const ballC = ballByProducerIndex[2]!;
 
     for (let h = 1; h <= 18; h++) {
-        await scoreEventService.append({ roundId: round.id, ballId: ballA, hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `a-h${h}` });
-        await scoreEventService.append({ roundId: round.id, ballId: ballB, hole: h, strokes: 5, eventType: 'score_entered', clientEventId: `b-h${h}` });
-        await scoreEventService.append({ roundId: round.id, ballId: ballC, hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `c-h${h}` });
+        await scoreEventService.append({ roundId: round.id, ballId: ballA, playHoleId: playHoleByCourseHole.get(h)!, strokes: 4, eventType: 'score_entered', clientEventId: `a-h${h}` });
+        await scoreEventService.append({ roundId: round.id, ballId: ballB, playHoleId: playHoleByCourseHole.get(h)!, strokes: 5, eventType: 'score_entered', clientEventId: `b-h${h}` });
+        await scoreEventService.append({ roundId: round.id, ballId: ballC, playHoleId: playHoleByCourseHole.get(h)!, strokes: 4, eventType: 'score_entered', clientEventId: `c-h${h}` });
     }
 
     const rr = await leaderboardService.resultForRound(round.id);
@@ -450,7 +450,7 @@ test('multi-slot round with overlapping scoringType label across slots keeps buc
     const { scoreEventService, leaderboardService, courseId, teeId } = ctx;
     const plA = await ctx.playerService.register({ username: 'ov-a', password: 'password123', displayName: 'OV A' });
     const plB = await ctx.playerService.register({ username: 'ov-b', password: 'password123', displayName: 'OV B' });
-    const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
+    const { round, ballByProducerIndex, playHoleByCourseHole } = await createCompiledRound(ctx, {
         courseId,
         teeId,
         slots: [
@@ -466,8 +466,8 @@ test('multi-slot round with overlapping scoringType label across slots keeps buc
     const ballB = ballByProducerIndex[1]!;
 
     for (let h = 1; h <= 18; h++) {
-        await scoreEventService.append({ roundId: round.id, ballId: ballA, hole: h, strokes: 4, eventType: 'score_entered', clientEventId: `a-h${h}` });
-        await scoreEventService.append({ roundId: round.id, ballId: ballB, hole: h, strokes: 5, eventType: 'score_entered', clientEventId: `b-h${h}` });
+        await scoreEventService.append({ roundId: round.id, ballId: ballA, playHoleId: playHoleByCourseHole.get(h)!, strokes: 4, eventType: 'score_entered', clientEventId: `a-h${h}` });
+        await scoreEventService.append({ roundId: round.id, ballId: ballB, playHoleId: playHoleByCourseHole.get(h)!, strokes: 5, eventType: 'score_entered', clientEventId: `b-h${h}` });
     }
 
     const rr = await leaderboardService.resultForRound(round.id);

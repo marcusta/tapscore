@@ -43,6 +43,31 @@ export interface RoundTeeHoleSnapshot {
     strokeIndexOverride: number | null;
 }
 
+/** Per-tee snapshot for one itinerary occurrence (length + optional SI override). */
+export interface PlayHoleTeeSnapshot {
+    teeId: string;
+    lengthM: number;
+    strokeIndexOverride: number | null;
+}
+
+/**
+ * One occurrence in the Round's explicit itinerary — the scoring subject
+ * (§3 "Round hole itinerary"). A physical course hole may appear more than
+ * once; each occurrence has a stable `playHoleId`, its own frozen par + base
+ * stroke index, and its own per-tee snapshots. `ordinal` is the canonical
+ * itinerary order; the group-relative played order is derived per ball via
+ * `RoundContext.playedOrdinalFor`.
+ */
+export interface PlayHoleSnapshot {
+    playHoleId: string;
+    playHoleDefId: string;
+    ordinal: number;
+    courseHoleNumber: number;
+    par: number;
+    baseStrokeIndex: number;
+    tees: PlayHoleTeeSnapshot[];
+}
+
 /**
  * Frozen per-producer profile. One per `RoundDefinition.producers[]` entry;
  * survives recompile because `producerDefId` is stable.
@@ -70,18 +95,64 @@ export interface ProducerSnapshot {
  * SI in the order spec §17 mandates.
  */
 export interface RoundContext {
+    /**
+     * The explicit play-hole itinerary in canonical ordinal order — the
+     * scoring subject (§3). Strategies iterate this, never `courseHoles` or
+     * `1..18`. Holes may repeat.
+     */
+    playHoles: PlayHoleSnapshot[];
+    /**
+     * Frozen route allocation cycle size — the denominator for stroke
+     * allocation. NOT the itinerary length (a sparse official subset keeps
+     * SI gaps within an 18-cycle). Comes from `routeSi.allocationCycleSize`.
+     */
+    allocationCycleSize: number;
+
+    /**
+     * Physical-course reference data (par + base SI per physical hole). Kept
+     * for rules that explicitly use the physical hole coordinate (declared in
+     * a format's config) and for ball-creation derivation. Scoring iterates
+     * `playHoles`, not this.
+     */
     courseHoles: RoundCourseHoleSnapshot[];
-    /** teeId → the 18 per-tee hole rows for that tee. */
+    /** teeId → the per-tee hole rows for that tee. */
     teeHoles: Map<string, RoundTeeHoleSnapshot[]>;
     /** producerDefId → ProducerSnapshot. */
     producers: Map<string, ProducerSnapshot>;
+
+    // --- Occurrence-keyed lookups (primary scoring API) ---
+
     /**
-     * Effective stroke index for (producer, hole). Looks up the producer's
-     * tee override on `round_tee_holes.stroke_index_override`; falls back
-     * to `round_course_holes.base_stroke_index` when null.
+     * Effective stroke index for (producer, occurrence): the producer-tee
+     * override on that occurrence, else the occurrence's frozen base SI.
      */
+    effectiveStrokeIndexForPlayHole(producerDefId: string, playHoleId: string): number;
+    /** Frozen par for an occurrence. */
+    parForPlayHole(playHoleId: string): number;
+    /** Physical hole number behind an occurrence (display + physical-coordinate rules). */
+    courseHoleNumberForPlayHole(playHoleId: string): number;
+    /** Canonical itinerary ordinal (1..N) of an occurrence. */
+    canonicalOrdinalForPlayHole(playHoleId: string): number;
+    /**
+     * Display label distinguishing repeated visits to a physical hole: the
+     * bare hole number when unique (`"3"`), or `"3 (1st)"` / `"3 (2nd)"` when
+     * that physical hole appears more than once in the itinerary.
+     */
+    occurrenceLabel(playHoleId: string): string;
+    /**
+     * The itinerary as the ball's playing group plays it — rotated to the
+     * group's start occurrence (shotgun / split tee). Canonical order when
+     * the ball has no group membership.
+     */
+    playedOrderForBall(ballId: string): PlayHoleSnapshot[];
+    /** Group-relative played ordinal (1..N) of an occurrence for a ball. */
+    playedOrdinalFor(ballId: string, playHoleId: string): number;
+
+    // --- Physical-hole reference API (declared-coordinate rules only) ---
+
+    /** Effective SI keyed on physical hole number (course-level base SI). */
     effectiveStrokeIndex(producerDefId: string, holeNumber: number): number;
-    /** Par for a hole (course-level, frozen). */
+    /** Par for a physical hole (course-level, frozen). */
     parFor(holeNumber: number): number;
 }
 
@@ -123,7 +194,8 @@ export interface ScoreEvent {
     kind: 'score';
     roundId: string;
     ballId: string;
-    hole: number;
+    /** Stable play-hole occurrence id — the scoring subject (§17). */
+    playHoleId: string;
     /** null = DNP; 0 = pickup; n > 0 = gross strokes. */
     strokes: number | null;
     clientEventId: string;
@@ -140,7 +212,8 @@ export interface MetadataEvent {
     kind: 'metadata';
     roundId: string;
     ballId: string;
-    hole: number;
+    /** Stable play-hole occurrence id — same identity as `ScoreEvent`. */
+    playHoleId: string;
     producerPlayerId?: string | null;
     producerGuestPlayerId?: string | null;
     type: 'gir' | 'fir' | 'fairway' | 'putts' | 'penalty' | string;
@@ -210,7 +283,28 @@ export type StrategyEvent =
  * strategy-defined (stableford, umbrella). `note` is free-form annotation
  * (match-play running status, kopenhamnare topology).
  */
-export interface BallHoleResult {
+/**
+ * Stable play-hole identity + display metadata carried on every per-hole
+ * result row. `playHoleId` is the identity (distinguishes repeated visits);
+ * `occurrenceLabel` is the renderable label (`"3"`, `"3 (1st)"`, `"3 (2nd)"`).
+ *
+ * Fields are OPTIONAL so legacy/test-only result literals that key only on
+ * `holeNumber` keep type-checking; every built-in strategy populates them via
+ * `holeIdentity()`. The result-builder falls back to `holeNumber` when an id
+ * is absent — a route with repeated holes therefore REQUIRES the strategy to
+ * populate `playHoleId`, which all built-ins do.
+ */
+export interface HoleIdentity {
+    playHoleId?: string;
+    courseHoleNumber?: number;
+    canonicalOrdinal?: number;
+    /** Group-relative played ordinal for the subject ball; null when unknown. */
+    playedOrdinal?: number | null;
+    occurrenceLabel?: string;
+}
+
+export interface BallHoleResult extends HoleIdentity {
+    /** Physical hole number (== courseHoleNumber); the display fallback key. */
     holeNumber: number;
     gross: number | null;
     net: number | null;
@@ -227,7 +321,7 @@ export interface BallResult {
 }
 
 /** Per-hole pair/team-vs-team result — match-play, taliban. */
-export interface PairBallHoleResult {
+export interface PairBallHoleResult extends HoleIdentity {
     holeNumber: number;
     status: 'won' | 'lost' | 'halved' | null;
     /** Side A's net (or gross) strokes this hole; strategy-defined. */

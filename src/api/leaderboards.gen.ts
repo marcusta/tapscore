@@ -3,6 +3,8 @@ import { apiFetch } from '@basics/core/client/fetch';
 
 export interface RoundResult {
     slots: SlotResultView[];
+    routeSections: RouteSectionRef[];
+    posting: { eligible: boolean; reason: null | string };
 }
 
 export interface SlotResultView {
@@ -15,6 +17,13 @@ export interface SlotResultView {
     allowanceLabel: string;
     cards: ScoreGridSection[];
     leaderboard: (RankedSection | MatchSummarySection)[];
+}
+
+export interface RouteSectionRef {
+    id: string;
+    label: string;
+    fromCanonicalOrdinal: number;
+    toCanonicalOrdinal: number;
 }
 
 export interface ScoreGridSection {
@@ -43,6 +52,10 @@ export interface MatchSummarySection {
 
 export interface HoleRef {
     holeNumber: number;
+    playHoleId: string;
+    courseHoleNumber: number;
+    canonicalOrdinal: number;
+    occurrenceLabel: string;
 }
 
 export interface GridRow {
@@ -67,6 +80,7 @@ export interface MatchLine {
 }
 
 export interface GridCell {
+    playHoleId: string;
     holeNumber: number;
     value: null | number;
     display?: string;

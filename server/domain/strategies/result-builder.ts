@@ -16,7 +16,6 @@ import type { FormatMetric } from '../formats/plugin';
 import type {
     BallResult,
     PairBallResult,
-    RoundCourseHoleSnapshot,
     SlotBall,
     SlotTeamGrouping,
     StrategyResult,
@@ -24,6 +23,7 @@ import type {
 import type {
     GridCell,
     GridRow,
+    HoleRef,
     LeaderboardSection,
     MatchLine,
     RankedEntry,
@@ -32,6 +32,20 @@ import type {
 } from './result-sections';
 
 const TEAM_PREFIX = 'team:';
+
+/**
+ * One scorecard column = one itinerary occurrence, ordered by canonical
+ * ordinal. Carries the display label + par + SI so the builder never re-reads
+ * a physical-hole array. Built by the leaderboard service from `RoundContext`.
+ */
+export interface ResultColumn {
+    playHoleId: string;
+    courseHoleNumber: number;
+    canonicalOrdinal: number;
+    occurrenceLabel: string;
+    par: number;
+    baseStrokeIndex: number;
+}
 
 export interface BuildSlotInput {
     slotIndex: number;
@@ -46,8 +60,18 @@ export interface BuildSlotInput {
     result: StrategyResult;
     slotBalls: SlotBall[];
     slotTeamGroupings: SlotTeamGrouping[];
-    /** Played holes, ordered — the grid columns. */
-    courseHoles: RoundCourseHoleSnapshot[];
+    /** Played itinerary occurrences, in canonical ordinal order — the grid columns. */
+    columns: ResultColumn[];
+}
+
+function holeRef(c: ResultColumn): HoleRef {
+    return {
+        holeNumber: c.courseHoleNumber,
+        playHoleId: c.playHoleId,
+        courseHoleNumber: c.courseHoleNumber,
+        canonicalOrdinal: c.canonicalOrdinal,
+        occurrenceLabel: c.occurrenceLabel,
+    };
 }
 
 // --- cell display helpers (all formatting lives here, not in the renderer) ---
@@ -65,39 +89,51 @@ function netText(n: number | null): string {
     return n === null ? '–' : String(n);
 }
 function givenText(given: number | null): string {
-    return given !== null && given > 0 ? `+${given}` : '';
+    if (given === null || given === 0) return '';
+    // Plus handicaps give strokes back (negative); show the sign either way.
+    return given > 0 ? `+${given}` : String(given);
 }
 
-function cell(holeNumber: number, value: number | null, display: string, title?: string): GridCell {
-    return title === undefined ? { holeNumber, value, display } : { holeNumber, value, display, title };
+function cell(col: ResultColumn, value: number | null, display: string, title?: string): GridCell {
+    const base: GridCell = { playHoleId: col.playHoleId, holeNumber: col.courseHoleNumber, value, display };
+    return title === undefined ? base : { ...base, title };
+}
+
+/** Per-ball result row keyed by stable occurrence id (repeated holes distinct). */
+function byPlayHole(r: BallResult): Map<string, BallResult['holes'][number]> {
+    const m = new Map<string, BallResult['holes'][number]>();
+    for (const h of r.holes) {
+        if (h.playHoleId !== undefined) m.set(h.playHoleId, h);
+    }
+    return m;
 }
 
 // --- shared rows -----------------------------------------------------------
 
-function parSiRows(holes: RoundCourseHoleSnapshot[]): GridRow[] {
+function parSiRows(cols: ResultColumn[]): GridRow[] {
     return [
         {
             label: 'Par',
             kind: 'par',
             aggregate: 'sum',
-            cells: holes.map((h) => cell(h.holeNumber, h.par, String(h.par))),
+            cells: cols.map((c) => cell(c, c.par, String(c.par))),
         },
         {
             label: 'SI',
             kind: 'si',
             aggregate: 'none',
-            cells: holes.map((h) => cell(h.holeNumber, h.baseStrokeIndex, String(h.baseStrokeIndex))),
+            cells: cols.map((c) => cell(c, c.baseStrokeIndex, String(c.baseStrokeIndex))),
         },
     ];
 }
 
-/** Given / Gross / Net rows for one ball, ordered by the played holes. */
+/** Given / Gross / Net rows for one ball, ordered by the played occurrences. */
 function ballScoreRows(
-    holes: RoundCourseHoleSnapshot[],
+    cols: ResultColumn[],
     r: BallResult,
     opts: { subjectBallId?: string; given?: boolean; net?: boolean } = {},
 ): GridRow[] {
-    const byHole = new Map(r.holes.map((h) => [h.holeNumber, h]));
+    const byId = byPlayHole(r);
     const rows: GridRow[] = [];
     const sub = opts.subjectBallId;
     if (opts.given !== false) {
@@ -106,10 +142,10 @@ function ballScoreRows(
             ...(sub ? { subjectBallId: sub } : {}),
             kind: 'given',
             aggregate: 'none',
-            cells: holes.map((h) => {
-                const hr = byHole.get(h.holeNumber);
+            cells: cols.map((c) => {
+                const hr = byId.get(c.playHoleId);
                 const given = hr && hr.gross !== null && hr.net !== null ? hr.gross - hr.net : null;
-                return cell(h.holeNumber, given, givenText(given));
+                return cell(c, given, givenText(given));
             }),
         });
     }
@@ -118,9 +154,9 @@ function ballScoreRows(
         ...(sub ? { subjectBallId: sub } : {}),
         kind: 'gross',
         aggregate: 'sum',
-        cells: holes.map((h) => {
-            const g = byHole.get(h.holeNumber)?.gross ?? null;
-            return cell(h.holeNumber, g, grossText(g));
+        cells: cols.map((c) => {
+            const g = byId.get(c.playHoleId)?.gross ?? null;
+            return cell(c, g, grossText(g));
         }),
     });
     if (opts.net !== false) {
@@ -129,9 +165,9 @@ function ballScoreRows(
             ...(sub ? { subjectBallId: sub } : {}),
             kind: 'net',
             aggregate: 'sum',
-            cells: holes.map((h) => {
-                const n = byHole.get(h.holeNumber)?.net ?? null;
-                return cell(h.holeNumber, n, netText(n));
+            cells: cols.map((c) => {
+                const n = byId.get(c.playHoleId)?.net ?? null;
+                return cell(c, n, netText(n));
             }),
         });
     }
@@ -139,21 +175,21 @@ function ballScoreRows(
 }
 
 function pointsRow(
-    holes: RoundCourseHoleSnapshot[],
+    cols: ResultColumn[],
     r: BallResult,
     label = 'Points',
     emphasis = false,
 ): GridRow {
-    const byHole = new Map(r.holes.map((h) => [h.holeNumber, h]));
+    const byId = byPlayHole(r);
     return {
         label,
         kind: 'points',
         aggregate: 'sum',
         emphasis,
-        cells: holes.map((h) => {
-            const hr = byHole.get(h.holeNumber);
+        cells: cols.map((c) => {
+            const hr = byId.get(c.playHoleId);
             const p = hr?.points ?? null;
-            return cell(h.holeNumber, p, p === null ? '—' : String(p), hr?.note);
+            return cell(c, p, p === null ? '—' : String(p), hr?.note);
         }),
     };
 }
@@ -165,47 +201,47 @@ function hasPoints(r: BallResult): boolean {
 function footnotesFor(r: BallResult): string[] {
     return r.holes
         .filter((h) => h.note && h.points !== null && h.points !== 0)
-        .map((h) => `h${h.holeNumber}: ${h.note}`);
+        .map((h) => `h${h.occurrenceLabel ?? h.holeNumber}: ${h.note}`);
 }
 
 // --- normalised running (köpenhamnare / umbrella) --------------------------
 
-/** ballId → (holeNumber → normalised running) over the point-bearing results. */
+/** ballId → (playHoleId → normalised running) over the point-bearing results. */
 function normalizedRunning(
-    holes: RoundCourseHoleSnapshot[],
+    cols: ResultColumn[],
     results: BallResult[],
-): Map<string, Map<number, number>> {
-    const out = new Map<string, Map<number, number>>();
+): Map<string, Map<string, number>> {
+    const out = new Map<string, Map<string, number>>();
     const raw = new Map<string, number>();
-    const byHole = new Map<string, Map<number, BallResult['holes'][number]>>();
+    const byId = new Map<string, Map<string, BallResult['holes'][number]>>();
     for (const r of results) {
         raw.set(r.ballId, 0);
         out.set(r.ballId, new Map());
-        byHole.set(r.ballId, new Map(r.holes.map((h) => [h.holeNumber, h])));
+        byId.set(r.ballId, byPlayHole(r));
     }
-    for (const ch of holes) {
+    for (const c of cols) {
         for (const r of results) {
-            const hr = byHole.get(r.ballId)!.get(ch.holeNumber);
+            const hr = byId.get(r.ballId)!.get(c.playHoleId);
             if (hr?.points !== null && hr?.points !== undefined) {
                 raw.set(r.ballId, (raw.get(r.ballId) ?? 0) + hr.points);
             }
         }
         const min = Math.min(...results.map((r) => raw.get(r.ballId) ?? 0));
         for (const r of results) {
-            out.get(r.ballId)!.set(ch.holeNumber, (raw.get(r.ballId) ?? 0) - min);
+            out.get(r.ballId)!.set(c.playHoleId, (raw.get(r.ballId) ?? 0) - min);
         }
     }
     return out;
 }
 
-function runningRow(holes: RoundCourseHoleSnapshot[], running: Map<number, number>): GridRow {
+function runningRow(cols: ResultColumn[], running: Map<string, number>): GridRow {
     return {
         label: 'Running',
         kind: 'running',
         aggregate: 'last',
-        cells: holes.map((h) => {
-            const v = running.get(h.holeNumber) ?? null;
-            return cell(h.holeNumber, v, num(v));
+        cells: cols.map((c) => {
+            const v = running.get(c.playHoleId) ?? null;
+            return cell(c, v, num(v));
         }),
     };
 }
@@ -226,12 +262,13 @@ function buildPairCard(
     pair: PairBallResult,
     byBall: Map<string, BallResult>,
 ): ScoreGridSection {
-    const holes = input.courseHoles;
+    const cols = input.columns;
     const style = pair.summaryStyle ?? 'versus';
-    const pairByHole = new Map(pair.holes.map((ph) => [ph.holeNumber, ph]));
+    const pairById = new Map<string, PairBallResult['holes'][number]>();
+    for (const ph of pair.holes) if (ph.playHoleId !== undefined) pairById.set(ph.playHoleId, ph);
 
-    const sidePoints = (perspective: 'A' | 'B', holeNumber: number): number | null => {
-        const ph = pairByHole.get(holeNumber);
+    const sidePoints = (perspective: 'A' | 'B', playHoleId: string): number | null => {
+        const ph = pairById.get(playHoleId);
         if (!ph || ph.status === null) return null;
         if (style === 'standalone') return perspective === 'A' ? ph.fromA : ph.fromB;
         if (ph.status === 'halved') return 0;
@@ -240,28 +277,28 @@ function buildPairCard(
     };
 
     // normalised per-side running (lower side reads 0).
-    const sideRunning = (perspective: 'A' | 'B'): Map<number, number> => {
+    const sideRunning = (perspective: 'A' | 'B'): Map<string, number> => {
         let rawA = 0;
         let rawB = 0;
-        const m = new Map<number, number>();
-        for (const ch of holes) {
-            const pA = sidePoints('A', ch.holeNumber);
-            const pB = sidePoints('B', ch.holeNumber);
+        const m = new Map<string, number>();
+        for (const c of cols) {
+            const pA = sidePoints('A', c.playHoleId);
+            const pB = sidePoints('B', c.playHoleId);
             if (pA !== null) rawA += pA;
             if (pB !== null) rawB += pB;
             const min = Math.min(rawA, rawB);
-            m.set(ch.holeNumber, (perspective === 'A' ? rawA : rawB) - min);
+            m.set(c.playHoleId, (perspective === 'A' ? rawA : rawB) - min);
         }
         return m;
     };
 
-    const rows: GridRow[] = [...parSiRows(holes)];
+    const rows: GridRow[] = [...parSiRows(cols)];
 
     const sideBlock = (side: { teamLabel?: string; ballIds: string[] }, perspective: 'A' | 'B') => {
         for (const ballId of side.ballIds) {
             const r = byBall.get(ballId);
             if (!r) continue;
-            rows.push(...ballScoreRows(holes, r, { subjectBallId: ballId }));
+            rows.push(...ballScoreRows(cols, r, { subjectBallId: ballId }));
         }
         const sideRow = (label: string): { label: string; subjectBallId?: string } =>
             side.ballIds.length === 1
@@ -273,10 +310,7 @@ function buildPairCard(
             kind: 'points',
             aggregate: 'sum',
             emphasis: true,
-            cells: holes.map((h) => {
-                const v = sidePoints(perspective, h.holeNumber);
-                return cell(h.holeNumber, v, num(v));
-            }),
+            cells: cols.map((c) => cell(c, sidePoints(perspective, c.playHoleId), num(sidePoints(perspective, c.playHoleId)))),
         });
         const running = sideRunning(perspective);
         const run = sideRow('run');
@@ -284,9 +318,9 @@ function buildPairCard(
             ...run,
             kind: 'running',
             aggregate: 'last',
-            cells: holes.map((h) => {
-                const v = running.get(h.holeNumber) ?? null;
-                return cell(h.holeNumber, v, num(v));
+            cells: cols.map((c) => {
+                const v = running.get(c.playHoleId) ?? null;
+                return cell(c, v, num(v));
             }),
         });
     };
@@ -299,27 +333,27 @@ function buildPairCard(
         label: 'Status',
         kind: 'status',
         aggregate: 'none',
-        cells: holes.map((h) => {
-            const ph = pairByHole.get(h.holeNumber);
-            return cell(h.holeNumber, null, ph?.note ?? '—');
+        cells: cols.map((c) => {
+            const ph = pairById.get(c.playHoleId);
+            return cell(c, null, ph?.note ?? '—');
         }),
     });
 
     // Cumulative match line (idiom-specific).
     let running = 0;
-    const matchByHole = new Map<number, number>();
-    for (const ch of holes) {
-        const ph = pairByHole.get(ch.holeNumber);
+    const matchById = new Map<string, number>();
+    for (const c of cols) {
+        const ph = pairById.get(c.playHoleId);
         if (ph?.pointsDelta !== null && ph?.pointsDelta !== undefined) running += ph.pointsDelta;
-        matchByHole.set(ch.holeNumber, running);
+        matchById.set(c.playHoleId, running);
     }
     rows.push({
         label: 'Match',
         kind: 'status',
         aggregate: 'none',
         emphasis: true,
-        cells: holes.map((h) =>
-            cell(h.holeNumber, null, formatMatchRunning(matchByHole.get(h.holeNumber) ?? 0, style)),
+        cells: cols.map((c) =>
+            cell(c, null, formatMatchRunning(matchById.get(c.playHoleId) ?? 0, style)),
         ),
     });
 
@@ -327,7 +361,7 @@ function buildPairCard(
         kind: 'score_grid',
         title: { groups: [pair.sideA.ballIds, pair.sideB.ballIds], joiner: ' vs. ' },
         subjectBallIds: [...pair.sideA.ballIds, ...pair.sideB.ballIds],
-        holes: holes.map((h) => ({ holeNumber: h.holeNumber })),
+        holes: cols.map(holeRef),
         subtitleFacts: [
             `slot #${input.slotIndex} · ${input.formatLabel} · ${input.allowanceLabel}`,
             pair.summary,
@@ -345,50 +379,50 @@ function buildTeamCard(
     grouping: SlotTeamGrouping,
     teamResult: BallResult,
     byBall: Map<string, BallResult>,
-    running: Map<number, number> | undefined,
+    running: Map<string, number> | undefined,
 ): ScoreGridSection {
-    const holes = input.courseHoles;
-    const rows: GridRow[] = [...parSiRows(holes)];
+    const cols = input.columns;
+    const rows: GridRow[] = [...parSiRows(cols)];
 
     for (const ballId of grouping.ballIds) {
         const r = byBall.get(ballId);
         if (!r) continue; // some team formats (better-ball stableford) emit only the aggregate
-        rows.push(...ballScoreRows(holes, r, { subjectBallId: ballId, given: false }));
+        rows.push(...ballScoreRows(cols, r, { subjectBallId: ballId, given: false }));
     }
 
     // Team combined gross (LT for umbrella / best-ball gross for better-ball).
     if (teamResult.holes.some((h) => h.gross !== null)) {
-        const byHole = new Map(teamResult.holes.map((h) => [h.holeNumber, h]));
+        const byId = byPlayHole(teamResult);
         rows.push({
             label: 'Team gross',
             kind: 'gross',
             aggregate: 'sum',
-            cells: holes.map((h) => {
-                const g = byHole.get(h.holeNumber)?.gross ?? null;
-                return cell(h.holeNumber, g, g === null ? '—' : String(g));
+            cells: cols.map((c) => {
+                const g = byId.get(c.playHoleId)?.gross ?? null;
+                return cell(c, g, g === null ? '—' : String(g));
             }),
         });
     }
     if (teamResult.holes.some((h) => h.net !== null)) {
-        const byHole = new Map(teamResult.holes.map((h) => [h.holeNumber, h]));
+        const byId = byPlayHole(teamResult);
         rows.push({
             label: 'Team net',
             kind: 'net',
             aggregate: 'sum',
-            cells: holes.map((h) => {
-                const n = byHole.get(h.holeNumber)?.net ?? null;
-                return cell(h.holeNumber, n, netText(n));
+            cells: cols.map((c) => {
+                const n = byId.get(c.playHoleId)?.net ?? null;
+                return cell(c, n, netText(n));
             }),
         });
     }
-    rows.push(pointsRow(holes, teamResult, 'Team points', true));
-    if (running) rows.push(runningRow(holes, running));
+    rows.push(pointsRow(cols, teamResult, 'Team points', true));
+    if (running) rows.push(runningRow(cols, running));
 
     return {
         kind: 'score_grid',
         title: { groups: [grouping.ballIds], joiner: ' & ' },
         subjectBallIds: grouping.ballIds,
-        holes: holes.map((h) => ({ holeNumber: h.holeNumber })),
+        holes: cols.map(holeRef),
         subtitleFacts: [
             `slot #${input.slotIndex} · ${input.formatLabel} · ${input.allowanceLabel}`,
             `holes played ${teamResult.holesPlayed}`,
@@ -404,13 +438,13 @@ function buildTeamCard(
 function buildIndividualCard(
     input: BuildSlotInput,
     r: BallResult,
-    running: Map<number, number> | undefined,
+    running: Map<string, number> | undefined,
 ): ScoreGridSection {
-    const holes = input.courseHoles;
+    const cols = input.columns;
     const chBall = input.slotBalls.find((b) => b.ballId === r.ballId);
-    const rows: GridRow[] = [...parSiRows(holes), ...ballScoreRows(holes, r)];
-    if (hasPoints(r)) rows.push(pointsRow(holes, r));
-    if (running) rows.push(runningRow(holes, running));
+    const rows: GridRow[] = [...parSiRows(cols), ...ballScoreRows(cols, r)];
+    if (hasPoints(r)) rows.push(pointsRow(cols, r));
+    if (running) rows.push(runningRow(cols, running));
 
     const facts = [`slot #${input.slotIndex} · ${input.formatLabel} · ${input.allowanceLabel}`];
     if (chBall) {
@@ -423,7 +457,7 @@ function buildIndividualCard(
         kind: 'score_grid',
         title: { groups: [[r.ballId]], joiner: ' & ' },
         subjectBallIds: [r.ballId],
-        holes: holes.map((h) => ({ holeNumber: h.holeNumber })),
+        holes: cols.map(holeRef),
         subtitleFacts: facts,
         rows,
         footnotes: footnotesFor(r),
@@ -525,10 +559,10 @@ export function buildSlotResult(input: BuildSlotInput): SlotResultView {
     const teamResults = input.result.ballResults.filter((r) => r.ballId.startsWith(TEAM_PREFIX));
 
     // normalised running over the point-bearing results (gated by descriptor).
-    let runningByBall: Map<string, Map<number, number>> | null = null;
+    let runningByBall: Map<string, Map<string, number>> | null = null;
     if (input.runningNormalized) {
         const pointBearing = input.result.ballResults.filter(hasPoints);
-        if (pointBearing.length > 0) runningByBall = normalizedRunning(input.courseHoles, pointBearing);
+        if (pointBearing.length > 0) runningByBall = normalizedRunning(input.columns, pointBearing);
     }
 
     const consumed = new Set<string>();

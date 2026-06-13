@@ -5,6 +5,7 @@
 import type { ScoreEvent } from '../types';
 import type {
     PerProducerCh,
+    PlayHoleSnapshot,
     RoundContext,
     RoundCourseHoleSnapshot,
     RoundTeeHoleSnapshot,
@@ -12,6 +13,10 @@ import type {
     ProducerSnapshot,
     TeeSnapshot,
 } from '../types';
+import { createRoundContext } from '../round-context';
+
+/** Synthetic play-hole id for a course hole in the test itinerary. */
+export const playHoleIdFor = (hole: number): string => `ph-${hole}`;
 
 const DEFAULT_TEE: TeeSnapshot = {
     teeId: 'tee-yellow',
@@ -51,33 +56,51 @@ export function makeProducer(
     };
 }
 
-/** Context with course + producer map; teeHoles empty (no per-tee SI overrides). */
+/**
+ * Context with a one-to-one itinerary derived from `courseHoles`: each course
+ * hole becomes a single occurrence `ph-{holeNumber}` in canonical order,
+ * starting at ordinal 1 with no shotgun rotation. The allocation cycle
+ * defaults to the course-hole count (18 for `make18Holes()`), so existing
+ * full-round assertions are numerically identical to the pre-3c engine.
+ *
+ * `opts.itinerary` overrides the derived itinerary for repeated/sparse/shotgun
+ * route tests; `opts.allocationCycleSize` overrides the cycle; `opts.groups`
+ * supplies per-ball played-order rotation.
+ */
 export function makeRoundContext(
     courseHoles: RoundCourseHoleSnapshot[],
     producers: ProducerSnapshot[],
     teeHoles: Map<string, RoundTeeHoleSnapshot[]> = new Map(),
+    opts: {
+        itinerary?: PlayHoleSnapshot[];
+        allocationCycleSize?: number;
+        groups?: { startPlayHoleId: string; ballIds: string[] }[];
+    } = {},
 ): RoundContext {
-    const byId = new Map(producers.map((p) => [p.producerDefId, p] as const));
-    return {
-        courseHoles,
+    const sorted = [...courseHoles].sort((a, b) => a.holeNumber - b.holeNumber);
+    const playHoles: PlayHoleSnapshot[] =
+        opts.itinerary ??
+        sorted.map((h, i) => ({
+            playHoleId: playHoleIdFor(h.holeNumber),
+            playHoleDefId: playHoleIdFor(h.holeNumber),
+            ordinal: i + 1,
+            courseHoleNumber: h.holeNumber,
+            par: h.par,
+            baseStrokeIndex: h.baseStrokeIndex,
+            tees: [],
+        }));
+    const ballGroupStart = new Map<string, string>();
+    for (const g of opts.groups ?? []) {
+        for (const ballId of g.ballIds) ballGroupStart.set(ballId, g.startPlayHoleId);
+    }
+    return createRoundContext({
+        playHoles,
+        allocationCycleSize: opts.allocationCycleSize ?? courseHoles.length,
+        producers: new Map(producers.map((p) => [p.producerDefId, p] as const)),
+        courseHoles: sorted,
         teeHoles,
-        producers: byId,
-        effectiveStrokeIndex(producerDefId: string, holeNumber: number) {
-            const p = byId.get(producerDefId);
-            if (!p) throw new Error(`unknown producerDefId ${producerDefId}`);
-            const teeList = teeHoles.get(p.tee.teeId);
-            const override = teeList?.find((h) => h.holeNumber === holeNumber)?.strokeIndexOverride ?? null;
-            if (override !== null) return override;
-            const base = courseHoles.find((h) => h.holeNumber === holeNumber)?.baseStrokeIndex;
-            if (base === undefined) throw new Error(`no courseHole for hole ${holeNumber}`);
-            return base;
-        },
-        parFor(holeNumber: number) {
-            const ch = courseHoles.find((h) => h.holeNumber === holeNumber);
-            if (!ch) throw new Error(`no courseHole for hole ${holeNumber}`);
-            return ch.par;
-        },
-    };
+        ballGroupStart,
+    });
 }
 
 export function makeOwnBall(
@@ -117,6 +140,12 @@ function nextTs(): string {
     return new Date(2025, 0, 1, 0, 0, seq).toISOString();
 }
 
+/**
+ * Build a score event. `hole` is the course hole number; it maps to the
+ * synthetic occurrence id `ph-{hole}` (matching `makeRoundContext`'s derived
+ * itinerary). Pass `playHoleId` in `overrides` to target a specific
+ * occurrence in repeated/shotgun-route tests.
+ */
 export function makeScoreEvent(
     ballId: string,
     hole: number,
@@ -127,7 +156,7 @@ export function makeScoreEvent(
         kind: 'score',
         roundId: 'r',
         ballId,
-        hole,
+        playHoleId: playHoleIdFor(hole),
         strokes,
         clientEventId: `evt-${ballId}-${hole}-${seq}`,
         recordedBy: 'tester',

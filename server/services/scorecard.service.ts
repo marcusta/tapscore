@@ -5,7 +5,15 @@ import { toIsoUtc } from '../domain/time';
 // --- Output types ---
 
 export interface ScorecardHole {
+    /** Stable play-hole occurrence id. */
+    playHoleId: string;
+    /** Physical hole number (== courseHoleNumber); kept as `holeNumber` for back-compat. */
     holeNumber: number;
+    courseHoleNumber: number;
+    /** Canonical itinerary ordinal (1..N). */
+    canonicalOrdinal: number;
+    /** Display label distinguishing repeated visits (`"3"`, `"3 (1st)"`). */
+    occurrenceLabel: string;
     strokes: number | null;
     recordedBy: string | null;
     recordedAt: string;
@@ -44,7 +52,9 @@ export interface Scorecard {
 
 interface ScorecardRow {
     ball_id: string;
-    hole: number;
+    play_hole_id: string;
+    course_hole_number: number;
+    ordinal: number;
     strokes: number | null;
     recorded_by_player_id: string | null;
     recorded_at: string;
@@ -53,9 +63,13 @@ interface ScorecardRow {
     metadata: string | null;
 }
 
-function toHole(row: ScorecardRow): ScorecardHole {
+function toHole(row: ScorecardRow, occurrenceLabel: string): ScorecardHole {
     return {
-        holeNumber: row.hole,
+        playHoleId: row.play_hole_id,
+        holeNumber: row.course_hole_number,
+        courseHoleNumber: row.course_hole_number,
+        canonicalOrdinal: row.ordinal,
+        occurrenceLabel,
         strokes: row.strokes,
         recordedBy: row.recorded_by_player_id,
         recordedAt: toIsoUtc(row.recorded_at),
@@ -63,6 +77,39 @@ function toHole(row: ScorecardRow): ScorecardHole {
         sourceGuestPlayerId: row.source_guest_player_id,
         metadata: parseMetadata(row.metadata),
     };
+}
+
+const ORDINAL_WORDS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
+
+/**
+ * Compute occurrence labels for a set of rows belonging to one round: a
+ * physical hole that appears once renders as its bare number; repeated visits
+ * get "(1st)" / "(2nd)" suffixes in canonical ordinal order. Keyed by
+ * play_hole_id (distinct rows per source share a play hole and label).
+ */
+function occurrenceLabels(rows: ScorecardRow[]): Map<string, string> {
+    const ordinalByPlayHole = new Map<string, number>();
+    for (const r of rows) ordinalByPlayHole.set(r.play_hole_id, r.ordinal);
+    const byCourseHole = new Map<number, { playHoleId: string; ordinal: number }[]>();
+    for (const [playHoleId, ordinal] of ordinalByPlayHole) {
+        const courseHoleNumber = rows.find((r) => r.play_hole_id === playHoleId)!.course_hole_number;
+        const list = byCourseHole.get(courseHoleNumber) ?? [];
+        list.push({ playHoleId, ordinal });
+        byCourseHole.set(courseHoleNumber, list);
+    }
+    const out = new Map<string, string>();
+    for (const [courseHoleNumber, occ] of byCourseHole) {
+        occ.sort((a, b) => a.ordinal - b.ordinal);
+        occ.forEach((o, i) => {
+            out.set(
+                o.playHoleId,
+                occ.length === 1
+                    ? String(courseHoleNumber)
+                    : `${courseHoleNumber} (${ORDINAL_WORDS[i] ?? `${i + 1}th`})`,
+            );
+        });
+    }
+    return out;
 }
 
 /**
@@ -109,10 +156,13 @@ export class ScorecardService {
     private rowsForBall(ballId: string) {
         return this.db
             .selectFrom('scorecards as sc')
+            .innerJoin('round_play_holes as ph', 'ph.id', 'sc.play_hole_id')
             .where('sc.ball_id', '=', ballId)
             .select([
                 'sc.ball_id',
-                'sc.hole',
+                'sc.play_hole_id',
+                'ph.course_hole_number',
+                'ph.ordinal',
                 'sc.strokes',
                 'sc.recorded_by_player_id',
                 'sc.recorded_at',
@@ -120,7 +170,7 @@ export class ScorecardService {
                 'sc.source_guest_player_id',
                 'sc.metadata',
             ])
-            .orderBy('sc.hole')
+            .orderBy('ph.ordinal')
             .orderBy('sc.source_key');
     }
 
@@ -128,10 +178,13 @@ export class ScorecardService {
         return this.db
             .selectFrom('scorecards as sc')
             .innerJoin('balls as b', 'b.id', 'sc.ball_id')
+            .innerJoin('round_play_holes as ph', 'ph.id', 'sc.play_hole_id')
             .where('b.round_id', '=', roundId)
             .select([
                 'sc.ball_id',
-                'sc.hole',
+                'sc.play_hole_id',
+                'ph.course_hole_number',
+                'ph.ordinal',
                 'sc.strokes',
                 'sc.recorded_by_player_id',
                 'sc.recorded_at',
@@ -140,7 +193,7 @@ export class ScorecardService {
                 'sc.metadata',
             ])
             .orderBy('sc.ball_id')
-            .orderBy('sc.hole')
+            .orderBy('ph.ordinal')
             .orderBy('sc.source_key');
     }
 
@@ -148,17 +201,19 @@ export class ScorecardService {
 
     async forBall(ballId: string): Promise<Scorecard> {
         const rows = await this.rowsForBall(ballId).execute();
+        const labels = occurrenceLabels(rows);
         return {
             ballId,
-            holes: rows.map((r) => toHole(r)),
+            holes: rows.map((r) => toHole(r, labels.get(r.play_hole_id) ?? String(r.course_hole_number))),
         };
     }
 
     async forRound(roundId: string): Promise<Scorecard[]> {
         const rows = await this.rowsForRound(roundId).execute();
+        const labels = occurrenceLabels(rows);
         const byBall = new Map<string, ScorecardHole[]>();
         for (const row of rows) {
-            const hole = toHole(row);
+            const hole = toHole(row, labels.get(row.play_hole_id) ?? String(row.course_hole_number));
             const bucket = byBall.get(row.ball_id);
             if (bucket) bucket.push(hole);
             else byBall.set(row.ball_id, [hole]);

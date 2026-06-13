@@ -19,6 +19,7 @@
 
 import type {
     PerProducerCh,
+    PlayHoleSnapshot,
     ProducerSnapshot,
     RoundContext,
     RoundCourseHoleSnapshot,
@@ -28,6 +29,7 @@ import type {
     StrategyEvent,
     TeeSnapshot,
 } from './strategies/types';
+import { createRoundContext } from './strategies/round-context';
 
 // --- Input DTOs (one per compiler table the service reads) -----------------
 
@@ -79,9 +81,32 @@ export interface MaterializeSlotBallTeam {
     ballId: string;
 }
 
+/** One itinerary occurrence (round_play_holes + per-tee snapshots). */
+export interface MaterializePlayHole {
+    playHoleId: string;
+    playHoleDefId: string;
+    ordinal: number;
+    courseHoleNumber: number;
+    par: number;
+    baseStrokeIndex: number;
+    tees: { teeId: string; lengthM: number; strokeIndexOverride: number | null }[];
+}
+
+/** One playing group's start occurrence + its scored balls (rotation source). */
+export interface MaterializePlayingGroup {
+    startPlayHoleId: string;
+    ballIds: string[];
+}
+
 export interface RoundLeaderboardInput {
-    /** Full-course holes (par + base SI) — same source the legacy engine used. */
+    /** Full-course holes (par + base SI) — physical-course reference data. */
     courseHoles: RoundCourseHoleSnapshot[];
+    /** Explicit play-hole itinerary in canonical ordinal order — the scoring subject. */
+    playHoles: MaterializePlayHole[];
+    /** Frozen route allocation cycle size (routeSi.allocationCycleSize). */
+    allocationCycleSize: number;
+    /** Playing groups — supply the per-ball played-order rotation. */
+    playingGroups: MaterializePlayingGroup[];
     ballPlayers: MaterializeBallPlayer[];
     balls: MaterializeBall[];
     /** Compiled slots; iteration order is by `slotIndex` regardless of input order. */
@@ -113,9 +138,8 @@ export interface MaterializedRound {
 // --- Materialisation --------------------------------------------------------
 
 function buildRoundContext(input: RoundLeaderboardInput): RoundContext {
-    // teeHoles is intentionally empty for 2a — see file header. Built once so
-    // `effectiveStrokeIndex` can resolve per-tee overrides when later slices
-    // wire `round_tee_holes` into the live path.
+    // teeHoles stays empty in the live path (round_tee_holes is backfill-only);
+    // occurrence SI comes from the play-hole snapshots, not per-tee overrides.
     const teeHoles = new Map<string, RoundTeeHoleSnapshot[]>();
 
     const producers = new Map<string, ProducerSnapshot>();
@@ -142,29 +166,29 @@ function buildRoundContext(input: RoundLeaderboardInput): RoundContext {
         });
     }
 
-    const parByHole = new Map(input.courseHoles.map((h) => [h.holeNumber, h.par]));
-    const baseSiByHole = new Map(input.courseHoles.map((h) => [h.holeNumber, h.baseStrokeIndex]));
+    const playHoles: PlayHoleSnapshot[] = input.playHoles.map((p) => ({
+        playHoleId: p.playHoleId,
+        playHoleDefId: p.playHoleDefId,
+        ordinal: p.ordinal,
+        courseHoleNumber: p.courseHoleNumber,
+        par: p.par,
+        baseStrokeIndex: p.baseStrokeIndex,
+        tees: p.tees,
+    }));
 
-    return {
+    const ballGroupStart = new Map<string, string>();
+    for (const g of input.playingGroups) {
+        for (const ballId of g.ballIds) ballGroupStart.set(ballId, g.startPlayHoleId);
+    }
+
+    return createRoundContext({
+        playHoles,
+        allocationCycleSize: input.allocationCycleSize,
+        producers,
         courseHoles: input.courseHoles,
         teeHoles,
-        producers,
-        effectiveStrokeIndex(producerDefId, holeNumber) {
-            const p = producers.get(producerDefId);
-            if (!p) throw new Error(`unknown producerDefId ${producerDefId}`);
-            const list = teeHoles.get(p.tee.teeId);
-            const override = list?.find((h) => h.holeNumber === holeNumber)?.strokeIndexOverride ?? null;
-            if (override !== null) return override;
-            const base = baseSiByHole.get(holeNumber);
-            if (base === undefined) throw new Error(`no courseHole for hole ${holeNumber}`);
-            return base;
-        },
-        parFor(holeNumber) {
-            const par = parByHole.get(holeNumber);
-            if (par === undefined) throw new Error(`no courseHole for hole ${holeNumber}`);
-            return par;
-        },
-    };
+        ballGroupStart,
+    });
 }
 
 function producersForBall(ball: MaterializeBall, fallback: PerProducerCh[]): PerProducerCh[] {

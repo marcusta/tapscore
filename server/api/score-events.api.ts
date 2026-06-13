@@ -17,7 +17,7 @@ const EventType = Type.Union([
 const AppendInput = Type.Object({
     roundId: Type.String(),
     ballId: Type.String(),
-    hole: Type.Number(),
+    playHoleId: Type.String(),
     strokes: Type.Union([Type.Number(), Type.Null()]),
     eventType: EventType,
     clientEventId: Type.String(),

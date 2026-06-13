@@ -9,30 +9,60 @@
 
 import type {
     GridRow,
+    HoleRef,
     MatchSummarySection,
     RankedSection,
+    RouteSectionRef,
     ScoreGridSection,
 } from '../../../server/domain/strategies/result-sections';
 import type { RoundRenderContext } from '../types';
 import type { RoundRenderState } from '../round-state';
 import { esc } from '../util';
 
-interface HoleGroup {
+/** A column group (route section) holding the ordered HoleRef columns it owns. */
+interface ColumnGroup {
     label: string;
-    holeNumbers: number[];
+    holes: HoleRef[];
+    /** Stable column identities in this group — drives cell filtering. */
+    playHoleIds: Set<string>;
 }
 
-/** OUT (≤9) / IN (>9) / TOT — generic hole-column grouping. */
-function groupHoles(holeNumbers: number[]): HoleGroup[] {
-    const front = holeNumbers.filter((h) => h <= 9);
-    const back = holeNumbers.filter((h) => h > 9);
-    if (front.length > 0 && back.length > 0) {
+/**
+ * Group scorecard columns (ordered HoleRefs) by the round's frozen route
+ * sections: a column belongs to the section whose
+ * `[fromCanonicalOrdinal, toCanonicalOrdinal]` contains its
+ * `canonicalOrdinal`. Columns are ordered by `canonicalOrdinal`. If there
+ * are no route sections, fall back to a single TOT group over all columns.
+ */
+function groupColumns(holes: HoleRef[], routeSections: RouteSectionRef[]): ColumnGroup[] {
+    const ordered = [...holes].sort((a, b) => a.canonicalOrdinal - b.canonicalOrdinal);
+    if (routeSections.length === 0) {
         return [
-            { label: 'OUT', holeNumbers: front },
-            { label: 'IN', holeNumbers: back },
+            {
+                label: 'TOT',
+                holes: ordered,
+                playHoleIds: new Set(ordered.map((h) => h.playHoleId)),
+            },
         ];
     }
-    return [{ label: 'TOT', holeNumbers }];
+    const sections = [...routeSections].sort(
+        (a, b) => a.fromCanonicalOrdinal - b.fromCanonicalOrdinal,
+    );
+    const groups: ColumnGroup[] = [];
+    for (const section of sections) {
+        const members = ordered.filter(
+            (h) =>
+                h.canonicalOrdinal >= section.fromCanonicalOrdinal &&
+                h.canonicalOrdinal <= section.toCanonicalOrdinal,
+        );
+        if (members.length === 0) continue;
+        groups.push({
+            label: section.label,
+            holes: members,
+            playHoleIds: new Set(members.map((h) => h.playHoleId)),
+        });
+    }
+    return groups;
 }
 
 function rowClass(row: GridRow): string {
@@ -46,8 +76,8 @@ function cellClass(row: GridRow): string {
     return '';
 }
 
-function groupSubtotal(row: GridRow, holeNumbers: number[]): string {
-    const cells = row.cells.filter((c) => holeNumbers.includes(c.holeNumber));
+function groupSubtotal(row: GridRow, playHoleIds: Set<string>): string {
+    const cells = row.cells.filter((c) => playHoleIds.has(c.playHoleId));
     if (row.aggregate === 'sum') {
         const nums = cells.map((c) => c.value).filter((v): v is number => v !== null);
         return nums.length === 0 ? '—' : String(nums.reduce((a, b) => a + b, 0));
@@ -62,31 +92,31 @@ function groupSubtotal(row: GridRow, holeNumbers: number[]): string {
     return '—';
 }
 
-function totColumn(row: GridRow, groups: HoleGroup[]): string {
+function totColumn(row: GridRow, groups: ColumnGroup[]): string {
     if (row.aggregate === 'sum') {
         const all = row.cells.map((c) => c.value).filter((v): v is number => v !== null);
         return all.length === 0 ? '—' : String(all.reduce((a, b) => a + b, 0));
     }
     if (row.aggregate === 'last') {
         const last = groups[groups.length - 1]!;
-        return groupSubtotal(row, last.holeNumbers);
+        return groupSubtotal(row, last.playHoleIds);
     }
     return '—';
 }
 
 function renderScoreGrid(
     section: ScoreGridSection,
+    routeSections: RouteSectionRef[],
     nameOf: (id: string) => string,
 ): string {
-    const holeNumbers = section.holes.map((h) => h.holeNumber);
-    const groups = groupHoles(holeNumbers);
+    const groups = groupColumns(section.holes, routeSections);
     const includeTot = groups.length > 1;
 
     const headerCells = groups
         .map(
             (g) =>
-                g.holeNumbers.map((h) => `<th>${h}</th>`).join('') +
-                `<th class="sum">${g.label}</th>`,
+                g.holes.map((h) => `<th>${esc(h.occurrenceLabel)}</th>`).join('') +
+                `<th class="sum">${esc(g.label)}</th>`,
         )
         .join('');
     const holeHeader = `
@@ -96,21 +126,21 @@ function renderScoreGrid(
   ${includeTot ? '<th class="sum">TOT</th>' : ''}
 </tr>`;
 
-    const byHole = (row: GridRow) => new Map(row.cells.map((c) => [c.holeNumber, c]));
+    const byPlayHole = (row: GridRow) => new Map(row.cells.map((c) => [c.playHoleId, c]));
 
     const renderRow = (row: GridRow): string => {
-        const cells = byHole(row);
+        const cells = byPlayHole(row);
         const emph = (s: string): string => (row.emphasis ? `<strong>${s}</strong>` : s);
         const groupCells = groups
             .map((g) => {
-                const body = g.holeNumbers
+                const body = g.holes
                     .map((h) => {
-                        const c = cells.get(h);
+                        const c = cells.get(h.playHoleId);
                         const title = c?.title ? ` title="${esc(c.title)}"` : '';
                         return `<td class="${cellClass(row)}"${title}>${emph(esc(c?.display ?? ''))}</td>`;
                     })
                     .join('');
-                return body + `<td class="sum">${emph(groupSubtotal(row, g.holeNumbers))}</td>`;
+                return body + `<td class="sum">${emph(groupSubtotal(row, g.playHoleIds))}</td>`;
             })
             .join('');
         const tot = includeTot ? `<td class="sum">${emph(totColumn(row, groups))}</td>` : '';
@@ -199,7 +229,9 @@ export function renderScorecards(ctx: RoundRenderContext, state: RoundRenderStat
     const { ballNameById } = state;
     const slots = roundResult.slots
         .map((slot) => {
-            const cards = slot.cards.map((c) => renderScoreGrid(c, ballNameById)).join('\n');
+            const cards = slot.cards
+                .map((c) => renderScoreGrid(c, roundResult.routeSections, ballNameById))
+                .join('\n');
             return `
 <h3 class="slot-divider">Slot #${slot.slotIndex} · ${esc(slot.formatLabel)} <span class="muted">· ${esc(slot.allowanceLabel)}</span></h3>
 ${cards}`;

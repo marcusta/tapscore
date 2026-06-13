@@ -7,13 +7,18 @@
 // list used by the Course metadata section. No format-id branching lives
 // here any more.
 
-import { courseHolesForRound } from '../../server/domain/round-holes';
-import type { BallInfo, CourseHole, RoundRenderContext } from './types';
-import { short } from './util';
+import type { Round } from '../../server/services/round.service';
+import type { BallInfo, CourseHole, PlayedOccurrence, RoundRenderContext } from './types';
+import { ordinalWord, short } from './util';
 
 export interface RoundRenderState {
     allCourseHoles: CourseHole[];
-    playedCourseHoles: CourseHole[];
+    /**
+     * The round's play-hole ITINERARY as ordered occurrences (by `ordinal`).
+     * Columns key on `playHoleId`; repeated physical holes carry an
+     * occurrence-disambiguating `occurrenceLabel` (`"3 (1st)"`).
+     */
+    playedOccurrences: PlayedOccurrence[];
     /** Joined producer names for a ball (multi-producer balls use ` & `). */
     ballLabel: (b: BallInfo) => string;
     /** Live name for one producer, falling back to the frozen snapshot. */
@@ -62,14 +67,56 @@ export function buildRoundRenderState(ctx: RoundRenderContext): RoundRenderState
         par: h.par,
         strokeIndex: h.strokeIndex,
     }));
-    const playedCourseHoles = courseHolesForRound(round.roundType, allCourseHoles);
+
+    const labelByPlayHoleId = buildOccurrenceLabels(round.playHoles);
+    const playedOccurrences: PlayedOccurrence[] = [...round.playHoles]
+        .sort((a, b) => a.ordinal - b.ordinal)
+        .map((ph) => ({
+            playHoleId: ph.id,
+            courseHoleNumber: ph.courseHoleNumber,
+            ordinal: ph.ordinal,
+            par: ph.par,
+            baseStrokeIndex: ph.baseStrokeIndex,
+            occurrenceLabel: labelByPlayHoleId.get(ph.id) ?? String(ph.courseHoleNumber),
+        }));
 
     return {
         allCourseHoles,
-        playedCourseHoles,
+        playedOccurrences,
         ballLabel,
         producerName,
         playerName,
         ballNameById,
     };
+}
+
+/**
+ * Build a `playHoleId → occurrenceLabel` map from the round's itinerary.
+ * A physical hole appearing exactly once renders as its plain number
+ * (`"3"`); a hole played more than once renders as `"3 (1st)"`,
+ * `"3 (2nd)"`, … assigned in canonical ordinal order. Shared by the
+ * round-state occurrence list and the events-log hole column so both use
+ * identical labels.
+ */
+export function buildOccurrenceLabels(
+    playHoles: Round['playHoles'],
+): Map<string, string> {
+    const counts = new Map<number, number>();
+    for (const ph of playHoles) {
+        counts.set(ph.courseHoleNumber, (counts.get(ph.courseHoleNumber) ?? 0) + 1);
+    }
+    const ordered = [...playHoles].sort((a, b) => a.ordinal - b.ordinal);
+    const seen = new Map<number, number>();
+    const labels = new Map<string, string>();
+    for (const ph of ordered) {
+        const total = counts.get(ph.courseHoleNumber) ?? 1;
+        if (total <= 1) {
+            labels.set(ph.id, String(ph.courseHoleNumber));
+            continue;
+        }
+        const occurrence = (seen.get(ph.courseHoleNumber) ?? 0) + 1;
+        seen.set(ph.courseHoleNumber, occurrence);
+        labels.set(ph.id, `${ph.courseHoleNumber} (${ordinalWord(occurrence)})`);
+    }
+    return labels;
 }

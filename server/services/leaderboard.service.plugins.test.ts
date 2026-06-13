@@ -62,7 +62,7 @@ for (const s of SCENARIOS) {
             });
             players.push({ kind: 'player' as const, id: p.id, handicapIndex: s.players[i]!.handicapIndex, team: s.players[i]!.team });
         }
-        const { round, ballByProducerIndex } = await createCompiledRound(ctx, {
+        const { round, ballByProducerIndex, playHoleByCourseHole } = await createCompiledRound(ctx, {
             courseId,
             teeId,
             slots: [{ formatId: s.formatId, allowancePct: 100 }],
@@ -76,7 +76,7 @@ for (const s of SCENARIOS) {
                 await ctx.scoreEventService.append({
                     roundId: round.id,
                     ballId,
-                    hole: h,
+                    playHoleId: playHoleByCourseHole.get(h)!,
                     strokes: 4 + (h % 2),
                     eventType: 'score_entered',
                     clientEventId: `${ballId}-h${h}`,

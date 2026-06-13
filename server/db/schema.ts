@@ -196,7 +196,8 @@ export interface ScoreEventsTable {
     id: string;
     round_id: string;
     ball_id: string;
-    hole: number;
+    /** Stable play-hole occurrence id (migration 025) — the scoring subject. */
+    play_hole_id: string;
     strokes: number | null;
     event_type: ScoreEventType;
     recorded_by_player_id: string | null;
@@ -222,7 +223,8 @@ export interface ScoreEventsTable {
 
 export interface ScorecardsTable {
     ball_id: string;
-    hole: number;
+    /** Stable play-hole occurrence id (migration 025). */
+    play_hole_id: string;
     strokes: number | null;
     recorded_by_player_id: string | null;
     recorded_at: string;
@@ -231,8 +233,8 @@ export interface ScorecardsTable {
     source_guest_player_id: string | null;
     /**
      * Generated column: `COALESCE(source_player_id, source_guest_player_id, '')`.
-     * Participates in the `(ball_id, hole, source_key)` unique index
-     * so one row exists per (ball, hole, source). Never written
+     * Participates in the `(ball_id, play_hole_id, source_key)` unique index
+     * so one row exists per (ball, occurrence, source). Never written
      * directly — SQLite maintains it.
      */
     source_key: Generated<string>;

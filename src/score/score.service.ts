@@ -17,6 +17,19 @@ export class ScoreService {
 
     readonly holes = new Computed(() => this.course.get()?.holes ?? []);
 
+    /**
+     * Course hole number → play-hole occurrence id (first occurrence). Score
+     * events key on the occurrence (Slice 3c). Repeated-hole routes need a
+     * richer score-entry UX (deferred); conventional rounds are 1:1.
+     */
+    private readonly playHoleIdByCourseHole = new Computed(() => {
+        const m = new Map<number, string>();
+        for (const ph of this.round.get()?.playHoles ?? []) {
+            if (!m.has(ph.courseHoleNumber)) m.set(ph.courseHoleNumber, ph.id);
+        }
+        return m;
+    });
+
     async load(roundId: string): Promise<void> {
         if (this.roundId.get() === roundId && this.round.get()) return;
         this.roundId.set(roundId);
@@ -50,13 +63,15 @@ export class ScoreService {
     async setStrokes(ball: RoundBall, hole: number, strokes: number | null): Promise<void> {
         const roundId = this.roundId.get();
         if (!roundId) return;
+        const playHoleId = this.playHoleIdByCourseHole.get().get(hole);
+        if (!playHoleId) return;
         // Optimistic — the event log is idempotent and last-write-wins.
         this.strokes.update((m) => new Map(m).set(`${ball.id} ${hole}`, strokes));
         const single = ball.players.length === 1 ? ball.players[0]! : null;
         await request(this.loading, this.error, () => api.scoreEvents.append({
             roundId,
             ballId: ball.id,
-            hole,
+            playHoleId,
             strokes,
             eventType: strokes === null ? 'score_cleared' : 'score_entered',
             clientEventId: crypto.randomUUID(),

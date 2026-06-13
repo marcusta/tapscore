@@ -14,17 +14,17 @@ import type { FormatStrategy } from '../format-strategy';
 import type {
     BallHoleResult,
     BallResult,
+    PlayHoleSnapshot,
     RoundContext,
-    RoundCourseHoleSnapshot,
     SlotBall,
     StrategyEvent,
     StrategyResult,
 } from '../types';
 import {
     deriveFlat,
+    holeIdentity,
     latestMetadata,
-    latestScoresByHole,
-    orderedHoles,
+    latestScoresByPlayHole,
     resolveSingleProducer,
     strokesGivenMapForProducer,
 } from './_shared';
@@ -54,43 +54,33 @@ interface HoleScore {
 
 interface BallCtx {
     ball: SlotBall;
-    strokesByHole: Map<number, number>;
-    scores: Map<number, number | null>;
+    strokesByHole: Map<string, number>;
+    scores: Map<string, number | null>;
 }
 
-function buildCtx(
-    ball: SlotBall,
-    courseHoles: RoundCourseHoleSnapshot[],
-    ctx: RoundContext,
-    events: StrategyEvent[],
-): BallCtx {
+function buildCtx(ball: SlotBall, ctx: RoundContext, events: StrategyEvent[]): BallCtx {
     const p = resolveSingleProducer(ball);
     return {
         ball,
-        strokesByHole: strokesGivenMapForProducer(
-            p.producerDefId,
-            ball.playingHandicapSnapshot,
-            courseHoles,
-            ctx,
-        ),
-        scores: latestScoresByHole(events, ball.ballId),
+        strokesByHole: strokesGivenMapForProducer(p.producerDefId, ball.playingHandicapSnapshot, ctx),
+        scores: latestScoresByPlayHole(events, ball.ballId),
     };
 }
 
-function holeScore(c: BallCtx, ch: RoundCourseHoleSnapshot, events: StrategyEvent[]): HoleScore {
-    const girRaw = latestMetadata(events, c.ball.ballId, ch.holeNumber, 'gir');
-    const fairwayRaw = latestMetadata(events, c.ball.ballId, ch.holeNumber, 'fairway');
+function holeScore(c: BallCtx, occ: PlayHoleSnapshot, events: StrategyEvent[]): HoleScore {
+    const girRaw = latestMetadata(events, c.ball.ballId, occ.playHoleId, 'gir');
+    const fairwayRaw = latestMetadata(events, c.ball.ballId, occ.playHoleId, 'fairway');
     const gir = girRaw === true;
-    const fairway = ch.par > 3 && fairwayRaw === true;
+    const fairway = occ.par > 3 && fairwayRaw === true;
 
-    if (!c.scores.has(ch.holeNumber)) {
+    if (!c.scores.has(occ.playHoleId)) {
         return { gross: null, net: null, contributed: false, hasEvent: false, gir, fairway };
     }
-    const strokes = c.scores.get(ch.holeNumber) ?? null;
+    const strokes = c.scores.get(occ.playHoleId) ?? null;
     if (strokes === null || strokes === 0) {
         return { gross: null, net: null, contributed: false, hasEvent: true, gir, fairway };
     }
-    const given = c.strokesByHole.get(ch.holeNumber) ?? 0;
+    const given = c.strokesByHole.get(occ.playHoleId) ?? 0;
     return {
         gross: strokes,
         net: strokes - given,
@@ -120,15 +110,14 @@ export const umbrellaIndividual: FormatStrategy = {
             throw new Error(`umbrella_individual: needs exactly 3 balls (got ${slotBalls.length})`);
         }
         const birdieRule = readBirdieRule(formatConfig);
-        const ordered = orderedHoles(roundContext.courseHoles);
-        const ctxs = slotBalls.map((b) => buildCtx(b, ordered, roundContext, events));
+        const ctxs = slotBalls.map((b) => buildCtx(b, roundContext, events));
 
         const holesPer: BallHoleResult[][] = slotBalls.map(() => []);
         const totals = slotBalls.map(() => 0);
         const holesPlayed = slotBalls.map(() => 0);
 
-        for (const ch of ordered) {
-            const scores = ctxs.map((c) => holeScore(c, ch, events));
+        for (const occ of roundContext.playHoles) {
+            const scores = ctxs.map((c) => holeScore(c, occ, events));
             const grosses = scores.map((s) => s.gross);
             const contributedGrosses = grosses.filter((g): g is number => g !== null);
             const lowGross = contributedGrosses.length > 0 ? Math.min(...contributedGrosses) : null;
@@ -145,13 +134,13 @@ export const umbrellaIndividual: FormatStrategy = {
                 if (s.contributed) {
                     const isBirdie =
                         birdieRule === 'gross'
-                            ? s.gross !== null && s.gross <= ch.par - 1
-                            : s.net !== null && s.net <= ch.par - 1;
+                            ? s.gross !== null && s.gross <= occ.par - 1
+                            : s.net !== null && s.net <= occ.par - 1;
                     if (isBirdie) bird = 1;
                 }
                 const catSum = lg + fwy + gir + bird;
                 const sweep = catSum === 4;
-                const points = catSum * ch.holeNumber * (sweep ? 2 : 1);
+                const points = catSum * occ.courseHoleNumber * (sweep ? 2 : 1);
                 totals[i] += points;
 
                 const parts: string[] = [];
@@ -160,13 +149,13 @@ export const umbrellaIndividual: FormatStrategy = {
                 if (gir) parts.push('GIR');
                 if (bird) parts.push('BIRD');
                 const note = sweep
-                    ? `${parts.join(' + ')} = ${catSum} × ${ch.holeNumber} × 2 = ${points} ☂`
+                    ? `${parts.join(' + ')} = ${catSum} × ${occ.courseHoleNumber} × 2 = ${points} ☂`
                     : parts.length === 0
-                      ? `0 × ${ch.holeNumber} = 0`
-                      : `${parts.join(' + ')} = ${catSum} × ${ch.holeNumber} = ${points}`;
+                      ? `0 × ${occ.courseHoleNumber} = 0`
+                      : `${parts.join(' + ')} = ${catSum} × ${occ.courseHoleNumber} = ${points}`;
 
                 holesPer[i].push({
-                    holeNumber: ch.holeNumber,
+                    ...holeIdentity(roundContext, ctxs[i].ball.ballId, occ),
                     gross: s.gross,
                     net: s.net,
                     points,
