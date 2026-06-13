@@ -374,13 +374,13 @@ This section is the canonical cross-session handoff for 2.6b-final. Update it be
 
 Status values: `NOT STARTED` → `IN PROGRESS` → `BLOCKED` or `COMPLETE`.
 
-**Resume here:** start **Slice 1** with red registry and canary-plugin contract tests. Preflight is complete; no 2.6b-final implementation slice has begun.
+**Resume here:** start **Slice 2a** — make leaderboard materialisation build `RoundContext` + ordered `SlotBall[]` + team groupings + events from compiler tables and the event log, resolve the registered plugin by `format_id`, and call its `score()`. The `pluginAsFormatStrategy` bridge and a throwaway materialiser already exist in `server/domain/formats/` (`plugin.ts`, `_canary.testkit.ts`) as the shape to generalise. Migrate every built-in to a plugin, prove numeric parity, and keep the legacy engine only for the static render pipeline until 2b.
 
 | Slice | Status | Commit | Resume note |
 |---|---|---|---|
 | Preflight — row-order fix | COMPLETE | `92872a6` | Preserves compiler insertion order for team balls |
-| 1 — Extension contract | NOT STARTED | — | Start with red registry/canary tests |
-| 2a — Canonical scoring | NOT STARTED | — | Waits on Slice 1 |
+| 1 — Extension contract | COMPLETE | `1ad9c0b` | Plugin contract + canonical registry + canary + arch ratchet; no production path changed |
+| 2a — Canonical scoring | NOT STARTED | — | Generalise the canary materialiser; resolve plugins from the format registry in leaderboard |
 | 2b — Static rendering | NOT STARTED | — | Waits on Slice 2a |
 | 2c — Legacy deletion | NOT STARTED | — | Waits on Slice 2b |
 | 3 — Slot persistence | NOT STARTED | — | Waits on Slice 2c |
@@ -444,14 +444,14 @@ src/formats/index.ts                     # exceptional client adapters only
 
 #### Slice 1 — Lock the extension contract with tests
 
-- [ ] Introduce `FormatPlugin`, `FormatDescriptor`, `FormatMetric`, setup-plan, and optional client-adapter contracts.
-- [ ] Add registry contract tests: unique ids, descriptor validity, metric validity, config validation, and deterministic listing.
-- [ ] Add a test-only canary plugin that uses a previously unknown format id and high-wins metric. Prove it registers, appears in the catalog, plans setup, compiles, scores, and ranks without editing infrastructure maps.
-- [ ] Add an architecture test that forbids a second **format** registry and catches format-id decomposition tables outside the canonical registry. Explicitly allow the separate `strategies/ball-creation/` registry: it is a different seam whose adapters are reusable across formats and own derivation rather than scoring.
+- [x] Introduce `FormatPlugin`, `FormatDescriptor`, `FormatMetric`, setup-plan, and optional client-adapter contracts. → `server/domain/formats/plugin.ts` (`clientAdapterId` on the descriptor; the client-side adapter registry itself lands in Slice 6).
+- [x] Add registry contract tests: unique ids, descriptor validity, metric validity, config validation, and deterministic listing. → `plugin.test.ts`.
+- [x] Add a test-only canary plugin that uses a previously unknown format id and high-wins metric. Prove it registers, appears in the catalog, plans setup, compiles, scores, and ranks without editing infrastructure maps. → `_canary.testkit.ts` + `canary.test.ts` (full chain via the existing `compile()` + a throwaway materialiser).
+- [x] Add an architecture test that forbids a second **format** registry and catches format-id decomposition tables outside the canonical registry. Explicitly allow the separate `strategies/ball-creation/` registry: it is a different seam whose adapters are reusable across formats and own derivation rather than scoring. → `architecture.test.ts` (shrinking allowlist; ball-creation registry not flagged).
 
-- [ ] **Gate:** contract tests red first, then green; no production scoring path changed yet.
+- [x] **Gate:** contract tests red first, then green; no production scoring path changed yet. → all checks + `bun test` (409) green; only 5 new files added.
 
-**Completion record:** commit `—` · verification `—` · handoff `—`
+**Completion record:** commit `1ad9c0b` · verification `check:server/check:client/check:test + bun test all green (409 pass)` · handoff `Slice 2a — generalise the canary materialiser into the leaderboard; resolve plugins from the format registry`
 
 #### Slice 2a — One canonical scoring engine
 
