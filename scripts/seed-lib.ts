@@ -18,6 +18,7 @@ export const MANUAL_FORMAT_SEEDS = [
     'umbrella-round',
     'umbrella-individual-round',
     'multi-slot-series-round',
+    'multi-format-3p-round',
 ] as const;
 
 export function availableSeedNames(): string[] {
