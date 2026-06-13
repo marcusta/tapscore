@@ -25,10 +25,30 @@
 import type { FormatAllowanceConfig } from '../round-definition';
 import type { RoundContext, SlotBall, SlotTeamGrouping, StrategyEvent, StrategyResult } from './types';
 
+/**
+ * Team topology (REWRITE_DOMAIN_SPEC.md §17 "Static, scheduled, and dynamic
+ * team topology"):
+ *   - `static`    — teams fixed at setup; the compiler materialises them
+ *                   from `SlotDefinition.teamGrouping`. The only mode the
+ *                   compiler can compile today.
+ *   - `scheduled` — team membership rotates by hole segment (Sixes, Round
+ *                   Robin). Materialised from a validated hole-segment
+ *                   schedule. Lands with 2.6d.
+ *   - `dynamic`   — teams are declared in-round by format actions (Wolf).
+ *                   Replayed from the action log. Lands with 2.6d.
+ */
+export type FormatTopology = 'static' | 'scheduled' | 'dynamic';
+
 export interface FormatBallRequirement {
     /** Producer count per ball. `1..1` for own-ball, `2..2` for foursomes, etc. */
     producerCount: { min: number; max: number };
     ballMode: 'own' | 'team' | 'any';
+    /**
+     * Team topology. Defaults to `static` when omitted. The compiler can only
+     * materialise `static` setups today; `scheduled`/`dynamic` are declared by
+     * forward-looking formats and rejected at compile time (2.6d wires them).
+     */
+    topology?: FormatTopology;
     /** True for formats needing team groupings within the slot (better-ball, taliban, umbrella-4-ball). */
     requiresSlotTeamGrouping?: boolean;
     /**

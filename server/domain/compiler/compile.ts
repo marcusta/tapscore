@@ -37,6 +37,8 @@ import {
     type BallCreationStrategy,
 } from '../strategies/ball-creation-strategy';
 import { findFormatPlugin } from '../formats/plugin';
+import type { FormatBallRequirement } from '../strategies/format-strategy';
+import { readHoleSegments, validateHoleSegments } from './hole-segments';
 import type {
     BallCreationProducerInput,
     CreatedBall,
@@ -134,8 +136,14 @@ export function compile(input: CompilerInput): CompileResult {
     const slotBalls: CompiledSlotBall[] = [];
     const slotBallTeams: CompiledSlotBallTeam[] = [];
 
+    const slotCtx: SlotCompileContext = {
+        strategyDefIds: new Set(strategies.map((s) => s.def.id)),
+        producerDefIds: new Set(resolved.producers.map((p) => p.id)),
+        playHoleCount: playHoles.length,
+        courseHoleNumbers: new Set(playHoles.map((ph) => ph.courseHoleNumber)),
+    };
     for (const slotDef of resolved.slots) {
-        compileSlot(slotDef, rinput, strategies, allBalls, slots, slotBalls, slotBallTeams, diags);
+        compileSlot(slotDef, rinput, strategies, allBalls, slotCtx, slots, slotBalls, slotBallTeams, diags);
     }
     if (diags.length > 0) return { ok: false, diagnostics: diags };
 
@@ -576,16 +584,38 @@ function buildBallPlayers(
     return out;
 }
 
+/** Per-round context the slot validators close over (built once in compile). */
+interface SlotCompileContext {
+    /** Every resolved ball-strategy def-id — selector references are checked against this. */
+    strategyDefIds: Set<string>;
+    /** Every producer def-id — selector references are checked against this. */
+    producerDefIds: Set<string>;
+    /** Itinerary occurrence count — the ordinal ceiling for hole-segment schedules. */
+    playHoleCount: number;
+    /** Distinct course-hole numbers in the itinerary — ceiling for physical-coordinate schedules. */
+    courseHoleNumbers: Set<number>;
+}
+
+/** Resolved balls grouped per team label, reused for slot_ball_teams emission. */
+interface TeamBallResolution {
+    teamLabel: string;
+    balls: ResolvedBall[];
+}
+
 function compileSlot(
     slotDef: SlotDefinition,
     input: CompilerInput,
     strategies: StrategyResolved[],
     allBalls: ResolvedBall[],
+    ctx: SlotCompileContext,
     slots: CompiledSlot[],
     slotBalls: CompiledSlotBall[],
     slotBallTeams: CompiledSlotBallTeam[],
     diags: CompilerDiagnostic[],
 ): void {
+    const slotPath = `slots[${slotDef.id}]`;
+    const hasSlotDiag = () => diags.some((d) => d.path?.startsWith(slotPath));
+
     let plugin;
     try {
         plugin = findFormatPlugin(slotDef.formatId);
@@ -593,7 +623,7 @@ function compileSlot(
         diags.push({
             code: 'unknown_format',
             message: `no format plugin registered for id '${slotDef.formatId}'`,
-            path: `slots[${slotDef.id}].formatId`,
+            path: `${slotPath}.formatId`,
         });
         return;
     }
@@ -604,8 +634,34 @@ function compileSlot(
     };
 
     const req = format.ballRequirement();
-    const selected = selectBallsForSlot(slotDef, strategies, allBalls);
 
+    // --- Format-config schema (plugin-owned) ------------------------------
+    // The plugin is the authority on its own config; surface its structured
+    // diagnostics at compile time so invalid config stops here, not in score().
+    for (const cd of plugin.validateConfig(slotDef.formatConfig)) {
+        diags.push({
+            code: cd.code,
+            message: `slot '${slotDef.id}': ${cd.message}`,
+            path: `${slotPath}.${cd.path ?? 'formatConfig'}`,
+        });
+    }
+
+    // --- Topology ----------------------------------------------------------
+    // Only `static` team topology compiles today. A format declaring
+    // scheduled/dynamic teams is a valid forward declaration, but the compiler
+    // cannot materialise it yet (2.6d), so reject rather than mis-compile.
+    const topology = req.topology ?? 'static';
+    if (topology !== 'static') {
+        diags.push({
+            code: 'unsupported_topology',
+            message: `slot '${slotDef.id}' format '${format.id}' declares '${topology}' team topology; only 'static' compiles today (scheduled/dynamic land in 2.6d)`,
+            path: slotPath,
+        });
+    }
+
+    const selected = selectBallsForSlot(slotDef, strategies, allBalls, req, ctx, diags);
+
+    // --- Per-ball producer count ------------------------------------------
     if (req.producerCount) {
         for (const b of selected) {
             const pc = b.producerDefIds.length;
@@ -613,44 +669,92 @@ function compileSlot(
                 diags.push({
                     code: 'producer_count_violation',
                     message: `slot '${slotDef.id}' ball ${b.row.id} has ${pc} producers; format '${format.id}' requires ${req.producerCount.min}..${req.producerCount.max}`,
-                    path: `slots[${slotDef.id}]`,
+                    path: slotPath,
                 });
             }
         }
     }
+
+    // --- Ball mode (own vs team) ------------------------------------------
+    // producerCount bounds the per-ball count; ballMode is the format's
+    // explicit own/team contract, validated independently so a selector that
+    // drags in the wrong ball shape is rejected rather than silently scored.
+    if (req.ballMode === 'own' || req.ballMode === 'team') {
+        for (const b of selected) {
+            const isTeamBall = b.producerDefIds.length > 1;
+            if (req.ballMode === 'own' && isTeamBall) {
+                diags.push({
+                    code: 'ball_mode_violation',
+                    message: `slot '${slotDef.id}' format '${format.id}' is own-ball but ball ${b.row.id} has ${b.producerDefIds.length} producers`,
+                    path: slotPath,
+                });
+            } else if (req.ballMode === 'team' && !isTeamBall) {
+                diags.push({
+                    code: 'ball_mode_violation',
+                    message: `slot '${slotDef.id}' format '${format.id}' is a team format but ball ${b.row.id} is a single-producer ball`,
+                    path: slotPath,
+                });
+            }
+        }
+    }
+
+    // --- Slot ball count ---------------------------------------------------
     if (req.slotBallCount) {
         const n = selected.length;
         if (req.slotBallCount.min !== undefined && n < req.slotBallCount.min) {
             diags.push({
                 code: 'slot_ball_count_below_min',
                 message: `slot '${slotDef.id}' has ${n} balls; format '${format.id}' requires min ${req.slotBallCount.min}`,
-                path: `slots[${slotDef.id}]`,
+                path: slotPath,
             });
         }
         if (req.slotBallCount.max !== undefined && n > req.slotBallCount.max) {
             diags.push({
                 code: 'slot_ball_count_above_max',
                 message: `slot '${slotDef.id}' has ${n} balls; format '${format.id}' allows max ${req.slotBallCount.max}`,
-                path: `slots[${slotDef.id}]`,
+                path: slotPath,
             });
         }
         if (req.slotBallCount.multipleOf !== undefined && n % req.slotBallCount.multipleOf !== 0) {
             diags.push({
                 code: 'slot_ball_count_not_multiple',
                 message: `slot '${slotDef.id}' has ${n} balls; format '${format.id}' requires multiple of ${req.slotBallCount.multipleOf}`,
-                path: `slots[${slotDef.id}]`,
+                path: slotPath,
             });
         }
     }
+
+    // --- Team grouping (presence + cardinality + disjointness + coverage) --
     if (req.requiresSlotTeamGrouping && !slotDef.teamGrouping) {
         diags.push({
             code: 'missing_team_grouping',
             message: `slot '${slotDef.id}' uses format '${format.id}' which requires teamGrouping`,
-            path: `slots[${slotDef.id}].teamGrouping`,
+            path: `${slotPath}.teamGrouping`,
         });
     }
-    if (diags.some((d) => d.path?.startsWith(`slots[${slotDef.id}]`))) return;
+    const teamResolutions = slotDef.teamGrouping
+        ? validateTeamGrouping(slotDef, req, selected, diags)
+        : [];
 
+    // --- Hole-segment schedule (optional, plugin-owned coordinate) ---------
+    const rawSegments = readHoleSegments(slotDef.formatConfig);
+    if (rawSegments !== undefined) {
+        diags.push(
+            ...validateHoleSegments({
+                rawSegments,
+                holeCoordinate: plugin.descriptor.requirements.holeCoordinate,
+                playHoleCount: ctx.playHoleCount,
+                courseHoleNumbers: ctx.courseHoleNumbers,
+                selectedBallIds: new Set(selected.map((b) => b.row.id)),
+                allowOverlap: plugin.descriptor.requirements.allowSegmentOverlap ?? false,
+                pathPrefix: `${slotPath}.formatConfig`,
+            }),
+        );
+    }
+
+    if (hasSlotDiag()) return;
+
+    // --- deriveSlotBalls one-for-one with the selected balls ---------------
     const derived = format.deriveSlotBalls({
         balls: selected.map((b) => ({
             ballId: b.row.id,
@@ -658,7 +762,37 @@ function compileSlot(
         })),
         allowanceConfig: slotDef.allowanceConfig,
     });
+    const selectedIds = new Set(selected.map((b) => b.row.id));
+    const seenDerived = new Set<string>();
+    for (const d of derived) {
+        if (!selectedIds.has(d.ballId)) {
+            diags.push({
+                code: 'derived_ball_unknown',
+                message: `slot '${slotDef.id}' deriveSlotBalls returned unknown ball id '${d.ballId}'`,
+                path: slotPath,
+            });
+        } else if (seenDerived.has(d.ballId)) {
+            diags.push({
+                code: 'derived_ball_duplicate',
+                message: `slot '${slotDef.id}' deriveSlotBalls returned ball id '${d.ballId}' twice`,
+                path: slotPath,
+            });
+        } else {
+            seenDerived.add(d.ballId);
+        }
+    }
+    for (const b of selected) {
+        if (!seenDerived.has(b.row.id)) {
+            diags.push({
+                code: 'derived_ball_missing',
+                message: `slot '${slotDef.id}' deriveSlotBalls omitted selected ball id '${b.row.id}'`,
+                path: slotPath,
+            });
+        }
+    }
+    if (hasSlotDiag()) return;
 
+    // --- Emit rows ---------------------------------------------------------
     const slotRowId = hashId('tapscore:slot:v1', input.roundId, slotDef.id);
     const ballMode = req.ballMode === 'team' ? 'team' : 'own';
     slots.push({
@@ -681,38 +815,171 @@ function compileSlot(
             playingHandicapSnapshot: d.playingHandicapSnapshot,
         });
     }
+    for (const tr of teamResolutions) {
+        for (const b of tr.balls) {
+            slotBallTeams.push({ slotId: slotRowId, teamLabel: tr.teamLabel, ballId: b.row.id });
+        }
+    }
+}
 
-    if (slotDef.teamGrouping) {
-        for (const team of slotDef.teamGrouping.teams) {
-            const teamProducerSet = new Set(team.producerDefIds);
-            const teamBalls = selected.filter((b) =>
-                b.producerDefIds.every((pid) => teamProducerSet.has(pid)),
-            );
-            if (teamBalls.length === 0) {
+/**
+ * Validate a slot's static team grouping against the format's
+ * `slotTeamGrouping` requirement and the exhaustive/exclusive invariant:
+ *   - team COUNT within the declared `teamCount` window;
+ *   - each team's resolved ball count within the declared `teamSize` window;
+ *   - teams are DISJOINT (no producer and no ball claimed by two teams);
+ *   - teams COVER every selected ball (none left unassigned).
+ * Returns the per-team ball resolution so the caller emits `slot_ball_teams`
+ * without recomputing it. Diagnostics accumulate; rows are only emitted when
+ * the slot is clean.
+ */
+function validateTeamGrouping(
+    slotDef: SlotDefinition,
+    req: FormatBallRequirement,
+    selected: ResolvedBall[],
+    diags: CompilerDiagnostic[],
+): TeamBallResolution[] {
+    const teams = slotDef.teamGrouping!.teams;
+    const tgPath = `slots[${slotDef.id}].teamGrouping`;
+    const tg = req.slotTeamGrouping;
+
+    if (tg?.teamCount) {
+        if (tg.teamCount.min !== undefined && teams.length < tg.teamCount.min) {
+            diags.push({
+                code: 'team_count_below_min',
+                message: `slot '${slotDef.id}' has ${teams.length} teams; format '${slotDef.formatId}' requires min ${tg.teamCount.min}`,
+                path: tgPath,
+            });
+        }
+        if (tg.teamCount.max !== undefined && teams.length > tg.teamCount.max) {
+            diags.push({
+                code: 'team_count_above_max',
+                message: `slot '${slotDef.id}' has ${teams.length} teams; format '${slotDef.formatId}' allows max ${tg.teamCount.max}`,
+                path: tgPath,
+            });
+        }
+    }
+
+    // Producer-level disjointness — a producer named in two teams is malformed.
+    const producerToTeam = new Map<string, string>();
+    for (const team of teams) {
+        for (const pid of team.producerDefIds) {
+            const prior = producerToTeam.get(pid);
+            if (prior !== undefined && prior !== team.label) {
                 diags.push({
-                    code: 'empty_team_grouping',
-                    message: `slot '${slotDef.id}' team '${team.label}' resolves to 0 balls`,
-                    path: `slots[${slotDef.id}].teamGrouping`,
+                    code: 'overlapping_teams',
+                    message: `slot '${slotDef.id}' producer '${pid}' is in both team '${prior}' and team '${team.label}'`,
+                    path: tgPath,
                 });
-                continue;
-            }
-            for (const b of teamBalls) {
-                slotBallTeams.push({
-                    slotId: slotRowId,
-                    teamLabel: team.label,
-                    ballId: b.row.id,
-                });
+            } else {
+                producerToTeam.set(pid, team.label);
             }
         }
     }
+
+    // Resolve balls per team + size bounds.
+    const ballToTeams = new Map<string, string[]>();
+    const resolutions: TeamBallResolution[] = [];
+    for (const team of teams) {
+        const teamProducerSet = new Set(team.producerDefIds);
+        const teamBalls = selected.filter((b) =>
+            b.producerDefIds.every((pid) => teamProducerSet.has(pid)),
+        );
+        if (teamBalls.length === 0) {
+            diags.push({
+                code: 'empty_team_grouping',
+                message: `slot '${slotDef.id}' team '${team.label}' resolves to 0 balls`,
+                path: tgPath,
+            });
+        }
+        if (tg?.teamSize) {
+            if (tg.teamSize.min !== undefined && teamBalls.length < tg.teamSize.min) {
+                diags.push({
+                    code: 'team_size_below_min',
+                    message: `slot '${slotDef.id}' team '${team.label}' has ${teamBalls.length} balls; format '${slotDef.formatId}' requires min ${tg.teamSize.min}`,
+                    path: tgPath,
+                });
+            }
+            if (tg.teamSize.max !== undefined && teamBalls.length > tg.teamSize.max) {
+                diags.push({
+                    code: 'team_size_above_max',
+                    message: `slot '${slotDef.id}' team '${team.label}' has ${teamBalls.length} balls; format '${slotDef.formatId}' allows max ${tg.teamSize.max}`,
+                    path: tgPath,
+                });
+            }
+        }
+        for (const b of teamBalls) {
+            ballToTeams.set(b.row.id, [...(ballToTeams.get(b.row.id) ?? []), team.label]);
+        }
+        resolutions.push({ teamLabel: team.label, balls: teamBalls });
+    }
+
+    // Ball-level disjointness — a ball claimed by two teams.
+    for (const [ballId, labels] of ballToTeams) {
+        if (labels.length > 1) {
+            diags.push({
+                code: 'overlapping_teams',
+                message: `slot '${slotDef.id}' ball ${ballId} is claimed by teams ${labels.join(', ')}`,
+                path: tgPath,
+            });
+        }
+    }
+
+    // Coverage — every selected ball belongs to exactly one team.
+    for (const b of selected) {
+        if (!ballToTeams.has(b.row.id)) {
+            diags.push({
+                code: 'ball_not_in_any_team',
+                message: `slot '${slotDef.id}' ball ${b.row.id} is not assigned to any team`,
+                path: tgPath,
+            });
+        }
+    }
+
+    return resolutions;
+}
+
+/** True when a ball's producer count fits the format's mode + count window. */
+function ballMatchesRequirement(b: ResolvedBall, req: FormatBallRequirement): boolean {
+    const pc = b.producerDefIds.length;
+    if (req.producerCount && (pc < req.producerCount.min || pc > req.producerCount.max)) return false;
+    if (req.ballMode === 'own' && pc !== 1) return false;
+    if (req.ballMode === 'team' && pc < 2) return false;
+    return true;
 }
 
 function selectBallsForSlot(
     slotDef: SlotDefinition,
     strategies: StrategyResolved[],
     allBalls: ResolvedBall[],
+    req: FormatBallRequirement,
+    ctx: SlotCompileContext,
+    diags: CompilerDiagnostic[],
 ): ResolvedBall[] {
     const sel = slotDef.ballSelector;
+    const selPath = `slots[${slotDef.id}].ballSelector`;
+
+    // Selector references must resolve — an unknown id is a hard error, not a
+    // silent empty selection that later trips an opaque ball-count diagnostic.
+    for (const sid of sel?.strategyDefIds ?? []) {
+        if (!ctx.strategyDefIds.has(sid)) {
+            diags.push({
+                code: 'unknown_selector_strategy',
+                message: `slot '${slotDef.id}' ballSelector references unknown strategy def-id '${sid}'`,
+                path: selPath,
+            });
+        }
+    }
+    for (const pid of sel?.producerDefIds ?? []) {
+        if (!ctx.producerDefIds.has(pid)) {
+            diags.push({
+                code: 'unknown_selector_producer',
+                message: `slot '${slotDef.id}' ballSelector references unknown producer def-id '${pid}'`,
+                path: selPath,
+            });
+        }
+    }
+
     let candidates: ResolvedBall[];
     if (sel?.strategyDefIds && sel.strategyDefIds.length > 0) {
         const allowed = new Set(sel.strategyDefIds);
@@ -725,7 +992,11 @@ function selectBallsForSlot(
         // ball-order contract (match-play pairs in-order) is honoured.
         candidates = sel.strategyDefIds.flatMap((sid) => ballsByStrategy.get(sid) ?? []);
     } else {
-        candidates = allBalls;
+        // Requirement-based auto-selection: never blindly take EVERY ball in a
+        // mixed own-ball/team-ball round. Match the format's declared ball mode
+        // and producer-count window so an own-ball slot ignores alt-shot team
+        // balls and vice versa.
+        candidates = allBalls.filter((b) => ballMatchesRequirement(b, req));
     }
     if (sel?.producerDefIds && sel.producerDefIds.length > 0) {
         const allow = new Set(sel.producerDefIds);

@@ -63,10 +63,35 @@ export interface ScoreEntryCapabilities {
     numberMetadata?: string[];
 }
 
+/**
+ * Which hole coordinate a format's hole-addressed rules (segment schedules,
+ * per-hole multipliers) resolve against (REWRITE_DOMAIN_SPEC.md §3 "Formats
+ * must state which coordinate they use"):
+ *   - `played_ordinal`     — 1st/2nd/… hole played by the group (Irish Rumble,
+ *                            Wolf rotation): rotates with the group's start.
+ *   - `canonical_ordinal`  — position in the Round's shared itinerary order.
+ *   - `course_hole_number` — the physical printed hole number.
+ * A format that carries a hole-segment schedule MUST declare this so the
+ * compiler never guesses; ambiguous schedules are rejected.
+ */
+export type HoleCoordinate = 'played_ordinal' | 'canonical_ordinal' | 'course_hole_number';
+
 export interface FormatRequirements {
     /** Ball/team/count shape the compiler validates before `score()`. */
     balls: FormatBallRequirement;
     scoreEntry?: ScoreEntryCapabilities;
+    /**
+     * Coordinate this format's hole-addressed rules use. Required when the
+     * format consumes a hole-segment schedule in `formatConfig`; absent for
+     * formats with no hole-addressed config (every current built-in).
+     */
+    holeCoordinate?: HoleCoordinate;
+    /**
+     * When true, the format permits overlapping hole-segment ranges (a hole
+     * counted by more than one segment, e.g. Nassau's overall layered over
+     * front/back). Default false → the compiler rejects overlap.
+     */
+    allowSegmentOverlap?: boolean;
 }
 
 /**
