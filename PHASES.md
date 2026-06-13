@@ -374,14 +374,14 @@ This section is the canonical cross-session handoff for 2.6b-final. Update it be
 
 Status values: `NOT STARTED` → `IN PROGRESS` → `BLOCKED` or `COMPLETE`.
 
-**Resume here:** start **Slice 2a** — make leaderboard materialisation build `RoundContext` + ordered `SlotBall[]` + team groupings + events from compiler tables and the event log, resolve the registered plugin by `format_id`, and call its `score()`. The `pluginAsFormatStrategy` bridge and a throwaway materialiser already exist in `server/domain/formats/` (`plugin.ts`, `_canary.testkit.ts`) as the shape to generalise. Migrate every built-in to a plugin, prove numeric parity, and keep the legacy engine only for the static render pipeline until 2b.
+**Resume here:** start **Slice 2b** — move the `scripts/render/*` pipeline onto the canonical `StrategyResult` + registered descriptor so it stops importing `server/domain/format.ts` / legacy scoring helpers and stops format-id dispatch (`isBallTaliban` etc). The leaderboard now scores through plugins (Slice 2a) and adapts back to the legacy `Leaderboard` shape in `server/domain/leaderboard-engine.ts` (`adaptSlotBallResults` remaps `team:<label>` → representative ball id; `mapWinner` maps pair winners) — 2b deletes that adapter glue by defining structured serializable result sections the static renderer consumes generically. Render currently still consumes the adapted legacy shape via `leaderboardService.forRound()` (`scripts/render/collect.ts`).
 
 | Slice | Status | Commit | Resume note |
 |---|---|---|---|
 | Preflight — row-order fix | COMPLETE | `92872a6` | Preserves compiler insertion order for team balls |
 | 1 — Extension contract | COMPLETE | `1ad9c0b` | Plugin contract + canonical registry + canary + arch ratchet; no production path changed |
-| 2a — Canonical scoring | NOT STARTED | — | Generalise the canary materialiser; resolve plugins from the format registry in leaderboard |
-| 2b — Static rendering | NOT STARTED | — | Waits on Slice 2a |
+| 2a — Canonical scoring | COMPLETE | `2016997` | Leaderboard scores through registered plugins; `leaderboard-engine.ts` materialises + adapts to legacy shape; `directionByType` gone |
+| 2b — Static rendering | NOT STARTED | — | Render onto canonical StrategyResult; delete the `team:<label>`/winner adapter glue in `leaderboard-engine.ts` |
 | 2c — Legacy deletion | NOT STARTED | — | Waits on Slice 2b |
 | 3 — Slot persistence | NOT STARTED | — | Waits on Slice 2c |
 | 4 — Compiler validation | NOT STARTED | — | Waits on Slice 3 |
@@ -455,15 +455,15 @@ src/formats/index.ts                     # exceptional client adapters only
 
 #### Slice 2a — One canonical scoring engine
 
-- [ ] Make leaderboard materialisation build the new `RoundContext`, ordered `SlotBall[]`, team groupings, format config, and strategy events from compiler tables + the event log.
-- [ ] Resolve the registered plugin by `format_id` and call its `score()` implementation. The compiler and runtime must cross the same plugin interface.
-- [ ] Carry `formatId` and `slotDefId` through `StrategyResult`; do not recover identity from slot array position.
-- [ ] Move ranking direction into registered metrics and remove `directionByType`.
-- [ ] Migrate every existing built-in to this path and prove numeric parity. Keep the legacy engine temporarily for the static render pipeline only; no production service may call it after this slice.
+- [x] Make leaderboard materialisation build the new `RoundContext`, ordered `SlotBall[]`, team groupings, format config, and strategy events from compiler tables + the event log. → `server/domain/leaderboard-engine.ts` `materializeRound` (generalises `_canary.testkit.ts::materializeSlot`); `leaderboard.service.ts` reads `slots`/`slot_balls`/`slot_ball_teams`/`balls`/`ball_players` (rowid order) + replays `score_events` → `StrategyEvent[]`.
+- [x] Resolve the registered plugin by `format_id` and call its `score()` implementation. The compiler and runtime must cross the same plugin interface. → `scoreRound(..., findFormatPlugin)`; built-ins registered as plugins in `server/domain/formats/builtins.ts` + `index.ts`.
+- [x] Carry `formatId` and `slotDefId` through `StrategyResult`; do not recover identity from slot array position. → `format_id` recovered from the latest `round_definitions` JSON keyed by stable `slot_def_id`; `MaterializedSlot` carries `slotDefId`/`formatId`. `slotIndex` is only a presentation key (parsed from the def-id, not array position).
+- [x] Move ranking direction into registered metrics and remove `directionByType`. → direction comes from `descriptor.metrics`; `leaderboard.ts` gutted to types-only; ratchet allowlist entry removed.
+- [x] Migrate every existing built-in to this path and prove numeric parity. Keep the legacy engine temporarily for the static render pipeline only; no production service may call it after this slice. → all 10 built-ins are plugins; the engine adapts each `StrategyResult` back to the legacy `Leaderboard` shape (`adaptSlotBallResults` + `mapWinner`); no production service calls `findFormat`/`computeLeaderboard`; `seed:formats` + `render:formats` + `check:format-fixtures` still green.
 
-- [ ] **Gate:** service/API tests prove every built-in scores through the registered plugin; production services have exactly one scoring registry. Canonical fixture HTML may still use legacy result types until 2b.
+- [x] **Gate:** service/API tests prove every built-in scores through the registered plugin; production services have exactly one scoring registry. Canonical fixture HTML may still use legacy result types until 2b. → `leaderboard.service.plugins.test.ts` scores all 10 built-ins through the service + proves a cleared registry fails loud (resolves from the ONE canonical registry); existing `leaderboard.service.test.ts` (13 cases) all green through the plugin path.
 
-**Completion record:** commit `—` · verification `—` · handoff `—`
+**Completion record:** commit `2016997` · verification `check:server/check:client/check:test + bun test all green (414 pass); seed:formats + render:formats + check:format-fixtures green` · handoff `Slice 2b — move scripts/render onto canonical StrategyResult; delete the leaderboard-engine adapter glue`
 
 #### Slice 2b — Generic static fixture rendering
 
