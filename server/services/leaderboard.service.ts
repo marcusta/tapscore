@@ -1,4 +1,4 @@
-import type { Kysely } from 'kysely';
+import { sql, type Kysely } from 'kysely';
 import type { Database } from '../db/schema';
 import type { RoundService } from './round.service';
 import type { ScorecardService } from './scorecard.service';
@@ -128,6 +128,11 @@ export class LeaderboardService {
             .innerJoin('slots as s', 's.id', 'sbt.slot_id')
             .where('s.round_id', '=', roundId)
             .select(['sbt.slot_id', 'sbt.team_label', 'sbt.ball_id'])
+            // The PK index would otherwise hand rows back ordered by ball_id
+            // (a content hash — arbitrary relative to producers). rowid order
+            // is the compiler's insertion order: producer declaration order
+            // within each team, which team strategies treat as "first ball".
+            .orderBy(sql`sbt.rowid`)
             .execute();
 
         // slotId → Map<teamLabel, ballIds> — preserves row-insertion order
