@@ -402,7 +402,7 @@ Status values: `NOT STARTED` → `IN PROGRESS` → `AWAITING VISUAL VERIFY` → 
 | 2b preflight — Köpenhamnare parity | COMPLETE | `6f447f7` | Rollup standings normalised to gap above last; per-hole 6-point distribution unchanged |
 | 2b preflight — 3-player shared-log fixture | COMPLETE | `bb2a90e` | Stableford + Köpenhamnare + match play share one event log in canonical fixtures |
 | 2b — Static rendering | COMPLETE | d43fec7 | Render consumes `resultForRound()` → serializable sections; gates green, 13 fixtures rendered; focused checks approved. Legacy `leaderboard-engine.ts` adapter + `forRound()` retained for API/mobile, removed in 2c |
-| 2c — Legacy deletion | COMPLETE | — | Deleted domain/format.ts + domain/leaderboard.ts + 10 legacy strategy files + scoreRound adapter; materialiser → round-materializer.ts; forRound() retired, leaderboards API now serves RoundResult, mobile results stubbed (2.6e) |
+| 2c — Legacy deletion | COMPLETE | d92a59a | Deleted domain/format.ts + domain/leaderboard.ts + 10 legacy strategy files + scoreRound adapter; materialiser → round-materializer.ts; forRound() retired, leaderboards API now serves RoundResult, mobile results stubbed (2.6e) |
 | 3a — Slot persistence | NOT STARTED | — | Waits on Slice 2c |
 | 3b — Hole itinerary persistence | NOT STARTED | — | Waits on Slice 3a |
 | 3c — Itinerary scoring migration | NOT STARTED | — | Waits on Slice 3b |
@@ -552,7 +552,7 @@ src/formats/index.ts                     # exceptional client adapters only
 
 - [x] **Gate:** repository search finds one format registry, one scoring implementation per format, and no format-specific static render dispatch. → One format catalog registry (`formats/plugin.ts`; the compiler-facing `strategies/format-strategy.ts` is the reusable strategy seam, not a second catalog — folded onto the plugin registry in Slice 3). One scoring implementation per format (legacy duplicates gone). No legacy-module imports anywhere; `scripts/render/` carries no format-id dispatch. `forRound()` + the legacy `Leaderboard` shape retired — the leaderboards API now serves canonical `RoundResult`; mobile results reduced to a compile-only placeholder (rebuilt in 2.6e M4). Architecture ratchet (3 tests) green.
 
-**Completion record:** commit `—` · verification `check:server/client/test + bun test (309 pass) + seed:formats/render:formats/check:format-fixtures (13 rounds) green; one-format deletion test on taliban_better_ball clean for renderer + scoring engine` · handoff `Slice 3a — add generic format_id/format_config to slots, read from slots/slot_balls, remove both FORMAT_ID_DECOMPOSITION maps`
+**Completion record:** commit `d92a59a` · verification `check:server/client/test + bun test (309 pass) + seed:formats/render:formats/check:format-fixtures (13 rounds) green; one-format deletion test on taliban_better_ball clean for renderer + scoring engine` · handoff `Slice 3a — add generic format_id/format_config to slots, read from slots/slot_balls, remove both FORMAT_ID_DECOMPOSITION maps`
 
 #### Route and stroke-index invariants
 
