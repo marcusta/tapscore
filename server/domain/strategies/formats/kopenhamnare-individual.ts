@@ -5,6 +5,11 @@
 // Pickup = automatic last (ranking net = +Infinity). DNP/no-event =
 // hole undecided; all three get null points.
 //
+// Standings are normalised to last place: the lowest cumulative total is
+// subtracted from every total, so the trailing player shows 0 and the others
+// show their gap above last (raw 10/14/12 → 0/4/2). Per-hole points remain
+// the raw 6-point distribution.
+//
 // Handicap modes (via formatConfig.handicapMode):
 //   'standard'       each ball uses its PH directly.
 //   'delta_from_min' low PH plays 0; others get PH − min.
@@ -178,10 +183,19 @@ function computeKopenhamnare(
         });
     }
 
+    // Standings are normalised so the LAST player is 0 and everyone else
+    // shows their gap above last (raw 10/14/12 → 0/4/2). Per-hole points stay
+    // the raw 6-point distribution; only the rollup total is shifted (same
+    // gap-to-last convention umbrella uses for its team totals). Subtract the
+    // lowest total among balls that have scored; balls with no decided hole
+    // stay null.
+    const scoredTotals = totals.filter((_, i) => hasValue[i]);
+    const minTotal = scoredTotals.length > 0 ? Math.min(...scoredTotals) : 0;
+
     return balls.map((b, i) => ({
         ballId: b.ballId,
         holes: holesPer[i],
-        totals: [{ scoringType: 'points', value: hasValue[i] ? totals[i] : null }],
+        totals: [{ scoringType: 'points', value: hasValue[i] ? totals[i] - minTotal : null }],
         holesPlayed: holesPlayed[i],
     }));
 }
