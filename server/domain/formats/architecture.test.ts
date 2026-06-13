@@ -5,8 +5,9 @@
 //   - exactly one canonical format registry (`registerFormat`);
 //   - the legacy strategy-only registry is tracked, removed in Slice 2c;
 //   - format-id → behaviour decomposition maps live only in known files,
-//     each removed by a later slice (compile.ts → 3, leaderboard.ts → 2a,
-//     src/formats.ts → 6).
+//     each removed by a later slice (compile.ts → 3, src/formats.ts → 6).
+//     Slice 2a removed `directionByType` from leaderboard.ts (ranking
+//     direction now lives in registered descriptor metrics).
 //
 // The ball-creation registry (`registerBallCreationStrategy`) is a DIFFERENT
 // seam — reusable derivation, not format scoring — and is deliberately not
@@ -36,7 +37,6 @@ const ALLOWED_FORMAT_REGISTRARS = new Set([
 const ALLOWED_DECOMPOSITION = new Set([
     'server/domain/compiler/compile.ts', // FORMAT_ID_DECOMPOSITION — removed in Slice 3
     'server/services/round.service.ts', // FORMAT_ID_DECOMPOSITION — removed in Slice 3
-    'server/domain/leaderboard.ts', // directionByType — removed in Slice 2a
     'src/formats.ts', // client catalog copy — removed in Slice 6
 ]);
 

@@ -90,7 +90,6 @@ export function createServices(db: Kysely<Database>) {
     const leaderboardService = new LeaderboardService(
         db,
         roundService,
-        scorecardService,
         courseService,
     );
     return {

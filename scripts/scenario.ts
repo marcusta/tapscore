@@ -35,6 +35,7 @@ import type { GuestPlayer } from '../server/services/guest-player.service';
 import type { Round, FormatSlot, FormatSlotConfig } from '../server/services/round.service';
 import { registerBuiltInBallCreationStrategies } from '../server/domain/strategies/ball-creation';
 import { registerBuiltInFormatStrategies } from '../server/domain/strategies/formats';
+import { registerBuiltInFormats } from '../server/domain/formats';
 import { resolveProducers, draftToDefinition } from './scenario-translate';
 
 const DEFAULT_DB_PATH = process.env.DB_PATH ?? './data/app.sqlite';
@@ -260,6 +261,7 @@ export async function startScenario(dbPath = DEFAULT_DB_PATH): Promise<Scenario>
     // `startScenario()` is cheap.
     registerBuiltInBallCreationStrategies();
     registerBuiltInFormatStrategies();
+    registerBuiltInFormats();
     const db = createDb<Database>(dbPath);
     const services = createServices(db);
     return new Scenario(db, services);

@@ -1,6 +1,6 @@
 // Phase 2.6b-final / Slice 1 — registry + descriptor contract tests.
 
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import {
     assertValidDescriptor,
@@ -14,6 +14,7 @@ import {
     type FormatDescriptor,
     type FormatPlugin,
 } from './plugin';
+import { registerBuiltInFormats } from './index';
 import { canaryPlugin, CANARY_FORMAT_ID } from './_canary.testkit';
 
 function makePlugin(over: Partial<FormatDescriptor> = {}, behaviour: Partial<FormatPlugin> = {}): FormatPlugin {
@@ -41,7 +42,15 @@ function makePlugin(over: Partial<FormatDescriptor> = {}, behaviour: Partial<For
     };
 }
 
-afterEach(() => clearFormats());
+// Start each test on an EMPTY registry (these assertions count exact
+// contents), then restore the built-in baseline so files that run after this
+// one — the leaderboard resolves built-ins from this registry — still find
+// every format.
+beforeEach(() => clearFormats());
+afterEach(() => {
+    clearFormats();
+    registerBuiltInFormats();
+});
 
 describe('format registry', () => {
     it('registers and resolves a plugin by id', () => {

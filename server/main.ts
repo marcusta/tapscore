@@ -23,11 +23,13 @@ import { createLeaderboardsApi } from './api/leaderboards.api';
 import { seedDev } from './db/seeds/dev';
 import { registerBuiltInBallCreationStrategies } from './domain/strategies/ball-creation';
 import { registerBuiltInFormatStrategies } from './domain/strategies/formats';
+import { registerBuiltInFormats } from './domain/formats';
 
 // --- Composition root ---
 
 registerBuiltInBallCreationStrategies();
 registerBuiltInFormatStrategies();
+registerBuiltInFormats();
 
 const { app, db, bootstrapAuth } = await createApp<Database>(
     path.join(import.meta.dir, 'db/migrations'),

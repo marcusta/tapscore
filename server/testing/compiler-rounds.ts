@@ -18,6 +18,7 @@
 import type { RoundDefinition } from '../domain/round-definition';
 import { registerBuiltInBallCreationStrategies } from '../domain/strategies/ball-creation';
 import { registerBuiltInFormatStrategies } from '../domain/strategies/formats';
+import { registerBuiltInFormats } from '../domain/formats';
 import type { Round } from '../services/round.service';
 import type { createServices } from '../services/index';
 
@@ -106,6 +107,7 @@ export async function createCompiledRound(
 ): Promise<CreateCompiledRoundResult> {
     registerBuiltInBallCreationStrategies();
     registerBuiltInFormatStrategies();
+    registerBuiltInFormats();
 
     const usesPair = input.slots.some((s) => PAIR_FORMATS.includes(s.formatId));
     const usesTeam = input.slots.some((s) => TEAM_FORMATS.includes(s.formatId));

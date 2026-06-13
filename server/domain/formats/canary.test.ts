@@ -13,11 +13,11 @@ import {
 } from '../strategies/formats';
 import { findFormatStrategy, registerFormatStrategy } from '../strategies/format-strategy';
 import {
-    clearFormats,
     formatCatalog,
     pluginAsFormatStrategy,
     registerFormat,
 } from './plugin';
+import { registerBuiltInFormats, resetBuiltInFormats } from './index';
 import {
     buildRoundDefinition,
     CANARY_FORMAT_ID,
@@ -45,16 +45,19 @@ beforeEach(() => {
     // registry directly. No FORMAT_ID_DECOMPOSITION / directionByType edit.
     registerBuiltInBallCreationStrategies();
     registerBuiltInFormatStrategies();
+    registerBuiltInFormats();
     registerFormat(canaryPlugin);
     registerFormatStrategy(pluginAsFormatStrategy(canaryPlugin));
 });
 
 afterEach(() => {
-    clearFormats();
     // These registries are process-global singletons shared across test
-    // files. Restore them to the built-in baseline (drops the canary bridge,
-    // keeps everything else) rather than clearing — clearing would desync the
-    // built-in guard and break files that run after this one.
+    // files. Restore them to the built-in baseline (drops the canary, keeps
+    // every built-in) rather than clearing — clearing would desync the
+    // built-in guards and break files that run after this one (the leaderboard
+    // now resolves built-ins from the canonical format registry).
+    resetBuiltInFormats();
+    registerBuiltInFormats();
     resetBuiltInFormatStrategies();
     registerBuiltInFormatStrategies();
 });
