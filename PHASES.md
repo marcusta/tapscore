@@ -360,7 +360,226 @@ Strategy inputs are per-producer (tee-aware). SI resolution in scoring: producer
 - Per-ball line: `ball_CH` (from ball creation) × format allowance = `ball_PH` — both stages visible, joined from `balls` + `slot_balls`.
 - Ball producers listed per ball row: `display_name_snapshot` (audit) + live player link (navigation) when available.
 
-**Gate:** every existing seed produces identical scoring output byte-for-byte vs pre-phase (no existing seed is mixed-tee, so the per-producer snapshots just repeat the round tee — that's fine and expected). Regression test: run each seed before and after, diff the render HTML — only expected markup diffs allowed (new ball-creation / per-producer / allowance lines), never number changes. Commit `phase 2.6b complete: balls + per-producer tees + RoundCompiler + strategy split`.
+### 2.6b-final — Registered format plugins + mobile client migration
+
+Do this before 2.6c adds more formats. The ball model and new strategy contract are sound, but format identity and behaviour currently span two scoring engines, duplicated decomposition tables, a hardcoded client catalog, and format-specific render dispatch. Adding more formats before collapsing those paths would multiply the migration cost.
+
+**Target:** a format is a source-level plugin. In production code, adding a normal format means adding one self-contained server module and one central registration entry. A format may also register one client adapter when its setup, score-entry, or results presentation cannot use the generic mobile surfaces. No compiler, leaderboard, persistence, API schema, generic client, or renderer switch is edited for an individual format.
+
+**Acceptance test:** delete a format's module and registration entry. Every production trace of the format disappears. Restore them and the format appears in the catalog, can create a valid round, scores through the canonical engine, ranks correctly, and renders through either the generic client or its declared client adapter.
+
+#### Execution ledger
+
+This section is the canonical cross-session handoff for 2.6b-final. Update it before ending every implementation session.
+
+Status values: `NOT STARTED` → `IN PROGRESS` → `BLOCKED` or `COMPLETE`.
+
+**Resume here:** start **Slice 1** with red registry and canary-plugin contract tests. Preflight is complete; no 2.6b-final implementation slice has begun.
+
+| Slice | Status | Commit | Resume note |
+|---|---|---|---|
+| Preflight — row-order fix | COMPLETE | `92872a6` | Preserves compiler insertion order for team balls |
+| 1 — Extension contract | NOT STARTED | — | Start with red registry/canary tests |
+| 2a — Canonical scoring | NOT STARTED | — | Waits on Slice 1 |
+| 2b — Static rendering | NOT STARTED | — | Waits on Slice 2a |
+| 2c — Legacy deletion | NOT STARTED | — | Waits on Slice 2b |
+| 3 — Slot persistence | NOT STARTED | — | Waits on Slice 2c |
+| 4 — Compiler validation | NOT STARTED | — | Waits on Slice 3 |
+| 5 — Catalog + planner | NOT STARTED | — | Waits on Slice 4 |
+| 6 — Mobile wizard | NOT STARTED | — | Waits on Slice 5 |
+| 7 — Mobile score entry | NOT STARTED | — | Waits on Slice 6 |
+| 8 — Mobile results | NOT STARTED | — | Waits on Slice 7 |
+| 9 — Deletion proof | NOT STARTED | — | Final acceptance slice |
+
+Session update rules:
+
+1. Set exactly one slice to `IN PROGRESS` while work is active.
+2. Check an item only after its implementation and focused verification pass.
+3. Mark the gate checkbox only after every item in the slice is checked.
+4. Mark a slice `COMPLETE` only when its gate passes; record the commit hash.
+5. Rewrite **Resume here** with the precise next file/test/problem before stopping.
+6. Record blockers in the table's Resume note; do not hide partial work behind `COMPLETE`.
+
+#### Plugin contract
+
+Replace the current strategy-only registration with one authoritative server registration:
+
+```ts
+registerFormat({
+  descriptor: {
+    id: 'skins_better_ball',
+    label: 'Better-ball skins',
+    description: 'Each hole is worth one carried skin',
+    scoringMode: 'skins',
+    teamShape: 'better_ball',
+    requirements: { /* balls, teams, counts, score-entry capabilities */ },
+    defaults: { allowanceConfig: { type: 'flat', pct: 85 } },
+    metrics: [{ id: 'skins', label: 'Skins', direction: 'high' }],
+    clientAdapterId: null,
+  },
+  planSetup,
+  validateConfig,
+  deriveSlotBalls,
+  score,
+})
+```
+
+- `descriptor` is serializable and drives the server catalog plus generic mobile UI.
+- `planSetup` translates a UI-level format selection into ball-creation needs, slot selection, team grouping, defaults, and format config. It does not persist.
+- `validateConfig`, `deriveSlotBalls`, and `score` are pure server behaviour.
+- `metrics` owns label + ranking direction; leaderboard code never guesses from a string.
+- `clientAdapterId` is absent for generic formats. A specialised adapter is registered once in the client composition root and may contribute setup controls, score-entry controls, or results rendering.
+- Duplicate format ids and missing declared client adapters fail loudly in tests/startup.
+- Ball-creation strategies remain a separate registry because they are reusable across formats. A format's setup plan references them without reimplementing derivation.
+
+Suggested locality:
+
+```text
+server/domain/formats/<format-id>/plugin.ts
+server/domain/formats/<format-id>/plugin.test.ts
+src/formats/<format-id>.adapter.ts       # optional
+server/domain/formats/index.ts           # server registrations only
+src/formats/index.ts                     # exceptional client adapters only
+```
+
+#### Slice 1 — Lock the extension contract with tests
+
+- [ ] Introduce `FormatPlugin`, `FormatDescriptor`, `FormatMetric`, setup-plan, and optional client-adapter contracts.
+- [ ] Add registry contract tests: unique ids, descriptor validity, metric validity, config validation, and deterministic listing.
+- [ ] Add a test-only canary plugin that uses a previously unknown format id and high-wins metric. Prove it registers, appears in the catalog, plans setup, compiles, scores, and ranks without editing infrastructure maps.
+- [ ] Add an architecture test that forbids a second **format** registry and catches format-id decomposition tables outside the canonical registry. Explicitly allow the separate `strategies/ball-creation/` registry: it is a different seam whose adapters are reusable across formats and own derivation rather than scoring.
+
+- [ ] **Gate:** contract tests red first, then green; no production scoring path changed yet.
+
+**Completion record:** commit `—` · verification `—` · handoff `—`
+
+#### Slice 2a — One canonical scoring engine
+
+- [ ] Make leaderboard materialisation build the new `RoundContext`, ordered `SlotBall[]`, team groupings, format config, and strategy events from compiler tables + the event log.
+- [ ] Resolve the registered plugin by `format_id` and call its `score()` implementation. The compiler and runtime must cross the same plugin interface.
+- [ ] Carry `formatId` and `slotDefId` through `StrategyResult`; do not recover identity from slot array position.
+- [ ] Move ranking direction into registered metrics and remove `directionByType`.
+- [ ] Migrate every existing built-in to this path and prove numeric parity. Keep the legacy engine temporarily for the static render pipeline only; no production service may call it after this slice.
+
+- [ ] **Gate:** service/API tests prove every built-in scores through the registered plugin; production services have exactly one scoring registry. Canonical fixture HTML may still use legacy result types until 2b.
+
+**Completion record:** commit `—` · verification `—` · handoff `—`
+
+#### Slice 2b — Generic static fixture rendering
+
+- [ ] Move the `scripts/render/*` pipeline onto the canonical `StrategyResult` and registered descriptor. It must not import `server/domain/format.ts`, legacy scoring helpers, or identify formats with switches such as `isBallTaliban`.
+- [ ] Define structured, serializable result sections sufficient for the static verification pages: ranked metrics, ball hole tables, match/team comparisons, category matrices, derivation/allowance arithmetic, and strategy annotations.
+- [ ] Make the static renderer generic over those sections. Format-specific arithmetic and golf idiom originate in the plugin's structured result, not in a parallel scoring implementation inside the renderer.
+- [ ] Treat static HTML rendering as a first-class consumer of the plugin contract. It does not get a separate per-format registry or adapter mechanism; otherwise the acceptance test would merely move format coupling from the mobile client into `scripts/`.
+- [ ] Preserve the standing hand-verification quality: match-play status, Taliban multipliers, Köpenhamnare topology, Umbrella categories, and handicap arithmetic must remain visible.
+
+- [ ] **Gate:** `bun run seed:formats` + `bun run render:formats` produce complete pages from canonical plugin results only, with no legacy format imports or format-id dispatch in `scripts/render/`.
+
+**Completion record:** commit `—` · verification `—` · handoff `—`
+
+#### Slice 2c — Delete the legacy engine
+
+- [ ] Delete `server/domain/format.ts`, `server/domain/formats/*`, their duplicate tests, and obsolete format-specific files under `scripts/render/scorecards/`.
+- [ ] Move genuinely format-agnostic hole/course/result types into canonical modules rather than retaining the legacy file as a type barrel.
+- [ ] Run the deletion test on one built-in: remove its plugin module + central registration and prove server build, generic fixture renderer, and generic mobile surfaces contain no residual import, switch branch, label, or scoring rule for it.
+
+- [ ] **Gate:** repository search finds one format registry, one scoring implementation per format, and no format-specific static render dispatch.
+
+**Completion record:** commit `—` · verification `—` · handoff `—`
+
+#### Slice 3 — Canonical slot persistence and read model
+
+- [ ] Add generic `format_id` and `format_config` columns to `slots`. No format-specific columns or tables.
+- [ ] Read rounds and slots from `slots` / `slot_balls`, not `round_format_slots`.
+- [ ] Return `formatId`, `slotDefId`, `allowanceConfig`, `formatConfig`, and `ballMode` in the Round read model.
+- [ ] Remove both `FORMAT_ID_DECOMPOSITION` maps and stop reconstructing format identity from `(scoring_mode, team_shape)`.
+- [ ] Keep `scoring_mode` and `team_shape` only as registry-derived query metadata if they remain useful; they are not lookup keys.
+- [ ] Retire `round_format_slots` after fixture/backfill parity proves no read or write path depends on it.
+
+- [ ] **Gate:** an unknown registered canary id round-trips through persistence without becoming `custom × custom`.
+
+**Completion record:** commit `—` · verification `—` · handoff `—`
+
+#### Slice 4 — Deepen compiler validation
+
+- [ ] Make the compiler enforce the full registered requirement: producer count, slot ball count, ball mode, team count, team size, disjointness, coverage, selector references, and format-config schema.
+- [ ] Implement requirement-based auto-selection when `ballSelector` is omitted; never default blindly to every ball in a mixed own-ball/team-ball round.
+- [ ] Validate `deriveSlotBalls()` output is one-for-one with the selected balls and contains no unknown/duplicate ids.
+- [ ] Return structured diagnostics with stable codes and paths. Plugin implementations may retain defensive checks, but invalid setup must normally stop at compile time.
+
+- [ ] **Gate:** malformed 3+1 teams, overlapping teams, incompatible ball modes, unknown selector ids, and invalid config all fail before persistence.
+
+**Completion record:** commit `—` · verification `—` · handoff `—`
+
+#### Slice 5 — Catalog + server-side round setup planner
+
+- [ ] Add authenticated `GET /formats` exposing registered serializable descriptors.
+- [ ] Add a UI-level `RoundSetupDraft`: course/date, producers/tees, selected format ids, team assignments, allowance overrides, and format-specific config.
+- [ ] Add a pure `RoundDefinitionBuilder` that asks each selected plugin's `planSetup` for its slot/ball needs, coalesces reusable ball-creation strategies, and emits the canonical `RoundDefinition`.
+- [ ] The mobile API creates from `RoundSetupDraft`; direct `RoundDefinition` creation remains an internal/admin/testing interface.
+- [ ] Return compiler diagnostics in a structured response the mobile wizard can attach to the relevant format/team/player control.
+
+This keeps ball-strategy ids, derivation config, selectors, and dedupe rules out of the mobile client. The server remains the authority on what a format needs.
+
+- [ ] **Gate:** mixed selections such as stableford + better-ball + foursomes produce one own-ball strategy plus the required pair-ball strategy without client conditionals.
+
+**Completion record:** commit `—` · verification `—` · handoff `—`
+
+#### Slice 6 — Migrate the mobile round wizard
+
+- [ ] Replace `src/formats.ts`, `pairBall`, `needsTeams`, and client-side `RoundDefinition` construction with a `FormatCatalogService` backed by `GET /formats`.
+- [ ] Render labels, descriptions, allowance defaults, participant bounds, and grouping requirements from descriptors.
+- [ ] Replace the fixed A/B team editor with a generic team assignment editor driven by declared team count/size. Keep the touch-first mobile interaction.
+- [ ] Generic setup controls cover common scalar/choice config. A plugin with unusual setup UI uses its optional client adapter.
+- [ ] Submit `RoundSetupDraft`; display structured planner/compiler diagnostics inline.
+- [ ] Round list and slot labels use `formatId` + catalog descriptor, with a robust id fallback for historical/unavailable plugins.
+
+- [ ] **Gate:** create and reopen individual, own-ball team, team-ball, and multi-slot rounds entirely through the mobile UI.
+
+**Completion record:** commit `—` · verification `—` · handoff `—`
+
+#### Slice 7 — Migrate mobile score entry
+
+- [ ] Treat the round's ball pool as the entry surface: one stroke entry per unique ball/hole, regardless of how many slots consume it.
+- [ ] Group or label own-balls and team-balls clearly when a round contains both; never duplicate entry controls per format slot.
+- [ ] Stop attaching producer source ids to ordinary own-ball score events after the canonical engine migration. Producer-specific metadata remains explicit metadata, not duplicated score rows.
+- [ ] Add score-entry capabilities to the descriptor. Generic controls handle strokes plus simple boolean/number metadata; specialised interactions use the optional client adapter.
+- [ ] Preserve optimistic entry and `client_event_id` idempotency. Isolate event transport in the score feature service so Phase 2.6d can replace embedded metadata with typed metadata events without rewriting components.
+
+- [ ] **Gate:** the kitchen-sink topology can enter four own-balls plus two team-balls once each per hole, and every slot updates from that shared log.
+
+**Completion record:** commit `—` · verification `—` · handoff `—`
+
+#### Slice 8 — Migrate mobile results
+
+- [ ] Replace the global `byScoringType + pairResults` presentation contract with ordered per-slot result views carrying `slotDefId`, `formatId`, descriptor label, and sections.
+- [ ] Generic sections cover ranked metrics and match/team-vs-team summaries. A plugin may emit a typed custom payload only when generic sections cannot express its golf idiom.
+- [ ] Build tabs from slots, not scalar metric buckets. This fixes pair-only match-play, which currently has no tab when it emits no scalar totals.
+- [ ] The server ranks using each registered metric's direction. The client displays rankings; it never interprets scoring-type strings.
+- [ ] Register specialised client results adapters only for formats whose presentation genuinely differs; unknown adapters fall back to a structured diagnostic view rather than hiding results.
+
+- [ ] **Gate:** stroke-play, stableford, individual match-play, better-ball match-play, Köpenhamnare, Taliban, and Umbrella all render correctly on mobile; pair-only slots are visible.
+
+**Completion record:** commit `—` · verification `—` · handoff `—`
+
+#### Slice 9 — Deletion and extension proof
+
+- [ ] Delete legacy client catalog/label maps, legacy scoring modules, decomposition maps, and format-specific generic render switches made obsolete by adapters.
+- [ ] Keep canonical fixture workflow: `bun run seed:formats`, then `bun run render:formats` from the rebuilt fixture DB.
+- [ ] Add client tests for catalog-driven setup, team validation, mixed topology, generic result sections, pair-only results, and missing-adapter fallback.
+- [ ] Hand-test the mobile web app at narrow and wide viewport sizes for round creation → score entry → results.
+- [ ] Perform the acceptance test with the canary plugin. Production infrastructure files must remain untouched beyond central registration; tests/fixture registration are expected proof, not runtime coupling.
+
+**Final 2.6b gate:**
+- [ ] `bun run check:server`, `check:client`, `check:test`, `bun test`, and format fixture checks green.
+- [ ] All existing format outputs remain numerically identical.
+- [ ] One canonical server registry; zero format decomposition maps.
+- [ ] Generic formats require no client code.
+- [ ] Special formats require at most one colocated client adapter + one client registration entry.
+- [ ] Mobile wizard, score entry, and results consume plugin-driven contracts end-to-end.
+- [ ] Commit: `phase 2.6b complete: registered format plugins + mobile client`.
+
+**Completion record:** commit `—` · verification `—` · handoff `—`
 
 ### 2.6c — New ball-creation & format coverage + kitchen-sink multi-slot seed
 
