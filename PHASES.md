@@ -392,7 +392,7 @@ This section is the canonical cross-session handoff for 2.6b-final. Update it be
 
 Status values: `NOT STARTED` → `IN PROGRESS` → `AWAITING VISUAL VERIFY` → `COMPLETE` (or `BLOCKED`).
 
-**Resume here:** Slice 4 (compiler validation) is `COMPLETE` on branch `slice-4-compiler-validation` — all items + gate green (353 pass, +17; 13 fixtures numerically identical), **pending a user commit**. Next is **Slice 5 — catalog + server-side round-setup planner**. Slice 3c detail (still the live runtime state) is retained below.
+**Resume here:** Slice 4 (compiler validation) is `COMPLETE` (commit `028c490`) on branch `slice-4-compiler-validation` — all items + gate green (353 pass, +17; 13 fixtures numerically identical). Next is **Slice 5 — catalog + server-side round-setup planner**. Slice 3c detail (still the live runtime state) is retained below.
 
 Slice 4 — what landed:
 
@@ -427,7 +427,7 @@ Slice 3c (live runtime state):
 | 3a — Slot persistence | COMPLETE | `c005633` | `slots` canonical (mig 021 format_id/format_config); compiler on plugin registry, registry-derived mode/shape; read model off `slots`; both FORMAT_ID_DECOMPOSITION maps gone + ratchet tightened; canary round-trips. round_format_slots table + createLegacy/backfill kept as deprecated bridge (physical drop deferred) |
 | 3b — Hole itinerary persistence | COMPLETE | `6ce0945` | Migrations 022/023/024 (round_play_holes + round_play_tee_holes + playing_groups + backfill); RoundDefinitionInput→normalize→ResolvedRoundDefinition (resolved-v1); compiler builds itinerary + exhaustive/exclusive group membership; persist diff-upserts (reorder preserves ids); read model exposes playHoles/routeSi/policy/sections/playingGroups; tee_times live path retired (table kept as backfill source). 319 pass, all typechecks green; visual gate approved |
 | 3c — Itinerary scoring migration | COMPLETE | `0fd1e92` | Migration 025 flips score_events/scorecards onto play_hole_id (trigger + unique index rekeyed, backfilled); central `strokesReceivedForStrokeIndex` allocator (cycle-driven, plus + PH>cycle); `createRoundContext` factory (occurrences + shotgun rotation + occurrence labels); all 10 built-ins iterate occurrences; result rows carry play-hole identity; round_type retired from scoring/render; renderer segments by routeSections. 336 tests pass, all typechecks green, 13 fixtures numerically identical; visual gate `tmp/formats/slice-3c-verify.html` (8 route scenarios) user-approved |
-| 4 — Compiler validation | COMPLETE (pending commit) | — | All items + gate green on branch `slice-4-compiler-validation`; 353 pass (+17), 13 fixtures identical. Awaiting user commit |
+| 4 — Compiler validation | COMPLETE | `028c490` | All items + gate green on branch `slice-4-compiler-validation`; 353 pass (+17), 13 fixtures identical |
 | 5 — Catalog + planner | NOT STARTED | — | Waits on Slice 4 |
 | 6 — Static deletion proof | NOT STARTED | — | Final 2.6b server/static acceptance slice |
 | 2.6e — Mobile repair + migration | DEFERRED | — | Starts only after 2.6c and 2.6d are complete |
@@ -645,7 +645,7 @@ src/formats/index.ts                     # exceptional client adapters only
 
 - [x] **Gate:** malformed 3+1 teams, overlapping teams, incompatible ball modes, unknown selector ids, and invalid config all fail before persistence. → `server/domain/compiler/compile-validation.test.ts` (17 tests, one per rejection path) — 3+1 → `team_size_*`, overlap → `overlapping_teams`, mode → `ball_mode_violation`, unknown selector → `unknown_selector_*`, bad config → plugin diagnostic. Existing canonical fixtures still compile + stay numerically identical (`check:format-fixtures` 13 rounds).
 
-**Completion record:** commit `(pending — user commits)` · verification `check:server/check:client/check:test + bun test (353 pass, +17) green; seed:formats/render:formats/check:format-fixtures (13 rounds, numerically identical) green` · handoff `Slice 5 — catalog (GET /formats) + server-side RoundSetupDraft/RoundDefinitionBuilder planner; the planSetup stubs in builtins.ts land for real here`
+**Completion record:** commit `028c490` · verification `check:server/check:client/check:test + bun test (353 pass, +17) green; seed:formats/render:formats/check:format-fixtures (13 rounds, numerically identical) green` · handoff `Slice 5 — catalog (GET /formats) + server-side RoundSetupDraft/RoundDefinitionBuilder planner; the planSetup stubs in builtins.ts land for real here`
 
 #### Slice 5 — Catalog + server-side round setup planner
 
