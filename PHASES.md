@@ -392,7 +392,7 @@ This section is the canonical cross-session handoff for 2.6b-final. Update it be
 
 Status values: `NOT STARTED` → `IN PROGRESS` → `AWAITING VISUAL VERIFY` → `COMPLETE` (or `BLOCKED`).
 
-**Resume here:** Slice 2c is `COMPLETE`. The legacy engine is gone: `domain/format.ts`, `domain/leaderboard.ts`, the 10 legacy strategy files (+ `_*-scoring.ts`/`_match-play-handicap.ts` helpers + their duplicate tests) and the `scoreRound`→`Leaderboard` adapter are deleted. The surviving canonical materialiser is `server/domain/round-materializer.ts` (`materializeRound` only — no ranking/adapter). `leaderboardService.forRound()` is retired; the leaderboards API (`server/api/leaderboards.api.ts`) now serves the canonical `RoundResult` from `resultForRound()`, the client was regenerated (`src/api/leaderboards.gen.ts` → `RoundResult`), and the mobile results view (`src/results/*`) is a compile-only placeholder pending 2.6e M4. `CourseHole` lives in `server/domain/round-holes.ts`. Start **Slice 3a — Canonical slot persistence and read model**. 3a's first job: add generic `format_id` + `format_config` columns to `slots`, read rounds/slots from `slots`/`slot_balls` (not `round_format_slots`), and remove BOTH `FORMAT_ID_DECOMPOSITION` maps (`server/domain/compiler/compile.ts:586`, `server/domain/compiler/synthesize-legacy.ts`) — these are the only remaining format-id decomposition tables and are architecture-ratchet-tracked. An unknown registered canary id must round-trip through persistence without becoming `custom × custom`. No itinerary/event behaviour changes in 3a.
+**Resume here:** Slice 3a is `COMPLETE` (automated gates; no intended visible change). `slots` is now the canonical slot store: migration `021_slots_format_columns.ts` adds generic `format_id` + `format_config` (backfilled from the latest `round_definitions` version per slot_def_id, no decomposition map). The compiler resolves formats through the canonical **plugin** registry (`findFormatPlugin`, not `findFormatStrategy`), writes `format_id`/`format_config` verbatim, and copies registry-derived `scoring_mode`/`team_shape` from the plugin descriptor. `RoundService` reads `Round.formatSlots` off `slots` (new read shape: `slotIndex, slotDefId, formatId, scoringMode, teamShape, allowancePct, allowanceConfig, formatConfig, ballMode`); the canonical `create({definition})` path no longer writes `round_format_slots`. BOTH `FORMAT_ID_DECOMPOSITION` maps (`compile.ts` + `round.service.ts`) are deleted and dropped from the architecture-ratchet allowlist. The canary round-trip gate is proven in `round.service.test.ts`. **Deferred (per user + task-6 guard):** `round_format_slots` table is NOT physically dropped, and `createLegacy` / migration 019 / `synthesize-legacy.ts` / `backfill/round-definitions.ts` survive untouched as the explicitly-deprecated legacy migration/test bridge (they still read `round_format_slots`, which is legitimate for legacy data) — physically drop the table only in the later legacy-schema slice once every legacy caller is gone. Start **Slice 3b — Hole itinerary and playing-group persistence**.
 
 | Slice | Status | Commit | Resume note |
 |---|---|---|---|
@@ -403,7 +403,7 @@ Status values: `NOT STARTED` → `IN PROGRESS` → `AWAITING VISUAL VERIFY` → 
 | 2b preflight — 3-player shared-log fixture | COMPLETE | `bb2a90e` | Stableford + Köpenhamnare + match play share one event log in canonical fixtures |
 | 2b — Static rendering | COMPLETE | d43fec7 | Render consumes `resultForRound()` → serializable sections; gates green, 13 fixtures rendered; focused checks approved. Legacy `leaderboard-engine.ts` adapter + `forRound()` retained for API/mobile, removed in 2c |
 | 2c — Legacy deletion | COMPLETE | d92a59a | Deleted domain/format.ts + domain/leaderboard.ts + 10 legacy strategy files + scoreRound adapter; materialiser → round-materializer.ts; forRound() retired, leaderboards API now serves RoundResult, mobile results stubbed (2.6e) |
-| 3a — Slot persistence | NOT STARTED | — | Waits on Slice 2c |
+| 3a — Slot persistence | COMPLETE | `c005633` | `slots` canonical (mig 021 format_id/format_config); compiler on plugin registry, registry-derived mode/shape; read model off `slots`; both FORMAT_ID_DECOMPOSITION maps gone + ratchet tightened; canary round-trips. round_format_slots table + createLegacy/backfill kept as deprecated bridge (physical drop deferred) |
 | 3b — Hole itinerary persistence | NOT STARTED | — | Waits on Slice 3a |
 | 3c — Itinerary scoring migration | NOT STARTED | — | Waits on Slice 3b |
 | 4 — Compiler validation | NOT STARTED | — | Waits on Slice 3c |
@@ -568,16 +568,16 @@ src/formats/index.ts                     # exceptional client adapters only
 
 #### Slice 3a — Canonical slot persistence and read model
 
-- [ ] Add generic `format_id` and `format_config` columns to `slots`. No format-specific columns or tables.
-- [ ] Read rounds and slots from `slots` / `slot_balls`, not `round_format_slots`.
-- [ ] Return `formatId`, `slotDefId`, `allowanceConfig`, `formatConfig`, and `ballMode` in the Round read model.
-- [ ] Remove both `FORMAT_ID_DECOMPOSITION` maps and stop reconstructing format identity from `(scoring_mode, team_shape)`.
-- [ ] Keep `scoring_mode` and `team_shape` only as registry-derived query metadata if they remain useful; they are not lookup keys.
-- [ ] Retire `round_format_slots` after fixture/backfill parity proves no read or write path depends on it.
+- [x] Add generic `format_id` and `format_config` columns to `slots`. No format-specific columns or tables. → migration `021_slots_format_columns.ts` (backfilled from latest `round_definitions` per `slot_def_id`); typed on `SlotsTable`.
+- [x] Read rounds and slots from `slots` / `slot_balls`, not `round_format_slots`. → `RoundService.slotsFor` reads `slots`; `ballsForRound` already reads `slot_balls`/`slots`. No canonical read touches `round_format_slots`.
+- [x] Return `formatId`, `slotDefId`, `allowanceConfig`, `formatConfig`, and `ballMode` in the Round read model. → new `FormatSlot` read shape (+ registry-derived `scoringMode`/`teamShape`/`allowancePct` retained for render/index consumers).
+- [x] Remove both `FORMAT_ID_DECOMPOSITION` maps and stop reconstructing format identity from `(scoring_mode, team_shape)`. → deleted from `compile.ts` + `round.service.ts`; both dropped from the architecture-ratchet allowlist. (The `synthesize-legacy.ts` reverse map survives as the frozen *legacy-data* migration bridge — it reads genuinely pre-3a `round_format_slots` rows that have no `format_id`; documented, not in the live canonical path.)
+- [x] Keep `scoring_mode` and `team_shape` only as registry-derived query metadata if they remain useful; they are not lookup keys. → compiler copies them from `plugin.descriptor`; never used as a lookup key.
+- [~] Retire `round_format_slots` after fixture/backfill parity proves no read or write path depends on it. → retired from ALL canonical reads/writes. Physical table DROP **deferred** to the later legacy-schema slice (the backfill — migration 019 + `synthesize-legacy.ts` + `backfill/round-definitions.ts` — and `createLegacy` still legitimately depend on it, per task-6 guard and the documented `createLegacy` retirement schedule).
 
-- [ ] **Gate:** an unknown registered canary id round-trips through persistence without becoming `custom × custom`; no itinerary/event behaviour changes in this slice.
+- [x] **Gate:** an unknown registered canary id round-trips through persistence without becoming `custom × custom`; no itinerary/event behaviour changes in this slice. → `round.service.test.ts` "an unknown registered (canary) format id round-trips…"; `format_id` persists verbatim, `scoring_mode`='canary_points'. No score-event/itinerary code touched.
 
-**Completion record:** commit `—` · verification `—` · handoff `—`
+**Completion record:** commit `c005633` · verification `check:server/client/test + bun test (306 pass) + seed:formats/render:formats/check:format-fixtures (13 rounds) green; architecture ratchet tightened (compile.ts + round.service.ts removed from decomposition allowlist)` · visual gate `not applicable — no intended visible change (visual-gate map: not normally required)` · handoff `Slice 3b — round_play_holes itinerary + playing_groups persistence`
 
 #### Slice 3b — Hole itinerary and playing-group persistence
 

@@ -34,7 +34,7 @@ import {
     findBallCreationStrategy,
     type BallCreationStrategy,
 } from '../strategies/ball-creation-strategy';
-import { findFormatStrategy } from '../strategies/format-strategy';
+import { findFormatPlugin } from '../formats/plugin';
 import type {
     BallCreationProducerInput,
     CreatedBall,
@@ -421,17 +421,22 @@ function compileSlot(
     slotBallTeams: CompiledSlotBallTeam[],
     diags: CompilerDiagnostic[],
 ): void {
-    let format;
+    let plugin;
     try {
-        format = findFormatStrategy(slotDef.formatId);
+        plugin = findFormatPlugin(slotDef.formatId);
     } catch {
         diags.push({
             code: 'unknown_format',
-            message: `no format strategy registered for id '${slotDef.formatId}'`,
+            message: `no format plugin registered for id '${slotDef.formatId}'`,
             path: `slots[${slotDef.id}].formatId`,
         });
         return;
     }
+    const format = {
+        id: plugin.descriptor.id,
+        ballRequirement: () => plugin.descriptor.requirements.balls,
+        deriveSlotBalls: plugin.deriveSlotBalls.bind(plugin),
+    };
 
     const req = format.ballRequirement();
     const selected = selectBallsForSlot(slotDef, strategies, allBalls);
@@ -491,12 +496,16 @@ function compileSlot(
 
     const slotRowId = hashId('tapscore:slot:v1', input.roundId, slotDef.id);
     const ballMode = req.ballMode === 'team' ? 'team' : 'own';
-    const { scoringMode, teamShape } = splitFormatId(slotDef.formatId);
     slots.push({
         id: slotRowId,
         slotDefId: slotDef.id,
-        scoringMode,
-        teamShape,
+        formatId: slotDef.formatId,
+        formatConfigJson:
+            slotDef.formatConfig === undefined ? null : JSON.stringify(slotDef.formatConfig),
+        // Registry-derived metadata — the descriptor is the source of truth,
+        // not a formatId→(mode,shape) decomposition table.
+        scoringMode: plugin.descriptor.scoringMode,
+        teamShape: plugin.descriptor.teamShape,
         allowanceConfigJson: JSON.stringify(slotDef.allowanceConfig),
         ballMode,
     });
@@ -568,27 +577,3 @@ function selectBallsForSlot(
     return out;
 }
 
-/**
- * Decompose a registered formatId into the (scoring_mode, team_shape)
- * columns legacy scoring used. Kept as an explicit table — derivation from
- * the string would miss cases like `umbrella_4_ball` → `('umbrella',
- * 'four_ball')` where naming diverges from a simple split.
- */
-const FORMAT_ID_DECOMPOSITION: Record<string, { scoringMode: string; teamShape: string }> = {
-    stroke_play_individual: { scoringMode: 'stroke_play', teamShape: 'individual' },
-    stableford_individual: { scoringMode: 'stableford', teamShape: 'individual' },
-    match_play_individual: { scoringMode: 'match_play', teamShape: 'individual' },
-    kopenhamnare_individual: { scoringMode: 'kopenhamnare', teamShape: 'individual' },
-    umbrella_individual: { scoringMode: 'umbrella', teamShape: 'individual' },
-    stroke_play_foursomes: { scoringMode: 'stroke_play', teamShape: 'foursomes' },
-    stableford_better_ball: { scoringMode: 'stableford', teamShape: 'better_ball' },
-    match_play_better_ball: { scoringMode: 'match_play', teamShape: 'better_ball' },
-    taliban_better_ball: { scoringMode: 'taliban', teamShape: 'better_ball' },
-    umbrella_4_ball: { scoringMode: 'umbrella', teamShape: 'four_ball' },
-};
-
-function splitFormatId(formatId: string): { scoringMode: string; teamShape: string } {
-    const hit = FORMAT_ID_DECOMPOSITION[formatId];
-    if (hit) return hit;
-    return { scoringMode: formatId, teamShape: 'custom' };
-}

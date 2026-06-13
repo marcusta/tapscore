@@ -27,10 +27,14 @@ export interface RoundBall {
 
 export interface FormatSlot {
     slotIndex: number;
+    slotDefId: string;
+    formatId: string;
     scoringMode: 'stroke_play' | 'stableford' | 'match_play' | 'kopenhamnare' | 'skins' | 'custom' | 'taliban' | 'umbrella';
     teamShape: 'custom' | 'individual' | 'better_ball' | 'scramble' | 'foursomes' | 'greensome' | 'four_ball';
     allowancePct: number;
-    scopeConfig: null | FormatSlotConfig;
+    allowanceConfig: { type: 'flat'; pct: number };
+    formatConfig: unknown;
+    ballMode: 'own' | 'team';
 }
 
 export interface RoundBallPlayer {
@@ -50,17 +54,12 @@ export interface RoundBallSlot {
     teamLabel: null | string;
 }
 
-export interface FormatSlotConfig {
-    scope?: { participantIds: string[] };
-    config?: Record<string, unknown>;
-}
-
 export interface RoundsApi {
     list(): Promise<Round[]>;
     balls(input: { roundId: string }): Promise<RoundBall[]>;
     get(input: { id: string }): Promise<null | Round>;
     create(input: { definition: { roundType?: 'full_18' | 'front_9' | 'back_9' | 'custom_holes'; venueType?: 'outdoor' | 'indoor'; startListMode?: 'structured' | 'fixed_slots' | 'open_window'; windowStart?: null | string; windowEnd?: null | string; selfOrganize?: boolean; courseId: string; playedAt: string; producers: ({ gender?: 'M' | 'F'; category?: string; id: string; handicapIndex: number; teeId: string; playerRef: { id: string; kind: 'player' | 'guest' } })[]; ballStrategies: ({ composition?: { teams: { label: string; producerDefIds: string[] }[] }; id: string; strategyId: string; derivationConfig: { type: 'single' } | { type: 'avg' } | { type: 'sum_of_ch' } | { type: 'weighted'; lowPct: number; highPct: number } | { type: 'by_rank'; chPcts: number[] } })[]; slots: { ballSelector?: { producerDefIds?: string[]; strategyDefIds?: string[] }; teamGrouping?: { teams: { label: string; producerDefIds: string[] }[] }; formatConfig?: unknown; id: string; formatId: string; allowanceConfig: { type: 'flat'; pct: number } }[] } }): Promise<Round>;
-    update(input: { roundType?: 'full_18' | 'front_9' | 'back_9' | 'custom_holes'; venueType?: 'outdoor' | 'indoor'; startListMode?: 'structured' | 'fixed_slots' | 'open_window'; windowStart?: null | string; windowEnd?: null | string; selfOrganize?: boolean; date?: string; status?: 'not_started' | 'active' | 'complete'; formatSlots?: ({ allowancePct: number; slotIndex: number; scoringMode: 'stroke_play' | 'stableford' | 'match_play' | 'kopenhamnare' | 'skins' | 'custom'; teamShape: 'custom' | 'individual' | 'better_ball' | 'scramble' | 'foursomes' | 'greensome'; scopeConfig: null | { scope?: { participantIds: string[] }; config?: { [x: string]: unknown; } } })[]; id: string }): Promise<Round>;
+    update(input: { status?: 'not_started' | 'active' | 'complete'; roundType?: 'full_18' | 'front_9' | 'back_9' | 'custom_holes'; venueType?: 'outdoor' | 'indoor'; startListMode?: 'structured' | 'fixed_slots' | 'open_window'; windowStart?: null | string; windowEnd?: null | string; selfOrganize?: boolean; date?: string; formatSlots?: ({ allowancePct: number; slotIndex: number; scoringMode: 'stroke_play' | 'stableford' | 'match_play' | 'kopenhamnare' | 'skins' | 'custom'; teamShape: 'custom' | 'individual' | 'better_ball' | 'scramble' | 'foursomes' | 'greensome'; scopeConfig: null | { scope?: { participantIds: string[] }; config?: { [x: string]: unknown; } } })[]; id: string }): Promise<Round>;
     remove(input: { id: string }): Promise<{ ok: boolean }>;
 }
 

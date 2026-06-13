@@ -202,6 +202,8 @@ async function syncSlots(trx: Exec, compiled: CompiledRound): Promise<void> {
                 id: s.id,
                 round_id: compiled.roundId,
                 slot_def_id: s.slotDefId,
+                format_id: s.formatId,
+                format_config: s.formatConfigJson,
                 scoring_mode: s.scoringMode as ScoringMode,
                 team_shape: s.teamShape as TeamShape,
                 allowance_config: s.allowanceConfigJson,
@@ -210,6 +212,8 @@ async function syncSlots(trx: Exec, compiled: CompiledRound): Promise<void> {
             .onConflict((oc) =>
                 oc.column('id').doUpdateSet({
                     slot_def_id: s.slotDefId,
+                    format_id: s.formatId,
+                    format_config: s.formatConfigJson,
                     scoring_mode: s.scoringMode as ScoringMode,
                     team_shape: s.teamShape as TeamShape,
                     allowance_config: s.allowanceConfigJson,

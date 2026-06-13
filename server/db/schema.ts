@@ -366,7 +366,13 @@ export interface SlotsTable {
     round_id: string;
     /** Stable id from `RoundDefinition.slots[].id`. */
     slot_def_id: string;
+    /** Registered format plugin id, stored verbatim (canonical identity). */
+    format_id: string;
+    /** Serialized `SlotDefinition.formatConfig` (opaque per-slot options), or null. */
+    format_config: string | null;
+    /** Registry-derived query metadata (plugin descriptor) — NOT a lookup key. */
     scoring_mode: ScoringMode;
+    /** Registry-derived query metadata (plugin descriptor) — NOT a lookup key. */
     team_shape: TeamShape;
     /** Serialized `FormatAllowanceConfig`. */
     allowance_config: string;

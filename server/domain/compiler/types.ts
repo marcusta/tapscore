@@ -92,7 +92,13 @@ export interface CompiledBallPlayer {
 export interface CompiledSlot {
     id: string;
     slotDefId: string;
+    /** Registered format plugin id, verbatim (canonical identity). */
+    formatId: string;
+    /** Serialized `SlotDefinition.formatConfig`, or null. */
+    formatConfigJson: string | null;
+    /** Registry-derived (plugin descriptor) query metadata, not a lookup key. */
     scoringMode: string;
+    /** Registry-derived (plugin descriptor) query metadata, not a lookup key. */
     teamShape: string;
     allowanceConfigJson: string;
     ballMode: 'own' | 'team';

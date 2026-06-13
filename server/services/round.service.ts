@@ -2,7 +2,8 @@ import type { Kysely, Selectable } from 'kysely';
 import type {
     Database,
     RoundsTable,
-    RoundFormatSlotsTable,
+    SlotsTable,
+    SlotBallMode,
     RoundType,
     VenueType,
     StartListMode,
@@ -10,7 +11,7 @@ import type {
     ScoringMode,
     TeamShape,
 } from '../db/schema';
-import type { RoundDefinition } from '../domain/round-definition';
+import type { FormatAllowanceConfig, RoundDefinition } from '../domain/round-definition';
 import type { CompilerInput, CompilerTeeContext, Gender } from '../domain/compiler/types';
 import { compile } from '../domain/compiler/compile';
 import { persistCompiledRound } from '../domain/compiler/persist';
@@ -40,7 +41,34 @@ export interface FormatSlotConfig {
     config?: Record<string, unknown>;
 }
 
+/**
+ * Canonical slot read model (Slice 3a). Built straight off the `slots` table.
+ *
+ * `formatId` is the authoritative identity (stored verbatim — an unknown but
+ * registered format id round-trips intact, never collapsing to
+ * `custom × custom`). `scoringMode` / `teamShape` are registry-derived query
+ * metadata copied from the plugin descriptor at compile time, NOT a lookup
+ * key. `allowancePct` is a convenience derived from a `flat` allowance config.
+ */
 export interface FormatSlot {
+    slotIndex: number;
+    slotDefId: string;
+    formatId: string;
+    scoringMode: ScoringMode;
+    teamShape: TeamShape;
+    allowancePct: number;
+    allowanceConfig: FormatAllowanceConfig;
+    formatConfig: unknown;
+    ballMode: SlotBallMode;
+}
+
+/**
+ * Legacy slot input shape for the deprecated `createLegacy` / `update`
+ * paths (and the HTTP `update` descriptor). These still write the legacy
+ * `round_format_slots` table — the bridge retired in a later legacy-schema
+ * slice. The canonical `create({ definition })` path does not use this.
+ */
+export interface LegacyFormatSlotInput {
     slotIndex: number;
     scoringMode: ScoringMode;
     teamShape: TeamShape;
@@ -79,7 +107,7 @@ export interface CreateRoundLegacyInput {
     windowStart?: string | null;
     windowEnd?: string | null;
     selfOrganize?: boolean;
-    formatSlots: FormatSlot[];
+    formatSlots: LegacyFormatSlotInput[];
 }
 
 /**
@@ -88,10 +116,10 @@ export interface CreateRoundLegacyInput {
  * legacy input had) AND the compiler input (producers, ballStrategies,
  * slots). The service transacts:
  *   1. `rounds` insert (round-level fields off the definition).
- *   2. `round_format_slots` insert (legacy render paths still read it —
- *      derived here by decomposing slot formatIds into (scoringMode,
- *      teamShape, allowancePct, scopeConfig)).
- *   3. `compile()` → `persistCompiledRound()` → all the 018 tables.
+ *   2. `compile()` → `persistCompiledRound()` → all the 018 tables,
+ *      including the `slots` rows the read model reads from. No legacy
+ *      `round_format_slots` write (Slice 3a) — slot identity is the verbatim
+ *      `format_id`, not a decomposed (scoringMode, teamShape) pair.
  * Dependencies injected via the `Deps` object keep the compiler input
  * assembly explicit and testable without a service-locator import cycle.
  */
@@ -139,7 +167,7 @@ export interface UpdateRoundInput {
     windowEnd?: string | null;
     selfOrganize?: boolean;
     status?: RoundStatus;
-    formatSlots?: FormatSlot[];
+    formatSlots?: LegacyFormatSlotInput[];
 }
 
 // --- Compiler wiring ---
@@ -164,43 +192,33 @@ export interface RoundServiceDeps {
 // --- Row mapping ---
 
 type RoundRow = Selectable<RoundsTable>;
-type FormatSlotRow = Selectable<RoundFormatSlotsTable>;
+type SlotRow = Selectable<SlotsTable>;
 
-function normaliseScopeConfig(parsed: unknown): FormatSlotConfig | null {
-    if (parsed === null || parsed === undefined) return null;
-    if (typeof parsed !== 'object' || Array.isArray(parsed)) {
-        // Non-object at top level — treat as opaque config blob.
-        return { config: { value: parsed } as Record<string, unknown> };
-    }
-    const obj = parsed as Record<string, unknown>;
-    const keys = Object.keys(obj);
-    // Already in the new shape (`scope` and/or `config`, nothing else at top level).
-    const isNewShape =
-        keys.length === 0 ||
-        keys.every((k) => k === 'scope' || k === 'config');
-    if (isNewShape) return obj as FormatSlotConfig;
-    // Legacy: `{participantIds: [...]}` top-level → move under `scope`.
-    if (Array.isArray(obj.participantIds)) {
-        const { participantIds, ...rest } = obj;
-        const out: FormatSlotConfig = {
-            scope: { participantIds: participantIds as string[] },
-        };
-        if (Object.keys(rest).length > 0) out.config = rest;
-        return out;
-    }
-    // Any other legacy blob → wrap entirely under `config`.
-    return { config: obj };
-}
-
-function toFormatSlot(row: FormatSlotRow): FormatSlot {
+/**
+ * Map a compiled `slots` row into the read model. `slotIndex` parses the
+ * `slot-${N}` def-id convention (falling back to the row's position for any
+ * other id scheme); `allowancePct` is read off a `flat` allowance config.
+ */
+function slotRowToFormatSlot(row: SlotRow, fallbackIndex: number): FormatSlot {
+    const m = /^slot-(\d+)$/.exec(row.slot_def_id);
+    const allowanceConfig = JSON.parse(row.allowance_config) as FormatAllowanceConfig;
     return {
-        slotIndex: row.slot_index,
+        slotIndex: m ? Number(m[1]) : fallbackIndex,
+        slotDefId: row.slot_def_id,
+        formatId: row.format_id,
         scoringMode: row.scoring_mode,
         teamShape: row.team_shape,
-        allowancePct: row.allowance_pct,
-        scopeConfig:
-            row.scope_config === null ? null : normaliseScopeConfig(JSON.parse(row.scope_config)),
+        allowancePct: allowanceConfig.type === 'flat' ? allowanceConfig.pct : 100,
+        allowanceConfig,
+        formatConfig: row.format_config === null ? null : JSON.parse(row.format_config),
+        ballMode: row.ball_mode,
     };
+}
+
+function toFormatSlots(rows: SlotRow[]): FormatSlot[] {
+    return rows
+        .map((r, i) => slotRowToFormatSlot(r, i))
+        .sort((a, b) => a.slotIndex - b.slotIndex);
 }
 
 function toRound(row: RoundRow, formatSlots: FormatSlot[]): Round {
@@ -221,35 +239,6 @@ function toRound(row: RoundRow, formatSlots: FormatSlot[]): Round {
     };
 }
 
-// --- formatId decomposition (mirror of compiler's) ---
-//
-// Needed here because `round_format_slots` still stores (scoring_mode,
-// team_shape) columns. Keep in sync with `compile.ts` FORMAT_ID_DECOMPOSITION.
-const FORMAT_ID_DECOMPOSITION: Record<
-    string,
-    { scoringMode: ScoringMode; teamShape: TeamShape }
-> = {
-    stroke_play_individual: { scoringMode: 'stroke_play', teamShape: 'individual' },
-    stableford_individual: { scoringMode: 'stableford', teamShape: 'individual' },
-    match_play_individual: { scoringMode: 'match_play', teamShape: 'individual' },
-    kopenhamnare_individual: { scoringMode: 'kopenhamnare', teamShape: 'individual' },
-    umbrella_individual: { scoringMode: 'umbrella', teamShape: 'individual' },
-    stroke_play_foursomes: { scoringMode: 'stroke_play', teamShape: 'foursomes' },
-    stableford_better_ball: { scoringMode: 'stableford', teamShape: 'better_ball' },
-    match_play_better_ball: { scoringMode: 'match_play', teamShape: 'better_ball' },
-    taliban_better_ball: { scoringMode: 'taliban', teamShape: 'better_ball' },
-    umbrella_4_ball: { scoringMode: 'umbrella', teamShape: 'four_ball' },
-};
-
-function splitFormatId(formatId: string): {
-    scoringMode: ScoringMode;
-    teamShape: TeamShape;
-} {
-    const hit = FORMAT_ID_DECOMPOSITION[formatId];
-    if (hit) return hit;
-    return { scoringMode: 'custom', teamShape: 'custom' };
-}
-
 export class RoundService {
     constructor(
         private db: Kysely<Database>,
@@ -266,12 +255,11 @@ export class RoundService {
         return this.rounds().where('id', '=', id);
     }
 
+    // Canonical slot read — from the compiler-owned `slots` table. (The
+    // legacy `round_format_slots` table is no longer read; it survives only
+    // as a deprecated write bridge for `createLegacy` / `update`.)
     private slotsFor(roundId: string) {
-        return this.db
-            .selectFrom('round_format_slots')
-            .selectAll()
-            .where('round_id', '=', roundId)
-            .orderBy('slot_index');
+        return this.db.selectFrom('slots').selectAll().where('round_id', '=', roundId);
     }
 
     // --- Queries (write) ---
@@ -327,7 +315,7 @@ export class RoundService {
         const result: Round[] = [];
         for (const row of rows) {
             const slots = await this.slotsFor(row.id).execute();
-            result.push(toRound(row, slots.map(toFormatSlot)));
+            result.push(toRound(row, toFormatSlots(slots)));
         }
         return result;
     }
@@ -336,7 +324,7 @@ export class RoundService {
         const row = await this.byId(id).executeTakeFirst();
         if (!row) return null;
         const slots = await this.slotsFor(id).execute();
-        return toRound(row, slots.map(toFormatSlot));
+        return toRound(row, toFormatSlots(slots));
     }
 
     async ballsForRound(roundId: string): Promise<RoundBall[]> {
@@ -420,9 +408,9 @@ export class RoundService {
 
     /**
      * Canonical create — compiles `definition` + persists v1 rows to the
-     * compiler-output tables (018) inside the same transaction as the
-     * `rounds` + `round_format_slots` inserts. Throws on compile
-     * diagnostics.
+     * compiler-output tables (018), including the `slots` rows that the read
+     * model now reads from. Throws on compile diagnostics. This path no
+     * longer writes the legacy `round_format_slots` table (Slice 3a).
      */
     async create(input: CreateRoundInput): Promise<Round> {
         if (!this.deps) {
@@ -433,25 +421,6 @@ export class RoundService {
         const deps = this.deps;
         const def = input.definition;
         const id = crypto.randomUUID();
-
-        // --- Decompose slots for round_format_slots (legacy storage) ---
-        const formatSlots: FormatSlot[] = def.slots.map((s, idx) => {
-            const { scoringMode, teamShape } = splitFormatId(s.formatId);
-            const scopeConfig: FormatSlotConfig | null =
-                s.formatConfig === undefined
-                    ? null
-                    : { config: s.formatConfig as Record<string, unknown> };
-            const allowancePct =
-                s.allowanceConfig.type === 'flat' ? s.allowanceConfig.pct : 100;
-            return {
-                slotIndex: idx,
-                scoringMode,
-                teamShape,
-                allowancePct,
-                scopeConfig,
-            };
-        });
-        this.validateSlots(formatSlots);
 
         // --- Build CompilerInput ---
         const courseHoles = await deps.getCourseHoles(def.courseId);
@@ -529,22 +498,6 @@ export class RoundService {
                 },
                 trx,
             ).execute();
-            if (formatSlots.length > 0) {
-                await this.insertSlots(
-                    formatSlots.map((s) => ({
-                        round_id: id,
-                        slot_index: s.slotIndex,
-                        scoring_mode: s.scoringMode,
-                        team_shape: s.teamShape,
-                        allowance_pct: s.allowancePct,
-                        scope_config:
-                            s.scopeConfig === null || s.scopeConfig === undefined
-                                ? null
-                                : JSON.stringify(s.scopeConfig),
-                    })),
-                    trx,
-                ).execute();
-            }
             await persistCompiledRound(trx, compileResult.compiled, {
                 sourceKind: 'initial',
             });
@@ -661,7 +614,7 @@ export class RoundService {
         await this.updateById(id, trx).set({ latest_event_id: eventId }).execute();
     }
 
-    private validateSlots(slots: FormatSlot[]): void {
+    private validateSlots(slots: LegacyFormatSlotInput[]): void {
         if (slots.length === 0) throw new Error('Round needs at least one format slot');
         const indices = slots.map((s) => s.slotIndex).sort((a, b) => a - b);
         for (let i = 0; i < indices.length; i++) {

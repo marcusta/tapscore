@@ -38,8 +38,9 @@ const ALLOWED_FORMAT_REGISTRARS = new Set([
 
 /** Files permitted to hold a format-id → behaviour decomposition map. */
 const ALLOWED_DECOMPOSITION = new Set([
-    'server/domain/compiler/compile.ts', // FORMAT_ID_DECOMPOSITION — removed in Slice 3
-    'server/services/round.service.ts', // FORMAT_ID_DECOMPOSITION — removed in Slice 3
+    // compile.ts + round.service.ts maps removed in Slice 3a — the compiler
+    // stores format_id verbatim and copies registry-derived scoring_mode /
+    // team_shape from the plugin descriptor; the read model reads `slots`.
     'src/formats.ts', // client catalog copy — removed in Slice 6
 ]);
 
