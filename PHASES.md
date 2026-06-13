@@ -439,7 +439,7 @@ Slice 3c (live runtime state):
 | 3b — Hole itinerary persistence | COMPLETE | `6ce0945` | Migrations 022/023/024 (round_play_holes + round_play_tee_holes + playing_groups + backfill); RoundDefinitionInput→normalize→ResolvedRoundDefinition (resolved-v1); compiler builds itinerary + exhaustive/exclusive group membership; persist diff-upserts (reorder preserves ids); read model exposes playHoles/routeSi/policy/sections/playingGroups; tee_times live path retired (table kept as backfill source). 319 pass, all typechecks green; visual gate approved |
 | 3c — Itinerary scoring migration | COMPLETE | `0fd1e92` | Migration 025 flips score_events/scorecards onto play_hole_id (trigger + unique index rekeyed, backfilled); central `strokesReceivedForStrokeIndex` allocator (cycle-driven, plus + PH>cycle); `createRoundContext` factory (occurrences + shotgun rotation + occurrence labels); all 10 built-ins iterate occurrences; result rows carry play-hole identity; round_type retired from scoring/render; renderer segments by routeSections. 336 tests pass, all typechecks green, 13 fixtures numerically identical; visual gate `tmp/formats/slice-3c-verify.html` (8 route scenarios) user-approved |
 | 4 — Compiler validation | COMPLETE | `028c490` | All items + gate green on branch `slice-4-compiler-validation`; 353 pass (+17), 13 fixtures identical |
-| 5 — Catalog + planner | COMPLETE | `<impl>` | On branch `slice-5-catalog-planner` (off slice 4). All items + gate green (376 pass, +23; 13 fixtures numerically identical). Visual gate `tmp/formats/slice-5-verify.html` (4 scenarios: mixed-format coalescing, producer subset, named template, custom difficulty-SI) user-approved 2026-06-13 |
+| 5 — Catalog + planner | COMPLETE | `2ed77ba` | On branch `slice-5-catalog-planner` (off slice 4). All items + gate green (376 pass, +23; 13 fixtures numerically identical). Visual gate `tmp/formats/slice-5-verify.html` (4 scenarios: mixed-format coalescing, producer subset, named template, custom difficulty-SI) user-approved 2026-06-13 |
 | 6 — Static deletion proof | NOT STARTED | — | Final 2.6b server/static acceptance slice |
 | 2.6e — Mobile repair + migration | DEFERRED | — | Starts only after 2.6c and 2.6d are complete |
 
@@ -678,7 +678,7 @@ This keeps ball-strategy ids, derivation config, selectors, and dedupe rules out
 
 - [x] **Human visual gate:** `tmp/formats/slice-5-verify.html` (`bun scripts/render-slice-5-verify.ts`) — 4 scenarios showing catalog → draft → server-built definition → compiled round. User-approved 2026-06-13.
 
-**Completion record:** commit `<impl>` · verification `check:server/check:client/check:test + bun test (376 pass, +23) green; seed:formats/render:formats/check:format-fixtures (13 rounds, numerically identical) green` · visual gate `tmp/formats/slice-5-verify.html (4 scenarios) — user-approved 2026-06-13` · handoff `Slice 6 — static deletion + extension proof`
+**Completion record:** commit `2ed77ba` · verification `check:server/check:client/check:test + bun test (376 pass, +23) green; seed:formats/render:formats/check:format-fixtures (13 rounds, numerically identical) green` · visual gate `tmp/formats/slice-5-verify.html (4 scenarios) — user-approved 2026-06-13` · handoff `Slice 6 — static deletion + extension proof`
 
 #### Slice 6 — Static deletion and extension proof
 
