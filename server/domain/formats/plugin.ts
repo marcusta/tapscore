@@ -1,0 +1,263 @@
+// Phase 2.6b-final / Slice 1 — the format plugin contract + canonical registry.
+//
+// A format is a source-level plugin. ONE authoritative server registration
+// (`registerFormat`) owns the whole format: a serializable descriptor that
+// drives the catalog + generic mobile UI, plus the pure server behaviour
+// (`planSetup`, `validateConfig`, `deriveSlotBalls`, `score`). See ADR
+// docs/adr/0001 and PHASES.md §2.6b-final.
+//
+// This registry is the CANONICAL format registry. The legacy strategy-only
+// registry in `../strategies/format-strategy.ts` still drives the compiler +
+// leaderboard until Slice 2a/2c; the architecture test tracks both and
+// forbids any third. Ball-creation strategies live in a deliberately
+// separate registry (`../strategies/ball-creation-strategy.ts`) because they
+// own reusable ball composition + handicap derivation, not format scoring.
+//
+// Slice 1 only locks the contract + registry with tests. No production
+// scoring path is rewired here — that is Slice 2a. The compiler can already
+// resolve a plugin via `pluginAsFormatStrategy` (the bridge Slice 2a makes
+// canonical).
+
+import { Value } from '@sinclair/typebox/value';
+
+import { FormatAllowanceConfig, type BallDerivationConfig } from '../round-definition';
+import type {
+    DeriveSlotBallsInput,
+    DerivedSlotBall,
+    FormatBallRequirement,
+    FormatStrategy,
+    ScoreInput,
+} from '../strategies/format-strategy';
+import type { StrategyResult } from '../strategies/types';
+
+// --- Descriptor (serializable) ---------------------------------------------
+
+export type MetricDirection = 'high' | 'low';
+
+/**
+ * One ranked output a format produces. `id` MUST match the `scoringType`
+ * the format emits on `BallResult.totals[]` — leaderboard code ranks by
+ * this metric's `direction` and never guesses direction from a string.
+ */
+export interface FormatMetric {
+    id: string;
+    label: string;
+    direction: MetricDirection;
+}
+
+/**
+ * Score-entry capabilities the generic mobile surface can render without a
+ * client adapter. Strokes-per-ball is the baseline; boolean/number metadata
+ * fields list the simple per-hole channels a format consumes (GIR, putts).
+ * Anything richer uses the optional client adapter (Slice 7).
+ */
+export interface ScoreEntryCapabilities {
+    strokes: boolean;
+    booleanMetadata?: string[];
+    numberMetadata?: string[];
+}
+
+export interface FormatRequirements {
+    /** Ball/team/count shape the compiler validates before `score()`. */
+    balls: FormatBallRequirement;
+    scoreEntry?: ScoreEntryCapabilities;
+}
+
+/**
+ * Serializable format metadata. Drives the server `GET /formats` catalog
+ * (Slice 5) and the generic mobile UI (Slice 6). Carries NO functions —
+ * `JSON.parse(JSON.stringify(descriptor))` must round-trip identically.
+ */
+export interface FormatDescriptor {
+    id: string;
+    label: string;
+    description: string;
+    /** Query metadata, registry-derived — NOT a behaviour lookup key. */
+    scoringMode: string;
+    teamShape: string;
+    requirements: FormatRequirements;
+    defaults: { allowanceConfig: FormatAllowanceConfig };
+    /** At least one; ids unique within the descriptor. */
+    metrics: FormatMetric[];
+    /** Non-null id ⇒ this format declares a mobile client adapter. */
+    clientAdapterId: string | null;
+}
+
+// --- Setup planning ---------------------------------------------------------
+//
+// `planSetup` is a PURE translation of a UI-level format selection into the
+// ball-creation needs + slot it contributes. It does NOT persist and does
+// NOT assign stable def-ids — the RoundDefinitionBuilder (Slice 5) coalesces
+// reusable ball strategies across formats and stamps def-ids before compile.
+
+export interface SetupProducer {
+    producerDefId: string;
+    playerRef: { kind: 'player' | 'guest'; id: string };
+    handicapIndex: number;
+    gender?: 'M' | 'F';
+    teeId: string;
+    category?: string;
+}
+
+export interface SetupTeam {
+    label: string;
+    producerDefIds: string[];
+}
+
+export interface FormatSetupInput {
+    producers: SetupProducer[];
+    /** Present for team formats; the format decides how to read it. */
+    teams?: SetupTeam[];
+    /** Allowance override; falls back to `descriptor.defaults.allowanceConfig`. */
+    allowanceConfig?: FormatAllowanceConfig;
+    formatConfig?: unknown;
+}
+
+/** A ball-creation need this format requires — coalesced by the builder. */
+export interface PlannedBallStrategy {
+    /** Ball-creation registry id, e.g. `own_ball_per_player`, `alt_shot_pair`. */
+    strategyId: string;
+    derivationConfig: BallDerivationConfig;
+    composition?: { teams: { label: string; producerDefIds: string[] }[] };
+}
+
+/** The slot this format contributes — def-id assigned later by the builder. */
+export interface PlannedSlot {
+    formatId: string;
+    allowanceConfig: FormatAllowanceConfig;
+    ballSelector?: { strategyDefIds?: string[]; producerDefIds?: string[] };
+    teamGrouping?: { teams: { label: string; producerDefIds: string[] }[] };
+    formatConfig?: unknown;
+}
+
+export interface FormatSetupPlan {
+    ballStrategies: PlannedBallStrategy[];
+    slot: PlannedSlot;
+}
+
+// --- Config validation ------------------------------------------------------
+
+export interface ConfigDiagnostic {
+    code: string;
+    message: string;
+    path?: string;
+}
+
+// --- The plugin -------------------------------------------------------------
+
+export interface FormatPlugin {
+    descriptor: FormatDescriptor;
+    /** Pure UI-selection → ball/slot needs. No persistence. */
+    planSetup(input: FormatSetupInput): FormatSetupPlan;
+    /** Empty array = valid. Each entry is a structured diagnostic. */
+    validateConfig(config: unknown): ConfigDiagnostic[];
+    deriveSlotBalls(input: DeriveSlotBallsInput): DerivedSlotBall[];
+    score(input: ScoreInput): StrategyResult;
+}
+
+// --- Descriptor validation (fail loud at registration) ----------------------
+
+function fail(id: string, msg: string): never {
+    throw new Error(`invalid format descriptor '${id}': ${msg}`);
+}
+
+function nonEmpty(v: unknown): v is string {
+    return typeof v === 'string' && v.length > 0;
+}
+
+export function assertValidDescriptor(d: FormatDescriptor): void {
+    const id = typeof d?.id === 'string' ? d.id : '<missing id>';
+    if (!nonEmpty(d?.id)) fail(id, 'id must be a non-empty string');
+    if (!nonEmpty(d.label)) fail(id, 'label must be a non-empty string');
+    if (!nonEmpty(d.description)) fail(id, 'description must be a non-empty string');
+    if (!nonEmpty(d.scoringMode)) fail(id, 'scoringMode must be a non-empty string');
+    if (!nonEmpty(d.teamShape)) fail(id, 'teamShape must be a non-empty string');
+
+    const balls = d.requirements?.balls;
+    if (!balls) fail(id, 'requirements.balls is required');
+    const pc = balls.producerCount;
+    if (!pc || !Number.isInteger(pc.min) || !Number.isInteger(pc.max) || pc.min < 1 || pc.max < pc.min) {
+        fail(id, 'requirements.balls.producerCount must be integers with 1 ≤ min ≤ max');
+    }
+    if (balls.ballMode !== 'own' && balls.ballMode !== 'team' && balls.ballMode !== 'any') {
+        fail(id, `requirements.balls.ballMode must be own|team|any (got ${String(balls.ballMode)})`);
+    }
+
+    if (!d.defaults?.allowanceConfig || !Value.Check(FormatAllowanceConfig, d.defaults.allowanceConfig)) {
+        fail(id, 'defaults.allowanceConfig must be a valid FormatAllowanceConfig');
+    }
+
+    if (!Array.isArray(d.metrics) || d.metrics.length === 0) {
+        fail(id, 'metrics must declare at least one metric');
+    }
+    const seenMetric = new Set<string>();
+    for (const m of d.metrics) {
+        if (!nonEmpty(m?.id)) fail(id, 'every metric needs a non-empty id');
+        if (!nonEmpty(m.label)) fail(id, `metric '${m.id}' needs a non-empty label`);
+        if (m.direction !== 'high' && m.direction !== 'low') {
+            fail(id, `metric '${m.id}' direction must be high|low (got ${String(m.direction)})`);
+        }
+        if (seenMetric.has(m.id)) fail(id, `duplicate metric id '${m.id}'`);
+        seenMetric.add(m.id);
+    }
+
+    if (d.clientAdapterId !== null && !nonEmpty(d.clientAdapterId)) {
+        fail(id, 'clientAdapterId must be null or a non-empty string');
+    }
+}
+
+// --- Canonical registry -----------------------------------------------------
+
+const registry = new Map<string, FormatPlugin>();
+
+/**
+ * Register one format. Fails loud on a duplicate id or an invalid
+ * descriptor — there is exactly one canonical format registry.
+ */
+export function registerFormat(plugin: FormatPlugin): void {
+    assertValidDescriptor(plugin.descriptor);
+    const id = plugin.descriptor.id;
+    if (registry.has(id)) throw new Error(`duplicate format id '${id}'`);
+    registry.set(id, plugin);
+}
+
+export function findFormatPlugin(id: string): FormatPlugin {
+    const p = registry.get(id);
+    if (!p) throw new Error(`no format plugin registered for id '${id}'`);
+    return p;
+}
+
+export function hasFormatPlugin(id: string): boolean {
+    return registry.has(id);
+}
+
+/** All registered plugins, deterministically ordered by descriptor id. */
+export function listFormatPlugins(): FormatPlugin[] {
+    return [...registry.values()].sort((a, b) => a.descriptor.id.localeCompare(b.descriptor.id));
+}
+
+/** Serializable catalog — descriptors only, deterministically ordered. */
+export function formatCatalog(): FormatDescriptor[] {
+    return listFormatPlugins().map((p) => p.descriptor);
+}
+
+export function clearFormats(): void {
+    registry.clear();
+}
+
+// --- Bridge to the legacy FormatStrategy seam -------------------------------
+//
+// A plugin IS a format strategy plus metadata: id + ball requirement +
+// deriveSlotBalls + score. This adapter lets the existing compiler resolve a
+// plugin through the unchanged `FormatStrategy` interface in Slice 1; Slice
+// 2a makes the compiler + leaderboard resolve plugins from THIS registry
+// directly and retires the separate strategy registry.
+
+export function pluginAsFormatStrategy(plugin: FormatPlugin): FormatStrategy {
+    return {
+        id: plugin.descriptor.id,
+        ballRequirement: () => plugin.descriptor.requirements.balls,
+        deriveSlotBalls: (input) => plugin.deriveSlotBalls(input),
+        score: (input) => plugin.score(input),
+    };
+}
