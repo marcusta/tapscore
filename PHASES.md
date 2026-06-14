@@ -797,53 +797,102 @@ Stage-3 allowance (`slot.allowanceConfig` → per-ball PH) only has the `flat` v
 
 **Gate:** new allowance variant scores correctly with visible per-ball PH arithmetic; `bun test` includes the variant + its compiler-rejection tests; existing flat-allowance fixtures stay numerically identical. Visual-gate per the standard slice protocol. Commit after approval: `phase 2.6d-bis complete: non-flat allowance rulesets`.
 
-### 2.6e — Repair and migrate the mobile client (final 2.6 step)
+### 2.6e — Mobile client: FriendlyRound-first, no-login on-course app (final 2.6 step)
 
-Start only after 2.6b, 2.6c, and 2.6d are complete and visually approved through generated static pages. The existing mobile client is not a trustworthy verification surface: first stabilize it as a client, then migrate it to the already-proven server/plugin contracts. The canonical static fixtures remain the expected-result oracle throughout this phase.
+Start only after 2.6b, 2.6c, and 2.6d are complete and visually approved through generated static pages. The canonical static fixtures remain the expected-result oracle throughout this phase.
+
+**Design decision (2026-06-14):** the mobile client is rebuilt as a **zero-login, on-course app**, not a repair of the login-gated wizard. Anyone opens the landing page, creates a round, adds players by name + handicap index + gender, configures one or more format instances, shares a round link, and enters scores trust-based (anyone scores anyone, no identity attached to events). The explicit goal is to **dogfood the engine on real rounds and surface gaps before the identity/auth/standings phases pile complexity on top.**
+
+This pulls the **FriendlyRound wrapper + share-token** — a subset of Phase 3 — forward: the round-creation front door *is* a FriendlyRound. WHS posting and account-bound features stay in Phase 3. Accounts/login become an **optional side door** (own handicap history, later tours/series) that never blocks round creation or scoring.
+
+The engine contracts the client rides on — RoundCompiler, `GET /formats`, `POST /rounds/from-draft` (with diagnostics), ball/play-hole score events, section-driven results, the `round_play_holes` route model — are already proven. 2.6e is overwhelmingly client work over stable server contracts, plus one thin FriendlyRound server slice (M1).
+
+**Agreed flow:**
+
+```
+Landing  →  [Create round]                       (no auth)
+              ↓
+Setup    →  pick course; route (≥ hole count + start hole; presets/shotgun available)
+            add players: name · handicap index · M/F   (→ guest_players)
+            per-player tee box  →  server derives course/playing handicap
+              ↓
+Formats  →  add 1..N format instances (slots)
+            producers auto-deduced for individual formats;
+            declared (team editor) for team formats; allowance per slot
+              ↓
+Share    →  round link (share_token) — anyone opens, reads, writes
+              ↓
+Score    →  trust-based: anyone sets any score on any hole for anyone
+              ↓
+Results  →  per-format result sections in the round
+```
+
+**Confirmed decisions (2026-06-14):**
+- **No login on the critical path.** Login = side door; nothing auth-gated blocks create/score.
+- **Players are `guest_players`**: name + handicap index + gender (M/F). Gender selects the tee rating `(tee_id, gender)`; server derives course/playing handicap from tee slope/CR.
+- **Tee box is per player** (`ball_players.tee_id`), not per round.
+- **Course + route selectable**: minimum = hole count + start hole. Richer routing (presets, repeated loops, ordered subsets, shotgun) is already supported by `round_play_holes` and surfaced as available, not required.
+- **No identities for now**: the round link is the only credential. No creator/owner controls, no kick/lock. Accepted as a known gap — revisit when auth lands.
 
 #### 2.6e execution ledger
 
 | Slice | Status | Commit | Resume note |
 |---|---|---|---|
-| M1 — Mobile stabilization | NOT STARTED | — | Reproduce and repair existing client breakage before architecture migration |
-| M2 — Catalog-driven wizard | NOT STARTED | — | Waits on M1 |
-| M3 — Ball/play-hole score entry | NOT STARTED | — | Waits on M2 |
-| M4 — Section-driven results | NOT STARTED | — | Waits on M3 |
-| M5 — Mobile deletion proof | NOT STARTED | — | Final mobile acceptance |
+| M1 — No-login shell + FriendlyRound primitive | NOT STARTED | — | `friendly_rounds` wrapper + share_token + no-auth round-scoped access; landing/create-round; login demoted to side door |
+| M2 — Players-first setup (course/route + per-player tee + guest players) | NOT STARTED | — | Waits on M1. Course pick + route (hole count/start hole); add players name/index/M-F; per-player tee; show derived CH |
+| M3 — Catalog-driven formats (producers + allowances + multi-slot) | NOT STARTED | — | Waits on M2. `GET /formats`; auto producers for individual, team editor for team formats; per-slot allowance; submit draft → `from-draft` |
+| M4 — Ball/play-hole score entry (trust-based) | NOT STARTED | — | Waits on M3. Anyone scores anyone via share link; one score per `ballId + playHoleId`; no identity on events |
+| M5 — Section-driven results | NOT STARTED | — | Waits on M4. Ordered per-slot views from canonical result sections |
+| M6 — Dogfood + plugin deletion/extension proof | NOT STARTED | — | Final acceptance: real-round dogfood + full plugin deletion test across server + static + mobile |
 
-**Deferred — format-name i18n (TODO, not scheduled):** the `FormatDescriptor` currently carries a single `label` string (one language). Köpenhamnare ships as English **"Split sixes"** with the Swedish original noted in code. We need per-language display names so the catalog/wizard/results can localize (Swedish "Köpenhamnare" ↔ English "Split sixes", and the same for other formats). Likely shape: replace `label: string` with a localized label set (e.g. `labels: { en: string; sv?: string; … }` or a message-key resolved by a client/locale catalog), keeping the stable `id` as the language-independent key. The serializable-descriptor + one-registry invariants already make this additive — no schema change, no behaviour lookup. Fold into 2.6e M2 (catalog-driven wizard) or a small dedicated slice; until then a single English label is intentional.
+**Deferred — format-name i18n (TODO, not scheduled):** the `FormatDescriptor` currently carries a single `label` string (one language). Köpenhamnare ships as English **"Split sixes"** with the Swedish original noted in code. We need per-language display names so the catalog/wizard/results can localize (Swedish "Köpenhamnare" ↔ English "Split sixes", and the same for other formats). Likely shape: replace `label: string` with a localized label set (e.g. `labels: { en: string; sv?: string; … }` or a message-key resolved by a client/locale catalog), keeping the stable `id` as the language-independent key. The serializable-descriptor + one-registry invariants already make this additive — no schema change, no behaviour lookup. Fold into 2.6e M3 (catalog-driven formats) or a small dedicated slice; until then a single English label is intentional.
 
-#### M1 — Stabilize the existing client
+#### M1 — No-login shell + FriendlyRound primitive
 
-- [ ] Reproduce and document the existing broken round-list, setup, score-entry, and results behavior before changing architecture. Add focused client/service tests for each confirmed failure.
-- [ ] Repair framework integration, routing, state/loading/error handling, and API transport issues that are independent of format plugins. Keep these fixes separate from catalog/result-contract migration so regressions have clear ownership.
-- [ ] Establish a deterministic local mobile fixture account/round set sourced from the canonical fixture builder where practical.
-- [ ] Start the required local server/client processes for the user when visual review is needed; give one clickable localhost link. Never ask the user to run startup commands.
+Server (thin, forward subset of Phase 3 — wrapper + token only, NO WHS posting):
+- [ ] `friendly_rounds` table: `round_id` (FK unique), `share_token` (unique), `created_at`. `creator_player_id` nullable (no identities yet). 1:1 extension of `rounds`.
+- [ ] `friendly-round.service.ts`: `create()` (no auth) → mints a round + share token; `findByToken(token)`; `findById`. FriendlyRound leaderboard = Round leaderboard (no new engine).
+- [ ] No-auth, round-scoped access: reads + score-event writes for a round are reachable with only the share token (or open during dogfood — pick the simplest that doesn't gate the flow). Document the trust boundary in the service comment.
+- [ ] Descriptor + generated client + route test.
 
-- [ ] **Gate:** baseline client flows load reliably and focused failures are covered. Static pages, not the repaired client, remain the correctness oracle.
+Client:
+- [ ] Landing page is **create-a-round**, reachable with no login. App shell, nav, theme intact.
+- [ ] Demote login to an optional side door (own handicap history later); never on the create/score path.
+- [ ] Surface the share link once a round exists. Opening a share link lands directly in the round (setup if unconfigured, score/results if configured).
+- [ ] Start the local server/client processes for the user when visual review is needed; give one clickable localhost link. Never ask the user to run startup commands.
 
-#### M2 — Catalog-driven round wizard
+- [ ] **Gate:** create a round with no login, get a share link, open it in a fresh session and reach the round. Static pages remain the correctness oracle.
+
+#### M2 — Players-first setup (course/route + per-player tee + guest players)
+
+- [ ] Course picker (real seeded courses; Linköpings available).
+- [ ] Route editor — minimum: hole count + start hole. Surface `round_play_holes` presets (`full_18`/`front_9`/`back_9`) and, where cheap, repeated loops / ordered subsets / shotgun starts. Richer routing is available, not required to play.
+- [ ] Players step: add each player with **name · handicap index · gender (M/F)** → `guest_players`. Gender selects the tee rating `(tee_id, gender)`.
+- [ ] **Per-player tee box** selection. Server derives course/playing handicap from the chosen tee's slope/CR + the player's index + gender; show the derived CH back to the user (arithmetic visible, matching the static-render standard).
+- [ ] Build a `RoundSetupDraft` from course/route/players/tees. Diagnostics from `from-draft` shown at the relevant control, never a 500.
+
+- [ ] **Gate:** create rounds with full-18, a 9-hole route, a non-1 start hole, and mixed per-player tees + genders; derived CH matches the WHS calculator / static fixtures.
+
+#### M3 — Catalog-driven formats (producers + allowances + multi-slot)
 
 - [ ] Replace `src/formats.ts`, `pairBall`, `needsTeams`, and client-side `RoundDefinition` construction with a `FormatCatalogService` backed by `GET /formats`.
-- [ ] Render labels, descriptions, allowance defaults, participant bounds, and grouping requirements from descriptors.
-- [ ] Replace the fixed A/B team editor with a generic team assignment editor driven by declared team count/size.
-- [ ] Add a touch-friendly route editor: named presets, start/end generation, repeated partial loops, arbitrary ordered subsets, and per-group shotgun starts.
-- [ ] Add official/difficulty/custom SI controls plus route-handicap policy/allocation cycle. Repeated occurrences are independently editable.
-- [ ] Submit `RoundSetupDraft` and display planner/compiler diagnostics at the relevant control. Generic controls cover scalar/choice/table/segment config; exceptional interactions use one registered client adapter.
+- [ ] Render labels, descriptions, allowance defaults, producer/participant bounds, and grouping requirements from descriptors.
+- [ ] Producers **auto-deduced for individual formats** (producer = player). For team formats, a generic team-assignment editor driven by the declared team count/size replaces the fixed A/B editor.
+- [ ] Add 1..N format instances (slots); per-slot allowance config (flat + the 2.6d-bis split bands). Submit the full `RoundSetupDraft` → `POST /rounds/from-draft`; surface planner/compiler diagnostics at the relevant control. Generic controls cover scalar/choice/table/segment config; exceptional interactions use one registered client adapter.
 
-- [ ] **Gate:** create and reopen individual, own-ball team, team-ball, multi-slot, repeated-hole, custom-SI, and shotgun rounds. Compare persisted definitions against the approved static fixtures/server output.
+- [ ] **Gate:** create and reopen individual, own-ball team, team-ball, multi-slot, repeated-hole, custom-SI, and shotgun rounds. Compare persisted definitions against approved static fixtures/server output.
 
-#### M3 — Ball and play-hole score entry
+#### M4 — Ball and play-hole score entry (trust-based)
 
-- [ ] Treat the ball pool as the entry surface: one score per unique `ballId + playHoleId`, regardless of how many slots consume it.
-- [ ] Navigate each playing group in effective itinerary order while labelling the physical course hole and repeated occurrence clearly.
+- [ ] Treat the ball pool as the entry surface: one score per unique `ballId + playHoleId`, regardless of how many slots consume it. **Anyone with the share link can set any score for anyone** — no identity attached to events.
+- [ ] Navigate each playing group in effective itinerary order; label the physical course hole and repeated occurrence clearly.
 - [ ] Group own-balls and team-balls without duplicate entry controls. Stop attaching producer source ids to ordinary own-ball score events.
 - [ ] Drive generic strokes and simple metadata controls from descriptor capabilities. Format actions use the generic 2.6d append/replay endpoint through an optional adapter command interface.
 - [ ] Preserve optimistic entry, offline/error recovery, and `client_event_id` idempotency. Two visits to one physical hole must remain separate client state keys.
 
 - [ ] **Gate:** the kitchen-sink topology enters every ball once per occurrence, updates every consuming slot, survives retry, and matches the canonical static result.
 
-#### M4 — Section-driven mobile results
+#### M5 — Section-driven mobile results
 
 - [ ] Replace `byScoringType + pairResults` with ordered per-slot views carrying `slotDefId`, `formatId`, descriptor label, and canonical result sections.
 - [ ] Generic views cover ranked metrics, matches, segments, contributors, awards, carry pools, state, and point/unit transfers. The client never interprets scoring-mode strings.
@@ -852,8 +901,9 @@ Start only after 2.6b, 2.6c, and 2.6d are complete and visually approved through
 
 - [ ] **Gate:** selected high-risk mobile results match their approved static equivalents numerically and structurally.
 
-#### M5 — Mobile deletion and extension proof
+#### M6 — Dogfood + plugin deletion/extension proof
 
+- [ ] **Dogfood:** play a couple of real on-course rounds end to end (create → players → formats → share → score → results) with no login. Capture any engine gap surfaced (handicap edge cases, format behaviour, route handling) as notes against the relevant phase — this is the whole point of going FriendlyRound-first.
 - [ ] Delete legacy client catalogs, labels, decomposition logic, and format switches made obsolete by descriptors/adapters.
 - [ ] Add client tests for catalog-driven setup, team validation, mixed topology, repeated routes, generic sections, pair-only results, format actions, and missing-adapter fallback.
 - [ ] Perform the full plugin deletion test across server + static + mobile: deleting the module and central registrations removes every production trace without editing generic infrastructure.
@@ -863,9 +913,10 @@ Start only after 2.6b, 2.6c, and 2.6d are complete and visually approved through
 
 - [ ] All checks/tests and canonical fixture workflows are green.
 - [ ] Static verification pages remain the approved arithmetic/result oracle.
+- [ ] No-login flow works end to end: create → players → formats → share link → trust-based scoring → per-format results, with login never on the critical path.
 - [ ] One canonical server registry; generic formats require no client code; special formats require at most one colocated adapter + one client registration.
 - [ ] Agent starts the local app and gives one clickable browser link plus 2–5 required scenarios with exact expected outcomes. Full mobile browsing is not delegated to the user.
-- [ ] User confirms the focused scenarios; commit `phase 2.6e complete: repaired plugin-driven mobile client`.
+- [ ] User confirms the focused scenarios; commit `phase 2.6e complete: no-login friendly-round mobile client`.
 
 ---
 
@@ -873,8 +924,10 @@ Start only after 2.6b, 2.6c, and 2.6d are complete and visually approved through
 
 **Spec:** §4 (FriendlyRound).
 
-- `friendly_rounds` 1:1 extension of `rounds`: round_id (FK unique), creator_player_id, share_token (unique), post_to_handicap (boolean).
-- Share-token join flow: guest creates a `guest_player`, joins via token, reads scoped to the round.
+**Note (2026-06-14):** the `friendly_rounds` **wrapper + `share_token` + no-auth round-scoped access** were pulled forward into **2.6e M1** so the mobile client could ship as a no-login on-course app. Phase 3 now layers the **account-bound** parts on top: `creator_player_id` becoming meaningful, `post_to_handicap`, WHS posting + eligibility, and the authenticated guest-join. Reconcile the M1 table with this list (add `post_to_handicap`, populate `creator_player_id`) rather than recreating it.
+
+- `friendly_rounds` 1:1 extension of `rounds`: round_id (FK unique), creator_player_id, share_token (unique), post_to_handicap (boolean). (Wrapper + token already exist from 2.6e M1.)
+- Share-token join flow: guest creates a `guest_player`, joins via token, reads scoped to the round. (Open trust-based join exists from M1; this adds the account-aware path.)
 - WHS posting: if `post_to_handicap`, a completed round writes to `handicap_history` via `handicap.service`.
 - WHS posting first evaluates the frozen route policy. Standard eligible routes post normally; custom/repeated/subset routes without valid route rating/slope/par treatment complete and score normally but return a visible `route_not_whs_eligible` result instead of manufacturing a handicap record.
 - FriendlyRound leaderboard = Round leaderboard. No new engine.
