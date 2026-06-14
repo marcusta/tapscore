@@ -23,6 +23,12 @@ export interface AuthoredRound {
     ballFor(producerDefIds: string[]): string;
     /** Append `score_entered` events for one ball: course hole number → strokes (null DNP, 0 pickup). */
     play(producerDefIds: string[], scores: Record<number, number | null>): Promise<void>;
+    /**
+     * Append events by ITINERARY OCCURRENCE (canonical ordinal order), so a
+     * route that revisits a physical hole scores each occurrence independently.
+     * `strokes[i]` targets `round.playHoles[i]`.
+     */
+    playByOccurrence(producerDefIds: string[], strokes: (number | null)[]): Promise<void>;
 }
 
 const key = (ids: readonly string[]): string => [...ids].sort().join('|');
@@ -101,5 +107,28 @@ export async function authorRound(s: Scenario, definition: RoundDefinition): Pro
         }
     }
 
-    return { round, ballFor, play };
+    const occurrences = [...round.playHoles].sort((a, b) => a.ordinal - b.ordinal);
+    async function playByOccurrence(producerDefIds: string[], strokes: (number | null)[]): Promise<void> {
+        const ballId = ballFor(producerDefIds);
+        for (let i = 0; i < strokes.length; i++) {
+            const occ = occurrences[i];
+            if (!occ) throw new Error(`authorRound.playByOccurrence: no occurrence at index ${i} on round ${round.id}`);
+            await s.services.scoreEventService.append({
+                roundId: round.id,
+                ballId,
+                playHoleId: occ.id,
+                strokes: strokes[i],
+                eventType: 'score_entered',
+                recordedByPlayerId: null,
+                clientEventId: s.nextClientEventId(),
+                recordedAt: new Date(baseMs + offset).toISOString(),
+                sourcePlayerId: null,
+                sourceGuestPlayerId: null,
+                metadata: null,
+            });
+            offset += 1000;
+        }
+    }
+
+    return { round, ballFor, play, playByOccurrence };
 }

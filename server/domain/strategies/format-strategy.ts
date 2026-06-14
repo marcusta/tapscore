@@ -28,7 +28,14 @@
 // parallel strategy registry retired in Slice 6 (2.6b-final).
 
 import type { FormatAllowanceConfig } from '../round-definition';
-import type { RoundContext, SlotBall, SlotTeamGrouping, StrategyEvent, StrategyResult } from './types';
+import type {
+    FormatAction,
+    RoundContext,
+    SlotBall,
+    SlotTeamGrouping,
+    StrategyEvent,
+    StrategyResult,
+} from './types';
 
 /**
  * Team topology (REWRITE_DOMAIN_SPEC.md §17 "Static, scheduled, and dynamic
@@ -93,6 +100,13 @@ export interface ScoreInput {
     events: StrategyEvent[];
     /** Opaque per-slot format config — `SlotDefinition.formatConfig`. */
     formatConfig?: unknown;
+    /**
+     * Validated, supersession-resolved format actions for THIS slot, in replay
+     * order (§17 stateful format-action seam). Empty for stateless formats; a
+     * stateful format (Wolf, scramble selection, BBB) replays them into its
+     * scoring. Generic score entry never produces these.
+     */
+    formatActions?: FormatAction[];
 }
 
 export interface FormatStrategy {

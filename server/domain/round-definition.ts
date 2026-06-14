@@ -330,3 +330,67 @@ export type ResolvedRoundDefinition = Static<typeof ResolvedRoundDefinition>;
 export type ProducerDefinition = Static<typeof ProducerDefinition>;
 export type BallStrategyDefinition = Static<typeof BallStrategyDefinition>;
 export type SlotDefinition = Static<typeof SlotDefinition>;
+
+// --- Resolved → loose input (recompile round-trip) -------------------------
+//
+// Phase 2.6d. A `setup_correction_event` / `allowance_override_event` mutates
+// the LATEST persisted definition (a `ResolvedRoundDefinition`) and re-runs the
+// compiler. But `compile()` always normalizes its input through the route
+// compiler, which reads only the *Override markers (parOverride,
+// baseStrokeIndexOverride) — a resolved def carries the BAKED par/SI instead.
+// Feeding a resolved def straight back would silently drop occurrence overrides
+// on recompile.
+//
+// `definitionInputFromResolved` reconstructs a loose `RoundDefinitionInput`
+// that normalizes back to an IDENTICAL resolved def: it pins every occurrence's
+// par + base SI as explicit overrides and carries the frozen route metadata
+// verbatim. Producers / ball strategies / slots are already shared shapes and
+// copy straight through. The round-trip invariant (normalize(input) deep-equals
+// the original resolved) is asserted in `round-definition.test.ts`.
+export function definitionInputFromResolved(
+    resolved: ResolvedRoundDefinition,
+): RoundDefinitionInput {
+    return {
+        courseId: resolved.courseId,
+        playedAt: resolved.playedAt,
+        roundType: resolved.roundType,
+        venueType: resolved.venueType,
+        startListMode: resolved.startListMode,
+        windowStart: resolved.windowStart,
+        windowEnd: resolved.windowEnd,
+        selfOrganize: resolved.selfOrganize,
+        routeSi: {
+            mode: resolved.routeSi.mode,
+            ...(resolved.routeSi.sourceLabel !== undefined
+                ? { sourceLabel: resolved.routeSi.sourceLabel }
+                : {}),
+            ...(resolved.routeSi.sourceVersion !== undefined
+                ? { sourceVersion: resolved.routeSi.sourceVersion }
+                : {}),
+            allocationCycleSize: resolved.routeSi.allocationCycleSize,
+        },
+        routeHandicapPolicy: resolved.routeHandicapPolicy,
+        routeSections: resolved.routeSections,
+        // Pin the baked par + SI as explicit overrides so the route compiler
+        // reproduces this exact itinerary instead of re-deriving from course
+        // defaults.
+        playHoles: resolved.playHoles.map((ph) => ({
+            id: ph.id,
+            courseHoleNumber: ph.courseHoleNumber,
+            parOverride: ph.par,
+            baseStrokeIndexOverride: ph.baseStrokeIndex,
+            ...(ph.teeOverrides ? { teeOverrides: ph.teeOverrides } : {}),
+        })),
+        producers: resolved.producers,
+        ballStrategies: resolved.ballStrategies,
+        playingGroups: resolved.playingGroups.map((g) => ({
+            id: g.id,
+            startTime: g.startTime,
+            startPlayHoleDefId: g.startPlayHoleDefId,
+            capacity: g.capacity,
+            ...(g.hittingBay !== undefined ? { hittingBay: g.hittingBay } : {}),
+            producerDefIds: g.producerDefIds,
+        })),
+        slots: resolved.slots,
+    };
+}

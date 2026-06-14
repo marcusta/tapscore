@@ -274,6 +274,30 @@ export type StrategyEvent =
     | AllowanceOverrideEvent
     | RulingEvent;
 
+/**
+ * One validated, replayed format action (§17 stateful format-action seam). The
+ * GENERIC envelope a `FormatPlugin.score()` replays — persistence owns no
+ * per-format columns. Keyed by the stable `slotDefId` (survives recompiles) +
+ * optional `playHoleId` occurrence; `sequence` orders actions within one
+ * occurrence. `supersedesActionId` lets a later action replace an earlier one
+ * append-only (the replay step drops superseded rows before handing the list to
+ * the plugin).
+ */
+export interface FormatAction {
+    id: string;
+    slotDefId: string;
+    playHoleId: string | null;
+    sequence: number;
+    actionType: string;
+    schemaVersion: number;
+    subjectBallId: string | null;
+    subjectProducerDefId: string | null;
+    payload: unknown;
+    supersedesActionId: string | null;
+    recordedBy: string;
+    recordedAt: string;
+}
+
 // --- StrategyResult ---------------------------------------------------------
 
 /**

@@ -32,6 +32,10 @@ export interface Database {
     tee_times: TeeTimesTable;
     score_events: ScoreEventsTable;
     scorecards: ScorecardsTable;
+    setup_correction_events: SetupCorrectionEventsTable;
+    allowance_override_events: AllowanceOverrideEventsTable;
+    ruling_events: RulingEventsTable;
+    format_action_events: FormatActionEventsTable;
 }
 
 export type RoundType = 'full_18' | 'front_9' | 'back_9' | 'custom_holes';
@@ -458,6 +462,97 @@ export interface SlotBallTeamsTable {
     slot_id: string;
     team_label: string;
     ball_id: string;
+}
+
+// --- Phase 2.6d — typed correction events + format-action seam (§17). ---
+//
+// Each table is append-only; rows are never updated/deleted in place. Domain
+// references (def-ids, content-addressed ids) are TEXT, not FKs — they survive
+// recompiles by construction. JSON columns store TEXT, parsed at the service
+// boundary. See migrations 027 (corrections) + 028 (format actions).
+
+export type SetupCorrectionTarget =
+    | 'producer_tee'
+    | 'producer_handicap_index'
+    | 'producer_category'
+    | 'ball_composition'
+    | 'slot_declaration'
+    | 'ball_strategy_config'
+    // Route-shaped inputs (PHASES.md 2.6d): occurrence par/SI/tee override, and
+    // playing-group membership/start. Same stable-def-id targeting discipline.
+    | 'play_hole'
+    | 'playing_group';
+
+export interface SetupCorrectionEventsTable {
+    id: string;
+    round_id: string;
+    target: SetupCorrectionTarget;
+    /** JSON stable def-id ref(s); shape depends on `target`. */
+    target_ref: string;
+    /** JSON old input value (null on first knowledge). */
+    old_value: string | null;
+    /** JSON new input value. */
+    new_value: string;
+    reason: string;
+    recorded_by_player_id: string | null;
+    recorded_at: Generated<string>;
+    /** `round_definitions.version` this correction produced. */
+    result_version: number | null;
+    client_event_id: string;
+}
+
+export interface AllowanceOverrideEventsTable {
+    id: string;
+    round_id: string;
+    /** Stable slot def-id. */
+    slot_def_id: string;
+    /** JSON `FormatAllowanceConfig`. */
+    old_config: string;
+    new_config: string;
+    reason: string;
+    recorded_by_player_id: string | null;
+    recorded_at: Generated<string>;
+    result_version: number | null;
+    client_event_id: string;
+}
+
+export type RulingTarget = 'ball_hole' | 'ball_total' | 'slot_ball_result';
+export type RulingKind = 'dq' | 'penalty_strokes' | 'hole_adjudication' | 'wd';
+
+export interface RulingEventsTable {
+    id: string;
+    round_id: string;
+    target: RulingTarget;
+    /** Stable subject id (see migration 027 for the per-target encoding). */
+    target_id: string;
+    ruling_kind: RulingKind;
+    /** JSON ruling value, e.g. `{ strokes: 2 }` or `{ disqualified: true }`. */
+    value: string;
+    reason: string;
+    recorded_by_player_id: string | null;
+    recorded_at: Generated<string>;
+    client_event_id: string;
+}
+
+export interface FormatActionEventsTable {
+    id: string;
+    round_id: string;
+    /** Stable slot def-id whose format owns this action. */
+    slot_def_id: string;
+    /** Content-addressed play-hole occurrence id; null for round-level. */
+    play_hole_id: string | null;
+    sequence: number;
+    action_type: string;
+    schema_version: number;
+    subject_ball_id: string | null;
+    subject_producer_def_id: string | null;
+    /** JSON payload — validated by the owning plugin, opaque to persistence. */
+    payload: string;
+    /** Append-only supersession: this action replaces a prior one. */
+    supersedes_action_id: string | null;
+    recorded_by_player_id: string | null;
+    recorded_at: Generated<string>;
+    client_event_id: string;
 }
 
 export interface PlayersTable {

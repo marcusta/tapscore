@@ -178,6 +178,36 @@ export interface ConfigDiagnostic {
     path?: string;
 }
 
+// --- Stateful format actions (§17) ------------------------------------------
+//
+// A format may optionally declare the in-round action types it accepts (Wolf
+// role rotation, scramble drive selection, BBB order). Persistence stays a
+// GENERIC envelope (`format_action_events`): the plugin is the sole authority
+// on which types are legal and whether a payload is valid. Stateless formats
+// declare nothing and never see actions.
+
+/** Serializable declaration of one action type a format accepts. */
+export interface FormatActionTypeDescriptor {
+    type: string;
+    label: string;
+    /** When true, exactly one play-hole occurrence must be supplied. */
+    requiresPlayHole?: boolean;
+    /** Human note for the generic action UI; presentation only. */
+    description?: string;
+}
+
+/** The envelope the append path validates before persisting (pre-id). */
+export interface FormatActionInput {
+    slotDefId: string;
+    playHoleId: string | null;
+    sequence: number;
+    actionType: string;
+    schemaVersion: number;
+    subjectBallId: string | null;
+    subjectProducerDefId: string | null;
+    payload: unknown;
+}
+
 // --- The plugin -------------------------------------------------------------
 
 export interface FormatPlugin {
@@ -188,6 +218,17 @@ export interface FormatPlugin {
     validateConfig(config: unknown): ConfigDiagnostic[];
     deriveSlotBalls(input: DeriveSlotBallsInput): DerivedSlotBall[];
     score(input: ScoreInput): StrategyResult;
+    /**
+     * In-round action types this format accepts. Absent / empty → the format is
+     * stateless and the append path rejects any action against its slots.
+     */
+    actionTypes?: FormatActionTypeDescriptor[];
+    /**
+     * Validate one action's payload. Called by the append path AFTER the
+     * generic checks (slot exists, format owns the type). Empty array = valid.
+     * Only meaningful for formats that declare `actionTypes`.
+     */
+    validateAction?(action: FormatActionInput): ConfigDiagnostic[];
 }
 
 // --- Descriptor validation (fail loud at registration) ----------------------

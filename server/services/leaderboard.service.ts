@@ -11,8 +11,10 @@ import { findFormatPlugin } from '../domain/formats/plugin';
 import { buildSlotResult, type ResultColumn } from '../domain/strategies/result-builder';
 import type { RoundResult } from '../domain/strategies/result-sections';
 import type { RoundDefinition } from '../domain/round-definition';
-import type { StrategyEvent } from '../domain/strategies/types';
+import type { FormatAction, RulingEvent, StrategyEvent } from '../domain/strategies/types';
+import { applyRulingsToSlot, rulingEventsOf } from '../domain/strategies/rulings';
 import type { CourseHole } from '../domain/round-holes';
+import type { RulingKind, RulingTarget } from '../db/schema';
 
 /**
  * Materialises the inputs to the canonical scoring engine — round-context
@@ -155,6 +157,7 @@ export class LeaderboardService {
         }
 
         const events = await this.strategyEvents(roundId);
+        const formatActions = await this.formatActions(roundId);
 
         const ballPlayers: MaterializeBallPlayer[] = ballPlayerRows.map((r) => ({
             ballId: r.ball_id,
@@ -216,6 +219,7 @@ export class LeaderboardService {
                 ballId: r.ball_id,
             })),
             events,
+            formatActions,
         };
 
         return { input, round };
@@ -249,15 +253,21 @@ export class LeaderboardService {
             round.formatSlots.map((s) => [s.slotIndex, s.allowancePct] as const),
         );
 
+        const rulings = rulingEventsOf(materialized.events);
+
         const slots = materialized.slots.map((slot) => {
             const plugin = findFormatPlugin(slot.formatId);
-            const result = plugin.score({
+            const scored = plugin.score({
                 roundContext: rc,
                 slotBalls: slot.slotBalls,
                 slotTeamGroupings: slot.slotTeamGroupings,
                 events: materialized.events,
                 formatConfig: slot.formatConfig,
+                formatActions: slot.formatActions,
             });
+            // Competitive rulings are a generic scoring-layer adjustment on the
+            // structured result — never a format-id branch, never a re-derivation.
+            const { result } = applyRulingsToSlot(scored, rulings, slot.slotDefId);
             const pct = allowanceBySlot.get(slot.slotIndex);
             return buildSlotResult({
                 slotIndex: slot.slotIndex,
@@ -309,6 +319,44 @@ export class LeaderboardService {
             out.set(slot.id, { formatId: slot.formatId, formatConfig: slot.formatConfig });
         }
         return out;
+    }
+
+    /** Load the append-only format-action log (supersession resolved downstream). */
+    private async formatActions(roundId: string): Promise<FormatAction[]> {
+        const rows = await this.db
+            .selectFrom('format_action_events')
+            .where('round_id', '=', roundId)
+            .orderBy('recorded_at')
+            .orderBy('id')
+            .select([
+                'id',
+                'slot_def_id',
+                'play_hole_id',
+                'sequence',
+                'action_type',
+                'schema_version',
+                'subject_ball_id',
+                'subject_producer_def_id',
+                'payload',
+                'supersedes_action_id',
+                'recorded_by_player_id',
+                'recorded_at',
+            ])
+            .execute();
+        return rows.map((r) => ({
+            id: r.id,
+            slotDefId: r.slot_def_id,
+            playHoleId: r.play_hole_id,
+            sequence: r.sequence,
+            actionType: r.action_type,
+            schemaVersion: r.schema_version,
+            subjectBallId: r.subject_ball_id,
+            subjectProducerDefId: r.subject_producer_def_id,
+            payload: JSON.parse(r.payload),
+            supersedesActionId: r.supersedes_action_id,
+            recordedBy: r.recorded_by_player_id ?? '',
+            recordedAt: r.recorded_at,
+        }));
     }
 
     /** Replay the event log into the strategy event union (latest-wins inside score()). */
@@ -364,6 +412,30 @@ export class LeaderboardService {
                     }
                 }
             }
+        }
+
+        // Competitive rulings join the strategy event stream — read by the
+        // scoring-layer adjustment (`applyRulingsToSlot`), never re-derived.
+        const rulingRows = await this.db
+            .selectFrom('ruling_events')
+            .where('round_id', '=', roundId)
+            .orderBy('recorded_at')
+            .orderBy('id')
+            .select(['round_id', 'target', 'target_id', 'ruling_kind', 'value', 'reason', 'recorded_by_player_id', 'recorded_at'])
+            .execute();
+        for (const r of rulingRows) {
+            const ev: RulingEvent = {
+                kind: 'ruling',
+                roundId: r.round_id,
+                target: r.target as RulingTarget,
+                targetId: r.target_id,
+                rulingKind: r.ruling_kind as RulingKind,
+                value: JSON.parse(r.value),
+                reason: r.reason,
+                recordedBy: r.recorded_by_player_id ?? '',
+                recordedAt: r.recorded_at,
+            };
+            events.push(ev);
         }
         return events;
     }

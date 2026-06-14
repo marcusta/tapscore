@@ -30,5 +30,6 @@ test('GET /api/players/me with session returns Player from descriptor', async ()
         avatarUrl: null,
         homeClubId: null,
         handicapIndex: null,
+        deletedAt: null,
     });
 });

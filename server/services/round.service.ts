@@ -19,7 +19,7 @@ import type {
     RouteSection,
     RouteSiResolved,
 } from '../domain/round-definition';
-import type { CompilerDiagnostic, CompilerInput, CompilerTeeContext, Gender } from '../domain/compiler/types';
+import type { CompileResult, CompilerDiagnostic, CompilerInput, CompilerTeeContext, Gender } from '../domain/compiler/types';
 import { compile } from '../domain/compiler/compile';
 import { persistCompiledRound } from '../domain/compiler/persist';
 import { buildRoundDefinition } from '../domain/round-setup/builder';
@@ -789,16 +789,21 @@ export class RoundService {
      * (course/tee/player missing) still throw, since they are setup-integrity
      * errors, not per-field validation the wizard can attach.
      */
-    private async compileAndPersist(def: RoundDefinition): Promise<CreateFromDraftResult> {
+    /**
+     * Assemble a `CompilerInput` for `roundId` from `def` plus the injected
+     * deps (course holes, tee context, player/guest profiles). Shared by the
+     * initial-create and recompile paths. Reference-resolution failures
+     * (course/tee/player missing) throw — they are setup-integrity errors, not
+     * per-field validation.
+     */
+    private async buildCompilerInput(roundId: string, def: RoundDefinition): Promise<CompilerInput> {
         if (!this.deps) {
             throw new Error(
-                'RoundService.create requires RoundServiceDeps (use createLegacy from test contexts that stub compiler input).',
+                'RoundService compiler paths require RoundServiceDeps (use createLegacy from test contexts that stub compiler input).',
             );
         }
         const deps = this.deps;
-        const id = crypto.randomUUID();
 
-        // --- Build CompilerInput ---
         const courseHoles = await deps.getCourseHoles(def.courseId);
         if (courseHoles.length === 0) {
             throw new Error(`course ${def.courseId} has no holes`);
@@ -836,8 +841,8 @@ export class RoundService {
             }
         }
 
-        const compilerInput: CompilerInput = {
-            roundId: id,
+        return {
+            roundId,
             definition: def,
             courseHoles: courseHoles.map((h) => ({
                 holeNumber: h.holeNumber,
@@ -848,6 +853,77 @@ export class RoundService {
             playerProfiles,
             guestProfiles,
         };
+    }
+
+    /**
+     * The latest (current) persisted definition version for a round, parsed.
+     * Returns the `ResolvedRoundDefinition` plus its version number — the
+     * authoritative source a correction event mutates. Null when the round has
+     * no compiled definition (legacy-create path).
+     */
+    async latestDefinition(
+        roundId: string,
+    ): Promise<{ version: number; definition: ResolvedRoundDefinition } | null> {
+        const row = await this.db
+            .selectFrom('round_definitions')
+            .where('round_id', '=', roundId)
+            .where('superseded_by_version', 'is', null)
+            .select(['version', 'definition_json'])
+            .executeTakeFirst();
+        if (!row) return null;
+        return {
+            version: row.version,
+            definition: JSON.parse(row.definition_json) as ResolvedRoundDefinition,
+        };
+    }
+
+    /**
+     * Recompile a round from a (mutated) definition and persist a new
+     * `round_definitions` version + diff-upserted outputs in one transaction.
+     * The single entry point for `setup_correction_event` /
+     * `allowance_override_event` materialisation — content-addressed ids keep
+     * unchanged subjects (and their append-only events) stable. Returns
+     * structured compiler diagnostics on failure WITHOUT persisting; nothing
+     * half-writes.
+     */
+    async recompileFromDefinition(
+        roundId: string,
+        def: RoundDefinition,
+        opts: {
+            sourceKind: 'setup_correction' | 'allowance_override';
+            sourceEventId: string;
+            compiledBy?: string | null;
+        },
+    ): Promise<{ ok: true; version: number } | { ok: false; diagnostics: CompilerDiagnostic[] }> {
+        const compileResult = await this.compileDefinition(roundId, def);
+        if (!compileResult.ok) {
+            return { ok: false, diagnostics: compileResult.diagnostics };
+        }
+        const result = await this.db.transaction().execute((trx) =>
+            persistCompiledRound(trx, compileResult.compiled, {
+                sourceKind: opts.sourceKind,
+                sourceEventId: opts.sourceEventId,
+                compiledBy: opts.compiledBy ?? null,
+            }),
+        );
+        return { ok: true, version: result.version };
+    }
+
+    /**
+     * Build the `CompilerInput` for `roundId` from `def` and run the PURE
+     * compiler — no DB writes. The correction service uses this so it can
+     * insert the triggering correction event and persist the recompiled
+     * outputs in ONE transaction (failed compile → nothing persists, event
+     * row not written).
+     */
+    async compileDefinition(roundId: string, def: RoundDefinition): Promise<CompileResult> {
+        const compilerInput = await this.buildCompilerInput(roundId, def);
+        return compile(compilerInput);
+    }
+
+    private async compileAndPersist(def: RoundDefinition): Promise<CreateFromDraftResult> {
+        const id = crypto.randomUUID();
+        const compilerInput = await this.buildCompilerInput(id, def);
 
         const compileResult = compile(compilerInput);
         if (!compileResult.ok) {

@@ -13,6 +13,9 @@ import { ParticipantService } from './participant.service';
 import { ScoreEventService } from './score-event.service';
 import { ScorecardService } from './scorecard.service';
 import { LeaderboardService } from './leaderboard.service';
+import { CorrectionService } from './correction.service';
+import { FormatActionService } from './format-action.service';
+import { DashboardService } from './dashboard.service';
 import type { CompilerTeeContext, Gender } from '../domain/compiler/types';
 
 /**
@@ -104,6 +107,14 @@ export function createServices(db: Kysely<Database>) {
         roundService,
         courseService,
     );
+    const correctionService = new CorrectionService(db, roundService);
+    const formatActionService = new FormatActionService(db, roundService);
+    const dashboardService = new DashboardService(
+        db,
+        roundService,
+        leaderboardService,
+        playerService,
+    );
     return {
         db,
         playerService,
@@ -119,5 +130,8 @@ export function createServices(db: Kysely<Database>) {
         scoreEventService,
         scorecardService,
         leaderboardService,
+        correctionService,
+        formatActionService,
+        dashboardService,
     };
 }

@@ -1,4 +1,4 @@
-import type { Kysely, Selectable } from 'kysely';
+import { sql, type Kysely, type Selectable } from 'kysely';
 import type { Database, PlayersTable } from '../db/schema';
 import type { AuthUser } from '@basics/core/server/auth';
 
@@ -12,6 +12,8 @@ export interface Player {
     avatarUrl: string | null;
     homeClubId: string | null;
     handicapIndex: number | null;
+    /** Soft-delete tombstone (§17). Null = active. */
+    deletedAt: string | null;
 }
 
 export interface RegisterInput {
@@ -37,6 +39,7 @@ function toPlayer(row: PlayerRow): Player {
         avatarUrl: row.avatar_url,
         homeClubId: row.home_club_id,
         handicapIndex: row.handicap_index,
+        deletedAt: row.deleted_at,
     };
 }
 
@@ -102,6 +105,7 @@ export class PlayerService {
             avatarUrl: values.avatar_url,
             homeClubId: values.home_club_id,
             handicapIndex: values.handicap_index,
+            deletedAt: null,
         };
     }
 
@@ -130,5 +134,58 @@ export class PlayerService {
     async list(): Promise<Player[]> {
         const rows = await this.players().execute();
         return rows.map(toPlayer);
+    }
+
+    /** Active players only (soft-delete tombstones excluded). */
+    async listActive(): Promise<Player[]> {
+        const rows = await this.players().where('deleted_at', 'is', null).execute();
+        return rows.map(toPlayer);
+    }
+
+    /** True when the player exists AND is not soft/hard-deleted. Drives live
+     *  navigation links — a deleted player renders by snapshot, with no link. */
+    async isActive(id: string): Promise<boolean> {
+        const row = await this.byId(id).select(['deleted_at']).executeTakeFirst();
+        return !!row && row.deleted_at === null;
+    }
+
+    /**
+     * Soft-delete: stamp `deleted_at`, preserving the row + all PII. The player
+     * drops out of dashboards/active lists; historical scorecards keep rendering
+     * by `ball_players.display_name_snapshot`. Idempotent — re-deleting keeps
+     * the original timestamp.
+     */
+    async softDelete(id: string): Promise<void> {
+        await this.db
+            .updateTable('players')
+            .set({ deleted_at: sql`(datetime('now'))` })
+            .where('id', '=', id)
+            .where('deleted_at', 'is', null)
+            .execute();
+    }
+
+    /**
+     * Hard-delete (GDPR): null every PII field, keep an `id` + `deleted_at`
+     * tombstone so FK integrity (ball_players.player_id RESTRICT) survives.
+     * `username` is NOT NULL UNIQUE, so it becomes an opaque `deleted:<id>`
+     * sentinel rather than null; login is disabled. Snapshots on
+     * `ball_players` are untouched — the round still renders the played-as name.
+     */
+    async hardDelete(id: string): Promise<void> {
+        const now = new Date().toISOString();
+        await this.db
+            .updateTable('players')
+            .set({
+                username: `deleted:${id}`,
+                password_hash: '',
+                display_name: 'Deleted player',
+                nickname: null,
+                avatar_url: null,
+                home_club_id: null,
+                handicap_index: null,
+                deleted_at: sql`COALESCE(deleted_at, ${now})`,
+            })
+            .where('id', '=', id)
+            .execute();
     }
 }

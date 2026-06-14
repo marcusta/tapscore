@@ -18,6 +18,7 @@
 // scoring onto occurrence-aware SI resolution.
 
 import type {
+    FormatAction,
     PerProducerCh,
     PlayHoleSnapshot,
     ProducerSnapshot,
@@ -30,6 +31,7 @@ import type {
     TeeSnapshot,
 } from './strategies/types';
 import { createRoundContext } from './strategies/round-context';
+import { replayFormatActionsBySlot } from './strategies/format-actions';
 
 // --- Input DTOs (one per compiler table the service reads) -----------------
 
@@ -116,6 +118,12 @@ export interface RoundLeaderboardInput {
     /** `slot_ball_teams` in compiler insertion order. */
     slotBallTeams: MaterializeSlotBallTeam[];
     events: StrategyEvent[];
+    /**
+     * Append-only format actions for the whole round (any slot). Bucketed per
+     * slot and supersession-resolved here. Omit / empty for rounds with no
+     * stateful formats.
+     */
+    formatActions?: FormatAction[];
 }
 
 // --- Materialised per-slot scoring inputs ----------------------------------
@@ -127,6 +135,8 @@ export interface MaterializedSlot {
     formatConfig: unknown;
     slotBalls: SlotBall[];
     slotTeamGroupings: SlotTeamGrouping[];
+    /** Replayed, supersession-resolved actions for this slot (§17). */
+    formatActions: FormatAction[];
 }
 
 export interface MaterializedRound {
@@ -205,6 +215,9 @@ function producersForBall(ball: MaterializeBall, fallback: PerProducerCh[]): Per
 export function materializeRound(input: RoundLeaderboardInput): MaterializedRound {
     const roundContext = buildRoundContext(input);
 
+    // Format actions: resolve supersession once, bucket by stable slot def-id.
+    const actionsBySlot = replayFormatActionsBySlot(input.formatActions ?? []);
+
     const ballById = new Map(input.balls.map((b) => [b.id, b] as const));
     // ball_players insertion order == per-producer CH order — the fallback
     // when a ball carries no audit JSON.
@@ -251,6 +264,7 @@ export function materializeRound(input: RoundLeaderboardInput): MaterializedRoun
                 formatConfig: slot.formatConfig,
                 slotBalls,
                 slotTeamGroupings,
+                formatActions: actionsBySlot.get(slot.slotDefId) ?? [],
             };
         });
 
