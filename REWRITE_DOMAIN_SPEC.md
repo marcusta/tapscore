@@ -113,7 +113,7 @@ A Round is **one course, one date, one set of scorecards for the whole field**. 
 
 - Course
 - Date
-- Round type: `full_18 | front_9 | back_9 | custom_holes`
+- Hole itinerary: an explicit ordered list of played holes. Presets such as `full_18`, `front_9`, and `back_9` are setup conveniences, not scoring identity.
 - Venue type: `outdoor | indoor`
 - Start list mode: `structured | fixed_slots | open_window`
 - Window start / end (for `fixed_slots` or `open_window`)
@@ -132,9 +132,9 @@ Single-format round: one slot covering everyone. Multi-format round (series-styl
 
 ### Scoring unit — ball (per Round)
 
-A **ball** is the atomic scoring unit: one stream of strokes per hole. One producer = own-ball, 2+ producers = team-ball. Scorecards are rendered from balls, not from a separate participant entity. See §17 for the full ball/strategy model; the summary here is:
+A **ball** is the atomic scoring unit: one stream of strokes per played-hole occurrence. One producer = own-ball, 2+ producers = team-ball. Scorecards are rendered from balls, not from a separate participant entity. See §17 for the full ball/strategy model; the summary here is:
 
-- Strokes per hole: `int | null (no-result) | 0 (pickup)` — stored as append-only `score_event` keyed by `ball_id`
+- Strokes per played-hole occurrence: `int | null (no-result) | 0 (pickup)` — stored as append-only `score_event` keyed by `ball_id + play_hole_id`
 - Per-producer snapshots live on `ball_players`: tee, course rating, slope, par, handicap index, course handicap (mixed-tee rounds have distinct per-producer rows)
 - Per-slot snapshot lives on `slot_balls`: `playing_handicap_snapshot` (ball CH × format allowance)
 - Derived via format strategy: gross, net, points, per-hole match-play status
@@ -169,13 +169,66 @@ Structured mode skips directly to `registered` on admin assignment.
 Slot within a Round's start list.
 
 - Start time
-- Start hole (1 or 10 for outdoor shotgun)
+- Start play-hole within the Round's itinerary (any entry; the first entry by default)
 - Capacity (typically 2–4 players)
 - Optional hitting bay (indoor)
-- Contains participants
+- Contains the balls/producers playing together
 
-**Outdoor** slot semantics: tee time + start hole, ~8–12 min apart.
+**Outdoor** slot semantics: tee time + start play-hole, ~8–12 min apart. A normal tee time starts at the itinerary's first entry. A shotgun assigns different playing groups to different itinerary entries and rotates each group's played sequence from there.
 **Indoor** slot semantics: hitting bay × time window, bay occupied for 60–90 min. Overlapping bay bookings, not overlapping tee times.
+
+### Round hole itinerary
+
+The Round owns the holes that count and their canonical order. Do not infer this from a round-type enum, a start hole, score events that happen to exist, or the course's full hole list.
+
+```
+round_play_holes
+  id                                             -- hash(round_id, play_hole_def_id)
+  play_hole_def_id                               -- stable across RoundDefinition versions
+  round_id
+  ordinal                                        -- 1..N canonical itinerary order
+  course_hole_number                             -- references the frozen course-hole snapshot
+  par                                            -- occurrence snapshot; defaults from the physical hole
+  base_stroke_index                              -- occurrence snapshot; may differ on a repeated loop
+
+round_play_tee_holes
+  (round_play_hole_id, tee_id, length_m,
+   stroke_index_override?)                      -- occurrence + tee snapshot
+```
+
+Examples:
+
+- Full round: `1,2,...,18`
+- Start on 5 and finish on 12: `5,6,7,8,9,10,11,12`
+- Wrapped full round: `5,6,...,18,1,2,3,4`
+- Selected subset: `1,3,5,7,9`
+- Two loops of a 9-hole course: `1..9,1..9`
+- Ten-hole course played as 18: `1..10,1..8`
+- The same course played as 16, 10, or 6: `1..10,1..6`; `1..10`; or `1..6`
+
+Repeated course holes are allowed, so a score event targets `round_play_holes.id`, not only `course_hole_number`. Each occurrence freezes its effective par and stroke index, defaulted from the physical course hole but overridable by the route. This matters when an 18-hole scorecard assigns different stroke indexes to the first and second visits to the same physical hole. `course_hole_number` remains available for display and rules that explicitly refer to the physical hole.
+
+Every playing group references one `start_play_hole_id` from the itinerary. Its effective played order is the itinerary rotated to that entry. This gives every ball both:
+
+- `course_hole_number`: where the golf was played;
+- `played_ordinal`: first, second, ... hole played by that group.
+
+Formats must state which coordinate they use. Irish Rumble and Wolf rotation use `played_ordinal`; a rule explicitly referring to course holes 1–9 uses `course_hole_number`. Ending hole is derived from the group's start entry and the itinerary length, never stored as an independent value that can disagree.
+
+The itinerary is also the scoring-completeness boundary: a Round is complete when every required ball has a terminal score state for every itinerary entry, regardless of how many holes the course contains. WHS posting eligibility and route-specific handicap treatment are separate policy; arbitrary subsets may be scoreable without being eligible for handicap posting.
+
+The Round also freezes:
+
+- **SI provenance**: `official | difficulty | custom`, plus optional source label/version. Difficulty-derived values are resolved once; historical scoring never reruns an analytics algorithm.
+- **Allocation cycle size**: the denominator used when allocating multiple or plus-handicap strokes. It is explicit and is not inferred from itinerary length. An official subset may, for example, retain sparse SI values within an 18-hole cycle.
+- **Route handicap policy**: `official_route | full_course_casual | prorated_casual | explicit`, including posting eligibility and an ineligibility reason. This policy produces the frozen per-producer route CH before ball derivation and format allowance.
+- **Route sections**: optional named ordinal ranges used for scorecard totals. `OUT`/`IN` are common presets, not hardcoded physical-hole assumptions.
+
+SI changes stroke allocation only. It never silently changes rating, slope, route CH, playing handicap, or WHS eligibility. Those values change only through the explicit route handicap policy.
+
+### Course route templates
+
+A Course may own named reusable route templates such as `10 + first 8`, `clubhouse 6`, or `difficulty SI`. A template contains ordered physical-hole occurrences, route sections, SI source/config, allocation cycle, and route handicap policy. It is authoring data only: creating a Round resolves and copies the complete template into `RoundDefinition`; later template edits do not rewrite historical rounds.
 
 ### Venue and Bay (optional, for indoor)
 
@@ -410,21 +463,21 @@ Scorecards are **append-only score events** plus a materialised view. The per-ho
 
 ```
 score_event (append-only)
-  id, round_id, participant_id, hole, strokes | null,
+  id, round_id, ball_id, play_hole_id, strokes | null,
   event_type: score_entered | score_cleared | score_confirmed | manual_override,
   recorded_by (player_id),
   recorded_at (server timestamp),
   client_event_id (UNIQUE per round — idempotency key)
 
-scorecard (materialised view, rebuilt from latest event per hole)
-  participant_id, round_id, hole → strokes, recorded_by, recorded_at
+scorecard (materialised view, rebuilt from latest event per played-hole occurrence)
+  ball_id, round_id, play_hole_id → strokes, recorded_by, recorded_at
 ```
 
 Benefits:
 
 - Tiny payloads (~40 bytes per score entry)
 - Idempotent writes — client retries safely with `client_event_id`
-- Conflict-safe (last-writer-wins per hole, or propose/confirm if stricter semantics needed)
+- Conflict-safe (last-writer-wins per ball + played-hole occurrence, or propose/confirm if stricter semantics needed)
 - Audit trail built-in — every score change has who and when
 - Replay is trivial: "send me your event log for round X" reproduces exact state
 
@@ -475,7 +528,7 @@ Golf courses have dead zones. Design for it.
 - Client maintains a **local queue** of pending score events.
 - Score entry is **optimistic** — UI updates immediately, queue entry created.
 - On reconnect: flush queue with idempotency keys; server applies in order and dedupes.
-- Conflict resolution is per `(participant, hole)` — last-writer-wins by `recorded_at`, or propose/confirm UI for stricter cases.
+- Conflict resolution is per `(ball_id, play_hole_id)` — last-writer-wins by `recorded_at`, or propose/confirm UI for stricter cases.
 - Disconnected clients can **recompute their own leaderboard locally** from the event log — stale for other groups, correct for their own.
 
 ### Pre-compute on server, not on client
@@ -676,9 +729,24 @@ round_course_holes
 round_tee_holes
   (round_id, tee_id, hole_no,
    length_m, stroke_index_override?)           -- per-tee hole data; SI override wins when present
+
+round_play_holes
+  (id, play_hole_def_id, round_id, ordinal, course_hole_number,
+   par, base_stroke_index)                     -- ordered occurrence snapshots; holes may repeat
+
+round_play_tee_holes
+  (round_play_hole_id, tee_id, length_m, stroke_index_override?)
+                                               -- effective tee data for this occurrence
+
+playing_groups
+  (id, round_id, start_time, start_play_hole_id, capacity, hitting_bay?)
+                                               -- target replacement for the current tee_times table
+
+playing_group_balls
+  (playing_group_id, ball_id)                  -- each scored ball has one played-order context
 ```
 
-Scoring routines that need effective SI: look up via the producer's `ball_players.tee_id` → `round_tee_holes.stroke_index_override`, else fall back to `round_course_holes.base_stroke_index`. Lengths are always per-tee.
+Scoring routines that need effective SI: look up the played occurrence + producer tee in `round_play_tee_holes.stroke_index_override`, else fall back to `round_play_holes.base_stroke_index`. Lengths are always per occurrence + tee. Scoring iterates `round_play_holes`, not all `round_course_holes`; the latter remains frozen physical-course reference data from which route defaults are compiled.
 
 No singular `rounds.tee_rating_snapshot` / `rounds.slope_snapshot` / `rounds.tee_par_snapshot` — those are per-producer on `ball_players`.
 
@@ -849,13 +917,14 @@ interface FormatStrategy {
   }): { ballId: string; playingHandicapSnapshot: number }[]
 
   // Scoring. Pure over frozen inputs. Does not touch players, indices, allowance.
-  // Reads effective SI per (ball, producer, hole) via roundContext: producer's tee override
-  // (round_tee_holes.stroke_index_override) falls back to base (round_course_holes.base_stroke_index).
+  // Reads effective SI per (ball, producer, play-hole occurrence) via roundContext:
+  // occurrence + tee override falls back to the occurrence's frozen base SI.
   score(input: {
-    roundContext: RoundContext                  // course holes + per-tee holes + per-producer tee snapshots
+    roundContext: RoundContext                  // course reference data + play-hole itinerary + group-relative played order + tee/producer snapshots
     slotBalls: SlotBall[]                       // derivation output, frozen
     slotTeamGroupings?: { teamLabel: string; ballIds: string[] }[]
     events: (ScoreEvent | MetadataEvent | SetupCorrectionEvent | AllowanceOverrideEvent | RulingEvent)[]
+                                                // hole-scoped events target stable playHoleId, not raw course hole number
   }): StrategyResult
 
   // Optional: owns rendering, or delegates to shared render-lib.
@@ -888,6 +957,34 @@ Every node in `RoundDefinition` carries a **stable def-id** assigned at definiti
 type RoundDefinition = {
   courseId: string
   playedAt: string
+  routeSi: {
+    mode: 'official' | 'difficulty' | 'custom'
+    sourceLabel?: string
+    sourceVersion?: string
+    allocationCycleSize: number
+  }
+  routeHandicapPolicy: {
+    type: 'official_route' | 'full_course_casual' | 'prorated_casual' | 'explicit'
+    postingEligible: boolean
+    postingIneligibleReason?: string
+  }
+  routeSections?: {
+    id: string
+    label: string
+    fromCanonicalOrdinal: number
+    toCanonicalOrdinal: number
+  }[]
+  playHoles: {
+    id: string                                  // stable def-id → round_play_holes.play_hole_def_id
+    courseHoleNumber: number                    // array order is the canonical itinerary order
+    parOverride?: number                        // uncommon route-specific occurrence override
+    baseStrokeIndexOverride?: number
+    teeOverrides?: {
+      teeId: string
+      lengthM?: number
+      strokeIndexOverride?: number
+    }[]
+  }[]
   producers: {
     id: string                                  // stable def-id → ball_players.producer_def_id
     playerRef: PlayerRef                        // { kind: 'player' | 'guest', id }
@@ -901,6 +998,14 @@ type RoundDefinition = {
     strategyId: string                          // 'own_ball_per_player' | …
     derivationConfig: BallDerivationConfig
     composition?: { teams: { label: string; producerDefIds: string[] }[] }
+  }[]
+  playingGroups: {
+    id: string                                  // stable group def-id
+    startTime: string
+    startPlayHoleDefId: string                  // references playHoles[].id
+    capacity: number
+    hittingBay?: string
+    producerDefIds: string[]                    // compiler derives playing_group_balls after ball creation
   }[]
   slots: {
     id: string                                  // stable def-id → slots.slot_def_id
@@ -931,19 +1036,23 @@ Pipeline inside `compile`:
 
 ```
 1. Validate definition shape; assign missing def-ids (first compile only).
-2. Snapshot course/tees/holes:
-   → rounds.course_name_snapshot, round_course_holes, round_tee_holes
+2. Snapshot course/tees/holes and compile the explicit play itinerary:
+   → rounds.course_name_snapshot, round_course_holes, round_tee_holes,
+     round_play_holes, round_play_tee_holes
    → per-producer tee + category snapshots prepared for ball_players rows
-3. Run each BallCreationStrategy.create(producers, composition, derivationConfig, courseHoles)
+3. Apply the route handicap policy and freeze per-producer route CH.
+4. Run each BallCreationStrategy.create(producers, composition, derivationConfig, courseHoles)
    → candidate balls with per-producer CH; each ball tagged with strategy_def_id
-4. Dedupe across strategy instances where allowsProducerSetDedupe() is true
-5. Validate each slot against format.ballRequirement() — reject with diagnostics if mismatched
-6. For each slot, run format.deriveSlotBalls(balls, allowanceConfig) → slot_balls rows
-7. Persist atomically:
+5. Dedupe across strategy instances where allowsProducerSetDedupe() is true
+6. Resolve playing-group ball membership from producer sets; reject cross-group team balls and invalid/missing start-play-hole references
+7. Validate each slot against format.ballRequirement() — reject with diagnostics if mismatched
+8. For each slot, run format.deriveSlotBalls(balls, allowanceConfig) → slot_balls rows
+9. Persist atomically:
    → round_definitions (new version row with the exact input that produced these outputs)
-   → rounds, round_course_holes, round_tee_holes, round_ball_strategies,
+     → rounds, round_course_holes, round_tee_holes, round_play_holes,
+     round_play_tee_holes, round_ball_strategies,
      balls, ball_players (with producer_def_id), slots (with slot_def_id),
-     slot_balls, slot_ball_teams.
+     slot_balls, slot_ball_teams, playing_groups, playing_group_balls.
 ```
 
 ### Stable runtime ids across recompile
@@ -955,9 +1064,10 @@ balls.id       = hash(round_id, round_ball_strategy.strategy_def_id, sorted(prod
 slots.id       = hash(round_id, slot_def_id)
 slot_balls.(slot_id, ball_id)                                    -- deterministic from the above
 round_ball_strategies.id = hash(round_id, strategy_def_id)
+round_play_holes.id = hash(round_id, play_hole_def_id)
 ```
 
-Because these ids are a pure function of stable def-ids + producer-def-id set, a recompile regenerates identical ids for any entity whose defining inputs are unchanged. Events (`score_event.ball_id`, `allowance_override_event.slot_def_id`, `ruling_event.target_id`, `metadata_event.ball_id`) remain valid without rewrite.
+Because these ids are a pure function of stable def-ids + producer-def-id set, a recompile regenerates identical ids for any entity whose defining inputs are unchanged. Events (`score_event.ball_id`, `score_event.play_hole_id`, `allowance_override_event.slot_def_id`, `ruling_event.target_id`, `metadata_event.ball_id`) remain valid without rewrite. Reordering an existing itinerary entry keeps its `play_hole_def_id`; removing one retains any old events as diagnosed orphans under the normal recompile rules.
 
 **Recompile semantics** (after a `setup_correction_event` or `allowance_override_event`):
 
@@ -978,10 +1088,10 @@ Validation errors are structured: a rejected definition returns a list of diagno
 Ball is the only score subject. Metadata gains optional producer attribution. Corrections are **typed, not a generic override bus**.
 
 ```
-score_event              { round_id, ball_id, hole, strokes | null,
+score_event              { round_id, ball_id, play_hole_id, strokes | null,
                            client_event_id (unique per round), recorded_by, recorded_at }
 
-metadata_event           { round_id, ball_id, hole,
+metadata_event           { round_id, ball_id, play_hole_id,
                            producer_player_id?,         -- XOR pair with producer_guest_player_id,
                            producer_guest_player_id?,   -- both null for ball-level metadata;
                                                         -- exactly one set for per-producer types
@@ -1031,7 +1141,7 @@ allowance_override_event { round_id, slot_def_id,            -- stable def-id, n
                          -- allowance; no split reconciliation against a separate override layer.
 
 ruling_event             { round_id,
-                           target: 'ball_hole' | 'ball_total' | 'slot_ball_result',
+                           target: 'ball_play_hole' | 'ball_total' | 'slot_ball_result',
                            target_id,
                            kind: 'dq' | 'penalty_strokes' | 'hole_adjudication' | 'wd',
                            value,                       -- e.g. { strokes: +2 } or { disqualified: true }
@@ -1040,7 +1150,7 @@ ruling_event             { round_id,
 ```
 
 Replay semantics:
-- Later `score_event` wins per `(ball_id, hole)`.
+- Later `score_event` wins per `(ball_id, play_hole_id)`.
 - `setup_correction_event` mutates the stored `RoundDefinition` at the targeted input, then the compiler re-runs from that input forward — affected `balls` / `slot_balls` / `ball_players` / `slot_ball_teams` are recomputed as outputs. The event log retains both old and new input values; derived outputs are never written to directly.
 - `allowance_override_event` writes a new `round_definitions` version (with only `slots[i].allowanceConfig` changed); compiler's diff recognises the narrow change and fast-paths `format.deriveSlotBalls` on the affected slot — ball CH untouched, all other slots untouched. After a later `setup_correction_event` triggers a full recompile, the allowance override is **preserved** because it lives in the definition chain, not a separate overlay.
 - `ruling_event` is read by the format strategy during `score()` and applied as a scoring-layer adjustment. No re-derivation.
@@ -1075,7 +1185,7 @@ Slots (partial):
 | Individual gross | stroke-play | `B_P1..B_P4` | — | `flat(100)` |
 | Umbrella | umbrella | `B_P1..B_P4` | — | `flat(100)` |
 
-All seven slots consume the same events log (one `score_event` per ball per hole). No slot re-derives anything; they read their pre-computed `slot_balls` rows. Own-ball PH varies per slot (95% stableford vs 85% better-ball vs 90% taliban, all off the same `B_Pn.courseHandicapSnapshot`). Team-ball PH (`B_pairA`, `B_pairB`) comes from the foursomes avg-index derivation applied once at ball creation, then 100% match-play allowance.
+All seven slots consume the same events log (one `score_event` per ball per play-hole occurrence). No slot re-derives anything; they read their pre-computed `slot_balls` rows. Own-ball PH varies per slot (95% stableford vs 85% better-ball vs 90% taliban, all off the same `B_Pn.courseHandicapSnapshot`). Team-ball PH (`B_pairA`, `B_pairB`) comes from the foursomes avg-index derivation applied once at ball creation, then 100% match-play allowance.
 
 ### Player dashboard (guest-aware)
 
