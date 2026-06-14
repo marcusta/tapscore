@@ -36,6 +36,7 @@ export interface Database {
     allowance_override_events: AllowanceOverrideEventsTable;
     ruling_events: RulingEventsTable;
     format_action_events: FormatActionEventsTable;
+    friendly_rounds: FriendlyRoundsTable;
 }
 
 export type RoundType = 'full_18' | 'front_9' | 'back_9' | 'custom_holes';
@@ -553,6 +554,17 @@ export interface FormatActionEventsTable {
     recorded_by_player_id: string | null;
     recorded_at: Generated<string>;
     client_event_id: string;
+}
+
+// Phase 2.6e M1 — FriendlyRound wrapper (1:1 extension of `rounds`).
+// `round_id` is a real, non-null FK: the round is compiled before the wrapper
+// is minted. `creator_player_id` is nullable — no identities in 2.6e.
+export interface FriendlyRoundsTable {
+    id: string;
+    round_id: string;
+    share_token: string;
+    creator_player_id: string | null;
+    created_at: Generated<string>;
 }
 
 export interface PlayersTable {

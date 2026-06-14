@@ -16,6 +16,7 @@ import { LeaderboardService } from './leaderboard.service';
 import { CorrectionService } from './correction.service';
 import { FormatActionService } from './format-action.service';
 import { DashboardService } from './dashboard.service';
+import { FriendlyRoundService } from './friendly-round.service';
 import type { CompilerTeeContext, Gender } from '../domain/compiler/types';
 
 /**
@@ -115,6 +116,7 @@ export function createServices(db: Kysely<Database>) {
         leaderboardService,
         playerService,
     );
+    const friendlyRoundService = new FriendlyRoundService(db, roundService);
     return {
         db,
         playerService,
@@ -133,5 +135,6 @@ export function createServices(db: Kysely<Database>) {
         correctionService,
         formatActionService,
         dashboardService,
+        friendlyRoundService,
     };
 }
