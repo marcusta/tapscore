@@ -104,6 +104,8 @@ describe('format architecture invariants', () => {
             'taliban_better_ball',
             'umbrella_4_ball',
             'stroke_play_foursomes',
+            'greensomes',
+            'scramble',
         ];
         const offenders: string[] = [];
         for (const f of files) {

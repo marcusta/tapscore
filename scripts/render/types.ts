@@ -21,7 +21,7 @@ export type Services = ReturnType<typeof createServices>;
  * `ball_players`. One ball can have one producer (own-ball-per-player,
  * foursomes when each player IS a ball via alt-shot pairing is handled
  * through 2 producers on one ball), two producers (better-ball / taliban
- * / umbrella four-ball team balls), or N producers (scramble, etc.). All
+ * / umbrella four-ball team balls), or N producers (larger team balls). All
  * snapshot fields are frozen at compile time.
  */
 export interface BallProducerInfo {

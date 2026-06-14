@@ -19,6 +19,12 @@ export const MANUAL_FORMAT_SEEDS = [
     'umbrella-individual-round',
     'multi-slot-series-round',
     'multi-format-3p-round',
+    'greensomes-weighted-round',
+    'scramble-4-by-rank-round',
+    'scramble-2-by-rank-round',
+    'fourball-85-round',
+    'multi-format-extreme-round',
+    'mixed-tee-round',
 ] as const;
 
 export function availableSeedNames(): string[] {

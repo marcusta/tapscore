@@ -46,6 +46,8 @@ import { talibanBetterBall } from '../strategies/formats/taliban-better-ball';
 import { umbrella4Ball } from '../strategies/formats/umbrella-4-ball';
 import { umbrellaIndividual } from '../strategies/formats/umbrella-individual';
 import { matchPlayBetterBall } from '../strategies/formats/match-play-better-ball';
+import { greensomes } from '../strategies/formats/greensomes';
+import { scramble } from '../strategies/formats/scramble';
 
 const GROSS_NET: FormatMetric[] = [
     { id: 'gross', label: 'Gross', direction: 'low' },
@@ -154,6 +156,22 @@ const BUILTINS: BuiltinMeta[] = [
         teamShape: 'four_ball',
         metrics: POINTS_HIGH,
         resultDisplay: NORMALIZED_RUNNING,
+    },
+    {
+        strategy: greensomes,
+        label: 'Greensomes',
+        description: 'Both drive, pick best, then alternate shots; weighted pair handicap.',
+        scoringMode: 'stroke_play',
+        teamShape: 'greensome',
+        metrics: GROSS_NET,
+    },
+    {
+        strategy: scramble,
+        label: 'Scramble',
+        description: 'Team plays the best shot each time; by-rank weighted handicap.',
+        scoringMode: 'stroke_play',
+        teamShape: 'scramble',
+        metrics: GROSS_NET,
     },
 ];
 

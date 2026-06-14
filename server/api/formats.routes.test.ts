@@ -30,11 +30,13 @@ test('GET /api/formats returns the registered serializable descriptors', async (
 
     // Deterministically ordered by descriptor id; covers every built-in.
     expect(Array.isArray(data)).toBe(true);
-    expect(data.length).toBe(10);
+    expect(data.length).toBe(12);
     const ids = data.map((d) => d.id);
     expect(ids).toEqual([...ids].sort());
     expect(ids).toContain('stableford_individual');
     expect(ids).toContain('stroke_play_foursomes');
+    expect(ids).toContain('greensomes');
+    expect(ids).toContain('scramble');
 
     const stableford = data.find((d) => d.id === 'stableford_individual')!;
     expect(stableford).toMatchObject({
