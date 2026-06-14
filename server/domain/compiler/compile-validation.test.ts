@@ -521,3 +521,91 @@ describe('compiler — requirement-based auto-selection', () => {
         expect(fourBalls).toHaveLength(2);
     });
 });
+
+// --- Allowance config (flat range + split CH-band table) --------------------
+
+describe('compiler validation — allowance config', () => {
+    function allowanceDef(allowanceConfig: RoundDefinition['slots'][number]['allowanceConfig']): RoundDefinition {
+        return {
+            courseId: 'c1',
+            playedAt: '2026-01-01',
+            producers: producers(['p1', 'p2']),
+            ballStrategies: [ownStrategy],
+            slots: [
+                {
+                    id: 'slot-1',
+                    formatId: 'stableford_individual',
+                    allowanceConfig,
+                    ballSelector: { strategyDefIds: ['own'] },
+                },
+            ],
+        };
+    }
+
+    test('flat pct above 200 → allowance_pct_out_of_range', () => {
+        expect(diags(allowanceDef({ type: 'flat', pct: 250 }), ['p1', 'p2'])).toContain(
+            'allowance_pct_out_of_range',
+        );
+    });
+
+    test('split band pct out of range → allowance_pct_out_of_range', () => {
+        const def = allowanceDef({
+            type: 'split',
+            bands: [
+                { upToCh: 9, pct: 250 },
+                { upToCh: null, pct: 75 },
+            ],
+        });
+        expect(diags(def, ['p1', 'p2'])).toContain('allowance_pct_out_of_range');
+    });
+
+    test('split bands not ascending by upToCh → allowance_band_bounds_invalid', () => {
+        const def = allowanceDef({
+            type: 'split',
+            bands: [
+                { upToCh: 18, pct: 100 },
+                { upToCh: 9, pct: 90 },
+                { upToCh: null, pct: 75 },
+            ],
+        });
+        expect(diags(def, ['p1', 'p2'])).toContain('allowance_band_bounds_invalid');
+    });
+
+    test('open-ended band before the final band → allowance_band_bounds_invalid', () => {
+        const def = allowanceDef({
+            type: 'split',
+            bands: [
+                { upToCh: null, pct: 100 },
+                { upToCh: 18, pct: 75 },
+            ],
+        });
+        expect(diags(def, ['p1', 'p2'])).toContain('allowance_band_bounds_invalid');
+    });
+
+    test('split table without an open catch-all band → allowance_band_no_catch_all', () => {
+        const def = allowanceDef({
+            type: 'split',
+            bands: [
+                { upToCh: 9, pct: 100 },
+                { upToCh: 18, pct: 75 },
+            ],
+        });
+        expect(diags(def, ['p1', 'p2'])).toContain('allowance_band_no_catch_all');
+    });
+
+    test('a well-formed split table compiles and derives per-band PH', () => {
+        const def = allowanceDef({
+            type: 'split',
+            bands: [
+                { upToCh: 9, pct: 100 },
+                { upToCh: null, pct: 75 },
+            ],
+        });
+        const res = compile(mkInput(def, ['p1', 'p2']));
+        if (!res.ok) throw new Error(JSON.stringify(res.diagnostics));
+        // Both producers carry handicapIndex 10 → identical CH on the shared
+        // tee; the band split still applies cleanly (regression guard that a
+        // valid split is NOT rejected).
+        expect(res.compiled.slotBalls.length).toBe(2);
+    });
+});

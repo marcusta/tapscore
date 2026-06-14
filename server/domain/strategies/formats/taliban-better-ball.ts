@@ -28,7 +28,7 @@ import type {
     StrategyResult,
 } from '../types';
 import {
-    deriveFlat,
+    deriveAllowance,
     groupBallsByTeam,
     holeIdentity,
     latestScoresByPlayHole,
@@ -138,7 +138,7 @@ export const talibanBetterBall: FormatStrategy = {
         };
     },
 
-    deriveSlotBalls: deriveFlat,
+    deriveSlotBalls: deriveAllowance,
 
     score({ roundContext, slotBalls, slotTeamGroupings, events }): StrategyResult {
         if (!slotTeamGroupings || slotTeamGroupings.length !== 2) {

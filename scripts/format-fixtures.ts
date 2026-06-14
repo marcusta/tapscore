@@ -7,6 +7,7 @@ import type { Database } from '../server/db/schema';
 import { seedDev } from '../server/db/seeds/dev';
 import { createServices } from '../server/services/index';
 import type { Round } from '../server/services/round.service';
+import type { FormatAllowanceConfig } from '../server/domain/round-definition';
 import { MANUAL_FORMAT_SEEDS, applyNamedSeeds } from './seed-lib';
 
 export const MANUAL_FORMAT_DB_PATH = path.join(process.cwd(), 'tmp', 'manual-format-fixtures.sqlite');
@@ -32,6 +33,8 @@ const EXPECTED_FIXTURE_SIGNATURES = [
     'full_18|stableford:better_ball:85',
     'full_18|stableford:individual:95+umbrella:individual:100+taliban:better_ball:90+stroke_play:individual:100+stroke_play:foursomes:100+kopenhamnare:individual:100+stableford:better_ball:85',
     'full_18|stroke_play:foursomes:100+stroke_play:individual:100',
+    // --- Phase 2.6d-bis: non-flat (split CH-band) allowance ---
+    'full_18|stableford:better_ball:split[9:100,*:75]',
 ] as const;
 
 function removeDbFiles(dbPath: string): void {
@@ -40,9 +43,24 @@ function removeDbFiles(dbPath: string): void {
     }
 }
 
-function roundSignature(round: Round): string {
+/**
+ * Stable, allowance-aware signature for a fixture round. Flat allowances keep
+ * their bare pct (so the 2.6c/earlier fixtures stay byte-identical); a `split`
+ * allowance encodes its band table (`split[<upToCh|*>:<pct>,…]`) so a non-flat
+ * fixture has a distinct, hand-readable identity instead of collapsing onto a
+ * flat-100 signature.
+ */
+export function allowanceSignature(config: FormatAllowanceConfig): string {
+    if (config.type === 'flat') return `${config.pct}`;
+    const bands = config.bands
+        .map((b) => `${b.upToCh === null ? '*' : b.upToCh}:${b.pct}`)
+        .join(',');
+    return `split[${bands}]`;
+}
+
+export function roundSignature(round: Round): string {
     const slots = round.formatSlots
-        .map((slot) => `${slot.scoringMode}:${slot.teamShape}:${slot.allowancePct}`)
+        .map((slot) => `${slot.scoringMode}:${slot.teamShape}:${allowanceSignature(slot.allowanceConfig)}`)
         .join('+');
     return `${round.roundType}|${slots}`;
 }

@@ -11,7 +11,7 @@
 
 import { strokePlayIndividual } from './stroke-play-individual';
 import type { FormatStrategy } from '../format-strategy';
-import { deriveFlat } from './_shared';
+import { deriveAllowance } from './_shared';
 
 export const SCRAMBLE_ID = 'scramble';
 
@@ -22,7 +22,7 @@ export const scramble: FormatStrategy = {
         return { producerCount: { min: 2, max: 4 }, ballMode: 'team', requiresSlotTeamGrouping: false };
     },
 
-    deriveSlotBalls: deriveFlat,
+    deriveSlotBalls: deriveAllowance,
 
     score(input) {
         return strokePlayIndividual.score(input);

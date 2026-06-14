@@ -7,7 +7,7 @@
 
 import type { FormatStrategy } from '../format-strategy';
 import type { BallHoleResult, BallResult, StrategyResult } from '../types';
-import { deriveFlat, holeIdentity, latestScoresByPlayHole, strokesGivenMapForBall } from './_shared';
+import { deriveAllowance, holeIdentity, latestScoresByPlayHole, strokesGivenMapForBall } from './_shared';
 
 export const STROKE_PLAY_INDIVIDUAL_ID = 'stroke_play_individual';
 
@@ -22,7 +22,7 @@ export const strokePlayIndividual: FormatStrategy = {
         };
     },
 
-    deriveSlotBalls: deriveFlat,
+    deriveSlotBalls: deriveAllowance,
 
     score({ roundContext, slotBalls, events }): StrategyResult {
         const ballResults: BallResult[] = slotBalls.map((ball) => {

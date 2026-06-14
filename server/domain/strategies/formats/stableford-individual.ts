@@ -5,7 +5,7 @@
 
 import type { FormatStrategy } from '../format-strategy';
 import type { BallHoleResult, BallResult, StrategyResult } from '../types';
-import { deriveFlat, holeIdentity, latestScoresByPlayHole, strokesGivenMapForBall } from './_shared';
+import { deriveAllowance, holeIdentity, latestScoresByPlayHole, strokesGivenMapForBall } from './_shared';
 
 export const STABLEFORD_INDIVIDUAL_ID = 'stableford_individual';
 
@@ -16,7 +16,7 @@ export const stablefordIndividual: FormatStrategy = {
         return { producerCount: { min: 1, max: 1 }, ballMode: 'own', requiresSlotTeamGrouping: false };
     },
 
-    deriveSlotBalls: deriveFlat,
+    deriveSlotBalls: deriveAllowance,
 
     score({ roundContext, slotBalls, events }): StrategyResult {
         const ballResults: BallResult[] = slotBalls.map((ball) => {

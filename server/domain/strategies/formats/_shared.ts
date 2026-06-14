@@ -42,9 +42,26 @@ export function holeIdentity(
 }
 
 /**
- * Default `deriveSlotBalls` for formats taking a flat allowance. Applies
- * `ball_CH × pct / 100` via the shared `playingHandicap` helper — same
- * rounding as legacy. Formats with non-flat allowance replace this.
+ * Shared `deriveSlotBalls` for every format. Resolves `ball_CH → ball_PH`
+ * under whichever `FormatAllowanceConfig` variant the slot carries — still one
+ * PH per ball; only the percentage source changes. `flat` applies a single
+ * pct; `split` picks each ball's pct from its CH band (2.6d-bis). The compiler
+ * has already validated the config (`validateAllowanceConfig`), so the runtime
+ * paths only defend against a should-never-happen uncovered CH.
+ */
+export function deriveAllowance({ balls, allowanceConfig }: DeriveSlotBallsInput): DerivedSlotBall[] {
+    switch (allowanceConfig.type) {
+        case 'flat':
+            return deriveFlat({ balls, allowanceConfig });
+        case 'split':
+            return deriveSplit(balls, allowanceConfig);
+    }
+}
+
+/**
+ * Flat allowance: `ball_CH × pct / 100` via the shared `playingHandicap`
+ * helper (same rounding as legacy). Retained as a named export — the compiler
+ * test kit and `deriveAllowance` both call it directly.
  */
 export function deriveFlat({ balls, allowanceConfig }: DeriveSlotBallsInput): DerivedSlotBall[] {
     if (allowanceConfig.type !== 'flat') {
@@ -55,6 +72,33 @@ export function deriveFlat({ balls, allowanceConfig }: DeriveSlotBallsInput): De
         ballId: b.ballId,
         playingHandicapSnapshot: playingHandicap(b.courseHandicapSnapshot, pct),
     }));
+}
+
+/**
+ * Split allowance: each ball's pct is the first CH band whose `upToCh` is the
+ * open catch-all (`null`) or ≥ the ball's `ball_CH`. Bands are compiler-
+ * validated to ascend and end in a catch-all, so the `find` always hits — the
+ * throw guards a malformed config that bypassed compile-time validation.
+ */
+function deriveSplit(
+    balls: DeriveSlotBallsInput['balls'],
+    cfg: Extract<FormatAllowanceConfig, { type: 'split' }>,
+): DerivedSlotBall[] {
+    return balls.map((b) => {
+        const band = cfg.bands.find(
+            (bd) => bd.upToCh === null || b.courseHandicapSnapshot <= bd.upToCh,
+        );
+        if (!band) {
+            throw new Error(
+                `deriveSplit: ball ${b.ballId} CH ${b.courseHandicapSnapshot} is not covered by any split band ` +
+                    `(the compiler should have rejected a non-covering table)`,
+            );
+        }
+        return {
+            ballId: b.ballId,
+            playingHandicapSnapshot: playingHandicap(b.courseHandicapSnapshot, band.pct),
+        };
+    });
 }
 
 /**

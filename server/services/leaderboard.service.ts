@@ -10,7 +10,7 @@ import {
 import { findFormatPlugin } from '../domain/formats/plugin';
 import { buildSlotResult, type ResultColumn } from '../domain/strategies/result-builder';
 import type { RoundResult } from '../domain/strategies/result-sections';
-import type { RoundDefinition } from '../domain/round-definition';
+import { formatAllowanceLabel, type RoundDefinition } from '../domain/round-definition';
 import type { FormatAction, RulingEvent, StrategyEvent } from '../domain/strategies/types';
 import { applyRulingsToSlot, rulingEventsOf } from '../domain/strategies/rulings';
 import type { CourseHole } from '../domain/round-holes';
@@ -249,8 +249,10 @@ export class LeaderboardService {
             baseStrokeIndex: p.baseStrokeIndex,
         }));
 
-        const allowanceBySlot = new Map(
-            round.formatSlots.map((s) => [s.slotIndex, s.allowancePct] as const),
+        const allowanceLabelBySlot = new Map(
+            round.formatSlots.map(
+                (s) => [s.slotIndex, formatAllowanceLabel(s.allowanceConfig)] as const,
+            ),
         );
 
         const rulings = rulingEventsOf(materialized.events);
@@ -268,7 +270,7 @@ export class LeaderboardService {
             // Competitive rulings are a generic scoring-layer adjustment on the
             // structured result — never a format-id branch, never a re-derivation.
             const { result } = applyRulingsToSlot(scored, rulings, slot.slotDefId);
-            const pct = allowanceBySlot.get(slot.slotIndex);
+            const allowanceLabel = allowanceLabelBySlot.get(slot.slotIndex) ?? '—';
             return buildSlotResult({
                 slotIndex: slot.slotIndex,
                 slotDefId: slot.slotDefId,
@@ -276,7 +278,7 @@ export class LeaderboardService {
                 formatLabel: plugin.descriptor.label,
                 scoringMode: plugin.descriptor.scoringMode,
                 teamShape: plugin.descriptor.teamShape,
-                allowanceLabel: pct === undefined ? '—' : `${pct}%`,
+                allowanceLabel,
                 metrics: plugin.descriptor.metrics,
                 runningNormalized: plugin.descriptor.resultDisplay?.runningTotals === 'normalized',
                 result,

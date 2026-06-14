@@ -46,18 +46,57 @@ export type BallDerivationConfig = Static<typeof BallDerivationConfig>;
 
 // --- FormatAllowanceConfig --------------------------------------------------
 //
-// Lives on a slot. Determines `ball_PH` from `ball_CH`. Only `flat` exists
-// today; the union grows with non-flat (split / per-rank) allowance rulesets
-// in phase 2.6d-bis (see PHASES.md) — additive, no schema change.
+// Lives on a slot. Determines `ball_PH` from `ball_CH`. Discriminated by
+// `type`; `flat` is the default. Phase 2.6d-bis adds the non-flat `split`
+// variant (per-CH-band percentages applied across a slot's balls) — additive,
+// no schema change. The split table is structurally loose here (each band is
+// `{ upToCh, pct }`); the compiler validates ordering + full coverage as
+// structured diagnostics (see `validateAllowanceConfig` in compile.ts).
 
 const FormatAllowanceFlat = Type.Object({
     type: Type.Literal('flat'),
     pct: Type.Number({ minimum: 0, maximum: 200 }),
 });
 
-export const FormatAllowanceConfig = Type.Union([FormatAllowanceFlat]);
+/** One CH band of a `split` allowance. */
+const FormatAllowanceSplitBand = Type.Object({
+    /**
+     * Inclusive upper `ball_CH` bound for this band. `null` is the open-ended
+     * catch-all and MUST be the final band. Bands are evaluated low → high; a
+     * ball takes the first band whose `upToCh` is `null` or ≥ its `ball_CH`.
+     */
+    upToCh: Type.Union([Type.Number(), Type.Null()]),
+    pct: Type.Number({ minimum: 0, maximum: 200 }),
+});
+
+/**
+ * Non-flat allowance: different percentages by `ball_CH` band, so low-CH and
+ * high-CH producers take different cuts off the same shared own-balls within
+ * one slot. Bands ascend by `upToCh`; the final band is the open catch-all.
+ */
+const FormatAllowanceSplit = Type.Object({
+    type: Type.Literal('split'),
+    bands: Type.Array(FormatAllowanceSplitBand, { minItems: 2 }),
+});
+
+export const FormatAllowanceConfig = Type.Union([
+    FormatAllowanceFlat,
+    FormatAllowanceSplit,
+]);
 
 export type FormatAllowanceConfig = Static<typeof FormatAllowanceConfig>;
+
+/**
+ * Human-readable one-line allowance label for renderers / leaderboards.
+ * Flat → `95%`; split → `split (≤9: 100%, else 75%)`.
+ */
+export function formatAllowanceLabel(config: FormatAllowanceConfig): string {
+    if (config.type === 'flat') return `${config.pct}%`;
+    const parts = config.bands.map((b) =>
+        b.upToCh === null ? `else ${b.pct}%` : `≤${b.upToCh}: ${b.pct}%`,
+    );
+    return `split (${parts.join(', ')})`;
+}
 
 // --- PlayerRef --------------------------------------------------------------
 

@@ -659,6 +659,11 @@ function compileSlot(
         });
     }
 
+    // --- Allowance config (flat pct range / split band table) --------------
+    // Structured diagnostics so a malformed allowance stops here, before
+    // deriveSlotBalls runs against it. Mirrors the team-grouping validators.
+    validateAllowanceConfig(slotDef, diags);
+
     const selected = selectBallsForSlot(slotDef, strategies, allBalls, req, ctx, diags);
 
     // --- Per-ball producer count ------------------------------------------
@@ -833,6 +838,89 @@ function compileSlot(
  * without recomputing it. Diagnostics accumulate; rows are only emitted when
  * the slot is clean.
  */
+/**
+ * Validate a slot's `FormatAllowanceConfig`. `flat` only bounds its pct;
+ * `split` must be an ascending, fully-covering CH-band table. Three failure
+ * classes surface as structured diagnostics (mirroring the team-grouping
+ * validators): percentages out of range, bad band bounds (ordering / a
+ * non-final open band), and a table that fails to cover every CH (no final
+ * catch-all). Runs before `deriveSlotBalls`, which the slot-level diagnostic
+ * guard then skips.
+ */
+function validateAllowanceConfig(slotDef: SlotDefinition, diags: CompilerDiagnostic[]): void {
+    const cfg = slotDef.allowanceConfig;
+    const acPath = `slots[${slotDef.id}].allowanceConfig`;
+
+    const checkPct = (pct: number, where: string): void => {
+        if (!Number.isFinite(pct) || pct < 0 || pct > 200) {
+            diags.push({
+                code: 'allowance_pct_out_of_range',
+                message: `slot '${slotDef.id}' ${where} allowance pct ${pct} is outside 0..200`,
+                path: acPath,
+            });
+        }
+    };
+
+    if (cfg.type === 'flat') {
+        checkPct(cfg.pct, 'flat');
+        return;
+    }
+
+    // split
+    const bands = cfg.bands;
+    if (bands.length === 0) {
+        diags.push({
+            code: 'allowance_split_empty',
+            message: `slot '${slotDef.id}' split allowance has no bands`,
+            path: acPath,
+        });
+        return;
+    }
+
+    let prevBound: number | null = null;
+    bands.forEach((b, i) => {
+        checkPct(b.pct, `split band #${i}`);
+        const isLast = i === bands.length - 1;
+        if (b.upToCh === null) {
+            if (!isLast) {
+                diags.push({
+                    code: 'allowance_band_bounds_invalid',
+                    message: `slot '${slotDef.id}' split band #${i} is open-ended (upToCh: null) but is not the final band`,
+                    path: acPath,
+                });
+            }
+            return;
+        }
+        if (!Number.isFinite(b.upToCh)) {
+            diags.push({
+                code: 'allowance_band_bounds_invalid',
+                message: `slot '${slotDef.id}' split band #${i} has a non-finite upToCh bound`,
+                path: acPath,
+            });
+            return;
+        }
+        if (prevBound !== null && b.upToCh <= prevBound) {
+            diags.push({
+                code: 'allowance_band_bounds_invalid',
+                message: `slot '${slotDef.id}' split bands must ascend by upToCh; band #${i} bound ${b.upToCh} is not greater than the previous bound ${prevBound}`,
+                path: acPath,
+            });
+        }
+        prevBound = b.upToCh;
+    });
+
+    // Coverage — the final band must be the open catch-all, else some CH is
+    // unreachable and `deriveSplit` would throw at runtime.
+    const last = bands[bands.length - 1]!;
+    if (last.upToCh !== null) {
+        diags.push({
+            code: 'allowance_band_no_catch_all',
+            message: `slot '${slotDef.id}' split allowance does not cover all course handicaps — the final band must be open-ended (upToCh: null)`,
+            path: acPath,
+        });
+    }
+}
+
 function validateTeamGrouping(
     slotDef: SlotDefinition,
     req: FormatBallRequirement,

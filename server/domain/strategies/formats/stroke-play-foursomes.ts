@@ -9,7 +9,7 @@
 
 import { strokePlayIndividual } from './stroke-play-individual';
 import type { FormatStrategy } from '../format-strategy';
-import { deriveFlat } from './_shared';
+import { deriveAllowance } from './_shared';
 
 export const STROKE_PLAY_FOURSOMES_ID = 'stroke_play_foursomes';
 
@@ -20,7 +20,7 @@ export const strokePlayFoursomes: FormatStrategy = {
         return { producerCount: { min: 2, max: 2 }, ballMode: 'team', requiresSlotTeamGrouping: false };
     },
 
-    deriveSlotBalls: deriveFlat,
+    deriveSlotBalls: deriveAllowance,
 
     score(input) {
         return strokePlayIndividual.score(input);

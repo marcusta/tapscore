@@ -11,7 +11,7 @@
 import type { FormatStrategy } from '../format-strategy';
 import type { BallHoleResult, BallResult, StrategyResult } from '../types';
 import {
-    deriveFlat,
+    deriveAllowance,
     groupBallsByTeam,
     holeIdentity,
     latestScoresByPlayHole,
@@ -32,7 +32,7 @@ export const stablefordBetterBall: FormatStrategy = {
         };
     },
 
-    deriveSlotBalls: deriveFlat,
+    deriveSlotBalls: deriveAllowance,
 
     score({ roundContext, slotBalls, slotTeamGroupings, events }): StrategyResult {
         if (!slotTeamGroupings || slotTeamGroupings.length === 0) {
@@ -52,6 +52,10 @@ export const stablefordBetterBall: FormatStrategy = {
                 ball: b,
                 strokesGiven: strokesGivenMapForBall(b, roundContext),
                 scores: latestScoresByPlayHole(events, b.ballId),
+                holes: [] as BallHoleResult[],
+                pointsTotal: 0,
+                pointsHasValue: false,
+                holesPlayed: 0,
             }));
 
             const teamHoles: BallHoleResult[] = [];
@@ -72,6 +76,23 @@ export const stablefordBetterBall: FormatStrategy = {
                     const net = s - given;
                     const points = Math.max(0, 2 + (netPar - s));
                     return { gross: s, net, points, kind: 'scored' as const };
+                });
+
+                // Record each producer's own per-hole line so the team card can
+                // show both balls and make the best-ball pick auditable.
+                outcomes.forEach((o, i) => {
+                    const pb = perBall[i]!;
+                    pb.holes.push({
+                        ...holeIdentity(roundContext, pb.ball.ballId, occ),
+                        gross: o.gross,
+                        net: o.net,
+                        points: o.points,
+                    });
+                    if (o.points !== null) {
+                        pb.pointsTotal += o.points;
+                        pb.pointsHasValue = true;
+                        pb.holesPlayed++;
+                    }
                 });
 
                 const pickPoints = (): number | null => {
@@ -100,15 +121,25 @@ export const stablefordBetterBall: FormatStrategy = {
                     gross,
                     net,
                     points,
-                    note: `team ${points ?? '—'}`,
                 });
             }
 
-            // Emit per-team synthetic BallResult keyed by team label. The
-            // underlying own-balls are NOT separately emitted in this
-            // slot result — a team scoring a better-ball slot doesn't
-            // want two per-ball leaderboard rows. Downstream rendering
-            // in slice 3 can key off `ball-team:<label>` if needed.
+            // Emit each producer's own-ball result FIRST, with NO totals so it
+            // stays out of the leaderboard (which ranks teams, not players).
+            // The team card folds these in under the team grouping, showing
+            // each producer's strokes received + gross + their individual
+            // stableford points next to the team's best-ball total.
+            for (const pb of perBall) {
+                ballResults.push({
+                    ballId: pb.ball.ballId,
+                    holes: pb.holes,
+                    totals: [],
+                    holesPlayed: pb.holesPlayed,
+                });
+            }
+
+            // Per-team synthetic best-ball aggregate keyed by team label; this
+            // one carries the leaderboard 'points' total.
             ballResults.push({
                 ballId: `team:${team.teamLabel}`,
                 holes: teamHoles,

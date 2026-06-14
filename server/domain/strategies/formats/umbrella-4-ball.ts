@@ -22,7 +22,7 @@ import type {
     StrategyResult,
 } from '../types';
 import {
-    deriveFlat,
+    deriveAllowance,
     groupBallsByTeam,
     holeIdentity,
     latestMetadata,
@@ -128,7 +128,7 @@ export const umbrella4Ball: FormatStrategy = {
         };
     },
 
-    deriveSlotBalls: deriveFlat,
+    deriveSlotBalls: deriveAllowance,
 
     score({ roundContext, slotBalls, slotTeamGroupings, events, formatConfig }): StrategyResult {
         if (!slotTeamGroupings || slotTeamGroupings.length !== 2) {

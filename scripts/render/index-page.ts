@@ -2,6 +2,10 @@
 
 import { ROUND_CSS } from './css';
 import { formatCatalog } from '../../server/domain/formats/plugin';
+import {
+    formatAllowanceLabel,
+    type FormatAllowanceConfig,
+} from '../../server/domain/round-definition';
 import type { IndexRow } from './types';
 import { esc, short, titleCaseWords } from './util';
 
@@ -13,7 +17,7 @@ import { esc, short, titleCaseWords } from './util';
  * registry has not been populated (e.g. a unit test that skips registration).
  */
 export function formatSlotSummary(
-    slot: { scoringMode: string; teamShape: string; allowancePct: number },
+    slot: { scoringMode: string; teamShape: string; allowanceConfig: FormatAllowanceConfig },
 ): string {
     const descriptor = formatCatalog().find(
         (d) => d.scoringMode === slot.scoringMode && d.teamShape === slot.teamShape,
@@ -21,7 +25,7 @@ export function formatSlotSummary(
     const label =
         descriptor?.label ??
         `${titleCaseWords(slot.scoringMode)} × ${titleCaseWords(slot.teamShape)}`;
-    return `${label} @ ${slot.allowancePct}%`;
+    return `${label} @ ${formatAllowanceLabel(slot.allowanceConfig)}`;
 }
 
 export function renderIndexHtml(rows: IndexRow[]): string {

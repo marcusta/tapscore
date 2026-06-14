@@ -20,7 +20,7 @@ import type {
     StrategyResult,
 } from '../types';
 import {
-    deriveFlat,
+    deriveAllowance,
     holeIdentity,
     latestScoresByPlayHole,
     normalizeMatchPlayPHs,
@@ -277,7 +277,7 @@ export const matchPlayIndividual: FormatStrategy = {
         };
     },
 
-    deriveSlotBalls: deriveFlat,
+    deriveSlotBalls: deriveAllowance,
 
     score({ roundContext, slotBalls, events }): StrategyResult {
         const ballResults: BallResult[] = [];

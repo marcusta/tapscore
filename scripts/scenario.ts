@@ -33,6 +33,7 @@ import type { Tee, TeeRating } from '../server/services/tee.service';
 import type { Player } from '../server/services/player.service';
 import type { GuestPlayer } from '../server/services/guest-player.service';
 import type { Round, FormatSlot, FormatSlotConfig } from '../server/services/round.service';
+import type { FormatAllowanceConfig } from '../server/domain/round-definition';
 import { registerBuiltInBallCreationStrategies } from '../server/domain/strategies/ball-creation';
 import { registerBuiltInFormats } from '../server/domain/formats';
 import { resolveProducers, draftToDefinition } from './scenario-translate';
@@ -85,6 +86,13 @@ export interface RoundInit {
         scoringMode: FormatSlot['scoringMode'];
         teamShape: FormatSlot['teamShape'];
         allowancePct: number;
+        /**
+         * Non-flat allowance override. When set, this exact
+         * `FormatAllowanceConfig` lands on the slot (e.g. a `split` CH-band
+         * table); `allowancePct` is then ignored. Omit for the conventional
+         * flat allowance derived from `allowancePct`.
+         */
+        allowanceConfig?: FormatAllowanceConfig;
         scopeConfig?: FormatSlotConfig | null;
     }[];
     windowStart?: string | null;
@@ -192,7 +200,7 @@ export type SlotDraft = {
     defId: string;
     scoringMode: ScoringMode;
     teamShape: TeamShape;
-    allowanceConfig: { type: 'flat'; pct: number };
+    allowanceConfig: FormatAllowanceConfig;
     /** Pass-through for now (scope routing etc.). */
     scopeConfig?: unknown;
     teamGroupings?: { teamLabel: string; producerDefIds: string[] }[];
@@ -439,7 +447,7 @@ export class Scenario {
                 defId: `slot-${i}`,
                 scoringMode: s.scoringMode,
                 teamShape: s.teamShape,
-                allowanceConfig: { type: 'flat', pct: s.allowancePct },
+                allowanceConfig: s.allowanceConfig ?? { type: 'flat', pct: s.allowancePct },
                 scopeConfig: s.scopeConfig ?? undefined,
                 teamGroupings: undefined,
                 scopeProducerDefIds: undefined,

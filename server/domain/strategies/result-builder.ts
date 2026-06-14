@@ -179,10 +179,12 @@ function pointsRow(
     r: BallResult,
     label = 'Points',
     emphasis = false,
+    subjectBallId?: string,
 ): GridRow {
     const byId = byPlayHole(r);
     return {
         label,
+        ...(subjectBallId ? { subjectBallId } : {}),
         kind: 'points',
         aggregate: 'sum',
         emphasis,
@@ -386,8 +388,18 @@ function buildTeamCard(
 
     for (const ballId of grouping.ballIds) {
         const r = byBall.get(ballId);
-        if (!r) continue; // some team formats (better-ball stableford) emit only the aggregate
-        rows.push(...ballScoreRows(cols, r, { subjectBallId: ballId, given: false }));
+        if (!r) continue; // some team formats emit only the aggregate, no per-ball rows
+        if (hasPoints(r)) {
+            // Points-bearing per-ball result (e.g. better-ball Stableford): show
+            // each producer's strokes received + gross + their individual points
+            // so the reader sees WHICH ball fed the team's best-ball per hole.
+            // Gated on `hasPoints` so gross-only per-ball formats (umbrella
+            // four-ball, taliban) keep their existing Gross/Net rows untouched.
+            rows.push(...ballScoreRows(cols, r, { subjectBallId: ballId, given: true, net: false }));
+            rows.push(pointsRow(cols, r, 'Points', false, ballId));
+        } else {
+            rows.push(...ballScoreRows(cols, r, { subjectBallId: ballId, given: false }));
+        }
     }
 
     // Team combined gross (LT for umbrella / best-ball gross for better-ball).

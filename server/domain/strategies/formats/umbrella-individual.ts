@@ -21,7 +21,7 @@ import type {
     StrategyResult,
 } from '../types';
 import {
-    deriveFlat,
+    deriveAllowance,
     holeIdentity,
     latestMetadata,
     latestScoresByPlayHole,
@@ -103,7 +103,7 @@ export const umbrellaIndividual: FormatStrategy = {
         };
     },
 
-    deriveSlotBalls: deriveFlat,
+    deriveSlotBalls: deriveAllowance,
 
     score({ roundContext, slotBalls, events, formatConfig }): StrategyResult {
         if (slotBalls.length !== 3) {
