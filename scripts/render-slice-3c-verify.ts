@@ -16,7 +16,6 @@ import { runMigrations } from '@basics/core/server/migrate';
 import type { Database } from '../server/db/schema';
 import { createServices } from '../server/services/index';
 import { registerBuiltInBallCreationStrategies } from '../server/domain/strategies/ball-creation';
-import { registerBuiltInFormatStrategies } from '../server/domain/strategies/formats';
 import { registerBuiltInFormats } from '../server/domain/formats';
 import type { RoundDefinition } from '../server/domain/round-definition';
 import type { Round } from '../server/services/round.service';
@@ -147,7 +146,6 @@ function scenarioCard(scn: Scenario, round: Round, result: RoundResult): string 
 // --- Build fixture + scenarios ---------------------------------------------
 
 registerBuiltInBallCreationStrategies();
-registerBuiltInFormatStrategies();
 registerBuiltInFormats();
 
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });

@@ -1,5 +1,6 @@
-// Client-side catalog of the server's registered format strategies.
-// Keep in sync with server/services/round.service.ts FORMAT_ID_DECOMPOSITION.
+// Client-side catalog of the server's registered formats. Legacy hardcoded
+// mobile copy — replaced by the server `GET /formats` catalog in phase 2.6e
+// (mobile repair + migration). Until then the mobile new-round flow reads it.
 
 export interface FormatInfo {
     id: string;
@@ -15,7 +16,7 @@ export const FORMATS: FormatInfo[] = [
     { id: 'stroke_play_individual', label: 'Stroke play', blurb: 'Gross & net strokes, lowest wins', needsTeams: false, pairBall: false },
     { id: 'stableford_individual', label: 'Stableford', blurb: 'Points per hole, highest wins', needsTeams: false, pairBall: false },
     { id: 'match_play_individual', label: 'Match play', blurb: 'Hole-by-hole duel, 2 players', needsTeams: false, pairBall: false },
-    { id: 'kopenhamnare_individual', label: 'Köpenhamnare', blurb: '6 points per hole split across 3', needsTeams: false, pairBall: false },
+    { id: 'kopenhamnare_individual', label: 'Split sixes', blurb: '6 points per hole split across 3', needsTeams: false, pairBall: false },
     { id: 'umbrella_individual', label: 'Umbrella', blurb: 'Multi-criteria team points', needsTeams: true, pairBall: false },
     { id: 'stableford_better_ball', label: 'Better ball · Stableford', blurb: 'Best ball per team counts', needsTeams: true, pairBall: false },
     { id: 'match_play_better_ball', label: 'Better ball · Match play', blurb: 'Team duel, best ball counts', needsTeams: true, pairBall: false },

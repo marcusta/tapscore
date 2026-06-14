@@ -24,7 +24,6 @@ import { runMigrations } from '@basics/core/server/migrate';
 import type { Database } from '../server/db/schema';
 import { createServices } from '../server/services/index';
 import { registerBuiltInBallCreationStrategies } from '../server/domain/strategies/ball-creation';
-import { registerBuiltInFormatStrategies } from '../server/domain/strategies/formats';
 import { registerBuiltInFormats } from '../server/domain/formats';
 import { formatCatalog } from '../server/domain/formats/plugin';
 import { buildRoundDefinition } from '../server/domain/round-setup/builder';
@@ -88,7 +87,6 @@ function ballsTable(balls: RoundBall[]): string {
 }
 
 registerBuiltInBallCreationStrategies();
-registerBuiltInFormatStrategies();
 registerBuiltInFormats();
 
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });

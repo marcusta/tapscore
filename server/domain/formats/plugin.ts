@@ -6,17 +6,15 @@
 // (`planSetup`, `validateConfig`, `deriveSlotBalls`, `score`). See ADR
 // docs/adr/0001 and PHASES.md §2.6b-final.
 //
-// This registry is the CANONICAL format registry. The legacy strategy-only
-// registry in `../strategies/format-strategy.ts` still drives the compiler +
-// leaderboard until Slice 2a/2c; the architecture test tracks both and
-// forbids any third. Ball-creation strategies live in a deliberately
-// separate registry (`../strategies/ball-creation-strategy.ts`) because they
-// own reusable ball composition + handicap derivation, not format scoring.
-//
-// Slice 1 only locks the contract + registry with tests. No production
-// scoring path is rewired here — that is Slice 2a. The compiler can already
-// resolve a plugin via `pluginAsFormatStrategy` (the bridge Slice 2a makes
-// canonical).
+// This registry is THE format registry — the single source of truth. The
+// compiler, leaderboard, and round-setup builder resolve every format from
+// here via `findFormatPlugin`. The parallel strategy-only registry retired
+// in Slice 6 (2.6b-final); `../strategies/format-strategy.ts` now defines
+// only the `FormatStrategy` scoring-contract type a built-in plugin wraps.
+// Ball-creation strategies live in a deliberately separate registry
+// (`../strategies/ball-creation-strategy.ts`) because they own reusable ball
+// composition + handicap derivation, not format scoring; the architecture
+// test forbids any second format registry.
 
 import { Value } from '@sinclair/typebox/value';
 
@@ -25,7 +23,6 @@ import type {
     DeriveSlotBallsInput,
     DerivedSlotBall,
     FormatBallRequirement,
-    FormatStrategy,
     ScoreInput,
 } from '../strategies/format-strategy';
 import type { StrategyResult } from '../strategies/types';
@@ -284,21 +281,4 @@ export function formatCatalog(): FormatDescriptor[] {
 
 export function clearFormats(): void {
     registry.clear();
-}
-
-// --- Bridge to the legacy FormatStrategy seam -------------------------------
-//
-// A plugin IS a format strategy plus metadata: id + ball requirement +
-// deriveSlotBalls + score. This adapter lets the existing compiler resolve a
-// plugin through the unchanged `FormatStrategy` interface in Slice 1; Slice
-// 2a makes the compiler + leaderboard resolve plugins from THIS registry
-// directly and retires the separate strategy registry.
-
-export function pluginAsFormatStrategy(plugin: FormatPlugin): FormatStrategy {
-    return {
-        id: plugin.descriptor.id,
-        ballRequirement: () => plugin.descriptor.requirements.balls,
-        deriveSlotBalls: (input) => plugin.deriveSlotBalls(input),
-        score: (input) => plugin.score(input),
-    };
 }

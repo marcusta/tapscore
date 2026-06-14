@@ -9,13 +9,12 @@ import {
     formatCatalog,
     hasFormatPlugin,
     listFormatPlugins,
-    pluginAsFormatStrategy,
     registerFormat,
     type FormatDescriptor,
     type FormatPlugin,
 } from './plugin';
 import { registerBuiltInFormats } from './index';
-import { canaryPlugin, CANARY_FORMAT_ID } from './_canary.testkit';
+import { canaryPlugin } from './_canary.testkit';
 
 function makePlugin(over: Partial<FormatDescriptor> = {}, behaviour: Partial<FormatPlugin> = {}): FormatPlugin {
     return {
@@ -173,15 +172,5 @@ describe('config validation', () => {
     });
     it('canary rejects a non-object config', () => {
         expect(canaryPlugin.validateConfig(42)[0]?.code).toBe('config_not_object');
-    });
-});
-
-describe('pluginAsFormatStrategy bridge', () => {
-    it('exposes id, ballRequirement, deriveSlotBalls, score', () => {
-        const s = pluginAsFormatStrategy(canaryPlugin);
-        expect(s.id).toBe(CANARY_FORMAT_ID);
-        expect(s.ballRequirement()).toEqual(canaryPlugin.descriptor.requirements.balls);
-        expect(typeof s.deriveSlotBalls).toBe('function');
-        expect(typeof s.score).toBe('function');
     });
 });

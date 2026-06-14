@@ -1,7 +1,6 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
 
 import { registerBuiltInBallCreationStrategies } from '../../domain/strategies/ball-creation';
-import { registerBuiltInFormatStrategies } from '../../domain/strategies/formats';
 import { registerBuiltInFormats } from '../../domain/formats';
 import { createTestDb } from '../../testing/db';
 import { backfillRoundDefinitions } from './round-definitions';
@@ -9,7 +8,6 @@ import { backfillRoundSnapshots } from './round-snapshots';
 
 beforeAll(() => {
     registerBuiltInBallCreationStrategies();
-    registerBuiltInFormatStrategies();
     registerBuiltInFormats();
 });
 

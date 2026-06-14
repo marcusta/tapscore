@@ -3,14 +3,12 @@ import { createTestDb } from '../testing/db';
 import type { LegacyFormatSlotInput } from './round.service';
 import type { RoundDefinition } from '../domain/round-definition';
 import { registerBuiltInBallCreationStrategies } from '../domain/strategies/ball-creation';
-import { registerBuiltInFormatStrategies } from '../domain/strategies/formats';
 import { registerBuiltInFormats } from '../domain/formats';
 import { hasFormatPlugin, registerFormat } from '../domain/formats/plugin';
 import { CANARY_FORMAT_ID, canaryPlugin } from '../domain/formats/_canary.testkit';
 
 beforeAll(() => {
     registerBuiltInBallCreationStrategies();
-    registerBuiltInFormatStrategies();
     registerBuiltInFormats();
     if (!hasFormatPlugin(CANARY_FORMAT_ID)) registerFormat(canaryPlugin);
 });

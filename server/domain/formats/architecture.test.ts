@@ -1,21 +1,21 @@
-// Phase 2.6b-final / Slice 1 — architecture ratchet.
+// Phase 2.6b-final — architecture ratchet (CLOSED at Slice 6).
 //
-// Enforces the ADR's "one authoritative format registration" invariant as a
-// SHRINKING allowlist:
-//   - exactly one canonical format registry (`registerFormat`);
-//   - the legacy strategy-only registry is tracked, removed in Slice 2c;
-//   - format-id → behaviour decomposition maps live only in known files,
-//     each removed by a later slice (compile.ts → 3, src/formats.ts → 6).
-//     Slice 2a removed `directionByType` from leaderboard.ts (ranking
-//     direction now lives in registered descriptor metrics).
+// Enforces the ADR's "one authoritative format registration" invariant. The
+// allowlist has now shrunk to its terminal state:
+//   - exactly ONE format registry (`registerFormat` in plugin.ts) — the
+//     parallel strategy-only registry was deleted in Slice 6;
+//   - ZERO server/static format-id → behaviour decomposition maps;
+//   - the generic static renderer (`scripts/render/`) carries NO format-id
+//     dispatch.
 //
 // The ball-creation registry (`registerBallCreationStrategy`) is a DIFFERENT
 // seam — reusable derivation, not format scoring — and is deliberately not
-// flagged here (ADR 0001).
+// flagged here (ADR 0001). The mobile client's hardcoded `src/formats.ts`
+// catalog is client-only and is retired by phase 2.6e (mobile repair); it is
+// out of this server/static ratchet's scope.
 //
-// New code that adds a second format registry or a new decomposition map
-// fails this test. When a later slice deletes a tracked file's map, remove
-// its allowlist entry so the ratchet tightens and a regression re-trips it.
+// New code that adds a second format registry, a decomposition map, or a
+// format-id branch in the renderer fails this test.
 
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -23,26 +23,23 @@ import { resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dir, '../../..');
 
-/** The one registry that is NOT scheduled for deletion. */
+/** The one and only format registry. */
 const CANONICAL_FORMAT_REGISTRAR = 'server/domain/formats/plugin.ts';
 
 /** Files permitted to DEFINE a format registry (`export function register…`). */
 const ALLOWED_FORMAT_REGISTRARS = new Set([
-    CANONICAL_FORMAT_REGISTRAR, // canonical
-    // The compiler-facing strategy registry. Not a second *format* catalog —
-    // it holds the pure (deriveSlotBalls + score) seam the compiler resolves
-    // by id; `plugin.ts` is the authoritative descriptor catalog. Slice 3
-    // folds the compiler onto the plugin registry and retires this one.
-    'server/domain/strategies/format-strategy.ts',
+    CANONICAL_FORMAT_REGISTRAR, // canonical — the only one.
 ]);
 
-/** Files permitted to hold a format-id → behaviour decomposition map. */
-const ALLOWED_DECOMPOSITION = new Set([
-    // compile.ts + round.service.ts maps removed in Slice 3a — the compiler
-    // stores format_id verbatim and copies registry-derived scoring_mode /
-    // team_shape from the plugin descriptor; the read model reads `slots`.
-    'src/formats.ts', // client catalog copy — removed in Slice 6
-]);
+/**
+ * Files permitted to hold a server/static format-id → behaviour decomposition
+ * map. Terminal state: EMPTY. The compiler stores `format_id` verbatim and
+ * copies registry-derived `scoring_mode` / `team_shape` from the plugin
+ * descriptor; the leaderboard ranks by descriptor metric direction. (The
+ * client `src/formats.ts` catalog is mobile-only, retired in 2.6e — it is not
+ * a server/static map and the patterns below do not match it.)
+ */
+const ALLOWED_DECOMPOSITION = new Set<string>([]);
 
 function readAll(): { rel: string; text: string }[] {
     const out: { rel: string; text: string }[] = [];
@@ -81,11 +78,39 @@ describe('format architecture invariants', () => {
         expect(untracked).toEqual([]);
     });
 
-    it('confines format-id decomposition maps to tracked, slice-scheduled files', () => {
+    it('holds zero server/static format-id decomposition maps', () => {
         const offenders: string[] = [];
         for (const f of files) {
             const hasMap = f.text.includes('FORMAT_ID_DECOMPOSITION') || /\bdirectionByType\b/.test(f.text);
             if (hasMap && !ALLOWED_DECOMPOSITION.has(f.rel)) offenders.push(f.rel);
+        }
+        expect(offenders).toEqual([]);
+    });
+
+    it('keeps the generic static renderer free of format-id dispatch', () => {
+        // The renderer consumes the registered descriptor + structured results
+        // generically. A built-in format id literal under scripts/render/ would
+        // mean the renderer branches on format identity — exactly what the
+        // plugin contract forbids. (Metric ids like 'points'/'gross'/'net' are
+        // descriptor-driven and allowed; the FORMAT ids below are not.)
+        const BUILTIN_FORMAT_IDS = [
+            'stroke_play_individual',
+            'stableford_individual',
+            'match_play_individual',
+            'kopenhamnare_individual',
+            'umbrella_individual',
+            'stableford_better_ball',
+            'match_play_better_ball',
+            'taliban_better_ball',
+            'umbrella_4_ball',
+            'stroke_play_foursomes',
+        ];
+        const offenders: string[] = [];
+        for (const f of files) {
+            if (!f.rel.startsWith('scripts/render/')) continue;
+            for (const id of BUILTIN_FORMAT_IDS) {
+                if (f.text.includes(id)) offenders.push(`${f.rel} ⟶ ${id}`);
+            }
         }
         expect(offenders).toEqual([]);
     });

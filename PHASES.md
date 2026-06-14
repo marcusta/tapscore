@@ -392,7 +392,9 @@ This section is the canonical cross-session handoff for 2.6b-final. Update it be
 
 Status values: `NOT STARTED` → `IN PROGRESS` → `AWAITING VISUAL VERIFY` → `COMPLETE` (or `BLOCKED`).
 
-**Resume here:** Slice 5 (catalog + round-setup planner) is `COMPLETE` on branch `slice-5-catalog-planner` (branched off slice 4) — all task items + the gate green (376 pass, +23; 13 canonical fixtures numerically identical); visual gate `tmp/formats/slice-5-verify.html` user-approved 2026-06-13. Next is **Slice 6 — static deletion + extension proof**. NOTE the new **2.6d-bis — Non-flat allowance rulesets** phase added between 2.6d and 2.6e this session (deferred split/per-rank allowance within a slot; doc-only).
+**Resume here:** **Phase 2.6b is COMPLETE** — Slice 6 (static deletion + extension proof) landed on branch `slice-6-static-deletion` (off slice 5) and CLOSES 2.6b. Deleted the parallel `FormatStrategy` registry seam (only the contract *types* in `format-strategy.ts` remain; the registry fns, the `strategies/formats/index.ts` barrel, the `pluginAsFormatStrategy` bridge, and every `registerBuiltInFormatStrategies()` call are gone), reworked the canary acceptance onto the one plugin registry, and tightened `architecture.test.ts` to its terminal state (1 registrar, 0 decomposition maps, new no-format-id-dispatch-under-`scripts/render/` guard — all three proven to bite via negative control). Also renamed the Köpenhamnare display label → "Split sixes" (id `kopenhamnare_individual` unchanged) and recorded format-name i18n as a deferred TODO (2.6e block). Final 2.6b gate green: 376 pass, all typechecks, 13 canonical fixtures numerically identical; visual gate user-approved 2026-06-14.
+
+**Next is phase 2.6c — New ball-creation & format coverage + kitchen-sink multi-slot seed** (ledger/task list directly below this 2.6b ledger). Branch off `slice-6-static-deletion` (or off `main` once slices 4/5/6 merge). The plugin contract + one-registry invariant + canonical fixture workflow are the tools; 2.6c adds new strategies/formats and a kitchen-sink multi-slot seed, each proven through the same seed→render→check-format-fixtures workflow + a focused visual gate. NOTE the **2.6d-bis — Non-flat allowance rulesets** phase added between 2.6d and 2.6e (deferred split/per-rank allowance within a slot; doc-only).
 
 Slice 5 — what landed (all on `slice-5-catalog-planner`):
 
@@ -440,7 +442,7 @@ Slice 3c (live runtime state):
 | 3c — Itinerary scoring migration | COMPLETE | `0fd1e92` | Migration 025 flips score_events/scorecards onto play_hole_id (trigger + unique index rekeyed, backfilled); central `strokesReceivedForStrokeIndex` allocator (cycle-driven, plus + PH>cycle); `createRoundContext` factory (occurrences + shotgun rotation + occurrence labels); all 10 built-ins iterate occurrences; result rows carry play-hole identity; round_type retired from scoring/render; renderer segments by routeSections. 336 tests pass, all typechecks green, 13 fixtures numerically identical; visual gate `tmp/formats/slice-3c-verify.html` (8 route scenarios) user-approved |
 | 4 — Compiler validation | COMPLETE | `028c490` | All items + gate green on branch `slice-4-compiler-validation`; 353 pass (+17), 13 fixtures identical |
 | 5 — Catalog + planner | COMPLETE | `2ed77ba` | On branch `slice-5-catalog-planner` (off slice 4). All items + gate green (376 pass, +23; 13 fixtures numerically identical). Visual gate `tmp/formats/slice-5-verify.html` (4 scenarios: mixed-format coalescing, producer subset, named template, custom difficulty-SI) user-approved 2026-06-13 |
-| 6 — Static deletion proof | NOT STARTED | — | Final 2.6b server/static acceptance slice |
+| 6 — Static deletion proof | COMPLETE | `—` | CLOSES 2.6b. Deleted the parallel FormatStrategy registry seam (format-strategy.ts registry fns + strategies/formats/index.ts barrel + every `registerBuiltInFormatStrategies` call + `pluginAsFormatStrategy` bridge); ONE canonical registry remains. Architecture ratchet tightened to terminal state (1 registrar, 0 decomposition maps, new no-format-id-dispatch-under-scripts/render guard — all proven to bite via negative control). Canary acceptance reworked onto the plugin path. Automated gate green: 376 pass, all typechecks, 13 fixtures numerically identical. Visual gate `tmp/formats/slice-6-verify.html` user-approved 2026-06-14. Also this session: Köpenhamnare display label renamed → "Split sixes" (English; id `kopenhamnare_individual` unchanged); per-language format-name i18n recorded as a deferred TODO (see 2.6e block) |
 | 2.6e — Mobile repair + migration | DEFERRED | — | Starts only after 2.6c and 2.6d are complete |
 
 Session update rules:
@@ -682,22 +684,22 @@ This keeps ball-strategy ids, derivation config, selectors, and dedupe rules out
 
 #### Slice 6 — Static deletion and extension proof
 
-- [ ] Delete legacy scoring modules, decomposition maps, and format-specific static-render switches made obsolete by the canonical plugin/result contracts. Mobile legacy maps remain until 2.6e.
-- [ ] Keep the canonical fixture workflow: `bun run seed:formats`, then `bun run render:formats` from the rebuilt fixture DB.
-- [ ] Perform the server/static acceptance test with the canary plugin. Production infrastructure files must remain untouched beyond central registration; test/fixture registration is expected proof, not runtime coupling.
-- [ ] Repository search proves one canonical server registry, zero format decomposition maps, and no format-id dispatch under `scripts/render/`.
-- [ ] Generate a stable static verification index covering every built-in, the canary/deletion proof, pair-only results, multi-format shared logs, and unusual arithmetic. Give the user one clickable absolute link, but identify a small required subset for review; the remaining pages are regression coverage unless a broad renderer change requires a full sweep.
+- [x] Delete legacy scoring modules, decomposition maps, and format-specific static-render switches made obsolete by the canonical plugin/result contracts. Mobile legacy maps remain until 2.6e. **Done:** the parallel `FormatStrategy` registry was the only remaining obsolete seam — deleted its registry fns (`registerFormatStrategy`/`findFormatStrategy`/`listFormatStrategies`/`clearFormatStrategies`) from `format-strategy.ts` (the contract *types* stay — widely imported), removed the `strategies/formats/index.ts` barrel, the `pluginAsFormatStrategy` bridge in `plugin.ts`, and every `registerBuiltInFormatStrategies()` call (main.ts, compiler-rounds.ts, scenario.ts, 3 verify scripts, 7 tests). 2c had already deleted format.ts/leaderboard.ts/10 strategy files/scoreRound; no decomposition maps or render switches remained server/static-side. `src/formats.ts` is client-only → deferred to 2.6e (stale `FORMAT_ID_DECOMPOSITION` comment reference scrubbed).
+- [x] Keep the canonical fixture workflow: `bun run seed:formats`, then `bun run render:formats` from the rebuilt fixture DB. **13 rounds, numerically identical** (`check:format-fixtures ok`).
+- [x] Perform the server/static acceptance test with the canary plugin. Production infrastructure files must remain untouched beyond central registration; test/fixture registration is expected proof, not runtime coupling. **Done:** `canary.test.ts` reworked to register the canary through the ONE plugin registry (`registerFormat` / `findFormatPlugin`) — register → catalog → planSetup → compile → score → rank with zero infra-map edits; `_canary.testkit.ts` untouched.
+- [x] Repository search proves one canonical server registry, zero format decomposition maps, and no format-id dispatch under `scripts/render/`. **`architecture.test.ts` tightened to terminal state** (1 allowed registrar; empty decomposition allowlist; new guard scanning `scripts/render/` for any built-in format-id literal). All three guards proven to FAIL on injected violations (negative control), then PASS reverted.
+- [x] Generate a stable static verification index covering every built-in, the canary/deletion proof, pair-only results, multi-format shared logs, and unusual arithmetic. **`scripts/render-slice-6-verify.ts` → `tmp/formats/slice-6-verify.html`**: live `formatCatalog()` panel (10 built-ins, canary ABSENT) + all 13 fixtures inlined by stable signature; 4 required checks (registry panel, multi-format-3p shared log, pair-only match play, umbrella-4-ball arithmetic), rest regression. Full sweep not warranted — diff is dead-code deletion, output byte-identical.
 
 **Final 2.6b automated gate:**
-- [ ] `bun run check:server`, `check:client`, `check:test`, `bun test`, and canonical format fixture checks green.
-- [ ] All existing format outputs remain numerically identical unless an explicitly approved correction is recorded.
-- [ ] One canonical server registry; zero server/static format decomposition maps or render switches.
-- [ ] Generic formats require one server plugin + central registration only.
+- [x] `bun run check:server`, `check:client`, `check:test`, `bun test`, and canonical format fixture checks green. **376 pass, 0 fail; 13 fixtures present.**
+- [x] All existing format outputs remain numerically identical unless an explicitly approved correction is recorded. **Identical — no corrections.**
+- [x] One canonical server registry; zero server/static format decomposition maps or render switches. **Enforced by the tightened ratchet.**
+- [x] Generic formats require one server plugin + central registration only. **Canary proves it end-to-end.**
 
-- [ ] **Human visual gate:** set the slice to `AWAITING VISUAL VERIFY` and provide the generated static index as a clickable link plus a focused checklist of the changed/high-risk fixtures and their expected values. The user is not expected to inspect every fixture unless the agent explains why this milestone requires a full sweep.
-- [ ] Commit completion record: `phase 2.6b complete: registered format plugins + canonical static verification`.
+- [x] **Human visual gate:** set the slice to `AWAITING VISUAL VERIFY` and provide the generated static index as a clickable link plus a focused checklist of the changed/high-risk fixtures and their expected values. The user is not expected to inspect every fixture unless the agent explains why this milestone requires a full sweep. **Index + focused 4-check list delivered; user-approved 2026-06-14.**
+- [x] Commit completion record: `phase 2.6b complete: registered format plugins + canonical static verification`.
 
-**Completion record:** commit `—` · automated verification `—` · visual verification link/approval `—` · handoff `2.6c`
+**Completion record:** commit `<impl-hash>` (+ ledger hash) · automated verification `check:server/check:client/check:test + bun test (376 pass) green; seed:formats/render:formats/check:format-fixtures (13 rounds, numerically identical) green; architecture+canary acceptance 32 pass; ratchet negative-control verified` · visual verification link/approval `tmp/formats/slice-6-verify.html (regen: bun scripts/render-slice-6-verify.ts) — user-approved 2026-06-14` · handoff `2.6c`
 
 ### 2.6c — New ball-creation & format coverage + kitchen-sink multi-slot seed
 
@@ -791,6 +793,8 @@ Start only after 2.6b, 2.6c, and 2.6d are complete and visually approved through
 | M3 — Ball/play-hole score entry | NOT STARTED | — | Waits on M2 |
 | M4 — Section-driven results | NOT STARTED | — | Waits on M3 |
 | M5 — Mobile deletion proof | NOT STARTED | — | Final mobile acceptance |
+
+**Deferred — format-name i18n (TODO, not scheduled):** the `FormatDescriptor` currently carries a single `label` string (one language). Köpenhamnare ships as English **"Split sixes"** with the Swedish original noted in code. We need per-language display names so the catalog/wizard/results can localize (Swedish "Köpenhamnare" ↔ English "Split sixes", and the same for other formats). Likely shape: replace `label: string` with a localized label set (e.g. `labels: { en: string; sv?: string; … }` or a message-key resolved by a client/locale catalog), keeping the stable `id` as the language-independent key. The serializable-descriptor + one-registry invariants already make this additive — no schema change, no behaviour lookup. Fold into 2.6e M2 (catalog-driven wizard) or a small dedicated slice; until then a single English label is intentional.
 
 #### M1 — Stabilize the existing client
 

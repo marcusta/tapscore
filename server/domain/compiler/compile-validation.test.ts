@@ -10,7 +10,6 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
 
 import { registerBuiltInBallCreationStrategies } from '../strategies/ball-creation';
-import { registerBuiltInFormatStrategies } from '../strategies/formats';
 import { registerBuiltInFormats } from '../formats';
 import { deriveFlat } from '../strategies/formats/_shared';
 import {
@@ -126,7 +125,6 @@ const TEST_PLUGINS = [
 
 beforeAll(() => {
     registerBuiltInBallCreationStrategies();
-    registerBuiltInFormatStrategies();
     registerBuiltInFormats();
     for (const p of TEST_PLUGINS) {
         if (!hasFormatPlugin(p.descriptor.id)) registerFormat(p);

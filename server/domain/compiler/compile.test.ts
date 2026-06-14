@@ -1,7 +1,6 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
 
 import { registerBuiltInBallCreationStrategies } from '../strategies/ball-creation';
-import { registerBuiltInFormatStrategies } from '../strategies/formats';
 import { registerBuiltInFormats } from '../formats';
 import type { RoundDefinition } from '../round-definition';
 import { compile } from './compile';
@@ -9,7 +8,6 @@ import type { CompilerInput, CompilerTeeContext } from './types';
 
 beforeAll(() => {
     registerBuiltInBallCreationStrategies();
-    registerBuiltInFormatStrategies();
     registerBuiltInFormats();
 });
 

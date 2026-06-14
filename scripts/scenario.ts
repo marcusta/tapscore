@@ -34,7 +34,6 @@ import type { Player } from '../server/services/player.service';
 import type { GuestPlayer } from '../server/services/guest-player.service';
 import type { Round, FormatSlot, FormatSlotConfig } from '../server/services/round.service';
 import { registerBuiltInBallCreationStrategies } from '../server/domain/strategies/ball-creation';
-import { registerBuiltInFormatStrategies } from '../server/domain/strategies/formats';
 import { registerBuiltInFormats } from '../server/domain/formats';
 import { resolveProducers, draftToDefinition } from './scenario-translate';
 
@@ -260,7 +259,6 @@ export async function startScenario(dbPath = DEFAULT_DB_PATH): Promise<Scenario>
     // Both registrations are idempotent, so calling them on every
     // `startScenario()` is cheap.
     registerBuiltInBallCreationStrategies();
-    registerBuiltInFormatStrategies();
     registerBuiltInFormats();
     const db = createDb<Database>(dbPath);
     const services = createServices(db);

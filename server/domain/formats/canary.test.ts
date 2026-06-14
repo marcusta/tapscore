@@ -7,16 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { compile } from '../compiler/compile';
 import { registerBuiltInBallCreationStrategies } from '../strategies/ball-creation';
-import {
-    registerBuiltInFormatStrategies,
-    resetBuiltInFormatStrategies,
-} from '../strategies/formats';
-import { findFormatStrategy, registerFormatStrategy } from '../strategies/format-strategy';
-import {
-    formatCatalog,
-    pluginAsFormatStrategy,
-    registerFormat,
-} from './plugin';
+import { findFormatPlugin, formatCatalog, registerFormat } from './plugin';
 import { registerBuiltInFormats, resetBuiltInFormats } from './index';
 import {
     buildRoundDefinition,
@@ -38,28 +29,24 @@ const SETUP: FormatSetupInput = {
 };
 
 beforeEach(() => {
-    // Register the canary as a FIRST-CLASS plugin. The only infra touched is
-    // the boot-time ball-creation registry (a different, allowed seam) and —
-    // for Slice 1 only — the legacy strategy registry via the bridge, which
-    // Slice 2a retires when the compiler resolves plugins from the format
-    // registry directly. No FORMAT_ID_DECOMPOSITION / directionByType edit.
+    // Register the canary as a FIRST-CLASS plugin in the ONE canonical format
+    // registry. The only other infra touched is the boot-time ball-creation
+    // registry (a different, allowed seam — ADR 0001). No FORMAT_ID_DECOMPOSITION
+    // / directionByType edit, no second registry: register → catalog → compile →
+    // score → rank all flow through `registerFormat` / `findFormatPlugin`.
     registerBuiltInBallCreationStrategies();
-    registerBuiltInFormatStrategies();
     registerBuiltInFormats();
     registerFormat(canaryPlugin);
-    registerFormatStrategy(pluginAsFormatStrategy(canaryPlugin));
 });
 
 afterEach(() => {
-    // These registries are process-global singletons shared across test
-    // files. Restore them to the built-in baseline (drops the canary, keeps
+    // The format registry is a process-global singleton shared across test
+    // files. Restore it to the built-in baseline (drops the canary, keeps
     // every built-in) rather than clearing — clearing would desync the
     // built-in guards and break files that run after this one (the leaderboard
-    // now resolves built-ins from the canonical format registry).
+    // resolves built-ins from this canonical registry).
     resetBuiltInFormats();
     registerBuiltInFormats();
-    resetBuiltInFormatStrategies();
-    registerBuiltInFormatStrategies();
 });
 
 describe('canary format end-to-end', () => {
@@ -87,8 +74,8 @@ describe('canary format end-to-end', () => {
         expect(result.compiled.balls).toHaveLength(3);
         expect(result.compiled.slots).toHaveLength(1);
         expect(result.compiled.slotBalls).toHaveLength(3);
-        // compiler resolves the canary via the registered strategy bridge.
-        expect(findFormatStrategy(CANARY_FORMAT_ID).id).toBe(CANARY_FORMAT_ID);
+        // compiler resolves the canary from the ONE canonical format registry.
+        expect(findFormatPlugin(CANARY_FORMAT_ID).descriptor.id).toBe(CANARY_FORMAT_ID);
     });
 
     it('scores and ranks high-wins from the shared event log', () => {

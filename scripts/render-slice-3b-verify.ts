@@ -21,7 +21,6 @@ import { runMigrations } from '@basics/core/server/migrate';
 import type { Database } from '../server/db/schema';
 import { createServices } from '../server/services/index';
 import { registerBuiltInBallCreationStrategies } from '../server/domain/strategies/ball-creation';
-import { registerBuiltInFormatStrategies } from '../server/domain/strategies/formats';
 import { registerBuiltInFormats } from '../server/domain/formats';
 import type { RoundDefinition } from '../server/domain/round-definition';
 import type { Round, RoundPlayHole } from '../server/services/round.service';
@@ -159,7 +158,6 @@ function renderPage(round: Round): string {
 // --- Build the fixture ------------------------------------------------------
 
 registerBuiltInBallCreationStrategies();
-registerBuiltInFormatStrategies();
 registerBuiltInFormats();
 
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });

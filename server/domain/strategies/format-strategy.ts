@@ -1,4 +1,4 @@
-// Phase 2.6b/2 — FormatStrategy interface + registry.
+// Phase 2.6b/2 — FormatStrategy interface (the pure scoring contract).
 //
 // Slot-level strategy. Given pre-created balls with derived CH, applies
 // ALLOWANCE → PH, then scores against the event log. Knows nothing about
@@ -20,7 +20,12 @@
 //
 // --- Registration ---
 //
-// Centralised in `formats/index.ts`. New format = new file + one line.
+// This file defines ONLY the strategy contract types. There is ONE
+// canonical format registry — `server/domain/formats/plugin.ts`. A built-in
+// format wraps its concrete `FormatStrategy` impl (`./formats/*`) as a
+// `FormatPlugin` in `formats/builtins.ts`; the compiler + leaderboard
+// resolve every format from that registry via `findFormatPlugin`. The
+// parallel strategy registry retired in Slice 6 (2.6b-final).
 
 import type { FormatAllowanceConfig } from '../round-definition';
 import type { RoundContext, SlotBall, SlotTeamGrouping, StrategyEvent, StrategyResult } from './types';
@@ -95,24 +100,4 @@ export interface FormatStrategy {
     ballRequirement(): FormatBallRequirement;
     deriveSlotBalls(input: DeriveSlotBallsInput): DerivedSlotBall[];
     score(input: ScoreInput): StrategyResult;
-}
-
-const registry = new Map<string, FormatStrategy>();
-
-export function registerFormatStrategy(strategy: FormatStrategy): void {
-    registry.set(strategy.id, strategy);
-}
-
-export function findFormatStrategy(id: string): FormatStrategy {
-    const s = registry.get(id);
-    if (!s) throw new Error(`no format strategy registered for id ${id}`);
-    return s;
-}
-
-export function clearFormatStrategies(): void {
-    registry.clear();
-}
-
-export function listFormatStrategies(): FormatStrategy[] {
-    return [...registry.values()];
 }

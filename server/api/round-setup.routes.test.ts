@@ -8,12 +8,10 @@ import { setupRoutes, req, loginAs, type RouteTestContext } from '../testing/rou
 import { createRoundsApi } from './rounds.api';
 import { createCourseRouteTemplatesApi } from './course-route-templates.api';
 import { registerBuiltInBallCreationStrategies } from '../domain/strategies/ball-creation';
-import { registerBuiltInFormatStrategies } from '../domain/strategies/formats';
 import { registerBuiltInFormats } from '../domain/formats';
 
 beforeEach(() => {
     registerBuiltInBallCreationStrategies();
-    registerBuiltInFormatStrategies();
     registerBuiltInFormats();
 });
 

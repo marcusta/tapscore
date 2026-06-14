@@ -10,13 +10,11 @@ import { test, expect } from 'bun:test';
 import { createTestDb } from '../testing/db';
 import { registerBuiltInBallCreationStrategies } from '../domain/strategies/ball-creation';
 import { registerBuiltInFormats } from '../domain/formats';
-import { registerBuiltInFormatStrategies } from '../domain/strategies/formats';
 import type { RoundSetupDraft } from '../domain/round-setup/draft';
 import type { CourseRouteTemplateRoute } from '../domain/course-route-template';
 
 async function setup() {
     registerBuiltInBallCreationStrategies();
-    registerBuiltInFormatStrategies();
     registerBuiltInFormats();
 
     const ctx = await createTestDb();

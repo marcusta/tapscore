@@ -95,7 +95,10 @@ const BUILTINS: BuiltinMeta[] = [
     },
     {
         strategy: kopenhamnareIndividual,
-        label: 'Köpenhamnare',
+        // English display name; "Köpenhamnare" is the Swedish original. The
+        // stable id stays `kopenhamnare_individual`. Per-language labels are a
+        // deferred enhancement (see PHASES.md "Deferred — format-name i18n").
+        label: 'Split sixes',
         description: 'Three-way per-hole point distribution; highest wins.',
         scoringMode: 'kopenhamnare',
         teamShape: 'individual',
