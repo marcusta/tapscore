@@ -1,4 +1,5 @@
-import { Component, Router, template, effect } from '@basics/core/client/core';
+import { Component, Router, template, effect, Signal } from '@basics/core/client/core';
+import { SelectComponent, type SelectOption } from '@basics/core/client/ui/select';
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { SetupService, type PlayerForm, type RoutePreset } from './setup.service';
@@ -21,7 +22,7 @@ const tpl = template(`
 
         <section class="setup__section">
             <h2>Course</h2>
-            <select bind="course" class="setup__select"></select>
+            <div bind="course" class="setup__select"></div>
         </section>
 
         <section class="setup__section">
@@ -29,7 +30,7 @@ const tpl = template(`
             <div bind="presets" class="setup__seg"></div>
             <label class="setup__startrow">
                 <span>Start hole</span>
-                <select bind="startHole" class="setup__startsel"></select>
+                <div bind="startHole" class="setup__startsel"></div>
             </label>
         </section>
 
@@ -60,8 +61,8 @@ const playerTpl = template(`
         </div>
         <div class="player__fields">
             <input bind="index" class="player__index" inputmode="decimal" placeholder="HCP index" />
-            <select bind="gender" class="player__gender"></select>
-            <select bind="tee" class="player__tee"></select>
+            <div bind="gender" class="player__gender"></div>
+            <div bind="tee" class="player__tee"></div>
         </div>
         <div bind="ch" class="player__ch"></div>
         <div bind="err" class="player__err"></div>
@@ -71,7 +72,7 @@ const playerTpl = template(`
 const fslotTpl = template(`
     <div class="fslot">
         <div class="fslot__top">
-            <select bind="format" class="fslot__format"></select>
+            <div bind="format" class="fslot__format"></div>
             <button bind="remove" class="fslot__remove" type="button" aria-label="Remove">✕</button>
         </div>
         <p bind="desc" class="fslot__desc"></p>
@@ -106,10 +107,10 @@ const fslotTpl = template(`
 `);
 
 const teamRowTpl = template(`
-    <label class="trow">
+    <div class="trow">
         <span bind="name" class="trow__name"></span>
-        <select bind="team" class="trow__team"></select>
-    </label>
+        <div bind="team" class="trow__team"></div>
+    </div>
 `);
 
 const includeRowTpl = template(`
@@ -157,10 +158,13 @@ export class CreateComponent extends Component {
 
             & .setup__hint { margin: 0 0 ${s('md')}; color: ${t('text-muted')}; font-size: 0.82rem; }
 
-            & .setup__select, & .setup__startsel {
-                width: 100%; padding: ${s('md')}; font-size: 1rem;
-                ${input()}
-            }
+            /* SelectComponent hosts: the framework styles the trigger, so the
+               host just controls width/font. Its min-width default (160px) is
+               relaxed here so narrow controls (gender, team, start hole) fit. */
+            & .ui-select__trigger { min-width: 0; }
+
+            & .setup__select { width: 100%; font-size: 1rem; }
+            & .setup__startsel { width: 110px; font-size: 0.95rem; }
 
             & .setup__seg {
                 display: flex; gap: ${s('sm')}; margin-bottom: ${s('md')};
@@ -174,7 +178,6 @@ export class CreateComponent extends Component {
             & .setup__startrow {
                 display: flex; align-items: center; justify-content: space-between;
                 gap: ${s('md')}; font-size: 0.9rem; color: ${t('text-muted')};
-                & .setup__startsel { width: 100px; padding: ${s('sm')}; font-size: 0.95rem; }
             }
 
             & .setup__players { display: flex; flex-direction: column; gap: ${s('md')}; }
@@ -189,10 +192,10 @@ export class CreateComponent extends Component {
                     width: 38px; height: 38px; flex-shrink: 0; ${btn()}
                     font-size: 1rem; color: ${t('text-muted')};
                 }
-                & .player__fields { display: flex; gap: ${s('sm')}; }
+                & .player__fields { display: flex; gap: ${s('sm')}; align-items: stretch; }
                 & .player__index { flex: 1; min-width: 0; padding: ${s('md')}; font-size: 1rem; ${input()} }
-                & .player__gender { width: 64px; flex-shrink: 0; padding: ${s('md')} ${s('sm')}; font-size: 1rem; ${input()} }
-                & .player__tee { flex: 1; min-width: 0; padding: ${s('md')} ${s('sm')}; font-size: 1rem; ${input()} }
+                & .player__gender { width: 72px; flex-shrink: 0; font-size: 1rem; }
+                & .player__tee { flex: 1; min-width: 0; font-size: 1rem; }
 
                 & .player__ch {
                     font-size: 0.82rem; color: ${t('text-muted')}; font-variant-numeric: tabular-nums;
@@ -222,7 +225,7 @@ export class CreateComponent extends Component {
                 display: flex; flex-direction: column; gap: ${s('sm')};
 
                 & .fslot__top { display: flex; gap: ${s('sm')}; align-items: center; }
-                & .fslot__format { flex: 1; padding: ${s('md')} ${s('sm')}; font-size: 1rem; ${input()} }
+                & .fslot__format { flex: 1; min-width: 0; font-size: 1rem; }
                 & .fslot__remove {
                     width: 38px; height: 38px; flex-shrink: 0; ${btn()}
                     font-size: 1rem; color: ${t('text-muted')};
@@ -245,7 +248,7 @@ export class CreateComponent extends Component {
                 & .trow {
                     display: flex; align-items: center; justify-content: space-between; gap: ${s('sm')};
                     & .trow__name { font-size: 0.9rem; }
-                    & .trow__team { width: 90px; flex-shrink: 0; padding: ${s('sm')}; font-size: 0.95rem; ${input()} }
+                    & .trow__team { width: 96px; flex-shrink: 0; font-size: 0.95rem; }
                 }
 
                 & .irow {
@@ -309,26 +312,6 @@ export class CreateComponent extends Component {
 
         const frag = this.wire(tpl, {
             back: { onclick: () => this.router.navigate('/') },
-            course: {
-                innerHTML: () =>
-                    this.svc.courses
-                        .get()
-                        .map((c) => `<option value="${c.id}">${c.name}</option>`)
-                        .join(''),
-                value: () => this.svc.courseId.get(),
-                onchange: (e: Event) =>
-                    void this.svc.selectCourse((e.target as HTMLSelectElement).value),
-            },
-            startHole: {
-                innerHTML: () =>
-                    this.svc
-                        .startHoleOptions()
-                        .map((n) => `<option value="${n}">${n}</option>`)
-                        .join(''),
-                value: () => String(this.svc.startHole.get()),
-                onchange: (e: Event) =>
-                    this.svc.startHole.set(Number((e.target as HTMLSelectElement).value)),
-            },
             addPlayer: { onclick: () => this.svc.addPlayer() },
             addFormat: { onclick: () => this.svc.addFormatSlot() },
             banner: {
@@ -371,6 +354,31 @@ export class CreateComponent extends Component {
             (p) => p,
         );
 
+        // Course + start-hole pickers (framework SelectComponent — a styled
+        // overlay dropdown that renders consistently on mobile, unlike native
+        // <select>). Top-level, so they track at component scope.
+        const compTrack = (d: () => void) => this.track(d);
+        this.mountSelect(this.ref(frag, 'course'), compTrack, {
+            value: this.bound(
+                compTrack,
+                () => this.svc.courseId.get(),
+                (v) => {
+                    // selectCourse loads tees + resets route; skip the no-op init write.
+                    if (v && v !== this.svc.courseId.get()) void this.svc.selectCourse(v);
+                },
+            ),
+            options: { get: () => this.svc.courses.get().map((c) => ({ value: c.id, label: c.name })) },
+            placeholder: 'Select a course',
+        });
+        this.mountSelect(this.ref(frag, 'startHole'), compTrack, {
+            value: this.bound(
+                compTrack,
+                () => String(this.svc.startHole.get()),
+                (v) => this.svc.startHole.set(Number(v)),
+            ),
+            options: { get: () => this.svc.startHoleOptions().map((n) => ({ value: String(n), label: String(n) })) },
+        });
+
         // Editable player rows. Keyed by stable `key` so a field edit never
         // recreates the row (keeps input focus). Reactive reads look the player
         // up by key — never the closed-over snapshot, which goes stale on patch.
@@ -391,6 +399,45 @@ export class CreateComponent extends Component {
         );
 
         return frag;
+    }
+
+    /**
+     * Mount a framework `SelectComponent` into a host, disposing it through the
+     * caller's `track` (so a select inside a keyed row tears down with the row —
+     * `spawn` self-tracks at component scope, which would leak here).
+     */
+    private mountSelect(
+        host: HTMLElement,
+        track: (d: () => void) => void,
+        props: { value: Signal<string>; options: { get: () => SelectOption[] }; placeholder?: string },
+    ): void {
+        const child = new SelectComponent(props);
+        child.mount(host);
+        track(() => child.destroy());
+    }
+
+    /**
+     * A `Signal<string>` two-way bridged to service state, for `SelectComponent`
+     * (which owns a value signal, not a change callback). `read` is tracked so
+     * service→signal stays reactive; the signal→service `write` is deferred to a
+     * microtask so its own service reads aren't tracked — otherwise the effect
+     * would re-subscribe to those signals and loop. `Signal.set`'s Object.is
+     * dedupe keeps both directions from ping-ponging.
+     */
+    private bound(
+        track: (d: () => void) => void,
+        read: () => string,
+        write: (v: string) => void,
+    ): Signal<string> {
+        const sig = new Signal(read());
+        track(effect(() => sig.set(read())));
+        track(
+            effect(() => {
+                const v = sig.get();
+                queueMicrotask(() => write(v));
+            }),
+        );
+        return sig;
     }
 
     /**
@@ -452,16 +499,6 @@ export class CreateComponent extends Component {
         const el = this.wireEl(
             fslotTpl,
             {
-                format: {
-                    innerHTML: () =>
-                        this.svc.catalog
-                            .descriptors.get()
-                            .map((d) => `<option value="${d.id}">${d.label}</option>`)
-                            .join(''),
-                    value: () => formatId(),
-                    onchange: (e: Event) =>
-                        this.svc.setSlotFormat(key, (e.target as HTMLSelectElement).value),
-                },
                 remove: { onclick: () => this.svc.removeFormatSlot(key) },
                 desc: {
                     textContent: () => this.svc.catalog.byId(formatId())?.description ?? '',
@@ -496,6 +533,21 @@ export class CreateComponent extends Component {
             },
             track,
         );
+
+        // Format picker. Guarded write skips the no-op init call (setSlotFormat
+        // re-auto-assigns teams), firing only on a real format change.
+        this.mountSelect(this.ref(el, 'format'), track, {
+            value: this.bound(
+                track,
+                () => formatId(),
+                (v) => {
+                    if (v && v !== this.svc.slotByKey(key)?.formatId) this.svc.setSlotFormat(key, v);
+                },
+            ),
+            options: {
+                get: () => this.svc.catalog.descriptors.get().map((d) => ({ value: d.id, label: d.label })),
+            },
+        });
 
         // Per-player team assignment (team formats only).
         this.eachInto(
@@ -534,33 +586,27 @@ export class CreateComponent extends Component {
     ): HTMLElement {
         const player = () => this.svc.players.get().find((p) => p.key === playerKey) ?? null;
         const assignment = () => this.svc.slotByKey(slotKey)?.teamByPlayer[playerKey] ?? -1;
-        return this.wireEl(
+        const el = this.wireEl(
             teamRowTpl,
-            {
-                name: { textContent: () => player()?.name?.trim() || 'Player' },
-                team: {
-                    // One effect builds the options AND marks the current pick via
-                    // `selected` — a separate reactive `value` can fire before the
-                    // option exists (on format switch) and silently reset to —.
-                    innerHTML: () => {
-                        const n = this.svc.teamBucketCount(this.svc.slotByKey(slotKey)?.formatId ?? '');
-                        const cur = assignment();
-                        const opt = (v: number, label: string) =>
-                            `<option value="${v}"${v === cur ? ' selected' : ''}>${label}</option>`;
-                        const opts = [opt(-1, '—')];
-                        for (let i = 0; i < n; i++) opts.push(opt(i, this.svc.teamLetter(i)));
-                        return opts.join('');
-                    },
-                    onchange: (e: Event) =>
-                        this.svc.setPlayerTeam(
-                            slotKey,
-                            playerKey,
-                            Number((e.target as HTMLSelectElement).value),
-                        ),
-                },
-            },
+            { name: { textContent: () => player()?.name?.trim() || 'Player' } },
             track,
         );
+        this.mountSelect(this.ref(el, 'team'), track, {
+            value: this.bound(
+                track,
+                () => String(assignment()),
+                (v) => this.svc.setPlayerTeam(slotKey, playerKey, Number(v)),
+            ),
+            options: {
+                get: () => {
+                    const n = this.svc.teamBucketCount(this.svc.slotByKey(slotKey)?.formatId ?? '');
+                    const opts: SelectOption[] = [{ value: '-1', label: '—' }];
+                    for (let i = 0; i < n; i++) opts.push({ value: String(i), label: this.svc.teamLetter(i) });
+                    return opts;
+                },
+            },
+        });
+        return el;
     }
 
     private includeRow(
@@ -617,7 +663,7 @@ export class CreateComponent extends Component {
         const current = () => this.svc.players.get().find((p) => p.key === key) ?? null;
         const currentIndex = () => this.svc.players.get().findIndex((p) => p.key === key);
 
-        return this.wireEl(
+        const el = this.wireEl(
             playerTpl,
             {
                 // Uncontrolled text inputs: no reactive `value` binding (would
@@ -625,22 +671,6 @@ export class CreateComponent extends Component {
                 name: { oninput: (e: Event) => this.svc.patchPlayer(key, { name: (e.target as HTMLInputElement).value }) },
                 index: { oninput: (e: Event) => this.svc.patchPlayer(key, { handicapIndex: (e.target as HTMLInputElement).value }) },
                 remove: { onclick: () => this.svc.removePlayer(key) },
-                gender: {
-                    innerHTML: () => `<option value="M">M</option><option value="F">F</option>`,
-                    value: () => current()?.gender ?? 'M',
-                    onchange: (e: Event) =>
-                        this.svc.patchPlayer(key, { gender: (e.target as HTMLSelectElement).value as 'M' | 'F' }),
-                },
-                tee: {
-                    innerHTML: () =>
-                        this.svc.tees
-                            .get()
-                            .map((tee) => `<option value="${tee.id}">${tee.name}</option>`)
-                            .join(''),
-                    value: () => current()?.teeId ?? '',
-                    onchange: (e: Event) =>
-                        this.svc.patchPlayer(key, { teeId: (e.target as HTMLSelectElement).value }),
-                },
                 ch: {
                     textContent: () => {
                         const p = current();
@@ -662,5 +692,24 @@ export class CreateComponent extends Component {
             },
             track,
         );
+
+        this.mountSelect(this.ref(el, 'gender'), track, {
+            value: this.bound(
+                track,
+                () => current()?.gender ?? 'M',
+                (v) => this.svc.patchPlayer(key, { gender: v as 'M' | 'F' }),
+            ),
+            options: { get: () => [{ value: 'M', label: 'M' }, { value: 'F', label: 'F' }] },
+        });
+        this.mountSelect(this.ref(el, 'tee'), track, {
+            value: this.bound(
+                track,
+                () => current()?.teeId ?? '',
+                (v) => this.svc.patchPlayer(key, { teeId: v }),
+            ),
+            options: { get: () => this.svc.tees.get().map((tee) => ({ value: tee.id, label: tee.name })) },
+            placeholder: 'Tee',
+        });
+        return el;
     }
 }
