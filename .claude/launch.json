@@ -2,6 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "tapscore-server",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["PORT=3030", "bun", "--watch", "server/main.ts"],
+      "port": 3030
+    },
+    {
       "name": "tapscore-client",
       "runtimeExecutable": "bunx",
       "runtimeArgs": ["vite", "--port", "5183", "--strictPort"],

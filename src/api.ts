@@ -9,6 +9,7 @@ import { createParticipantsClient } from './api/participants.gen';
 import { createScoreEventsClient } from './api/score-events.gen';
 import { createScorecardsClient } from './api/scorecards.gen';
 import { createLeaderboardsClient } from './api/leaderboards.gen';
+import { createFriendlyRoundsClient } from './api/friendly-rounds.gen';
 
 export { ApiError } from '@basics/core/client/api-error';
 
@@ -24,4 +25,5 @@ export const api = {
     scoreEvents: createScoreEventsClient('/api'),
     scorecards: createScorecardsClient('/api'),
     leaderboards: createLeaderboardsClient('/api'),
+    friendlyRounds: createFriendlyRoundsClient('/api'),
 };

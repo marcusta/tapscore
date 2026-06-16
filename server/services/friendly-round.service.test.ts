@@ -78,6 +78,27 @@ test('findByToken returns null for an unknown token', async () => {
     expect(await ctx.friendlyRoundService.findByToken('no-such-token')).toBeNull();
 });
 
+test('list returns all friendly rounds newest first, each with its round', async () => {
+    const { ctx, draft } = await setup();
+    const a = await ctx.friendlyRoundService.create(draft);
+    const b = await ctx.friendlyRoundService.create(draft);
+    if (!a.ok || !b.ok) throw new Error('setup failed');
+
+    const list = await ctx.friendlyRoundService.list();
+    expect(list).toHaveLength(2);
+    // Newest first (b created after a).
+    expect(list[0].friendlyRound.shareToken).toBe(b.friendlyRound.shareToken);
+    expect(list[1].friendlyRound.shareToken).toBe(a.friendlyRound.shareToken);
+    // Each row carries the resolved round for a summary view.
+    expect(list[0].round.id).toBe(b.round.id);
+    expect(list[0].round.formatSlots).toHaveLength(1);
+});
+
+test('list is empty when no friendly rounds exist', async () => {
+    const { ctx } = await setup();
+    expect(await ctx.friendlyRoundService.list()).toEqual([]);
+});
+
 test('invalid draft returns diagnostics and mints no wrapper or token', async () => {
     const { ctx, draft } = await setup();
     const bad = { ...draft, formats: [{ formatId: 'no_such_format' }] };

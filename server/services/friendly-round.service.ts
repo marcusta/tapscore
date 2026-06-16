@@ -1,4 +1,4 @@
-import type { Kysely, Selectable } from 'kysely';
+import { sql, type Kysely, type Selectable } from 'kysely';
 import type { Database, FriendlyRoundsTable } from '../db/schema';
 import type { CompilerDiagnostic } from '../domain/compiler/types';
 import type { RoundSetupDraft } from '../domain/round-setup/draft';
@@ -93,6 +93,26 @@ export class FriendlyRoundService {
         const round = await this.rounds.getById(row.round_id);
         if (!round) return null;
         return { friendlyRound: toFriendlyRound(row), round };
+    }
+
+    /**
+     * Every friendly round, newest first, each paired with its resolved round
+     * for a summary view. No auth — the landing page is the no-login front door.
+     * Ordered by insertion (`rowid`) rather than `created_at`, which is only
+     * second-resolution and would tie for rounds minted in the same second.
+     */
+    async list(): Promise<Array<{ friendlyRound: FriendlyRound; round: Round }>> {
+        const rows = await this.db
+            .selectFrom('friendly_rounds')
+            .selectAll()
+            .orderBy(sql`rowid`, 'desc')
+            .execute();
+        const out: Array<{ friendlyRound: FriendlyRound; round: Round }> = [];
+        for (const row of rows) {
+            const round = await this.rounds.getById(row.round_id);
+            if (round) out.push({ friendlyRound: toFriendlyRound(row), round });
+        }
+        return out;
     }
 
     async findByRoundId(roundId: string): Promise<FriendlyRound | null> {

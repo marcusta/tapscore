@@ -1,6 +1,14 @@
 // GENERATED — DO NOT EDIT
 import { apiFetch } from '@basics/core/client/fetch';
 
+export interface FriendlyRound {
+    id: string;
+    roundId: string;
+    shareToken: string;
+    creatorPlayerId: null | string;
+    createdAt: string;
+}
+
 export interface Round {
     id: string;
     courseId: string;
@@ -20,14 +28,6 @@ export interface Round {
     routeHandicapPolicy: RoundRoutePolicy;
     routeSections: RoundRouteSection[];
     playingGroups: RoundPlayingGroup[];
-}
-
-export interface FriendlyRound {
-    id: string;
-    roundId: string;
-    shareToken: string;
-    creatorPlayerId: null | string;
-    createdAt: string;
 }
 
 export interface CompilerDiagnostic {
@@ -106,6 +106,7 @@ export interface RoundGroupPlayedHole {
 }
 
 export interface FriendlyRoundsApi {
+    list(): Promise<{ friendlyRound: FriendlyRound; round: Round }[]>;
     create(input: { draft: { route?: { playHoles?: { id?: string; parOverride?: number; baseStrokeIndexOverride?: number; teeOverrides?: { lengthM?: number; strokeIndexOverride?: number; teeId: string }[]; courseHoleNumber: number }[]; routeSi?: { sourceLabel?: string; sourceVersion?: string; allocationCycleSize?: number; mode: 'official' | 'difficulty' | 'custom' }; routeHandicapPolicy?: { postingIneligibleReason?: string; type: 'official_route' | 'full_course_casual' | 'prorated_casual' | 'explicit'; postingEligible: boolean }; routeSections?: { id: string; label: string; fromCanonicalOrdinal: number; toCanonicalOrdinal: number }[]; templateId?: string; playingGroups?: { id?: string; startPlayHoleDefId?: string; startOrdinal?: number; hittingBay?: string; startTime: string; capacity: number; producerDefIds: string[] }[] }; roundType?: 'full_18' | 'front_9' | 'back_9' | 'custom_holes'; venueType?: 'outdoor' | 'indoor'; courseId: string; playedAt: string; producers: ({ gender?: 'M' | 'F'; category?: string; teeId: string; handicapIndex: number; producerDefId: string; playerRef: { id: string; kind: 'player' | 'guest' } })[]; formats: ({ producerDefIds?: string[]; allowanceConfig?: { type: 'flat'; pct: number } | { type: 'split'; bands: ({ pct: number; upToCh: null | number })[] }; teams?: { label: string; producerDefIds: string[] }[]; formatConfig?: unknown; formatId: string })[] } }): Promise<{ ok: true; round: Round; friendlyRound: FriendlyRound } | { ok: false; diagnostics: CompilerDiagnostic[] }>;
     byToken(input: { token: string }): Promise<{ friendlyRound: FriendlyRound; round: Round }>;
     get(input: { roundId: string }): Promise<FriendlyRound>;
@@ -113,6 +114,9 @@ export interface FriendlyRoundsApi {
 
 export function createFriendlyRoundsClient(baseUrl: string): FriendlyRoundsApi {
     return {
+        async list() {
+            return apiFetch({ method: 'GET', url: `${baseUrl}/friendly-rounds` });
+        },
         async create(input) {
             return apiFetch({ method: 'POST', url: `${baseUrl}/friendly-rounds`, body: input });
         },

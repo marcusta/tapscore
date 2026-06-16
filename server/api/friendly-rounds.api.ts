@@ -33,6 +33,7 @@ async function byRoundOr404(svc: FriendlyRoundService, roundId: string) {
 
 export function createFriendlyRoundsApi(svc: FriendlyRoundService) {
     return {
+        list:    { method: 'GET'  as const, path: '/friendly-rounds',          fn: ()                                    => svc.list() },
         create:  { method: 'POST' as const, path: '/friendly-rounds',          fn: (input: Static<typeof CreateInput>)   => svc.create(input.draft),               schema: CreateInput },
         byToken: { method: 'GET'  as const, path: '/friendly-rounds/by-token',  fn: (input: Static<typeof ByTokenInput>)  => byTokenOr404(svc, input.token),        schema: ByTokenInput },
         get:     { method: 'GET'  as const, path: '/friendly-rounds/get',       fn: (input: Static<typeof ByRoundInput>)  => byRoundOr404(svc, input.roundId),      schema: ByRoundInput },

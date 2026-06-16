@@ -26,7 +26,34 @@ export async function seedDev(ctx: TestContext): Promise<void> {
 
     const club = await ensureClub(ctx, 'Halmstad GK');
     const course = await ensureCourse(ctx, club.id, 'North', 18);
-    await ensureTee(ctx, course.id, 'Yellow');
+    const tee = await ensureTee(ctx, course.id, 'Yellow');
+
+    await ensureFriendlyRound(ctx, course.id, tee.id);
+}
+
+/**
+ * One no-login FriendlyRound so the landing page has something to show on a
+ * fresh boot. Gated on "no friendly rounds yet" (rather than per-guest) so it
+ * mints exactly once — guest players carry no natural unique key to dedupe on.
+ */
+async function ensureFriendlyRound(ctx: TestContext, courseId: string, teeId: string) {
+    if ((await ctx.friendlyRoundService.list()).length > 0) return;
+
+    const ivar = await ctx.guestPlayerService.create({
+        displayName: 'Ivar Holm', gender: 'M', handicapIndex: 8,
+    });
+    const jonas = await ctx.guestPlayerService.create({
+        displayName: 'Jonas Falk', gender: 'M', handicapIndex: 14,
+    });
+    await ctx.friendlyRoundService.create({
+        courseId,
+        playedAt: new Date().toISOString().slice(0, 10),
+        producers: [
+            { producerDefId: 'p1', playerRef: { kind: 'guest', id: ivar.id }, handicapIndex: 8, gender: 'M', teeId },
+            { producerDefId: 'p2', playerRef: { kind: 'guest', id: jonas.id }, handicapIndex: 14, gender: 'M', teeId },
+        ],
+        formats: [{ formatId: 'stableford_individual' }],
+    });
 }
 
 async function ensurePlayer(

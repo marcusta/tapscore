@@ -56,6 +56,19 @@ test('POST /friendly-rounds creates a round with NO login and returns a share to
     expect(body.round.formatSlots).toHaveLength(1);
 });
 
+test('GET /friendly-rounds lists rounds with NO login, newest first', async () => {
+    const { ctx, draft } = await setup();
+    await req(ctx.app, 'POST', '/api/friendly-rounds', { draft });
+    const second = await (await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })).json();
+
+    const res = await req(ctx.app, 'GET', '/api/friendly-rounds');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveLength(2);
+    expect(body[0].friendlyRound.shareToken).toBe(second.friendlyRound.shareToken);
+    expect(body[0].round.formatSlots).toHaveLength(1);
+});
+
 test('GET /friendly-rounds/by-token reaches the round in a fresh session, no cookie', async () => {
     const { ctx, draft } = await setup();
     const created = await (

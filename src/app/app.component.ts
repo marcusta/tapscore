@@ -1,6 +1,9 @@
 import { Component, Router, template } from '@basics/core/client/core';
 import { t } from '../theme';
 import { NavComponent } from './nav.component';
+import { LandingComponent } from '../landing/landing.component';
+import { RoundComponent } from '../round/round.component';
+import { CreateComponent } from '../create/create.component';
 import { LoginComponent } from '../auth/login.component';
 import { PlayersComponent } from '../players/players.component';
 import { RoundsComponent } from '../rounds/rounds.component';
@@ -40,13 +43,16 @@ export class AppComponent extends Component {
 
         this.spawn(NavComponent, this.ref(frag, 'nav'));
         this.$swap(this.ref(frag, 'content'), this.router.route, {
+            '/': LandingComponent,
+            '/round': RoundComponent,
+            '/create': CreateComponent,
             '/login': LoginComponent,
             '/rounds': RoundsComponent,
             '/new-round': NewRoundComponent,
             '/players': PlayersComponent,
             '/score': ScoreComponent,
             '/results': ResultsComponent,
-        }, RoundsComponent);
+        }, LandingComponent);
 
         return frag;
     }
