@@ -10,8 +10,10 @@ import { mount } from '@basics/core/server/mount';
 import { seedPlayer } from '../db/seeds/players';
 import { setupRoutes, req, type RouteTestContext } from '../testing/routes';
 import { createSetupApi } from './setup.api';
+import { registerBuiltInFormats } from '../domain/formats';
 
 async function setup() {
+    registerBuiltInFormats();
     const ctx: RouteTestContext = await setupRoutes([seedPlayer]);
     mount(ctx.app, '/api', createSetupApi(ctx.courseService, ctx.teeService));
 
@@ -59,4 +61,19 @@ test('GET /setup/tees/by-course returns a course\'s tees with gender ratings, NO
     expect(male.slope).toBe(132);
     expect(male.courseRating).toBe(71.2);
     expect(male.par).toBe(72);
+});
+
+test('GET /setup/formats returns the registered descriptors with NO login', async () => {
+    const { ctx } = await setup();
+    const res = await req(ctx.app, 'GET', '/api/setup/formats');
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as Array<Record<string, unknown>>;
+    // Same serializable catalog as the auth-gated GET /formats — the no-login
+    // setup flow reads it without a cookie, exactly like courses/tees above.
+    expect(data.length).toBe(12);
+    const ids = data.map((d) => d.id);
+    expect(ids).toEqual([...ids].sort());
+    expect(ids).toContain('greensomes');
+    expect(ids).toContain('scramble');
+    expect(JSON.parse(JSON.stringify(data))).toEqual(data);
 });

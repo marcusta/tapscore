@@ -1,20 +1,16 @@
+import { di } from '@basics/core/client/core';
 import type { FormatSlot } from '../api/rounds.gen';
-import { FORMATS } from '../formats';
+import { FormatCatalogService } from '../create/format-catalog.service';
 
-/** Human label for a (scoringMode, teamShape) slot, via the format catalog. */
+/**
+ * Human label for a round's format slot, read from the SERVER format catalog
+ * (phase 2.6e M3 — replaces the hand-maintained `src/formats.ts` list). The
+ * catalog is fetched once and cached; until it arrives this falls back to the
+ * slot's own scoring/team metadata. Called inside reactive render bindings, so
+ * reading the catalog signal re-renders the label when the fetch resolves.
+ */
 export function formatLabelFromSlot(slot: FormatSlot): string {
-    const ID_BY_MODE_SHAPE: Record<string, string> = {
-        'stroke_play individual': 'stroke_play_individual',
-        'stableford individual': 'stableford_individual',
-        'match_play individual': 'match_play_individual',
-        'kopenhamnare individual': 'kopenhamnare_individual',
-        'umbrella individual': 'umbrella_individual',
-        'stableford better_ball': 'stableford_better_ball',
-        'match_play better_ball': 'match_play_better_ball',
-        'taliban better_ball': 'taliban_better_ball',
-        'umbrella four_ball': 'umbrella_4_ball',
-        'stroke_play foursomes': 'stroke_play_foursomes',
-    };
-    const id = ID_BY_MODE_SHAPE[`${slot.scoringMode} ${slot.teamShape}`];
-    return FORMATS.find((f) => f.id === id)?.label ?? `${slot.scoringMode} · ${slot.teamShape}`;
+    const catalog = di.get(FormatCatalogService);
+    void catalog.load();
+    return catalog.byId(slot.formatId)?.label ?? `${slot.scoringMode} · ${slot.teamShape}`;
 }

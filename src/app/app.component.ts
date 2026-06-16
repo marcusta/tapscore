@@ -7,7 +7,6 @@ import { CreateComponent } from '../create/create.component';
 import { LoginComponent } from '../auth/login.component';
 import { PlayersComponent } from '../players/players.component';
 import { RoundsComponent } from '../rounds/rounds.component';
-import { NewRoundComponent } from '../rounds/new-round.component';
 import { ScoreComponent } from '../score/score.component';
 import { ResultsComponent } from '../results/results.component';
 
@@ -48,7 +47,6 @@ export class AppComponent extends Component {
             '/create': CreateComponent,
             '/login': LoginComponent,
             '/rounds': RoundsComponent,
-            '/new-round': NewRoundComponent,
             '/players': PlayersComponent,
             '/score': ScoreComponent,
             '/results': ResultsComponent,

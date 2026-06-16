@@ -18,6 +18,19 @@ export interface Tee {
     ratings: TeeRating[];
 }
 
+export interface FormatDescriptor {
+    id: string;
+    label: string;
+    description: string;
+    scoringMode: string;
+    teamShape: string;
+    requirements: FormatRequirements;
+    defaults: { allowanceConfig: { type: 'flat'; pct: number } | { type: 'split'; bands: ({ pct: number; upToCh: null | number })[] } };
+    metrics: FormatMetric[];
+    resultDisplay?: { runningTotals?: 'normalized' };
+    clientAdapterId: null | string;
+}
+
 export interface Hole {
     holeNumber: number;
     par: number;
@@ -38,9 +51,38 @@ export interface TeeRating {
     totalLengthM: number;
 }
 
+export interface FormatRequirements {
+    balls: FormatBallRequirement;
+    scoreEntry?: ScoreEntryCapabilities;
+    holeCoordinate?: 'played_ordinal' | 'canonical_ordinal' | 'course_hole_number';
+    allowSegmentOverlap?: boolean;
+}
+
+export interface FormatMetric {
+    id: string;
+    label: string;
+    direction: 'high' | 'low';
+}
+
+export interface FormatBallRequirement {
+    producerCount: { min: number; max: number };
+    ballMode: 'own' | 'team' | 'any';
+    topology?: 'static' | 'scheduled' | 'dynamic';
+    requiresSlotTeamGrouping?: boolean;
+    slotBallCount?: { min?: number; max?: number; multipleOf?: number };
+    slotTeamGrouping?: { teamCount?: { min?: number; max?: number }; teamSize?: { min?: number; max?: number } };
+}
+
+export interface ScoreEntryCapabilities {
+    strokes: boolean;
+    booleanMetadata?: string[];
+    numberMetadata?: string[];
+}
+
 export interface SetupApi {
     courses(): Promise<Course[]>;
     teesByCourse(input: { courseId: string }): Promise<Tee[]>;
+    formats(): Promise<FormatDescriptor[]>;
 }
 
 export function createSetupClient(baseUrl: string): SetupApi {
@@ -54,6 +96,9 @@ export function createSetupClient(baseUrl: string): SetupApi {
                 if (v !== undefined) params.set(k, String(v));
             const qs = params.toString();
             return apiFetch({ method: 'GET', url: `${baseUrl}/setup/tees/by-course${qs ? '?' + qs : ''}` });
+        },
+        async formats() {
+            return apiFetch({ method: 'GET', url: `${baseUrl}/setup/formats` });
         },
     };
 }

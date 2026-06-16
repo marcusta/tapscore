@@ -1,4 +1,4 @@
-import { Component, Router, template } from '@basics/core/client/core';
+import { Component, Router, template, effect } from '@basics/core/client/core';
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { SetupService, type PlayerForm, type RoutePreset } from './setup.service';
@@ -40,6 +40,13 @@ const tpl = template(`
             <button bind="addPlayer" class="setup__add" type="button">+ Add player</button>
         </section>
 
+        <section class="setup__section">
+            <h2>Formats</h2>
+            <p class="setup__hint">One or more scoring formats. Teams and allowance are set per format.</p>
+            <div bind="formats" class="setup__fslots"></div>
+            <button bind="addFormat" class="setup__add" type="button">+ Add format</button>
+        </section>
+
         <div bind="banner" class="setup__banner"></div>
         <button bind="create" class="setup__create" type="button">Create round</button>
     </div>
@@ -58,6 +65,53 @@ const playerTpl = template(`
         </div>
         <div bind="ch" class="player__ch"></div>
         <div bind="err" class="player__err"></div>
+    </div>
+`);
+
+const fslotTpl = template(`
+    <div class="fslot">
+        <div class="fslot__top">
+            <select bind="format" class="fslot__format"></select>
+            <button bind="remove" class="fslot__remove" type="button" aria-label="Remove">✕</button>
+        </div>
+        <p bind="desc" class="fslot__desc"></p>
+
+        <div bind="teamsWrap" class="fslot__group">
+            <span class="fslot__label">Teams</span>
+            <div bind="teamRows" class="fslot__teamrows"></div>
+        </div>
+
+        <div class="fslot__group">
+            <span class="fslot__label">Allowance</span>
+            <div class="fslot__seg">
+                <button bind="flatBtn" type="button">Flat</button>
+                <button bind="splitBtn" type="button">Split</button>
+            </div>
+            <div bind="flatWrap" class="fslot__flat">
+                <input bind="flatPct" class="fslot__pct" inputmode="numeric" /><span>%</span>
+            </div>
+            <div bind="bandsWrap" class="fslot__bands">
+                <div bind="bandRows" class="fslot__bandrows"></div>
+                <button bind="addBand" type="button" class="fslot__addband">+ Band</button>
+            </div>
+        </div>
+
+        <div bind="err" class="fslot__err"></div>
+    </div>
+`);
+
+const teamRowTpl = template(`
+    <label class="trow">
+        <span bind="name" class="trow__name"></span>
+        <select bind="team" class="trow__team"></select>
+    </label>
+`);
+
+const bandRowTpl = template(`
+    <div class="brow">
+        <input bind="pct" class="brow__pct" inputmode="numeric" /><span>% up to CH</span>
+        <input bind="upto" class="brow__upto" inputmode="numeric" placeholder="∞" />
+        <button bind="del" class="brow__del" type="button" aria-label="Remove band">✕</button>
     </div>
 `);
 
@@ -149,6 +203,75 @@ export class CreateComponent extends Component {
                 &:empty { display: none; }
             }
 
+            & .setup__fslots { display: flex; flex-direction: column; gap: ${s('md')}; }
+
+            & .fslot {
+                padding: ${s('md')}; ${card()}
+                display: flex; flex-direction: column; gap: ${s('sm')};
+
+                & .fslot__top { display: flex; gap: ${s('sm')}; align-items: center; }
+                & .fslot__format { flex: 1; padding: ${s('md')} ${s('sm')}; font-size: 1rem; ${input()} }
+                & .fslot__remove {
+                    width: 38px; height: 38px; flex-shrink: 0; ${btn()}
+                    font-size: 1rem; color: ${t('text-muted')};
+                }
+                & .fslot__desc {
+                    margin: 0; font-size: 0.8rem; color: ${t('text-muted')};
+                    &:empty { display: none; }
+                }
+
+                & .fslot__group {
+                    display: flex; flex-direction: column; gap: ${s('xs')};
+                    &[hidden] { display: none; }
+                }
+                & .fslot__label {
+                    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+                    text-transform: uppercase; color: ${t('text-muted')};
+                }
+
+                & .fslot__teamrows { display: flex; flex-direction: column; gap: ${s('xs')}; }
+                & .trow {
+                    display: flex; align-items: center; justify-content: space-between; gap: ${s('sm')};
+                    & .trow__name { font-size: 0.9rem; }
+                    & .trow__team { width: 90px; flex-shrink: 0; padding: ${s('sm')}; font-size: 0.95rem; ${input()} }
+                }
+
+                & .fslot__seg {
+                    display: flex; gap: ${s('xs')};
+                    & button {
+                        flex: 1; padding: ${s('sm')} 0; ${btn()}
+                        font-family: inherit; font-weight: 700; font-size: 0.82rem;
+                        &.on { background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')}; }
+                    }
+                }
+                & .fslot__flat {
+                    display: flex; align-items: center; gap: ${s('xs')}; font-size: 0.9rem;
+                    color: ${t('text-muted')};
+                    &[hidden] { display: none; }
+                    & .fslot__pct { width: 70px; padding: ${s('sm')}; font-size: 1rem; ${input()} }
+                }
+                & .fslot__bands {
+                    display: flex; flex-direction: column; gap: ${s('xs')};
+                    &[hidden] { display: none; }
+                }
+                & .fslot__bandrows { display: flex; flex-direction: column; gap: ${s('xs')}; }
+                & .brow {
+                    display: flex; align-items: center; gap: ${s('xs')};
+                    font-size: 0.82rem; color: ${t('text-muted')};
+                    & .brow__pct, & .brow__upto { width: 56px; padding: ${s('sm')}; font-size: 0.95rem; ${input()} }
+                    & .brow__del { margin-left: auto; width: 30px; height: 30px; ${btn()} font-size: 0.8rem; color: ${t('text-muted')}; }
+                }
+                & .fslot__addband {
+                    align-self: flex-start; padding: ${s('xs')} ${s('sm')}; ${btn()}
+                    font-family: inherit; font-weight: 600; font-size: 0.8rem;
+                }
+
+                & .fslot__err {
+                    font-size: 0.82rem; color: ${t('error')};
+                    &:empty { display: none; }
+                }
+            }
+
             & .setup__create {
                 width: 100%; padding: ${s('lg')}; font-size: 1.15rem; font-weight: 700;
                 font-family: inherit; ${btn()}
@@ -189,6 +312,7 @@ export class CreateComponent extends Component {
                     this.svc.startHole.set(Number((e.target as HTMLSelectElement).value)),
             },
             addPlayer: { onclick: () => this.svc.addPlayer() },
+            addFormat: { onclick: () => this.svc.addFormatSlot() },
             banner: {
                 textContent: () => {
                     const msgs = [
@@ -239,7 +363,201 @@ export class CreateComponent extends Component {
             (p) => p.key,
         );
 
+        // Format slots. Keyed by stable slot key; each card reads its slot by
+        // key so reorder/edit never recreates the card (focus + carets intact).
+        this.$each(
+            this.ref(frag, 'formats'),
+            this.svc.formatSlots,
+            (slot, i, track) => this.formatCard(slot.key, i, track),
+            (slot) => slot.key,
+        );
+
         return frag;
+    }
+
+    /**
+     * Like `$each` but disposes its effect through the caller's `track`, so a
+     * nested list inside a keyed row is torn down with that row (the built-in
+     * `$each` self-tracks at component scope — fine at the top level, a leak
+     * when nested). Used for the per-slot team + band lists.
+     */
+    private eachInto<T>(
+        host: HTMLElement,
+        track: (d: () => void) => void,
+        read: () => T[],
+        renderer: (item: T, index: number, track: (d: () => void) => void) => HTMLElement,
+        key: (item: T, index: number) => string | number,
+    ): void {
+        const nodes = new Map<string | number, HTMLElement>();
+        const scopes = new Map<string | number, (() => void)[]>();
+        track(() => {
+            for (const fns of scopes.values()) fns.forEach((d) => d());
+            scopes.clear();
+        });
+        track(
+            effect(() => {
+                const list = read();
+                const next = new Map<string | number, HTMLElement>();
+                for (const [i, item] of list.entries()) {
+                    const k = key(item, i);
+                    if (nodes.has(k)) {
+                        next.set(k, nodes.get(k)!);
+                    } else {
+                        const disp: (() => void)[] = [];
+                        next.set(k, renderer(item, i, (d) => disp.push(d)));
+                        scopes.set(k, disp);
+                    }
+                }
+                for (const [k, node] of nodes) {
+                    if (!next.has(k)) {
+                        node.remove();
+                        scopes.get(k)?.forEach((d) => d());
+                        scopes.delete(k);
+                    }
+                }
+                let cursor = host.firstChild;
+                for (const node of next.values()) {
+                    if (node === cursor) cursor = cursor.nextSibling;
+                    else host.insertBefore(node, cursor);
+                }
+                nodes.clear();
+                for (const [k, v] of next) nodes.set(k, v);
+            }),
+        );
+    }
+
+    private formatCard(key: number, index: number, track: (d: () => void) => void): HTMLElement {
+        const slot = () => this.svc.slotByKey(key);
+        const formatId = () => slot()?.formatId ?? '';
+        const mode = () => slot()?.allowanceMode ?? 'flat';
+
+        const el = this.wireEl(
+            fslotTpl,
+            {
+                format: {
+                    innerHTML: () =>
+                        this.svc.catalog
+                            .descriptors.get()
+                            .map((d) => `<option value="${d.id}">${d.label}</option>`)
+                            .join(''),
+                    value: () => formatId(),
+                    onchange: (e: Event) =>
+                        this.svc.setSlotFormat(key, (e.target as HTMLSelectElement).value),
+                },
+                remove: { onclick: () => this.svc.removeFormatSlot(key) },
+                desc: {
+                    textContent: () => this.svc.catalog.byId(formatId())?.description ?? '',
+                },
+                teamsWrap: { hidden: () => !this.svc.catalog.needsTeams(formatId()) },
+                flatBtn: {
+                    className: () => (mode() === 'flat' ? 'on' : ''),
+                    onclick: () => this.svc.patchFormatSlot(key, { allowanceMode: 'flat' }),
+                },
+                splitBtn: {
+                    className: () => (mode() === 'split' ? 'on' : ''),
+                    onclick: () => this.svc.patchFormatSlot(key, { allowanceMode: 'split' }),
+                },
+                flatWrap: { hidden: () => mode() !== 'flat' },
+                bandsWrap: { hidden: () => mode() !== 'split' },
+                // Uncontrolled: static initial value, oninput-only (no caret reset).
+                flatPct: {
+                    value: slot()?.flatPct ?? '100',
+                    oninput: (e: Event) =>
+                        this.svc.patchFormatSlot(key, { flatPct: (e.target as HTMLInputElement).value }),
+                },
+                addBand: { onclick: () => this.svc.addBand(key) },
+                err: {
+                    textContent: () =>
+                        this.svc
+                            .diagnosticsForFormat(index)
+                            .map((d) => d.message)
+                            .join(' · '),
+                },
+            },
+            track,
+        );
+
+        // Per-player team assignment (team formats only).
+        this.eachInto(
+            this.ref(el, 'teamRows'),
+            track,
+            () => this.svc.players.get(),
+            (p, _i, rowTrack) => this.teamRow(key, p.key, rowTrack),
+            (p) => p.key,
+        );
+
+        // Split allowance bands.
+        this.eachInto(
+            this.ref(el, 'bandRows'),
+            track,
+            () => this.svc.slotByKey(key)?.bands ?? [],
+            (b, _i, rowTrack) => this.bandRow(key, b.key, rowTrack),
+            (b) => b.key,
+        );
+
+        return el;
+    }
+
+    private teamRow(
+        slotKey: number,
+        playerKey: number,
+        track: (d: () => void) => void,
+    ): HTMLElement {
+        const player = () => this.svc.players.get().find((p) => p.key === playerKey) ?? null;
+        const assignment = () => this.svc.slotByKey(slotKey)?.teamByPlayer[playerKey] ?? -1;
+        return this.wireEl(
+            teamRowTpl,
+            {
+                name: { textContent: () => player()?.name?.trim() || 'Player' },
+                team: {
+                    // One effect builds the options AND marks the current pick via
+                    // `selected` — a separate reactive `value` can fire before the
+                    // option exists (on format switch) and silently reset to —.
+                    innerHTML: () => {
+                        const n = this.svc.teamBucketCount(this.svc.slotByKey(slotKey)?.formatId ?? '');
+                        const cur = assignment();
+                        const opt = (v: number, label: string) =>
+                            `<option value="${v}"${v === cur ? ' selected' : ''}>${label}</option>`;
+                        const opts = [opt(-1, '—')];
+                        for (let i = 0; i < n; i++) opts.push(opt(i, this.svc.teamLetter(i)));
+                        return opts.join('');
+                    },
+                    onchange: (e: Event) =>
+                        this.svc.setPlayerTeam(
+                            slotKey,
+                            playerKey,
+                            Number((e.target as HTMLSelectElement).value),
+                        ),
+                },
+            },
+            track,
+        );
+    }
+
+    private bandRow(
+        slotKey: number,
+        bandKey: number,
+        track: (d: () => void) => void,
+    ): HTMLElement {
+        const band = () => this.svc.slotByKey(slotKey)?.bands.find((b) => b.key === bandKey) ?? null;
+        return this.wireEl(
+            bandRowTpl,
+            {
+                // Uncontrolled inputs: static initial value, oninput-only.
+                pct: {
+                    value: band()?.pct ?? '',
+                    oninput: (e: Event) =>
+                        this.svc.patchBand(slotKey, bandKey, { pct: (e.target as HTMLInputElement).value }),
+                },
+                upto: {
+                    value: band()?.upToCh ?? '',
+                    oninput: (e: Event) =>
+                        this.svc.patchBand(slotKey, bandKey, { upToCh: (e.target as HTMLInputElement).value }),
+                },
+                del: { onclick: () => this.svc.removeBand(slotKey, bandKey) },
+            },
+            track,
+        );
     }
 
     private playerRow(key: number, track: (d: () => void) => void): HTMLElement {

@@ -145,7 +145,9 @@ export class RoundsComponent extends Component {
                 const n = this.svc.rounds.get().length;
                 return n === 0 ? 'No rounds yet — tee one up.' : `${n} round${n === 1 ? '' : 's'} on the card.`;
             },
-            newBtn: { onclick: () => this.router.navigate('/new-round') },
+            // The auth-gated wizard is retired (2.6e M3); creating a round goes
+            // through the no-login players-first flow at /create.
+            newBtn: { onclick: () => this.router.navigate('/create') },
         });
 
         const statusText: Record<string, string> = {

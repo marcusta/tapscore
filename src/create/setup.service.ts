@@ -1,12 +1,45 @@
-import { Signal } from '@basics/core/client/core';
+import { Signal, di } from '@basics/core/client/core';
 import { request, type RequestError } from '@basics/core/client/request';
 import { api, ApiError } from '../api';
 import type { Course, Tee, TeeRating } from '../api/setup.gen';
 import type { CompilerDiagnostic } from '../api/friendly-rounds.gen';
 import { courseHandicap, courseHandicapRaw } from './handicap';
+import { FormatCatalogService } from './format-catalog.service';
 
 export type Gender = 'M' | 'F';
 export type RoutePreset = 'full_18' | 'front_9' | 'back_9';
+
+/** Allowance config in the exact shape the draft's `formats[].allowanceConfig`
+ * accepts (mirrors `FormatAllowanceConfig`: flat default + 2.6d-bis split). */
+export type AllowanceConfig =
+    | { type: 'flat'; pct: number }
+    | { type: 'split'; bands: { pct: number; upToCh: number | null }[] };
+
+/** One format instance (slot) in the format step. */
+export interface FormatSlotForm {
+    /** Stable identity for `$each` keying — survives field edits. */
+    key: number;
+    formatId: string;
+    /** Allowance mode + raw inputs; built into `AllowanceConfig` at submit. */
+    allowanceMode: 'flat' | 'split';
+    flatPct: string;
+    /** Split bands: `upToCh` '' = the catch-all top band. `key` is stable for
+     * `$each` keying so inserting/removing a band never reuses a row's closure. */
+    bands: { key: number; pct: string; upToCh: string }[];
+    /** Player `key` → team letter index (0=A…). Only used for team formats. */
+    teamByPlayer: Record<number, number>;
+}
+
+/** One element of the draft's `formats[]` array. */
+interface DraftFormat {
+    formatId: string;
+    allowanceConfig?: AllowanceConfig;
+    producerDefIds?: string[];
+    teams?: { label: string; producerDefIds: string[] }[];
+    formatConfig?: unknown;
+}
+
+const TEAM_LETTERS = 'ABCDEFGH';
 
 /** One row of the players step. Free-form entry → a `guest_player` on submit. */
 export interface PlayerForm {
@@ -58,15 +91,26 @@ export class SetupService {
     readonly startHole = new Signal<number>(1);
     readonly players = new Signal<PlayerForm[]>([]);
 
+    /** 1..N format instances (slots). M3 replaces M2's single hardcoded default. */
+    readonly formatSlots = new Signal<FormatSlotForm[]>([]);
+
     readonly submitting = new Signal(false);
     /** Compiler/planner diagnostics from the last failed submit (path-tagged). */
     readonly diagnostics = new Signal<CompilerDiagnostic[]>([]);
     /** A submit-level message not tied to a specific control. */
     readonly submitError = new Signal<string | null>(null);
 
+    /** The server-backed format catalog drives the whole format step. */
+    readonly catalog = di.get(FormatCatalogService);
+
     private nextKey = 1;
+    private nextSlotKey = 1;
+    private nextBandKey = 1;
 
     async load(): Promise<void> {
+        // Catalog loads in parallel; the format step renders once it arrives and
+        // seeds a default slot so a round is valid out of the box (M2 parity).
+        void this.catalog.load().then(() => this.ensureDefaultSlot());
         const data = await request(this.loading, this.error, () => api.setup.courses());
         if (!data) return;
         this.courses.set(data);
@@ -115,6 +159,125 @@ export class SetupService {
         this.players.set(
             this.players.get().map((p) => (p.key === key ? { ...p, ...patch } : p)),
         );
+    }
+
+    // --- Format slots (the M3 format step) ---
+
+    /** Seed one default slot once the catalog is loaded, if the user has none. */
+    private ensureDefaultSlot(): void {
+        if (this.formatSlots.get().length > 0) return;
+        const first =
+            this.catalog.byId('stableford_individual') ?? this.catalog.descriptors.get()[0];
+        if (first) this.addFormatSlot(first.id);
+    }
+
+    addFormatSlot(formatId?: string): void {
+        const id =
+            formatId ??
+            this.catalog.byId('stableford_individual')?.id ??
+            this.catalog.descriptors.get()[0]?.id ??
+            '';
+        const slot: FormatSlotForm = {
+            key: this.nextSlotKey++,
+            formatId: id,
+            allowanceMode: 'flat',
+            flatPct: '100',
+            bands: [
+                { key: this.nextBandKey++, pct: '100', upToCh: '9' },
+                { key: this.nextBandKey++, pct: '75', upToCh: '' },
+            ],
+            teamByPlayer: {},
+        };
+        if (this.catalog.needsTeams(id)) slot.teamByPlayer = this.autoAssign(id);
+        this.formatSlots.set([...this.formatSlots.get(), slot]);
+    }
+
+    removeFormatSlot(key: number): void {
+        this.formatSlots.set(this.formatSlots.get().filter((s) => s.key !== key));
+    }
+
+    patchFormatSlot(key: number, patch: Partial<Omit<FormatSlotForm, 'key'>>): void {
+        this.formatSlots.set(
+            this.formatSlots.get().map((s) => (s.key === key ? { ...s, ...patch } : s)),
+        );
+    }
+
+    /** Change a slot's format; (re)auto-assign teams when the new format needs them. */
+    setSlotFormat(key: number, formatId: string): void {
+        const teamByPlayer = this.catalog.needsTeams(formatId) ? this.autoAssign(formatId) : {};
+        this.patchFormatSlot(key, { formatId, teamByPlayer });
+    }
+
+    slotByKey(key: number): FormatSlotForm | null {
+        return this.formatSlots.get().find((s) => s.key === key) ?? null;
+    }
+
+    // --- Allowance band editing ---
+
+    addBand(slotKey: number): void {
+        const slot = this.slotByKey(slotKey);
+        if (!slot) return;
+        // Insert a new band before the catch-all (last) band.
+        const bands = [...slot.bands];
+        bands.splice(Math.max(0, bands.length - 1), 0, {
+            key: this.nextBandKey++,
+            pct: '100',
+            upToCh: '0',
+        });
+        this.patchFormatSlot(slotKey, { bands });
+    }
+
+    removeBand(slotKey: number, bandKey: number): void {
+        const slot = this.slotByKey(slotKey);
+        if (!slot || slot.bands.length <= 1) return;
+        this.patchFormatSlot(slotKey, { bands: slot.bands.filter((b) => b.key !== bandKey) });
+    }
+
+    patchBand(slotKey: number, bandKey: number, patch: Partial<{ pct: string; upToCh: string }>): void {
+        const slot = this.slotByKey(slotKey);
+        if (!slot) return;
+        this.patchFormatSlot(slotKey, {
+            bands: slot.bands.map((b) => (b.key === bandKey ? { ...b, ...patch } : b)),
+        });
+    }
+
+    // --- Team assignment ---
+
+    /** How many team buckets a format's editor shows, given the roster size. */
+    teamBucketCount(formatId: string): number {
+        const cls = this.catalog.classifyId(formatId);
+        const n = this.players.get().length;
+        if (!cls || cls.kind === 'individual' || n === 0) return 0;
+        const ideal = cls.teamCount?.max ?? Math.max(1, Math.ceil(n / cls.teamSize.min));
+        return Math.min(Math.max(ideal, 1), n);
+    }
+
+    teamLetter(index: number): string {
+        return TEAM_LETTERS[index] ?? `T${index + 1}`;
+    }
+
+    /** Distribute the current roster into teams of the format's min size. */
+    private autoAssign(formatId: string): Record<number, number> {
+        const cls = this.catalog.classifyId(formatId);
+        const roster = this.players.get();
+        if (!cls || cls.kind === 'individual') return {};
+        const size = Math.max(1, cls.teamSize.min);
+        const buckets = this.teamBucketCount(formatId);
+        const out: Record<number, number> = {};
+        roster.forEach((p, i) => {
+            out[p.key] = Math.min(Math.floor(i / size), Math.max(0, buckets - 1));
+        });
+        return out;
+    }
+
+    /** Assign a player to a team bucket; a negative index clears the assignment. */
+    setPlayerTeam(slotKey: number, playerKey: number, teamIndex: number): void {
+        const slot = this.slotByKey(slotKey);
+        if (!slot) return;
+        const next = { ...slot.teamByPlayer };
+        if (teamIndex < 0) delete next[playerKey];
+        else next[playerKey] = teamIndex;
+        this.patchFormatSlot(slotKey, { teamByPlayer: next });
     }
 
     // --- Derived reads ---
@@ -188,9 +351,79 @@ export class SetupService {
             .filter((d) => d.path?.startsWith(`producers[${index}]`));
     }
 
-    /** Diagnostics not attributable to a specific player row. */
+    /** Diagnostics whose path targets `formats[i]`, for inline slot display. */
+    diagnosticsForFormat(index: number): CompilerDiagnostic[] {
+        return this.diagnostics.get().filter((d) => d.path?.startsWith(`formats[${index}]`));
+    }
+
+    /** Diagnostics not attributable to a specific player row or format slot. */
     generalDiagnostics(): CompilerDiagnostic[] {
-        return this.diagnostics.get().filter((d) => !d.path?.startsWith('producers['));
+        return this.diagnostics
+            .get()
+            .filter((d) => !d.path?.startsWith('producers[') && !d.path?.startsWith('formats['));
+    }
+
+    private parsePct(s: string): number {
+        const n = Number.parseInt(s, 10);
+        return Number.isFinite(n) ? n : 100;
+    }
+
+    /** Build the slot's allowance config (flat default + 2.6d-bis split bands). */
+    private buildAllowance(slot: FormatSlotForm): AllowanceConfig {
+        if (slot.allowanceMode === 'split') {
+            return {
+                type: 'split',
+                bands: slot.bands.map((b) => {
+                    const upTo = Number.parseInt(b.upToCh, 10);
+                    return {
+                        pct: this.parsePct(b.pct),
+                        upToCh: b.upToCh.trim() === '' ? null : Number.isFinite(upTo) ? upTo : 0,
+                    };
+                }),
+            };
+        }
+        return { type: 'flat', pct: this.parsePct(slot.flatPct) };
+    }
+
+    /**
+     * Translate the format slots into the draft's `formats[]`. Producers are
+     * auto-deduced for individual formats (the whole roster — `producerDefIds`
+     * omitted); team formats carry an explicit `teams[]` grouping. The server's
+     * `planSetup` derives ball-creation strategy ids from these — never the
+     * client.
+     */
+    private buildFormats(roster: PlayerForm[]): DraftFormat[] {
+        const defIdByKey = new Map<number, string>();
+        roster.forEach((p, i) => defIdByKey.set(p.key, `p${i + 1}`));
+        return this.formatSlots.get().map((slot) => {
+            const entry: DraftFormat = {
+                formatId: slot.formatId,
+                allowanceConfig: this.buildAllowance(slot),
+            };
+            if (this.catalog.needsTeams(slot.formatId)) {
+                entry.teams = this.buildTeams(slot, roster, defIdByKey);
+            }
+            return entry;
+        });
+    }
+
+    private buildTeams(
+        slot: FormatSlotForm,
+        roster: PlayerForm[],
+        defIdByKey: Map<number, string>,
+    ): { label: string; producerDefIds: string[] }[] {
+        const buckets = new Map<number, string[]>();
+        for (const p of roster) {
+            const t = slot.teamByPlayer[p.key];
+            if (t === undefined) continue; // unassigned → server diagnoses if required
+            const defId = defIdByKey.get(p.key);
+            if (!defId) continue;
+            if (!buckets.has(t)) buckets.set(t, []);
+            buckets.get(t)!.push(defId);
+        }
+        return [...buckets.entries()]
+            .sort((a, b) => a[0] - b[0])
+            .map(([idx, ids]) => ({ label: this.teamLetter(idx), producerDefIds: ids }));
     }
 
     /**
@@ -240,6 +473,10 @@ export class SetupService {
             this.submitError.set('Add at least one player.');
             return { ok: false };
         }
+        if (this.formatSlots.get().length === 0) {
+            this.submitError.set('Add at least one format.');
+            return { ok: false };
+        }
         const localDiags: CompilerDiagnostic[] = [];
         roster.forEach((p, i) => {
             if (!p.name.trim()) {
@@ -278,8 +515,9 @@ export class SetupService {
                 });
             }
 
-            // 2. Assemble the draft. M2 attaches a single default format; M3
-            //    replaces this with the catalog-driven format step.
+            // 2. Assemble the draft. The catalog-driven format step (M3) supplies
+            //    1..N format slots; ball-creation strategy ids stay server-owned
+            //    — the client only submits formatId / teams / allowance.
             const { roundType, route } = this.buildRoute();
             const draft = {
                 courseId: this.courseId.get(),
@@ -287,7 +525,7 @@ export class SetupService {
                 roundType,
                 ...(route ? { route } : {}),
                 producers,
-                formats: [{ formatId: 'stableford_individual' }],
+                formats: this.buildFormats(roster),
             };
 
             // 3. POST to the no-auth front door.
