@@ -220,6 +220,33 @@ test('4-player scramble: scramble_team/by_rank [25,20,15,10]', async () => {
     expect(balls[0]!.courseHandicap).toBe(10);
 });
 
+test('individual subset: match play between 2 of a 3-player roster (covered by stableford)', async () => {
+    const ctx = await setup();
+    // 3 players; the match is only p1 vs p2 (producerDefIds), while a stableford
+    // over everyone keeps the 3rd player's own-ball consumed (no orphan ball).
+    const draft = await draftFor(
+        ctx,
+        [{ name: 'Ann', index: 8 }, { name: 'Bo', index: 14 }, { name: 'Cy', index: 20 }],
+        [
+            { formatId: 'stableford_individual' },
+            { formatId: 'match_play_individual', producerDefIds: ['p1', 'p2'] },
+        ],
+    );
+    const { round } = await createFriendly(ctx, draft);
+
+    const def = (await ctx.roundService.latestDefinition(round.id))!.definition;
+    // One coalesced own-ball strategy feeds both slots.
+    expect(def.ballStrategies).toHaveLength(1);
+    const match = def.slots.find((s) => s.formatId === 'match_play_individual')!;
+    const stab = def.slots.find((s) => s.formatId === 'stableford_individual')!;
+    // The match slot narrows to the 2 chosen producers; stableford covers all 3.
+    expect(match.ballSelector?.producerDefIds).toEqual(['p1', 'p2']);
+    expect(stab.ballSelector?.producerDefIds).toBeUndefined();
+
+    const rr = await ctx.leaderboardService.resultForRound(round.id);
+    expect(rr.slots).toHaveLength(2);
+});
+
 test('per-slot split allowance band config persists on the slot', async () => {
     const ctx = await setup();
     const draft = await draftFor(ctx, [{ name: 'Ann', index: 8 }, { name: 'Bo', index: 14 }], [

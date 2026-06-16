@@ -81,6 +81,11 @@ const fslotTpl = template(`
             <div bind="teamRows" class="fslot__teamrows"></div>
         </div>
 
+        <div bind="includeWrap" class="fslot__group">
+            <span class="fslot__label">Players</span>
+            <div bind="includeRows" class="fslot__teamrows"></div>
+        </div>
+
         <div class="fslot__group">
             <span class="fslot__label">Allowance</span>
             <div class="fslot__seg">
@@ -104,6 +109,13 @@ const teamRowTpl = template(`
     <label class="trow">
         <span bind="name" class="trow__name"></span>
         <select bind="team" class="trow__team"></select>
+    </label>
+`);
+
+const includeRowTpl = template(`
+    <label class="irow">
+        <input bind="chk" type="checkbox" class="irow__chk" />
+        <span bind="name" class="irow__name"></span>
     </label>
 `);
 
@@ -234,6 +246,12 @@ export class CreateComponent extends Component {
                     display: flex; align-items: center; justify-content: space-between; gap: ${s('sm')};
                     & .trow__name { font-size: 0.9rem; }
                     & .trow__team { width: 90px; flex-shrink: 0; padding: ${s('sm')}; font-size: 0.95rem; ${input()} }
+                }
+
+                & .irow {
+                    display: flex; align-items: center; gap: ${s('sm')};
+                    font-size: 0.9rem; cursor: pointer;
+                    & .irow__chk { width: 18px; height: 18px; flex-shrink: 0; accent-color: ${t('primary')}; }
                 }
 
                 & .fslot__seg {
@@ -449,6 +467,8 @@ export class CreateComponent extends Component {
                     textContent: () => this.svc.catalog.byId(formatId())?.description ?? '',
                 },
                 teamsWrap: { hidden: () => !this.svc.catalog.needsTeams(formatId()) },
+                // Individual formats get a subset picker instead of a team editor.
+                includeWrap: { hidden: () => this.svc.catalog.needsTeams(formatId()) },
                 flatBtn: {
                     className: () => (mode() === 'flat' ? 'on' : ''),
                     onclick: () => this.svc.patchFormatSlot(key, { allowanceMode: 'flat' }),
@@ -483,6 +503,15 @@ export class CreateComponent extends Component {
             track,
             () => this.svc.players.get(),
             (p, _i, rowTrack) => this.teamRow(key, p.key, rowTrack),
+            (p) => p.key,
+        );
+
+        // Per-player subset picker (individual formats only).
+        this.eachInto(
+            this.ref(el, 'includeRows'),
+            track,
+            () => this.svc.players.get(),
+            (p, _i, rowTrack) => this.includeRow(key, p.key, rowTrack),
             (p) => p.key,
         );
 
@@ -529,6 +558,30 @@ export class CreateComponent extends Component {
                             Number((e.target as HTMLSelectElement).value),
                         ),
                 },
+            },
+            track,
+        );
+    }
+
+    private includeRow(
+        slotKey: number,
+        playerKey: number,
+        track: (d: () => void) => void,
+    ): HTMLElement {
+        const player = () => this.svc.players.get().find((p) => p.key === playerKey) ?? null;
+        return this.wireEl(
+            includeRowTpl,
+            {
+                chk: {
+                    checked: () => this.svc.isPlayerIncluded(slotKey, playerKey),
+                    onchange: (e: Event) =>
+                        this.svc.setPlayerIncluded(
+                            slotKey,
+                            playerKey,
+                            (e.target as HTMLInputElement).checked,
+                        ),
+                },
+                name: { textContent: () => player()?.name?.trim() || 'Player' },
             },
             track,
         );

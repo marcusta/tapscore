@@ -28,6 +28,9 @@ export interface FormatSlotForm {
     bands: { key: number; pct: string; upToCh: string }[];
     /** Player `key` → team letter index (0=A…). Only used for team formats. */
     teamByPlayer: Record<number, number>;
+    /** Player `key` → included? Only used for individual formats; a missing key
+     * means included. Lets match play pick its 2, köpenhamnare/umbrella their 3. */
+    includeByPlayer: Record<number, boolean>;
 }
 
 /** One element of the draft's `formats[]` array. */
@@ -187,6 +190,7 @@ export class SetupService {
                 { key: this.nextBandKey++, pct: '75', upToCh: '' },
             ],
             teamByPlayer: {},
+            includeByPlayer: {},
         };
         if (this.catalog.needsTeams(id)) slot.teamByPlayer = this.autoAssign(id);
         this.formatSlots.set([...this.formatSlots.get(), slot]);
@@ -268,6 +272,19 @@ export class SetupService {
             out[p.key] = Math.min(Math.floor(i / size), Math.max(0, buckets - 1));
         });
         return out;
+    }
+
+    /** Whether a player is in an individual format's subset (default: yes). */
+    isPlayerIncluded(slotKey: number, playerKey: number): boolean {
+        return this.slotByKey(slotKey)?.includeByPlayer[playerKey] !== false;
+    }
+
+    setPlayerIncluded(slotKey: number, playerKey: number, included: boolean): void {
+        const slot = this.slotByKey(slotKey);
+        if (!slot) return;
+        this.patchFormatSlot(slotKey, {
+            includeByPlayer: { ...slot.includeByPlayer, [playerKey]: included },
+        });
     }
 
     /** Assign a player to a team bucket; a negative index clears the assignment. */
@@ -402,6 +419,15 @@ export class SetupService {
             };
             if (this.catalog.needsTeams(slot.formatId)) {
                 entry.teams = this.buildTeams(slot, roster, defIdByKey);
+            } else {
+                // Individual format: include the whole roster by default; emit an
+                // explicit subset only when the user has deselected someone (match
+                // play → 2, köpenhamnare/umbrella → 3). All-included omits the
+                // selector so the slot covers every producer.
+                const included = roster.filter((p) => slot.includeByPlayer[p.key] !== false);
+                if (included.length < roster.length) {
+                    entry.producerDefIds = included.map((p) => defIdByKey.get(p.key)!);
+                }
             }
             return entry;
         });
@@ -491,6 +517,29 @@ export class SetupService {
         });
         if (localDiags.length > 0) {
             this.diagnostics.set(localDiags);
+            return { ok: false };
+        }
+
+        // Orphan guard: every player must be in at least one format. A player in
+        // no slot would still get an own-ball that no slot consumes, which the
+        // engine rejects at scoring time — catch it here with a friendly message
+        // instead. (A player covered by any one format is fine.)
+        const covered = new Set<number>();
+        for (const slot of this.formatSlots.get()) {
+            const teamFormat = this.catalog.needsTeams(slot.formatId);
+            for (const p of roster) {
+                const inSlot = teamFormat
+                    ? slot.teamByPlayer[p.key] !== undefined
+                    : slot.includeByPlayer[p.key] !== false;
+                if (inSlot) covered.add(p.key);
+            }
+        }
+        const orphans = roster.filter((p) => !covered.has(p.key));
+        if (orphans.length > 0) {
+            const who = orphans.map((p) => p.name.trim() || 'A player').join(', ');
+            this.submitError.set(
+                `${who} ${orphans.length > 1 ? 'are' : 'is'} not in any format. Add them to a format or remove the player.`,
+            );
             return { ok: false };
         }
 
