@@ -247,6 +247,39 @@ test('individual subset: match play between 2 of a 3-player roster (covered by s
     expect(rr.slots).toHaveLength(2);
 });
 
+test('unused player is tolerated: results score the formats and ignore the spare ball', async () => {
+    const ctx = await setup();
+    // Match play between p1 and p2 is the ONLY format; p3 is on the roster but
+    // in no format. The engine must NOT crash — it scores the match and simply
+    // ignores p3's unused own-ball (a player can sit out every format).
+    const draft = await draftFor(
+        ctx,
+        [{ name: 'Ann', index: 8 }, { name: 'Bo', index: 14 }, { name: 'Cy', index: 20 }],
+        [{ formatId: 'match_play_individual', producerDefIds: ['p1', 'p2'] }],
+    );
+    const { round } = await createFriendly(ctx, draft);
+
+    // Score a few holes so the match has something to compute.
+    const balls = await ctx.roundService.ballsForRound(round.id);
+    const inMatch = balls.filter((b) =>
+        b.players.some((p) => p.displayName === 'Ann' || p.displayName === 'Bo'),
+    );
+    const occ = round.playHoles.map((p) => p.id);
+    for (const b of inMatch) {
+        for (let i = 0; i < occ.length; i++) {
+            await ctx.scoreEventService.append({
+                roundId: round.id, ballId: b.id, playHoleId: occ[i]!,
+                strokes: 4, eventType: 'score_entered', clientEventId: `${b.id}-${i}`,
+            });
+        }
+    }
+
+    // Must not throw on the orphaned (unused) ball.
+    const rr = await ctx.leaderboardService.resultForRound(round.id);
+    expect(rr.slots).toHaveLength(1);
+    expect(rr.slots[0]!.formatId).toBe('match_play_individual');
+});
+
 test('per-slot split allowance band config persists on the slot', async () => {
     const ctx = await setup();
     const draft = await draftFor(ctx, [{ name: 'Ann', index: 8 }, { name: 'Bo', index: 14 }], [

@@ -45,6 +45,7 @@ const tpl = template(`
             <h2>Formats</h2>
             <p class="setup__hint">One or more scoring formats. Teams and allowance are set per format.</p>
             <div bind="formats" class="setup__fslots"></div>
+            <p bind="formatNote" class="setup__note"></p>
             <button bind="addFormat" class="setup__add" type="button">+ Add format</button>
         </section>
 
@@ -157,6 +158,11 @@ export class CreateComponent extends Component {
             }
 
             & .setup__hint { margin: 0 0 ${s('md')}; color: ${t('text-muted')}; font-size: 0.82rem; }
+
+            & .setup__note {
+                margin: ${s('sm')} 0 0; font-size: 0.82rem; color: ${t('text-muted')};
+                &:empty { display: none; }
+            }
 
             /* SelectComponent hosts: the framework styles the trigger, so the
                host just controls width/font. The wrapper fills the host (it is
@@ -317,6 +323,14 @@ export class CreateComponent extends Component {
             back: { onclick: () => this.router.navigate('/') },
             addPlayer: { onclick: () => this.svc.addPlayer() },
             addFormat: { onclick: () => this.svc.addFormatSlot() },
+            formatNote: {
+                textContent: () => {
+                    const out = this.svc.playersInNoFormat();
+                    if (out.length === 0) return '';
+                    const who = out.map((p) => p.name.trim() || 'A player').join(', ');
+                    return `Heads up: ${who} ${out.length > 1 ? "aren't" : "isn't"} in any format yet — they won't be scored.`;
+                },
+            },
             banner: {
                 textContent: () => {
                     const msgs = [

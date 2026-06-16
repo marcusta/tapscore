@@ -368,6 +368,27 @@ export class SetupService {
             .filter((d) => d.path?.startsWith(`producers[${index}]`));
     }
 
+    /**
+     * Players on the roster who are in no format yet. The engine tolerates this
+     * (they simply aren't scored), so it's a gentle non-blocking hint — surfaced
+     * to catch the easy mistake of forgetting to add someone to a format, never
+     * to prevent submit.
+     */
+    playersInNoFormat(): PlayerForm[] {
+        const roster = this.players.get();
+        const covered = new Set<number>();
+        for (const slot of this.formatSlots.get()) {
+            const teamFormat = this.catalog.needsTeams(slot.formatId);
+            for (const p of roster) {
+                const inSlot = teamFormat
+                    ? slot.teamByPlayer[p.key] !== undefined
+                    : slot.includeByPlayer[p.key] !== false;
+                if (inSlot) covered.add(p.key);
+            }
+        }
+        return roster.filter((p) => !covered.has(p.key));
+    }
+
     /** Diagnostics whose path targets `formats[i]`, for inline slot display. */
     diagnosticsForFormat(index: number): CompilerDiagnostic[] {
         return this.diagnostics.get().filter((d) => d.path?.startsWith(`formats[${index}]`));
@@ -517,29 +538,6 @@ export class SetupService {
         });
         if (localDiags.length > 0) {
             this.diagnostics.set(localDiags);
-            return { ok: false };
-        }
-
-        // Orphan guard: every player must be in at least one format. A player in
-        // no slot would still get an own-ball that no slot consumes, which the
-        // engine rejects at scoring time — catch it here with a friendly message
-        // instead. (A player covered by any one format is fine.)
-        const covered = new Set<number>();
-        for (const slot of this.formatSlots.get()) {
-            const teamFormat = this.catalog.needsTeams(slot.formatId);
-            for (const p of roster) {
-                const inSlot = teamFormat
-                    ? slot.teamByPlayer[p.key] !== undefined
-                    : slot.includeByPlayer[p.key] !== false;
-                if (inSlot) covered.add(p.key);
-            }
-        }
-        const orphans = roster.filter((p) => !covered.has(p.key));
-        if (orphans.length > 0) {
-            const who = orphans.map((p) => p.name.trim() || 'A player').join(', ');
-            this.submitError.set(
-                `${who} ${orphans.length > 1 ? 'are' : 'is'} not in any format. Add them to a format or remove the player.`,
-            );
             return { ok: false };
         }
 

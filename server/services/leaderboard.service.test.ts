@@ -397,10 +397,11 @@ test('multi-slot round routes each producer to the slot whose selector lists the
     expect(rr.slots.find((s) => s.slotIndex === 1)!.cards.some((c) => c.subjectBallIds.includes(ballA))).toBe(false);
 });
 
-test('ball not assigned to any slot (slot_balls missing) throws', async () => {
-    // Compiler-drift check: the compiler always stamps slot_balls for every
-    // ball it emits; we manually delete one row to simulate drift and verify
-    // the leaderboard surfaces it instead of silently dropping the ball.
+test('ball not assigned to any slot is tolerated (unscored), not thrown', async () => {
+    // A ball no slot consumes is simply UNSCORED — a player can be on the
+    // roster without being in any format. The engine is permissive: it scores
+    // the formats and drops the spare ball, rather than failing. (Here we delete
+    // a slot_balls row to produce an unconsumed ball.)
     const ctx = await setup18();
     const { db, leaderboardService, courseId, teeId } = ctx;
     const plA = await ctx.playerService.register({ username: 'orph-a', password: 'password123', displayName: 'Orph A' });
@@ -415,11 +416,15 @@ test('ball not assigned to any slot (slot_balls missing) throws', async () => {
         ],
     });
     const orphanBall = ballByProducerIndex[1]!;
+    const keptBall = ballByProducerIndex[0]!;
     await db.deleteFrom('slot_balls').where('ball_id', '=', orphanBall).execute();
 
-    expect(leaderboardService.resultForRound(round.id)).rejects.toThrow(
-        new RegExp(`ball ${orphanBall} in round .* is not assigned to any slot`),
-    );
+    // Resolves (no throw); the unconsumed ball appears nowhere in the result,
+    // the still-consumed ball is scored.
+    const rr = await leaderboardService.resultForRound(round.id);
+    const serialized = JSON.stringify(rr);
+    expect(serialized).toContain(keptBall);
+    expect(serialized).not.toContain(orphanBall);
 });
 
 test('slots row with a slot_def_id absent from the definition throws (drift check)', async () => {

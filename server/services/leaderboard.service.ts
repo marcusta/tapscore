@@ -145,21 +145,21 @@ export class LeaderboardService {
             .select(['sbt.slot_id', 'sbt.team_label', 'sbt.ball_id'])
             .execute();
 
-        // Every ball must land in at least one slot — otherwise the compiler
-        // (or a seed helper) drifted.
+        // A ball no slot consumes is simply UNSCORED — a player can be on the
+        // roster without being in any format (e.g. a match between 2 of 3). The
+        // engine is permissive: it scores only what the formats reference and
+        // drops the spare ball from the input, rather than failing. (It is never
+        // silently created by the canonical fixtures, so those are unaffected.)
         const ballsSeen = new Set(slotBallRows.map((r) => r.ball_id));
-        for (const b of ballRows) {
-            if (!ballsSeen.has(b.id)) {
-                throw new Error(
-                    `ball ${b.id} in round ${roundId} is not assigned to any slot (slot_balls has no row for it)`,
-                );
-            }
-        }
+        const usedBallRows = ballRows.filter((b) => ballsSeen.has(b.id));
+        const usedBallIds = new Set(usedBallRows.map((b) => b.id));
 
         const events = await this.strategyEvents(roundId);
         const formatActions = await this.formatActions(roundId);
 
-        const ballPlayers: MaterializeBallPlayer[] = ballPlayerRows.map((r) => ({
+        const ballPlayers: MaterializeBallPlayer[] = ballPlayerRows
+            .filter((r) => usedBallIds.has(r.ball_id))
+            .map((r) => ({
             ballId: r.ball_id,
             producerDefId: r.producer_def_id,
             playerId: r.player_id,
@@ -205,10 +205,10 @@ export class LeaderboardService {
             allocationCycleSize: round.routeSi.allocationCycleSize,
             playingGroups: round.playingGroups.map((g) => ({
                 startPlayHoleId: g.startPlayHoleId,
-                ballIds: g.ballIds,
+                ballIds: g.ballIds.filter((id) => usedBallIds.has(id)),
             })),
             ballPlayers,
-            balls: ballRows.map((b) => ({
+            balls: usedBallRows.map((b) => ({
                 id: b.id,
                 label: b.label,
                 courseHandicapSnapshot: b.course_handicap_snapshot,
