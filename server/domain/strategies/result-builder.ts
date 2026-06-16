@@ -257,6 +257,35 @@ function normalizedRunning(
     return out;
 }
 
+/**
+ * Per-metric normalisation offset for formats that present relative-to-last
+ * totals (köpenhamnare, umbrella — same `runningTotals: 'normalized'` gate as
+ * the running row). Subtracting `min(total)` makes the trailing player read 0
+ * and every other total their lead over them. Order is preserved (a constant
+ * shift), so ranking is unchanged. Returns null for absolute-total formats.
+ */
+function normalizationOffsets(input: BuildSlotInput): Map<string, number> | null {
+    if (!input.runningNormalized) return null;
+    const offsets = new Map<string, number>();
+    for (const metric of input.metrics) {
+        const totals = input.result.ballResults
+            .map((r) => r.totals.find((t) => t.scoringType === metric.id)?.value)
+            .filter((v): v is number => v !== null && v !== undefined);
+        if (totals.length > 0) offsets.set(metric.id, Math.min(...totals));
+    }
+    return offsets.size > 0 ? offsets : null;
+}
+
+/** Subtract the metric's normalisation offset from a total (null stays null). */
+function normalizeTotal(
+    value: number | null,
+    scoringType: string,
+    offsets: Map<string, number> | null,
+): number | null {
+    if (value === null || !offsets || !offsets.has(scoringType)) return value;
+    return value - offsets.get(scoringType)!;
+}
+
 function runningRow(cols: ResultColumn[], running: Map<string, number>): GridRow {
     return {
         label: 'Running',
@@ -403,6 +432,7 @@ function buildTeamCard(
     teamResult: BallResult,
     byBall: Map<string, BallResult>,
     running: Map<string, number> | undefined,
+    offsets: Map<string, number> | null,
 ): ScoreGridSection {
     const cols = input.columns;
     const rows: GridRow[] = [...parSiRows(cols)];
@@ -462,7 +492,10 @@ function buildTeamCard(
         ],
         rows,
         footnotes: footnotesFor(teamResult),
-        totals: teamResult.totals.map((t) => ({ label: t.scoringType, value: t.value })),
+        totals: teamResult.totals.map((t) => ({
+            label: t.scoringType,
+            value: normalizeTotal(t.value, t.scoringType, offsets),
+        })),
     };
 }
 
@@ -472,6 +505,7 @@ function buildIndividualCard(
     input: BuildSlotInput,
     r: BallResult,
     running: Map<string, number> | undefined,
+    offsets: Map<string, number> | null,
 ): ScoreGridSection {
     const cols = input.columns;
     const chBall = input.slotBalls.find((b) => b.ballId === r.ballId);
@@ -498,7 +532,10 @@ function buildIndividualCard(
         subtitleFacts: facts,
         rows,
         footnotes: footnotesFor(r),
-        totals: r.totals.map((t) => ({ label: t.scoringType, value: t.value })),
+        totals: r.totals.map((t) => ({
+            label: t.scoringType,
+            value: normalizeTotal(t.value, t.scoringType, offsets),
+        })),
     };
 }
 
@@ -522,7 +559,11 @@ function rankEntries(entries: RankedEntry[], direction: 'high' | 'low'): RankedE
     });
 }
 
-function buildLeaderboard(input: BuildSlotInput, labelToBallIds: Map<string, string[]>): LeaderboardSection[] {
+function buildLeaderboard(
+    input: BuildSlotInput,
+    labelToBallIds: Map<string, string[]>,
+    offsets: Map<string, number> | null,
+): LeaderboardSection[] {
     const out: LeaderboardSection[] = [];
 
     const ballIdsFor = (resultBallId: string): string[] => {
@@ -539,7 +580,7 @@ function buildLeaderboard(input: BuildSlotInput, labelToBallIds: Map<string, str
             if (!t) continue;
             entries.push({
                 ballIds: ballIdsFor(r.ballId),
-                total: t.value,
+                total: normalizeTotal(t.value, metric.id, offsets),
                 holesPlayed: r.holesPlayed,
                 position: 0,
             });
@@ -601,6 +642,10 @@ export function buildSlotResult(input: BuildSlotInput): SlotResultView {
         const pointBearing = input.result.ballResults.filter(hasPoints);
         if (pointBearing.length > 0) runningByBall = normalizedRunning(input.columns, pointBearing);
     }
+    // Same gate, applied to the totals: ranked + card totals read relative to the
+    // trailing player (min → 0), so the displayed total matches the running row's
+    // last cell. Null for absolute-total formats — every other format unchanged.
+    const offsets = normalizationOffsets(input);
 
     const consumed = new Set<string>();
     const cards: ScoreGridSection[] = [];
@@ -622,6 +667,7 @@ export function buildSlotResult(input: BuildSlotInput): SlotResultView {
                     teamResult,
                     byBall,
                     runningByBall?.get(teamResult.ballId),
+                    offsets,
                 ),
             );
             consumed.add(teamResult.ballId);
@@ -633,7 +679,7 @@ export function buildSlotResult(input: BuildSlotInput): SlotResultView {
     for (const r of input.result.ballResults) {
         if (consumed.has(r.ballId)) continue;
         if (r.ballId.startsWith(TEAM_PREFIX)) continue;
-        cards.push(buildIndividualCard(input, r, runningByBall?.get(r.ballId)));
+        cards.push(buildIndividualCard(input, r, runningByBall?.get(r.ballId), offsets));
     }
 
     return {
@@ -645,6 +691,6 @@ export function buildSlotResult(input: BuildSlotInput): SlotResultView {
         teamShape: input.teamShape,
         allowanceLabel: input.allowanceLabel,
         cards,
-        leaderboard: buildLeaderboard(input, labelToBallIds),
+        leaderboard: buildLeaderboard(input, labelToBallIds, offsets),
     };
 }

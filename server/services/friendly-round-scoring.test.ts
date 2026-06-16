@@ -250,3 +250,56 @@ test('appendScoreByToken carries per-hole metadata (umbrella GIR/fairway) onto t
     expect(hole.strokes).toBe(3);
     expect(hole.metadata).toMatchObject({ gir: true, fairway: true });
 });
+
+test('umbrella totals are normalized to the trailing player (min → 0, total == running last)', async () => {
+    const ctx = await setup();
+    const draft = await draftFor(
+        ctx,
+        [{ name: 'Ann', index: 9 }, { name: 'Bo', index: 9 }, { name: 'Cy', index: 9 }],
+        [{ formatId: 'umbrella_individual' }],
+    );
+    const { friendlyRound, round } = await createFriendly(ctx, draft);
+    const balls = (await ctx.friendlyRoundService.ballsByToken(friendlyRound.shareToken))!;
+    const order = round.playingGroups[0]!.playedOrder;
+    const [h1, h2] = [order[0]!.playHoleId, order[1]!.playHoleId];
+
+    const score = (ballId: string, playHoleId: string, strokes: number, gir: boolean, n: string) =>
+        ctx.friendlyRoundService.appendScoreByToken({
+            token: friendlyRound.shareToken,
+            ballId,
+            playHoleId,
+            strokes,
+            eventType: 'score_entered',
+            clientEventId: n,
+            metadata: { gir, fairway: gir },
+        });
+
+    // Hole 1 (par 4): all three birdie with GIR+fairway → everyone sweeps, equal
+    // points. Hole 2: only ball[0] scores well → it pulls ahead; balls 1 & 2 keep
+    // their hole-1 points, so the trailing RAW total is > 0 (normalization is a
+    // real subtraction, not a no-op).
+    for (const b of balls) await score(b.id, h1, 3, true, `h1-${b.id}`);
+    await score(balls[0]!.id, h2, 3, true, 'h2-lead');
+    await score(balls[1]!.id, h2, 5, false, 'h2-b');
+    await score(balls[2]!.id, h2, 5, false, 'h2-c');
+
+    const result = await ctx.friendlyRoundService.resultByToken(friendlyRound.shareToken);
+    const slot = result!.slots.find((s) => s.formatId === 'umbrella_individual')!;
+
+    const ranked = slot.leaderboard.find((s) => s.kind === 'ranked')!;
+    const totals = ranked.entries.map((e) => e.total!);
+    expect(Math.min(...totals)).toBe(0); // trailing player reads 0
+    expect(Math.max(...totals)).toBeGreaterThan(0); // leader keeps a positive lead
+
+    // Each card's displayed total equals the last cell of its (already-normalized)
+    // Running row — the regression this guards (raw total ≠ normalized running).
+    for (const card of slot.cards) {
+        const running = card.rows.find((r) => r.kind === 'running')!;
+        const lastRun = [...running.cells].reverse().find((c) => c.value !== null)?.value ?? null;
+        const total = card.totals.find((t) => t.label === 'points')?.value ?? null;
+        expect(total).toBe(lastRun);
+        // …and matches this ball's leaderboard entry.
+        const entry = ranked.entries.find((e) => e.ballIds[0] === card.subjectBallIds[0])!;
+        expect(entry.total).toBe(total);
+    }
+});
