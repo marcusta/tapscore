@@ -5,7 +5,16 @@ import { RoundViewService } from './round.service';
 import { clampIndex, stepsFromDrag } from './hole-carousel';
 import type { RoundBall } from '../api/friendly-rounds.gen';
 
-const ITEM_WIDTH = 76;
+// One score column / carousel cell is SLOT wide. The carousel is a clipped
+// window that shows exactly two cells — the previous and current hole —
+// right-aligned directly above the previous-score and current-score columns
+// (golf-serie's HoleHeaderCarousel layout). WINDOW_RADIUS cells are rendered
+// off-screen each side so a drag can slide neighbours in before the snap.
+const SLOT = 60;
+const RIGHT_PAD = 8;
+const WINDOW_RADIUS = 4;
+const OFFSETS = Array.from({ length: WINDOW_RADIUS * 2 + 1 }, (_, i) => i - WINDOW_RADIUS);
+const SNAP = 'transform 320ms cubic-bezier(0.22, 1, 0.36, 1)';
 const ORD_WORDS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
 
 const tpl = template(`
@@ -13,7 +22,9 @@ const tpl = template(`
         <div bind="groupPills" class="se__groups"></div>
 
         <div bind="viewport" class="se__carousel">
-            <div bind="track" class="se__track"></div>
+            <div class="se__clip">
+                <div bind="track" class="se__track"></div>
+            </div>
         </div>
 
         <div bind="rows" class="se__rows"></div>
@@ -46,10 +57,10 @@ const tpl = template(`
 `);
 
 const holeTpl = template(`
-    <button bind="item" class="se-hole" type="button">
+    <div bind="item" class="se-hole">
         <span bind="hnum" class="se-hole__num"></span>
         <span bind="hpar" class="se-hole__par"></span>
-    </button>
+    </div>
 `);
 
 const rowTpl = template(`
@@ -59,8 +70,8 @@ const rowTpl = template(`
             <span bind="topar" class="se-row__topar"></span>
         </div>
         <div class="se-row__scores">
-            <span bind="prev" class="se-row__prev"></span>
-            <button bind="circle" class="se-row__circle" type="button"><span bind="cval"></span></button>
+            <span class="se-row__slot"><span bind="prev" class="se-row__prev"></span></span>
+            <span class="se-row__slot"><button bind="circle" class="se-row__circle" type="button"><span bind="cval"></span></button></span>
         </div>
     </div>
 `);
@@ -94,10 +105,11 @@ interface PointerState {
 
 /**
  * The trust-based on-course score-entry experience for `/round?token=`, ported
- * from golf-serie's custom mobile ScoreEntry: a swipeable hole-header carousel,
- * tappable per-player score circles with running to-par, and a fullscreen dark
- * keypad (par-aware labels, 10+ stepper, clear→no-result, pickup→0) that
- * auto-advances to the next unscored ball and then the next hole.
+ * from golf-serie's custom mobile ScoreEntry: a clipped swipeable hole-header
+ * carousel (previous + current hole, aligned over the score columns), tappable
+ * per-player score circles with running to-par, and a fullscreen dark keypad
+ * (par-aware labels, 10+ stepper, clear→no-result, pickup→0) that auto-advances
+ * to the next unscored ball and then the next hole.
  */
 export class ScoreEntryComponent extends Component {
     static styles = `
@@ -126,9 +138,10 @@ export class ScoreEntryComponent extends Component {
             }
         }
 
+        /* Clipped two-cell carousel right-aligned over the score columns. */
         .se__carousel {
             position: relative;
-            height: 64px;
+            height: 60px;
             overflow: hidden;
             border-radius: ${t('radius')};
             background: ${t('surface-sunken')};
@@ -136,33 +149,38 @@ export class ScoreEntryComponent extends Component {
             touch-action: pan-y;
             user-select: none;
         }
+        .se__clip {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            right: ${RIGHT_PAD}px;
+            width: ${SLOT * 2}px;
+            overflow: hidden;
+        }
         .se__track {
             position: absolute;
             top: 0;
             bottom: 0;
-            left: calc(50% - ${ITEM_WIDTH / 2}px);
+            right: ${-WINDOW_RADIUS * SLOT}px;
             display: flex;
             align-items: center;
             will-change: transform;
         }
         .se-hole {
-            flex: 0 0 ${ITEM_WIDTH}px;
-            width: ${ITEM_WIDTH}px;
+            flex: 0 0 ${SLOT}px;
+            width: ${SLOT}px;
             height: 100%;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             gap: 1px;
-            background: none;
-            border: none;
-            font-family: inherit;
-            cursor: pointer;
-            opacity: 0.45;
-            transform: scale(0.86);
+            opacity: 0.5;
+            transform: scale(0.84);
             transition: opacity 180ms ease, transform 180ms ease;
 
             &.active { opacity: 1; transform: scale(1); }
+            &.gone { opacity: 0; }
 
             & .se-hole__num {
                 font-family: ${t('font-display')};
@@ -171,7 +189,7 @@ export class ScoreEntryComponent extends Component {
                 color: ${t('text')};
             }
             & .se-hole__par {
-                font-size: 0.7rem;
+                font-size: 0.68rem;
                 color: ${t('text-muted')};
             }
         }
@@ -185,7 +203,7 @@ export class ScoreEntryComponent extends Component {
             align-items: center;
             justify-content: space-between;
             gap: ${s('md')};
-            padding: ${s('md')} ${s('xs')};
+            padding: ${s('md')} 0;
             border-bottom: 1px solid ${t('border')};
 
             & .se-row__who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -198,9 +216,9 @@ export class ScoreEntryComponent extends Component {
             }
             & .se-row__topar { font-size: 0.8rem; font-weight: 600; }
 
-            & .se-row__scores { display: flex; align-items: center; gap: ${s('md')}; flex-shrink: 0; }
+            & .se-row__scores { display: flex; align-items: center; padding-right: ${RIGHT_PAD}px; flex-shrink: 0; }
+            & .se-row__slot { width: ${SLOT}px; display: flex; align-items: center; justify-content: center; }
             & .se-row__prev {
-                width: 28px; text-align: center;
                 font-family: ${t('font-display')}; font-weight: 700; font-size: 1.05rem;
                 color: ${t('text-muted')};
                 font-variant-numeric: tabular-nums;
@@ -320,8 +338,10 @@ export class ScoreEntryComponent extends Component {
     private extendedScore = new Signal(10);
     private toastMsg = new Signal<string | null>(null);
     private dragOffset = new Signal(0);
-    private dragging = new Signal(false);
+    private transitioning = new Signal(false);
     private ptr: PointerState | null = null;
+    private pendingSteps: number | null = null;
+    private settleTimer: ReturnType<typeof setTimeout> | null = null;
     private advanceTimer: ReturnType<typeof setTimeout> | null = null;
     private flashTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -336,6 +356,10 @@ export class ScoreEntryComponent extends Component {
     private playedOrder = () => this.group()?.playedOrder ?? [];
     private holeIndex = () => clampIndex(this.holeIdx.get(), this.playedOrder().length);
     private currentHole = () => this.playedOrder()[this.holeIndex()] ?? null;
+    private occAtOffset = (offset: number) => {
+        const po = this.playedOrder();
+        return po[clampIndex(this.holeIndex() + offset, po.length)] ?? null;
+    };
     private playHoleById = (id: string) =>
         this.svc.round.get()?.playHoles.find((p) => p.id === id) ?? null;
     private ballsInGroup = (): RoundBall[] => {
@@ -404,10 +428,10 @@ export class ScoreEntryComponent extends Component {
     };
 
     render(): DocumentFragment {
-        // Clear any pending advance/flash timers when the view tears down.
         this.track(() => {
             if (this.advanceTimer) clearTimeout(this.advanceTimer);
             if (this.flashTimer) clearTimeout(this.flashTimer);
+            if (this.settleTimer) clearTimeout(this.settleTimer);
         });
         // Keep the selected ball in range as the group (and its ball count) changes.
         this.track(
@@ -456,25 +480,22 @@ export class ScoreEntryComponent extends Component {
             (_g, i) => i,
         );
 
-        // Carousel — pointer-driven hole nav + a transform effect.
+        // Carousel — windowed cells (one fixed slot per offset, content reactive)
+        // plus a pointer-driven, momentum-snapping transform.
         const viewport = this.ref(frag, 'viewport');
         const track = this.ref(frag, 'track');
-        this.bindCarouselPointer(viewport);
+        this.bindCarouselPointer(viewport, track);
         this.track(
             effect(() => {
-                const idx = this.holeIndex();
-                const drag = this.dragOffset.get();
-                track.style.transition = this.dragging.get()
-                    ? 'none'
-                    : 'transform 320ms cubic-bezier(0.22, 1, 0.36, 1)';
-                track.style.transform = `translateX(${-(idx * ITEM_WIDTH) + drag}px)`;
+                track.style.transition = this.transitioning.get() ? SNAP : 'none';
+                track.style.transform = `translateX(${this.dragOffset.get()}px)`;
             }),
         );
         this.$each(
-            this.ref(frag, 'track'),
-            new Computed(() => this.playedOrder()),
-            (occ, i, t2) => this.holeItem(occ.playHoleId, i, t2),
-            (occ) => occ.playHoleId,
+            track,
+            new Computed(() => OFFSETS),
+            (offset, _i, t2) => this.holeItem(offset, t2),
+            (offset) => offset,
         );
 
         // Main player rows for the current hole.
@@ -502,9 +523,7 @@ export class ScoreEntryComponent extends Component {
 
         // Keypad — 1..9, then 10+, clear, pickup.
         const keysHost = this.ref(frag, 'keys');
-        for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
-            keysHost.appendChild(this.numberKey(n));
-        }
+        for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9]) keysHost.appendChild(this.numberKey(n));
         keysHost.appendChild(this.specialKey('10+', '', 'se-key', () => this.openExtended()));
         keysHost.appendChild(this.specialKey('✕', 'clear', 'se-key clear', () => this.commit(null)));
         keysHost.appendChild(this.specialKey('0', 'pick up', 'se-key muted', () => this.commit(0)));
@@ -529,16 +548,19 @@ export class ScoreEntryComponent extends Component {
         return el;
     }
 
-    private holeItem(playHoleId: string, index: number, track: (d: () => void) => void): HTMLElement {
+    private holeItem(offset: number, track: (d: () => void) => void): HTMLElement {
         return this.wireEl(
             holeTpl,
             {
                 item: {
-                    className: () => (this.holeIndex() === index ? 'se-hole active' : 'se-hole'),
-                    onclick: () => this.holeIdx.set(index),
+                    className: () => {
+                        // The previous slot is empty on the first hole (nothing before it).
+                        const restingHidden = offset === -1 && this.holeIndex() <= 0;
+                        return `se-hole${offset === 0 ? ' active' : ''}${restingHidden ? ' gone' : ''}`;
+                    },
                 },
-                hnum: { textContent: this.occLabel(playHoleId) },
-                hpar: { textContent: `Par ${this.parFor(playHoleId)}` },
+                hnum: { textContent: () => { const o = this.occAtOffset(offset); return o ? this.occLabel(o.playHoleId) : ''; } },
+                hpar: { textContent: () => { const o = this.occAtOffset(offset); return o ? `Par ${this.parFor(o.playHoleId)}` : ''; } },
             },
             track,
         );
@@ -693,9 +715,41 @@ export class ScoreEntryComponent extends Component {
         }, 1100);
     }
 
-    private bindCarouselPointer(viewport: HTMLElement): void {
+    // --- Carousel pointer + momentum snap (windowed: transform is just the drag
+    // offset; on release we animate to the snapped offset, then recenter the
+    // window by changing the hole and resetting the offset to 0). ---
+
+    private snap(steps: number): void {
+        this.pendingSteps = steps;
+        this.transitioning.set(true);
+        this.dragOffset.set(-steps * SLOT);
+        if (this.settleTimer) clearTimeout(this.settleTimer);
+        this.settleTimer = setTimeout(() => this.finishSettle(), 420);
+    }
+
+    private finishSettle(): void {
+        if (this.pendingSteps === null) return;
+        const steps = this.pendingSteps;
+        this.pendingSteps = null;
+        if (this.settleTimer) {
+            clearTimeout(this.settleTimer);
+            this.settleTimer = null;
+        }
+        // Transition OFF before recentering, so changing the hole (which slides
+        // the snapped cell into the current slot) doesn't animate a jump back.
+        this.transitioning.set(false);
+        if (steps !== 0) {
+            this.holeIdx.set(clampIndex(this.holeIndex() + steps, this.playedOrder().length));
+        }
+        this.dragOffset.set(0);
+    }
+
+    private bindCarouselPointer(viewport: HTMLElement, track: HTMLElement): void {
+        track.addEventListener('transitionend', (e) => {
+            if ((e as TransitionEvent).propertyName === 'transform') this.finishSettle();
+        });
         viewport.addEventListener('pointerdown', (e: PointerEvent) => {
-            if (this.ptr || this.playedOrder().length <= 1) return;
+            if (this.ptr || this.transitioning.get() || this.playedOrder().length <= 1) return;
             this.ptr = {
                 id: e.pointerId,
                 startX: e.clientX,
@@ -717,7 +771,6 @@ export class ScoreEntryComponent extends Component {
                 if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 8) return;
                 if (Math.abs(dx) <= 8) return;
                 p.horiz = true;
-                this.dragging.set(true);
             }
             const now = Date.now();
             const elapsed = Math.max(1, now - p.lastTime);
@@ -732,22 +785,19 @@ export class ScoreEntryComponent extends Component {
             const dragDistance = e.clientX - p.startX;
             const wasHoriz = p.horiz;
             this.ptr = null;
-            this.dragging.set(false);
-            this.dragOffset.set(0);
             viewport.releasePointerCapture?.(e.pointerId);
-            if (!wasHoriz) return;
-            const steps = stepsFromDrag({ dragDistance, velocity: p.velocity, itemWidth: ITEM_WIDTH });
-            if (steps !== 0) {
-                this.holeIdx.set(clampIndex(this.holeIndex() + steps, this.playedOrder().length));
+            if (!wasHoriz) {
+                this.dragOffset.set(0);
+                return;
             }
+            this.snap(stepsFromDrag({ dragDistance, velocity: p.velocity, itemWidth: SLOT }));
         };
         viewport.addEventListener('pointerup', end);
         viewport.addEventListener('pointercancel', (e: PointerEvent) => {
             if (!this.ptr || this.ptr.id !== e.pointerId) return;
             this.ptr = null;
-            this.dragging.set(false);
-            this.dragOffset.set(0);
             viewport.releasePointerCapture?.(e.pointerId);
+            this.snap(0);
         });
     }
 }
