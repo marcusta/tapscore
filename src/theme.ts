@@ -34,6 +34,8 @@ export const t = createTokens({
     error: '#a0463c',
     'under-par': '#a0463c',
     'over-par': '#345b8a',
+    'hole-bar': '#e6a23f',
+    'hole-bar-text': '#3a2a0d',
 }, {
     ...base,
     bg: '#15231a',
@@ -56,6 +58,8 @@ export const t = createTokens({
     error: '#d48a82',
     'under-par': '#d48a82',
     'over-par': '#8db2e0',
+    'hole-bar': '#c08a35',
+    'hole-bar-text': '#160f04',
     shadow: '0 1px 2px rgba(0, 0, 0, 0.3)',
     'shadow-elevated': '0 4px 16px rgba(0, 0, 0, 0.4)',
 });

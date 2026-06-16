@@ -58,6 +58,12 @@ async function scorecardOr404(svc: FriendlyRoundService, token: string) {
     return found;
 }
 
+async function resultOr404(svc: FriendlyRoundService, token: string) {
+    const found = await svc.resultByToken(token);
+    if (found === null) throw new NotFoundError('friendly round not found');
+    return found;
+}
+
 async function scoreOr404(svc: FriendlyRoundService, input: Static<typeof ScoreInput>) {
     const res = await svc.appendScoreByToken(input);
     if (res === null) throw new NotFoundError('friendly round not found');
@@ -72,6 +78,7 @@ export function createFriendlyRoundsApi(svc: FriendlyRoundService) {
         get:       { method: 'GET'  as const, path: '/friendly-rounds/get',        fn: (input: Static<typeof ByRoundInput>)  => byRoundOr404(svc, input.roundId),       schema: ByRoundInput },
         balls:     { method: 'GET'  as const, path: '/friendly-rounds/balls',      fn: (input: Static<typeof ByTokenInput>)  => ballsOr404(svc, input.token),           schema: ByTokenInput },
         scorecard: { method: 'GET'  as const, path: '/friendly-rounds/scorecard',  fn: (input: Static<typeof ByTokenInput>)  => scorecardOr404(svc, input.token),       schema: ByTokenInput },
+        result:    { method: 'GET'  as const, path: '/friendly-rounds/result',     fn: (input: Static<typeof ByTokenInput>)  => resultOr404(svc, input.token),         schema: ByTokenInput },
         score:     { method: 'POST' as const, path: '/friendly-rounds/score',      fn: (input: Static<typeof ScoreInput>)    => scoreOr404(svc, input),                 schema: ScoreInput },
     };
 }

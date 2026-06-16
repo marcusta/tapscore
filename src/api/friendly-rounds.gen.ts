@@ -49,6 +49,12 @@ export interface Scorecard {
     holes: ScorecardHole[];
 }
 
+export interface RoundResult {
+    slots: SlotResultView[];
+    routeSections: RouteSectionRef[];
+    posting: { eligible: boolean; reason: null | string };
+}
+
 export interface AppendResult {
     event: ScoreEvent;
     inserted: boolean;
@@ -140,6 +146,25 @@ export interface ScorecardHole {
     metadata?: null | Record<string, unknown>;
 }
 
+export interface SlotResultView {
+    slotIndex: number;
+    slotDefId: string;
+    formatId: string;
+    formatLabel: string;
+    scoringMode: string;
+    teamShape: string;
+    allowanceLabel: string;
+    cards: ScoreGridSection[];
+    leaderboard: (RankedSection | MatchSummarySection)[];
+}
+
+export interface RouteSectionRef {
+    id: string;
+    label: string;
+    fromCanonicalOrdinal: number;
+    toCanonicalOrdinal: number;
+}
+
 export interface ScoreEvent {
     id: string;
     roundId: string;
@@ -169,6 +194,67 @@ export interface RoundGroupPlayedHole {
     groupRelativeOrder: number;
 }
 
+export interface ScoreGridSection {
+    kind: 'score_grid';
+    title: { groups: string[][]; joiner: string };
+    subjectBallIds: string[];
+    holes: HoleRef[];
+    subtitleFacts: string[];
+    rows: GridRow[];
+    footnotes: string[];
+    totals: ({ label: string; value: null | number })[];
+}
+
+export interface RankedSection {
+    kind: 'ranked';
+    metricId: string;
+    metricLabel: string;
+    entries: RankedEntry[];
+}
+
+export interface MatchSummarySection {
+    kind: 'match_summary';
+    title: string;
+    lines: MatchLine[];
+}
+
+export interface HoleRef {
+    holeNumber: number;
+    playHoleId: string;
+    courseHoleNumber: number;
+    canonicalOrdinal: number;
+    occurrenceLabel: string;
+}
+
+export interface GridRow {
+    label: string;
+    subjectBallId?: string;
+    kind: 'par' | 'si' | 'given' | 'gross' | 'net' | 'points' | 'running' | 'status' | 'category' | 'free';
+    cells: GridCell[];
+    aggregate: 'sum' | 'last' | 'none';
+    emphasis?: boolean;
+}
+
+export interface RankedEntry {
+    ballIds: string[];
+    total: null | number;
+    holesPlayed: number;
+    position: number;
+}
+
+export interface MatchLine {
+    segments: ({ text: string } | { ballIds: string[] })[];
+    result: 'won' | 'lost' | 'halved' | 'in_progress';
+}
+
+export interface GridCell {
+    playHoleId: string;
+    holeNumber: number;
+    value: null | number;
+    display?: string;
+    title?: string;
+}
+
 export interface FriendlyRoundsApi {
     list(): Promise<{ friendlyRound: FriendlyRound; round: Round }[]>;
     create(input: { draft: { route?: { playHoles?: { id?: string; parOverride?: number; baseStrokeIndexOverride?: number; teeOverrides?: { lengthM?: number; strokeIndexOverride?: number; teeId: string }[]; courseHoleNumber: number }[]; routeSi?: { sourceLabel?: string; sourceVersion?: string; allocationCycleSize?: number; mode: 'official' | 'difficulty' | 'custom' }; routeHandicapPolicy?: { postingIneligibleReason?: string; type: 'official_route' | 'full_course_casual' | 'prorated_casual' | 'explicit'; postingEligible: boolean }; routeSections?: { id: string; label: string; fromCanonicalOrdinal: number; toCanonicalOrdinal: number }[]; templateId?: string; playingGroups?: { id?: string; startPlayHoleDefId?: string; startOrdinal?: number; hittingBay?: string; startTime: string; capacity: number; producerDefIds: string[] }[] }; roundType?: 'full_18' | 'front_9' | 'back_9' | 'custom_holes'; venueType?: 'outdoor' | 'indoor'; courseId: string; playedAt: string; producers: ({ gender?: 'M' | 'F'; category?: string; teeId: string; handicapIndex: number; producerDefId: string; playerRef: { id: string; kind: 'player' | 'guest' } })[]; formats: ({ producerDefIds?: string[]; allowanceConfig?: { type: 'flat'; pct: number } | { type: 'split'; bands: ({ pct: number; upToCh: null | number })[] }; teams?: { label: string; producerDefIds: string[] }[]; formatConfig?: unknown; formatId: string })[] } }): Promise<{ ok: true; round: Round; friendlyRound: FriendlyRound } | { ok: false; diagnostics: CompilerDiagnostic[] }>;
@@ -176,6 +262,7 @@ export interface FriendlyRoundsApi {
     get(input: { roundId: string }): Promise<FriendlyRound>;
     balls(input: { token: string }): Promise<RoundBall[]>;
     scorecard(input: { token: string }): Promise<Scorecard[]>;
+    result(input: { token: string }): Promise<RoundResult>;
     score(input: { sourcePlayerId?: null | string; sourceGuestPlayerId?: null | string; metadata?: null | { [x: string]: unknown; }; token: string; ballId: string; playHoleId: string; strokes: null | number; eventType: 'score_entered' | 'score_cleared' | 'score_confirmed' | 'manual_override'; clientEventId: string }): Promise<AppendResult>;
 }
 
@@ -214,6 +301,13 @@ export function createFriendlyRoundsClient(baseUrl: string): FriendlyRoundsApi {
                 if (v !== undefined) params.set(k, String(v));
             const qs = params.toString();
             return apiFetch({ method: 'GET', url: `${baseUrl}/friendly-rounds/scorecard${qs ? '?' + qs : ''}` });
+        },
+        async result(input) {
+            const params = new URLSearchParams();
+            for (const [k, v] of Object.entries(input as any))
+                if (v !== undefined) params.set(k, String(v));
+            const qs = params.toString();
+            return apiFetch({ method: 'GET', url: `${baseUrl}/friendly-rounds/result${qs ? '?' + qs : ''}` });
         },
         async score(input) {
             return apiFetch({ method: 'POST', url: `${baseUrl}/friendly-rounds/score`, body: input });

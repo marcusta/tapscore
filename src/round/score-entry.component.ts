@@ -1,7 +1,7 @@
 import { Component, Computed, Signal, effect, template } from '@basics/core/client/core';
 import { t } from '../theme';
 import { s } from '../css';
-import { RoundViewService } from './round.service';
+import { RoundViewService, ballDisplayName } from './round.service';
 import { clampIndex, stepsFromDrag } from './hole-carousel';
 import type { RoundBall } from '../api/friendly-rounds.gen';
 
@@ -15,7 +15,6 @@ const RIGHT_PAD = 8;
 const WINDOW_RADIUS = 4;
 const OFFSETS = Array.from({ length: WINDOW_RADIUS * 2 + 1 }, (_, i) => i - WINDOW_RADIUS);
 const SNAP = 'transform 320ms cubic-bezier(0.22, 1, 0.36, 1)';
-const ORD_WORDS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
 
 const tpl = template(`
     <div bind="root" class="se hidden">
@@ -330,8 +329,10 @@ export class ScoreEntryComponent extends Component {
 
     private svc = this.inject(RoundViewService);
 
-    private holeIdx = new Signal(0);
-    private groupIdx = new Signal(0);
+    // Hole/group navigation lives in RoundViewService so the orange hole-info
+    // bar (rendered by RoundComponent) and this carousel stay in lock-step.
+    private holeIdx = this.svc.holeIdx;
+    private groupIdx = this.svc.groupIdx;
     private modalOpen = new Signal(false);
     private currentBallIdx = new Signal(0);
     private extendedOpen = new Signal(false);
@@ -347,21 +348,16 @@ export class ScoreEntryComponent extends Component {
 
     private hasScoring = new Computed(() => this.svc.balls.get().length > 0);
 
-    // --- Itinerary navigation (tracked reads) ---
-    private groups = () => this.svc.round.get()?.playingGroups ?? [];
-    private group = () => {
-        const gs = this.groups();
-        return gs[this.groupIdx.get()] ?? gs[0] ?? null;
-    };
-    private playedOrder = () => this.group()?.playedOrder ?? [];
-    private holeIndex = () => clampIndex(this.holeIdx.get(), this.playedOrder().length);
-    private currentHole = () => this.playedOrder()[this.holeIndex()] ?? null;
+    // --- Itinerary navigation — delegates to the shared RoundViewService state
+    // (tracked reads) so the carousel and the orange hole bar move together. ---
+    private group = () => this.svc.group();
+    private playedOrder = () => this.svc.playedOrder();
+    private holeIndex = () => this.svc.holeIndex();
+    private currentHole = () => this.svc.currentPlayedHole();
     private occAtOffset = (offset: number) => {
         const po = this.playedOrder();
         return po[clampIndex(this.holeIndex() + offset, po.length)] ?? null;
     };
-    private playHoleById = (id: string) =>
-        this.svc.round.get()?.playHoles.find((p) => p.id === id) ?? null;
     private ballsInGroup = (): RoundBall[] => {
         const g = this.group();
         if (!g) return [];
@@ -369,24 +365,9 @@ export class ScoreEntryComponent extends Component {
         return g.ballIds.map((id) => byId.get(id)).filter((b): b is RoundBall => !!b);
     };
 
-    private parFor = (playHoleId: string | null) =>
-        (playHoleId ? this.playHoleById(playHoleId)?.par : null) ?? 4;
-
-    /** "7" or "7 (1st)" when a physical hole is played more than once. */
-    private occLabel = (playHoleId: string): string => {
-        const r = this.svc.round.get();
-        const ph = r?.playHoles.find((p) => p.id === playHoleId);
-        if (!r || !ph) return '';
-        const same = r.playHoles
-            .filter((p) => p.courseHoleNumber === ph.courseHoleNumber)
-            .sort((a, b) => a.ordinal - b.ordinal);
-        if (same.length === 1) return `${ph.courseHoleNumber}`;
-        const idx = same.findIndex((p) => p.id === playHoleId);
-        return `${ph.courseHoleNumber} (${ORD_WORDS[idx] ?? `${idx + 1}th`})`;
-    };
-
-    private ballName = (b: RoundBall) =>
-        b.players.map((p) => p.displayName).join(' & ') || b.label || 'Ball';
+    private parFor = (playHoleId: string | null) => this.svc.parFor(playHoleId);
+    private occLabel = (playHoleId: string): string => this.svc.occLabel(playHoleId);
+    private ballName = (b: RoundBall) => ballDisplayName(b);
 
     /** Strokes display: no-result → "–", pickup(0) → "0", else the count. */
     private displayScore = (strokes: number | null): string =>
@@ -470,12 +451,12 @@ export class ScoreEntryComponent extends Component {
         const pillsHost = this.ref(frag, 'groupPills');
         this.track(
             effect(() => {
-                pillsHost.className = this.groups().length > 1 ? 'se__groups' : 'se__groups hidden';
+                pillsHost.className = this.svc.groups().length > 1 ? 'se__groups' : 'se__groups hidden';
             }),
         );
         this.$each(
             pillsHost,
-            new Computed(() => (this.groups().length > 1 ? this.groups() : [])),
+            new Computed(() => (this.svc.groups().length > 1 ? this.svc.groups() : [])),
             (_g, i, track) => this.groupPill(i, track),
             (_g, i) => i,
         );

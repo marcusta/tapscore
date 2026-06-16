@@ -9,6 +9,8 @@ import type {
     ScoreEventService,
 } from './score-event.service';
 import type { Scorecard, ScorecardService } from './scorecard.service';
+import type { LeaderboardService } from './leaderboard.service';
+import type { RoundResult } from '../domain/strategies/result-sections';
 
 // --- Output types ---
 
@@ -73,6 +75,7 @@ export class FriendlyRoundService {
         private rounds: RoundService,
         private scoreEvents: ScoreEventService,
         private scorecards: ScorecardService,
+        private leaderboards: LeaderboardService,
     ) {}
 
     async create(draft: RoundSetupDraft): Promise<CreateFriendlyRoundResult> {
@@ -174,6 +177,18 @@ export class FriendlyRoundService {
         const roundId = await this.roundIdForToken(token);
         if (roundId === null) return null;
         return this.scorecards.forRound(roundId);
+    }
+
+    /**
+     * The canonical, section-driven `RoundResult` for the token's round — the
+     * same value `LeaderboardService.resultForRound` produces (the no-login
+     * mobile leaderboard reads through this). The token only resolves which
+     * round to read; it never reshapes the result.
+     */
+    async resultByToken(token: string): Promise<RoundResult | null> {
+        const roundId = await this.roundIdForToken(token);
+        if (roundId === null) return null;
+        return this.leaderboards.resultForRound(roundId);
     }
 
     /**

@@ -171,3 +171,40 @@ test('a token cannot write a score onto a ball from a different round', async ()
         }),
     ).rejects.toThrow();
 });
+
+test('resultByToken returns the canonical RoundResult for the token round', async () => {
+    const ctx = await setup();
+    const draft = await draftFor(
+        ctx,
+        [{ name: 'Ann', index: 9 }, { name: 'Bo', index: 18 }],
+        [{ formatId: 'stableford_individual' }],
+    );
+    const { friendlyRound, round } = await createFriendly(ctx, draft);
+
+    // Score Ann's ball par on the first occurrence so the result is non-empty.
+    const balls = (await ctx.friendlyRoundService.ballsByToken(friendlyRound.shareToken))!;
+    const annBall = balls.find((b) => b.players.some((p) => p.displayName === 'Ann'))!;
+    const firstHole = round.playingGroups[0]!.playedOrder[0]!;
+    await ctx.friendlyRoundService.appendScoreByToken({
+        token: friendlyRound.shareToken,
+        ballId: annBall.id,
+        playHoleId: firstHole.playHoleId,
+        strokes: 4,
+        eventType: 'score_entered',
+        clientEventId: 'res-1',
+    });
+
+    const result = await ctx.friendlyRoundService.resultByToken(friendlyRound.shareToken);
+    expect(result).not.toBeNull();
+    // Identical to going through the round id directly — the token only resolves
+    // which round to read; it never reshapes the canonical result.
+    const direct = await ctx.leaderboardService.resultForRound(round.id);
+    expect(result).toEqual(direct);
+    expect(result!.slots.length).toBe(1);
+    expect(result!.slots[0]!.formatId).toBe('stableford_individual');
+});
+
+test('resultByToken returns null for an unknown token', async () => {
+    const ctx = await setup();
+    expect(await ctx.friendlyRoundService.resultByToken('no-such-token')).toBeNull();
+});

@@ -125,6 +125,7 @@ export function createServices(db: Kysely<Database>) {
         roundService,
         scoreEventService,
         scorecardService,
+        leaderboardService,
     );
     return {
         db,
