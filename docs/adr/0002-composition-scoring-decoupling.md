@@ -1,6 +1,10 @@
 # Ball composition is decoupled from scoring
 
-Status: **accepted, not yet implemented** (design — Phase 2.6e dogfood, 2026-06-17).
+Status: **implemented** (Phase 2.6e dogfood, 2026-06-17). MVP = scramble/
+greensomes/foursomes × {match, stableford, stroke}. One design change during
+build: team balls keep the **first-producer SI** convention already shared with
+foursomes/greensomes (not course SI) — changing it would have altered those
+formats' existing scoring; revisit if a true team-SI rule is wanted.
 
 ## Context
 
