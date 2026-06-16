@@ -11,6 +11,7 @@ export interface FormatDescriptor {
     defaults: { allowanceConfig: { type: 'flat'; pct: number } | { type: 'split'; bands: ({ pct: number; upToCh: null | number })[] } };
     metrics: FormatMetric[];
     resultDisplay?: { runningTotals?: 'normalized' };
+    scoresAnyBall?: boolean;
     clientAdapterId: null | string;
 }
 

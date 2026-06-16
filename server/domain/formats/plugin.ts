@@ -145,6 +145,15 @@ export interface FormatDescriptor {
      * normalised so the trailing subject reads 0 (köpenhamnare, umbrella).
      */
     resultDisplay?: { runningTotals?: 'normalized' };
+    /**
+     * When true, this scoring format can score balls of ANY composition — its
+     * own own-balls OR a team-composition's balls (scramble/greensomes/foursomes)
+     * selected via `ballsFrom` (ADR-0002). The compiler then skips the own/team
+     * producer-count + ball-mode checks for the slot. Per-ball scoring formats
+     * (stroke/match/stableford) opt in; per-player category games
+     * (umbrella/köpenhamnare) do NOT — they are meaningless on one team ball.
+     */
+    scoresAnyBall?: boolean;
     /** Non-null id ⇒ this format declares a mobile client adapter. */
     clientAdapterId: string | null;
 }

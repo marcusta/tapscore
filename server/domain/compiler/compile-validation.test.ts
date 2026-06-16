@@ -230,29 +230,41 @@ describe('compiler validation — selector references', () => {
 // --- Ball mode --------------------------------------------------------------
 
 describe('compiler validation — ball mode', () => {
-    test('own-ball format fed a team ball → ball_mode_violation', () => {
-        const def: RoundDefinition = {
-            courseId: 'c1',
-            playedAt: '2026-01-01',
-            producers: producers(['p1', 'p2']),
-            ballStrategies: [
-                {
-                    id: 'pairs',
-                    strategyId: 'alt_shot_pair',
-                    derivationConfig: { type: 'avg' },
-                    composition: { teams: [{ label: 'A', producerDefIds: ['p1', 'p2'] }] },
-                },
-            ],
-            slots: [
-                {
-                    id: 'slot-1',
-                    formatId: 'stableford_individual',
-                    allowanceConfig: { type: 'flat', pct: 100 },
-                    ballSelector: { strategyDefIds: ['pairs'] },
-                },
-            ],
-        };
-        expect(diags(def, ['p1', 'p2'])).toContain('ball_mode_violation');
+    const teamBallDef = (formatId: string): RoundDefinition => ({
+        courseId: 'c1',
+        playedAt: '2026-01-01',
+        producers: producers(['p1', 'p2']),
+        ballStrategies: [
+            {
+                id: 'pairs',
+                strategyId: 'alt_shot_pair',
+                derivationConfig: { type: 'avg' },
+                composition: { teams: [{ label: 'A', producerDefIds: ['p1', 'p2'] }] },
+            },
+        ],
+        slots: [
+            {
+                id: 'slot-1',
+                formatId,
+                allowanceConfig: { type: 'flat', pct: 100 },
+                ballSelector: { strategyDefIds: ['pairs'] },
+            },
+        ],
+    });
+
+    test('own-ball format (no scoresAnyBall) fed a team ball → ball_mode_violation', () => {
+        // umbrella is own-ball and does NOT opt into scoresAnyBall.
+        expect(diags(teamBallDef('umbrella_individual'), ['p1', 'p2'])).toContain('ball_mode_violation');
+    });
+
+    test('a scoresAnyBall format may score a team ball — compiles, no ball_mode_violation (ADR-0002)', () => {
+        // stableford opts into scoresAnyBall, so a team-composition ball is
+        // allowed — the round now COMPILES rather than failing the ball-mode gate.
+        const res = compile(mkInput(teamBallDef('stableford_individual'), ['p1', 'p2']));
+        const codes = res.ok ? [] : res.diagnostics.map((d) => d.code);
+        expect(codes).not.toContain('ball_mode_violation');
+        expect(codes).not.toContain('producer_count_violation');
+        expect(res.ok).toBe(true);
     });
 });
 

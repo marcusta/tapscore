@@ -24,8 +24,7 @@ import {
     holeIdentity,
     latestScoresByPlayHole,
     normalizeMatchPlayPHs,
-    resolveSingleProducer,
-    strokesGivenMapForProducer,
+    strokesGivenForBallPH,
 } from './_shared';
 import type { RoundContext, StrategyEvent } from '../types';
 
@@ -99,14 +98,14 @@ function computePair(
     roundContext: RoundContext,
     events: StrategyEvent[],
 ): { pair: PairBallResult; resultA: BallResult; resultB: BallResult } {
-    const pA = resolveSingleProducer(ballA);
-    const pB = resolveSingleProducer(ballB);
     const [effA, effB] = normalizeMatchPlayPHs([
         ballA.playingHandicapSnapshot,
         ballB.playingHandicapSnapshot,
     ]);
-    const givenA = strokesGivenMapForProducer(pA.producerDefId, effA, roundContext);
-    const givenB = strokesGivenMapForProducer(pB.producerDefId, effB, roundContext);
+    // Ball-based (not per-producer) so a team-composition ball scores too
+    // (ADR-0002); own-balls are unchanged (first-producer SI either way).
+    const givenA = strokesGivenForBallPH(ballA, effA, roundContext);
+    const givenB = strokesGivenForBallPH(ballB, effB, roundContext);
     const scoresA = latestScoresByPlayHole(events, ballA.ballId);
     const scoresB = latestScoresByPlayHole(events, ballB.ballId);
 

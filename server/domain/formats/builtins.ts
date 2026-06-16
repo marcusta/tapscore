@@ -101,6 +101,8 @@ interface BuiltinMeta {
      * so the generic builder/compiler never branches on a format id (ADR-0001).
      */
     ballPlan?: (input: FormatSetupInput) => BallPlanSpec;
+    /** Opt in to scoring any ball composition (own or team) — ADR-0002. */
+    scoresAnyBall?: boolean;
 }
 
 /** Standard scramble by-rank allowance percentages, indexed by team size. */
@@ -130,6 +132,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'stroke_play',
         teamShape: 'individual',
         metrics: GROSS_NET,
+        scoresAnyBall: true,
     },
     {
         strategy: stablefordIndividual,
@@ -138,6 +141,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'stableford',
         teamShape: 'individual',
         metrics: POINTS_HIGH,
+        scoresAnyBall: true,
     },
     {
         strategy: matchPlayIndividual,
@@ -146,6 +150,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'match_play',
         teamShape: 'individual',
         metrics: MATCH,
+        scoresAnyBall: true,
     },
     {
         strategy: kopenhamnareIndividual,
@@ -307,6 +312,7 @@ function toPlugin(meta: BuiltinMeta): FormatPlugin {
             defaults,
             metrics: meta.metrics,
             ...(meta.resultDisplay ? { resultDisplay: meta.resultDisplay } : {}),
+            ...(meta.scoresAnyBall ? { scoresAnyBall: true } : {}),
             clientAdapterId: null,
         },
         planSetup,

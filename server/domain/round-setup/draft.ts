@@ -48,6 +48,12 @@ export const DraftTeam = Type.Object({
 /** One format the round runs, with its scope + per-format options. */
 export const DraftFormatSelection = Type.Object({
     formatId: Type.String({ minLength: 1 }),
+    /**
+     * Stable client-assigned id for this selection so another selection can
+     * reference its balls via `ballsFrom` (ADR-0002). Only needed when a team
+     * composition is scored by a separate format.
+     */
+    id: Type.Optional(Type.String({ minLength: 1 })),
     /** Allowance override; falls back to the descriptor default. */
     allowanceConfig: Type.Optional(FormatAllowanceConfig),
     /** Restrict this format to a subset of the roster. Default: every producer. */
@@ -56,6 +62,13 @@ export const DraftFormatSelection = Type.Object({
     teams: Type.Optional(Type.Array(DraftTeam)),
     /** Opaque per-format config (handicapMode, birdieRule, …). */
     formatConfig: Type.Optional(Type.Unknown()),
+    /**
+     * Score the balls produced by another selection — the `id` of a team
+     * composition (scramble/greensomes/foursomes) — instead of creating
+     * own-balls (ADR-0002). Set ⇒ scoring-only slot; its `teams` are ignored and
+     * it inherits the composition's team handicaps.
+     */
+    ballsFrom: Type.Optional(Type.Object({ ref: Type.String({ minLength: 1 }) })),
 });
 
 /**

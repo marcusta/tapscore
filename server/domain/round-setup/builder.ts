@@ -71,9 +71,15 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
     const strategyDefIdByKey = new Map<string, string>();
     let strategyCounter = 0;
 
-    const slots: SlotDefinition[] = [];
+    // Slots are placed by draft index so order is preserved across the two
+    // passes (compositions/own-ball first, composition-scoring second).
+    const slotByIndex: (SlotDefinition | null)[] = draft.formats.map(() => null);
+    // selection.id → the strategy def-ids it created, for `ballsFrom` refs.
+    const idToStrategyDefIds = new Map<string, string[]>();
 
+    // Pass 1 — selections that CREATE balls (own-ball + team compositions).
     draft.formats.forEach((sel, i) => {
+        if (sel.ballsFrom) return; // scoring-only; wired in pass 2
         const fmtPath = `formats[${i}]`;
 
         let plugin;
@@ -176,10 +182,58 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
             ...(plan.slot.teamGrouping ? { teamGrouping: plan.slot.teamGrouping } : {}),
         };
         if (plan.slot.formatConfig !== undefined) slot.formatConfig = plan.slot.formatConfig;
-        slots.push(slot);
+        if (sel.id !== undefined) idToStrategyDefIds.set(sel.id, selectedStrategyDefIds);
+        slotByIndex[i] = slot;
+    });
+
+    // Pass 2 — scoring-only selections that score another composition's balls
+    // (ADR-0002). They create no balls; their slot selects the referenced
+    // composition's strategy def-ids and inherits the team handicaps (flat 100%,
+    // since the by-rank weighting is already baked into the team ball's CH).
+    draft.formats.forEach((sel, i) => {
+        if (!sel.ballsFrom) return;
+        const fmtPath = `formats[${i}]`;
+
+        let plugin;
+        try {
+            plugin = findFormatPlugin(sel.formatId);
+        } catch {
+            diags.push({
+                code: 'unknown_format',
+                message: `no format plugin registered for id '${sel.formatId}'`,
+                path: `${fmtPath}.formatId`,
+            });
+            return;
+        }
+        if (!plugin.descriptor.scoresAnyBall) {
+            diags.push({
+                code: 'format_cannot_score_composition',
+                message: `format '${sel.formatId}' cannot score another composition's balls (it does not declare scoresAnyBall)`,
+                path: `${fmtPath}.ballsFrom`,
+            });
+            return;
+        }
+        const refIds = idToStrategyDefIds.get(sel.ballsFrom.ref);
+        if (!refIds) {
+            diags.push({
+                code: 'unknown_balls_from_ref',
+                message: `format '${sel.formatId}' ballsFrom references composition '${sel.ballsFrom.ref}', which is not a ball-creating selection in this round`,
+                path: `${fmtPath}.ballsFrom`,
+            });
+            return;
+        }
+        slotByIndex[i] = {
+            id: `slot-${i}`,
+            formatId: sel.formatId,
+            allowanceConfig: { type: 'flat', pct: 100 },
+            ballSelector: { strategyDefIds: refIds },
+            ...(sel.formatConfig !== undefined ? { formatConfig: sel.formatConfig } : {}),
+        };
     });
 
     if (diags.length > 0) return { ok: false, diagnostics: diags };
+
+    const slots = slotByIndex.filter((s): s is SlotDefinition => s !== null);
 
     const definition: RoundDefinitionInput = {
         courseId: draft.courseId,

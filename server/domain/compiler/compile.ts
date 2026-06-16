@@ -666,8 +666,15 @@ function compileSlot(
 
     const selected = selectBallsForSlot(slotDef, strategies, allBalls, req, ctx, diags);
 
+    // A `scoresAnyBall` scoring format (stroke/match/stableford — ADR-0002) may
+    // score balls of any composition (its own own-balls OR a referenced
+    // team-composition's balls), so the own/team producer-count + ball-mode
+    // contract does not apply to it. Every other check (slot ball count, team
+    // grouping, …) still runs.
+    const anyBall = plugin.descriptor.scoresAnyBall === true;
+
     // --- Per-ball producer count ------------------------------------------
-    if (req.producerCount) {
+    if (req.producerCount && !anyBall) {
         for (const b of selected) {
             const pc = b.producerDefIds.length;
             if (pc < req.producerCount.min || pc > req.producerCount.max) {
@@ -684,7 +691,7 @@ function compileSlot(
     // producerCount bounds the per-ball count; ballMode is the format's
     // explicit own/team contract, validated independently so a selector that
     // drags in the wrong ball shape is rejected rather than silently scored.
-    if (req.ballMode === 'own' || req.ballMode === 'team') {
+    if (!anyBall && (req.ballMode === 'own' || req.ballMode === 'team')) {
         for (const b of selected) {
             const isTeamBall = b.producerDefIds.length > 1;
             if (req.ballMode === 'own' && isTeamBall) {

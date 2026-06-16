@@ -114,14 +114,26 @@ export function strokesGivenMapForBall(
     ball: SlotBall,
     roundContext: RoundContext,
 ): Map<string, number> {
+    return strokesGivenForBallPH(ball, ball.playingHandicapSnapshot, roundContext);
+}
+
+/**
+ * Strokes-given per occurrence for a ball at an explicit playing-handicap value.
+ * Same first-producer SI convention as `strokesGivenMapForBall` (shared with
+ * foursomes/greensomes — a team ball has no single tee, so the first producer is
+ * the SI reference); the PH is supplied so match play can pass the NORMALIZED
+ * pair PH. This lets the per-ball scoring formats score a team-composition ball
+ * (ADR-0002) without the own-ball `resolveSingleProducer` assumption.
+ */
+export function strokesGivenForBallPH(
+    ball: SlotBall,
+    playingHandicapValue: number,
+    roundContext: RoundContext,
+): Map<string, number> {
     if (ball.producers.length === 0) {
-        throw new Error(`strokesGivenMapForBall: ball ${ball.ballId} has no producers`);
+        throw new Error(`strokesGivenForBallPH: ball ${ball.ballId} has no producers`);
     }
-    return strokesGivenMapForProducer(
-        ball.producers[0].producerDefId,
-        ball.playingHandicapSnapshot,
-        roundContext,
-    );
+    return strokesGivenMapForProducer(ball.producers[0].producerDefId, playingHandicapValue, roundContext);
 }
 
 /**
