@@ -159,8 +159,11 @@ export class CreateComponent extends Component {
             & .setup__hint { margin: 0 0 ${s('md')}; color: ${t('text-muted')}; font-size: 0.82rem; }
 
             /* SelectComponent hosts: the framework styles the trigger, so the
-               host just controls width/font. Its min-width default (160px) is
-               relaxed here so narrow controls (gender, team, start hole) fit. */
+               host just controls width/font. The wrapper fills the host (it is
+               inline-block by default, which shrinks to the trigger's content),
+               and the trigger's 160px min-width is relaxed so narrow controls
+               (gender, team, start hole) fit instead of overflowing. */
+            & .ui-select { display: block; width: 100%; }
             & .ui-select__trigger { min-width: 0; }
 
             & .setup__select { width: 100%; font-size: 1rem; }
