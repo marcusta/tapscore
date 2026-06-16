@@ -1,11 +1,15 @@
 import type { TestContext } from '../../testing/db';
+import type { Hole } from '../../services/course.service';
+import type { TeeRating } from '../../services/tee.service';
 
 /**
  * Idempotent dev fixture: two logged-in players (alice, bob), their handicap
- * history, a club, a course, and a tee with M/F ratings. Called from main.ts
- * when `NODE_ENV !== 'production'`. Safe to call on every boot — each step
- * checks existence before inserting. The point is a repeatable hand-test
- * surface, not production-grade seeding.
+ * history, and two real clubs/courses — Halmstad GK "North" and the user's home
+ * course Linköpings Golfklubb (par 71, real pars/stroke-indexes + the five
+ * rated tees from the official scorecard). Called from main.ts when
+ * `NODE_ENV !== 'production'`. Safe to call on every boot — each step checks
+ * existence before inserting. A repeatable hand-test surface, not production
+ * seeding.
  *
  * Credentials: alice/password123, bob/password123.
  */
@@ -26,9 +30,82 @@ export async function seedDev(ctx: TestContext): Promise<void> {
 
     const club = await ensureClub(ctx, 'Halmstad GK');
     const course = await ensureCourse(ctx, club.id, 'North', 18);
-    const tee = await ensureTee(ctx, course.id, 'Yellow');
+    const tee = await ensureTee(ctx, course.id, 'Yellow', '#ffd400', [
+        { gender: 'M', courseRating: 71.2, slope: 132, par: 72, totalLengthM: 6200 },
+        { gender: 'F', courseRating: 73.0, slope: 135, par: 72, totalLengthM: 5400 },
+    ]);
+    // A second tee so the setup flow can exercise mixed per-player tees.
+    await ensureTee(ctx, course.id, 'Red', '#d4332a', [
+        { gender: 'M', courseRating: 68.4, slope: 124, par: 72, totalLengthM: 5600 },
+        { gender: 'F', courseRating: 70.1, slope: 128, par: 72, totalLengthM: 4900 },
+    ]);
+
+    await seedLinkopings(ctx);
 
     await ensureFriendlyRound(ctx, course.id, tee.id);
+}
+
+// --- Linköpings Golfklubb (par 71) — from the official scorecard ------------
+//
+// Pars + stroke indexes per hole (men's and women's SI are identical on this
+// course). Total par 35 (out) + 36 (in) = 71. Stroke indexes form a complete
+// 1..18 allocation. Tee ratings are CR/slope per gender; a tee unrated for a
+// gender (shown as -1/-1 on the card) simply omits that gender's row, so it
+// can't be chosen for that gender (the compiler emits `tee_missing_gender_rating`).
+// Lengths aren't on the card; left empty (CH derivation needs only CR/slope/par).
+
+const LINKOPING_HOLES: Hole[] = [
+    { holeNumber: 1, par: 4, strokeIndex: 10 },
+    { holeNumber: 2, par: 4, strokeIndex: 6 },
+    { holeNumber: 3, par: 3, strokeIndex: 16 },
+    { holeNumber: 4, par: 5, strokeIndex: 8 },
+    { holeNumber: 5, par: 3, strokeIndex: 18 },
+    { holeNumber: 6, par: 5, strokeIndex: 2 },
+    { holeNumber: 7, par: 3, strokeIndex: 14 },
+    { holeNumber: 8, par: 4, strokeIndex: 12 },
+    { holeNumber: 9, par: 4, strokeIndex: 4 },
+    { holeNumber: 10, par: 5, strokeIndex: 3 },
+    { holeNumber: 11, par: 3, strokeIndex: 15 },
+    { holeNumber: 12, par: 4, strokeIndex: 11 },
+    { holeNumber: 13, par: 4, strokeIndex: 7 },
+    { holeNumber: 14, par: 5, strokeIndex: 1 },
+    { holeNumber: 15, par: 4, strokeIndex: 13 },
+    { holeNumber: 16, par: 3, strokeIndex: 17 },
+    { holeNumber: 17, par: 4, strokeIndex: 5 },
+    { holeNumber: 18, par: 4, strokeIndex: 9 },
+];
+
+const LINKOPING_PAR = 71;
+
+/** Tee → colour + per-gender CR/slope. Course par (71) is the tee par. */
+const LINKOPING_TEES: { name: string; colour: string; ratings: TeeRating[] }[] = [
+    { name: 'Vit', colour: '#f5f5f5', ratings: [
+        { gender: 'M', courseRating: 70.7, slope: 127, par: LINKOPING_PAR, totalLengthM: 0 },
+    ] },
+    { name: 'Gul', colour: '#ffd400', ratings: [
+        { gender: 'M', courseRating: 69.5, slope: 124, par: LINKOPING_PAR, totalLengthM: 0 },
+        { gender: 'F', courseRating: 76.0, slope: 134, par: LINKOPING_PAR, totalLengthM: 0 },
+    ] },
+    { name: 'Blå', colour: '#2a6fd4', ratings: [
+        { gender: 'M', courseRating: 68.0, slope: 118, par: LINKOPING_PAR, totalLengthM: 0 },
+        { gender: 'F', courseRating: 73.5, slope: 128, par: LINKOPING_PAR, totalLengthM: 0 },
+    ] },
+    { name: 'Orange', colour: '#e8830c', ratings: [
+        { gender: 'F', courseRating: 65.7, slope: 112, par: LINKOPING_PAR, totalLengthM: 0 },
+    ] },
+    { name: 'Röd', colour: '#d4332a', ratings: [
+        { gender: 'M', courseRating: 65.9, slope: 114, par: LINKOPING_PAR, totalLengthM: 0 },
+        { gender: 'F', courseRating: 70.9, slope: 121, par: LINKOPING_PAR, totalLengthM: 0 },
+    ] },
+];
+
+async function seedLinkopings(ctx: TestContext) {
+    const club = await ensureClub(ctx, 'Linköpings Golfklubb');
+    const course = await ensureCourse(ctx, club.id, 'Linköping', 18, LINKOPING_HOLES);
+    for (const tee of LINKOPING_TEES) {
+        await ensureTee(ctx, course.id, tee.name, tee.colour, tee.ratings);
+    }
+    return course;
 }
 
 /**
@@ -89,15 +166,22 @@ async function ensureCourse(
     clubId: string,
     name: string,
     holeCount: 9 | 18,
+    holes?: Hole[],
 ) {
     const existing = (await ctx.courseService.listByClub(clubId)).find(
         (c) => c.name === name,
     );
     if (existing) return existing;
-    return ctx.courseService.create({ clubId, name, holeCount });
+    return ctx.courseService.create({ clubId, name, holeCount, holes });
 }
 
-async function ensureTee(ctx: TestContext, courseId: string, name: string) {
+async function ensureTee(
+    ctx: TestContext,
+    courseId: string,
+    name: string,
+    colour: string,
+    ratings: TeeRating[],
+) {
     const existing = (await ctx.teeService.listByCourse(courseId)).find(
         (t) => t.name === name,
     );
@@ -105,11 +189,8 @@ async function ensureTee(ctx: TestContext, courseId: string, name: string) {
     return ctx.teeService.create({
         courseId,
         name,
-        colour: '#ffd400',
+        colour,
         holeLengths: [],
-        ratings: [
-            { gender: 'M', courseRating: 71.2, slope: 132, par: 72, totalLengthM: 6200 },
-            { gender: 'F', courseRating: 73.0, slope: 135, par: 72, totalLengthM: 5400 },
-        ],
+        ratings,
     });
 }

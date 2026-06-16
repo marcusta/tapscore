@@ -24,6 +24,7 @@ import { createLeaderboardsApi } from './api/leaderboards.api';
 import { createFormatsApi } from './api/formats.api';
 import { createCourseRouteTemplatesApi } from './api/course-route-templates.api';
 import { createFriendlyRoundsApi } from './api/friendly-rounds.api';
+import { createSetupApi } from './api/setup.api';
 import { seedDev } from './db/seeds/dev';
 import { registerBuiltInBallCreationStrategies } from './domain/strategies/ball-creation';
 import { registerBuiltInFormats } from './domain/formats';
@@ -73,6 +74,7 @@ mount(app, '/api', createLeaderboardsApi(leaderboardService));
 mount(app, '/api', createFormatsApi());
 mount(app, '/api', createCourseRouteTemplatesApi(courseRouteTemplateService));
 mount(app, '/api', createFriendlyRoundsApi(friendlyRoundService));
+mount(app, '/api', createSetupApi(courseService, teeService));
 mount(app, '/api', createCorrectionsApi(correctionService));
 mount(app, '/api', createFormatActionsApi(formatActionService));
 

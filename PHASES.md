@@ -895,7 +895,7 @@ Results  →  per-format result sections in the round
 | Slice | Status | Commit | Resume note |
 |---|---|---|---|
 | M1 — No-login shell + FriendlyRound primitive | NOT STARTED | — | `friendly_rounds` wrapper + share_token + no-auth round-scoped access; landing/create-round; login demoted to side door |
-| M2 — Players-first setup (course/route + per-player tee + guest players) | NOT STARTED | — | Waits on M1. Course pick + route (hole count/start hole); add players name/index/M-F; per-player tee; show derived CH |
+| M2 — Players-first setup (course/route + per-player tee + guest players) | IMPLEMENTED (awaiting user gate confirm) | — | No-auth `setup` API (`GET /setup/courses`, `/setup/tees/by-course`) unblocks the no-login picker; `/create` rewritten: course + route (Full 18 / Front 9 / Back 9 + non-1 start hole rotates to an explicit route) → players (name·index·M/F·per-player tee) with live derived CH (client `handicap.ts` mirrors server) → submit creates guests + POSTs friendly-rounds → lands in `/round?token=`. Default `stableford_individual` until M3. Dev seed gained a 2nd North tee (Red) for mixed-tee testing + the user's home course **Linköpings Golfklubb** (real scorecard: par 71, 5 rated tees Vit/Gul/Blå/Orange/Röd). Gate oracle `round-from-draft-m2-gate.test.ts` (4 tests): full-18, front-9, non-1 start, mixed tees+genders, CH = WHS. **480 pass**, 3 typechecks green; browser-verified end to end. |
 | M3 — Catalog-driven formats (producers + allowances + multi-slot) | NOT STARTED | — | Waits on M2. `GET /formats`; auto producers for individual, team editor for team formats; per-slot allowance; submit draft → `from-draft` |
 | M4 — Ball/play-hole score entry (trust-based) | NOT STARTED | — | Waits on M3. Anyone scores anyone via share link; one score per `ballId + playHoleId`; no identity on events |
 | M5 — Section-driven results | NOT STARTED | — | Waits on M4. Ordered per-slot views from canonical result sections |
@@ -921,13 +921,13 @@ Client:
 
 #### M2 — Players-first setup (course/route + per-player tee + guest players)
 
-- [ ] Course picker (real seeded courses; Linköpings available).
-- [ ] Route editor — minimum: hole count + start hole. Surface `round_play_holes` presets (`full_18`/`front_9`/`back_9`) and, where cheap, repeated loops / ordered subsets / shotgun starts. Richer routing is available, not required to play.
-- [ ] Players step: add each player with **name · handicap index · gender (M/F)** → `guest_players`. Gender selects the tee rating `(tee_id, gender)`.
-- [ ] **Per-player tee box** selection. Server derives course/playing handicap from the chosen tee's slope/CR + the player's index + gender; show the derived CH back to the user (arithmetic visible, matching the static-render standard).
-- [ ] Build a `RoundSetupDraft` from course/route/players/tees. Diagnostics from `from-draft` shown at the relevant control, never a 500.
+- [x] Course picker (real seeded courses) — via the no-auth `setup` API (`courses.api`/`tees.api` stay `requireAuth()`; the no-login flow reads through `GET /setup/courses` + `/setup/tees/by-course`). Halmstad/North + the user's home course Linköpings Golfklubb (real scorecard: par 71, real pars/SI, 5 rated tees) seeded.
+- [x] Route editor — presets `full_18`/`front_9`/`back_9` + a start-hole select. A non-head start hole rotates the itinerary into an explicit route carrying an explicit (non-posting) handicap policy. Repeated loops / shotgun remain available via the explicit-route path, not surfaced as dedicated controls yet.
+- [x] Players step: add each player with **name · handicap index · gender (M/F)** → `guest_players` (created on submit via the no-auth guest API). Gender selects the tee rating `(tee_id, gender)`.
+- [x] **Per-player tee box** selection. CH derived from the chosen tee's slope/CR + index + gender and shown live with visible arithmetic (`index × slope/113 + (CR − par)`); client `src/create/handicap.ts` mirrors `server/domain/handicap.ts`, and the server re-derives authoritatively at compile.
+- [x] Build a `RoundSetupDraft` from course/route/players/tees. Compiler/planner diagnostics surface at the offending control (path-tagged `producers[i]`) + a general banner; never a 500.
 
-- [ ] **Gate:** create rounds with full-18, a 9-hole route, a non-1 start hole, and mixed per-player tees + genders; derived CH matches the WHS calculator / static fixtures.
+- [x] **Gate:** full-18, front-9, non-1 start hole, and mixed per-player tees + genders all create valid rounds; derived CH matches WHS. Proven by `server/services/round-from-draft-m2-gate.test.ts` (4 tests) and browser-verified end to end (Ann Yellow-M idx 8 → CH 9; Bea Red-F idx 20 → CH 21). _Awaiting user scenario confirmation + commit._
 
 #### M3 — Catalog-driven formats (producers + allowances + multi-slot)
 
