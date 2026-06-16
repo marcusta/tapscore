@@ -23,6 +23,21 @@ import { resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dir, '../../..');
 
+const BUILTIN_FORMAT_IDS = [
+    'stroke_play_individual',
+    'stableford_individual',
+    'match_play_individual',
+    'kopenhamnare_individual',
+    'umbrella_individual',
+    'stableford_better_ball',
+    'match_play_better_ball',
+    'taliban_better_ball',
+    'umbrella_4_ball',
+    'stroke_play_foursomes',
+    'greensomes',
+    'scramble',
+];
+
 /** The one and only format registry. */
 const CANONICAL_FORMAT_REGISTRAR = 'server/domain/formats/plugin.ts';
 
@@ -93,25 +108,40 @@ describe('format architecture invariants', () => {
         // mean the renderer branches on format identity — exactly what the
         // plugin contract forbids. (Metric ids like 'points'/'gross'/'net' are
         // descriptor-driven and allowed; the FORMAT ids below are not.)
-        const BUILTIN_FORMAT_IDS = [
-            'stroke_play_individual',
-            'stableford_individual',
-            'match_play_individual',
-            'kopenhamnare_individual',
-            'umbrella_individual',
-            'stableford_better_ball',
-            'match_play_better_ball',
-            'taliban_better_ball',
-            'umbrella_4_ball',
-            'stroke_play_foursomes',
-            'greensomes',
-            'scramble',
-        ];
         const offenders: string[] = [];
         for (const f of files) {
             if (!f.rel.startsWith('scripts/render/')) continue;
             for (const id of BUILTIN_FORMAT_IDS) {
                 if (f.text.includes(id)) offenders.push(`${f.rel} ⟶ ${id}`);
+            }
+        }
+        expect(offenders).toEqual([]);
+    });
+
+    it('keeps built-in setup planning + config validation out of the generic builder/compiler (E1 2.6d-final)', () => {
+        // ADR-0001: each format OWNS its ball-creation plan (`ballPlan` on the
+        // registration) and its `validateConfig` (co-located with score()). The
+        // generic draft builder and the pure compiler must therefore never pick a
+        // ball-creation strategy by format, switch on a built-in format id, or
+        // inline a format's config-field validation. (synthesize-legacy.ts is the
+        // separate legacy scoring_mode→format_id bridge and is out of scope.)
+        const GENERIC_INFRA = [
+            'server/domain/round-setup/builder.ts',
+            'server/domain/compiler/compile.ts',
+        ];
+        const BALL_STRATEGY_IDS = [
+            'alt_shot_pair',
+            'greensomes_pair',
+            'scramble_team',
+            'modified_alt_shot_pair',
+        ];
+        const FORMAT_CONFIG_FIELDS = ['handicapMode', 'birdieRule'];
+        const banned = [...BUILTIN_FORMAT_IDS, ...BALL_STRATEGY_IDS, ...FORMAT_CONFIG_FIELDS];
+        const offenders: string[] = [];
+        for (const f of files) {
+            if (!GENERIC_INFRA.includes(f.rel)) continue;
+            for (const token of banned) {
+                if (f.text.includes(token)) offenders.push(`${f.rel} ⟶ ${token}`);
             }
         }
         expect(offenders).toEqual([]);

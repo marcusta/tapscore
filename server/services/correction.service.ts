@@ -15,9 +15,11 @@ import {
     type PlayHoleInput,
     type PlayingGroupInput,
     type ProducerDefinition,
+    type ResolvedRoundDefinition,
     type RoundDefinitionInput,
     type SlotDefinition,
 } from '../domain/round-definition';
+import { findFormatPlugin } from '../domain/formats/plugin';
 import type { RoundService } from './round.service';
 
 /**
@@ -46,6 +48,34 @@ import type { RoundService } from './round.service';
 export type CorrectionResult =
     | { ok: true; eventId: string; version: number }
     | { ok: false; diagnostics: CompilerDiagnostic[] };
+
+export type RulingResult =
+    | { ok: true; id: string }
+    | { ok: false; diagnostics: CompilerDiagnostic[] };
+
+/**
+ * A correction's DOMAIN/USER input is wrong — an unknown target ref, a bad
+ * value shape, a missing round. The service catches this and returns a
+ * structured `{ ok:false, diagnostics }` so a client (e.g. mobile) can show the
+ * message beside the offending control. A plain `Error` is reserved for true
+ * drift/infrastructure failures (e.g. a definition slot with no persisted row),
+ * which surface as a 500.
+ */
+class CorrectionInputError extends Error {
+    constructor(
+        readonly code: string,
+        message: string,
+        readonly path?: string,
+    ) {
+        super(message);
+        this.name = 'CorrectionInputError';
+    }
+    toDiagnostic(): CompilerDiagnostic {
+        return this.path === undefined
+            ? { code: this.code, message: this.message }
+            : { code: this.code, message: this.message, path: this.path };
+    }
+}
 
 export interface SetupCorrectionInput {
     roundId: string;
@@ -112,10 +142,25 @@ export class CorrectionService {
         }
 
         const latest = await this.roundService.latestDefinition(input.roundId);
-        if (!latest) throw new Error(`round ${input.roundId} has no compiled definition to correct`);
+        if (!latest) {
+            return {
+                ok: false,
+                diagnostics: [
+                    { code: 'unknown_round', message: `round '${input.roundId}' has no compiled definition`, path: 'roundId' },
+                ],
+            };
+        }
 
         const def = definitionInputFromResolved(latest.definition);
-        const oldValue = applySetupMutation(def, input.target, input.targetRef, input.newValue);
+        let oldValue: unknown;
+        try {
+            oldValue = applySetupMutation(def, input.target, input.targetRef, input.newValue);
+        } catch (err) {
+            if (err instanceof CorrectionInputError) {
+                return { ok: false, diagnostics: [err.toDiagnostic()] };
+            }
+            throw err;
+        }
 
         const compiled = await this.roundService.compileDefinition(input.roundId, def);
         if (!compiled.ok) return { ok: false, diagnostics: compiled.diagnostics };
@@ -165,18 +210,64 @@ export class CorrectionService {
         }
 
         const latest = await this.roundService.latestDefinition(input.roundId);
-        if (!latest) throw new Error(`round ${input.roundId} has no compiled definition to override`);
-
-        const def = definitionInputFromResolved(latest.definition);
-        const slot = def.slots.find((s) => s.id === input.slotDefId);
-        if (!slot) {
-            throw new Error(`round ${input.roundId} has no slot with def-id '${input.slotDefId}'`);
+        if (!latest) {
+            return {
+                ok: false,
+                diagnostics: [
+                    { code: 'unknown_round', message: `round '${input.roundId}' has no compiled definition`, path: 'roundId' },
+                ],
+            };
         }
-        const oldConfig = slot.allowanceConfig;
-        slot.allowanceConfig = input.newConfig;
 
-        const compiled = await this.roundService.compileDefinition(input.roundId, def);
-        if (!compiled.ok) return { ok: false, diagnostics: compiled.diagnostics };
+        const slotIdx = latest.definition.slots.findIndex((s) => s.id === input.slotDefId);
+        if (slotIdx === -1) {
+            return {
+                ok: false,
+                diagnostics: [
+                    { code: 'unknown_slot', message: `round has no slot with def-id '${input.slotDefId}'`, path: 'slotDefId' },
+                ],
+            };
+        }
+        const slot = latest.definition.slots[slotIdx]!;
+        const oldConfig = slot.allowanceConfig;
+
+        // --- Fast path: ONLY this slot's allowance changed. -------------------
+        // Re-derive just this slot's PHs via its plugin; ball creation, ball CH,
+        // and every other slot stay untouched. The new definition version keeps
+        // the override in the def chain so a later full recompile preserves it.
+        const plugin = findFormatPlugin(slot.formatId);
+        const slotRow = await this.db
+            .selectFrom('slots')
+            .where('round_id', '=', input.roundId)
+            .where('slot_def_id', '=', input.slotDefId)
+            .select('id')
+            .executeTakeFirst();
+        if (!slotRow) {
+            throw new Error(`round ${input.roundId} has no persisted slot row for '${input.slotDefId}'`);
+        }
+        const slotBalls = await this.db
+            .selectFrom('slot_balls as sb')
+            .innerJoin('balls as b', 'b.id', 'sb.ball_id')
+            .where('sb.slot_id', '=', slotRow.id)
+            .select(['sb.ball_id', 'b.course_handicap_snapshot'])
+            .execute();
+
+        const derived = plugin.deriveSlotBalls({
+            balls: slotBalls.map((r) => ({
+                ballId: r.ball_id,
+                courseHandicapSnapshot: r.course_handicap_snapshot,
+            })),
+            allowanceConfig: input.newConfig,
+        });
+
+        // New resolved definition: only this slot's allowanceConfig changes.
+        const newDef: ResolvedRoundDefinition = {
+            ...latest.definition,
+            slots: latest.definition.slots.map((s, i) =>
+                i === slotIdx ? { ...s, allowanceConfig: input.newConfig } : s,
+            ),
+        };
+        const newDefJson = JSON.stringify(newDef);
 
         const eventId = crypto.randomUUID();
         const version = await this.db.transaction().execute(async (trx) => {
@@ -193,16 +284,27 @@ export class CorrectionService {
                     client_event_id: input.clientEventId,
                 })
                 .execute();
-            const r = await persistCompiledRound(trx, compiled.compiled, {
-                sourceKind: 'allowance_override',
-                sourceEventId: eventId,
-            });
+            const v = await this.roundService.appendDefinitionVersion(
+                trx,
+                input.roundId,
+                newDefJson,
+                'allowance_override',
+                eventId,
+            );
+            for (const d of derived) {
+                await trx
+                    .updateTable('slot_balls')
+                    .set({ playing_handicap_snapshot: d.playingHandicapSnapshot })
+                    .where('slot_id', '=', slotRow.id)
+                    .where('ball_id', '=', d.ballId)
+                    .execute();
+            }
             await trx
                 .updateTable('allowance_override_events')
-                .set({ result_version: r.version })
+                .set({ result_version: v })
                 .where('id', '=', eventId)
                 .execute();
-            return r.version;
+            return v;
         });
 
         return { ok: true, eventId, version };
@@ -210,14 +312,20 @@ export class CorrectionService {
 
     // --- ruling_event ----------------------------------------------------------
 
-    async applyRuling(input: RulingInput): Promise<{ id: string }> {
+    async applyRuling(input: RulingInput): Promise<RulingResult> {
         const existing = await this.db
             .selectFrom('ruling_events')
             .where('round_id', '=', input.roundId)
             .where('client_event_id', '=', input.clientEventId)
             .select('id')
             .executeTakeFirst();
-        if (existing) return { id: existing.id };
+        if (existing) return { ok: true, id: existing.id };
+
+        // Validate the target ref. `target_id` encodes a ball (and, for
+        // `ball_hole`, an occurrence). A ref that doesn't belong to this round is
+        // USER input error → structured diagnostic, not a silently-inert row.
+        const refDiag = await this.validateRulingTarget(input);
+        if (refDiag) return { ok: false, diagnostics: [refDiag] };
 
         const id = crypto.randomUUID();
         await this.db
@@ -234,15 +342,69 @@ export class CorrectionService {
                 client_event_id: input.clientEventId,
             })
             .execute();
-        return { id };
+        return { ok: true, id };
+    }
+
+    /**
+     * Validate a ruling's target ref against the round. Returns a structured
+     * diagnostic for a bad ref (unparsable id, or a ball/occurrence that isn't in
+     * this round), or `null` when the ref is sound. Mirrors the `target_id`
+     * encoding in `strategies/rulings.ts`:
+     *   ball_total       → `${ballId}`
+     *   ball_hole        → `${ballId}:${playHoleId}`
+     *   slot_ball_result → `${slotDefId}:${ballId}`
+     */
+    private async validateRulingTarget(input: RulingInput): Promise<CompilerDiagnostic | null> {
+        let ballId: string;
+        let playHoleId: string | null = null;
+        if (input.target === 'ball_total') {
+            ballId = input.targetId;
+        } else if (input.target === 'ball_hole') {
+            const idx = input.targetId.indexOf(':');
+            if (idx < 0) {
+                return { code: 'invalid_target_id', message: `ball_hole target_id must be '<ballId>:<playHoleId>'`, path: 'targetId' };
+            }
+            ballId = input.targetId.slice(0, idx);
+            playHoleId = input.targetId.slice(idx + 1);
+        } else {
+            // slot_ball_result → `${slotDefId}:${ballId}`
+            const idx = input.targetId.indexOf(':');
+            if (idx < 0) {
+                return { code: 'invalid_target_id', message: `slot_ball_result target_id must be '<slotDefId>:<ballId>'`, path: 'targetId' };
+            }
+            ballId = input.targetId.slice(idx + 1);
+        }
+
+        const ball = await this.db
+            .selectFrom('balls')
+            .where('id', '=', ballId)
+            .where('round_id', '=', input.roundId)
+            .select('id')
+            .executeTakeFirst();
+        if (!ball) {
+            return { code: 'unknown_target_ball', message: `ball '${ballId}' is not in round '${input.roundId}'`, path: 'targetId' };
+        }
+        if (playHoleId !== null) {
+            const ph = await this.db
+                .selectFrom('round_play_holes')
+                .where('id', '=', playHoleId)
+                .where('round_id', '=', input.roundId)
+                .select('id')
+                .executeTakeFirst();
+            if (!ph) {
+                return { code: 'unknown_target_play_hole', message: `play-hole '${playHoleId}' is not in round '${input.roundId}'`, path: 'targetId' };
+            }
+        }
+        return null;
     }
 }
 
 // --- Setup-correction mutation -------------------------------------------------
 //
 // Mutates the loose definition IN PLACE by stable def-id; returns the prior
-// value for the event's `old_value` audit. Targeting an unknown def-id is an
-// integrity error (the ref is wrong), not a per-field diagnostic — throw.
+// value for the event's `old_value` audit. An unknown target ref or a bad value
+// shape is USER input error — these throw `CorrectionInputError`, which
+// `applySetupCorrection` turns into a structured `{ ok:false, diagnostics }`.
 
 function applySetupMutation(
     def: RoundDefinitionInput,
@@ -349,40 +511,40 @@ function applySetupMutation(
 
 function findProducer(def: RoundDefinitionInput, producerDefId: string | undefined): ProducerDefinition {
     const p = def.producers.find((x) => x.id === producerDefId);
-    if (!p) throw new Error(`setup correction: no producer with def-id '${producerDefId}'`);
+    if (!p) throw new CorrectionInputError('unknown_producer', `no producer with def-id '${producerDefId}'`, 'targetRef.producerDefId');
     return p;
 }
 
 function findStrategy(def: RoundDefinitionInput, strategyDefId: string | undefined): BallStrategyDefinition {
     const s = def.ballStrategies.find((x) => x.id === strategyDefId);
-    if (!s) throw new Error(`setup correction: no ball strategy with def-id '${strategyDefId}'`);
+    if (!s) throw new CorrectionInputError('unknown_ball_strategy', `no ball strategy with def-id '${strategyDefId}'`, 'targetRef.strategyDefId');
     return s;
 }
 
 function findSlot(def: RoundDefinitionInput, slotDefId: string | undefined): SlotDefinition {
     const s = def.slots.find((x) => x.id === slotDefId);
-    if (!s) throw new Error(`setup correction: no slot with def-id '${slotDefId}'`);
+    if (!s) throw new CorrectionInputError('unknown_slot', `no slot with def-id '${slotDefId}'`, 'targetRef.slotDefId');
     return s;
 }
 
 function findPlayHole(def: RoundDefinitionInput, playHoleDefId: string | undefined): PlayHoleInput {
     const ph = def.playHoles?.find((x) => x.id === playHoleDefId);
-    if (!ph) throw new Error(`setup correction: no play-hole with def-id '${playHoleDefId}'`);
+    if (!ph) throw new CorrectionInputError('unknown_play_hole', `no play-hole with def-id '${playHoleDefId}'`, 'targetRef.playHoleDefId');
     return ph;
 }
 
 function findPlayingGroup(def: RoundDefinitionInput, groupDefId: string | undefined): PlayingGroupInput {
     const g = def.playingGroups?.find((x) => x.id === groupDefId);
-    if (!g) throw new Error(`setup correction: no playing group with def-id '${groupDefId}'`);
+    if (!g) throw new CorrectionInputError('unknown_playing_group', `no playing group with def-id '${groupDefId}'`, 'targetRef.playingGroupDefId');
     return g;
 }
 
 function asString(v: unknown, ctx: string): string {
-    if (typeof v !== 'string') throw new Error(`${ctx} must be a string`);
+    if (typeof v !== 'string') throw new CorrectionInputError('invalid_value', `${ctx} must be a string`, 'newValue');
     return v;
 }
 
 function asNumber(v: unknown, ctx: string): number {
-    if (typeof v !== 'number' || Number.isNaN(v)) throw new Error(`${ctx} must be a number`);
+    if (typeof v !== 'number' || Number.isNaN(v)) throw new CorrectionInputError('invalid_value', `${ctx} must be a number`, 'newValue');
     return v;
 }

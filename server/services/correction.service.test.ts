@@ -226,6 +226,8 @@ test('ruling_event is append-only and does not recompile', async () => {
         reason: 'Signed for a wrong (lower) score on the 12th',
         clientEventId: 'rule-1',
     });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
     expect(r.id).toBeTruthy();
 
     // No new definition version — rulings live at the scoring layer.

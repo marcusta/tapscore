@@ -14,6 +14,7 @@ import type { FormatStrategy } from '../format-strategy';
 import type {
     BallHoleResult,
     BallResult,
+    ConfigDiagnostic,
     PlayHoleSnapshot,
     RoundContext,
     SlotBall,
@@ -27,6 +28,7 @@ import {
     latestScoresByPlayHole,
     resolveSingleProducer,
     strokesGivenMapForProducer,
+    validateBirdieRule,
 } from './_shared';
 
 export const UMBRELLA_INDIVIDUAL_ID = 'umbrella_individual';
@@ -104,6 +106,10 @@ export const umbrellaIndividual: FormatStrategy = {
     },
 
     deriveSlotBalls: deriveAllowance,
+
+    validateConfig(config): ConfigDiagnostic[] {
+        return validateBirdieRule(config, 'umbrella_individual');
+    },
 
     score({ roundContext, slotBalls, events, formatConfig }): StrategyResult {
         if (slotBalls.length !== 3) {

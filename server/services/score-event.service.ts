@@ -1,4 +1,4 @@
-import { type Kysely } from 'kysely';
+import { sql, type Kysely } from 'kysely';
 import type { Database, ScoreEventType } from '../db/schema';
 import type { RoundService } from './round.service';
 import { toIsoUtc } from '../domain/time';
@@ -172,16 +172,48 @@ export class ScoreEventService {
             return { event: toEvent(existing as ScoreEventRow), inserted: false };
         }
 
+        // Same-round ownership: ball_id and play_hole_id must belong to round_id.
+        // A DB trigger backstops this (migration 030); surfacing it here gives a
+        // clear service-level error instead of a raw SQLite ABORT.
+        const owners = await this.db
+            .selectFrom('balls')
+            .where('id', '=', input.ballId)
+            .select(['round_id as r'])
+            .executeTakeFirst();
+        if (owners && owners.r !== input.roundId) {
+            throw new Error(
+                `score-event append: ball ${input.ballId} belongs to round ${owners.r}, not ${input.roundId}`,
+            );
+        }
+        const phOwner = await this.db
+            .selectFrom('round_play_holes')
+            .where('id', '=', input.playHoleId)
+            .select(['round_id as r'])
+            .executeTakeFirst();
+        if (phOwner && phOwner.r !== input.roundId) {
+            throw new Error(
+                `score-event append: play_hole ${input.playHoleId} belongs to round ${phOwner.r}, not ${input.roundId}`,
+            );
+        }
+
         const metadata = input.metadata ?? null;
         const metadataText = metadata === null ? null : JSON.stringify(metadata);
 
         const id = crypto.randomUUID();
         await this.db.transaction().execute(async (trx) => {
+            // seq = THE total order. Computed inside the txn so concurrent appends
+            // (serialized on the single Bun-SQLite connection) never collide.
+            const maxRow = await trx
+                .selectFrom('score_events')
+                .select(sql<number | null>`MAX(seq)`.as('m'))
+                .executeTakeFirst();
+            const seq = (maxRow?.m ?? 0) + 1;
             const values: {
                 id: string;
                 round_id: string;
                 ball_id: string;
                 play_hole_id: string;
+                seq: number;
                 strokes: number | null;
                 event_type: ScoreEventType;
                 recorded_by_player_id: string | null;
@@ -195,6 +227,7 @@ export class ScoreEventService {
                 round_id: input.roundId,
                 ball_id: input.ballId,
                 play_hole_id: input.playHoleId,
+                seq,
                 strokes: input.strokes,
                 event_type: input.eventType,
                 recorded_by_player_id: input.recordedByPlayerId ?? null,
@@ -221,8 +254,7 @@ export class ScoreEventService {
             .selectFrom('score_events')
             .selectAll()
             .where('round_id', '=', roundId)
-            .orderBy('recorded_at')
-            .orderBy('id')
+            .orderBy('seq')
             .execute();
         return rows.map((row) => toEvent(row as ScoreEventRow));
     }

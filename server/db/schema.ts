@@ -204,6 +204,13 @@ export interface ScoreEventsTable {
     ball_id: string;
     /** Stable play-hole occurrence id (migration 025) — the scoring subject. */
     play_hole_id: string;
+    /**
+     * Monotonic append-order sequence (migration 030). Assigned in
+     * `score-event.service.ts::append` as `COALESCE(MAX(seq),0)+1`. THE total
+     * order for score_events — the scorecard trigger, replay, and latest-score
+     * reducer all key on it instead of the wall-clock `recorded_at`.
+     */
+    seq: number;
     strokes: number | null;
     event_type: ScoreEventType;
     recorded_by_player_id: string | null;
@@ -235,6 +242,8 @@ export interface ScorecardsTable {
     recorded_by_player_id: string | null;
     recorded_at: string;
     latest_event_id: string;
+    /** seq of the winning event (migration 030) — the trigger gates updates on it. */
+    seq: number;
     source_player_id: string | null;
     source_guest_player_id: string | null;
     /**
@@ -436,8 +445,14 @@ export interface SlotsTable {
     /** `hash(round_id, slot_def_id)`. */
     id: string;
     round_id: string;
-    /** Stable id from `RoundDefinition.slots[].id`. */
+    /** Stable id from `RoundDefinition.slots[].id`. OPAQUE — never parsed. */
     slot_def_id: string;
+    /**
+     * 0-based slot order (migration 031). THE presentation index — the result
+     * path reads this instead of parsing a `slot-<N>` convention out of
+     * `slot_def_id`, so opaque ids (`main-stableford`) order correctly (E3).
+     */
+    ordinal: number;
     /** Registered format plugin id, stored verbatim (canonical identity). */
     format_id: string;
     /** Serialized `SlotDefinition.formatConfig` (opaque per-slot options), or null. */

@@ -342,13 +342,17 @@ async function syncSlots(trx: Exec, compiled: CompiledRound): Promise<void> {
     if (keepIds.length > 0) del = del.where('id', 'not in', keepIds);
     await del.execute();
 
-    for (const s of compiled.slots) {
+    for (let i = 0; i < compiled.slots.length; i++) {
+        const s = compiled.slots[i]!;
+        // `ordinal` = compiled slot order (0-based) = the slot's presentation
+        // index. The result path reads this, never the opaque slot_def_id (E3).
         await trx
             .insertInto('slots')
             .values({
                 id: s.id,
                 round_id: compiled.roundId,
                 slot_def_id: s.slotDefId,
+                ordinal: i,
                 format_id: s.formatId,
                 format_config: s.formatConfigJson,
                 scoring_mode: s.scoringMode as ScoringMode,
@@ -359,6 +363,7 @@ async function syncSlots(trx: Exec, compiled: CompiledRound): Promise<void> {
             .onConflict((oc) =>
                 oc.column('id').doUpdateSet({
                     slot_def_id: s.slotDefId,
+                    ordinal: i,
                     format_id: s.formatId,
                     format_config: s.formatConfigJson,
                     scoring_mode: s.scoringMode as ScoringMode,

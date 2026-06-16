@@ -9,6 +9,7 @@ import type { FormatAllowanceConfig } from '../../round-definition';
 import { playingHandicap, strokesReceivedForStrokeIndex } from '../../handicap';
 import type { DerivedSlotBall, DeriveSlotBallsInput } from '../format-strategy';
 import type {
+    ConfigDiagnostic,
     HoleIdentity,
     PerProducerCh,
     PlayHoleSnapshot,
@@ -144,6 +145,28 @@ export function strokesGivenMapForProducer(
     return out;
 }
 
+/**
+ * Shared `birdieRule` config validation for the umbrella formats (E1). Returns a
+ * structured diagnostic when `config.birdieRule` is present but not 'gross'/'net'
+ * (undefined defaults to 'gross'). Co-located here so individual + 4-ball umbrella
+ * share one source of truth for the valid values.
+ */
+export function validateBirdieRule(config: unknown, formatId: string): ConfigDiagnostic[] {
+    if (config && typeof config === 'object' && 'birdieRule' in config) {
+        const raw = (config as { birdieRule: unknown }).birdieRule;
+        if (raw !== undefined && raw !== 'gross' && raw !== 'net') {
+            return [
+                {
+                    code: 'umbrella_birdie_rule_invalid',
+                    message: `${formatId}: unknown birdieRule ${JSON.stringify(raw)} — expected 'gross' or 'net'`,
+                    path: 'birdieRule',
+                },
+            ];
+        }
+    }
+    return [];
+}
+
 /** Ordered course holes (defensive copy, sorted by holeNumber). */
 export function orderedHoles(courseHoles: RoundCourseHoleSnapshot[]): RoundCourseHoleSnapshot[] {
     return [...courseHoles].sort((a, b) => a.holeNumber - b.holeNumber);
@@ -154,6 +177,12 @@ export function orderedHoles(courseHoles: RoundCourseHoleSnapshot[]): RoundCours
  * `score_event` wins per key. Pickups (0), DNP (null) and real gross
  * (>0) all coexist — strategies distinguish at read time.
  *
+ * `events` MUST arrive in the persisted total order (`seq`, migration 030) —
+ * the leaderboard replay supplies them that way. Latest = last in array, NOT
+ * the wall-clock `recordedAt`, so a client clock that runs backwards can't make
+ * an earlier edit win. This keeps the reducer, the scorecard trigger, and the
+ * replay all keyed on the same order.
+ *
  * Returns `undefined` for an occurrence with no event (not yet played);
  * `null` for an explicit DNP; `0` for a pickup; `n > 0` for gross strokes.
  */
@@ -161,22 +190,21 @@ export function latestScoresByPlayHole(
     events: StrategyEvent[],
     ballId: string,
 ): Map<string, number | null> {
-    const byPlayHole = new Map<string, { ts: string; strokes: number | null }>();
+    const out = new Map<string, number | null>();
     for (const e of events) {
         if (e.kind !== 'score') continue;
         const se = e as ScoreEvent;
         if (se.ballId !== ballId) continue;
-        const current = byPlayHole.get(se.playHoleId);
-        if (!current || current.ts <= se.recordedAt) {
-            byPlayHole.set(se.playHoleId, { ts: se.recordedAt, strokes: se.strokes });
-        }
+        out.set(se.playHoleId, se.strokes); // seq order → last write wins
     }
-    const out = new Map<string, number | null>();
-    for (const [playHoleId, v] of byPlayHole) out.set(playHoleId, v.strokes);
     return out;
 }
 
-/** Metadata value at (ballId, playHoleId, type) — latest-wins, optionally filtered by producer. */
+/**
+ * Metadata value at (ballId, playHoleId, type) — latest-wins, optionally
+ * filtered by producer. Like {@link latestScoresByPlayHole}, relies on `events`
+ * arriving in `seq` order: last matching event wins.
+ */
 export function latestMetadata(
     events: StrategyEvent[],
     ballId: string,
@@ -184,7 +212,7 @@ export function latestMetadata(
     type: string,
     opts: { producerPlayerId?: string | null; producerGuestPlayerId?: string | null } = {},
 ): unknown {
-    let chosen: { ts: string; value: unknown } | null = null;
+    let chosen: { value: unknown } | null = null;
     for (const e of events) {
         if (e.kind !== 'metadata') continue;
         if (e.ballId !== ballId) continue;
@@ -193,9 +221,7 @@ export function latestMetadata(
         if (opts.producerPlayerId !== undefined && e.producerPlayerId !== opts.producerPlayerId) continue;
         if (opts.producerGuestPlayerId !== undefined && e.producerGuestPlayerId !== opts.producerGuestPlayerId)
             continue;
-        if (!chosen || chosen.ts <= e.recordedAt) {
-            chosen = { ts: e.recordedAt, value: e.value };
-        }
+        chosen = { value: e.value }; // seq order → last matching wins
     }
     return chosen?.value;
 }

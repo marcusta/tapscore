@@ -29,6 +29,7 @@
 
 import type { FormatAllowanceConfig } from '../round-definition';
 import type {
+    ConfigDiagnostic,
     FormatAction,
     RoundContext,
     SlotBall,
@@ -114,4 +115,13 @@ export interface FormatStrategy {
     ballRequirement(): FormatBallRequirement;
     deriveSlotBalls(input: DeriveSlotBallsInput): DerivedSlotBall[];
     score(input: ScoreInput): StrategyResult;
+    /**
+     * Validate this format's `formatConfig` at COMPILE time (Phase 2.6d-final
+     * E1). Returns structured diagnostics for invalid config (unknown enum
+     * value, out-of-range) so the compiler rejects it with a stable code
+     * instead of `score()` throwing. Omit for formats that take no config.
+     * Defaulting + validation stay co-located with the `score()` that reads
+     * the config (ADR-0001).
+     */
+    validateConfig?(config: unknown): ConfigDiagnostic[];
 }

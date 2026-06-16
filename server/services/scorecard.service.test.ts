@@ -102,30 +102,31 @@ test('score_cleared wipes strokes but keeps row', async () => {
     expect(sc.holes[0].strokes).toBeNull();
 });
 
-test('out-of-order insert converges on latest recorded_at', async () => {
+test('latest by APPEND order (seq) wins, not wall-clock recorded_at (E2b)', async () => {
     const { scoreEventService, scorecardService, roundId, aliceBall, playHoleByCourseHole } = await setup();
-    // Insert the LATER event first.
+    // First append carries a LATER wall clock...
     await scoreEventService.append({
         roundId,
         ballId: aliceBall,
         playHoleId: playHoleByCourseHole.get(1)!,
         strokes: 5,
         eventType: 'score_entered',
-        clientEventId: 'late',
+        clientEventId: 'first',
         recordedAt: '2026-05-01T10:05:00.000Z',
     });
-    // Then the EARLIER event. Trigger must NOT overwrite.
+    // ...the SECOND append carries an EARLIER wall clock but is the real edit.
+    // seq (append order) is the total order, so this one wins.
     await scoreEventService.append({
         roundId,
         ballId: aliceBall,
         playHoleId: playHoleByCourseHole.get(1)!,
         strokes: 4,
         eventType: 'score_entered',
-        clientEventId: 'early',
+        clientEventId: 'second',
         recordedAt: '2026-05-01T10:00:00.000Z',
     });
     const sc = await scorecardService.forBall(aliceBall);
-    expect(sc.holes[0].strokes).toBe(5); // latest (by recorded_at) wins
+    expect(sc.holes[0].strokes).toBe(4); // last appended wins regardless of clock
 });
 
 test('null strokes (DNP) and zero strokes (pickup) are both preserved', async () => {

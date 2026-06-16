@@ -417,6 +417,19 @@ export interface BallCreationInput {
     derivationConfig: BallDerivationConfig;
 }
 
+/**
+ * Structured config-validation diagnostic (Phase 2.6d-final E1). A format's
+ * `validateConfig` returns these at COMPILE time so invalid `formatConfig`
+ * stops in the compiler with a stable code, never as a scoring-time throw.
+ * Lives here (neutral) so both `FormatStrategy` and the plugin layer reference
+ * it without an import cycle.
+ */
+export interface ConfigDiagnostic {
+    code: string;
+    message: string;
+    path?: string;
+}
+
 /** One ball produced by a creation strategy. */
 export interface CreatedBall {
     producerDefIds: string[];

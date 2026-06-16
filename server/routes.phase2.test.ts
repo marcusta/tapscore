@@ -176,12 +176,13 @@ test('replay determinism: events inserted out of order converge to same state', 
     const ctx = await fullSetup();
     const { scoreEventService, scorecardService, aliceBall, roundId, playHoleByCourseHole } = ctx;
 
-    // Chronological events for Alice, hole 1:
-    //   t=00:00  entered 4
-    //   t=00:01  entered 6  (correction)
-    //   t=00:02  entered 5  (correction again)
-    //
-    // Insert them OUT of order: last one first, then first, then middle.
+    // Three edits for Alice, hole 1, appended in this order (= seq order), with
+    // wall clocks deliberately NOT matching append order:
+    //   append 1: strokes 5, recorded_at t=02 (latest clock)
+    //   append 2: strokes 4, recorded_at t=00
+    //   append 3: strokes 6, recorded_at t=01   ← last appended = the truth
+    // seq (append order) is the total order, so the LAST appended (6) wins,
+    // not the latest wall clock (would be the t=02 strokes 5).
     await scoreEventService.append({
         roundId,
         ballId: aliceBall,
@@ -210,10 +211,10 @@ test('replay determinism: events inserted out of order converge to same state', 
         recordedAt: '2026-05-01T09:00:01.000Z',
     });
 
-    // Scorecard should reflect the LATEST (by recorded_at) event: strokes=5.
+    // Scorecard reflects the LAST APPENDED event (seq order): strokes=6.
     const card = await scorecardService.forBall(aliceBall);
     expect(card.holes).toHaveLength(1);
-    expect(card.holes[0].strokes).toBe(5);
+    expect(card.holes[0].strokes).toBe(6);
 });
 
 test('score_cleared wipes strokes and clears the leaderboard contribution', async () => {

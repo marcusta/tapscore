@@ -9,6 +9,7 @@ export interface Player {
     avatarUrl: null | string;
     homeClubId: null | string;
     handicapIndex: null | number;
+    deletedAt: null | string;
 }
 
 export interface PlayersApi {

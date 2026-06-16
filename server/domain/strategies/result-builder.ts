@@ -62,6 +62,12 @@ export interface BuildSlotInput {
     slotTeamGroupings: SlotTeamGrouping[];
     /** Played itinerary occurrences, in canonical ordinal order — the grid columns. */
     columns: ResultColumn[];
+    /**
+     * Per-ball effective SI (ballId → playHoleId → SI), for single-producer
+     * cards on mixed-tee rounds so the displayed SI matches each ball's own-tee
+     * stroke allocation. Omit for team/pair cards and single-tee rounds.
+     */
+    effectiveSi?: Map<string, Map<string, number>>;
 }
 
 function holeRef(c: ResultColumn): HoleRef {
@@ -110,21 +116,36 @@ function byPlayHole(r: BallResult): Map<string, BallResult['holes'][number]> {
 
 // --- shared rows -----------------------------------------------------------
 
+function parRow(cols: ResultColumn[]): GridRow {
+    return {
+        label: 'Par',
+        kind: 'par',
+        aggregate: 'sum',
+        cells: cols.map((c) => cell(c, c.par, String(c.par))),
+    };
+}
+
+/**
+ * SI row. `siByPlayHole` supplies the per-tee effective SI for a single-ball
+ * card (mixed-tee rounds): each ball's card shows the SI its own tee allocates
+ * against, matching the strokes-given/net rows. Falls back to the occurrence
+ * base SI when no per-ball map is given (team/pair cards, or single-tee rounds
+ * where per-tee SI == base — so existing output is unchanged).
+ */
+function siRow(cols: ResultColumn[], siByPlayHole?: Map<string, number>): GridRow {
+    return {
+        label: 'SI',
+        kind: 'si',
+        aggregate: 'none',
+        cells: cols.map((c) => {
+            const si = siByPlayHole?.get(c.playHoleId) ?? c.baseStrokeIndex;
+            return cell(c, si, String(si));
+        }),
+    };
+}
+
 function parSiRows(cols: ResultColumn[]): GridRow[] {
-    return [
-        {
-            label: 'Par',
-            kind: 'par',
-            aggregate: 'sum',
-            cells: cols.map((c) => cell(c, c.par, String(c.par))),
-        },
-        {
-            label: 'SI',
-            kind: 'si',
-            aggregate: 'none',
-            cells: cols.map((c) => cell(c, c.baseStrokeIndex, String(c.baseStrokeIndex))),
-        },
-    ];
+    return [parRow(cols), siRow(cols)];
 }
 
 /** Given / Gross / Net rows for one ball, ordered by the played occurrences. */
@@ -454,7 +475,11 @@ function buildIndividualCard(
 ): ScoreGridSection {
     const cols = input.columns;
     const chBall = input.slotBalls.find((b) => b.ballId === r.ballId);
-    const rows: GridRow[] = [...parSiRows(cols), ...ballScoreRows(cols, r)];
+    const rows: GridRow[] = [
+        parRow(cols),
+        siRow(cols, input.effectiveSi?.get(r.ballId)),
+        ...ballScoreRows(cols, r),
+    ];
     if (hasPoints(r)) rows.push(pointsRow(cols, r));
     if (running) rows.push(runningRow(cols, running));
 

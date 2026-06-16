@@ -25,7 +25,7 @@ import type {
     FormatBallRequirement,
     ScoreInput,
 } from '../strategies/format-strategy';
-import type { StrategyResult } from '../strategies/types';
+import type { ConfigDiagnostic, StrategyResult } from '../strategies/types';
 
 // --- Descriptor (serializable) ---------------------------------------------
 
@@ -172,11 +172,10 @@ export interface FormatSetupPlan {
 
 // --- Config validation ------------------------------------------------------
 
-export interface ConfigDiagnostic {
-    code: string;
-    message: string;
-    path?: string;
-}
+// `ConfigDiagnostic` lives in `../strategies/types` (neutral; also consumed by
+// `FormatStrategy.validateConfig`). Re-exported here so existing importers of
+// `./plugin` keep working.
+export type { ConfigDiagnostic } from '../strategies/types';
 
 // --- Stateful format actions (§17) ------------------------------------------
 //

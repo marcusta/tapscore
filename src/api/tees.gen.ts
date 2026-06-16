@@ -27,8 +27,8 @@ export interface TeeRating {
 export interface TeesApi {
     listByCourse(input: { courseId: string }): Promise<Tee[]>;
     get(input: { id: string }): Promise<null | Tee>;
-    create(input: { colour?: null | string; name: string; courseId: string; holeLengths: ({ holeNumber: number; lengthM: number; strokeIndexOverride: null | number })[]; ratings: ({ gender: 'M' | 'F'; par: number; courseRating: number; slope: number; totalLengthM: number })[] }): Promise<Tee>;
-    update(input: { name?: string; colour?: null | string; holeLengths?: ({ holeNumber: number; lengthM: number; strokeIndexOverride: null | number })[]; ratings?: ({ gender: 'M' | 'F'; par: number; courseRating: number; slope: number; totalLengthM: number })[]; id: string }): Promise<Tee>;
+    create(input: { colour?: null | string; name: string; courseId: string; holeLengths: ({ lengthM: number; strokeIndexOverride: null | number; holeNumber: number })[]; ratings: ({ gender: 'M' | 'F'; par: number; courseRating: number; slope: number; totalLengthM: number })[] }): Promise<Tee>;
+    update(input: { name?: string; colour?: null | string; holeLengths?: ({ lengthM: number; strokeIndexOverride: null | number; holeNumber: number })[]; ratings?: ({ gender: 'M' | 'F'; par: number; courseRating: number; slope: number; totalLengthM: number })[]; id: string }): Promise<Tee>;
     remove(input: { id: string }): Promise<{ ok: boolean }>;
 }
 

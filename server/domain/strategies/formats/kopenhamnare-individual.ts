@@ -18,6 +18,7 @@ import type { FormatStrategy } from '../format-strategy';
 import type {
     BallHoleResult,
     BallResult,
+    ConfigDiagnostic,
     RoundContext,
     SlotBall,
     StrategyEvent,
@@ -210,6 +211,22 @@ export const kopenhamnareIndividual: FormatStrategy = {
     },
 
     deriveSlotBalls: deriveAllowance,
+
+    validateConfig(config): ConfigDiagnostic[] {
+        if (config && typeof config === 'object' && 'handicapMode' in config) {
+            const raw = (config as { handicapMode: unknown }).handicapMode;
+            if (raw !== undefined && raw !== 'standard' && raw !== 'delta_from_min') {
+                return [
+                    {
+                        code: 'kopenhamnare_handicap_mode_invalid',
+                        message: `unknown handicapMode ${JSON.stringify(raw)} — expected 'standard' or 'delta_from_min'`,
+                        path: 'handicapMode',
+                    },
+                ];
+            }
+        }
+        return [];
+    },
 
     score({ roundContext, slotBalls, events, formatConfig }): StrategyResult {
         if (slotBalls.length !== 3) {

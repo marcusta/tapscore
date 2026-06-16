@@ -15,26 +15,32 @@
 // pair-only formats (match-play, taliban) emit no scalar totals, so their
 // single metric is nominal and never ranked.
 //
-// `planSetup` (Slice 5) translates a UI-level format selection into the
-// ball-creation needs + slot this format contributes. It is derived from the
-// descriptor's OWN ball requirement — no per-format-id table — so the
-// RoundDefinitionBuilder stays format-agnostic:
-//   - `ballMode: 'team'` (foursomes) → an `alt_shot_pair`/`avg` team ball,
-//     composed from the supplied teams.
+// `planSetup` (Slice 5; E1 2.6d-final) translates a UI-level format selection
+// into the ball-creation needs + slot this format contributes. The
+// RoundDefinitionBuilder stays format-agnostic — it just coalesces whatever the
+// plugin returns:
+//   - team-ball formats (`ballMode: 'team'`) declare their OWN `ballPlan` on the
+//     registration: foursomes → `alt_shot_pair`/`avg`, greensomes →
+//     `greensomes_pair`/weighted 60-40, scramble → `scramble_team`/by-rank (%s
+//     by team size). There is NO generic `ballMode → alt_shot_pair` rule — that
+//     mis-derived greensomes/scramble through the draft path (E1).
 //   - own-ball + `requiresSlotTeamGrouping` (better-ball, taliban, umbrella-4)
 //     → one shared `own_ball_per_player` strategy + slot-level team grouping.
 //   - plain own-ball (stroke/stableford/match/köpenhamnare/umbrella) → one
 //     shared `own_ball_per_player` strategy, no grouping.
 // Missing teams are NOT an error here — planSetup is a pure translation; the
 // compiler surfaces a structured `missing_composition`/`missing_team_grouping`
-// diagnostic when a team format is built without teams. `validateConfig`
-// returns clean for the metricless built-ins; the strategies still defend
-// themselves in `score()`.
+// diagnostic when a team format is built without teams. `validateConfig` is
+// delegated to the strategy module (co-located with the `score()` that reads the
+// config, ADR-0001); config-less formats validate clean.
 
 import type { FormatMetric, FormatPlugin, FormatSetupInput, FormatSetupPlan, PlannedSlot } from './plugin';
 import type { FormatStrategy } from '../strategies/format-strategy';
+import type { BallDerivationConfig } from '../round-definition';
 import { OWN_BALL_PER_PLAYER_ID } from '../strategies/ball-creation/own-ball-per-player';
 import { ALT_SHOT_PAIR_ID } from '../strategies/ball-creation/alt-shot-pair';
+import { GREENSOMES_PAIR_ID } from '../strategies/ball-creation/greensomes-pair';
+import { SCRAMBLE_TEAM_ID } from '../strategies/ball-creation/scramble-team';
 
 import { strokePlayIndividual } from '../strategies/formats/stroke-play-individual';
 import { stablefordIndividual } from '../strategies/formats/stableford-individual';
@@ -58,6 +64,12 @@ const POINTS_HIGH: FormatMetric[] = [{ id: 'points', label: 'Points', direction:
 // is a match/comparison section, not a ranked metric. Empty metrics is valid.
 const MATCH: FormatMetric[] = [];
 
+/** The ball-creation strategy + derivation a team format requires (E1). */
+interface BallPlanSpec {
+    strategyId: string;
+    derivationConfig: BallDerivationConfig;
+}
+
 interface BuiltinMeta {
     strategy: FormatStrategy;
     label: string;
@@ -66,6 +78,32 @@ interface BuiltinMeta {
     teamShape: string;
     metrics: FormatMetric[];
     resultDisplay?: { runningTotals?: 'normalized' };
+    /**
+     * Format-owned ball-creation plan (E1). REQUIRED for every team-ball format
+     * (`ballMode: 'team'`) — it expresses that format's ACTUAL ball composition
+     * (foursomes alt-shot/avg, greensomes weighted pair, scramble by-rank team),
+     * instead of a generic `ballMode → alt_shot_pair` rule that mis-derived
+     * greensomes/scramble. Own-ball formats omit it. Lives on the registration,
+     * so the generic builder/compiler never branches on a format id (ADR-0001).
+     */
+    ballPlan?: (input: FormatSetupInput) => BallPlanSpec;
+}
+
+/** Standard scramble by-rank allowance percentages, indexed by team size. */
+function scrambleChPcts(teamSize: number): number[] {
+    switch (teamSize) {
+        case 2:
+            return [35, 15];
+        case 3:
+            return [30, 20, 10];
+        default:
+            return [25, 20, 15, 10]; // 4-player (the common scramble)
+    }
+}
+
+/** Team size from the supplied teams (uniform in practice); 4 when absent. */
+function firstTeamSize(input: FormatSetupInput): number {
+    return input.teams?.[0]?.producerDefIds.length ?? 4;
 }
 
 const NORMALIZED_RUNNING = { runningTotals: 'normalized' as const };
@@ -123,6 +161,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'stroke_play',
         teamShape: 'foursomes',
         metrics: GROSS_NET,
+        ballPlan: () => ({ strategyId: ALT_SHOT_PAIR_ID, derivationConfig: { type: 'avg' } }),
     },
     {
         strategy: stablefordBetterBall,
@@ -164,6 +203,11 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'stroke_play',
         teamShape: 'greensome',
         metrics: GROSS_NET,
+        ballPlan: () => ({
+            strategyId: GREENSOMES_PAIR_ID,
+            // Standard greensomes allowance: lower CH 60%, higher 40%.
+            derivationConfig: { type: 'weighted', lowPct: 60, highPct: 40 },
+        }),
     },
     {
         strategy: scramble,
@@ -172,6 +216,10 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'stroke_play',
         teamShape: 'scramble',
         metrics: GROSS_NET,
+        ballPlan: (input) => ({
+            strategyId: SCRAMBLE_TEAM_ID,
+            derivationConfig: { type: 'by_rank', chPcts: scrambleChPcts(firstTeamSize(input)) },
+        }),
     },
 ];
 
@@ -188,14 +236,22 @@ function toPlugin(meta: BuiltinMeta): FormatPlugin {
             ...(input.formatConfig !== undefined ? { formatConfig: input.formatConfig } : {}),
         };
 
-        // Team-ball format (alternate-shot foursomes): the ball itself is a
-        // pair ball, derived from the two players' average index.
+        // Team-ball format: the format OWNS its ball-creation plan (foursomes
+        // alt-shot/avg, greensomes weighted pair, scramble by-rank team). The
+        // generic builder never picks the strategy — it just coalesces what the
+        // plugin returns. Every `ballMode: 'team'` builtin must declare ballPlan.
         if (req.ballMode === 'team') {
+            if (!meta.ballPlan) {
+                throw new Error(
+                    `format '${strategy.id}': ballMode 'team' requires a ballPlan declaration`,
+                );
+            }
+            const plan = meta.ballPlan(input);
             return {
                 ballStrategies: [
                     {
-                        strategyId: ALT_SHOT_PAIR_ID,
-                        derivationConfig: { type: 'avg' },
+                        strategyId: plan.strategyId,
+                        derivationConfig: plan.derivationConfig,
                         ...(input.teams ? { composition: { teams: input.teams } } : {}),
                     },
                 ],
@@ -228,9 +284,10 @@ function toPlugin(meta: BuiltinMeta): FormatPlugin {
             clientAdapterId: null,
         },
         planSetup,
-        validateConfig() {
-            return [];
-        },
+        // Config validation is owned by the strategy module (co-located with the
+        // score() that reads the config, ADR-0001). Formats with no config omit
+        // it and validate clean.
+        validateConfig: (config) => strategy.validateConfig?.(config) ?? [],
         deriveSlotBalls: (input) => strategy.deriveSlotBalls(input),
         score: (input) => strategy.score(input),
     };

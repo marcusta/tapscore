@@ -70,7 +70,10 @@ export class LeaderboardService {
         const slotRows = await this.db
             .selectFrom('slots')
             .where('round_id', '=', roundId)
-            .select(['id', 'slot_def_id'])
+            // Presentation order comes from the persisted ordinal — slot_def_id
+            // stays opaque (E3), never parsed for a `slot-<N>` index.
+            .orderBy('ordinal')
+            .select(['id', 'slot_def_id', 'ordinal'])
             .execute();
 
         if (slotRows.length === 0) {
@@ -78,9 +81,6 @@ export class LeaderboardService {
         }
 
         const slots = slotRows.map((s) => {
-            // Parse the presentation key first so a corrupt slot_def_id surfaces
-            // as a parse error (drift check) before the definition lookup.
-            const slotIndex = parseSlotIndex(roundId, s.slot_def_id);
             const fmt = formatBySlotDef.get(s.slot_def_id);
             if (!fmt) {
                 throw new Error(
@@ -90,7 +90,7 @@ export class LeaderboardService {
             return {
                 slotId: s.id,
                 slotDefId: s.slot_def_id,
-                slotIndex,
+                slotIndex: s.ordinal,
                 formatId: fmt.formatId,
                 formatConfig: fmt.formatConfig,
             };
@@ -192,7 +192,14 @@ export class LeaderboardService {
                 tees: p.tees.map((t) => ({
                     teeId: t.teeRef,
                     lengthM: t.lengthM,
-                    strokeIndexOverride: null,
+                    // `t.strokeIndex` is the EFFECTIVE per-tee occurrence SI
+                    // (round.service already resolved the override against the
+                    // occurrence base). createRoundContext does
+                    // `strokeIndexOverride ?? baseStrokeIndex`, so passing the
+                    // effective value preserves a per-tee override and is a
+                    // no-op when there is none. Must not be null — that drops
+                    // every per-occurrence SI override (E2a regression).
+                    strokeIndexOverride: t.strokeIndex,
                 })),
             })),
             allocationCycleSize: round.routeSi.allocationCycleSize,
@@ -271,6 +278,21 @@ export class LeaderboardService {
             // structured result — never a format-id branch, never a re-derivation.
             const { result } = applyRulingsToSlot(scored, rulings, slot.slotDefId);
             const allowanceLabel = allowanceLabelBySlot.get(slot.slotIndex) ?? '—';
+            // Per-ball effective SI for single-producer (own-ball) cards: shows
+            // each ball the SI its OWN tee allocates against, so the displayed SI
+            // row matches the per-tee strokes-given/net on mixed-tee rounds.
+            // Multi-producer (team/pair) balls are skipped → those cards keep the
+            // occurrence base SI.
+            const effectiveSi = new Map<string, Map<string, number>>();
+            for (const sb of slot.slotBalls) {
+                if (sb.producers.length !== 1) continue;
+                const producerDefId = sb.producers[0]!.producerDefId;
+                const byHole = new Map<string, number>();
+                for (const col of columns) {
+                    byHole.set(col.playHoleId, rc.effectiveStrokeIndexForPlayHole(producerDefId, col.playHoleId));
+                }
+                effectiveSi.set(sb.ballId, byHole);
+            }
             return buildSlotResult({
                 slotIndex: slot.slotIndex,
                 slotDefId: slot.slotDefId,
@@ -285,6 +307,7 @@ export class LeaderboardService {
                 slotBalls: slot.slotBalls,
                 slotTeamGroupings: slot.slotTeamGroupings,
                 columns,
+                effectiveSi,
             });
         });
 
@@ -366,8 +389,10 @@ export class LeaderboardService {
         const rows = await this.db
             .selectFrom('score_events')
             .where('round_id', '=', roundId)
-            .orderBy('recorded_at')
-            .orderBy('id')
+            // seq = the persisted total order (migration 030). Latest-wins inside
+            // score() then resolves to the highest-seq event per (ball, occurrence),
+            // matching the scorecard trigger — never wall-clock recorded_at.
+            .orderBy('seq')
             .select([
                 'round_id',
                 'ball_id',
@@ -441,15 +466,4 @@ export class LeaderboardService {
         }
         return events;
     }
-}
-
-/** `slot-${N}` → N. The legacy presentation key; identity comes from format_id. */
-function parseSlotIndex(roundId: string, slotDefId: string): number {
-    const m = /^slot-(\d+)$/.exec(slotDefId);
-    if (!m) {
-        throw new Error(
-            `round ${roundId}: cannot parse slot_def_id '${slotDefId}' — expected 'slot-<N>'`,
-        );
-    }
-    return Number.parseInt(m[1]!, 10);
 }

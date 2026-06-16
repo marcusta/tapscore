@@ -688,7 +688,7 @@ export class RoundService {
             .selectFrom('slot_balls as sb')
             .innerJoin('slots as s', 's.id', 'sb.slot_id')
             .where('s.round_id', '=', roundId)
-            .select(['sb.ball_id', 's.slot_def_id', 'sb.playing_handicap_snapshot'])
+            .select(['sb.ball_id', 's.slot_def_id', 's.ordinal', 'sb.playing_handicap_snapshot'])
             .execute();
 
         const teamRows = await this.db
@@ -721,10 +721,10 @@ export class RoundService {
         const slotsByBall = new Map<string, RoundBallSlot[]>();
         for (const r of slotBallRows) {
             const list = slotsByBall.get(r.ball_id) ?? [];
-            const m = /^slot-(\d+)$/.exec(r.slot_def_id);
             list.push({
                 slotDefId: r.slot_def_id,
-                slotIndex: m ? Number(m[1]) : null,
+                // Persisted ordinal — slot_def_id stays opaque, never parsed (E3).
+                slotIndex: r.ordinal,
                 playingHandicap: r.playing_handicap_snapshot,
                 teamLabel: teamByBallSlot.get(`${r.ball_id} ${r.slot_def_id}`) ?? null,
             });
@@ -1079,6 +1079,53 @@ export class RoundService {
         trx: Kysely<Database> = this.db,
     ): Promise<void> {
         await this.updateById(id, trx).set({ latest_event_id: eventId }).execute();
+    }
+
+    /**
+     * Append a new `round_definitions` version WITHOUT recompiling — the narrow
+     * primitive behind the allowance-only fast path (2.6d-final E4). Bumps the
+     * version, supersedes the prior, and stores the (already-resolved)
+     * `definitionJson` so a later full recompile reads the changed value from
+     * the definition chain. Caller runs it inside its own transaction and is
+     * responsible for the matching narrow output diff (e.g. slot_balls PHs).
+     */
+    async appendDefinitionVersion(
+        trx: Kysely<Database>,
+        roundId: string,
+        definitionJson: string,
+        sourceKind: 'allowance_override',
+        sourceEventId: string,
+    ): Promise<number> {
+        const prior = await trx
+            .selectFrom('round_definitions')
+            .select('version')
+            .where('round_id', '=', roundId)
+            .orderBy('version', 'desc')
+            .limit(1)
+            .executeTakeFirst();
+        if (prior === undefined) {
+            throw new Error(`appendDefinitionVersion: round ${roundId} has no prior definition version`);
+        }
+        const nextVersion = prior.version + 1;
+        await trx
+            .insertInto('round_definitions')
+            .values({
+                round_id: roundId,
+                version: nextVersion,
+                definition_json: definitionJson,
+                compiled_by: null,
+                superseded_by_version: null,
+                source_kind: sourceKind,
+                source_event_id: sourceEventId,
+            })
+            .execute();
+        await trx
+            .updateTable('round_definitions')
+            .set({ superseded_by_version: nextVersion })
+            .where('round_id', '=', roundId)
+            .where('version', '=', prior.version)
+            .execute();
+        return nextVersion;
     }
 
     private validateSlots(slots: LegacyFormatSlotInput[]): void {

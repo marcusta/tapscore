@@ -18,6 +18,8 @@ import { createRoundsApi } from './api/rounds.api';
 // render-lib bridge, but no HTTP routes target them.
 import { createScoreEventsApi } from './api/score-events.api';
 import { createScorecardsApi } from './api/scorecards.api';
+import { createCorrectionsApi } from './api/corrections.api';
+import { createFormatActionsApi } from './api/format-actions.api';
 import { createLeaderboardsApi } from './api/leaderboards.api';
 import { createFormatsApi } from './api/formats.api';
 import { createCourseRouteTemplatesApi } from './api/course-route-templates.api';
@@ -49,6 +51,8 @@ const {
     scorecardService,
     leaderboardService,
     friendlyRoundService,
+    correctionService,
+    formatActionService,
 } = services;
 
 await bootstrapAuth({
@@ -69,6 +73,8 @@ mount(app, '/api', createLeaderboardsApi(leaderboardService));
 mount(app, '/api', createFormatsApi());
 mount(app, '/api', createCourseRouteTemplatesApi(courseRouteTemplateService));
 mount(app, '/api', createFriendlyRoundsApi(friendlyRoundService));
+mount(app, '/api', createCorrectionsApi(correctionService));
+mount(app, '/api', createFormatActionsApi(formatActionService));
 
 // --- Dev seed ---
 

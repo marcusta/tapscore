@@ -422,9 +422,10 @@ test('ball not assigned to any slot (slot_balls missing) throws', async () => {
     );
 });
 
-test('slots row with unparseable slot_def_id throws', async () => {
-    // Drift check: a `slots` row whose `slot_def_id` doesn't match the
-    // `slot-<N>` pattern. Surface rather than silently partition to slot 0.
+test('slots row with a slot_def_id absent from the definition throws (drift check)', async () => {
+    // Drift check: slot_def_id is OPAQUE (E3) — any value is a valid id, so it is
+    // no longer "parsed". But a `slots` row whose id is absent from the round
+    // definition is still drift and must surface, not silently score.
     const ctx = await setup18();
     const { db, leaderboardService, courseId, teeId } = ctx;
     const pl = await ctx.playerService.register({ username: 'parse-p', password: 'password123', displayName: 'Parse P' });
@@ -434,11 +435,11 @@ test('slots row with unparseable slot_def_id throws', async () => {
         slots: [{ formatId: 'stroke_play_individual' }],
         players: [{ kind: 'player', id: pl.id, handicapIndex: 9 }],
     });
-    // Corrupt the slot_def_id.
+    // Corrupt the slots row's id so it no longer matches the definition.
     await db.updateTable('slots').set({ slot_def_id: 'nonsense' }).where('round_id', '=', round.id).execute();
 
     expect(leaderboardService.resultForRound(round.id)).rejects.toThrow(
-        /cannot parse slot_def_id 'nonsense'/,
+        /slot_def_id 'nonsense' is not present in the round definition/,
     );
 });
 
