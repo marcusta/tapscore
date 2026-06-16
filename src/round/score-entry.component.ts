@@ -50,6 +50,7 @@ const tpl = template(`
                 </div>
                 <div bind="metaRow" class="se-meta hidden"></div>
                 <div bind="keys" class="se-pad__grid"></div>
+                <button bind="metaDone" class="se-done hidden" type="button">Done ›</button>
             </div>
         </div>
 
@@ -308,6 +309,21 @@ export class ScoreEntryComponent extends Component {
             }
         }
         .se-pad__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+        .se-done {
+            margin-top: 6px;
+            width: 100%;
+            height: 52px;
+            border: none;
+            border-radius: 10px;
+            background: ${t('primary')};
+            color: #fff;
+            font-family: ${t('font-display')};
+            font-weight: 700;
+            font-size: 1.05rem;
+            cursor: pointer;
+            &:active { filter: brightness(1.1); }
+            &.hidden { display: none; }
+        }
         .se-key {
             height: 56px; border-radius: 10px; border: none; cursor: pointer;
             background: #2a2a2a; color: #fff; font-family: inherit;
@@ -476,6 +492,13 @@ export class ScoreEntryComponent extends Component {
             toast: {
                 className: () => (this.toastMsg.get() ? 'se-toast' : 'se-toast hidden'),
                 textContent: () => this.toastMsg.get() ?? '',
+            },
+            // When the hole expects metadata (umbrella GIR/fairway), entering a
+            // score does NOT auto-advance — this button does, so the player can
+            // mark GIR/fairway after the stroke. Hidden for strokes-only holes.
+            metaDone: {
+                className: () => (this.metaInputs().length > 0 ? 'se-done' : 'se-done hidden'),
+                onclick: () => this.advance(),
             },
         });
 
@@ -721,7 +744,9 @@ export class ScoreEntryComponent extends Component {
         // COMPLETE toggle snapshot so the latest event's blob is authoritative.
         const meta = value === null ? undefined : this.metaSnapshot();
         void this.svc.setScore(ball.id, ph.playHoleId, value, meta);
-        this.advance();
+        // Strokes-only holes auto-advance for fast entry; holes that expect
+        // metadata stay put so the player can mark GIR/fairway, then tap Done.
+        if (this.metaInputs().length === 0) this.advance();
     }
 
     /** Explicit booleans for every applicable toggle (so turning one OFF persists). */
@@ -737,6 +762,14 @@ export class ScoreEntryComponent extends Component {
     private toggleMeta(key: string): void {
         const cur = this.pendingMeta.get();
         this.pendingMeta.set({ ...cur, [key]: !(cur[key] === true) });
+        // If a score is already in for this ball+hole, persist the toggle right
+        // away (re-send strokes + the full snapshot) so it survives without
+        // re-tapping the number. Before a score exists it rides on the commit.
+        const ball = this.ballsInGroup()[this.currentBallIdx.get()];
+        const ph = this.currentHole();
+        if (!ball || !ph) return;
+        const strokes = this.svc.strokesFor(ball.id, ph.playHoleId);
+        if (strokes !== null) void this.svc.setScore(ball.id, ph.playHoleId, strokes, this.metaSnapshot());
     }
 
     private metaChip(mi: MetadataInput, track: (d: () => void) => void): HTMLElement {
