@@ -263,6 +263,12 @@ export interface RoundServiceDeps {
     getCourseHoles(courseId: string): Promise<
         { holeNumber: number; par: number; strokeIndex: number }[]
     >;
+    /**
+     * Course display name, snapshotted onto the round at creation (the round is
+     * decoupled from live course data — see the snapshot-at-time-of-play rule).
+     * Optional so legacy/test stubs that pre-date the snapshot still type-check.
+     */
+    getCourseName?(courseId: string): Promise<string | null>;
     getTeeContext(teeId: string): Promise<CompilerTeeContext | null>;
     getPlayerProfile(
         playerId: string,
@@ -612,6 +618,7 @@ export class RoundService {
             window_end: string | null;
             self_organize: number;
             status: RoundStatus;
+            course_name_snapshot?: string | null;
         },
         trx: Kysely<Database> = this.db,
     ) {
@@ -930,6 +937,10 @@ export class RoundService {
             return { ok: false, diagnostics: compileResult.diagnostics };
         }
 
+        const courseNameSnapshot = this.deps?.getCourseName
+            ? await this.deps.getCourseName(def.courseId)
+            : null;
+
         await this.db.transaction().execute(async (trx) => {
             await this.insertRound(
                 {
@@ -943,6 +954,7 @@ export class RoundService {
                     window_end: def.windowEnd ?? null,
                     self_organize: def.selfOrganize ? 1 : 0,
                     status: 'not_started',
+                    course_name_snapshot: courseNameSnapshot,
                 },
                 trx,
             ).execute();

@@ -83,6 +83,22 @@ test('GATE: a mixed draft (stableford + better-ball + foursomes) creates one rou
     expect(pairBalls).toHaveLength(2);
 });
 
+test('snapshots the course name onto the created round', async () => {
+    const ctx = await setup();
+    const draft: RoundSetupDraft = {
+        courseId: ctx.courseId,
+        playedAt: '2026-06-01',
+        producers: roster(ctx.teeId, ctx.players),
+        formats: [{ formatId: 'stableford_individual' }],
+    };
+
+    const result = await ctx.roundService.createFromDraft(draft);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.round.courseNameSnapshot).toBe('Drafter');
+});
+
 test('a named "10 + first 8" route template freezes into the created round', async () => {
     const ctx = await setup();
     const route: CourseRouteTemplateRoute = {

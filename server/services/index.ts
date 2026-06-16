@@ -39,6 +39,10 @@ function buildRoundServiceDeps(
             if (!course) return [];
             return course.holes;
         },
+        async getCourseName(courseId) {
+            const course = await courseService.getById(courseId);
+            return course?.name ?? null;
+        },
         async getTeeContext(teeId): Promise<CompilerTeeContext | null> {
             const tee = await teeService.getById(teeId);
             if (!tee) return null;
