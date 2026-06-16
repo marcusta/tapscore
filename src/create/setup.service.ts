@@ -31,15 +31,25 @@ export interface FormatSlotForm {
     /** Player `key` → included? Only used for individual formats; a missing key
      * means included. Lets match play pick its 2, köpenhamnare/umbrella their 3. */
     includeByPlayer: Record<number, boolean>;
+    /**
+     * `key` of a team-composition slot whose balls THIS slot scores (ADR-0002 —
+     * e.g. match play over the scramble teams). Undefined ⇒ scores own balls.
+     * Only meaningful for `scoresAnyBall` individual formats.
+     */
+    scoresFrom?: number;
 }
 
 /** One element of the draft's `formats[]` array. */
 interface DraftFormat {
     formatId: string;
+    /** Stable id so another format can reference this slot's balls (ADR-0002). */
+    id?: string;
     allowanceConfig?: AllowanceConfig;
     producerDefIds?: string[];
     teams?: { label: string; producerDefIds: string[] }[];
     formatConfig?: unknown;
+    /** Score another slot's balls instead of creating own-balls (ADR-0002). */
+    ballsFrom?: { ref: string };
 }
 
 const TEAM_LETTERS = 'ABCDEFGH';
@@ -209,11 +219,42 @@ export class SetupService {
     /** Change a slot's format; (re)auto-assign teams when the new format needs them. */
     setSlotFormat(key: number, formatId: string): void {
         const teamByPlayer = this.catalog.needsTeams(formatId) ? this.autoAssign(formatId) : {};
-        this.patchFormatSlot(key, { formatId, teamByPlayer });
+        // A format that can't score a composition drops any stale composition target.
+        const patch: Partial<Omit<FormatSlotForm, 'key'>> = { formatId, teamByPlayer };
+        if (!this.canScoreFromComposition(formatId)) patch.scoresFrom = undefined;
+        this.patchFormatSlot(key, patch);
     }
 
     slotByKey(key: number): FormatSlotForm | null {
         return this.formatSlots.get().find((s) => s.key === key) ?? null;
+    }
+
+    // --- Composition scoring (ADR-0002) ---
+
+    /** A format may score another composition's balls if it opts into `scoresAnyBall`. */
+    canScoreFromComposition(formatId: string): boolean {
+        return this.catalog.byId(formatId)?.scoresAnyBall === true;
+    }
+
+    /** The team-composition slots in the round (scramble/greensomes/foursomes) — the
+     * available "Scores" targets, each labelled by its format. Excludes `selfKey`. */
+    compositionSlots(selfKey: number): { key: number; label: string }[] {
+        return this.formatSlots
+            .get()
+            .filter((s) => s.key !== selfKey && this.catalog.classifyId(s.formatId)?.kind === 'team_ball')
+            .map((s) => ({ key: s.key, label: this.catalog.byId(s.formatId)?.label ?? s.formatId }));
+    }
+
+    /** True when this slot is a valid composition-scoring slot (target still exists). */
+    scoresFromValid(slot: FormatSlotForm): boolean {
+        if (slot.scoresFrom === undefined) return false;
+        if (!this.canScoreFromComposition(slot.formatId)) return false;
+        return this.compositionSlots(slot.key).some((c) => c.key === slot.scoresFrom);
+    }
+
+    /** Set (or clear, with null) this slot's composition target. */
+    setScoresFrom(key: number, target: number | null): void {
+        this.patchFormatSlot(key, { scoresFrom: target ?? undefined });
     }
 
     // --- Allowance band editing ---
@@ -434,8 +475,18 @@ export class SetupService {
         const defIdByKey = new Map<number, string>();
         roster.forEach((p, i) => defIdByKey.set(p.key, `p${i + 1}`));
         return this.formatSlots.get().map((slot) => {
+            // Scoring-only slot (ADR-0002): score a composition's balls. No own
+            // teams/producers/allowance — it inherits the composition's handicaps.
+            if (slot.scoresFrom !== undefined && this.scoresFromValid(slot)) {
+                return {
+                    formatId: slot.formatId,
+                    id: String(slot.key),
+                    ballsFrom: { ref: String(slot.scoresFrom) },
+                };
+            }
             const entry: DraftFormat = {
                 formatId: slot.formatId,
+                id: String(slot.key),
                 allowanceConfig: this.buildAllowance(slot),
             };
             if (this.catalog.needsTeams(slot.formatId)) {

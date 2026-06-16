@@ -78,6 +78,11 @@ const fslotTpl = template(`
         </div>
         <p bind="desc" class="fslot__desc"></p>
 
+        <div bind="scoresWrap" class="fslot__group">
+            <span class="fslot__label">Scores</span>
+            <div bind="scores"></div>
+        </div>
+
         <div bind="teamsWrap" class="fslot__group">
             <span class="fslot__label">Teams</span>
             <div bind="teamRows" class="fslot__teamrows"></div>
@@ -88,7 +93,7 @@ const fslotTpl = template(`
             <div bind="includeRows" class="fslot__teamrows"></div>
         </div>
 
-        <div class="fslot__group">
+        <div bind="allowanceWrap" class="fslot__group">
             <span class="fslot__label">Allowance</span>
             <div class="fslot__seg">
                 <button bind="flatBtn" type="button">Flat</button>
@@ -512,6 +517,14 @@ export class CreateComponent extends Component {
         const slot = () => this.svc.slotByKey(key);
         const formatId = () => slot()?.formatId ?? '';
         const mode = () => slot()?.allowanceMode ?? 'flat';
+        // Scoring a team composition (ADR-0002): the slot inherits the teams +
+        // handicaps, so its own team/subset/allowance editors are irrelevant.
+        const scoringComposition = () => {
+            const sl = slot();
+            return sl ? this.svc.scoresFromValid(sl) : false;
+        };
+        const hasCompositionTargets = () =>
+            this.svc.canScoreFromComposition(formatId()) && this.svc.compositionSlots(key).length > 0;
 
         const el = this.wireEl(
             fslotTpl,
@@ -520,9 +533,15 @@ export class CreateComponent extends Component {
                 desc: {
                     textContent: () => this.svc.catalog.byId(formatId())?.description ?? '',
                 },
-                teamsWrap: { hidden: () => !this.svc.catalog.needsTeams(formatId()) },
+                scoresWrap: { hidden: () => !hasCompositionTargets() },
+                teamsWrap: {
+                    hidden: () => !this.svc.catalog.needsTeams(formatId()) || scoringComposition(),
+                },
                 // Individual formats get a subset picker instead of a team editor.
-                includeWrap: { hidden: () => this.svc.catalog.needsTeams(formatId()) },
+                includeWrap: {
+                    hidden: () => this.svc.catalog.needsTeams(formatId()) || scoringComposition(),
+                },
+                allowanceWrap: { hidden: () => scoringComposition() },
                 flatBtn: {
                     className: () => (mode() === 'flat' ? 'on' : ''),
                     onclick: () => this.svc.patchFormatSlot(key, { allowanceMode: 'flat' }),
@@ -563,6 +582,23 @@ export class CreateComponent extends Component {
             ),
             options: {
                 get: () => this.svc.catalog.descriptors.get().map((d) => ({ value: d.id, label: d.label })),
+            },
+        });
+
+        // "Scores" target — own balls (Each player) or a team composition's balls.
+        this.mountSelect(this.ref(el, 'scores'), track, {
+            value: this.bound(
+                track,
+                () => String(slot()?.scoresFrom ?? -1),
+                (v) => this.svc.setScoresFrom(key, Number(v) < 0 ? null : Number(v)),
+            ),
+            options: {
+                get: () => {
+                    const opts: SelectOption[] = [{ value: '-1', label: 'Each player' }];
+                    for (const c of this.svc.compositionSlots(key))
+                        opts.push({ value: String(c.key), label: `${c.label} teams` });
+                    return opts;
+                },
             },
         });
 
