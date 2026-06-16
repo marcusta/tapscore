@@ -1,0 +1,753 @@
+import { Component, Computed, Signal, effect, template } from '@basics/core/client/core';
+import { t } from '../theme';
+import { s } from '../css';
+import { RoundViewService } from './round.service';
+import { clampIndex, stepsFromDrag } from './hole-carousel';
+import type { RoundBall } from '../api/friendly-rounds.gen';
+
+const ITEM_WIDTH = 76;
+const ORD_WORDS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
+
+const tpl = template(`
+    <div bind="root" class="se hidden">
+        <div bind="groupPills" class="se__groups"></div>
+
+        <div bind="viewport" class="se__carousel">
+            <div bind="track" class="se__track"></div>
+        </div>
+
+        <div bind="rows" class="se__rows"></div>
+
+        <div bind="modal" class="se-modal hidden">
+            <div class="se-modal__head">
+                <button bind="close" class="se-modal__close" type="button">✕</button>
+                <span bind="modalTitle" class="se-modal__title"></span>
+                <span class="se-modal__spacer"></span>
+            </div>
+            <div bind="modalList" class="se-modal__list"></div>
+            <div class="se-pad">
+                <div bind="extended" class="se-pad__ext hidden">
+                    <div class="se-pad__ext-row">
+                        <button bind="extMinus" class="se-pad__ext-step" type="button">−</button>
+                        <span bind="extVal" class="se-pad__ext-val"></span>
+                        <button bind="extPlus" class="se-pad__ext-step" type="button">+</button>
+                    </div>
+                    <div class="se-pad__ext-actions">
+                        <button bind="extCancel" class="se-pad__ext-cancel" type="button">Cancel</button>
+                        <button bind="extOk" class="se-pad__ext-ok" type="button">✓</button>
+                    </div>
+                </div>
+                <div bind="keys" class="se-pad__grid"></div>
+            </div>
+        </div>
+
+        <div bind="toast" class="se-toast hidden"></div>
+    </div>
+`);
+
+const holeTpl = template(`
+    <button bind="item" class="se-hole" type="button">
+        <span bind="hnum" class="se-hole__num"></span>
+        <span bind="hpar" class="se-hole__par"></span>
+    </button>
+`);
+
+const rowTpl = template(`
+    <div class="se-row">
+        <div class="se-row__who">
+            <span bind="name" class="se-row__name"></span>
+            <span bind="topar" class="se-row__topar"></span>
+        </div>
+        <div class="se-row__scores">
+            <span bind="prev" class="se-row__prev"></span>
+            <button bind="circle" class="se-row__circle" type="button"><span bind="cval"></span></button>
+        </div>
+    </div>
+`);
+
+const mrowTpl = template(`
+    <button bind="mrow" class="se-mrow" type="button">
+        <div class="se-mrow__who">
+            <span bind="mname" class="se-mrow__name"></span>
+            <span bind="mhcp" class="se-mrow__hcp"></span>
+        </div>
+        <div bind="mcircle" class="se-mrow__circle"><span bind="mval"></span></div>
+    </button>
+`);
+
+const keyTpl = template(`
+    <button bind="key" class="se-key" type="button">
+        <span bind="num" class="se-key__num"></span>
+        <span bind="lbl" class="se-key__lbl"></span>
+    </button>
+`);
+
+interface PointerState {
+    id: number;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastTime: number;
+    velocity: number;
+    horiz: boolean;
+}
+
+/**
+ * The trust-based on-course score-entry experience for `/round?token=`, ported
+ * from golf-serie's custom mobile ScoreEntry: a swipeable hole-header carousel,
+ * tappable per-player score circles with running to-par, and a fullscreen dark
+ * keypad (par-aware labels, 10+ stepper, clear→no-result, pickup→0) that
+ * auto-advances to the next unscored ball and then the next hole.
+ */
+export class ScoreEntryComponent extends Component {
+    static styles = `
+        .se {
+            margin-top: ${s('xl')};
+            &.hidden { display: none; }
+        }
+
+        .se__groups {
+            display: flex;
+            gap: ${s('sm')};
+            margin-bottom: ${s('md')};
+            &.hidden { display: none; }
+
+            & .se__pill {
+                border: 1px solid ${t('border')};
+                border-radius: ${t('radius-pill')};
+                background: ${t('btn-bg')};
+                color: ${t('text')};
+                font-family: inherit;
+                font-size: 0.8rem;
+                font-weight: 600;
+                padding: ${s('xs')} ${s('md')};
+                cursor: pointer;
+                &.active { background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')}; }
+            }
+        }
+
+        .se__carousel {
+            position: relative;
+            height: 64px;
+            overflow: hidden;
+            border-radius: ${t('radius')};
+            background: ${t('surface-sunken')};
+            border: 1px solid ${t('border')};
+            touch-action: pan-y;
+            user-select: none;
+        }
+        .se__track {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: calc(50% - ${ITEM_WIDTH / 2}px);
+            display: flex;
+            align-items: center;
+            will-change: transform;
+        }
+        .se-hole {
+            flex: 0 0 ${ITEM_WIDTH}px;
+            width: ${ITEM_WIDTH}px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1px;
+            background: none;
+            border: none;
+            font-family: inherit;
+            cursor: pointer;
+            opacity: 0.45;
+            transform: scale(0.86);
+            transition: opacity 180ms ease, transform 180ms ease;
+
+            &.active { opacity: 1; transform: scale(1); }
+
+            & .se-hole__num {
+                font-family: ${t('font-display')};
+                font-weight: 700;
+                font-size: 1.2rem;
+                color: ${t('text')};
+            }
+            & .se-hole__par {
+                font-size: 0.7rem;
+                color: ${t('text-muted')};
+            }
+        }
+
+        .se__rows {
+            margin-top: ${s('sm')};
+            border-top: 1px solid ${t('border')};
+        }
+        .se-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: ${s('md')};
+            padding: ${s('md')} ${s('xs')};
+            border-bottom: 1px solid ${t('border')};
+
+            & .se-row__who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            & .se-row__name {
+                font-family: ${t('font-display')};
+                font-weight: 600;
+                font-size: 1.05rem;
+                color: ${t('text')};
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            & .se-row__topar { font-size: 0.8rem; font-weight: 600; }
+
+            & .se-row__scores { display: flex; align-items: center; gap: ${s('md')}; flex-shrink: 0; }
+            & .se-row__prev {
+                width: 28px; text-align: center;
+                font-family: ${t('font-display')}; font-weight: 700; font-size: 1.05rem;
+                color: ${t('text-muted')};
+                font-variant-numeric: tabular-nums;
+            }
+            & .se-row__circle {
+                width: 48px; height: 48px; border-radius: 999px;
+                border: none; cursor: pointer;
+                background: ${t('accent-soft')};
+                font-family: ${t('font-display')}; font-weight: 700; font-size: 1.25rem;
+                color: ${t('primary')};
+                font-variant-numeric: tabular-nums;
+                transition: background 0.15s;
+                &:active { background: ${t('accent')}; }
+                &.empty { color: ${t('text-muted')}; background: ${t('surface-sunken')}; }
+            }
+        }
+        .se-row__topar.under { color: ${t('under-par')}; }
+        .se-row__topar.over { color: ${t('over-par')}; }
+        .se-row__topar.even { color: ${t('text-muted')}; }
+
+        /* --- Fullscreen dark keypad modal --- */
+        .se-modal {
+            position: fixed; inset: 0; z-index: 50;
+            display: flex; flex-direction: column;
+            background: #121212; color: #fff;
+            &.hidden { display: none; }
+        }
+        .se-modal__head {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: ${s('md')} ${s('lg')};
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+
+            & .se-modal__close {
+                background: none; border: none; color: #fff; font-size: 1.3rem;
+                width: 40px; height: 40px; border-radius: 999px; cursor: pointer;
+                &:active { background: rgba(255,255,255,0.1); }
+            }
+            & .se-modal__title { font-family: ${t('font-display')}; font-weight: 700; font-size: 1.1rem; }
+            & .se-modal__spacer { width: 40px; }
+        }
+        .se-modal__list { flex: 1; overflow-y: auto; }
+        .se-mrow {
+            width: 100%;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: ${s('lg')};
+            background: none; border: none; border-left: 4px solid transparent;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            color: #fff; font-family: inherit; cursor: pointer; text-align: left;
+
+            &.sel { border-left-color: ${t('primary')}; background: rgba(93,155,117,0.14); }
+
+            & .se-mrow__who { display: flex; flex-direction: column; gap: 2px; }
+            & .se-mrow__name { font-family: ${t('font-display')}; font-weight: 600; font-size: 1rem; }
+            & .se-mrow__hcp { font-size: 0.8rem; color: rgba(255,255,255,0.55); }
+
+            & .se-mrow__circle {
+                width: 52px; height: 52px; border-radius: 999px;
+                display: flex; align-items: center; justify-content: center;
+                background: ${t('primary')};
+                font-family: ${t('font-display')}; font-weight: 700; font-size: 1.25rem;
+                font-variant-numeric: tabular-nums;
+            }
+            &.sel .se-mrow__circle { background: #fff; color: ${t('primary')}; }
+        }
+
+        .se-pad { position: relative; padding: ${s('sm')} ${s('sm')} ${s('xl')}; background: #1c1c1e; }
+        .se-pad__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+        .se-key {
+            height: 56px; border-radius: 10px; border: none; cursor: pointer;
+            background: #2a2a2a; color: #fff; font-family: inherit;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            &:active { background: #3a3a3a; }
+            &.par { background: ${t('primary')}; }
+            &.clear { color: ${t('error')}; }
+            &.muted { color: rgba(255,255,255,0.5); }
+
+            & .se-key__num { font-size: 1.3rem; font-weight: 700; font-family: ${t('font-display')}; }
+            & .se-key__lbl { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.75; margin-top: 1px; }
+        }
+
+        .se-pad__ext {
+            position: absolute; inset: 0; z-index: 10;
+            background: #1c1c1e; display: flex; flex-direction: column;
+            padding: ${s('sm')} ${s('sm')} ${s('xl')};
+            &.hidden { display: none; }
+
+            & .se-pad__ext-row { flex: 1; display: flex; align-items: center; justify-content: center; gap: ${s('xl')}; }
+            & .se-pad__ext-step {
+                width: 60px; height: 60px; border-radius: 999px; border: none; cursor: pointer;
+                background: #2a2a2a; color: #fff; font-size: 1.8rem; line-height: 1;
+                &:active { background: #3a3a3a; }
+            }
+            & .se-pad__ext-val { width: 72px; text-align: center; font-family: ${t('font-display')}; font-weight: 700; font-size: 2.6rem; color: #fff; }
+            & .se-pad__ext-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+            & .se-pad__ext-cancel { height: 52px; border-radius: 10px; border: none; cursor: pointer; background: #2a2a2a; color: #fff; font-weight: 600; font-family: inherit; }
+            & .se-pad__ext-ok { height: 52px; border-radius: 10px; border: none; cursor: pointer; background: ${t('primary')}; color: #fff; font-size: 1.3rem; }
+        }
+
+        .se-toast {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            z-index: 60;
+            background: ${t('primary')}; color: ${t('primary-text')};
+            font-family: ${t('font-display')}; font-weight: 700;
+            padding: ${s('md')} ${s('xl')}; border-radius: ${t('radius')};
+            box-shadow: ${t('shadow-elevated')};
+            &.hidden { display: none; }
+        }
+    `;
+
+    private svc = this.inject(RoundViewService);
+
+    private holeIdx = new Signal(0);
+    private groupIdx = new Signal(0);
+    private modalOpen = new Signal(false);
+    private currentBallIdx = new Signal(0);
+    private extendedOpen = new Signal(false);
+    private extendedScore = new Signal(10);
+    private toastMsg = new Signal<string | null>(null);
+    private dragOffset = new Signal(0);
+    private dragging = new Signal(false);
+    private ptr: PointerState | null = null;
+    private advanceTimer: ReturnType<typeof setTimeout> | null = null;
+    private flashTimer: ReturnType<typeof setTimeout> | null = null;
+
+    private hasScoring = new Computed(() => this.svc.balls.get().length > 0);
+
+    // --- Itinerary navigation (tracked reads) ---
+    private groups = () => this.svc.round.get()?.playingGroups ?? [];
+    private group = () => {
+        const gs = this.groups();
+        return gs[this.groupIdx.get()] ?? gs[0] ?? null;
+    };
+    private playedOrder = () => this.group()?.playedOrder ?? [];
+    private holeIndex = () => clampIndex(this.holeIdx.get(), this.playedOrder().length);
+    private currentHole = () => this.playedOrder()[this.holeIndex()] ?? null;
+    private playHoleById = (id: string) =>
+        this.svc.round.get()?.playHoles.find((p) => p.id === id) ?? null;
+    private ballsInGroup = (): RoundBall[] => {
+        const g = this.group();
+        if (!g) return [];
+        const byId = new Map(this.svc.balls.get().map((b) => [b.id, b]));
+        return g.ballIds.map((id) => byId.get(id)).filter((b): b is RoundBall => !!b);
+    };
+
+    private parFor = (playHoleId: string | null) =>
+        (playHoleId ? this.playHoleById(playHoleId)?.par : null) ?? 4;
+
+    /** "7" or "7 (1st)" when a physical hole is played more than once. */
+    private occLabel = (playHoleId: string): string => {
+        const r = this.svc.round.get();
+        const ph = r?.playHoles.find((p) => p.id === playHoleId);
+        if (!r || !ph) return '';
+        const same = r.playHoles
+            .filter((p) => p.courseHoleNumber === ph.courseHoleNumber)
+            .sort((a, b) => a.ordinal - b.ordinal);
+        if (same.length === 1) return `${ph.courseHoleNumber}`;
+        const idx = same.findIndex((p) => p.id === playHoleId);
+        return `${ph.courseHoleNumber} (${ORD_WORDS[idx] ?? `${idx + 1}th`})`;
+    };
+
+    private ballName = (b: RoundBall) =>
+        b.players.map((p) => p.displayName).join(' & ') || b.label || 'Ball';
+
+    /** Strokes display: no-result → "–", pickup(0) → "0", else the count. */
+    private displayScore = (strokes: number | null): string =>
+        strokes === null ? '–' : String(strokes);
+
+    /** Running to-par over scored holes (>0 strokes; pickup/no-result excluded). */
+    private toParValue = (ball: RoundBall): number | null => {
+        let shots = 0;
+        let par = 0;
+        let any = false;
+        for (const occ of this.playedOrder()) {
+            const st = this.svc.strokesFor(ball.id, occ.playHoleId);
+            if (st !== null && st > 0) {
+                shots += st;
+                par += this.parFor(occ.playHoleId);
+                any = true;
+            }
+        }
+        return any ? shots - par : null;
+    };
+
+    private toParText = (ball: RoundBall): string => {
+        const v = this.toParValue(ball);
+        return v === null ? '–' : v === 0 ? 'E' : v > 0 ? `+${v}` : `${v}`;
+    };
+    private toParClass = (ball: RoundBall): string => {
+        const v = this.toParValue(ball);
+        const tone = v === null || v === 0 ? 'even' : v < 0 ? 'under' : 'over';
+        return `se-row__topar ${tone}`;
+    };
+
+    private scoreLabel = (score: number, par: number): string => {
+        if (score === 1) return 'HIO';
+        const d = score - par;
+        if (d <= -4 || d >= 5) return 'OTHER';
+        return (
+            { '-3': 'ALBA', '-2': 'EAGLE', '-1': 'BIRDIE', '0': 'PAR', '1': 'BOGEY', '2': 'DOUBLE', '3': 'TRIPLE', '4': 'QUAD' } as Record<string, string>
+        )[String(d)] ?? '';
+    };
+
+    render(): DocumentFragment {
+        // Clear any pending advance/flash timers when the view tears down.
+        this.track(() => {
+            if (this.advanceTimer) clearTimeout(this.advanceTimer);
+            if (this.flashTimer) clearTimeout(this.flashTimer);
+        });
+        // Keep the selected ball in range as the group (and its ball count) changes.
+        this.track(
+            effect(() => {
+                const n = this.ballsInGroup().length;
+                if (n > 0 && this.currentBallIdx.get() >= n) this.currentBallIdx.set(0);
+            }),
+        );
+
+        const frag = this.wire(tpl, {
+            root: { className: () => (this.hasScoring.get() ? 'se' : 'se hidden') },
+            close: { onclick: () => this.modalOpen.set(false) },
+            modal: { className: () => (this.modalOpen.get() ? 'se-modal' : 'se-modal hidden') },
+            modalTitle: () => {
+                const ph = this.currentHole();
+                return ph ? `Hole ${this.occLabel(ph.playHoleId)} · Par ${this.parFor(ph.playHoleId)}` : '';
+            },
+            extended: { className: () => (this.extendedOpen.get() ? 'se-pad__ext' : 'se-pad__ext hidden') },
+            extVal: () => String(this.extendedScore.get()),
+            extMinus: { onclick: () => this.extendedScore.set(Math.max(10, this.extendedScore.get() - 1)) },
+            extPlus: { onclick: () => this.extendedScore.set(this.extendedScore.get() + 1) },
+            extCancel: { onclick: () => this.extendedOpen.set(false) },
+            extOk: {
+                onclick: () => {
+                    this.extendedOpen.set(false);
+                    this.commit(this.extendedScore.get());
+                },
+            },
+            toast: {
+                className: () => (this.toastMsg.get() ? 'se-toast' : 'se-toast hidden'),
+                textContent: () => this.toastMsg.get() ?? '',
+            },
+        });
+
+        // Group pills (only when >1 playing group).
+        const pillsHost = this.ref(frag, 'groupPills');
+        this.track(
+            effect(() => {
+                pillsHost.className = this.groups().length > 1 ? 'se__groups' : 'se__groups hidden';
+            }),
+        );
+        this.$each(
+            pillsHost,
+            new Computed(() => (this.groups().length > 1 ? this.groups() : [])),
+            (_g, i, track) => this.groupPill(i, track),
+            (_g, i) => i,
+        );
+
+        // Carousel — pointer-driven hole nav + a transform effect.
+        const viewport = this.ref(frag, 'viewport');
+        const track = this.ref(frag, 'track');
+        this.bindCarouselPointer(viewport);
+        this.track(
+            effect(() => {
+                const idx = this.holeIndex();
+                const drag = this.dragOffset.get();
+                track.style.transition = this.dragging.get()
+                    ? 'none'
+                    : 'transform 320ms cubic-bezier(0.22, 1, 0.36, 1)';
+                track.style.transform = `translateX(${-(idx * ITEM_WIDTH) + drag}px)`;
+            }),
+        );
+        this.$each(
+            this.ref(frag, 'track'),
+            new Computed(() => this.playedOrder()),
+            (occ, i, t2) => this.holeItem(occ.playHoleId, i, t2),
+            (occ) => occ.playHoleId,
+        );
+
+        // Main player rows for the current hole.
+        this.$each(
+            this.ref(frag, 'rows'),
+            new Computed(() => {
+                const po = this.playedOrder();
+                const idx = this.holeIndex();
+                const ph = po[idx];
+                if (!ph) return [] as { ball: RoundBall; ph: string; prevPh: string | null }[];
+                const prevPh = idx > 0 ? po[idx - 1]!.playHoleId : null;
+                return this.ballsInGroup().map((ball) => ({ ball, ph: ph.playHoleId, prevPh }));
+            }),
+            (d, _i, t2) => this.playerRow(d.ball, d.ph, d.prevPh, t2),
+            (d) => `${d.ball.id}|${d.ph}`,
+        );
+
+        // Modal player list (stable per ball; reactive score + selection).
+        this.$each(
+            this.ref(frag, 'modalList'),
+            new Computed(() => this.ballsInGroup()),
+            (ball, i, t2) => this.modalRow(ball, i, t2),
+            (ball) => ball.id,
+        );
+
+        // Keypad — 1..9, then 10+, clear, pickup.
+        const keysHost = this.ref(frag, 'keys');
+        for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
+            keysHost.appendChild(this.numberKey(n));
+        }
+        keysHost.appendChild(this.specialKey('10+', '', 'se-key', () => this.openExtended()));
+        keysHost.appendChild(this.specialKey('✕', 'clear', 'se-key clear', () => this.commit(null)));
+        keysHost.appendChild(this.specialKey('0', 'pick up', 'se-key muted', () => this.commit(0)));
+
+        return frag;
+    }
+
+    private groupPill(index: number, track: (d: () => void) => void): HTMLElement {
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.textContent = `Group ${index + 1}`;
+        el.onclick = () => {
+            this.groupIdx.set(index);
+            this.holeIdx.set(0);
+            this.currentBallIdx.set(0);
+        };
+        track(
+            effect(() => {
+                el.className = this.groupIdx.get() === index ? 'se__pill active' : 'se__pill';
+            }),
+        );
+        return el;
+    }
+
+    private holeItem(playHoleId: string, index: number, track: (d: () => void) => void): HTMLElement {
+        return this.wireEl(
+            holeTpl,
+            {
+                item: {
+                    className: () => (this.holeIndex() === index ? 'se-hole active' : 'se-hole'),
+                    onclick: () => this.holeIdx.set(index),
+                },
+                hnum: { textContent: this.occLabel(playHoleId) },
+                hpar: { textContent: `Par ${this.parFor(playHoleId)}` },
+            },
+            track,
+        );
+    }
+
+    private playerRow(
+        ball: RoundBall,
+        playHoleId: string,
+        prevPlayHoleId: string | null,
+        track: (d: () => void) => void,
+    ): HTMLElement {
+        return this.wireEl(
+            rowTpl,
+            {
+                name: { textContent: this.ballName(ball) },
+                topar: {
+                    textContent: () => this.toParText(ball),
+                    className: () => this.toParClass(ball),
+                },
+                prev: {
+                    textContent: () =>
+                        prevPlayHoleId ? this.displayScore(this.svc.strokesFor(ball.id, prevPlayHoleId)) : '',
+                },
+                cval: { textContent: () => this.displayScore(this.svc.strokesFor(ball.id, playHoleId)) },
+                circle: {
+                    className: () =>
+                        this.svc.strokesFor(ball.id, playHoleId) === null
+                            ? 'se-row__circle empty'
+                            : 'se-row__circle',
+                    onclick: () => this.openModalForBall(ball.id),
+                },
+            },
+            track,
+        );
+    }
+
+    private modalRow(ball: RoundBall, index: number, track: (d: () => void) => void): HTMLElement {
+        const hcp =
+            ball.players.length > 1
+                ? `Team · CH ${ball.courseHandicap}`
+                : `CH ${ball.players[0]?.courseHandicap ?? ball.courseHandicap}`;
+        return this.wireEl(
+            mrowTpl,
+            {
+                mrow: {
+                    className: () => (this.currentBallIdx.get() === index ? 'se-mrow sel' : 'se-mrow'),
+                    onclick: () => this.currentBallIdx.set(index),
+                },
+                mname: { textContent: this.ballName(ball) },
+                mhcp: { textContent: hcp },
+                mval: {
+                    textContent: () => {
+                        const ph = this.currentHole();
+                        return ph ? this.displayScore(this.svc.strokesFor(ball.id, ph.playHoleId)) : '–';
+                    },
+                },
+            },
+            track,
+        );
+    }
+
+    private numberKey(n: number): HTMLElement {
+        return this.wireEl(keyTpl, {
+            key: {
+                className: () => {
+                    const ph = this.currentHole();
+                    const isPar = ph ? n === this.parFor(ph.playHoleId) : false;
+                    return isPar ? 'se-key par' : 'se-key';
+                },
+                onclick: () => this.commit(n),
+            },
+            num: { textContent: String(n) },
+            lbl: {
+                textContent: () => {
+                    const ph = this.currentHole();
+                    return ph ? this.scoreLabel(n, this.parFor(ph.playHoleId)) : '';
+                },
+            },
+        });
+    }
+
+    private specialKey(num: string, label: string, className: string, onclick: () => void): HTMLElement {
+        return this.wireEl(keyTpl, {
+            key: { className, onclick },
+            num: { textContent: num },
+            lbl: { textContent: label },
+        });
+    }
+
+    private openModalForBall(ballId: string): void {
+        const idx = this.ballsInGroup().findIndex((b) => b.id === ballId);
+        this.currentBallIdx.set(idx < 0 ? 0 : idx);
+        this.extendedOpen.set(false);
+        this.modalOpen.set(true);
+    }
+
+    private openExtended(): void {
+        this.extendedScore.set(10);
+        this.extendedOpen.set(true);
+    }
+
+    /** Record `value` for the selected ball on the current hole, then advance. */
+    private commit(value: number | null): void {
+        const balls = this.ballsInGroup();
+        const ph = this.currentHole();
+        const ball = balls[this.currentBallIdx.get()];
+        if (!ph || !ball) return;
+        void this.svc.setScore(ball.id, ph.playHoleId, value);
+        this.advance();
+    }
+
+    /**
+     * Move to the next ball with no score on this hole; once every ball is
+     * scored, flash a confirmation and advance to the next hole (keeping the
+     * keypad up for fast entry). The last hole closes the keypad.
+     */
+    private advance(): void {
+        const balls = this.ballsInGroup();
+        const ph = this.currentHole();
+        if (!ph) return;
+        const scored = (i: number) => this.svc.strokesFor(balls[i]!.id, ph.playHoleId) !== null;
+        const cur = this.currentBallIdx.get();
+        for (let i = cur + 1; i < balls.length; i++) if (!scored(i)) return this.currentBallIdx.set(i);
+        for (let i = 0; i < cur; i++) if (!scored(i)) return this.currentBallIdx.set(i);
+
+        const po = this.playedOrder();
+        const idx = this.holeIndex();
+        if (idx >= po.length - 1) {
+            this.flash('Round complete');
+            this.modalOpen.set(false);
+            return;
+        }
+        this.flash(`Hole ${this.occLabel(ph.playHoleId)} done`);
+        const fromPh = ph.playHoleId;
+        if (this.advanceTimer) clearTimeout(this.advanceTimer);
+        this.advanceTimer = setTimeout(() => {
+            this.advanceTimer = null;
+            // Only auto-advance if still on the hole that completed — a manual
+            // swipe during the pause must not yank the user to the wrong hole.
+            if (this.currentHole()?.playHoleId !== fromPh) return;
+            this.holeIdx.set(clampIndex(this.holeIndex() + 1, this.playedOrder().length));
+            this.currentBallIdx.set(0);
+        }, 700);
+    }
+
+    private flash(msg: string): void {
+        this.toastMsg.set(msg);
+        if (this.flashTimer) clearTimeout(this.flashTimer);
+        this.flashTimer = setTimeout(() => {
+            this.flashTimer = null;
+            if (this.toastMsg.get() === msg) this.toastMsg.set(null);
+        }, 1100);
+    }
+
+    private bindCarouselPointer(viewport: HTMLElement): void {
+        viewport.addEventListener('pointerdown', (e: PointerEvent) => {
+            if (this.ptr || this.playedOrder().length <= 1) return;
+            this.ptr = {
+                id: e.pointerId,
+                startX: e.clientX,
+                startY: e.clientY,
+                lastX: e.clientX,
+                lastTime: Date.now(),
+                velocity: 0,
+                horiz: false,
+            };
+            this.dragOffset.set(0);
+            viewport.setPointerCapture?.(e.pointerId);
+        });
+        viewport.addEventListener('pointermove', (e: PointerEvent) => {
+            const p = this.ptr;
+            if (!p || p.id !== e.pointerId) return;
+            const dx = e.clientX - p.startX;
+            const dy = e.clientY - p.startY;
+            if (!p.horiz) {
+                if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 8) return;
+                if (Math.abs(dx) <= 8) return;
+                p.horiz = true;
+                this.dragging.set(true);
+            }
+            const now = Date.now();
+            const elapsed = Math.max(1, now - p.lastTime);
+            p.velocity = (e.clientX - p.lastX) / elapsed;
+            p.lastX = e.clientX;
+            p.lastTime = now;
+            this.dragOffset.set(dx);
+        });
+        const end = (e: PointerEvent) => {
+            const p = this.ptr;
+            if (!p || p.id !== e.pointerId) return;
+            const dragDistance = e.clientX - p.startX;
+            const wasHoriz = p.horiz;
+            this.ptr = null;
+            this.dragging.set(false);
+            this.dragOffset.set(0);
+            viewport.releasePointerCapture?.(e.pointerId);
+            if (!wasHoriz) return;
+            const steps = stepsFromDrag({ dragDistance, velocity: p.velocity, itemWidth: ITEM_WIDTH });
+            if (steps !== 0) {
+                this.holeIdx.set(clampIndex(this.holeIndex() + steps, this.playedOrder().length));
+            }
+        };
+        viewport.addEventListener('pointerup', end);
+        viewport.addEventListener('pointercancel', (e: PointerEvent) => {
+            if (!this.ptr || this.ptr.id !== e.pointerId) return;
+            this.ptr = null;
+            this.dragging.set(false);
+            this.dragOffset.set(0);
+            viewport.releasePointerCapture?.(e.pointerId);
+        });
+    }
+}
