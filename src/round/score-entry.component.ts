@@ -4,6 +4,7 @@ import { s } from '../css';
 import { RoundViewService, ballDisplayName } from './round.service';
 import { clampIndex, stepsFromDrag } from './hole-carousel';
 import type { RoundBall } from '../api/friendly-rounds.gen';
+import type { MetadataInput } from '../api/setup.gen';
 
 // One score column / carousel cell is SLOT wide. The carousel is a clipped
 // window that shows exactly two cells — the previous and current hole —
@@ -47,6 +48,7 @@ const tpl = template(`
                         <button bind="extOk" class="se-pad__ext-ok" type="button">✓</button>
                     </div>
                 </div>
+                <div bind="metaRow" class="se-meta hidden"></div>
                 <div bind="keys" class="se-pad__grid"></div>
             </div>
         </div>
@@ -91,6 +93,8 @@ const keyTpl = template(`
         <span bind="lbl" class="se-key__lbl"></span>
     </button>
 `);
+
+const chipTpl = template(`<button bind="chip" class="se-chip" type="button"></button>`);
 
 interface PointerState {
     id: number;
@@ -284,6 +288,25 @@ export class ScoreEntryComponent extends Component {
         }
 
         .se-pad { position: relative; padding: ${s('sm')} ${s('sm')} ${s('xl')}; background: #1c1c1e; }
+        .se-meta {
+            display: flex; gap: ${s('sm')}; flex-wrap: wrap;
+            padding: 0 2px ${s('sm')};
+            &.hidden { display: none; }
+
+            & .se-chip {
+                border: 1px solid rgba(255, 255, 255, 0.25);
+                border-radius: 999px;
+                background: transparent;
+                color: rgba(255, 255, 255, 0.82);
+                font-family: inherit;
+                font-size: 0.85rem;
+                font-weight: 700;
+                padding: 8px 16px;
+                cursor: pointer;
+                &:active { background: rgba(255, 255, 255, 0.08); }
+                &.on { background: ${t('primary')}; border-color: ${t('primary')}; color: #fff; }
+            }
+        }
         .se-pad__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
         .se-key {
             height: 56px; border-radius: 10px; border: none; cursor: pointer;
@@ -337,6 +360,11 @@ export class ScoreEntryComponent extends Component {
     private currentBallIdx = new Signal(0);
     private extendedOpen = new Signal(false);
     private extendedScore = new Signal(10);
+    // Per-hole metadata toggles (umbrella GIR/fairway) for the open ball+hole,
+    // committed alongside strokes. Reseeded from stored state when the selected
+    // ball/hole changes (`lastMetaKey` guards against clobbering live toggles).
+    private pendingMeta = new Signal<Record<string, boolean>>({});
+    private lastMetaKey: string | null = null;
     private toastMsg = new Signal<string | null>(null);
     private dragOffset = new Signal(0);
     private transitioning = new Signal(false);
@@ -368,6 +396,10 @@ export class ScoreEntryComponent extends Component {
     private parFor = (playHoleId: string | null) => this.svc.parFor(playHoleId);
     private occLabel = (playHoleId: string): string => this.svc.occLabel(playHoleId);
     private ballName = (b: RoundBall) => ballDisplayName(b);
+
+    /** Boolean metadata toggles applicable to the current hole (umbrella GIR/fairway). */
+    private metaInputs = (): MetadataInput[] =>
+        this.svc.metadataInputsForHole(this.svc.currentPlayHole()).filter((m) => m.kind === 'boolean');
 
     /** Strokes display: no-result → "–", pickup(0) → "0", else the count. */
     private displayScore = (strokes: number | null): string =>
@@ -509,6 +541,42 @@ export class ScoreEntryComponent extends Component {
         keysHost.appendChild(this.specialKey('✕', 'clear', 'se-key clear', () => this.commit(null)));
         keysHost.appendChild(this.specialKey('0', 'pick up', 'se-key muted', () => this.commit(0)));
 
+        // Per-hole metadata toggles (umbrella GIR/fairway), declared by the
+        // format and scoped to the hole's par via `appliesWhen`. Absent for
+        // strokes-only rounds, so the keypad is unchanged for every other format.
+        const metaHost = this.ref(frag, 'metaRow');
+        this.track(
+            effect(() => {
+                metaHost.className = this.metaInputs().length > 0 ? 'se-meta' : 'se-meta hidden';
+            }),
+        );
+        this.$each(
+            metaHost,
+            new Computed(() => this.metaInputs()),
+            (mi, _i, track) => this.metaChip(mi, track),
+            (mi) => mi.key,
+        );
+        // Reseed the toggles from stored state whenever the open ball/hole
+        // changes (never on a same-hole cell update, so live toggles survive).
+        this.track(
+            effect(() => {
+                if (!this.modalOpen.get()) {
+                    this.lastMetaKey = null;
+                    return;
+                }
+                const ball = this.ballsInGroup()[this.currentBallIdx.get()];
+                const ph = this.currentHole();
+                if (!ball || !ph) return;
+                const key = `${ball.id}|${ph.playHoleId}`;
+                if (key === this.lastMetaKey) return;
+                this.lastMetaKey = key;
+                const seed: Record<string, boolean> = {};
+                for (const mi of this.metaInputs())
+                    seed[mi.key] = this.svc.metadataFor(ball.id, ph.playHoleId, mi.key) === true;
+                this.pendingMeta.set(seed);
+            }),
+        );
+
         return frag;
     }
 
@@ -649,8 +717,40 @@ export class ScoreEntryComponent extends Component {
         const ph = this.currentHole();
         const ball = balls[this.currentBallIdx.get()];
         if (!ph || !ball) return;
-        void this.svc.setScore(ball.id, ph.playHoleId, value);
+        // Clearing a hole carries no metadata; a real/pickup score carries the
+        // COMPLETE toggle snapshot so the latest event's blob is authoritative.
+        const meta = value === null ? undefined : this.metaSnapshot();
+        void this.svc.setScore(ball.id, ph.playHoleId, value, meta);
         this.advance();
+    }
+
+    /** Explicit booleans for every applicable toggle (so turning one OFF persists). */
+    private metaSnapshot(): Record<string, unknown> | undefined {
+        const inputs = this.metaInputs();
+        if (inputs.length === 0) return undefined;
+        const pending = this.pendingMeta.get();
+        const out: Record<string, unknown> = {};
+        for (const mi of inputs) out[mi.key] = pending[mi.key] === true;
+        return out;
+    }
+
+    private toggleMeta(key: string): void {
+        const cur = this.pendingMeta.get();
+        this.pendingMeta.set({ ...cur, [key]: !(cur[key] === true) });
+    }
+
+    private metaChip(mi: MetadataInput, track: (d: () => void) => void): HTMLElement {
+        return this.wireEl(
+            chipTpl,
+            {
+                chip: {
+                    textContent: mi.label,
+                    className: () => (this.pendingMeta.get()[mi.key] ? 'se-chip on' : 'se-chip'),
+                    onclick: () => this.toggleMeta(mi.key),
+                },
+            },
+            track,
+        );
     }
 
     /**

@@ -12,6 +12,7 @@ import { test, expect } from 'bun:test';
 import { createTestDb } from '../testing/db';
 import { registerBuiltInBallCreationStrategies } from '../domain/strategies/ball-creation';
 import { registerBuiltInFormats } from '../domain/formats';
+import { formatCatalog } from '../domain/formats/plugin';
 import type { RoundSetupDraft, DraftFormatSelection } from '../domain/round-setup/draft';
 
 async function setup() {
@@ -207,4 +208,45 @@ test('resultByToken returns the canonical RoundResult for the token round', asyn
 test('resultByToken returns null for an unknown token', async () => {
     const ctx = await setup();
     expect(await ctx.friendlyRoundService.resultByToken('no-such-token')).toBeNull();
+});
+
+test('umbrella_individual declares GIR + fairway score-entry metadata inputs', async () => {
+    await setup(); // registers the built-in formats
+    const d = formatCatalog().find((x) => x.id === 'umbrella_individual');
+    expect(d).toBeTruthy();
+    const inputs = d!.requirements.scoreEntry?.metadata ?? [];
+    expect(inputs.map((m) => m.key)).toEqual(['gir', 'fairway']);
+    // Fairway only applies on a par 4/5 — declared, not hardcoded in the client.
+    expect(inputs.find((m) => m.key === 'fairway')?.appliesWhen).toEqual({ minPar: 4 });
+    expect(inputs.find((m) => m.key === 'gir')?.appliesWhen).toBeUndefined();
+});
+
+test('appendScoreByToken carries per-hole metadata (umbrella GIR/fairway) onto the scorecard', async () => {
+    const ctx = await setup();
+    const draft = await draftFor(
+        ctx,
+        [{ name: 'Ann', index: 9 }, { name: 'Bo', index: 9 }, { name: 'Cy', index: 9 }],
+        [{ formatId: 'umbrella_individual' }],
+    );
+    const { friendlyRound, round } = await createFriendly(ctx, draft);
+    const balls = (await ctx.friendlyRoundService.ballsByToken(friendlyRound.shareToken))!;
+    const annBall = balls.find((b) => b.players.some((p) => p.displayName === 'Ann'))!;
+    const firstHole = round.playingGroups[0]!.playedOrder[0]!.playHoleId;
+
+    await ctx.friendlyRoundService.appendScoreByToken({
+        token: friendlyRound.shareToken,
+        ballId: annBall.id,
+        playHoleId: firstHole,
+        strokes: 3,
+        eventType: 'score_entered',
+        clientEventId: 'meta-1',
+        metadata: { gir: true, fairway: true },
+    });
+
+    // The materialised scorecard surfaces the latest event's metadata blob — the
+    // client seeds its GIR/fairway toggles from this.
+    const cards = (await ctx.friendlyRoundService.scorecardByToken(friendlyRound.shareToken))!;
+    const hole = cards.find((c) => c.ballId === annBall.id)!.holes.find((h) => h.playHoleId === firstHole)!;
+    expect(hole.strokes).toBe(3);
+    expect(hole.metadata).toMatchObject({ gir: true, fairway: true });
 });

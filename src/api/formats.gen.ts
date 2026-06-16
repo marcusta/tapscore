@@ -38,8 +38,21 @@ export interface FormatBallRequirement {
 
 export interface ScoreEntryCapabilities {
     strokes: boolean;
-    booleanMetadata?: string[];
-    numberMetadata?: string[];
+    metadata?: MetadataInput[];
+}
+
+export interface MetadataInput {
+    key: string;
+    label: string;
+    kind: 'number' | 'boolean';
+    appliesWhen?: MetadataApplies;
+}
+
+export interface MetadataApplies {
+    minPar?: number;
+    maxPar?: number;
+    pars?: number[];
+    holes?: number[];
 }
 
 export interface FormatsApi {

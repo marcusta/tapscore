@@ -34,7 +34,14 @@
 // delegated to the strategy module (co-located with the `score()` that reads the
 // config, ADR-0001); config-less formats validate clean.
 
-import type { FormatMetric, FormatPlugin, FormatSetupInput, FormatSetupPlan, PlannedSlot } from './plugin';
+import type {
+    FormatMetric,
+    FormatPlugin,
+    FormatSetupInput,
+    FormatSetupPlan,
+    PlannedSlot,
+    ScoreEntryCapabilities,
+} from './plugin';
 import type { FormatStrategy } from '../strategies/format-strategy';
 import type { BallDerivationConfig } from '../round-definition';
 import { OWN_BALL_PER_PLAYER_ID } from '../strategies/ball-creation/own-ball-per-player';
@@ -78,6 +85,13 @@ interface BuiltinMeta {
     teamShape: string;
     metrics: FormatMetric[];
     resultDisplay?: { runningTotals?: 'normalized' };
+    /**
+     * Per-hole metadata inputs this format consumes beyond strokes (umbrella's
+     * GIR/fairway). Declared here so the generic score-entry surface renders the
+     * controls without knowing the format — the strategy reads them back via
+     * `latestMetadata`. Absent ⇒ strokes-only.
+     */
+    scoreEntry?: ScoreEntryCapabilities;
     /**
      * Format-owned ball-creation plan (E1). REQUIRED for every team-ball format
      * (`ballMode: 'team'`) — it expresses that format's ACTUAL ball composition
@@ -153,6 +167,16 @@ const BUILTINS: BuiltinMeta[] = [
         teamShape: 'individual',
         metrics: POINTS_HIGH,
         resultDisplay: NORMALIZED_RUNNING,
+        scoreEntry: {
+            strokes: true,
+            metadata: [
+                { key: 'gir', label: 'GIR', kind: 'boolean' },
+                // Fairway only counts off the tee on a par 4/5 (the strategy
+                // ignores it on par 3s); declare the same scope so the toggle
+                // only appears where it matters.
+                { key: 'fairway', label: 'Fairway', kind: 'boolean', appliesWhen: { minPar: 4 } },
+            ],
+        },
     },
     {
         strategy: strokePlayFoursomes,
@@ -195,6 +219,8 @@ const BUILTINS: BuiltinMeta[] = [
         teamShape: 'four_ball',
         metrics: POINTS_HIGH,
         resultDisplay: NORMALIZED_RUNNING,
+        // 4-ball umbrella scores GIR only (no fairway category).
+        scoreEntry: { strokes: true, metadata: [{ key: 'gir', label: 'GIR', kind: 'boolean' }] },
     },
     {
         strategy: greensomes,
@@ -277,7 +303,7 @@ function toPlugin(meta: BuiltinMeta): FormatPlugin {
             description: meta.description,
             scoringMode: meta.scoringMode,
             teamShape: meta.teamShape,
-            requirements: { balls: req },
+            requirements: { balls: req, ...(meta.scoreEntry ? { scoreEntry: meta.scoreEntry } : {}) },
             defaults,
             metrics: meta.metrics,
             ...(meta.resultDisplay ? { resultDisplay: meta.resultDisplay } : {}),

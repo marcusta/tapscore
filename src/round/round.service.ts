@@ -1,4 +1,4 @@
-import { Computed, Signal } from '@basics/core/client/core';
+import { Computed, Signal, di } from '@basics/core/client/core';
 import { request, type RequestError } from '@basics/core/client/request';
 import { api } from '../api';
 import type {
@@ -11,6 +11,8 @@ import type {
     RoundResult,
     Scorecard,
 } from '../api/friendly-rounds.gen';
+import type { MetadataApplies, MetadataInput } from '../api/setup.gen';
+import { FormatCatalogService } from '../create/format-catalog.service';
 import { clampIndex } from './hole-carousel';
 
 const ORD_WORDS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
@@ -19,6 +21,12 @@ const ORD_WORDS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
 export interface CellState {
     /** The optimistic strokes for this cell (overrides the loaded scorecard). */
     strokes: number | null;
+    /**
+     * Optimistic per-hole metadata (GIR/fairway/…) sent on this event. The
+     * COMPLETE snapshot is carried on every score event so the latest event's
+     * blob (what the scorecard surfaces) always matches intended state.
+     */
+    metadata?: Record<string, unknown> | null;
     status: 'saving' | 'saved' | 'error';
     /** Stable across retries so a re-send dedupes server-side instead of duplicating. */
     clientEventId: string;
@@ -29,6 +37,21 @@ const cellKey = (ballId: string, playHoleId: string) => `${ballId}|${playHoleId}
 /** Joined producer names for a ball (own-ball = one name, team = "A & B"). */
 export function ballDisplayName(b: RoundBall): string {
     return b.players.map((p) => p.displayName).join(' & ') || b.label || 'Ball';
+}
+
+/**
+ * Evaluate a metadata input's `appliesWhen` predicate against a play hole's
+ * frozen par + course hole number. Absent predicate ⇒ applies everywhere; all
+ * present clauses must hold (AND). The format declares this; the client only
+ * evaluates it — no par/hole rule is hardcoded here.
+ */
+export function metadataApplies(a: MetadataApplies | undefined, par: number, hole: number): boolean {
+    if (!a) return true;
+    if (a.minPar !== undefined && par < a.minPar) return false;
+    if (a.maxPar !== undefined && par > a.maxPar) return false;
+    if (a.pars && !a.pars.includes(par)) return false;
+    if (a.holes && !a.holes.includes(hole)) return false;
+    return true;
 }
 
 /**
@@ -70,6 +93,9 @@ export class RoundViewService {
         // player's hole/group so a reload mid-round doesn't yank them to hole 1.
         const tokenChanged = token !== this.token;
         this.token = token;
+        // The score-entry surface reads each format's declared metadata inputs
+        // (umbrella GIR/fairway) from the catalog; fetch it once.
+        void di.get(FormatCatalogService).load();
         const data = await request(this.loading, this.error, () =>
             api.friendlyRounds.byToken({ token }),
         );
@@ -191,16 +217,62 @@ export class RoundViewService {
         return this.cells.get().get(cellKey(ballId, playHoleId))?.status ?? null;
     }
 
+    // --- Per-hole metadata (umbrella GIR/fairway) ---
+
+    /** Current value of one metadata key: optimistic overlay wins, else the loaded card. */
+    metadataFor(ballId: string, playHoleId: string, key: string): unknown {
+        const cell = this.cells.get().get(cellKey(ballId, playHoleId));
+        if (cell && cell.metadata !== undefined) return cell.metadata?.[key];
+        const card = this.scorecards.get().find((c) => c.ballId === ballId);
+        const hole = card?.holes.find((h) => h.playHoleId === playHoleId);
+        return hole?.metadata?.[key];
+    }
+
+    /**
+     * The metadata inputs declared across the round's formats (deduped by key —
+     * one toggle even if two formats consume GIR). Empty for strokes-only rounds.
+     */
+    metadataInputs(): MetadataInput[] {
+        const catalog = di.get(FormatCatalogService);
+        const slots = this.round.get()?.formatSlots ?? [];
+        const out: MetadataInput[] = [];
+        const seen = new Set<string>();
+        for (const slot of slots) {
+            const inputs = catalog.byId(slot.formatId)?.requirements.scoreEntry?.metadata ?? [];
+            for (const mi of inputs) {
+                if (seen.has(mi.key)) continue;
+                seen.add(mi.key);
+                out.push(mi);
+            }
+        }
+        return out;
+    }
+
+    /** Those inputs that apply on a given play hole (par/hole-scoped `appliesWhen`). */
+    metadataInputsForHole(playHole: RoundPlayHole | null): MetadataInput[] {
+        if (!playHole) return [];
+        return this.metadataInputs().filter((mi) =>
+            metadataApplies(mi.appliesWhen, playHole.par, playHole.courseHoleNumber),
+        );
+    }
+
     /**
      * Optimistically set a score and post it. A fresh edit mints a new
      * `clientEventId`; a retry of a failed cell reuses the existing one so the
      * server dedupes. `strokes === null` clears the score (a `score_cleared` event).
+     * `metadata` (GIR/fairway/…) rides on the same event — pass the COMPLETE
+     * snapshot for the hole, since the scorecard surfaces the latest event's blob.
      */
-    async setScore(ballId: string, playHoleId: string, strokes: number | null): Promise<void> {
+    async setScore(
+        ballId: string,
+        playHoleId: string,
+        strokes: number | null,
+        metadata?: Record<string, unknown> | null,
+    ): Promise<void> {
         const key = cellKey(ballId, playHoleId);
         const clientEventId = crypto.randomUUID();
-        this.patchCell(key, { strokes, status: 'saving', clientEventId });
-        await this.post(ballId, playHoleId, strokes, clientEventId);
+        this.patchCell(key, { strokes, metadata, status: 'saving', clientEventId });
+        await this.post(ballId, playHoleId, strokes, metadata, clientEventId);
     }
 
     /** Re-send a cell that failed, reusing its `clientEventId` (idempotent). */
@@ -209,13 +281,14 @@ export class RoundViewService {
         const cell = this.cells.get().get(key);
         if (!cell) return;
         this.patchCell(key, { ...cell, status: 'saving' });
-        await this.post(ballId, playHoleId, cell.strokes, cell.clientEventId);
+        await this.post(ballId, playHoleId, cell.strokes, cell.metadata, cell.clientEventId);
     }
 
     private async post(
         ballId: string,
         playHoleId: string,
         strokes: number | null,
+        metadata: Record<string, unknown> | null | undefined,
         clientEventId: string,
     ): Promise<void> {
         if (!this.token) return;
@@ -228,6 +301,7 @@ export class RoundViewService {
                 strokes,
                 eventType: strokes === null ? 'score_cleared' : 'score_entered',
                 clientEventId,
+                ...(metadata != null ? { metadata } : {}),
             });
             const cell = this.cells.get().get(key);
             if (cell && cell.clientEventId === clientEventId) {

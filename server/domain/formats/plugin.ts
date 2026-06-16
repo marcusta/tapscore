@@ -49,15 +49,46 @@ export interface FormatMetric {
 }
 
 /**
+ * Where a per-hole metadata input applies — a SERIALIZABLE predicate the
+ * generic client evaluates against a play-hole's frozen `par` /
+ * `courseHoleNumber`. Absent ⇒ every hole. All present clauses must hold
+ * (AND). This keeps the par/hole rule (e.g. "fairway only on par 4/5") OUT of
+ * the client: the format declares it, the client only evaluates it.
+ */
+export interface MetadataApplies {
+    /** Hole par ≥ this. */
+    minPar?: number;
+    /** Hole par ≤ this. */
+    maxPar?: number;
+    /** Exact pars the input applies to. */
+    pars?: number[];
+    /** Exact course hole numbers the input applies to. */
+    holes?: number[];
+}
+
+/**
+ * One per-hole metadata channel a format consumes (GIR, fairway hit, putts).
+ * `key` IS the event metadata key (the `MetadataEvent.type` the strategy reads
+ * via `latestMetadata`); it rides on the score event's `metadata` blob. `kind`
+ * drives the generic control (toggle vs. stepper). `appliesWhen` scopes it to
+ * the holes where it is meaningful.
+ */
+export interface MetadataInput {
+    key: string;
+    label: string;
+    kind: 'boolean' | 'number';
+    appliesWhen?: MetadataApplies;
+}
+
+/**
  * Score-entry capabilities the generic mobile surface can render without a
- * client adapter. Strokes-per-ball is the baseline; boolean/number metadata
- * fields list the simple per-hole channels a format consumes (GIR, putts).
- * Anything richer uses the optional client adapter (Slice 7).
+ * client adapter. Strokes-per-ball is the baseline; `metadata` lists the
+ * simple per-hole channels a format consumes (GIR, fairway, putts). Anything
+ * richer uses the optional client adapter (Slice 7).
  */
 export interface ScoreEntryCapabilities {
     strokes: boolean;
-    booleanMetadata?: string[];
-    numberMetadata?: string[];
+    metadata?: MetadataInput[];
 }
 
 /**
@@ -277,6 +308,25 @@ export function assertValidDescriptor(d: FormatDescriptor): void {
         }
         if (seenMetric.has(m.id)) fail(id, `duplicate metric id '${m.id}'`);
         seenMetric.add(m.id);
+    }
+
+    const scoreEntry = d.requirements?.scoreEntry;
+    if (scoreEntry) {
+        if (typeof scoreEntry.strokes !== 'boolean') fail(id, 'scoreEntry.strokes must be a boolean');
+        const inputs = scoreEntry.metadata;
+        if (inputs !== undefined) {
+            if (!Array.isArray(inputs)) fail(id, 'scoreEntry.metadata must be an array');
+            const seenKey = new Set<string>();
+            for (const mi of inputs) {
+                if (!nonEmpty(mi?.key)) fail(id, 'every scoreEntry.metadata input needs a non-empty key');
+                if (!nonEmpty(mi.label)) fail(id, `metadata input '${mi.key}' needs a non-empty label`);
+                if (mi.kind !== 'boolean' && mi.kind !== 'number') {
+                    fail(id, `metadata input '${mi.key}' kind must be boolean|number (got ${String(mi.kind)})`);
+                }
+                if (seenKey.has(mi.key)) fail(id, `duplicate scoreEntry.metadata key '${mi.key}'`);
+                seenKey.add(mi.key);
+            }
+        }
     }
 
     if (d.clientAdapterId !== null && !nonEmpty(d.clientAdapterId)) {
