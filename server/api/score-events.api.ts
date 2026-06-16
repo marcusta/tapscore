@@ -7,7 +7,7 @@ import type { ScoreEventService } from '../services/score-event.service';
 
 const ByRoundInput = Type.Object({ roundId: Type.String() });
 
-const EventType = Type.Union([
+export const EventType = Type.Union([
     Type.Literal('score_entered'),
     Type.Literal('score_cleared'),
     Type.Literal('score_confirmed'),

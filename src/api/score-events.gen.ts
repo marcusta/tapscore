@@ -23,7 +23,7 @@ export interface AppendResult {
 
 export interface ScoreEventsApi {
     listByRound(input: { roundId: string }): Promise<ScoreEvent[]>;
-    append(input: { sourcePlayerId?: null | string; sourceGuestPlayerId?: null | string; metadata?: null | { [x: string]: unknown; }; roundId: string; ballId: string; clientEventId: string; playHoleId: string; strokes: null | number; eventType: 'score_entered' | 'score_cleared' | 'score_confirmed' | 'manual_override' }): Promise<AppendResult>;
+    append(input: { sourcePlayerId?: null | string; sourceGuestPlayerId?: null | string; metadata?: null | { [x: string]: unknown; }; roundId: string; ballId: string; playHoleId: string; strokes: null | number; eventType: 'score_entered' | 'score_cleared' | 'score_confirmed' | 'manual_override'; clientEventId: string }): Promise<AppendResult>;
 }
 
 export function createScoreEventsClient(baseUrl: string): ScoreEventsApi {

@@ -120,7 +120,12 @@ export function createServices(db: Kysely<Database>) {
         leaderboardService,
         playerService,
     );
-    const friendlyRoundService = new FriendlyRoundService(db, roundService);
+    const friendlyRoundService = new FriendlyRoundService(
+        db,
+        roundService,
+        scoreEventService,
+        scorecardService,
+    );
     return {
         db,
         playerService,

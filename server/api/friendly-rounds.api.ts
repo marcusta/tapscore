@@ -2,12 +2,27 @@ import { Type, type Static } from '@sinclair/typebox';
 import { NotFoundError } from '@basics/core/server/auth';
 import type { FriendlyRoundService } from '../services/friendly-round.service';
 import { RoundSetupDraft } from '../domain/round-setup/draft';
+import { EventType } from './score-events.api';
 
 // --- Input schemas ---
 
 const CreateInput = Type.Object({ draft: RoundSetupDraft });
 const ByTokenInput = Type.Object({ token: Type.String() });
 const ByRoundInput = Type.Object({ roundId: Type.String() });
+
+// Trust-based score write (2.6e M4): same shape as the score-events API minus
+// `roundId` (resolved from the token) and `recordedByPlayerId` (no identities).
+const ScoreInput = Type.Object({
+    token: Type.String(),
+    ballId: Type.String(),
+    playHoleId: Type.String(),
+    strokes: Type.Union([Type.Number(), Type.Null()]),
+    eventType: EventType,
+    clientEventId: Type.String(),
+    sourcePlayerId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    sourceGuestPlayerId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    metadata: Type.Optional(Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()])),
+});
 
 // --- API descriptor ---
 //
@@ -31,11 +46,32 @@ async function byRoundOr404(svc: FriendlyRoundService, roundId: string) {
     return found;
 }
 
+async function ballsOr404(svc: FriendlyRoundService, token: string) {
+    const found = await svc.ballsByToken(token);
+    if (found === null) throw new NotFoundError('friendly round not found');
+    return found;
+}
+
+async function scorecardOr404(svc: FriendlyRoundService, token: string) {
+    const found = await svc.scorecardByToken(token);
+    if (found === null) throw new NotFoundError('friendly round not found');
+    return found;
+}
+
+async function scoreOr404(svc: FriendlyRoundService, input: Static<typeof ScoreInput>) {
+    const res = await svc.appendScoreByToken(input);
+    if (res === null) throw new NotFoundError('friendly round not found');
+    return res;
+}
+
 export function createFriendlyRoundsApi(svc: FriendlyRoundService) {
     return {
-        list:    { method: 'GET'  as const, path: '/friendly-rounds',          fn: ()                                    => svc.list() },
-        create:  { method: 'POST' as const, path: '/friendly-rounds',          fn: (input: Static<typeof CreateInput>)   => svc.create(input.draft),               schema: CreateInput },
-        byToken: { method: 'GET'  as const, path: '/friendly-rounds/by-token',  fn: (input: Static<typeof ByTokenInput>)  => byTokenOr404(svc, input.token),        schema: ByTokenInput },
-        get:     { method: 'GET'  as const, path: '/friendly-rounds/get',       fn: (input: Static<typeof ByRoundInput>)  => byRoundOr404(svc, input.roundId),      schema: ByRoundInput },
+        list:      { method: 'GET'  as const, path: '/friendly-rounds',           fn: ()                                    => svc.list() },
+        create:    { method: 'POST' as const, path: '/friendly-rounds',           fn: (input: Static<typeof CreateInput>)   => svc.create(input.draft),                schema: CreateInput },
+        byToken:   { method: 'GET'  as const, path: '/friendly-rounds/by-token',   fn: (input: Static<typeof ByTokenInput>)  => byTokenOr404(svc, input.token),         schema: ByTokenInput },
+        get:       { method: 'GET'  as const, path: '/friendly-rounds/get',        fn: (input: Static<typeof ByRoundInput>)  => byRoundOr404(svc, input.roundId),       schema: ByRoundInput },
+        balls:     { method: 'GET'  as const, path: '/friendly-rounds/balls',      fn: (input: Static<typeof ByTokenInput>)  => ballsOr404(svc, input.token),           schema: ByTokenInput },
+        scorecard: { method: 'GET'  as const, path: '/friendly-rounds/scorecard',  fn: (input: Static<typeof ByTokenInput>)  => scorecardOr404(svc, input.token),       schema: ByTokenInput },
+        score:     { method: 'POST' as const, path: '/friendly-rounds/score',      fn: (input: Static<typeof ScoreInput>)    => scoreOr404(svc, input),                 schema: ScoreInput },
     };
 }
