@@ -83,11 +83,12 @@ test('builder wires the scoring slots to the scramble balls — no duplicate bal
     expect(def.ballStrategies.map((s) => s.strategyId)).toEqual(['scramble_team']);
     const scrStratId = def.ballStrategies[0]!.id;
 
-    const byFormat = new Map(def.slots.map((s) => [s.formatId, s]));
+    const selectorFor = (formatId: string) =>
+        def.slots.find((s) => s.formatId === formatId)?.ballSelector?.strategyDefIds;
     // The scramble slot AND both scoring slots all select the scramble strategy.
-    expect(byFormat.get('scramble')!.ballSelector.strategyDefIds).toEqual([scrStratId]);
-    expect(byFormat.get('match_play_individual')!.ballSelector.strategyDefIds).toEqual([scrStratId]);
-    expect(byFormat.get('stableford_individual')!.ballSelector.strategyDefIds).toEqual([scrStratId]);
+    expect(selectorFor('scramble')).toEqual([scrStratId]);
+    expect(selectorFor('match_play_individual')).toEqual([scrStratId]);
+    expect(selectorFor('stableford_individual')).toEqual([scrStratId]);
 
     // Two team balls, each two producers, scratch handicap.
     const balls = await ctx.roundService.ballsForRound(result.round.id);
