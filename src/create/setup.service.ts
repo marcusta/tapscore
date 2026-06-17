@@ -20,37 +20,45 @@ export interface FormatSlotForm {
     /** Stable identity for `$each` keying — survives field edits. */
     key: number;
     formatId: string;
-    /** Allowance mode + raw inputs; built into `AllowanceConfig` at submit. */
-    allowanceMode: 'flat' | 'split';
-    flatPct: string;
-    /** Split bands: `upToCh` '' = the catch-all top band. `key` is stable for
-     * `$each` keying so inserting/removing a band never reuses a row's closure. */
-    bands: { key: number; pct: string; upToCh: string }[];
-    /** Player `key` → team letter index (0=A…). Only used for team formats. */
-    teamByPlayer: Record<number, number>;
-    /** Player `key` → included? Only used for individual formats; a missing key
-     * means included. Lets match play pick its 2, köpenhamnare/umbrella their 3. */
-    includeByPlayer: Record<number, boolean>;
-    /**
-     * `key` of a team-composition slot whose balls THIS slot scores (ADR-0002 —
-     * e.g. match play over the scramble teams). Undefined ⇒ scores own balls.
-     * Only meaningful for `scoresAnyBall` individual formats.
-     */
-    scoresFrom?: number;
+    /** Player `key` → in this format's subjects? Missing key ⇒ included (so a
+     * fresh format scores everyone). The set of balls this format ranks. */
+    subjectPlayers: Record<number, boolean>;
+    /** Team `key` → in this format's subjects? Missing key ⇒ excluded. */
+    subjectTeams: Record<number, boolean>;
 }
 
-/** One element of the draft's `formats[]` array. */
+/**
+ * A round-level team = a ball (ADR-0003). `pctByPlayer` holds each member's
+ * allowance % into the team ball; a key's presence is membership. `formation`
+ * is a label (scramble/greensomes/foursomes).
+ */
+export interface TeamForm {
+    key: number;
+    formation: string;
+    pctByPlayer: Record<number, string>;
+}
+
+/** One round-level team in the draft. */
+interface DraftRoundTeam {
+    id: string;
+    label?: string;
+    formation?: string;
+    members: { producerDefId: string; allowancePct: number }[];
+}
+
+/** One ball a format scores. */
+type DraftBallSubject =
+    | { kind: 'player'; producerDefId: string }
+    | { kind: 'team'; teamId: string };
+
+/** One element of the draft's `formats[]` array (ADR-0003 subjects model). */
 interface DraftFormat {
     formatId: string;
-    /** Stable id so another format can reference this slot's balls (ADR-0002). */
-    id?: string;
-    allowanceConfig?: AllowanceConfig;
-    producerDefIds?: string[];
-    teams?: { label: string; producerDefIds: string[] }[];
+    subjects: DraftBallSubject[];
     formatConfig?: unknown;
-    /** Score another slot's balls instead of creating own-balls (ADR-0002). */
-    ballsFrom?: { ref: string };
 }
+
+const FORMATIONS = ['scramble', 'greensomes', 'foursomes'] as const;
 
 const TEAM_LETTERS = 'ABCDEFGH';
 
@@ -104,6 +112,9 @@ export class SetupService {
     readonly startHole = new Signal<number>(1);
     readonly players = new Signal<PlayerForm[]>([]);
 
+    /** Round-level teams (ADR-0003) — optional; referenced by a format's subjects. */
+    readonly teams = new Signal<TeamForm[]>([]);
+
     /** 1..N format instances (slots). M3 replaces M2's single hardcoded default. */
     readonly formatSlots = new Signal<FormatSlotForm[]>([]);
 
@@ -118,7 +129,7 @@ export class SetupService {
 
     private nextKey = 1;
     private nextSlotKey = 1;
-    private nextBandKey = 1;
+    private nextTeamKey = 1;
 
     async load(): Promise<void> {
         // Catalog loads in parallel; the format step renders once it arrives and
@@ -193,16 +204,9 @@ export class SetupService {
         const slot: FormatSlotForm = {
             key: this.nextSlotKey++,
             formatId: id,
-            allowanceMode: 'flat',
-            flatPct: '100',
-            bands: [
-                { key: this.nextBandKey++, pct: '100', upToCh: '9' },
-                { key: this.nextBandKey++, pct: '75', upToCh: '' },
-            ],
-            teamByPlayer: {},
-            includeByPlayer: {},
+            subjectPlayers: {}, // empty ⇒ every player included by default
+            subjectTeams: {},
         };
-        if (this.catalog.needsTeams(id)) slot.teamByPlayer = this.autoAssign(id);
         this.formatSlots.set([...this.formatSlots.get(), slot]);
     }
 
@@ -216,126 +220,105 @@ export class SetupService {
         );
     }
 
-    /** Change a slot's format; (re)auto-assign teams when the new format needs them. */
+    /** Change a slot's format. */
     setSlotFormat(key: number, formatId: string): void {
-        const teamByPlayer = this.catalog.needsTeams(formatId) ? this.autoAssign(formatId) : {};
-        // A format that can't score a composition drops any stale composition target.
-        const patch: Partial<Omit<FormatSlotForm, 'key'>> = { formatId, teamByPlayer };
-        if (!this.canScoreFromComposition(formatId)) patch.scoresFrom = undefined;
-        this.patchFormatSlot(key, patch);
+        this.patchFormatSlot(key, { formatId });
     }
 
     slotByKey(key: number): FormatSlotForm | null {
         return this.formatSlots.get().find((s) => s.key === key) ?? null;
     }
 
-    // --- Composition scoring (ADR-0002) ---
-
-    /** A format may score another composition's balls if it opts into `scoresAnyBall`. */
-    canScoreFromComposition(formatId: string): boolean {
-        return this.catalog.byId(formatId)?.scoresAnyBall === true;
-    }
-
-    /** The team-composition slots in the round (scramble/greensomes/foursomes) — the
-     * available "Scores" targets, each labelled by its format. Excludes `selfKey`. */
-    compositionSlots(selfKey: number): { key: number; label: string }[] {
-        return this.formatSlots
-            .get()
-            .filter((s) => s.key !== selfKey && this.catalog.classifyId(s.formatId)?.kind === 'team_ball')
-            .map((s) => ({ key: s.key, label: this.catalog.byId(s.formatId)?.label ?? s.formatId }));
-    }
-
-    /** True when this slot is a valid composition-scoring slot (target still exists). */
-    scoresFromValid(slot: FormatSlotForm): boolean {
-        if (slot.scoresFrom === undefined) return false;
-        if (!this.canScoreFromComposition(slot.formatId)) return false;
-        return this.compositionSlots(slot.key).some((c) => c.key === slot.scoresFrom);
-    }
-
-    /** Set (or clear, with null) this slot's composition target. */
-    setScoresFrom(key: number, target: number | null): void {
-        this.patchFormatSlot(key, { scoresFrom: target ?? undefined });
-    }
-
-    // --- Allowance band editing ---
-
-    addBand(slotKey: number): void {
-        const slot = this.slotByKey(slotKey);
-        if (!slot) return;
-        // Insert a new band before the catch-all (last) band.
-        const bands = [...slot.bands];
-        bands.splice(Math.max(0, bands.length - 1), 0, {
-            key: this.nextBandKey++,
-            pct: '100',
-            upToCh: '0',
-        });
-        this.patchFormatSlot(slotKey, { bands });
-    }
-
-    removeBand(slotKey: number, bandKey: number): void {
-        const slot = this.slotByKey(slotKey);
-        if (!slot || slot.bands.length <= 1) return;
-        this.patchFormatSlot(slotKey, { bands: slot.bands.filter((b) => b.key !== bandKey) });
-    }
-
-    patchBand(slotKey: number, bandKey: number, patch: Partial<{ pct: string; upToCh: string }>): void {
-        const slot = this.slotByKey(slotKey);
-        if (!slot) return;
-        this.patchFormatSlot(slotKey, {
-            bands: slot.bands.map((b) => (b.key === bandKey ? { ...b, ...patch } : b)),
-        });
-    }
-
-    // --- Team assignment ---
-
-    /** How many team buckets a format's editor shows, given the roster size. */
-    teamBucketCount(formatId: string): number {
-        const cls = this.catalog.classifyId(formatId);
-        const n = this.players.get().length;
-        if (!cls || cls.kind === 'individual' || n === 0) return 0;
-        const ideal = cls.teamCount?.max ?? Math.max(1, Math.ceil(n / cls.teamSize.min));
-        return Math.min(Math.max(ideal, 1), n);
-    }
-
     teamLetter(index: number): string {
         return TEAM_LETTERS[index] ?? `T${index + 1}`;
     }
 
-    /** Distribute the current roster into teams of the format's min size. */
-    private autoAssign(formatId: string): Record<number, number> {
-        const cls = this.catalog.classifyId(formatId);
-        const roster = this.players.get();
-        if (!cls || cls.kind === 'individual') return {};
-        const size = Math.max(1, cls.teamSize.min);
-        const buckets = this.teamBucketCount(formatId);
-        const out: Record<number, number> = {};
-        roster.forEach((p, i) => {
-            out[p.key] = Math.min(Math.floor(i / size), Math.max(0, buckets - 1));
-        });
-        return out;
+    // --- Round-level teams (ADR-0003) ---
+
+    readonly formations = FORMATIONS;
+
+    addTeam(): void {
+        this.teams.set([
+            ...this.teams.get(),
+            { key: this.nextTeamKey++, formation: 'scramble', pctByPlayer: {} },
+        ]);
     }
 
-    /** Whether a player is in an individual format's subset (default: yes). */
-    isPlayerIncluded(slotKey: number, playerKey: number): boolean {
-        return this.slotByKey(slotKey)?.includeByPlayer[playerKey] !== false;
+    removeTeam(key: number): void {
+        this.teams.set(this.teams.get().filter((t) => t.key !== key));
+        // Drop any format subject that referenced the removed team.
+        this.formatSlots.set(
+            this.formatSlots.get().map((s) => {
+                if (s.subjectTeams[key] === undefined) return s;
+                const next = { ...s.subjectTeams };
+                delete next[key];
+                return { ...s, subjectTeams: next };
+            }),
+        );
     }
 
-    setPlayerIncluded(slotKey: number, playerKey: number, included: boolean): void {
+    teamByKey(key: number): TeamForm | null {
+        return this.teams.get().find((t) => t.key === key) ?? null;
+    }
+
+    teamLabel(team: TeamForm): string {
+        const i = this.teams.get().findIndex((t) => t.key === team.key);
+        return `Team ${this.teamLetter(Math.max(0, i))}`;
+    }
+
+    setTeamFormation(key: number, formation: string): void {
+        this.teams.set(this.teams.get().map((t) => (t.key === key ? { ...t, formation } : t)));
+    }
+
+    teamMemberIn(teamKey: number, playerKey: number): boolean {
+        return this.teamByKey(teamKey)?.pctByPlayer[playerKey] !== undefined;
+    }
+
+    setTeamMember(teamKey: number, playerKey: number, inTeam: boolean): void {
+        const team = this.teamByKey(teamKey);
+        if (!team) return;
+        const next = { ...team.pctByPlayer };
+        if (inTeam) next[playerKey] = next[playerKey] ?? '100';
+        else delete next[playerKey];
+        this.teams.set(this.teams.get().map((t) => (t.key === teamKey ? { ...t, pctByPlayer: next } : t)));
+    }
+
+    setTeamPct(teamKey: number, playerKey: number, pct: string): void {
+        const team = this.teamByKey(teamKey);
+        if (!team || team.pctByPlayer[playerKey] === undefined) return;
+        this.teams.set(
+            this.teams.get().map((t) =>
+                t.key === teamKey ? { ...t, pctByPlayer: { ...t.pctByPlayer, [playerKey]: pct } } : t,
+            ),
+        );
+    }
+
+    // --- Format subjects (which balls a format scores) ---
+
+    /** A player is a subject of this format unless explicitly unticked. */
+    subjectPlayerIn(slotKey: number, playerKey: number): boolean {
+        return this.slotByKey(slotKey)?.subjectPlayers[playerKey] !== false;
+    }
+
+    setSubjectPlayer(slotKey: number, playerKey: number, included: boolean): void {
         const slot = this.slotByKey(slotKey);
         if (!slot) return;
         this.patchFormatSlot(slotKey, {
-            includeByPlayer: { ...slot.includeByPlayer, [playerKey]: included },
+            subjectPlayers: { ...slot.subjectPlayers, [playerKey]: included },
         });
     }
 
-    /** Assign a player to a team bucket; a negative index clears the assignment. */
-    setPlayerTeam(slotKey: number, playerKey: number, teamIndex: number): void {
+    /** A team is a subject only when explicitly ticked. */
+    subjectTeamIn(slotKey: number, teamKey: number): boolean {
+        return this.slotByKey(slotKey)?.subjectTeams[teamKey] === true;
+    }
+
+    setSubjectTeam(slotKey: number, teamKey: number, included: boolean): void {
         const slot = this.slotByKey(slotKey);
         if (!slot) return;
-        const next = { ...slot.teamByPlayer };
-        if (teamIndex < 0) delete next[playerKey];
-        else next[playerKey] = teamIndex;
-        this.patchFormatSlot(slotKey, { teamByPlayer: next });
+        this.patchFormatSlot(slotKey, {
+            subjectTeams: { ...slot.subjectTeams, [teamKey]: included },
+        });
     }
 
     // --- Derived reads ---
@@ -419,12 +402,14 @@ export class SetupService {
         const roster = this.players.get();
         const covered = new Set<number>();
         for (const slot of this.formatSlots.get()) {
-            const teamFormat = this.catalog.needsTeams(slot.formatId);
+            // Covered directly as an individual subject…
             for (const p of roster) {
-                const inSlot = teamFormat
-                    ? slot.teamByPlayer[p.key] !== undefined
-                    : slot.includeByPlayer[p.key] !== false;
-                if (inSlot) covered.add(p.key);
+                if (slot.subjectPlayers[p.key] !== false) covered.add(p.key);
+            }
+            // …or via a team this format scores.
+            for (const team of this.teams.get()) {
+                if (slot.subjectTeams[team.key] !== true) continue;
+                for (const p of roster) if (team.pctByPlayer[p.key] !== undefined) covered.add(p.key);
             }
         }
         return roster.filter((p) => !covered.has(p.key));
@@ -447,81 +432,51 @@ export class SetupService {
         return Number.isFinite(n) ? n : 100;
     }
 
-    /** Build the slot's allowance config (flat default + 2.6d-bis split bands). */
-    private buildAllowance(slot: FormatSlotForm): AllowanceConfig {
-        if (slot.allowanceMode === 'split') {
-            return {
-                type: 'split',
-                bands: slot.bands.map((b) => {
-                    const upTo = Number.parseInt(b.upToCh, 10);
-                    return {
-                        pct: this.parsePct(b.pct),
-                        upToCh: b.upToCh.trim() === '' ? null : Number.isFinite(upTo) ? upTo : 0,
-                    };
-                }),
-            };
+    /**
+     * Round-level teams → the draft's `teams[]` (ADR-0003). Each team's `id` is
+     * its stable key; members carry their per-member allowance %. Only teams with
+     * ≥1 member are emitted.
+     */
+    private buildTeams(roster: PlayerForm[], defIdByKey: Map<number, string>): DraftRoundTeam[] {
+        const out: DraftRoundTeam[] = [];
+        for (const team of this.teams.get()) {
+            const members = roster
+                .filter((p) => team.pctByPlayer[p.key] !== undefined)
+                .map((p) => ({
+                    producerDefId: defIdByKey.get(p.key)!,
+                    allowancePct: this.parsePct(team.pctByPlayer[p.key]!),
+                }));
+            if (members.length > 0) {
+                out.push({ id: String(team.key), label: this.teamLabel(team), formation: team.formation, members });
+            }
         }
-        return { type: 'flat', pct: this.parsePct(slot.flatPct) };
+        return out;
     }
 
     /**
-     * Translate the format slots into the draft's `formats[]`. Producers are
-     * auto-deduced for individual formats (the whole roster — `producerDefIds`
-     * omitted); team formats carry an explicit `teams[]` grouping. The server's
-     * `planSetup` derives ball-creation strategy ids from these — never the
-     * client.
+     * Translate the format slots into the draft's `formats[]` (ADR-0003): each
+     * format scores an explicit set of `subjects` — the ticked individual players
+     * and the ticked teams. The server materialises exactly those balls.
      */
-    private buildFormats(roster: PlayerForm[]): DraftFormat[] {
-        const defIdByKey = new Map<number, string>();
-        roster.forEach((p, i) => defIdByKey.set(p.key, `p${i + 1}`));
+    private buildFormats(roster: PlayerForm[], defIdByKey: Map<number, string>): DraftFormat[] {
+        const liveTeamKeys = new Set(this.teams.get().filter((t) => Object.keys(t.pctByPlayer).length > 0).map((t) => t.key));
         return this.formatSlots.get().map((slot) => {
-            // Scoring-only slot (ADR-0002): score a composition's balls. No own
-            // teams/producers/allowance — it inherits the composition's handicaps.
-            if (slot.scoresFrom !== undefined && this.scoresFromValid(slot)) {
-                return {
-                    formatId: slot.formatId,
-                    id: String(slot.key),
-                    ballsFrom: { ref: String(slot.scoresFrom) },
-                };
-            }
-            const entry: DraftFormat = {
-                formatId: slot.formatId,
-                id: String(slot.key),
-                allowanceConfig: this.buildAllowance(slot),
-            };
-            if (this.catalog.needsTeams(slot.formatId)) {
-                entry.teams = this.buildTeams(slot, roster, defIdByKey);
-            } else {
-                // Individual format: include the whole roster by default; emit an
-                // explicit subset only when the user has deselected someone (match
-                // play → 2, köpenhamnare/umbrella → 3). All-included omits the
-                // selector so the slot covers every producer.
-                const included = roster.filter((p) => slot.includeByPlayer[p.key] !== false);
-                if (included.length < roster.length) {
-                    entry.producerDefIds = included.map((p) => defIdByKey.get(p.key)!);
+            const subjects: DraftBallSubject[] = [];
+            for (const p of roster) {
+                if (slot.subjectPlayers[p.key] !== false) {
+                    subjects.push({ kind: 'player', producerDefId: defIdByKey.get(p.key)! });
                 }
             }
-            return entry;
+            for (const team of this.teams.get()) {
+                if (slot.subjectTeams[team.key] === true && liveTeamKeys.has(team.key)) {
+                    subjects.push({ kind: 'team', teamId: String(team.key) });
+                }
+            }
+            return {
+                formatId: slot.formatId,
+                subjects,
+            };
         });
-    }
-
-    private buildTeams(
-        slot: FormatSlotForm,
-        roster: PlayerForm[],
-        defIdByKey: Map<number, string>,
-    ): { label: string; producerDefIds: string[] }[] {
-        const buckets = new Map<number, string[]>();
-        for (const p of roster) {
-            const t = slot.teamByPlayer[p.key];
-            if (t === undefined) continue; // unassigned → server diagnoses if required
-            const defId = defIdByKey.get(p.key);
-            if (!defId) continue;
-            if (!buckets.has(t)) buckets.set(t, []);
-            buckets.get(t)!.push(defId);
-        }
-        return [...buckets.entries()]
-            .sort((a, b) => a[0] - b[0])
-            .map(([idx, ids]) => ({ label: this.teamLetter(idx), producerDefIds: ids }));
     }
 
     /**
@@ -617,13 +572,17 @@ export class SetupService {
             //    1..N format slots; ball-creation strategy ids stay server-owned
             //    — the client only submits formatId / teams / allowance.
             const { roundType, route } = this.buildRoute();
+            const defIdByKey = new Map<number, string>();
+            roster.forEach((p, i) => defIdByKey.set(p.key, `p${i + 1}`));
+            const teams = this.buildTeams(roster, defIdByKey);
             const draft = {
                 courseId: this.courseId.get(),
                 playedAt: new Date().toISOString().slice(0, 10),
                 roundType,
                 ...(route ? { route } : {}),
                 producers,
-                formats: this.buildFormats(roster),
+                ...(teams.length > 0 ? { teams } : {}),
+                formats: this.buildFormats(roster, defIdByKey),
             };
 
             // 3. POST to the no-auth front door.

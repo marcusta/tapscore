@@ -42,8 +42,15 @@ const tpl = template(`
         </section>
 
         <section class="setup__section">
+            <h2>Teams</h2>
+            <p class="setup__hint">Optional. Group players into a team ball with a handicap allowance per member.</p>
+            <div bind="teams" class="setup__fslots"></div>
+            <button bind="addTeam" class="setup__add" type="button">+ Create team</button>
+        </section>
+
+        <section class="setup__section">
             <h2>Formats</h2>
-            <p class="setup__hint">One or more scoring formats. Teams and allowance are set per format.</p>
+            <p class="setup__hint">Each format scores a set of balls — tick the players and teams it ranks.</p>
             <div bind="formats" class="setup__fslots"></div>
             <p bind="formatNote" class="setup__note"></p>
             <button bind="addFormat" class="setup__add" type="button">+ Add format</button>
@@ -78,59 +85,43 @@ const fslotTpl = template(`
         </div>
         <p bind="desc" class="fslot__desc"></p>
 
-        <div bind="scoresWrap" class="fslot__group">
+        <div class="fslot__group">
             <span class="fslot__label">Scores</span>
-            <div bind="scores"></div>
-        </div>
-
-        <div bind="teamsWrap" class="fslot__group">
-            <span class="fslot__label">Teams</span>
-            <div bind="teamRows" class="fslot__teamrows"></div>
-        </div>
-
-        <div bind="includeWrap" class="fslot__group">
-            <span class="fslot__label">Players</span>
-            <div bind="includeRows" class="fslot__teamrows"></div>
-        </div>
-
-        <div bind="allowanceWrap" class="fslot__group">
-            <span class="fslot__label">Allowance</span>
-            <div class="fslot__seg">
-                <button bind="flatBtn" type="button">Flat</button>
-                <button bind="splitBtn" type="button">Split</button>
-            </div>
-            <div bind="flatWrap" class="fslot__flat">
-                <input bind="flatPct" class="fslot__pct" inputmode="numeric" /><span>%</span>
-            </div>
-            <div bind="bandsWrap" class="fslot__bands">
-                <div bind="bandRows" class="fslot__bandrows"></div>
-                <button bind="addBand" type="button" class="fslot__addband">+ Band</button>
-            </div>
+            <div bind="subjectRows" class="fslot__teamrows"></div>
         </div>
 
         <div bind="err" class="fslot__err"></div>
     </div>
 `);
 
-const teamRowTpl = template(`
-    <div class="trow">
-        <span bind="name" class="trow__name"></span>
-        <div bind="team" class="trow__team"></div>
-    </div>
-`);
-
-const includeRowTpl = template(`
+// A subject checkbox row (an individual player or a team), reused for both.
+const subjectRowTpl = template(`
     <label class="irow">
         <input bind="chk" type="checkbox" class="irow__chk" />
         <span bind="name" class="irow__name"></span>
     </label>
 `);
 
-const bandRowTpl = template(`
-    <div class="brow">
-        <input bind="pct" class="brow__pct" inputmode="numeric" /><span>% up to CH</span>
-        <input bind="upto" class="brow__upto" inputmode="numeric" placeholder="∞" />
-        <button bind="del" class="brow__del" type="button" aria-label="Remove band">✕</button>
+const teamCardTpl = template(`
+    <div class="fslot">
+        <div class="fslot__top">
+            <div bind="formation" class="fslot__format"></div>
+            <button bind="remove" class="fslot__remove" type="button" aria-label="Remove">✕</button>
+        </div>
+        <div class="fslot__group">
+            <span class="fslot__label">Members &amp; allowance</span>
+            <div bind="memberRows" class="fslot__teamrows"></div>
+        </div>
+    </div>
+`);
+
+const memberRowTpl = template(`
+    <div class="mrow">
+        <label class="mrow__pick">
+            <input bind="chk" type="checkbox" class="irow__chk" />
+            <span bind="name" class="irow__name"></span>
+        </label>
+        <span bind="pctWrap" class="mrow__pct"><input bind="pct" inputmode="numeric" /><span>%</span></span>
     </div>
 `);
 
@@ -271,6 +262,17 @@ export class CreateComponent extends Component {
                     & .irow__chk { width: 18px; height: 18px; flex-shrink: 0; accent-color: ${t('primary')}; }
                 }
 
+                & .mrow {
+                    display: flex; align-items: center; justify-content: space-between; gap: ${s('sm')};
+                    & .mrow__pick { display: flex; align-items: center; gap: ${s('sm')}; font-size: 0.9rem; cursor: pointer; }
+                    & .mrow__pct {
+                        display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+                        font-size: 0.85rem; color: ${t('text-muted')};
+                        &[hidden] { display: none; }
+                        & input { width: 56px; padding: ${s('xs')} ${s('sm')}; ${input()} font-size: 0.95rem; }
+                    }
+                }
+
                 & .fslot__seg {
                     display: flex; gap: ${s('xs')};
                     & button {
@@ -327,6 +329,7 @@ export class CreateComponent extends Component {
         const frag = this.wire(tpl, {
             back: { onclick: () => this.router.navigate('/') },
             addPlayer: { onclick: () => this.svc.addPlayer() },
+            addTeam: { onclick: () => this.svc.addTeam() },
             addFormat: { onclick: () => this.svc.addFormatSlot() },
             formatNote: {
                 textContent: () => {
@@ -409,6 +412,14 @@ export class CreateComponent extends Component {
             this.svc.players,
             (p, _i, track) => this.playerRow(p.key, track),
             (p) => p.key,
+        );
+
+        // Round-level team cards (ADR-0003).
+        this.$each(
+            this.ref(frag, 'teams'),
+            this.svc.teams,
+            (team, _i, track) => this.teamCard(team.key, track),
+            (team) => team.key,
         );
 
         // Format slots. Keyed by stable slot key; each card reads its slot by
@@ -516,49 +527,12 @@ export class CreateComponent extends Component {
     private formatCard(key: number, index: number, track: (d: () => void) => void): HTMLElement {
         const slot = () => this.svc.slotByKey(key);
         const formatId = () => slot()?.formatId ?? '';
-        const mode = () => slot()?.allowanceMode ?? 'flat';
-        // Scoring a team composition (ADR-0002): the slot inherits the teams +
-        // handicaps, so its own team/subset/allowance editors are irrelevant.
-        const scoringComposition = () => {
-            const sl = slot();
-            return sl ? this.svc.scoresFromValid(sl) : false;
-        };
-        const hasCompositionTargets = () =>
-            this.svc.canScoreFromComposition(formatId()) && this.svc.compositionSlots(key).length > 0;
 
         const el = this.wireEl(
             fslotTpl,
             {
                 remove: { onclick: () => this.svc.removeFormatSlot(key) },
-                desc: {
-                    textContent: () => this.svc.catalog.byId(formatId())?.description ?? '',
-                },
-                scoresWrap: { hidden: () => !hasCompositionTargets() },
-                teamsWrap: {
-                    hidden: () => !this.svc.catalog.needsTeams(formatId()) || scoringComposition(),
-                },
-                // Individual formats get a subset picker instead of a team editor.
-                includeWrap: {
-                    hidden: () => this.svc.catalog.needsTeams(formatId()) || scoringComposition(),
-                },
-                allowanceWrap: { hidden: () => scoringComposition() },
-                flatBtn: {
-                    className: () => (mode() === 'flat' ? 'on' : ''),
-                    onclick: () => this.svc.patchFormatSlot(key, { allowanceMode: 'flat' }),
-                },
-                splitBtn: {
-                    className: () => (mode() === 'split' ? 'on' : ''),
-                    onclick: () => this.svc.patchFormatSlot(key, { allowanceMode: 'split' }),
-                },
-                flatWrap: { hidden: () => mode() !== 'flat' },
-                bandsWrap: { hidden: () => mode() !== 'split' },
-                // Uncontrolled: static initial value, oninput-only (no caret reset).
-                flatPct: {
-                    value: slot()?.flatPct ?? '100',
-                    oninput: (e: Event) =>
-                        this.svc.patchFormatSlot(key, { flatPct: (e.target as HTMLInputElement).value }),
-                },
-                addBand: { onclick: () => this.svc.addBand(key) },
+                desc: { textContent: () => this.svc.catalog.byId(formatId())?.description ?? '' },
                 err: {
                     textContent: () =>
                         this.svc
@@ -570,8 +544,6 @@ export class CreateComponent extends Component {
             track,
         );
 
-        // Format picker. Guarded write skips the no-op init call (setSlotFormat
-        // re-auto-assigns teams), firing only on a real format change.
         this.mountSelect(this.ref(el, 'format'), track, {
             value: this.bound(
                 track,
@@ -585,128 +557,99 @@ export class CreateComponent extends Component {
             },
         });
 
-        // "Scores" target — own balls (Each player) or a team composition's balls.
-        this.mountSelect(this.ref(el, 'scores'), track, {
-            value: this.bound(
-                track,
-                () => String(slot()?.scoresFrom ?? -1),
-                (v) => this.svc.setScoresFrom(key, Number(v) < 0 ? null : Number(v)),
-            ),
-            options: {
-                get: () => {
-                    const opts: SelectOption[] = [{ value: '-1', label: 'Each player' }];
-                    for (const c of this.svc.compositionSlots(key))
-                        opts.push({ value: String(c.key), label: `${c.label} teams` });
-                    return opts;
-                },
-            },
-        });
-
-        // Per-player team assignment (team formats only).
+        // Subject checklist — every individual player, then every team. One
+        // keyed list (kind-prefixed) so a single eachInto owns the host.
+        type Subj = { kind: 'player' | 'team'; subKey: number };
+        const subjects = (): Subj[] => [
+            ...this.svc.players.get().map((p) => ({ kind: 'player' as const, subKey: p.key })),
+            ...this.svc.teams.get().map((tm) => ({ kind: 'team' as const, subKey: tm.key })),
+        ];
         this.eachInto(
-            this.ref(el, 'teamRows'),
+            this.ref(el, 'subjectRows'),
             track,
-            () => this.svc.players.get(),
-            (p, _i, rowTrack) => this.teamRow(key, p.key, rowTrack),
-            (p) => p.key,
-        );
-
-        // Per-player subset picker (individual formats only).
-        this.eachInto(
-            this.ref(el, 'includeRows'),
-            track,
-            () => this.svc.players.get(),
-            (p, _i, rowTrack) => this.includeRow(key, p.key, rowTrack),
-            (p) => p.key,
-        );
-
-        // Split allowance bands.
-        this.eachInto(
-            this.ref(el, 'bandRows'),
-            track,
-            () => this.svc.slotByKey(key)?.bands ?? [],
-            (b, _i, rowTrack) => this.bandRow(key, b.key, rowTrack),
-            (b) => b.key,
+            subjects,
+            (sj, _i, rowTrack) => this.subjectRow(key, sj.kind, sj.subKey, rowTrack),
+            (sj) => `${sj.kind}${sj.subKey}`,
         );
 
         return el;
     }
 
-    private teamRow(
+    private subjectRow(
         slotKey: number,
-        playerKey: number,
+        kind: 'player' | 'team',
+        subKey: number,
         track: (d: () => void) => void,
     ): HTMLElement {
-        const player = () => this.svc.players.get().find((p) => p.key === playerKey) ?? null;
-        const assignment = () => this.svc.slotByKey(slotKey)?.teamByPlayer[playerKey] ?? -1;
-        const el = this.wireEl(
-            teamRowTpl,
-            { name: { textContent: () => player()?.name?.trim() || 'Player' } },
-            track,
-        );
-        this.mountSelect(this.ref(el, 'team'), track, {
-            value: this.bound(
-                track,
-                () => String(assignment()),
-                (v) => this.svc.setPlayerTeam(slotKey, playerKey, Number(v)),
-            ),
-            options: {
-                get: () => {
-                    const n = this.svc.teamBucketCount(this.svc.slotByKey(slotKey)?.formatId ?? '');
-                    const opts: SelectOption[] = [{ value: '-1', label: '—' }];
-                    for (let i = 0; i < n; i++) opts.push({ value: String(i), label: this.svc.teamLetter(i) });
-                    return opts;
-                },
-            },
-        });
-        return el;
-    }
-
-    private includeRow(
-        slotKey: number,
-        playerKey: number,
-        track: (d: () => void) => void,
-    ): HTMLElement {
-        const player = () => this.svc.players.get().find((p) => p.key === playerKey) ?? null;
+        const label = (): string => {
+            if (kind === 'player') return this.svc.players.get().find((p) => p.key === subKey)?.name?.trim() || 'Player';
+            const tm = this.svc.teamByKey(subKey);
+            return tm ? `${this.svc.teamLabel(tm)} (team)` : 'Team';
+        };
+        const checked = () =>
+            kind === 'player' ? this.svc.subjectPlayerIn(slotKey, subKey) : this.svc.subjectTeamIn(slotKey, subKey);
+        const setIn = (v: boolean) =>
+            kind === 'player'
+                ? this.svc.setSubjectPlayer(slotKey, subKey, v)
+                : this.svc.setSubjectTeam(slotKey, subKey, v);
         return this.wireEl(
-            includeRowTpl,
+            subjectRowTpl,
+            {
+                chk: { checked: () => checked(), onchange: (e: Event) => setIn((e.target as HTMLInputElement).checked) },
+                name: { textContent: () => label() },
+            },
+            track,
+        );
+    }
+
+    private teamCard(key: number, track: (d: () => void) => void): HTMLElement {
+        const el = this.wireEl(
+            teamCardTpl,
+            { remove: { onclick: () => this.svc.removeTeam(key) } },
+            track,
+        );
+        this.mountSelect(this.ref(el, 'formation'), track, {
+            value: this.bound(
+                track,
+                () => this.svc.teamByKey(key)?.formation ?? 'scramble',
+                (v) => this.svc.setTeamFormation(key, v),
+            ),
+            options: {
+                get: () => this.svc.formations.map((f) => ({ value: f, label: f[0]!.toUpperCase() + f.slice(1) })),
+            },
+        });
+        this.eachInto(
+            this.ref(el, 'memberRows'),
+            track,
+            () => this.svc.players.get(),
+            (p, _i, rowTrack) => this.teamMemberRow(key, p.key, rowTrack),
+            (p) => p.key,
+        );
+        return el;
+    }
+
+    private teamMemberRow(
+        teamKey: number,
+        playerKey: number,
+        track: (d: () => void) => void,
+    ): HTMLElement {
+        const player = () => this.svc.players.get().find((p) => p.key === playerKey) ?? null;
+        const inTeam = () => this.svc.teamMemberIn(teamKey, playerKey);
+        return this.wireEl(
+            memberRowTpl,
             {
                 chk: {
-                    checked: () => this.svc.isPlayerIncluded(slotKey, playerKey),
+                    checked: () => inTeam(),
                     onchange: (e: Event) =>
-                        this.svc.setPlayerIncluded(
-                            slotKey,
-                            playerKey,
-                            (e.target as HTMLInputElement).checked,
-                        ),
+                        this.svc.setTeamMember(teamKey, playerKey, (e.target as HTMLInputElement).checked),
                 },
                 name: { textContent: () => player()?.name?.trim() || 'Player' },
-            },
-            track,
-        );
-    }
-
-    private bandRow(
-        slotKey: number,
-        bandKey: number,
-        track: (d: () => void) => void,
-    ): HTMLElement {
-        const band = () => this.svc.slotByKey(slotKey)?.bands.find((b) => b.key === bandKey) ?? null;
-        return this.wireEl(
-            bandRowTpl,
-            {
-                // Uncontrolled inputs: static initial value, oninput-only.
+                pctWrap: { hidden: () => !inTeam() },
+                // Uncontrolled: static initial value, oninput-only (no caret reset).
                 pct: {
-                    value: band()?.pct ?? '',
-                    oninput: (e: Event) =>
-                        this.svc.patchBand(slotKey, bandKey, { pct: (e.target as HTMLInputElement).value }),
+                    value: this.svc.teamByKey(teamKey)?.pctByPlayer[playerKey] ?? '100',
+                    oninput: (e: Event) => this.svc.setTeamPct(teamKey, playerKey, (e.target as HTMLInputElement).value),
                 },
-                upto: {
-                    value: band()?.upToCh ?? '',
-                    oninput: (e: Event) =>
-                        this.svc.patchBand(slotKey, bandKey, { upToCh: (e.target as HTMLInputElement).value }),
-                },
-                del: { onclick: () => this.svc.removeBand(slotKey, bandKey) },
             },
             track,
         );
