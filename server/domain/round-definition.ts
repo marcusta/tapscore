@@ -34,12 +34,22 @@ const BallDerivationByRank = Type.Object({
     chPcts: Type.Array(Type.Number({ minimum: 0, maximum: 100 }), { minItems: 1 }),
 });
 
+// Per-MEMBER explicit allowance into a team ball (ADR-0003). Keyed by
+// producerDefId so the team owner sets each member's % directly — unlike
+// `by_rank` (CH-rank-ordered) / `weighted` (low/high positional).
+//   ball_CH = round( Σ memberCH × pcts[producerDefId]% )
+const BallDerivationPerProducerPct = Type.Object({
+    type: Type.Literal('per_producer_pct'),
+    pcts: Type.Record(Type.String(), Type.Number({ minimum: 0, maximum: 200 })),
+});
+
 export const BallDerivationConfig = Type.Union([
     BallDerivationSingle,
     BallDerivationAvg,
     BallDerivationSumOfCh,
     BallDerivationWeighted,
     BallDerivationByRank,
+    BallDerivationPerProducerPct,
 ]);
 
 export type BallDerivationConfig = Static<typeof BallDerivationConfig>;

@@ -31,7 +31,7 @@ export interface ParticipantPlayerLink {
 export interface ParticipantsApi {
     listByRound(input: { roundId: string }): Promise<Participant[]>;
     get(input: { id: string }): Promise<null | Participant>;
-    create(input: { teamLabel?: null | string; categorySnapshot?: null | string; snapshot?: { handicapIndex?: number; fromPlayerId?: string; allowancePct?: number; teeId: string; gender: 'M' | 'F' }; players?: { playerId?: string; guestPlayerId?: string }[]; roundId: string }): Promise<Participant>;
+    create(input: { teamLabel?: null | string; categorySnapshot?: null | string; snapshot?: { handicapIndex?: number; allowancePct?: number; fromPlayerId?: string; teeId: string; gender: 'M' | 'F' }; players?: { playerId?: string; guestPlayerId?: string }[]; roundId: string }): Promise<Participant>;
     addPlayer(input: { playerId: string; participantId: string }): Promise<ParticipantPlayerLink>;
     addGuest(input: { guestPlayerId: string; participantId: string }): Promise<ParticipantPlayerLink>;
     listFor(input: { participantId: string }): Promise<ParticipantPlayerLink[]>;

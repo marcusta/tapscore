@@ -1095,7 +1095,14 @@ function selectBallsForSlot(
     }
     if (sel?.producerDefIds && sel.producerDefIds.length > 0) {
         const allow = new Set(sel.producerDefIds);
-        candidates = candidates.filter((b) => b.producerDefIds.every((pid) => allow.has(pid)));
+        // ADR-0003: the producer filter picks WHICH INDIVIDUALS (own balls) are
+        // in the slot; team balls (>1 producer) are selected wholesale by their
+        // strategy and pass through. This lets a slot mix a team with an
+        // individual (e.g. köpenhamnare = 2 teams + 1 player) without the team's
+        // members leaking in as own balls.
+        candidates = candidates.filter(
+            (b) => b.producerDefIds.length > 1 || b.producerDefIds.every((pid) => allow.has(pid)),
+        );
     }
     // Dedup by ball id while preserving first-seen order.
     const seen = new Set<string>();

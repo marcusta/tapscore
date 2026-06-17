@@ -11,6 +11,7 @@ import { altShotPair } from './alt-shot-pair';
 import { ownBallPerPlayer } from './own-ball-per-player';
 import { greensomesPair } from './greensomes-pair';
 import { scrambleTeam } from './scramble-team';
+import { teamBall } from './team-ball';
 import { modifiedAltShotPair } from './modified-alt-shot-pair';
 
 let registered = false;
@@ -22,8 +23,9 @@ export function registerBuiltInBallCreationStrategies(): void {
     registerBallCreationStrategy(altShotPair);
     registerBallCreationStrategy(greensomesPair);
     registerBallCreationStrategy(scrambleTeam);
+    registerBallCreationStrategy(teamBall);
     registerBallCreationStrategy(modifiedAltShotPair);
     registered = true;
 }
 
-export { altShotPair, ownBallPerPlayer, greensomesPair, scrambleTeam, modifiedAltShotPair };
+export { altShotPair, ownBallPerPlayer, greensomesPair, scrambleTeam, teamBall, modifiedAltShotPair };

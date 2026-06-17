@@ -28,8 +28,7 @@ import {
     deriveAllowance,
     holeIdentity,
     latestScoresByPlayHole,
-    resolveSingleProducer,
-    strokesGivenMapForProducer,
+    strokesGivenForBallPH,
 } from './_shared';
 
 export const KOPENHAMNARE_INDIVIDUAL_ID = 'kopenhamnare_individual';
@@ -122,10 +121,9 @@ function buildStrokeMaps(
     effPHs: number[],
     ctx: RoundContext,
 ): Map<string, number>[] {
-    return balls.map((b, i) => {
-        const p = resolveSingleProducer(b);
-        return strokesGivenMapForProducer(p.producerDefId, effPHs[i], ctx);
-    });
+    // Ball-based (not per-producer) so a team subject scores too (ADR-0003);
+    // own-balls are unchanged (first-producer SI either way).
+    return balls.map((b, i) => strokesGivenForBallPH(b, effPHs[i], ctx));
 }
 
 function computeKopenhamnare(

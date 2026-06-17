@@ -163,6 +163,7 @@ const BUILTINS: BuiltinMeta[] = [
         teamShape: 'individual',
         metrics: POINTS_HIGH,
         resultDisplay: NORMALIZED_RUNNING,
+        scoresAnyBall: true,
     },
     {
         strategy: umbrellaIndividual,

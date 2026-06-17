@@ -34,7 +34,7 @@ import type {
     SlotDefinition,
 } from '../round-definition';
 import type { CompilerDiagnostic } from '../compiler/types';
-import type { RoundSetupDraft } from './draft';
+import type { DraftRoundTeam, RoundSetupDraft } from './draft';
 
 export type BuildResult =
     | { ok: true; definition: RoundDefinitionInput }
@@ -71,15 +71,44 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
     const strategyDefIdByKey = new Map<string, string>();
     let strategyCounter = 0;
 
-    // Slots are placed by draft index so order is preserved across the two
-    // passes (compositions/own-ball first, composition-scoring second).
+    // Slots are placed by draft index so order is preserved across the passes.
     const slotByIndex: (SlotDefinition | null)[] = draft.formats.map(() => null);
     // selection.id → the strategy def-ids it created, for `ballsFrom` refs.
     const idToStrategyDefIds = new Map<string, string[]>();
 
+    // Round-level teams (ADR-0003) + lazily-materialised ball strategies.
+    const teamsById = new Map((draft.teams ?? []).map((t) => [t.id, t]));
+    const teamStratIdByTeamId = new Map<string, string>();
+    const ownBallKey = `own_ball_per_player::${JSON.stringify({ type: 'single' })}`;
+    const ensureOwnBallStrat = (): string => {
+        let id = strategyDefIdByKey.get(ownBallKey);
+        if (id !== undefined) return id;
+        id = `strat-${strategyCounter++}`;
+        strategyDefIdByKey.set(ownBallKey, id);
+        ballStrategies.push({ id, strategyId: 'own_ball_per_player', derivationConfig: { type: 'single' } });
+        return id;
+    };
+    const ensureTeamStrat = (team: DraftRoundTeam): string => {
+        let id = teamStratIdByTeamId.get(team.id);
+        if (id !== undefined) return id;
+        id = `strat-${strategyCounter++}`;
+        teamStratIdByTeamId.set(team.id, id);
+        const pcts: Record<string, number> = {};
+        for (const m of team.members) pcts[m.producerDefId] = m.allowancePct;
+        ballStrategies.push({
+            id,
+            strategyId: 'team_ball',
+            derivationConfig: { type: 'per_producer_pct', pcts },
+            composition: {
+                teams: [{ label: team.label ?? team.id, producerDefIds: team.members.map((m) => m.producerDefId) }],
+            },
+        });
+        return id;
+    };
+
     // Pass 1 — selections that CREATE balls (own-ball + team compositions).
     draft.formats.forEach((sel, i) => {
-        if (sel.ballsFrom) return; // scoring-only; wired in pass 2
+        if (sel.ballsFrom || sel.subjects) return; // scoring-only; wired in later passes
         const fmtPath = `formats[${i}]`;
 
         let plugin;
@@ -227,6 +256,77 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
             formatId: sel.formatId,
             allowanceConfig: { type: 'flat', pct: 100 },
             ballSelector: { strategyDefIds: refIds },
+            ...(sel.formatConfig !== undefined ? { formatConfig: sel.formatConfig } : {}),
+        };
+    });
+
+    // Pass 3 — subjects (ADR-0003): a format scores an explicit set of balls,
+    // any mix of individual players + round-level teams. Materialise exactly
+    // those: the shared own-ball strategy (narrowed by producerDefIds to the
+    // chosen individuals) + one team_ball strategy per referenced team.
+    draft.formats.forEach((sel, i) => {
+        if (!sel.subjects) return;
+        const fmtPath = `formats[${i}]`;
+        try {
+            findFormatPlugin(sel.formatId);
+        } catch {
+            diags.push({
+                code: 'unknown_format',
+                message: `no format plugin registered for id '${sel.formatId}'`,
+                path: `${fmtPath}.formatId`,
+            });
+            return;
+        }
+
+        const individuals: string[] = [];
+        const teamStratIds: string[] = [];
+        sel.subjects.forEach((subj, si) => {
+            const subjPath = `${fmtPath}.subjects[${si}]`;
+            if (subj.kind === 'player') {
+                if (!rosterIds.has(subj.producerDefId)) {
+                    diags.push({
+                        code: 'unknown_subject_producer',
+                        message: `format '${sel.formatId}' subject references producer '${subj.producerDefId}' which is not in the roster`,
+                        path: subjPath,
+                    });
+                    return;
+                }
+                individuals.push(subj.producerDefId);
+            } else {
+                const team = teamsById.get(subj.teamId);
+                if (!team) {
+                    diags.push({
+                        code: 'unknown_subject_team',
+                        message: `format '${sel.formatId}' subject references team '${subj.teamId}' which is not a round team`,
+                        path: subjPath,
+                    });
+                    return;
+                }
+                for (const m of team.members) {
+                    if (!rosterIds.has(m.producerDefId)) {
+                        diags.push({
+                            code: 'unknown_producer_in_team',
+                            message: `team '${team.id}' member '${m.producerDefId}' is not in the roster`,
+                            path: subjPath,
+                        });
+                    }
+                }
+                teamStratIds.push(ensureTeamStrat(team));
+            }
+        });
+
+        const strategyDefIds: string[] = [];
+        if (individuals.length > 0) strategyDefIds.push(ensureOwnBallStrat());
+        strategyDefIds.push(...teamStratIds);
+
+        slotByIndex[i] = {
+            id: `slot-${i}`,
+            formatId: sel.formatId,
+            allowanceConfig: { type: 'flat', pct: 100 },
+            ballSelector: {
+                strategyDefIds,
+                ...(individuals.length > 0 ? { producerDefIds: individuals } : {}),
+            },
             ...(sel.formatConfig !== undefined ? { formatConfig: sel.formatConfig } : {}),
         };
     });

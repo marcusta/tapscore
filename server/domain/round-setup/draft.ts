@@ -45,6 +45,33 @@ export const DraftTeam = Type.Object({
     producerDefIds: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
 });
 
+// --- Round-level teams + ball subjects (ADR-0003) ---------------------------
+
+/** One member of a round-level team, with their allowance % into the team ball. */
+export const DraftTeamMember = Type.Object({
+    producerDefId: Type.String({ minLength: 1 }),
+    /** Allowance % of this member's course handicap into the team ball. */
+    allowancePct: Type.Number({ minimum: 0, maximum: 200 }),
+});
+
+/**
+ * A round-level team = a ball (ADR-0003). `formation` is a UI label/preset
+ * (scramble/greensomes/foursomes); the engine only needs the members + their
+ * per-member allowance. Referenced by a format's `subjects` via `id`.
+ */
+export const DraftRoundTeam = Type.Object({
+    id: Type.String({ minLength: 1 }),
+    label: Type.Optional(Type.String()),
+    formation: Type.Optional(Type.String()),
+    members: Type.Array(DraftTeamMember, { minItems: 1 }),
+});
+
+/** One ball a format scores: an individual player, or a round-level team. */
+export const BallSubject = Type.Union([
+    Type.Object({ kind: Type.Literal('player'), producerDefId: Type.String({ minLength: 1 }) }),
+    Type.Object({ kind: Type.Literal('team'), teamId: Type.String({ minLength: 1 }) }),
+]);
+
 /** One format the round runs, with its scope + per-format options. */
 export const DraftFormatSelection = Type.Object({
     formatId: Type.String({ minLength: 1 }),
@@ -69,6 +96,13 @@ export const DraftFormatSelection = Type.Object({
      * it inherits the composition's team handicaps.
      */
     ballsFrom: Type.Optional(Type.Object({ ref: Type.String({ minLength: 1 }) })),
+    /**
+     * The set of balls this format scores (ADR-0003) — any mix of individual
+     * players and round-level `teams`. When present this supersedes `teams` /
+     * `producerDefIds` / `ballsFrom`; the builder materialises exactly these
+     * balls. Absent ⇒ legacy behaviour (own-balls / per-format teams).
+     */
+    subjects: Type.Optional(Type.Array(BallSubject, { minItems: 1 })),
 });
 
 /**
@@ -100,11 +134,16 @@ export const RoundSetupDraft = Type.Object({
     venueType: Type.Optional(Type.Union([Type.Literal('outdoor'), Type.Literal('indoor')])),
     route: Type.Optional(DraftRoute),
     producers: Type.Array(DraftProducer, { minItems: 1 }),
+    /** Round-level teams (ADR-0003) — referenced by a format's `subjects`. */
+    teams: Type.Optional(Type.Array(DraftRoundTeam)),
     formats: Type.Array(DraftFormatSelection),
 });
 
 export type DraftProducer = Static<typeof DraftProducer>;
 export type DraftTeam = Static<typeof DraftTeam>;
+export type DraftRoundTeam = Static<typeof DraftRoundTeam>;
+export type DraftTeamMember = Static<typeof DraftTeamMember>;
+export type BallSubject = Static<typeof BallSubject>;
 export type DraftFormatSelection = Static<typeof DraftFormatSelection>;
 export type DraftRoute = Static<typeof DraftRoute>;
 export type RoundSetupDraft = Static<typeof RoundSetupDraft>;
