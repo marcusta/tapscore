@@ -9,3 +9,5 @@ tmp
 !.env.example
 .DS_Store
 .claude/settings.local.json
+deploy-tmp/
+*.local-backup

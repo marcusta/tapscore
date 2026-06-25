@@ -18,7 +18,9 @@
         "seed": "bun scripts/seed.ts",
         "seed:list": "bun scripts/seed.ts list",
         "seed:formats": "bun scripts/seed-formats.ts",
-        "check:format-fixtures": "bun scripts/check-format-fixtures.ts"
+        "check:format-fixtures": "bun scripts/check-format-fixtures.ts",
+        "db:migrate": "bun ./scripts/migrate.ts",
+        "db:health": "bun ./scripts/health.ts"
     },
     "dependencies": {
         "@basics/core": "file:../mackans-client-fw/core",
