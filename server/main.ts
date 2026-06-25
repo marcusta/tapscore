@@ -87,6 +87,12 @@ if (process.env.NODE_ENV !== 'production') {
 
 // --- Start ---
 
-export default { port: config.port, fetch: app.fetch };
+// Default to 3737 (this service's assigned sig-infra port) when PORT is
+// unset, instead of the framework's shared 3000 default. The systemd unit
+// sets only NODE_ENV, so prod relies on this fallback. `bun run dev:server`
+// still overrides via PORT=3030.
+const port = Number(process.env.PORT ?? 3737);
 
-log.info({ msg: 'server started', port: config.port });
+export default { port, fetch: app.fetch };
+
+log.info({ msg: 'server started', port });
