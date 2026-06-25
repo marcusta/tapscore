@@ -20,10 +20,11 @@
         "seed:formats": "bun scripts/seed-formats.ts",
         "check:format-fixtures": "bun scripts/check-format-fixtures.ts",
         "db:migrate": "bun ./scripts/migrate.ts",
-        "db:health": "bun ./scripts/health.ts"
+        "db:health": "bun ./scripts/health.ts",
+        "vendor:basics": "bun ./scripts/vendor-basics.ts"
     },
     "dependencies": {
-        "@basics/core": "file:../mackans-client-fw/core",
+        "@basics/core": "file:./vendor/basics-core",
         "@sinclair/typebox": "0.34.48",
         "hono": "4.11.9",
         "kysely": "0.27.6",
