@@ -17,6 +17,7 @@
         "render:all": "bun scripts/render-all.ts",
         "render:formats": "bun scripts/render-formats.ts",
         "seed": "bun scripts/seed.ts",
+        "seed:prod": "bun scripts/seed-prod.ts",
         "seed:list": "bun scripts/seed.ts list",
         "seed:formats": "bun scripts/seed-formats.ts",
         "check:format-fixtures": "bun scripts/check-format-fixtures.ts",
