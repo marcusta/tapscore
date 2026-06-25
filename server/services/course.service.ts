@@ -18,6 +18,11 @@ export interface Course {
     holes: Hole[];
 }
 
+/** A course enriched with its club's display name, for the setup picker. */
+export interface SetupCourse extends Course {
+    clubName: string;
+}
+
 export interface CreateCourseInput {
     clubId: string;
     name: string;
@@ -133,6 +138,39 @@ export class CourseService {
         for (const row of rows) {
             const holes = await this.holesFor(row.id).execute();
             courses.push(toCourse(row, holes.map(toHole)));
+        }
+        return courses;
+    }
+
+    /**
+     * Courses with their club's display name, ordered by club then course —
+     * for the setup picker, which groups courses under club headers.
+     */
+    async listForSetup(): Promise<SetupCourse[]> {
+        const rows = await this.db
+            .selectFrom('courses')
+            .innerJoin('clubs', 'clubs.id', 'courses.club_id')
+            .select([
+                'courses.id as id',
+                'courses.club_id as club_id',
+                'courses.name as name',
+                'courses.hole_count as hole_count',
+                'clubs.name as club_name',
+            ])
+            .orderBy('clubs.name')
+            .orderBy('courses.name')
+            .execute();
+        const courses: SetupCourse[] = [];
+        for (const row of rows) {
+            const holes = await this.holesFor(row.id).execute();
+            courses.push({
+                id: row.id,
+                clubId: row.club_id,
+                name: row.name,
+                holeCount: row.hole_count,
+                holes: holes.map(toHole),
+                clubName: row.club_name,
+            });
         }
         return courses;
     }

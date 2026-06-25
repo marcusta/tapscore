@@ -21,7 +21,7 @@ const ByCourseInput = Type.Object({ courseId: Type.String() });
 
 export function createSetupApi(courses: CourseService, tees: TeeService) {
     return {
-        courses:     { method: 'GET' as const, path: '/setup/courses',        fn: ()                                       => courses.list() },
+        courses:     { method: 'GET' as const, path: '/setup/courses',        fn: ()                                       => courses.listForSetup() },
         teesByCourse:{ method: 'GET' as const, path: '/setup/tees/by-course',  fn: (input: Static<typeof ByCourseInput>)    => tees.listByCourse(input.courseId), schema: ByCourseInput },
         formats:     { method: 'GET' as const, path: '/setup/formats',         fn: (): FormatDescriptor[]                   => formatCatalog() },
     };

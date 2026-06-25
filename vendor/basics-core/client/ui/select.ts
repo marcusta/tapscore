@@ -4,6 +4,12 @@ export type SelectOption = {
     value: string;
     label: string;
     icon?: string;
+    /**
+     * Render as a non-selectable group header (e.g. a club name above its
+     * courses). Not clickable, skipped by keyboard navigation, and never
+     * matched against the current value.
+     */
+    disabled?: boolean;
 };
 
 export type SelectProps = {
@@ -118,6 +124,19 @@ export class SelectComponent extends Component<SelectProps> {
             color: ${t('primary')};
             font-weight: 600;
         }
+        .ui-select__option--header {
+            cursor: default;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: ${t('text-muted')};
+            padding-top: 10px;
+            padding-bottom: 4px;
+        }
+        .ui-select__option--header:hover {
+            background: none;
+        }
         .ui-select__option-icon {
             flex-shrink: 0;
         }
@@ -209,8 +228,28 @@ export class SelectComponent extends Component<SelectProps> {
                 const btn = document.createElement('button');
                 btn.className = 'ui-select__option';
                 btn.setAttribute('type', 'button');
-                btn.setAttribute('role', 'option');
                 btn.id = `ui-select-opt-${i}`;
+
+                // Non-selectable group header (e.g. a club name). Kept in
+                // optionEls so index alignment with `options` holds, but inert:
+                // disabled, no role="option", no click/hover/check wiring.
+                if (opt.disabled) {
+                    btn.classList.add('ui-select__option--header');
+                    btn.disabled = true;
+                    btn.setAttribute('role', 'presentation');
+                    btn.setAttribute('aria-disabled', 'true');
+
+                    const labelEl = document.createElement('span');
+                    labelEl.className = 'ui-select__option-label';
+                    labelEl.textContent = opt.label;
+                    btn.appendChild(labelEl);
+
+                    this.dropdownEl.appendChild(btn);
+                    this.optionEls.push(btn);
+                    continue;
+                }
+
+                btn.setAttribute('role', 'option');
 
                 if (opt.icon) {
                     const iconSpan = document.createElement('span');
@@ -309,7 +348,8 @@ export class SelectComponent extends Component<SelectProps> {
                     : this.props.options;
                 const val = this.props.value.get();
                 const idx = options.findIndex(o => o.value === val);
-                this.highlightIndex.set(idx >= 0 ? idx : 0);
+                const firstSelectable = options.findIndex(o => !o.disabled);
+                this.highlightIndex.set(idx >= 0 ? idx : firstSelectable);
             }
         }));
 
@@ -406,7 +446,7 @@ export class SelectComponent extends Component<SelectProps> {
                 const options = isReadable(this.props.options)
                     ? this.props.options.get()
                     : this.props.options;
-                if (idx >= 0 && idx < options.length) {
+                if (idx >= 0 && idx < options.length && !options[idx].disabled) {
                     this.selectOption(options[idx].value);
                 }
                 break;
@@ -428,10 +468,15 @@ export class SelectComponent extends Component<SelectProps> {
             : this.props.options;
         if (options.length === 0) return;
 
-        const current = this.highlightIndex.get();
-        let next = current + delta;
-        if (next < 0) next = options.length - 1;
-        if (next >= options.length) next = 0;
+        if (!options.some(o => !o.disabled)) return;
+
+        let next = this.highlightIndex.get();
+        // Step over non-selectable header rows.
+        do {
+            next += delta;
+            if (next < 0) next = options.length - 1;
+            if (next >= options.length) next = 0;
+        } while (options[next].disabled);
         this.highlightIndex.set(next);
     }
 

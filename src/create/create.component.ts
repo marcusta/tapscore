@@ -392,7 +392,23 @@ export class CreateComponent extends Component {
                     if (v && v !== this.svc.courseId.get()) void this.svc.selectCourse(v);
                 },
             ),
-            options: { get: () => this.svc.courses.get().map((c) => ({ value: c.id, label: c.name })) },
+            // Grouped by club: a non-selectable club header before each club's
+            // courses. svc.courses arrives ordered by club then course name
+            // (setup API), so headers drop in wherever the club changes.
+            options: {
+                get: () => {
+                    const opts: SelectOption[] = [];
+                    let lastClub = '';
+                    for (const c of this.svc.courses.get()) {
+                        if (c.clubName !== lastClub) {
+                            opts.push({ value: `__club:${c.clubName}`, label: c.clubName, disabled: true });
+                            lastClub = c.clubName;
+                        }
+                        opts.push({ value: c.id, label: c.name });
+                    }
+                    return opts;
+                },
+            },
             placeholder: 'Select a course',
         });
         this.mountSelect(this.ref(frag, 'startHole'), compTrack, {

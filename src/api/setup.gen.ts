@@ -1,7 +1,8 @@
 // GENERATED — DO NOT EDIT
 import { apiFetch } from '@basics/core/client/fetch';
 
-export interface Course {
+export interface SetupCourse {
+    clubName: string;
     id: string;
     clubId: string;
     name: string;
@@ -94,7 +95,7 @@ export interface MetadataApplies {
 }
 
 export interface SetupApi {
-    courses(): Promise<Course[]>;
+    courses(): Promise<SetupCourse[]>;
     teesByCourse(input: { courseId: string }): Promise<Tee[]>;
     formats(): Promise<FormatDescriptor[]>;
 }

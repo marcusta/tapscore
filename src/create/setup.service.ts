@@ -1,7 +1,7 @@
 import { Signal, di } from '@basics/core/client/core';
 import { request, type RequestError } from '@basics/core/client/request';
 import { api, ApiError } from '../api';
-import type { Course, Tee, TeeRating } from '../api/setup.gen';
+import type { SetupCourse, Tee, TeeRating } from '../api/setup.gen';
 import type { CompilerDiagnostic } from '../api/friendly-rounds.gen';
 import { courseHandicap, courseHandicapRaw } from './handicap';
 import { FormatCatalogService } from './format-catalog.service';
@@ -104,7 +104,7 @@ export class SetupService {
     readonly loading = new Signal(false);
     readonly error = new Signal<RequestError | null>(null);
 
-    readonly courses = new Signal<Course[]>([]);
+    readonly courses = new Signal<SetupCourse[]>([]);
     readonly tees = new Signal<Tee[]>([]);
 
     readonly courseId = new Signal<string>('');
@@ -323,7 +323,7 @@ export class SetupService {
 
     // --- Derived reads ---
 
-    selectedCourse(): Course | null {
+    selectedCourse(): SetupCourse | null {
         return this.courses.get().find((c) => c.id === this.courseId.get()) ?? null;
     }
 
