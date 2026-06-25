@@ -150,13 +150,31 @@ export interface NavigateOptions {
     query?: Record<string, QueryValue>;
 }
 
+// Base-path support: lets the app be served under a sub-path (e.g.
+// '/tapscore/') behind a reverse proxy. Sourced from Vite's BASE_URL, which
+// is the build-time `base` config ('/' → '' when served at the root). The
+// router stores/matches app-relative paths; the base is only added to the
+// real URL (pushState) and stripped from location reads.
+const ROUTER_BASE = ((import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? '/').replace(/\/+$/, '');
+
+function stripBase(pathname: string): string {
+    if (!ROUTER_BASE) return pathname;
+    if (pathname === ROUTER_BASE) return '/';
+    if (pathname.startsWith(ROUTER_BASE + '/')) return pathname.slice(ROUTER_BASE.length);
+    return pathname;
+}
+
+function withBase(path: string): string {
+    return ROUTER_BASE + path;
+}
+
 export class Router {
-    readonly route = new Signal(location.pathname ?? '/');
+    readonly route = new Signal(stripBase(location.pathname ?? '/'));
     readonly search = new Signal(location.search ?? '');
 
     constructor() {
         window.addEventListener('popstate', () => batch(() => {
-            this.route.set(location.pathname);
+            this.route.set(stripBase(location.pathname));
             this.search.set(location.search);
         }));
     }
@@ -173,7 +191,7 @@ export class Router {
         const search = options.query !== undefined
             ? serializeQuery(options.query)
             : (inlineQuery ? '?' + inlineQuery : '');
-        const url = rawPath + search + hash;
+        const url = withBase(rawPath) + search + hash;
         (options.replace ? history.replaceState : history.pushState).call(history, null, '', url);
         batch(() => {
             this.route.set(rawPath);
@@ -579,7 +597,7 @@ export async function startApp(
         inObs = obs;
     };
 
-    await mount(location.pathname.startsWith('/_obs'));
+    await mount(stripBase(location.pathname).startsWith('/_obs'));
 
     effect(() => {
         const wantObs = router.route.get().startsWith('/_obs');

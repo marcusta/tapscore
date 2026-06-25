@@ -4,6 +4,7 @@
     "type": "module",
     "scripts": {
         "dev:server": "PORT=3030 bun --watch server/main.ts",
+        "build": "vite build",
         "check:client": "tsgo --noEmit",
         "check:server": "tsgo -p tsconfig.server.json --noEmit",
         "check:test": "tsgo -p tsconfig.test.json --noEmit",

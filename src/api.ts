@@ -14,18 +14,22 @@ import { createSetupClient } from './api/setup.gen';
 
 export { ApiError } from '@basics/core/client/api-error';
 
+// Carry the deploy base path (Vite BASE_URL) so API calls resolve under the
+// sub-path in production ('/tapscore/api') and at the root in dev ('/api').
+const API_BASE = import.meta.env.BASE_URL.replace(/\/+$/, '') + '/api';
+
 export const api = {
-    players: createPlayersClient('/api'),
-    clubs: createClubsClient('/api'),
-    courses: createCoursesClient('/api'),
-    tees: createTeesClient('/api'),
-    guestPlayers: createGuestPlayersClient('/api'),
-    handicap: createHandicapClient('/api'),
-    rounds: createRoundsClient('/api'),
-    participants: createParticipantsClient('/api'),
-    scoreEvents: createScoreEventsClient('/api'),
-    scorecards: createScorecardsClient('/api'),
-    leaderboards: createLeaderboardsClient('/api'),
-    friendlyRounds: createFriendlyRoundsClient('/api'),
-    setup: createSetupClient('/api'),
+    players: createPlayersClient(API_BASE),
+    clubs: createClubsClient(API_BASE),
+    courses: createCoursesClient(API_BASE),
+    tees: createTeesClient(API_BASE),
+    guestPlayers: createGuestPlayersClient(API_BASE),
+    handicap: createHandicapClient(API_BASE),
+    rounds: createRoundsClient(API_BASE),
+    participants: createParticipantsClient(API_BASE),
+    scoreEvents: createScoreEventsClient(API_BASE),
+    scorecards: createScorecardsClient(API_BASE),
+    leaderboards: createLeaderboardsClient(API_BASE),
+    friendlyRounds: createFriendlyRoundsClient(API_BASE),
+    setup: createSetupClient(API_BASE),
 };

@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import { serveStatic } from 'hono/bun';
 import type { Database } from './db/schema';
 import { config } from '@basics/core/server/config';
 import { createApp } from '@basics/core/server/app';
@@ -77,6 +78,14 @@ mount(app, '/api', createFriendlyRoundsApi(friendlyRoundService));
 mount(app, '/api', createSetupApi(courseService, teeService));
 mount(app, '/api', createCorrectionsApi(correctionService));
 mount(app, '/api', createFormatActionsApi(formatActionService));
+
+// --- Static client ---
+
+// Serve the Vite-built SPA from ./public (committed to git, no build step on
+// the server). Registered after the /api routes so they take precedence; any
+// other path falls through to index.html for client-side routing.
+app.use('/*', serveStatic({ root: './public' }));
+app.get('/*', serveStatic({ path: './public/index.html' }));
 
 // --- Dev seed ---
 
