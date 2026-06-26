@@ -381,7 +381,9 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
             slotByIndex[i] = {
                 id: `slot-${i}`,
                 formatId: sel.formatId,
-                allowanceConfig: { type: 'flat', pct: 100 },
+                // The format's playing allowance, applied to each side member's
+                // own ball (e.g. better-ball 90%). Defaults to full handicap.
+                allowanceConfig: sel.allowanceConfig ?? { type: 'flat', pct: 100 },
                 ballSelector: {
                     strategyDefIds: [...stratIds],
                     ...(playerProducers.length > 0 ? { producerDefIds: playerProducers } : {}),
@@ -450,7 +452,10 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
         slotByIndex[i] = {
             id: `slot-${i}`,
             formatId: sel.formatId,
-            allowanceConfig: { type: 'flat', pct: 100 },
+            // The format's playing allowance, applied to each ball it ranks
+            // (e.g. singles 95%). A combined ball already carries its merge %s,
+            // so leave this at 100% for those. Defaults to full handicap.
+            allowanceConfig: sel.allowanceConfig ?? { type: 'flat', pct: 100 },
             ballSelector: {
                 strategyDefIds,
                 ...(individuals.length > 0 ? { producerDefIds: individuals } : {}),

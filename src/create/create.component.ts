@@ -86,6 +86,12 @@ const fslotTpl = template(`
         <p bind="desc" class="fslot__desc"></p>
 
         <div class="fslot__group">
+            <span class="fslot__label">Handicap allowance</span>
+            <span class="mrow__pct"><input bind="allowance" inputmode="numeric" /><span>%</span></span>
+            <span bind="allowanceHint" class="fslot__teammeta"></span>
+        </div>
+
+        <div class="fslot__group">
             <span class="fslot__label">Scores</span>
             <div bind="subjectRows" class="fslot__teamrows"></div>
         </div>
@@ -563,6 +569,17 @@ export class CreateComponent extends Component {
             {
                 remove: { onclick: () => this.svc.removeFormatSlot(key) },
                 desc: { textContent: () => this.svc.catalog.byId(formatId())?.description ?? '' },
+                // Uncontrolled: static initial value, oninput-only (no caret reset).
+                allowance: {
+                    value: this.svc.slotByKey(key)?.allowancePct ?? '100',
+                    oninput: (e: Event) => this.svc.setSlotAllowance(key, (e.target as HTMLInputElement).value),
+                },
+                allowanceHint: {
+                    textContent: () =>
+                        this.svc.isSideFormat(formatId())
+                            ? 'applied to each side member’s ball'
+                            : 'of each player’s course handicap',
+                },
                 err: {
                     textContent: () =>
                         this.svc

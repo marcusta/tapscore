@@ -20,6 +20,10 @@ export interface FormatSlotForm {
     /** Stable identity for `$each` keying — survives field edits. */
     key: number;
     formatId: string;
+    /** The playing allowance % applied to each ball this format scores (raw text,
+     * parsed lazily). 100 = full handicap. For separate-balls / individual play
+     * this is THE allowance; a combined ball already carries its merge %s. */
+    allowancePct: string;
     /** Player `key` → in this format's subjects? Missing key ⇒ included (so a
      * fresh format scores everyone). The set of balls this format ranks. */
     subjectPlayers: Record<number, boolean>;
@@ -64,6 +68,7 @@ type DraftBallSubject =
 /** One element of the draft's `formats[]` array (ADR-0003 subjects model). */
 interface DraftFormat {
     formatId: string;
+    allowanceConfig?: AllowanceConfig;
     subjects: DraftBallSubject[];
     formatConfig?: unknown;
 }
@@ -221,10 +226,15 @@ export class SetupService {
         const slot: FormatSlotForm = {
             key: this.nextSlotKey++,
             formatId: id,
+            allowancePct: '100',
             subjectPlayers: {}, // empty ⇒ every player included by default
             subjectTeams: {},
         };
         this.formatSlots.set([...this.formatSlots.get(), slot]);
+    }
+
+    setSlotAllowance(key: number, pct: string): void {
+        this.patchFormatSlot(key, { allowancePct: pct });
     }
 
     removeFormatSlot(key: number): void {
@@ -667,6 +677,7 @@ export class SetupService {
             }
             return {
                 formatId: slot.formatId,
+                allowanceConfig: { type: 'flat', pct: this.parsePct(slot.allowancePct) },
                 subjects,
             };
         });

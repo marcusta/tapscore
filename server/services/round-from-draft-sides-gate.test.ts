@@ -128,6 +128,18 @@ test('better-ball best-of-side scoring matches a hand oracle', async () => {
     expect(ranked.entries[0]!.total).toBe(5); // Side B wins (points: high)
 });
 
+test('a side format playing allowance threads to the slot (better-ball @ 90%)', async () => {
+    const ctx = await setup(4);
+    const draft = twoSidesDraft(ctx, 'stableford_better_ball');
+    draft.formats[0]!.allowanceConfig = { type: 'flat', pct: 90 };
+    const result = await ctx.roundService.createFromDraft(draft);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
+    const def = (await ctx.roundService.latestDefinition(result.round.id))!.definition;
+    const slot = def.slots.find((s) => s.formatId === 'stableford_better_ball')!;
+    expect(slot.allowanceConfig).toEqual({ type: 'flat', pct: 90 });
+});
+
 test('match-play better-ball over two side subjects compiles (4 balls, 2 sides)', async () => {
     const ctx = await setup(4);
     const result = await ctx.roundService.createFromDraft(twoSidesDraft(ctx, 'match_play_better_ball'));
