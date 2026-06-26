@@ -88,10 +88,10 @@ describe('talibanBetterBall (new contract)', () => {
         expect(h2.note).toContain('down-team eagle');
     });
 
-    test('gross birdie win: +2 (not down-team eagle)', () => {
+    test('birdie while level → +1 (the comeback bonus applies only when behind)', () => {
         const { ctx, balls, groupings } = setup();
         const [bA1, bA2, bB1, bB2] = balls;
-        // Hole 1: A makes birdie 3 and wins → +2 (birdie while level).
+        // Hole 1: all square entering. A makes birdie 3 and wins → +1 (level, no bonus).
         const events = [
             makeScoreEvent(bA1.ballId, 1, 3),
             makeScoreEvent(bA2.ballId, 1, 4),
@@ -105,8 +105,35 @@ describe('talibanBetterBall (new contract)', () => {
             events,
         });
         const h1 = pairResults![0].holes.find((h) => h.holeNumber === 1)!;
-        expect(h1.pointsDelta).toBe(2);
-        expect(h1.note).toContain('birdie');
+        expect(h1.status).toBe('won');
+        expect(h1.pointsDelta).toBe(1);
+    });
+
+    test('down-team birdie → +2', () => {
+        const { ctx, balls, groupings } = setup();
+        const [bA1, bA2, bB1, bB2] = balls;
+        // Hole 1: A wins normally (4 vs 5) → A +1, B down 1.
+        // Hole 2: B (down 1) makes birdie 3 and wins → +2.
+        const events = [
+            makeScoreEvent(bA1.ballId, 1, 4),
+            makeScoreEvent(bA2.ballId, 1, 4),
+            makeScoreEvent(bB1.ballId, 1, 5),
+            makeScoreEvent(bB2.ballId, 1, 5),
+            makeScoreEvent(bA1.ballId, 2, 4),
+            makeScoreEvent(bA2.ballId, 2, 4),
+            makeScoreEvent(bB1.ballId, 2, 3),
+            makeScoreEvent(bB2.ballId, 2, 4),
+        ];
+        const { pairResults } = talibanBetterBall.score({
+            roundContext: ctx,
+            slotBalls: balls,
+            slotTeamGroupings: groupings,
+            events,
+        });
+        const h2 = pairResults![0].holes.find((h) => h.holeNumber === 2)!;
+        expect(h2.status).toBe('lost'); // B won the hole → A's perspective is "lost"
+        expect(h2.pointsDelta).toBe(-2);
+        expect(h2.note).toContain('down-team birdie');
     });
 
     test('ballRequirement: 4 balls, 2 teams of 2', () => {

@@ -1,12 +1,14 @@
 // Phase 2.6b/2 — taliban × better-ball.
 //
-// 2v2 better-ball match-play with running points + gross bonuses:
-//   1 = normal hole win (lower better-ball net)
-//   2 = win + any winning-team player's gross ≤ par−1 (birdie) OR ≤ par−2
-//       (eagle) when winner was up or level entering
-//   5 = win + gross eagle by team STRICTLY down entering
+// 2v2 better-ball match-play with a COMEBACK bonus. A hole win is worth 1 point;
+// a winner who was BEHIND entering the hole earns a bonus for a gross birdie/
+// eagle (the catch-up mechanic). Level or ahead → 1, regardless of birdie/eagle:
+//   1 = hole win while level or ahead
+//   2 = hole win while BEHIND with a gross birdie (≤ par−1) by either member
+//   5 = hole win while BEHIND with a gross eagle (≤ par−2) by either member
 // Better-ball tie broken by worse-ball; both tied = halved.
-// Missing-ball: if only one team has a contributing ball, that team wins +1.
+// Missing-ball: if only one team has a contributing ball, that team wins (the
+// same down-team bonus applies).
 // Pickup (strokes=0) / DNP / no-event → player does not contribute this hole.
 //
 // Input: 4 own-balls + slotTeamGroupings (2 teams of 2). One PairBallResult
@@ -210,12 +212,10 @@ export const talibanBetterBall: FormatStrategy = {
             } else if (aHas && !bHas) {
                 awardTo = 'A';
                 status = 'won';
-                points = 1;
                 detail = 'no ball by B';
             } else if (!aHas && bHas) {
                 awardTo = 'B';
                 status = 'lost';
-                points = 1;
                 detail = 'no ball by A';
             } else {
                 const bestA = ballA.better as number;
@@ -241,21 +241,21 @@ export const talibanBetterBall: FormatStrategy = {
                         status = 'halved';
                     }
                 }
-                if (awardTo !== null) {
-                    const winnerBall = awardTo === 'A' ? ballA : ballB;
-                    const winnerIsDown = (awardTo === 'A' && aDown) || (awardTo === 'B' && bDown);
-                    if (winnerBall.eagleBy !== null && winnerIsDown) {
-                        points = 5;
-                        detail = detail ? `${detail}, down-team eagle` : 'down-team eagle';
-                    } else if (winnerBall.eagleBy !== null) {
-                        points = 2;
-                        detail = detail ? `${detail}, gross eagle` : 'gross eagle';
-                    } else if (winnerBall.birdieBy !== null) {
-                        points = 2;
-                        detail = detail ? `${detail}, gross birdie` : 'gross birdie';
-                    } else {
-                        points = 1;
-                    }
+            }
+
+            // A win is 1 point. The COMEBACK bonus applies ONLY when the winner
+            // was BEHIND entering the hole: a gross birdie scores 2, a gross eagle
+            // 5. Level or ahead → 1, regardless of birdie/eagle.
+            if (awardTo !== null) {
+                points = 1;
+                const winnerBall = awardTo === 'A' ? ballA : ballB;
+                const winnerIsDown = (awardTo === 'A' && aDown) || (awardTo === 'B' && bDown);
+                if (winnerIsDown && winnerBall.eagleBy !== null) {
+                    points = 5;
+                    detail = detail ? `${detail}, down-team eagle` : 'down-team eagle';
+                } else if (winnerIsDown && winnerBall.birdieBy !== null) {
+                    points = 2;
+                    detail = detail ? `${detail}, down-team birdie` : 'down-team birdie';
                 }
             }
 
@@ -296,9 +296,8 @@ export const talibanBetterBall: FormatStrategy = {
                 if (status === 'halved') return 'AS';
                 if (!won) return 'L';
                 if (points === 5) return 'W+5 (down eagle)';
-                if (points === 2 && detail.includes('eagle')) return 'W+2 (eagle)';
-                if (points === 2) return 'W+2 (birdie)';
-                return `W+${points}`;
+                if (points === 2) return 'W+2 (down birdie)';
+                return 'W+1';
             };
             const aNote = note(awardTo === 'A');
             const bNote = note(awardTo === 'B');
