@@ -109,11 +109,15 @@ const teamCardTpl = template(`
             <button bind="remove" class="fslot__remove" type="button" aria-label="Remove">✕</button>
         </div>
         <div class="fslot__group">
+            <span class="fslot__label">Plays as</span>
+            <div bind="kindSel" class="fslot__format"></div>
+        </div>
+        <div bind="compGroup" class="fslot__group">
             <span class="fslot__label">Composition</span>
             <div bind="formation" class="fslot__format"></div>
         </div>
         <div class="fslot__group">
-            <span class="fslot__label">Members &amp; allowance</span>
+            <span bind="membersLabel" class="fslot__label">Members</span>
             <div bind="memberRows" class="fslot__teamrows"></div>
             <p bind="teamMeta" class="fslot__teammeta"></p>
         </div>
@@ -583,13 +587,22 @@ export class CreateComponent extends Component {
             },
         });
 
-        // Subject checklist — every individual player, then every team. One
-        // keyed list (kind-prefixed) so a single eachInto owns the host.
+        // Subject checklist — what this format can score. A SIDE format
+        // (better-ball) scores multi-ball (side) teams only; a BALL format scores
+        // individual players + single-ball teams. One keyed list (kind-prefixed)
+        // so a single eachInto owns the host.
         type Subj = { kind: 'player' | 'team'; subKey: number };
-        const subjects = (): Subj[] => [
-            ...this.svc.players.get().map((p) => ({ kind: 'player' as const, subKey: p.key })),
-            ...this.svc.teams.get().map((tm) => ({ kind: 'team' as const, subKey: tm.key })),
-        ];
+        const subjects = (): Subj[] => {
+            const side = this.svc.isSideFormat(formatId());
+            const out: Subj[] = [];
+            if (!side) {
+                out.push(...this.svc.players.get().map((p) => ({ kind: 'player' as const, subKey: p.key })));
+            }
+            for (const tm of this.svc.teams.get()) {
+                if ((tm.kind === 'multi_ball') === side) out.push({ kind: 'team' as const, subKey: tm.key });
+            }
+            return out;
+        };
         this.eachInto(
             this.ref(el, 'subjectRows'),
             track,
@@ -610,7 +623,8 @@ export class CreateComponent extends Component {
         const label = (): string => {
             if (kind === 'player') return this.svc.players.get().find((p) => p.key === subKey)?.name?.trim() || 'Player';
             const tm = this.svc.teamByKey(subKey);
-            return tm ? `${this.svc.teamLabel(tm)} (team)` : 'Team';
+            if (!tm) return 'Team';
+            return `${this.svc.teamLabel(tm)} (${tm.kind === 'multi_ball' ? 'side' : 'team'})`;
         };
         const checked = () =>
             kind === 'player' ? this.svc.subjectPlayerIn(slotKey, subKey) : this.svc.subjectTeamIn(slotKey, subKey);
@@ -629,6 +643,7 @@ export class CreateComponent extends Component {
     }
 
     private teamCard(key: number, track: (d: () => void) => void): HTMLElement {
+        const isSide = () => this.svc.teamKindOf(key) === 'multi_ball';
         const el = this.wireEl(
             teamCardTpl,
             {
@@ -639,13 +654,20 @@ export class CreateComponent extends Component {
                         return tm ? this.svc.teamLabel(tm) : 'Team';
                     },
                 },
-                // Live size + team-ball CH preview (round(Σ memberCH × pct%)), or a
-                // nudge while the team is still under the 2-player minimum.
+                // Composition + per-member allowance only apply to a single-ball
+                // (merged) team; a side just lists its member balls.
+                compGroup: { hidden: () => isSide() },
+                membersLabel: { textContent: () => (isSide() ? 'Members (each a ball)' : 'Members & allowance') },
                 teamMeta: {
                     textContent: () => {
                         const size = this.svc.teamSize(key);
-                        if (size === 0) return 'Tick at least 2 players to form a team ball.';
-                        if (size < 2) return 'Add one more player — a team needs at least 2.';
+                        if (size === 0) {
+                            return isSide()
+                                ? 'Tick at least 2 members — a side needs ≥2 balls.'
+                                : 'Tick at least 2 players to form a team ball.';
+                        }
+                        if (size < 2) return 'Add one more member — a team needs at least 2.';
+                        if (isSide()) return `${size} balls · a side (best ball per hole)`;
                         const ch = this.svc.teamBallCh(key);
                         return ch === null ? `${size} players` : `${size} players · plays off CH ${ch}`;
                     },
@@ -653,6 +675,20 @@ export class CreateComponent extends Component {
             },
             track,
         );
+        // "Plays as" — single combined ball (composition) vs separate balls (side).
+        this.mountSelect(this.ref(el, 'kindSel'), track, {
+            value: this.bound(
+                track,
+                () => this.svc.teamKindOf(key),
+                (v) => this.svc.setTeamKind(key, v === 'multi_ball' ? 'multi_ball' : 'single_ball'),
+            ),
+            options: {
+                get: () => [
+                    { value: 'single_ball', label: 'One combined ball' },
+                    { value: 'multi_ball', label: 'Separate balls (a side)' },
+                ],
+            },
+        });
         this.mountSelect(this.ref(el, 'formation'), track, {
             value: this.bound(
                 track,
@@ -663,14 +699,56 @@ export class CreateComponent extends Component {
                 get: () => this.svc.formations.map((f) => ({ value: f, label: f[0]!.toUpperCase() + f.slice(1) })),
             },
         });
+        // Members: every player, plus (for a side) every eligible single-ball
+        // team — a side can nest combined-ball teams as its balls (ADR-0003).
+        type MRow = { kind: 'player' | 'team'; mKey: number };
         this.eachInto(
             this.ref(el, 'memberRows'),
             track,
-            () => this.svc.players.get(),
-            (p, _i, rowTrack) => this.teamMemberRow(key, p.key, rowTrack),
-            (p) => p.key,
+            () => {
+                const rows: MRow[] = this.svc.players.get().map((p) => ({ kind: 'player' as const, mKey: p.key }));
+                if (isSide()) {
+                    for (const t of this.svc.eligibleNestedTeams(key)) rows.push({ kind: 'team' as const, mKey: t.key });
+                }
+                return rows;
+            },
+            (r, _i, rowTrack) =>
+                r.kind === 'player'
+                    ? this.teamMemberRow(key, r.mKey, rowTrack)
+                    : this.teamNestedRow(key, r.mKey, rowTrack),
+            (r) => `${r.kind}${r.mKey}`,
         );
         return el;
+    }
+
+    /** A side member that is itself a single-ball team (nested). Checkbox + the
+     * team's label; no allowance (the nested team carries its own merge %s). */
+    private teamNestedRow(
+        sideKey: number,
+        memberTeamKey: number,
+        track: (d: () => void) => void,
+    ): HTMLElement {
+        const inSide = () => this.svc.teamHasTeamMember(sideKey, memberTeamKey);
+        return this.wireEl(
+            memberRowTpl,
+            {
+                chk: {
+                    checked: () => inSide(),
+                    disabled: () => !inSide() && this.svc.teamAtMaxSize(sideKey),
+                    onchange: (e: Event) =>
+                        this.svc.setTeamMemberTeam(sideKey, memberTeamKey, (e.target as HTMLInputElement).checked),
+                },
+                name: {
+                    textContent: () => {
+                        const t = this.svc.teamByKey(memberTeamKey);
+                        return t ? `${this.svc.teamLabel(t)} (combined ball)` : 'Team';
+                    },
+                },
+                pctWrap: { hidden: () => true },
+                pct: { value: '100', oninput: () => {} },
+            },
+            track,
+        );
     }
 
     private teamMemberRow(
@@ -691,7 +769,8 @@ export class CreateComponent extends Component {
                         this.svc.setTeamMember(teamKey, playerKey, (e.target as HTMLInputElement).checked),
                 },
                 name: { textContent: () => player()?.name?.trim() || 'Player' },
-                pctWrap: { hidden: () => !inTeam() },
+                // A side member has no merge allowance — only single-ball teams do.
+                pctWrap: { hidden: () => !inTeam() || this.svc.teamKindOf(teamKey) === 'multi_ball' },
                 // Uncontrolled: static initial value, oninput-only (no caret reset).
                 pct: {
                     value: this.svc.teamByKey(teamKey)?.pctByPlayer[playerKey] ?? '100',

@@ -141,6 +141,12 @@ const BUILTINS: BuiltinMeta[] = [
             ],
         },
     },
+    // The four side formats: each scores a set of SIDES, taking the best ball
+    // per side per hole. `scoresAnyBall` lets a side's ball be ANY composition —
+    // an own ball OR a merged team ball (a scramble team nested in a side, ADR-0003
+    // recursive teams) — by skipping the per-ball own/team producer-count check.
+    // The slot.teamGrouping (derived from the side subjects) + slotBallCount still
+    // validate; scoring is unchanged.
     {
         strategy: stablefordBetterBall,
         label: 'Better-ball Stableford',
@@ -148,6 +154,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'stableford',
         teamShape: 'better_ball',
         metrics: POINTS_HIGH,
+        scoresAnyBall: true,
     },
     {
         strategy: matchPlayBetterBall,
@@ -156,6 +163,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'match_play',
         teamShape: 'better_ball',
         metrics: MATCH,
+        scoresAnyBall: true,
     },
     {
         strategy: talibanBetterBall,
@@ -164,6 +172,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'taliban',
         teamShape: 'better_ball',
         metrics: MATCH,
+        scoresAnyBall: true,
     },
     {
         strategy: umbrella4Ball,
@@ -173,6 +182,7 @@ const BUILTINS: BuiltinMeta[] = [
         teamShape: 'four_ball',
         metrics: POINTS_HIGH,
         resultDisplay: NORMALIZED_RUNNING,
+        scoresAnyBall: true,
         // 4-ball umbrella scores GIR only (no fairway category).
         scoreEntry: { strokes: true, metadata: [{ key: 'gir', label: 'GIR', kind: 'boolean' }] },
     },

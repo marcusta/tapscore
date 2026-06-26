@@ -28,22 +28,32 @@ export interface FormatSlotForm {
 }
 
 /**
- * A round-level team = a ball (ADR-0003). `pctByPlayer` holds each member's
- * allowance % into the team ball; a key's presence is membership. `formation`
- * is a label (scramble/greensomes/foursomes).
+ * A round-level team (ADR-0003). `kind` decides what it produces:
+ *   - `single_ball`: members merge into ONE team ball; `pctByPlayer` is each
+ *     member's allowance % and `formation` is a composition label.
+ *   - `multi_ball`: members each play a SEPARATE ball, bound as one "side" for a
+ *     side format (better-ball); allowance/composition are not used.
+ * A key's presence in `pctByPlayer` is membership (both kinds).
  */
 export interface TeamForm {
     key: number;
+    kind: 'single_ball' | 'multi_ball';
     formation: string;
     pctByPlayer: Record<number, string>;
+    /** Nested single-ball team members (multi_ball/side only): team key → member. */
+    memberTeams: Record<number, boolean>;
 }
 
-/** One round-level team in the draft. */
+/** A member of a draft team: a player (with merge allowance) or a nested team. */
+type DraftTeamMember = { producerDefId: string; allowancePct: number } | { teamId: string };
+
+/** One round-level team in the draft (the shape the server's draft expects). */
 interface DraftRoundTeam {
     id: string;
     label?: string;
     formation?: string;
-    members: { producerDefId: string; allowancePct: number }[];
+    kind: 'single_ball' | 'multi_ball';
+    members: DraftTeamMember[];
 }
 
 /** One ball a format scores. */
@@ -247,12 +257,93 @@ export class SetupService {
     addTeam(): void {
         this.teams.set([
             ...this.teams.get(),
-            { key: this.nextTeamKey++, formation: 'scramble', pctByPlayer: {} },
+            { key: this.nextTeamKey++, kind: 'single_ball', formation: 'scramble', pctByPlayer: {}, memberTeams: {} },
         ]);
     }
 
+    teamKindOf(key: number): 'single_ball' | 'multi_ball' {
+        return this.teamByKey(key)?.kind ?? 'single_ball';
+    }
+
+    setTeamKind(key: number, kind: 'single_ball' | 'multi_ball'): void {
+        this.teams.set(
+            this.teams.get().map((t) =>
+                // Switching to single-ball drops any nested-team members (only a
+                // side can contain teams); switching to a side keeps players.
+                t.key === key ? { ...t, kind, memberTeams: kind === 'single_ball' ? {} : t.memberTeams } : t,
+            ),
+        );
+        // A team that is now a side (or no longer one) can no longer be a subject
+        // of formats whose class it stopped matching — drop stale ticks below.
+        this.pruneStaleTeamSubjects();
+    }
+
+    /** Single-ball teams (other than `selfKey`) eligible to be nested inside a
+     * side. Only single-ball teams can nest (no side-in-side). */
+    eligibleNestedTeams(selfKey: number): TeamForm[] {
+        return this.teams.get().filter((t) => t.key !== selfKey && t.kind === 'single_ball');
+    }
+
+    teamHasTeamMember(teamKey: number, memberTeamKey: number): boolean {
+        return this.teamByKey(teamKey)?.memberTeams[memberTeamKey] === true;
+    }
+
+    setTeamMemberTeam(teamKey: number, memberTeamKey: number, inTeam: boolean): void {
+        const team = this.teamByKey(teamKey);
+        if (!team || team.kind !== 'multi_ball' || memberTeamKey === teamKey) return;
+        const next = { ...team.memberTeams };
+        if (inTeam) {
+            if (this.teamMemberCount(teamKey) >= MAX_TEAM_SIZE) return;
+            next[memberTeamKey] = true;
+        } else {
+            delete next[memberTeamKey];
+        }
+        this.teams.set(this.teams.get().map((t) => (t.key === teamKey ? { ...t, memberTeams: next } : t)));
+    }
+
+    /** Total member count = player members + nested-team members. */
+    teamMemberCount(key: number): number {
+        const t = this.teamByKey(key);
+        if (!t) return 0;
+        return Object.keys(t.pctByPlayer).length + Object.keys(t.memberTeams).filter((k) => t.memberTeams[Number(k)]).length;
+    }
+
+    private pruneStaleTeamSubjects(): void {
+        this.formatSlots.set(
+            this.formatSlots.get().map((slot) => {
+                const side = this.isSideFormat(slot.formatId);
+                let changed = false;
+                const next = { ...slot.subjectTeams };
+                for (const t of this.teams.get()) {
+                    if (next[t.key] === true && (t.kind === 'multi_ball') !== side) {
+                        delete next[t.key];
+                        changed = true;
+                    }
+                }
+                return changed ? { ...slot, subjectTeams: next } : slot;
+            }),
+        );
+    }
+
+    /** A side format scores multi-ball (side) teams; a ball format scores
+     * players + single-ball teams. Drives which subjects a slot lists. */
+    isSideFormat(formatId: string): boolean {
+        return this.catalog.isSideFormat(formatId);
+    }
+
     removeTeam(key: number): void {
-        this.teams.set(this.teams.get().filter((t) => t.key !== key));
+        this.teams.set(
+            this.teams
+                .get()
+                .filter((t) => t.key !== key)
+                // Drop the removed team from any side that nested it.
+                .map((t) => {
+                    if (t.memberTeams[key] === undefined) return t;
+                    const next = { ...t.memberTeams };
+                    delete next[key];
+                    return { ...t, memberTeams: next };
+                }),
+        );
         // Drop any format subject that referenced the removed team.
         this.formatSlots.set(
             this.formatSlots.get().map((s) => {
@@ -287,7 +378,7 @@ export class SetupService {
         const next = { ...team.pctByPlayer };
         if (inTeam) {
             if (next[playerKey] !== undefined) return;
-            if (Object.keys(next).length >= MAX_TEAM_SIZE) return; // a ball is ≤10 players
+            if (this.teamMemberCount(teamKey) >= MAX_TEAM_SIZE) return; // a team is ≤10 members
             next[playerKey] = next[playerKey] ?? '100';
         } else {
             delete next[playerKey];
@@ -295,13 +386,12 @@ export class SetupService {
         this.teams.set(this.teams.get().map((t) => (t.key === teamKey ? { ...t, pctByPlayer: next } : t)));
     }
 
-    /** Number of members ticked into a team (2–10 is a valid team ball). */
+    /** Number of members in a team (players + nested teams); 2–10 is valid. */
     teamSize(teamKey: number): number {
-        const t = this.teamByKey(teamKey);
-        return t ? Object.keys(t.pctByPlayer).length : 0;
+        return this.teamMemberCount(teamKey);
     }
 
-    /** True when the team is at the 10-player cap (the member toggles disable). */
+    /** True when the team is at the 10-member cap (the member toggles disable). */
     teamAtMaxSize(teamKey: number): boolean {
         return this.teamSize(teamKey) >= MAX_TEAM_SIZE;
     }
@@ -334,7 +424,31 @@ export class SetupService {
     teamsBelowMin(): TeamForm[] {
         return this.teams
             .get()
-            .filter((t) => Object.keys(t.pctByPlayer).length > 0 && Object.keys(t.pctByPlayer).length < MIN_TEAM_SIZE);
+            .filter((t) => this.teamMemberCount(t.key) > 0 && this.teamMemberCount(t.key) < MIN_TEAM_SIZE);
+    }
+
+    /** A team is "live" (materialised + referenceable) iff it has ≥2 members,
+     * where a nested member counts only if it is itself a live single-ball team
+     * (one level of nesting). Keeps `buildTeams` emission and the format subject
+     * checklist in agreement. */
+    private isTeamLive(team: TeamForm): boolean {
+        const playerCount = Object.keys(team.pctByPlayer).length;
+        if (team.kind === 'single_ball') return playerCount >= MIN_TEAM_SIZE;
+        let count = playerCount;
+        for (const t of this.teams.get()) {
+            if (
+                team.memberTeams[t.key] === true &&
+                t.kind === 'single_ball' &&
+                Object.keys(t.pctByPlayer).length >= MIN_TEAM_SIZE
+            ) {
+                count++;
+            }
+        }
+        return count >= MIN_TEAM_SIZE;
+    }
+
+    private liveTeamKeySet(): Set<number> {
+        return new Set(this.teams.get().filter((t) => this.isTeamLive(t)).map((t) => t.key));
     }
 
     setTeamPct(teamKey: number, playerKey: number, pct: string): void {
@@ -493,17 +607,31 @@ export class SetupService {
      * dropped and surfaced by `teamsBelowMin`).
      */
     private buildTeams(roster: PlayerForm[], defIdByKey: Map<number, string>): DraftRoundTeam[] {
+        const live = this.liveTeamKeySet();
         const out: DraftRoundTeam[] = [];
         for (const team of this.teams.get()) {
-            const members = roster
+            if (!live.has(team.key)) continue;
+            const members: DraftTeamMember[] = roster
                 .filter((p) => team.pctByPlayer[p.key] !== undefined)
                 .map((p) => ({
                     producerDefId: defIdByKey.get(p.key)!,
                     allowancePct: this.parsePct(team.pctByPlayer[p.key]!),
                 }));
-            if (members.length >= MIN_TEAM_SIZE) {
-                out.push({ id: String(team.key), label: this.teamLabel(team), formation: team.formation, members });
+            // A side may nest live single-ball teams as members (each → one ball).
+            if (team.kind === 'multi_ball') {
+                for (const t of this.teams.get()) {
+                    if (team.memberTeams[t.key] === true && t.key !== team.key && t.kind === 'single_ball' && live.has(t.key)) {
+                        members.push({ teamId: String(t.key) });
+                    }
+                }
             }
+            out.push({
+                id: String(team.key),
+                label: this.teamLabel(team),
+                formation: team.formation,
+                kind: team.kind,
+                members,
+            });
         }
         return out;
     }
@@ -514,21 +642,26 @@ export class SetupService {
      * and the ticked teams. The server materialises exactly those balls.
      */
     private buildFormats(roster: PlayerForm[], defIdByKey: Map<number, string>): DraftFormat[] {
-        const liveTeamKeys = new Set(
-            this.teams
-                .get()
-                .filter((t) => Object.keys(t.pctByPlayer).length >= MIN_TEAM_SIZE)
-                .map((t) => t.key),
-        );
+        const liveTeamKeys = this.liveTeamKeySet();
         return this.formatSlots.get().map((slot) => {
+            const side = this.isSideFormat(slot.formatId);
             const subjects: DraftBallSubject[] = [];
-            for (const p of roster) {
-                if (slot.subjectPlayers[p.key] !== false) {
-                    subjects.push({ kind: 'player', producerDefId: defIdByKey.get(p.key)! });
+            // A side format scores no individual players (only sides).
+            if (!side) {
+                for (const p of roster) {
+                    if (slot.subjectPlayers[p.key] !== false) {
+                        subjects.push({ kind: 'player', producerDefId: defIdByKey.get(p.key)! });
+                    }
                 }
             }
+            // Only emit a team subject whose kind matches the format — guards a
+            // stale tick left after the slot's format changed.
             for (const team of this.teams.get()) {
-                if (slot.subjectTeams[team.key] === true && liveTeamKeys.has(team.key)) {
+                if (
+                    slot.subjectTeams[team.key] === true &&
+                    liveTeamKeys.has(team.key) &&
+                    (team.kind === 'multi_ball') === side
+                ) {
                     subjects.push({ kind: 'team', teamId: String(team.key) });
                 }
             }

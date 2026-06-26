@@ -118,6 +118,38 @@ Formation owns who-collapses-into-one-scorecard + the resulting ball CH; format
 owns how a *set* of ball scores becomes a result. `composition` is a label on
 the formation layer, invisible to scoring.
 
+## Refinements (2026-06-26) — recursive teams + side formats
+
+Setting up a multi-ball format by hand surfaced that **single-ball vs multi-ball
+is a property of the TEAM, not the format** — and that teams **nest**.
+
+- **A team declares its `kind`:**
+  - `single_ball` — members (players) merge into ONE `team_ball` (per-member
+    allowance % → merged CH); a "composition" (scramble/greensome/foursome/custom).
+  - `multi_ball` — members each yield a SEPARATE ball, bound as one **side**. A
+    side's member may be a *player* (own ball) **or a single-ball team** (its
+    merged ball). Teams nest one level: e.g. two two-man scramble teams form a
+    side, two such sides play better-ball.
+- **A format is intrinsically a *ball format* or a *side format*** — not a
+  per-team toggle. Ball formats (stroke / stableford / umbrella / match /
+  köpenhamnare, `scoresAnyBall`) rank/compare balls; a team subject is a merged
+  ball. Side formats (the four better-ball plugins, `requiresSlotTeamGrouping`)
+  aggregate within each side and compare sides; their subjects are `multi_ball`
+  teams. The team's kind decides ball count; the format only decides grouping.
+- **`slot.teamGrouping` is now DERIVED, not authored.** The builder, given a side
+  format's side subjects, materialises each side's member balls and emits
+  `slot.teamGrouping` from the sides. The compiler resolves balls into sides by
+  **producer set** (a ball joins the side whose producer set ⊇ its producers), so
+  a nested scramble `team_ball {p1,p2}` lands wholly in its side with no compiler
+  or scoring change. The four side formats gain `scoresAnyBall` so a side's ball
+  may be a merged team ball (skips the per-ball own/team producer-count check;
+  `slot.teamGrouping` + `slotBallCount` still validate).
+
+This retires the per-format team editor entirely: ONE Teams step authors both
+single-ball compositions and multi-ball sides; every format references them via
+`subjects`. Net model holds — `player → ball (formation) → format (aggregation)` —
+with *ball formation* now recursive (a side is balls-of-balls).
+
 ## Consequences
 
 One coherent "subjects" model replaces format-bound teams: scramble + match,

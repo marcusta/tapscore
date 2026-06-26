@@ -83,4 +83,14 @@ export class FormatCatalogService {
         const c = this.classifyId(id);
         return !!c && c.kind !== 'individual';
     }
+
+    /**
+     * A side format (better-ball / taliban / umbrella-4ball) aggregates within
+     * each side and compares sides — its subjects are multi-ball (side) teams,
+     * not individual balls. Ball formats (everything else) score players +
+     * single-ball teams.
+     */
+    isSideFormat(id: string): boolean {
+        return this.classifyId(id)?.kind === 'team_grouping';
+    }
 }

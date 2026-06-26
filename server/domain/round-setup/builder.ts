@@ -34,7 +34,7 @@ import type {
     SlotDefinition,
 } from '../round-definition';
 import type { CompilerDiagnostic } from '../compiler/types';
-import type { DraftRoundTeam, RoundSetupDraft } from './draft';
+import { type DraftRoundTeam, type RoundSetupDraft, isPlayerMember, isNestedTeamMember, teamKind } from './draft';
 
 export type BuildResult =
     | { ok: true; definition: RoundDefinitionInput }
@@ -101,19 +101,22 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
         ballStrategies.push({ id, strategyId: 'own_ball_per_player', derivationConfig: { type: 'single' } });
         return id;
     };
+    // Materialise a single-ball (merge) team as one `team_ball`. Only the player
+    // members weigh in — a single-ball team never has nested-team members.
     const ensureTeamStrat = (team: DraftRoundTeam): string => {
         let id = teamStratIdByTeamId.get(team.id);
         if (id !== undefined) return id;
         id = `strat-${strategyCounter++}`;
         teamStratIdByTeamId.set(team.id, id);
+        const playerMembers = team.members.filter(isPlayerMember);
         const pcts: Record<string, number> = {};
-        for (const m of team.members) pcts[m.producerDefId] = m.allowancePct;
+        for (const m of playerMembers) pcts[m.producerDefId] = m.allowancePct;
         ballStrategies.push({
             id,
             strategyId: 'team_ball',
             derivationConfig: { type: 'per_producer_pct', pcts },
             composition: {
-                teams: [{ label: teamBallLabel(team), producerDefIds: team.members.map((m) => m.producerDefId) }],
+                teams: [{ label: teamBallLabel(team), producerDefIds: playerMembers.map((m) => m.producerDefId) }],
             },
         });
         return id;
@@ -280,14 +283,112 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
     draft.formats.forEach((sel, i) => {
         if (!sel.subjects) return;
         const fmtPath = `formats[${i}]`;
+        let plugin;
         try {
-            findFormatPlugin(sel.formatId);
+            plugin = findFormatPlugin(sel.formatId);
         } catch {
             diags.push({
                 code: 'unknown_format',
                 message: `no format plugin registered for id '${sel.formatId}'`,
                 path: `${fmtPath}.formatId`,
             });
+            return;
+        }
+
+        // A side format (better-ball etc.) aggregates within each "side" and
+        // compares sides; a ball format ranks/compares individual balls. The
+        // team's KIND (single_ball merge vs multi_ball side) decides ball count;
+        // the format only decides whether it groups (ADR-0003 recursive teams).
+        const isSideFormat = plugin.descriptor.requirements.balls.requiresSlotTeamGrouping === true;
+
+        if (isSideFormat) {
+            // Every subject must be a multi-ball (side) team. Each side's members
+            // yield separate balls (a player → own ball; a nested single-ball team
+            // → its merged ball). Derive slot.teamGrouping from the sides — the
+            // compiler buckets each ball into the side whose producer set covers
+            // it, so nested team balls land wholly in their side (no compiler
+            // change). Per-side ball selection rides the shared own-ball strategy
+            // (narrowed by producerDefIds) + one team_ball per nested team.
+            const sideTeams: { label: string; producerDefIds: string[] }[] = [];
+            const stratIds = new Set<string>();
+            const playerProducers: string[] = [];
+            sel.subjects.forEach((subj, si) => {
+                const subjPath = `${fmtPath}.subjects[${si}]`;
+                if (subj.kind !== 'team') {
+                    diags.push({
+                        code: 'side_format_requires_side_subjects',
+                        message: `format '${sel.formatId}' is a side format; each subject must be a multi-ball (side) team, not a player`,
+                        path: subjPath,
+                    });
+                    return;
+                }
+                const side = teamsById.get(subj.teamId);
+                if (!side) {
+                    diags.push({
+                        code: 'unknown_subject_team',
+                        message: `format '${sel.formatId}' subject references team '${subj.teamId}' which is not a round team`,
+                        path: subjPath,
+                    });
+                    return;
+                }
+                if (teamKind(side) !== 'multi_ball') {
+                    diags.push({
+                        code: 'side_format_requires_side_subjects',
+                        message: `format '${sel.formatId}' is a side format but team '${side.id}' is single-ball (a merged composition)`,
+                        path: subjPath,
+                    });
+                    return;
+                }
+                const sideProducers: string[] = [];
+                for (const m of side.members) {
+                    if (isPlayerMember(m)) {
+                        if (!rosterIds.has(m.producerDefId)) {
+                            diags.push({
+                                code: 'unknown_producer_in_team',
+                                message: `side '${side.id}' member '${m.producerDefId}' is not in the roster`,
+                                path: subjPath,
+                            });
+                            continue;
+                        }
+                        stratIds.add(ensureOwnBallStrat());
+                        playerProducers.push(m.producerDefId);
+                        sideProducers.push(m.producerDefId);
+                    } else {
+                        const nested = teamsById.get(m.teamId);
+                        if (!nested) {
+                            diags.push({
+                                code: 'unknown_subject_team',
+                                message: `side '${side.id}' member team '${m.teamId}' is not a round team`,
+                                path: subjPath,
+                            });
+                            continue;
+                        }
+                        if (teamKind(nested) !== 'single_ball') {
+                            diags.push({
+                                code: 'nested_team_must_be_single_ball',
+                                message: `side '${side.id}' member team '${nested.id}' must be a single-ball team`,
+                                path: subjPath,
+                            });
+                            continue;
+                        }
+                        stratIds.add(ensureTeamStrat(nested));
+                        for (const nm of nested.members) if (isPlayerMember(nm)) sideProducers.push(nm.producerDefId);
+                    }
+                }
+                sideTeams.push({ label: side.label ?? side.id, producerDefIds: sideProducers });
+            });
+
+            slotByIndex[i] = {
+                id: `slot-${i}`,
+                formatId: sel.formatId,
+                allowanceConfig: { type: 'flat', pct: 100 },
+                ballSelector: {
+                    strategyDefIds: [...stratIds],
+                    ...(playerProducers.length > 0 ? { producerDefIds: playerProducers } : {}),
+                },
+                teamGrouping: { teams: sideTeams },
+                ...(sel.formatConfig !== undefined ? { formatConfig: sel.formatConfig } : {}),
+            };
             return;
         }
 
@@ -315,11 +416,25 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
                     });
                     return;
                 }
+                if (teamKind(team) !== 'single_ball') {
+                    diags.push({
+                        code: 'ball_format_rejects_side_subject',
+                        message: `format '${sel.formatId}' ranks balls, but team '${team.id}' is a multi-ball side — score it with a side format (better-ball etc.)`,
+                        path: subjPath,
+                    });
+                    return;
+                }
                 for (const m of team.members) {
-                    if (!rosterIds.has(m.producerDefId)) {
+                    if (isPlayerMember(m) && !rosterIds.has(m.producerDefId)) {
                         diags.push({
                             code: 'unknown_producer_in_team',
                             message: `team '${team.id}' member '${m.producerDefId}' is not in the roster`,
+                            path: subjPath,
+                        });
+                    } else if (isNestedTeamMember(m)) {
+                        diags.push({
+                            code: 'nested_team_in_single_ball',
+                            message: `single-ball team '${team.id}' cannot contain a nested team member`,
                             path: subjPath,
                         });
                     }

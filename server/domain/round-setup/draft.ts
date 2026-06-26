@@ -47,22 +47,38 @@ export const DraftTeam = Type.Object({
 
 // --- Round-level teams + ball subjects (ADR-0003) ---------------------------
 
-/** One member of a round-level team, with their allowance % into the team ball. */
-export const DraftTeamMember = Type.Object({
+/** A player member of a team; `allowancePct` is only meaningful for a single-ball
+ * (merge) team — it weights the member's CH into the merged team ball. */
+export const DraftTeamMemberPlayer = Type.Object({
     producerDefId: Type.String({ minLength: 1 }),
-    /** Allowance % of this member's course handicap into the team ball. */
     allowancePct: Type.Number({ minimum: 0, maximum: 200 }),
 });
 
+/** A nested-team member — only valid inside a multi-ball (side) team. The
+ * referenced team must be single-ball; its merged ball becomes one of the
+ * side's balls (teams nest one level). */
+export const DraftTeamMemberTeam = Type.Object({
+    teamId: Type.String({ minLength: 1 }),
+});
+
+/** One member of a round-level team: a player, or a nested single-ball team. */
+export const DraftTeamMember = Type.Union([DraftTeamMemberPlayer, DraftTeamMemberTeam]);
+
 /**
- * A round-level team = a ball (ADR-0003). `formation` is a UI label/preset
- * (scramble/greensomes/foursomes); the engine only needs the members + their
- * per-member allowance. Referenced by a format's `subjects` via `id`.
+ * A round-level team (ADR-0003). Its `kind` declares what it produces:
+ *   - `single_ball` (default): members (players) merge into ONE `team_ball`
+ *     whose CH is the per-member allowance sum. `formation` is a display label
+ *     (scramble/greensomes/foursomes/custom). This is a "composition".
+ *   - `multi_ball`: members each yield a SEPARATE ball (a player → own ball; a
+ *     nested single-ball team → its merged ball), bound as one "side" for a
+ *     side format (better-ball etc.). Per-member % is ignored.
+ * Referenced by a format's `subjects` via `id`.
  */
 export const DraftRoundTeam = Type.Object({
     id: Type.String({ minLength: 1 }),
     label: Type.Optional(Type.String()),
     formation: Type.Optional(Type.String()),
+    kind: Type.Optional(Type.Union([Type.Literal('single_ball'), Type.Literal('multi_ball')])),
     members: Type.Array(DraftTeamMember, { minItems: 1 }),
 });
 
@@ -143,7 +159,24 @@ export type DraftProducer = Static<typeof DraftProducer>;
 export type DraftTeam = Static<typeof DraftTeam>;
 export type DraftRoundTeam = Static<typeof DraftRoundTeam>;
 export type DraftTeamMember = Static<typeof DraftTeamMember>;
+export type DraftTeamMemberPlayer = Static<typeof DraftTeamMemberPlayer>;
+export type DraftTeamMemberTeam = Static<typeof DraftTeamMemberTeam>;
 export type BallSubject = Static<typeof BallSubject>;
+
+/** A team's kind, defaulting to single-ball (merge) for back-compat. */
+export function teamKind(team: DraftRoundTeam): 'single_ball' | 'multi_ball' {
+    return team.kind ?? 'single_ball';
+}
+
+/** Member is a player (has its own course handicap), not a nested team. */
+export function isPlayerMember(m: DraftTeamMember): m is DraftTeamMemberPlayer {
+    return 'producerDefId' in m;
+}
+
+/** Member is a nested single-ball team (only valid inside a multi-ball side). */
+export function isNestedTeamMember(m: DraftTeamMember): m is DraftTeamMemberTeam {
+    return 'teamId' in m;
+}
 export type DraftFormatSelection = Static<typeof DraftFormatSelection>;
 export type DraftRoute = Static<typeof DraftRoute>;
 export type RoundSetupDraft = Static<typeof RoundSetupDraft>;
