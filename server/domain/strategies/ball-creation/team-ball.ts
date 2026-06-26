@@ -1,14 +1,14 @@
 // ADR-0003 — TeamBall ball-creation strategy.
 //
-// A generic team ball: members combine into one ball whose course handicap is an
-// EXPLICIT per-member allowance sum (the team owner sets each member's % — the
-// formation type scramble/greensomes/foursomes only presets those % in the UI):
+// A generic team ball: 2–10 members combine into one ball whose course handicap
+// is an EXPLICIT per-member allowance sum (the team owner sets each member's % —
+// the composition label scramble/greensomes/foursomes/custom is pure metadata):
 //
 //   ball_CH = round( Σ memberCH × pcts[producerDefId]% )
 //
-// Unlike `scramble_team` (CH-rank-ordered `by_rank`) the percentages are keyed by
-// producerDefId, so they bind to specific players regardless of CH order. Serves
-// every formation; the formation is a label, not a behaviour branch.
+// The percentages are keyed by producerDefId, so they bind to specific players
+// regardless of CH order. Serves every composition; the composition label is a
+// display/template hint, never a behaviour branch (ADR-0003 refinements).
 //
 // `allowsProducerSetDedupe=false` — a team ball is specific to its instance.
 
@@ -26,7 +26,7 @@ export const teamBall: BallCreationStrategy = {
     id: TEAM_BALL_ID,
 
     compositionRequirement() {
-        return { requiresTeams: true, teamSize: { min: 1, max: 8 } };
+        return { requiresTeams: true, teamSize: { min: 2, max: 10 } };
     },
 
     allowsProducerSetDedupe() {

@@ -96,65 +96,6 @@ describe('draftToDefinition', () => {
         expect(def.slots[0].teamGrouping).toBeUndefined();
     });
 
-    test('foursomes alt-shot — 2 producers, 1 pair, flat 50%', () => {
-        const draft = mkDraftBase({
-            producers: [
-                {
-                    defId: 'p1',
-                    playerRef: { kind: 'player', id: 'alice' },
-                    teeName: 'Gul',
-                    gender: 'M',
-                    handicapIndexOverride: null,
-                    teamLabel: 'Alice & Bob',
-                },
-                {
-                    defId: 'p2',
-                    playerRef: { kind: 'player', id: 'bob' },
-                    teeName: 'Gul',
-                    gender: 'M',
-                    handicapIndexOverride: null,
-                    teamLabel: 'Alice & Bob',
-                },
-            ],
-            strategies: [
-                {
-                    defId: 'strat-alt-shot',
-                    strategyId: 'alt_shot_pair',
-                    derivationConfig: { type: 'avg' },
-                    pairings: [{ producerDefIds: ['p1', 'p2'] }],
-                },
-            ],
-            slots: [
-                {
-                    defId: 'slot-0',
-                    scoringMode: 'stroke_play',
-                    teamShape: 'foursomes',
-                    allowanceConfig: { type: 'flat', pct: 50 },
-                    teamGroupings: [
-                        { teamLabel: 'Alice & Bob', producerDefIds: ['p1', 'p2'] },
-                    ],
-                },
-            ],
-        });
-
-        const def = draftToDefinition(draft, mkResolved(['p1', 'p2']));
-
-        expect(def.ballStrategies).toHaveLength(1);
-        expect(def.ballStrategies[0].strategyId).toBe('alt_shot_pair');
-        expect(def.ballStrategies[0].composition).toEqual({
-            teams: [{ label: 'pair-1', producerDefIds: ['p1', 'p2'] }],
-        });
-        expect(def.slots[0].formatId).toBe('stroke_play_foursomes');
-        expect(def.slots[0].allowanceConfig).toEqual({ type: 'flat', pct: 50 });
-        expect(def.slots[0].ballSelector).toEqual({
-            strategyDefIds: ['strat-alt-shot'],
-        });
-        // Foursomes has a single pair per slot; the draft carries one team-
-        // grouping but teamGrouping requires minItems:2, so the mapper
-        // drops it (the compiler emits slot_ball_teams only for >=2 teams).
-        expect(def.slots[0].teamGrouping).toBeUndefined();
-    });
-
     test('better-ball 2v2 — 4 producers, 2 teamLabels, own-ball', () => {
         const draft = mkDraftBase({
             producers: [
@@ -284,25 +225,14 @@ describe('draftToDefinition', () => {
             producers: [
                 p('p1', 'alice', null),
                 p('p2', 'bob', null),
-                p('p3', 'carol', 'Carol & Dan'),
-                p('p4', 'dan', 'Carol & Dan'),
-                p('p5', 'eve', 'Eve & Frank'),
-                p('p6', 'frank', 'Eve & Frank'),
+                p('p3', 'carol', null),
+                p('p4', 'dan', null),
             ],
             strategies: [
                 {
                     defId: 'strat-own-ball',
                     strategyId: 'own_ball_per_player',
                     derivationConfig: { type: 'single' },
-                },
-                {
-                    defId: 'strat-alt-shot',
-                    strategyId: 'alt_shot_pair',
-                    derivationConfig: { type: 'avg' },
-                    pairings: [
-                        { producerDefIds: ['p3', 'p4'] },
-                        { producerDefIds: ['p5', 'p6'] },
-                    ],
                 },
             ],
             slots: [
@@ -316,26 +246,20 @@ describe('draftToDefinition', () => {
                 {
                     defId: 'slot-1',
                     scoringMode: 'stroke_play',
-                    teamShape: 'foursomes',
-                    allowanceConfig: { type: 'flat', pct: 50 },
-                    scopeProducerDefIds: ['p3', 'p4', 'p5', 'p6'],
+                    teamShape: 'individual',
+                    allowanceConfig: { type: 'flat', pct: 100 },
+                    scopeProducerDefIds: ['p3', 'p4'],
                 },
             ],
         });
 
         const def = draftToDefinition(
             draft,
-            mkResolved(['p1', 'p2', 'p3', 'p4', 'p5', 'p6']),
+            mkResolved(['p1', 'p2', 'p3', 'p4']),
         );
 
         expect(def.slots).toHaveLength(2);
-        expect(def.ballStrategies).toHaveLength(2);
-        expect(def.ballStrategies[1].composition).toEqual({
-            teams: [
-                { label: 'pair-1', producerDefIds: ['p3', 'p4'] },
-                { label: 'pair-2', producerDefIds: ['p5', 'p6'] },
-            ],
-        });
+        expect(def.ballStrategies).toHaveLength(1);
 
         // Slot 0 — only Alice+Bob. `scopeProducerDefIds` becomes
         // `ballSelector.producerDefIds` so compiler routes the right
@@ -346,13 +270,12 @@ describe('draftToDefinition', () => {
             producerDefIds: ['p1', 'p2'],
         });
 
-        // Slot 1 — foursomes teams; alt-shot strategy + pair producer
-        // filter. The compiler expects ballSelector.producerDefIds to
-        // cover every producer in the kept balls (2-producer pair balls).
-        expect(def.slots[1].formatId).toBe('stroke_play_foursomes');
+        // Slot 1 — only Carol+Dan, also own-ball but a distinct producer
+        // scope, proving per-slot producer routing off one shared strategy.
+        expect(def.slots[1].formatId).toBe('stroke_play_individual');
         expect(def.slots[1].ballSelector).toEqual({
-            strategyDefIds: ['strat-alt-shot'],
-            producerDefIds: ['p3', 'p4', 'p5', 'p6'],
+            strategyDefIds: ['strat-own-ball'],
+            producerDefIds: ['p3', 'p4'],
         });
     });
 

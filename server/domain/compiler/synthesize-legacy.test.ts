@@ -41,32 +41,6 @@ describe('synthesizeRoundDefinition', () => {
         expect(definition.slots[0].teamGrouping).toBeUndefined();
     });
 
-    test('foursomes: alt_shot_pair strategy with composition', () => {
-        const input: LegacyRoundInput = {
-            ...baseInput(),
-            participants: [
-                { id: 'team-1', teamLabel: 'A&B', teeIdSnapshot: 'tee-y', handicapIndexSnapshot: 10, categorySnapshot: null },
-                { id: 'team-2', teamLabel: 'C&D', teeIdSnapshot: 'tee-y', handicapIndexSnapshot: 10, categorySnapshot: null },
-            ],
-            participantPlayers: [
-                { id: 'pp-a', participantId: 'team-1', playerId: 'player-a', guestPlayerId: null, handicapIndexSnapshot: 10 },
-                { id: 'pp-b', participantId: 'team-1', playerId: 'player-b', guestPlayerId: null, handicapIndexSnapshot: 12 },
-                { id: 'pp-c', participantId: 'team-2', playerId: 'player-c', guestPlayerId: null, handicapIndexSnapshot: 14 },
-                { id: 'pp-d', participantId: 'team-2', playerId: 'player-d', guestPlayerId: null, handicapIndexSnapshot: 16 },
-            ],
-            formatSlots: [
-                { slotIndex: 0, scoringMode: 'stroke_play', teamShape: 'foursomes', allowancePct: 50, scopeConfig: null },
-            ],
-        };
-        const { definition, diagnostics } = synthesizeRoundDefinition(input);
-        expect(diagnostics).toHaveLength(0);
-        expect(definition.producers).toHaveLength(4);
-        expect(definition.ballStrategies).toHaveLength(1);
-        expect(definition.ballStrategies[0].strategyId).toBe('alt_shot_pair');
-        expect(definition.ballStrategies[0].composition?.teams).toHaveLength(2);
-        expect(definition.slots[0].formatId).toBe('stroke_play_foursomes');
-    });
-
     test('better-ball: own_ball + slot.teamGrouping', () => {
         const input: LegacyRoundInput = {
             ...baseInput(),
@@ -149,7 +123,7 @@ describe('synthesizeRoundDefinition', () => {
                 {
                     slotIndex: 1,
                     scoringMode: 'stroke_play',
-                    teamShape: 'foursomes',
+                    teamShape: 'individual',
                     allowancePct: 50,
                     scopeConfig: { scope: { participantIds: ['team-cd'] } },
                 },
@@ -160,8 +134,10 @@ describe('synthesizeRoundDefinition', () => {
         expect(definition.slots).toHaveLength(2);
         const slot0 = definition.slots[0];
         expect(slot0.ballSelector?.producerDefIds).toEqual(['pp-alice', 'pp-bob']);
+        // Every legacy slot now scores own balls (foursomes path removed); the
+        // second slot filters to the C&D participant's two producers.
         const slot1 = definition.slots[1];
-        expect(slot1.ballSelector?.strategyDefIds?.[0]).toBe('alt-1');
+        expect(slot1.ballSelector?.producerDefIds).toEqual(['pp-c', 'pp-d']);
     });
 
     test('handicap fallback used when snapshot is null', () => {

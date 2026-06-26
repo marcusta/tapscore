@@ -85,6 +85,39 @@ format card loses its team editor + allowance and gains a **subject picker** (a
 checklist of players + teams). Reuses the keyed-row + `mountSelect`/`bound`
 helpers.
 
+## Refinements (2026-06-25, create-teams dogfood)
+
+Re-deriving the model from the create-teams step surfaced three sharpenings.
+None change the decision; they generalise and clarify it.
+
+1. **A team is `{ size, composition, members[], allowancePct[] }`, size 2–6.**
+   The original three named formations (scramble / greensomes / foursomes) were
+   the only shapes listed, with fixed presets. Generalise: a team is N players
+   (N = 2..6, occasionally more), each with an explicit allowance %. The named
+   formations become *presets* over this, not the only shapes.
+
+2. **`composition` is scoring-irrelevant metadata.** To the engine, every
+   single-ball composition (individual, scramble, greensomes, foursomes) is the
+   same thing: N producers collapse into one scorecard, individual being N=1.
+   How the ball was *played* on the course (alternate shot vs pick-best) yields
+   no extra data. So `composition` exists for exactly two non-scoring reasons —
+   **display** (show "Greensome" on the card) and **template key** (which
+   allowance preset to prefill). Nothing in scoring may branch on it. The real
+   functional split is single-ball (one score, identity) vs multi-ball
+   (fourball / betterball / "taliban" → the format aggregates X scores); only
+   multi-ball formats give the format layer anything to decide.
+
+3. **`custom` is a first-class composition, not a fallback.** Presets prefill
+   `allowancePct[]`; a group may instead pick `custom` and hand-set every % from
+   the start. Templates are a UI convenience over a free model, never the only
+   path. The formation preset map (scramble 2p → 35/15, greensomes → 60/40,
+   foursomes → 50/50) is one such convenience among `composition` values.
+
+Net model, three levels: **player → ball (formation) → format (aggregation)**.
+Formation owns who-collapses-into-one-scorecard + the resulting ball CH; format
+owns how a *set* of ball scores becomes a result. `composition` is a label on
+the formation layer, invisible to scoring.
+
 ## Consequences
 
 One coherent "subjects" model replaces format-bound teams: scramble + match,

@@ -799,12 +799,7 @@ export class RoundScenarioRef {
                         `mixing team participants with an individual-only round is not supported here.`,
                 );
             }
-            if (
-                (shape === 'foursomes' ||
-                    shape === 'four_ball' ||
-                    shape === 'better_ball') &&
-                !isTeam
-            ) {
+            if ((shape === 'four_ball' || shape === 'better_ball') && !isTeam) {
                 throw new Error(
                     `scenario.addParticipant: first slot teamShape=${shape} but a single participant ` +
                         `was passed; team-shaped rounds expect team=[...] for every addParticipant call.`,
@@ -867,62 +862,17 @@ export class RoundScenarioRef {
             }
         }
 
-        // Strategy decisions are made per-slot, NOT just from the first
-        // slot. Multi-slot rounds may mix individual + foursomes in the
-        // same round (see multi-slot-series-round seed). Each slot's
-        // teamShape decides whether it needs the shared own-ball strategy
-        // or a pair strategy; both can coexist.
-        for (const slot of this.draft.slots) {
-            const shape = slot.teamShape;
-            const slotIndexOfThis = this.draft.slots.indexOf(slot);
-            const targetsThisSlot =
-                this.draft.slots.length === 1 ||
-                init.slotIndex === slotIndexOfThis;
-            if (shape === 'foursomes') {
-                let strategy = this.draft.strategies.find(
-                    (s) => s.strategyId === 'alt_shot_pair',
-                );
-                if (!strategy) {
-                    strategy = {
-                        defId: 'strat-alt-shot',
-                        strategyId: 'alt_shot_pair',
-                        derivationConfig: { type: 'avg' },
-                        pairings: [],
-                    };
-                    this.draft.strategies.push(strategy);
-                }
-                // Append a pairing only if this call carried a team AND
-                // (a) the round has a single slot, OR (b) the caller
-                // targeted this slot explicitly via `slotIndex`. That
-                // keeps multi-slot rounds that mix individual + foursomes
-                // from accidentally promoting all team-shaped slots.
-                //
-                // Pairings de-dupe so each 2-slot iteration doesn't
-                // double-register the same team.
-                if (isTeam && newProducerIds.length >= 2 && targetsThisSlot) {
-                    strategy.pairings = strategy.pairings ?? [];
-                    const already = strategy.pairings.some(
-                        (p) =>
-                            p.producerDefIds.length === newProducerIds.length &&
-                            p.producerDefIds.every((id, i) => id === newProducerIds[i]),
-                    );
-                    if (!already) {
-                        strategy.pairings.push({ producerDefIds: [...newProducerIds] });
-                    }
-                }
-            } else {
-                let strategy = this.draft.strategies.find(
-                    (s) => s.strategyId === 'own_ball_per_player',
-                );
-                if (!strategy) {
-                    strategy = {
-                        defId: 'strat-own-ball',
-                        strategyId: 'own_ball_per_player',
-                        derivationConfig: { type: 'single' },
-                    };
-                    this.draft.strategies.push(strategy);
-                }
-            }
+        // Every slot scores own balls (the bundled foursomes team-ball path was
+        // removed with the composite formats — ADR-0003; round-level team
+        // compositions now go through the `team_ball` strategy via the draft
+        // builder, not the scenario authoring helper). Ensure the one shared
+        // own-ball strategy exists.
+        if (!this.draft.strategies.some((s) => s.strategyId === 'own_ball_per_player')) {
+            this.draft.strategies.push({
+                defId: 'strat-own-ball',
+                strategyId: 'own_ball_per_player',
+                derivationConfig: { type: 'single' },
+            });
         }
 
         // --- Per-slot producer scoping (multi-slot rounds) -----------------

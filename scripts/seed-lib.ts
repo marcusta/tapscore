@@ -9,7 +9,6 @@ export const MANUAL_FORMAT_SEEDS = [
     'friendly-round',
     'nine-hole-round',
     'stableford-round',
-    'foursomes-round',
     'better-ball-round',
     'match-play-round',
     'match-play-better-ball-round',
@@ -17,15 +16,10 @@ export const MANUAL_FORMAT_SEEDS = [
     'kopenhamnare-round',
     'umbrella-round',
     'umbrella-individual-round',
-    'multi-slot-series-round',
     'multi-format-3p-round',
-    'greensomes-weighted-round',
-    'scramble-4-by-rank-round',
-    'scramble-2-by-rank-round',
     'fourball-85-round',
     'split-allowance-better-ball-round',
     'multi-format-extreme-round',
-    'mixed-tee-round',
 ] as const;
 
 export function availableSeedNames(): string[] {

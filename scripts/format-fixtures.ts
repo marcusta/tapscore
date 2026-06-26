@@ -17,7 +17,6 @@ const EXPECTED_FIXTURE_SIGNATURES = [
     'full_18|stroke_play:individual:100',
     'front_9|stroke_play:individual:100',
     'full_18|stableford:individual:100',
-    'full_18|stroke_play:foursomes:50',
     'full_18|stableford:better_ball:100',
     'full_18|match_play:individual:100',
     'full_18|match_play:better_ball:100',
@@ -25,14 +24,9 @@ const EXPECTED_FIXTURE_SIGNATURES = [
     'full_18|kopenhamnare:individual:100',
     'full_18|umbrella:four_ball:100',
     'front_9|umbrella:individual:100',
-    'full_18|stableford:individual:95+stroke_play:foursomes:50',
     // --- Phase 2.6c additions ---
-    'full_18|stroke_play:greensome:100',
-    'full_18|stroke_play:scramble:100',
-    'full_18|stroke_play:scramble:90',
     'full_18|stableford:better_ball:85',
-    'full_18|stableford:individual:95+umbrella:individual:100+taliban:better_ball:90+stroke_play:individual:100+stroke_play:foursomes:100+kopenhamnare:individual:100+stableford:better_ball:85',
-    'full_18|stroke_play:foursomes:100+stroke_play:individual:100',
+    'full_18|stableford:individual:95+umbrella:individual:100+taliban:better_ball:90+stroke_play:individual:100+kopenhamnare:individual:100+stableford:better_ball:85',
     // --- Phase 2.6d-bis: non-flat (split CH-band) allowance ---
     'full_18|stableford:better_ball:split[9:100,*:75]',
 ] as const;

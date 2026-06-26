@@ -1,33 +1,28 @@
-// Phase 2.6c — the "kitchen-sink": one event log, six balls, seven slots.
+// Phase 2.6c — the "kitchen-sink": one event log, six balls, six slots.
 //
 // Four players (Karl, Lars, Mats, Nora) on Linköpings Gul/M. A single
 // `modified_alt_shot_pair` strategy emits SIX balls in one pass:
 //   - four OWN balls (per-producer CH passes through), and
 //   - two ALT-SHOT team balls, one per pairing (avg of the pair's per-producer
-//     CHs): (Karl,Lars) and (Mats,Nora).
+//     CHs): (Karl,Lars) and (Mats,Nora). No slot scores these team balls since
+//     the bundled foursomes format was removed (ADR-0003) — they are orphan
+//     balls, tolerated and dropped at leaderboard time.
 //
 //   Karl idx 6  → CH 5    Lars idx 12 → CH 12
 //   Mats idx 10 → CH 9    Nora idx 20 → CH 20
-//   alt (Karl,Lars) = round((5+12)/2)  = round(8.5)  = 9
-//   alt (Mats,Nora) = round((9+20)/2)  = round(14.5) = 15
 //
-// Seven slots score that one shared event log seven different ways, each
-// deriving its OWN ball_PH from the slot allowance:
+// Six slots score that one shared event log six different ways, each deriving
+// its OWN ball_PH from the slot allowance:
 //   #0 stableford individual   flat(95)   own 4
 //   #1 umbrella individual     flat(100)  own 3 of 4 (Karl, Lars, Mats)
 //   #2 taliban 2v2             flat(90)   own 4, grouped (Karl,Lars)/(Mats,Nora)
 //   #3 stroke play individual  flat(100)  own 4
-//   #4 alt-shot foursomes      flat(100)  the 2 alt-shot team balls
 //   #5 köpenhamnare 3 of 4     flat(100)  own 3 of 4 (Karl, Lars, Nora)
 //   #6 better-ball 2v2         flat(85)   own 4, grouped (Karl,Lars)/(Mats,Nora)
 //
-// The four OWN balls feed five of the seven slots (#0,#2,#3,#5,#6 — #1/#5 take
+// The four OWN balls feed five of the six slots (#0,#2,#3,#5,#6 — #1/#5 take
 // three-of-four subsets) with a DIFFERENT ball_PH per slot, proving per-slot PH
 // derivation off one set of frozen ball CHs.
-//
-// Note: there is no match-play foursomes built-in (only greensomes/scramble are
-// added this phase), so slot #4 scores the alt-shot pairs as foursomes stroke
-// play — enough to prove the 2-producer team balls flow through their own slot.
 //
 // Depends on the `linkopings` seed.
 
@@ -90,7 +85,6 @@ export async function apply(s: Scenario): Promise<void> {
                 },
             },
             { id: 'slot-3', formatId: 'stroke_play_individual', allowanceConfig: { type: 'flat', pct: 100 } },
-            { id: 'slot-4', formatId: 'stroke_play_foursomes', allowanceConfig: { type: 'flat', pct: 100 } },
             {
                 id: 'slot-5',
                 formatId: 'kopenhamnare_individual',

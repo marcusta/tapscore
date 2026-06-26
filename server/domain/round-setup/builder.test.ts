@@ -30,48 +30,58 @@ function ok(r: ReturnType<typeof buildRoundDefinition>) {
     return r.definition;
 }
 
-test('GATE: stableford + better-ball + foursomes coalesces to one own-ball + one pair strategy', () => {
+const TEAMS = [
+    { id: 'TA', label: 'A', members: [{ producerDefId: 'p1', allowancePct: 50 }, { producerDefId: 'p2', allowancePct: 50 }] },
+    { id: 'TB', label: 'B', members: [{ producerDefId: 'p3', allowancePct: 50 }, { producerDefId: 'p4', allowancePct: 50 }] },
+];
+const TEAM_SUBJECTS = [
+    { kind: 'team' as const, teamId: 'TA' },
+    { kind: 'team' as const, teamId: 'TB' },
+];
+
+test('GATE: stableford + better-ball + team composition coalesces own-balls + one team_ball per team', () => {
     const draft: RoundSetupDraft = {
         courseId: 'c1',
         playedAt: '2026-06-01',
         producers: ROSTER,
+        teams: TEAMS,
         formats: [
             { formatId: 'stableford_individual' },
             { formatId: 'stableford_better_ball', teams: PAIRS },
-            { formatId: 'stroke_play_foursomes', teams: PAIRS },
+            { formatId: 'stroke_play_individual', subjects: TEAM_SUBJECTS },
         ],
     };
     const def = ok(buildRoundDefinition(draft));
 
     // Exactly one own-ball strategy (shared by stableford + better-ball) plus
-    // the non-coalescing alt-shot pair strategy — no client conditional.
-    expect(def.ballStrategies).toHaveLength(2);
+    // one non-coalescing team_ball strategy per referenced team — no client conditional.
     const own = def.ballStrategies.filter((s) => s.strategyId === 'own_ball_per_player');
-    const pair = def.ballStrategies.filter((s) => s.strategyId === 'alt_shot_pair');
+    const team = def.ballStrategies.filter((s) => s.strategyId === 'team_ball');
     expect(own).toHaveLength(1);
-    expect(pair).toHaveLength(1);
-    expect(pair[0].composition).toEqual({ teams: PAIRS });
+    expect(team).toHaveLength(2);
 
     // Three slots; stableford + better-ball both select the shared own-ball
-    // strategy, foursomes selects the pair strategy.
+    // strategy, the team-composition slot selects the team_ball strategies.
     expect(def.slots).toHaveLength(3);
     const ownId = own[0].id;
-    const pairId = pair[0].id;
     expect(def.slots[0].ballSelector).toEqual({ strategyDefIds: [ownId] });
     expect(def.slots[1].ballSelector).toEqual({ strategyDefIds: [ownId] });
     expect(def.slots[1].teamGrouping).toEqual({ teams: PAIRS });
-    expect(def.slots[2].ballSelector).toEqual({ strategyDefIds: [pairId] });
+    expect(new Set(def.slots[2].ballSelector!.strategyDefIds)).toEqual(
+        new Set(team.map((t) => t.id)),
+    );
 });
 
-test('GATE: the coalesced definition compiles to 4 own-balls + 2 pair-balls across 3 slots', () => {
+test('GATE: the coalesced definition compiles to 4 own-balls + 2 team-balls across 3 slots', () => {
     const draft: RoundSetupDraft = {
         courseId: 'c1',
         playedAt: '2026-06-01',
         producers: ROSTER,
+        teams: TEAMS,
         formats: [
             { formatId: 'stableford_individual' },
             { formatId: 'stableford_better_ball', teams: PAIRS },
-            { formatId: 'stroke_play_foursomes', teams: PAIRS },
+            { formatId: 'stroke_play_individual', subjects: TEAM_SUBJECTS },
         ],
     };
     const def = ok(buildRoundDefinition(draft));
@@ -79,7 +89,7 @@ test('GATE: the coalesced definition compiles to 4 own-balls + 2 pair-balls acro
     const result = compile(makeCanaryCompilerInput('r1', def));
     if (!result.ok) throw new Error(result.diagnostics.map((d) => `${d.code}: ${d.message}`).join('; '));
 
-    // 4 own-balls (deduped to one strategy) + 2 alt-shot pair balls.
+    // 4 own-balls (deduped to one strategy) + 2 team-composition balls.
     expect(result.compiled.balls).toHaveLength(6);
     expect(result.compiled.slots).toHaveLength(3);
 
@@ -88,7 +98,7 @@ test('GATE: the coalesced definition compiles to 4 own-balls + 2 pair-balls acro
         result.compiled.slotBalls.filter((sb) => sb.slotId === slotById.get(slotDefId)).length;
     expect(countFor('slot-0')).toBe(4); // stableford — 4 own-balls
     expect(countFor('slot-1')).toBe(4); // better-ball — 4 own-balls (grouped 2v2)
-    expect(countFor('slot-2')).toBe(2); // foursomes — 2 pair-balls
+    expect(countFor('slot-2')).toBe(2); // team composition — 2 team balls
 });
 
 test('a producer subset narrows a shared own-ball strategy via a producer selector', () => {

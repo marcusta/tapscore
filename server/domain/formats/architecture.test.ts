@@ -33,9 +33,6 @@ const BUILTIN_FORMAT_IDS = [
     'match_play_better_ball',
     'taliban_better_ball',
     'umbrella_4_ball',
-    'stroke_play_foursomes',
-    'greensomes',
-    'scramble',
 ];
 
 /** The one and only format registry. */
@@ -130,9 +127,6 @@ describe('format architecture invariants', () => {
             'server/domain/compiler/compile.ts',
         ];
         const BALL_STRATEGY_IDS = [
-            'alt_shot_pair',
-            'greensomes_pair',
-            'scramble_team',
             'modified_alt_shot_pair',
         ];
         const FORMAT_CONFIG_FIELDS = ['handicapMode', 'birdieRule'];

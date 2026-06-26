@@ -257,12 +257,12 @@ function collectOwnBallScopedProducerIds(
     draft: RoundDefinitionDraft,
 ): Set<string> {
     const out = new Set<string>();
-    // Single-slot rounds with individual/team-shape-that-uses-own-ball
-    // take every producer. Multi-slot rounds restrict to producers
-    // attached to a non-foursomes slot (via slot.scopeProducerDefIds).
+    // Single-slot rounds take every producer. Multi-slot rounds restrict to
+    // producers attached to each slot (via slot.scopeProducerDefIds). Every
+    // slot now scores own balls (the foursomes team-ball path was removed with
+    // the composite formats — ADR-0003).
     const multiSlot = draft.slots.length > 1;
     for (const slot of draft.slots) {
-        if (slot.teamShape === 'foursomes') continue;
         if (multiSlot) {
             for (const pid of slot.scopeProducerDefIds ?? []) out.add(pid);
         } else {
@@ -278,14 +278,12 @@ function toSlotDefinition(
 ): SlotDefinition {
     const formatId = resolveFormatId(s.scoringMode, s.teamShape);
 
-    // ballSelector.strategyDefIds → the strategy that owns this slot's
-    // balls. Foursomes (alt-shot) picks the pair strategy; everything
-    // else reads from the shared own-ball strategy. The scenario builder
-    // creates at most one strategy of each kind, so this is unambiguous.
-    const ownerStrategyId =
-        s.teamShape === 'foursomes'
-            ? strategies.find((st) => st.strategyId === 'alt_shot_pair')?.defId
-            : strategies.find((st) => st.strategyId === 'own_ball_per_player')?.defId;
+    // ballSelector.strategyDefIds → the strategy that owns this slot's balls.
+    // Every slot reads from the shared own-ball strategy (the foursomes alt-shot
+    // pair path was removed with the composite formats — ADR-0003).
+    const ownerStrategyId = strategies.find(
+        (st) => st.strategyId === 'own_ball_per_player',
+    )?.defId;
 
     const out: SlotDefinition = {
         id: s.defId,

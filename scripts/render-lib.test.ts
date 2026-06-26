@@ -13,11 +13,11 @@ test('formatSlotSummary labels a slot from the registered descriptor', () => {
     ).toBe('Umbrella @ 100%');
     expect(
         formatSlotSummary({
-            scoringMode: 'stroke_play',
-            teamShape: 'foursomes',
-            allowanceConfig: { type: 'flat', pct: 50 },
+            scoringMode: 'match_play',
+            teamShape: 'individual',
+            allowanceConfig: { type: 'flat', pct: 90 },
         }),
-    ).toBe('Foursomes @ 50%');
+    ).toBe('Match play @ 90%');
 });
 
 test('formatSlotSummary renders a non-flat split allowance label', () => {

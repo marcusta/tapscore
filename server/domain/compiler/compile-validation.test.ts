@@ -237,8 +237,8 @@ describe('compiler validation — ball mode', () => {
         ballStrategies: [
             {
                 id: 'pairs',
-                strategyId: 'alt_shot_pair',
-                derivationConfig: { type: 'avg' },
+                strategyId: 'team_ball',
+                derivationConfig: { type: 'per_producer_pct', pcts: { p1: 50, p2: 50 } },
                 composition: { teams: [{ label: 'A', producerDefIds: ['p1', 'p2'] }] },
             },
         ],
@@ -481,56 +481,6 @@ describe('compiler validation — deriveSlotBalls output', () => {
 
     test('omitted selected ball → derived_ball_missing', () => {
         expect(diags(deriveDef('test_derive_missing'), ['p1', 'p2'])).toContain('derived_ball_missing');
-    });
-});
-
-// --- Requirement-based auto-selection (positive) ----------------------------
-
-describe('compiler — requirement-based auto-selection', () => {
-    // A mixed round: 4 own balls + 2 alt-shot team balls, no ballSelector on
-    // either slot. The own-ball stableford slot must auto-select ONLY the 4
-    // own balls; the foursomes slot ONLY the 2 team balls.
-    const mixed: RoundDefinition = {
-        courseId: 'c1',
-        playedAt: '2026-01-01',
-        producers: producers(['p1', 'p2', 'p3', 'p4']),
-        ballStrategies: [
-            ownStrategy,
-            {
-                id: 'pairs',
-                strategyId: 'alt_shot_pair',
-                derivationConfig: { type: 'avg' },
-                composition: {
-                    teams: [
-                        { label: 'A', producerDefIds: ['p1', 'p2'] },
-                        { label: 'B', producerDefIds: ['p3', 'p4'] },
-                    ],
-                },
-            },
-        ],
-        slots: [
-            {
-                id: 'stbl',
-                formatId: 'stableford_individual',
-                allowanceConfig: { type: 'flat', pct: 100 },
-            },
-            {
-                id: 'four',
-                formatId: 'stroke_play_foursomes',
-                allowanceConfig: { type: 'flat', pct: 50 },
-            },
-        ],
-    };
-
-    test('own-ball slot auto-selects the 4 own balls; team slot the 2 team balls', () => {
-        const res = compile(mkInput(mixed, ['p1', 'p2', 'p3', 'p4']));
-        if (!res.ok) throw new Error(JSON.stringify(res.diagnostics));
-        const stblSlot = res.compiled.slots.find((s) => s.slotDefId === 'stbl')!;
-        const fourSlot = res.compiled.slots.find((s) => s.slotDefId === 'four')!;
-        const stblBalls = res.compiled.slotBalls.filter((sb) => sb.slotId === stblSlot.id);
-        const fourBalls = res.compiled.slotBalls.filter((sb) => sb.slotId === fourSlot.id);
-        expect(stblBalls).toHaveLength(4);
-        expect(fourBalls).toHaveLength(2);
     });
 });
 

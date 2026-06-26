@@ -41,7 +41,6 @@ const SCENARIOS: Scenario[] = [
     { formatId: 'match_play_individual', players: [{ handicapIndex: 9 }, { handicapIndex: 18 }], expectPairs: 1 },
     { formatId: 'kopenhamnare_individual', players: [{ handicapIndex: 5 }, { handicapIndex: 12 }, { handicapIndex: 20 }], expectBucket: 'points' },
     { formatId: 'umbrella_individual', players: [{ handicapIndex: 9 }, { handicapIndex: 18 }, { handicapIndex: 5 }], expectBucket: 'points' },
-    { formatId: 'stroke_play_foursomes', players: [{ handicapIndex: 9, team: 'T1' }, { handicapIndex: 18, team: 'T1' }], expectBucket: 'gross' },
     { formatId: 'stableford_better_ball', players: [{ handicapIndex: 4, team: 'A' }, { handicapIndex: 14, team: 'A' }, { handicapIndex: 9, team: 'B' }, { handicapIndex: 12, team: 'B' }], expectBucket: 'points' },
     { formatId: 'match_play_better_ball', players: [{ handicapIndex: 4, team: 'A' }, { handicapIndex: 14, team: 'A' }, { handicapIndex: 9, team: 'B' }, { handicapIndex: 12, team: 'B' }], expectPairs: 1 },
     { formatId: 'taliban_better_ball', players: [{ handicapIndex: 4, team: 'A' }, { handicapIndex: 14, team: 'A' }, { handicapIndex: 9, team: 'B' }, { handicapIndex: 12, team: 'B' }], expectPairs: 1 },

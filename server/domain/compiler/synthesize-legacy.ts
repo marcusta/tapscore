@@ -10,9 +10,9 @@
 //     participant_player.id (stable within the round).
 //   - Tee: participant.tee_id_snapshot applies to every producer under
 //     that participant (legacy single-tee-per-participant model).
-//   - Ball strategies: one global `own_ball_per_player` (when any slot
-//     needs own balls); one `alt_shot_pair` per foursomes slot with
-//     composition pulled from participants' team_label groupings.
+//   - Ball strategies: one global `own_ball_per_player` (every legacy slot
+//     scores own balls; the deprecated foursomes team-ball path was removed
+//     with the bundled composite formats).
 //   - Slots: formatId derived from (scoring_mode, team_shape). Allowance
 //     carried verbatim. `scope_config.config` → `formatConfig`. Team
 //     groupings recovered from participant.team_label for own-ball team
@@ -21,7 +21,6 @@
 //     which producers the slot sees.
 
 import { OWN_BALL_PER_PLAYER_ID } from '../strategies/ball-creation/own-ball-per-player';
-import { ALT_SHOT_PAIR_ID } from '../strategies/ball-creation/alt-shot-pair';
 import type {
     BallStrategyDefinition,
     ProducerDefinition,
@@ -73,7 +72,6 @@ export interface SynthesisResult {
 
 const SCORE_MODE_TEAM_SHAPE_TO_FORMAT: Record<string, string> = {
     stroke_play__individual: 'stroke_play_individual',
-    stroke_play__foursomes: 'stroke_play_foursomes',
     stableford__individual: 'stableford_individual',
     stableford__better_ball: 'stableford_better_ball',
     match_play__individual: 'match_play_individual',
@@ -153,7 +151,7 @@ export function synthesizeRoundDefinition(input: LegacyRoundInput): SynthesisRes
     // --- Ball strategies ---
     const ballStrategies: BallStrategyDefinition[] = [];
     const ownStrategyDefId = 'own';
-    const usesOwnBall = input.formatSlots.some((s) => s.teamShape !== 'foursomes');
+    const usesOwnBall = input.formatSlots.length > 0;
     if (usesOwnBall) {
         ballStrategies.push({
             id: ownStrategyDefId,
@@ -187,36 +185,12 @@ export function synthesizeRoundDefinition(input: LegacyRoundInput): SynthesisRes
 
         if (scope.config !== undefined) slotDef.formatConfig = scope.config;
 
-        if (slot.teamShape === 'foursomes') {
-            const strategyDefId = `alt-${slot.slotIndex}`;
-            const teams = slotParticipants
-                .map((p) => {
-                    const pps = ppByParticipant.get(p.id) ?? [];
-                    return {
-                        label: p.teamLabel ?? `team-${p.id}`,
-                        producerDefIds: pps.map((pp) => pp.id),
-                    };
-                })
-                .filter((t) => t.producerDefIds.length === 2);
-            if (teams.length === 0) {
-                diagnostics.push(`foursomes slot ${slot.slotIndex} has no 2-player teams`);
-                continue;
-            }
-            ballStrategies.push({
-                id: strategyDefId,
-                strategyId: ALT_SHOT_PAIR_ID,
-                derivationConfig: { type: 'avg' },
-                composition: { teams },
-            });
-            slotDef.ballSelector = { strategyDefIds: [strategyDefId] };
-        } else {
-            slotDef.ballSelector = {
-                strategyDefIds: [ownStrategyDefId],
-                producerDefIds: slotParticipants.flatMap((p) =>
-                    (ppByParticipant.get(p.id) ?? []).map((pp) => pp.id),
-                ),
-            };
-        }
+        slotDef.ballSelector = {
+            strategyDefIds: [ownStrategyDefId],
+            producerDefIds: slotParticipants.flatMap((p) =>
+                (ppByParticipant.get(p.id) ?? []).map((pp) => pp.id),
+            ),
+        };
 
         if (slot.teamShape === 'better_ball' || slot.teamShape === 'four_ball') {
             const byLabel = new Map<string, string[]>();

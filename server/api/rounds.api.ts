@@ -37,9 +37,7 @@ const ScoringMode = Type.Union([
 const TeamShape = Type.Union([
     Type.Literal('individual'),
     Type.Literal('better_ball'),
-    Type.Literal('scramble'),
-    Type.Literal('foursomes'),
-    Type.Literal('greensome'),
+    Type.Literal('four_ball'),
     Type.Literal('custom'),
 ]);
 

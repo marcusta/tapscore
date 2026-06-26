@@ -105,12 +105,17 @@ const subjectRowTpl = template(`
 const teamCardTpl = template(`
     <div class="fslot">
         <div class="fslot__top">
-            <div bind="formation" class="fslot__format"></div>
+            <span bind="teamName" class="fslot__teamname"></span>
             <button bind="remove" class="fslot__remove" type="button" aria-label="Remove">✕</button>
+        </div>
+        <div class="fslot__group">
+            <span class="fslot__label">Composition</span>
+            <div bind="formation" class="fslot__format"></div>
         </div>
         <div class="fslot__group">
             <span class="fslot__label">Members &amp; allowance</span>
             <div bind="memberRows" class="fslot__teamrows"></div>
+            <p bind="teamMeta" class="fslot__teammeta"></p>
         </div>
     </div>
 `);
@@ -230,6 +235,11 @@ export class CreateComponent extends Component {
                 display: flex; flex-direction: column; gap: ${s('sm')};
 
                 & .fslot__top { display: flex; gap: ${s('sm')}; align-items: center; }
+                & .fslot__teamname { flex: 1; min-width: 0; font-weight: 700; font-size: 0.95rem; }
+                & .fslot__teammeta {
+                    margin: ${s('xs')} 0 0; font-size: 0.78rem; color: ${t('text-muted')};
+                    &:empty { display: none; }
+                }
                 & .fslot__format { flex: 1; min-width: 0; font-size: 1rem; }
                 & .fslot__remove {
                     width: 38px; height: 38px; flex-shrink: 0; ${btn()}
@@ -621,7 +631,26 @@ export class CreateComponent extends Component {
     private teamCard(key: number, track: (d: () => void) => void): HTMLElement {
         const el = this.wireEl(
             teamCardTpl,
-            { remove: { onclick: () => this.svc.removeTeam(key) } },
+            {
+                remove: { onclick: () => this.svc.removeTeam(key) },
+                teamName: {
+                    textContent: () => {
+                        const tm = this.svc.teamByKey(key);
+                        return tm ? this.svc.teamLabel(tm) : 'Team';
+                    },
+                },
+                // Live size + team-ball CH preview (round(Σ memberCH × pct%)), or a
+                // nudge while the team is still under the 2-player minimum.
+                teamMeta: {
+                    textContent: () => {
+                        const size = this.svc.teamSize(key);
+                        if (size === 0) return 'Tick at least 2 players to form a team ball.';
+                        if (size < 2) return 'Add one more player — a team needs at least 2.';
+                        const ch = this.svc.teamBallCh(key);
+                        return ch === null ? `${size} players` : `${size} players · plays off CH ${ch}`;
+                    },
+                },
+            },
             track,
         );
         this.mountSelect(this.ref(el, 'formation'), track, {
@@ -656,6 +685,8 @@ export class CreateComponent extends Component {
             {
                 chk: {
                     checked: () => inTeam(),
+                    // At the 10-player cap, only already-ticked members stay toggleable.
+                    disabled: () => !inTeam() && this.svc.teamAtMaxSize(teamKey),
                     onchange: (e: Event) =>
                         this.svc.setTeamMember(teamKey, playerKey, (e.target as HTMLInputElement).checked),
                 },

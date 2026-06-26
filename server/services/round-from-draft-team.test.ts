@@ -1,11 +1,9 @@
-// Phase 2.6d-final E1 — plugin-owned setup + config validation.
+// Phase 2.6d-final E1 / ADR-0003 — plugin-owned setup + config validation.
 //
-// The draft path (RoundSetupDraft → buildRoundDefinition → compile) must emit
-// each team format's ACTUAL ball-creation plan, not a generic alt_shot_pair/avg:
-//   - Greensomes → greensomes_pair / weighted 60/40
-//   - Scramble   → scramble_team / by_rank, %s by team size (2 vs 4)
-// and real validateConfig must surface invalid format config as a COMPILE
-// diagnostic, never a scoring-time throw.
+// The draft path (RoundSetupDraft → buildRoundDefinition → compile) must emit a
+// round-level team composition as a generic `team_ball` strategy carrying the
+// per-member allowance the teams step set, and real validateConfig must surface
+// invalid format config as a COMPILE diagnostic, never a scoring-time throw.
 
 import { test, expect } from 'bun:test';
 import { createTestDb } from '../testing/db';
@@ -49,24 +47,36 @@ function producers(teeId: string, players: { id: string }[], indices: number[]):
     }));
 }
 
-test('greensomes draft emits greensomes_pair/weighted, not alt_shot/avg (E1)', async () => {
+test('round-level team draft emits a team_ball with per-member allowance CH (ADR-0003)', async () => {
     const ctx = await setup();
     const draft: RoundSetupDraft = {
         courseId: ctx.courseId,
         playedAt: '2026-06-01',
         producers: producers(ctx.teeId, ctx.players, [8, 18]),
-        formats: [{ formatId: 'greensomes', teams: [{ label: 'A', producerDefIds: ['p1', 'p2'] }] }],
+        teams: [
+            {
+                id: 'T',
+                label: 'A',
+                // `formation` is now pure metadata (a composition label); it does
+                // NOT drive the %s — the members carry explicit allowances.
+                formation: 'greensomes',
+                members: [
+                    { producerDefId: 'p1', allowancePct: 60 },
+                    { producerDefId: 'p2', allowancePct: 40 },
+                ],
+            },
+        ],
+        formats: [{ formatId: 'stroke_play_individual', subjects: [{ kind: 'team', teamId: 'T' }] }],
     };
 
     const built = buildRoundDefinition(draft);
     expect(built.ok).toBe(true);
     if (!built.ok) return;
-    expect(built.definition.ballStrategies).toHaveLength(1);
-    expect(built.definition.ballStrategies[0]!.strategyId).toBe('greensomes_pair');
-    expect(built.definition.ballStrategies[0]!.derivationConfig).toEqual({
-        type: 'weighted',
-        lowPct: 60,
-        highPct: 40,
+    const teamStrat = built.definition.ballStrategies.find((s) => s.strategyId === 'team_ball')!;
+    expect(teamStrat).toBeTruthy();
+    expect(teamStrat.derivationConfig).toEqual({
+        type: 'per_producer_pct',
+        pcts: { p1: 60, p2: 40 },
     });
 
     const result = await ctx.roundService.createFromDraft(draft);
@@ -74,10 +84,10 @@ test('greensomes draft emits greensomes_pair/weighted, not alt_shot/avg (E1)', a
     if (!result.ok) return;
     const balls = await ctx.roundService.ballsForRound(result.round.id);
     expect(balls).toHaveLength(1);
-    // weighted 60/40 of (8,18) = 12. avg would be 13 — proves the right plan.
+    // per-producer 60/40 of (8,18) = .6*8 + .4*18 = 12.
     expect(balls[0]!.courseHandicap).toBe(12);
 
-    // Successful scoring through the real engine.
+    // Successful scoring through the real engine (stroke_play scores the team ball).
     const occ = result.round.playHoles.map((p) => p.id);
     for (let i = 0; i < occ.length; i++) {
         await ctx.scoreEventService.append({
@@ -88,55 +98,6 @@ test('greensomes draft emits greensomes_pair/weighted, not alt_shot/avg (E1)', a
     const rr = await ctx.leaderboardService.resultForRound(result.round.id);
     const gross = rr.slots[0]!.leaderboard.find((l) => l.kind === 'ranked' && l.metricId === 'gross');
     expect(gross && gross.kind === 'ranked' ? gross.entries[0]!.total : null).toBe(occ.length * 4);
-});
-
-test('4-player scramble draft emits scramble_team/by_rank [25,20,15,10] (E1)', async () => {
-    const ctx = await setup();
-    const draft: RoundSetupDraft = {
-        courseId: ctx.courseId,
-        playedAt: '2026-06-01',
-        producers: producers(ctx.teeId, ctx.players, [8, 12, 18, 24]),
-        formats: [{ formatId: 'scramble', teams: [{ label: 'A', producerDefIds: ['p1', 'p2', 'p3', 'p4'] }] }],
-    };
-    const built = buildRoundDefinition(draft);
-    expect(built.ok).toBe(true);
-    if (!built.ok) return;
-    expect(built.definition.ballStrategies[0]!.strategyId).toBe('scramble_team');
-    expect(built.definition.ballStrategies[0]!.derivationConfig).toEqual({
-        type: 'by_rank',
-        chPcts: [25, 20, 15, 10],
-    });
-
-    const result = await ctx.roundService.createFromDraft(draft);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const balls = await ctx.roundService.ballsForRound(result.round.id);
-    expect(balls).toHaveLength(1);
-    // by_rank: .25*8 + .20*12 + .15*18 + .10*24 = 9.5 → round 10.
-    expect(balls[0]!.courseHandicap).toBe(10);
-});
-
-test('2-player scramble draft uses [35,15] by team size (E1)', async () => {
-    const ctx = await setup();
-    const draft: RoundSetupDraft = {
-        courseId: ctx.courseId,
-        playedAt: '2026-06-01',
-        producers: producers(ctx.teeId, ctx.players, [8, 18]),
-        formats: [{ formatId: 'scramble', teams: [{ label: 'A', producerDefIds: ['p1', 'p2'] }] }],
-    };
-    const built = buildRoundDefinition(draft);
-    expect(built.ok).toBe(true);
-    if (!built.ok) return;
-    expect(built.definition.ballStrategies[0]!.derivationConfig).toEqual({
-        type: 'by_rank',
-        chPcts: [35, 15],
-    });
-    const result = await ctx.roundService.createFromDraft(draft);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const balls = await ctx.roundService.ballsForRound(result.round.id);
-    // by_rank: .35*8 + .15*18 = 5.5 → round 6.
-    expect(balls[0]!.courseHandicap).toBe(6);
 });
 
 test('invalid format config is a COMPILE diagnostic, not a score-time throw (E1)', async () => {

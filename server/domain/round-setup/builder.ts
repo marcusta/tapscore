@@ -40,6 +40,19 @@ export type BuildResult =
     | { ok: true; definition: RoundDefinitionInput }
     | { ok: false; diagnostics: CompilerDiagnostic[] };
 
+/**
+ * The team ball's display label (shown on leaderboards / scorecards). Folds the
+ * composition label (scramble/greensomes/foursomes) into the team name so it
+ * surfaces in results — ADR-0003 delta 2 (display only). `composition` is pure
+ * metadata: 'custom' or an absent label adds nothing.
+ */
+function teamBallLabel(team: DraftRoundTeam): string {
+    const base = team.label ?? team.id;
+    const f = team.formation?.trim();
+    if (!f || f.toLowerCase() === 'custom') return base;
+    return `${base} · ${f[0]!.toUpperCase()}${f.slice(1)}`;
+}
+
 /** Stable coalesce key for a planned ball strategy that may dedupe. */
 function dedupeKey(planned: PlannedBallStrategy): string {
     // OwnBallPerPlayer ignores composition and covers every round producer, so
@@ -100,7 +113,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
             strategyId: 'team_ball',
             derivationConfig: { type: 'per_producer_pct', pcts },
             composition: {
-                teams: [{ label: team.label ?? team.id, producerDefIds: team.members.map((m) => m.producerDefId) }],
+                teams: [{ label: teamBallLabel(team), producerDefIds: team.members.map((m) => m.producerDefId) }],
             },
         });
         return id;

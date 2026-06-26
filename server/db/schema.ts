@@ -140,9 +140,6 @@ export type TeamShape =
     | 'individual'
     | 'better_ball'
     | 'four_ball'
-    | 'scramble'
-    | 'foursomes'
-    | 'greensome'
     | 'custom';
 
 export interface RoundFormatSlotsTable {

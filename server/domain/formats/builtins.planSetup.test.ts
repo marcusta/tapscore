@@ -41,19 +41,6 @@ test('own-ball team format groups own-balls at the slot', () => {
     expect(plan.slot.teamGrouping).toEqual({ teams });
 });
 
-test('alt-shot foursomes plans an alt_shot_pair team ball composed from teams', () => {
-    const teams = [
-        { label: 'A', producerDefIds: ['p1', 'p2'] },
-        { label: 'B', producerDefIds: ['p3', 'p4'] },
-    ];
-    const plan = findFormatPlugin('stroke_play_foursomes').planSetup(input({ teams }));
-    expect(plan.ballStrategies).toEqual([
-        { strategyId: 'alt_shot_pair', derivationConfig: { type: 'avg' }, composition: { teams } },
-    ]);
-    // The foursomes balls are themselves team balls; no slot-level grouping.
-    expect(plan.slot.teamGrouping).toBeUndefined();
-});
-
 test('allowance + formatConfig overrides flow into the planned slot', () => {
     const plan = findFormatPlugin('stableford_individual').planSetup(
         input({ allowanceConfig: { type: 'flat', pct: 95 }, formatConfig: { handicapMode: 'full' } }),

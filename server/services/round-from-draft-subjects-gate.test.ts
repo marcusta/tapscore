@@ -53,8 +53,10 @@ async function buildDraft(
         });
     }
     const teams: DraftRoundTeam[] = [
-        { id: 'A', label: 'A', formation: 'scramble', members: [{ producerDefId: 'p1', allowancePct: 60 }, { producerDefId: 'p2', allowancePct: 40 }] },
-        { id: 'B', label: 'B', formation: 'scramble', members: [{ producerDefId: 'p3', allowancePct: 50 }, { producerDefId: 'p4', allowancePct: 50 }] },
+        // No `formation` here — this gate asserts per-member CH, and the team ball
+        // label folds in the composition (covered separately by the fine-grained gate).
+        { id: 'A', label: 'A', members: [{ producerDefId: 'p1', allowancePct: 60 }, { producerDefId: 'p2', allowancePct: 40 }] },
+        { id: 'B', label: 'B', members: [{ producerDefId: 'p3', allowancePct: 50 }, { producerDefId: 'p4', allowancePct: 50 }] },
     ];
     return { courseId: ctx.courseId, playedAt: '2026-06-17', roundType: 'full_18', producers, teams, formats };
 }

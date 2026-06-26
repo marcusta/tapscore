@@ -281,7 +281,7 @@ test('create({definition}) rolls back if compile fails', async () => {
     expect(rounds).toHaveLength(0);
 });
 
-test('create({definition}) with foursomes pair sets balls.label to team label', async () => {
+test('create({definition}) with a team_ball composition sets balls.label to team label', async () => {
     const ctx = await setupWithTeeAndPlayer();
     const bob = await ctx.playerService.register({
         username: 'bob-def',
@@ -313,8 +313,8 @@ test('create({definition}) with foursomes pair sets balls.label to team label', 
         ballStrategies: [
             {
                 id: 'pair',
-                strategyId: 'alt_shot_pair',
-                derivationConfig: { type: 'avg' },
+                strategyId: 'team_ball',
+                derivationConfig: { type: 'per_producer_pct', pcts: { 'p-a': 50, 'p-b': 50 } },
                 composition: {
                     teams: [{ label: 'Alice & Bob', producerDefIds: ['p-a', 'p-b'] }],
                 },
@@ -323,7 +323,7 @@ test('create({definition}) with foursomes pair sets balls.label to team label', 
         slots: [
             {
                 id: 'slot-0',
-                formatId: 'stroke_play_foursomes',
+                formatId: 'stroke_play_individual',
                 allowanceConfig: { type: 'flat', pct: 50 },
                 ballSelector: { strategyDefIds: ['pair'] },
             },

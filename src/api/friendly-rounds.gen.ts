@@ -65,7 +65,7 @@ export interface FormatSlot {
     slotDefId: string;
     formatId: string;
     scoringMode: 'custom' | 'stroke_play' | 'stableford' | 'match_play' | 'kopenhamnare' | 'taliban' | 'umbrella' | 'skins';
-    teamShape: 'custom' | 'individual' | 'better_ball' | 'four_ball' | 'scramble' | 'foursomes' | 'greensome';
+    teamShape: 'custom' | 'individual' | 'better_ball' | 'four_ball';
     allowancePct: number;
     allowanceConfig: { type: 'flat'; pct: number } | { type: 'split'; bands: ({ pct: number; upToCh: null | number })[] };
     formatConfig: unknown;

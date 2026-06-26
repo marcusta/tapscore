@@ -58,7 +58,14 @@ interface DraftFormat {
     formatConfig?: unknown;
 }
 
-const FORMATIONS = ['scramble', 'greensomes', 'foursomes'] as const;
+// Composition labels are PURE METADATA (ADR-0003 refinements): a display hint +
+// future template key. They never drive the allowance %s — members carry
+// explicit per-player allowances. 'custom' is the escape hatch for any shape.
+const FORMATIONS = ['scramble', 'greensomes', 'foursomes', 'custom'] as const;
+
+/** A team ball is 2–10 players (the team_ball strategy's composition bound). */
+const MIN_TEAM_SIZE = 2;
+const MAX_TEAM_SIZE = 10;
 
 const TEAM_LETTERS = 'ABCDEFGH';
 
@@ -278,9 +285,56 @@ export class SetupService {
         const team = this.teamByKey(teamKey);
         if (!team) return;
         const next = { ...team.pctByPlayer };
-        if (inTeam) next[playerKey] = next[playerKey] ?? '100';
-        else delete next[playerKey];
+        if (inTeam) {
+            if (next[playerKey] !== undefined) return;
+            if (Object.keys(next).length >= MAX_TEAM_SIZE) return; // a ball is ≤10 players
+            next[playerKey] = next[playerKey] ?? '100';
+        } else {
+            delete next[playerKey];
+        }
         this.teams.set(this.teams.get().map((t) => (t.key === teamKey ? { ...t, pctByPlayer: next } : t)));
+    }
+
+    /** Number of members ticked into a team (2–10 is a valid team ball). */
+    teamSize(teamKey: number): number {
+        const t = this.teamByKey(teamKey);
+        return t ? Object.keys(t.pctByPlayer).length : 0;
+    }
+
+    /** True when the team is at the 10-player cap (the member toggles disable). */
+    teamAtMaxSize(teamKey: number): boolean {
+        return this.teamSize(teamKey) >= MAX_TEAM_SIZE;
+    }
+
+    /**
+     * Live team-ball course handicap preview = round(Σ memberCH × pct%) — the
+     * exact server `team_ball` / `per_producer_pct` formula, so the user sees the
+     * effect of their allowances immediately. Null while any member's CH can't
+     * be derived yet (incomplete index/tee).
+     */
+    teamBallCh(teamKey: number): number | null {
+        const team = this.teamByKey(teamKey);
+        if (!team) return null;
+        let sum = 0;
+        for (const p of this.players.get()) {
+            const pct = team.pctByPlayer[p.key];
+            if (pct === undefined) continue;
+            const d = this.derivedCH(p);
+            if (!d) return null;
+            sum += (this.parsePct(pct) * d.ch) / 100;
+        }
+        return Math.round(sum);
+    }
+
+    /**
+     * Teams started but still under the 2-player minimum — a non-blocking hint
+     * (mirrors `playersInNoFormat`). A 1-member team can't form a ball, so it is
+     * dropped at build time; this nudges the user to add a partner.
+     */
+    teamsBelowMin(): TeamForm[] {
+        return this.teams
+            .get()
+            .filter((t) => Object.keys(t.pctByPlayer).length > 0 && Object.keys(t.pctByPlayer).length < MIN_TEAM_SIZE);
     }
 
     setTeamPct(teamKey: number, playerKey: number, pct: string): void {
@@ -435,7 +489,8 @@ export class SetupService {
     /**
      * Round-level teams → the draft's `teams[]` (ADR-0003). Each team's `id` is
      * its stable key; members carry their per-member allowance %. Only teams with
-     * ≥1 member are emitted.
+     * ≥2 members are emitted (a team ball needs at least a pair; a lone member is
+     * dropped and surfaced by `teamsBelowMin`).
      */
     private buildTeams(roster: PlayerForm[], defIdByKey: Map<number, string>): DraftRoundTeam[] {
         const out: DraftRoundTeam[] = [];
@@ -446,7 +501,7 @@ export class SetupService {
                     producerDefId: defIdByKey.get(p.key)!,
                     allowancePct: this.parsePct(team.pctByPlayer[p.key]!),
                 }));
-            if (members.length > 0) {
+            if (members.length >= MIN_TEAM_SIZE) {
                 out.push({ id: String(team.key), label: this.teamLabel(team), formation: team.formation, members });
             }
         }
@@ -459,7 +514,12 @@ export class SetupService {
      * and the ticked teams. The server materialises exactly those balls.
      */
     private buildFormats(roster: PlayerForm[], defIdByKey: Map<number, string>): DraftFormat[] {
-        const liveTeamKeys = new Set(this.teams.get().filter((t) => Object.keys(t.pctByPlayer).length > 0).map((t) => t.key));
+        const liveTeamKeys = new Set(
+            this.teams
+                .get()
+                .filter((t) => Object.keys(t.pctByPlayer).length >= MIN_TEAM_SIZE)
+                .map((t) => t.key),
+        );
         return this.formatSlots.get().map((slot) => {
             const subjects: DraftBallSubject[] = [];
             for (const p of roster) {

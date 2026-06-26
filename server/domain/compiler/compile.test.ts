@@ -107,7 +107,7 @@ describe('compile — singles stableford', () => {
     });
 });
 
-describe('compile — foursomes alt-shot', () => {
+describe('compile — team ball (per-producer allowance)', () => {
     const def: RoundDefinition = {
         courseId: 'c1',
         playedAt: '2026-01-01',
@@ -120,9 +120,13 @@ describe('compile — foursomes alt-shot', () => {
         })),
         ballStrategies: [
             {
-                id: 'alt',
-                strategyId: 'alt_shot_pair',
-                derivationConfig: { type: 'avg' },
+                id: 'team',
+                strategyId: 'team_ball',
+                // 50/50 per-producer == the old foursomes alt-shot avg.
+                derivationConfig: {
+                    type: 'per_producer_pct',
+                    pcts: { p1: 50, p2: 50, p3: 50, p4: 50 },
+                },
                 composition: {
                     teams: [
                         { label: 'A', producerDefIds: ['p1', 'p2'] },
@@ -133,10 +137,12 @@ describe('compile — foursomes alt-shot', () => {
         ],
         slots: [
             {
+                // stroke_play_individual opts into scoresAnyBall (ADR-0002), so
+                // it scores the two team balls directly.
                 id: 'slot-f',
-                formatId: 'stroke_play_foursomes',
+                formatId: 'stroke_play_individual',
                 allowanceConfig: { type: 'flat', pct: 50 },
-                ballSelector: { strategyDefIds: ['alt'] },
+                ballSelector: { strategyDefIds: ['team'] },
             },
         ],
     };
@@ -297,7 +303,7 @@ describe('compile — itinerary + playing groups (Slice 3b)', () => {
     });
 
     test('team ball whose producers span groups → team_ball_crosses_playing_groups', () => {
-        const foursomes: RoundDefinition = {
+        const teamRound: RoundDefinition = {
             courseId: 'c1',
             playedAt: '2026-01-01',
             producers: ['p1', 'p2', 'p3', 'p4'].map((id) => ({
@@ -310,8 +316,11 @@ describe('compile — itinerary + playing groups (Slice 3b)', () => {
             ballStrategies: [
                 {
                     id: 'pairs',
-                    strategyId: 'alt_shot_pair',
-                    derivationConfig: { type: 'avg' },
+                    strategyId: 'team_ball',
+                    derivationConfig: {
+                        type: 'per_producer_pct',
+                        pcts: { p1: 50, p2: 50, p3: 50, p4: 50 },
+                    },
                     composition: {
                         teams: [
                             { label: 'AB', producerDefIds: ['p1', 'p2'] },
@@ -323,7 +332,7 @@ describe('compile — itinerary + playing groups (Slice 3b)', () => {
             slots: [
                 {
                     id: 'slot-1',
-                    formatId: 'stroke_play_foursomes',
+                    formatId: 'stroke_play_individual',
                     allowanceConfig: { type: 'flat', pct: 50 },
                     ballSelector: { strategyDefIds: ['pairs'] },
                 },
@@ -335,7 +344,7 @@ describe('compile — itinerary + playing groups (Slice 3b)', () => {
                 { startTime: '08:10', startOrdinal: 1, capacity: 2, producerDefIds: ['p2', 'p4'] },
             ],
         };
-        const res = compile(mkInput(foursomes, ['p1', 'p2', 'p3', 'p4']));
+        const res = compile(mkInput(teamRound, ['p1', 'p2', 'p3', 'p4']));
         expect(res.ok).toBe(false);
         if (res.ok) return;
         expect(

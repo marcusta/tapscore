@@ -55,16 +55,21 @@ const PAIRS = [
     { label: 'B', producerDefIds: ['p3', 'p4'] },
 ];
 
-test('GATE: a mixed draft (stableford + better-ball + foursomes) creates one round, no client conditionals', async () => {
+test('GATE: a mixed draft (stableford + better-ball + team composition) creates one round, no client conditionals', async () => {
     const ctx = await setup();
     const draft: RoundSetupDraft = {
         courseId: ctx.courseId,
         playedAt: '2026-06-01',
         producers: roster(ctx.teeId, ctx.players),
+        // Round-level team compositions (ADR-0003), scored by a generic format.
+        teams: [
+            { id: 'TA', label: 'A', members: [{ producerDefId: 'p1', allowancePct: 50 }, { producerDefId: 'p2', allowancePct: 50 }] },
+            { id: 'TB', label: 'B', members: [{ producerDefId: 'p3', allowancePct: 50 }, { producerDefId: 'p4', allowancePct: 50 }] },
+        ],
         formats: [
             { formatId: 'stableford_individual' },
             { formatId: 'stableford_better_ball', teams: PAIRS },
-            { formatId: 'stroke_play_foursomes', teams: PAIRS },
+            { formatId: 'stroke_play_individual', subjects: [{ kind: 'team', teamId: 'TA' }, { kind: 'team', teamId: 'TB' }] },
         ],
     };
 
@@ -74,7 +79,7 @@ test('GATE: a mixed draft (stableford + better-ball + foursomes) creates one rou
 
     expect(result.round.formatSlots).toHaveLength(3);
 
-    // 4 own-balls (shared by stableford + better-ball) + 2 alt-shot pair balls.
+    // 4 own-balls (shared by stableford + better-ball) + 2 team-composition balls.
     const balls = await ctx.roundService.ballsForRound(result.round.id);
     expect(balls).toHaveLength(6);
     const ownBalls = balls.filter((b) => b.players.length === 1);

@@ -28,15 +28,17 @@ test('GET /api/formats returns the registered serializable descriptors', async (
     expect(res.status).toBe(200);
     const data = (await res.json()) as Array<Record<string, unknown>>;
 
-    // Deterministically ordered by descriptor id; covers every built-in.
+    // Deterministically ordered by descriptor id; covers every built-in
+    // scoring format. The bundled composite formats (scramble/greensomes/
+    // foursomes) were removed (ADR-0003) — compositions live in the teams step.
     expect(Array.isArray(data)).toBe(true);
-    expect(data.length).toBe(12);
+    expect(data.length).toBe(9);
     const ids = data.map((d) => d.id);
     expect(ids).toEqual([...ids].sort());
     expect(ids).toContain('stableford_individual');
-    expect(ids).toContain('stroke_play_foursomes');
-    expect(ids).toContain('greensomes');
-    expect(ids).toContain('scramble');
+    expect(ids).not.toContain('stroke_play_foursomes');
+    expect(ids).not.toContain('greensomes');
+    expect(ids).not.toContain('scramble');
 
     const stableford = data.find((d) => d.id === 'stableford_individual')!;
     expect(stableford).toMatchObject({

@@ -123,23 +123,6 @@ test('own-ball team: better-ball stableford persists 2v2 team grouping over own-
     expect([ch.get('Ann'), ch.get('Bo'), ch.get('Cy'), ch.get('Di')]).toEqual([8, 12, 18, 24]);
 });
 
-test('team-ball: foursomes builds one alt-shot ball per pair (avg derivation)', async () => {
-    const ctx = await setup();
-    const draft = await draftFor(ctx, [{ name: 'Ann', index: 8 }, { name: 'Bo', index: 18 }], [
-        { formatId: 'stroke_play_foursomes', teams: [{ label: 'A', producerDefIds: ['p1', 'p2'] }] },
-    ]);
-    const { round } = await createFriendly(ctx, draft);
-
-    const def = (await ctx.roundService.latestDefinition(round.id))!.definition;
-    expect(def.ballStrategies[0]!.strategyId).toBe('alt_shot_pair');
-    expect(def.ballStrategies[0]!.derivationConfig).toEqual({ type: 'avg' });
-
-    const balls = await ctx.roundService.ballsForRound(round.id);
-    expect(balls).toHaveLength(1); // one team ball
-    // avg of indices (8,18) at CR=par/slope=113 = 13.
-    expect(balls[0]!.courseHandicap).toBe(13);
-});
-
 test('multi-slot: stableford + better-ball share ONE coalesced own-ball strategy', async () => {
     const ctx = await setup();
     const draft = await draftFor(
@@ -168,56 +151,6 @@ test('multi-slot: stableford + better-ball share ONE coalesced own-ball strategy
     ]);
     const balls = await ctx.roundService.ballsForRound(round.id);
     expect(balls).toHaveLength(4); // four own-balls, shared by both slots
-});
-
-test('greensomes: server plans greensomes_pair/weighted 60-40, not alt_shot/avg', async () => {
-    const ctx = await setup();
-    const draft = await draftFor(ctx, [{ name: 'Ann', index: 8 }, { name: 'Bo', index: 18 }], [
-        { formatId: 'greensomes', teams: [{ label: 'A', producerDefIds: ['p1', 'p2'] }] },
-    ]);
-    const { round } = await createFriendly(ctx, draft);
-
-    const def = (await ctx.roundService.latestDefinition(round.id))!.definition;
-    expect(def.ballStrategies[0]!.strategyId).toBe('greensomes_pair');
-    expect(def.ballStrategies[0]!.derivationConfig).toEqual({ type: 'weighted', lowPct: 60, highPct: 40 });
-
-    const balls = await ctx.roundService.ballsForRound(round.id);
-    // weighted 60/40 of (8,18) = 12; avg would be 13 → proves the right plan.
-    expect(balls[0]!.courseHandicap).toBe(12);
-});
-
-test('2-player scramble: scramble_team/by_rank [35,15]', async () => {
-    const ctx = await setup();
-    const draft = await draftFor(ctx, [{ name: 'Ann', index: 8 }, { name: 'Bo', index: 18 }], [
-        { formatId: 'scramble', teams: [{ label: 'A', producerDefIds: ['p1', 'p2'] }] },
-    ]);
-    const { round } = await createFriendly(ctx, draft);
-
-    const def = (await ctx.roundService.latestDefinition(round.id))!.definition;
-    expect(def.ballStrategies[0]!.strategyId).toBe('scramble_team');
-    expect(def.ballStrategies[0]!.derivationConfig).toEqual({ type: 'by_rank', chPcts: [35, 15] });
-
-    const balls = await ctx.roundService.ballsForRound(round.id);
-    // .35*8 + .15*18 = 5.5 → round 6.
-    expect(balls[0]!.courseHandicap).toBe(6);
-});
-
-test('4-player scramble: scramble_team/by_rank [25,20,15,10]', async () => {
-    const ctx = await setup();
-    const draft = await draftFor(
-        ctx,
-        [{ name: 'Ann', index: 8 }, { name: 'Bo', index: 12 }, { name: 'Cy', index: 18 }, { name: 'Di', index: 24 }],
-        [{ formatId: 'scramble', teams: [{ label: 'A', producerDefIds: ['p1', 'p2', 'p3', 'p4'] }] }],
-    );
-    const { round } = await createFriendly(ctx, draft);
-
-    const def = (await ctx.roundService.latestDefinition(round.id))!.definition;
-    expect(def.ballStrategies[0]!.strategyId).toBe('scramble_team');
-    expect(def.ballStrategies[0]!.derivationConfig).toEqual({ type: 'by_rank', chPcts: [25, 20, 15, 10] });
-
-    const balls = await ctx.roundService.ballsForRound(round.id);
-    // .25*8 + .20*12 + .15*18 + .10*24 = 9.5 → round 10.
-    expect(balls[0]!.courseHandicap).toBe(10);
 });
 
 test('individual subset: match play between 2 of a 3-player roster (covered by stableford)', async () => {
