@@ -334,6 +334,11 @@ export interface BallHoleResult extends HoleIdentity {
     net: number | null;
     points: number | null;
     note?: string;
+    /** Category-points formats (umbrella): the category labels won this hole.
+     * Drives a compact per-category marker row instead of stroke detail. */
+    categories?: string[];
+    /** This hole was a sweep (every category) — the points multiplier applied. */
+    sweep?: boolean;
 }
 
 /** Per-ball rollup. `totals` emits one row per scoring type (gross, net, points). */
@@ -342,6 +347,9 @@ export interface BallResult {
     holes: BallHoleResult[];
     totals: { scoringType: string; value: number | null }[];
     holesPlayed: number;
+    /** Category-points formats (umbrella): the ordered full set of category
+     * labels, so a marker row is rendered for each even if never won. */
+    categoryDefs?: string[];
 }
 
 /** Per-hole pair/team-vs-team result — match-play, taliban. */

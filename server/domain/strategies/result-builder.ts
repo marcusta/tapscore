@@ -217,6 +217,39 @@ function pointsRow(
     };
 }
 
+/** Category-points formats (umbrella): one thin marker row per category, a ●
+ * where that ball/team won it. The full set comes from `categoryDefs` so an
+ * un-won category still gets a (blank) row. */
+function categoryRows(cols: ResultColumn[], r: BallResult): GridRow[] {
+    const byId = byPlayHole(r);
+    return (r.categoryDefs ?? []).map((label) => ({
+        label,
+        kind: 'category' as const,
+        aggregate: 'sum' as const,
+        cells: cols.map((c) => {
+            const won = byId.get(c.playHoleId)?.categories?.includes(label) ?? false;
+            return cell(c, won ? 1 : null, won ? '●' : '');
+        }),
+    }));
+}
+
+/** Points row for a category format — appends ☂ on a sweep hole. */
+function categoryPointsRow(cols: ResultColumn[], r: BallResult, label = 'Points'): GridRow {
+    const byId = byPlayHole(r);
+    return {
+        label,
+        kind: 'points',
+        aggregate: 'sum',
+        emphasis: true,
+        cells: cols.map((c) => {
+            const hr = byId.get(c.playHoleId);
+            const p = hr?.points ?? null;
+            const disp = p === null ? '—' : hr?.sweep ? `${p}☂` : String(p);
+            return cell(c, p, disp, hr?.note);
+        }),
+    };
+}
+
 function hasPoints(r: BallResult): boolean {
     return r.holes.some((h) => h.points !== null);
 }
@@ -440,50 +473,56 @@ function buildTeamCard(
     offsets: Map<string, number> | null,
 ): ScoreGridSection {
     const cols = input.columns;
-    const rows: GridRow[] = [...parSiRows(cols)];
-
-    for (const ballId of grouping.ballIds) {
-        const r = byBall.get(ballId);
-        if (!r) continue; // some team formats emit only the aggregate, no per-ball rows
-        if (hasPoints(r)) {
-            // Points-bearing per-ball result (e.g. better-ball Stableford): show
-            // each producer's strokes received + gross + their individual points
-            // so the reader sees WHICH ball fed the team's best-ball per hole.
-            // Gated on `hasPoints` so gross-only per-ball formats (umbrella
-            // four-ball, taliban) keep their existing Gross/Net rows untouched.
-            rows.push(...ballScoreRows(cols, r, { subjectBallId: ballId, given: true, net: false }));
-            rows.push(pointsRow(cols, r, 'Points', false, ballId));
-        } else {
-            rows.push(...ballScoreRows(cols, r, { subjectBallId: ballId, given: false }));
+    // Category-points formats (umbrella) get a COMPACT card: one marker row per
+    // category (● where the team won it) + the team points, since only the
+    // categories explain the score. Everything else keeps the stroke detail.
+    const compact = (teamResult.categoryDefs?.length ?? 0) > 0;
+    const rows: GridRow[] = [];
+    if (compact) {
+        rows.push(...categoryRows(cols, teamResult));
+        rows.push(categoryPointsRow(cols, teamResult, 'Team points'));
+    } else {
+        rows.push(...parSiRows(cols));
+        for (const ballId of grouping.ballIds) {
+            const r = byBall.get(ballId);
+            if (!r) continue; // some team formats emit only the aggregate, no per-ball rows
+            if (hasPoints(r)) {
+                // Points-bearing per-ball result (e.g. better-ball Stableford): show
+                // each producer's strokes received + gross + their individual points
+                // so the reader sees WHICH ball fed the team's best-ball per hole.
+                rows.push(...ballScoreRows(cols, r, { subjectBallId: ballId, given: true, net: false }));
+                rows.push(pointsRow(cols, r, 'Points', false, ballId));
+            } else {
+                rows.push(...ballScoreRows(cols, r, { subjectBallId: ballId, given: false }));
+            }
         }
+        // Team combined gross (LT for umbrella / best-ball gross for better-ball).
+        if (teamResult.holes.some((h) => h.gross !== null)) {
+            const byId = byPlayHole(teamResult);
+            rows.push({
+                label: 'Team gross',
+                kind: 'gross',
+                aggregate: 'sum',
+                cells: cols.map((c) => {
+                    const g = byId.get(c.playHoleId)?.gross ?? null;
+                    return cell(c, g, g === null ? '—' : String(g));
+                }),
+            });
+        }
+        if (teamResult.holes.some((h) => h.net !== null)) {
+            const byId = byPlayHole(teamResult);
+            rows.push({
+                label: 'Team net',
+                kind: 'net',
+                aggregate: 'sum',
+                cells: cols.map((c) => {
+                    const n = byId.get(c.playHoleId)?.net ?? null;
+                    return cell(c, n, netText(n));
+                }),
+            });
+        }
+        rows.push(pointsRow(cols, teamResult, 'Team points', true));
     }
-
-    // Team combined gross (LT for umbrella / best-ball gross for better-ball).
-    if (teamResult.holes.some((h) => h.gross !== null)) {
-        const byId = byPlayHole(teamResult);
-        rows.push({
-            label: 'Team gross',
-            kind: 'gross',
-            aggregate: 'sum',
-            cells: cols.map((c) => {
-                const g = byId.get(c.playHoleId)?.gross ?? null;
-                return cell(c, g, g === null ? '—' : String(g));
-            }),
-        });
-    }
-    if (teamResult.holes.some((h) => h.net !== null)) {
-        const byId = byPlayHole(teamResult);
-        rows.push({
-            label: 'Team net',
-            kind: 'net',
-            aggregate: 'sum',
-            cells: cols.map((c) => {
-                const n = byId.get(c.playHoleId)?.net ?? null;
-                return cell(c, n, netText(n));
-            }),
-        });
-    }
-    rows.push(pointsRow(cols, teamResult, 'Team points', true));
     if (running) rows.push(runningRow(cols, running));
 
     return {
@@ -496,7 +535,7 @@ function buildTeamCard(
             `holes played ${teamResult.holesPlayed}`,
         ],
         rows,
-        footnotes: footnotesFor(teamResult),
+        footnotes: compact ? [] : footnotesFor(teamResult),
         ...(input.runningNormalized ? { caption: NORMALIZED_CAPTION } : {}),
         totals: teamResult.totals.map((t) => ({
             label: t.scoringType,
@@ -515,12 +554,12 @@ function buildIndividualCard(
 ): ScoreGridSection {
     const cols = input.columns;
     const chBall = input.slotBalls.find((b) => b.ballId === r.ballId);
-    const rows: GridRow[] = [
-        parRow(cols),
-        siRow(cols, input.effectiveSi?.get(r.ballId)),
-        ...ballScoreRows(cols, r),
-    ];
-    if (hasPoints(r)) rows.push(pointsRow(cols, r));
+    // Compact category card for umbrella (category-points), stroke detail otherwise.
+    const compact = (r.categoryDefs?.length ?? 0) > 0;
+    const rows: GridRow[] = compact
+        ? [...categoryRows(cols, r), categoryPointsRow(cols, r)]
+        : [parRow(cols), siRow(cols, input.effectiveSi?.get(r.ballId)), ...ballScoreRows(cols, r)];
+    if (!compact && hasPoints(r)) rows.push(pointsRow(cols, r));
     if (running) rows.push(runningRow(cols, running));
 
     const facts = [`slot #${input.slotIndex} · ${input.formatLabel} · ${input.allowanceLabel}`];
@@ -537,7 +576,7 @@ function buildIndividualCard(
         holes: cols.map(holeRef),
         subtitleFacts: facts,
         rows,
-        footnotes: footnotesFor(r),
+        footnotes: compact ? [] : footnotesFor(r),
         ...(input.runningNormalized ? { caption: NORMALIZED_CAPTION } : {}),
         totals: r.totals.map((t) => ({
             label: t.scoringType,

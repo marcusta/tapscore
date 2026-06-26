@@ -101,8 +101,9 @@ describe('umbrellaIndividual (new contract)', () => {
             formatConfig: { birdieRule: 'net' },
         });
         const h1 = ballResults[0].holes.find((h) => h.holeNumber === 1)!;
-        // P1: tied LG + net birdie = 2 categories × 1 = 2
-        expect(h1.note).toContain('BIRD');
+        // P1: tied low-gross + net birdie = 2 categories × 1 = 2
+        expect(h1.categories).toContain('Birdie');
+        expect(h1.note).toContain('Birdie');
         expect(h1.points).toBe(2);
     });
 });

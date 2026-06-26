@@ -117,6 +117,21 @@ function fmtCatsNote(points: number, holeNumber: number, sweep: boolean, cats: H
         : `${cs} = ${total} × ${holeNumber} = ${points}`;
 }
 
+/** The full ordered category set — one scorecard marker row per entry. */
+const UMBRELLA_4BALL_CATEGORIES = ['Low gross', 'Low total', 'GIR A', 'GIR B', 'Birdie'];
+
+/** The categories a team won this hole, as marker-row labels (order matches the
+ * full set above). */
+function catsToLabels(c: HoleCats): string[] {
+    const out: string[] = [];
+    if (c.lg > 0) out.push('Low gross');
+    if (c.lt > 0) out.push('Low total');
+    if (c.girA > 0) out.push('GIR A');
+    if (c.girB > 0) out.push('GIR B');
+    if (c.bird > 0) out.push('Birdie');
+    return out;
+}
+
 export const umbrella4Ball: FormatStrategy = {
     id: UMBRELLA_4_BALL_ID,
 
@@ -232,6 +247,8 @@ export const umbrella4Ball: FormatStrategy = {
                 net: null,
                 points: pA,
                 note: fmtCatsNote(pA, occ.courseHoleNumber, sweepA, catsA),
+                categories: catsToLabels(catsA),
+                sweep: sweepA,
             });
             teamBHoles.push({
                 ...holeIdentity(roundContext, teamB.balls[0].ballId, occ),
@@ -239,6 +256,8 @@ export const umbrella4Ball: FormatStrategy = {
                 net: null,
                 points: pB,
                 note: fmtCatsNote(pB, occ.courseHoleNumber, sweepB, catsB),
+                categories: catsToLabels(catsB),
+                sweep: sweepB,
             });
 
             [
@@ -278,12 +297,14 @@ export const umbrella4Ball: FormatStrategy = {
                 holes: teamAHoles,
                 totals: [{ scoringType: 'points', value: normA }],
                 holesPlayed: teamAHoles.filter((h) => h.points !== null && h.points > 0).length,
+                categoryDefs: UMBRELLA_4BALL_CATEGORIES,
             },
             {
                 ballId: `team:${teamB.teamLabel}`,
                 holes: teamBHoles,
                 totals: [{ scoringType: 'points', value: normB }],
                 holesPlayed: teamBHoles.filter((h) => h.points !== null && h.points > 0).length,
+                categoryDefs: UMBRELLA_4BALL_CATEGORIES,
             },
         ];
 

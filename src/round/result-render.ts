@@ -68,9 +68,11 @@ function cellClass(row: GridRow): string {
     if (row.kind === 'si') return 'lb-c-si';
     if (row.kind === 'given') return 'lb-c-given';
     if (row.kind === 'status') return 'lb-c-status';
+    if (row.kind === 'category') return 'lb-c-cat';
     return '';
 }
 function rowClass(row: GridRow): string {
+    if (row.kind === 'category') return 'lb-r-cat';
     return row.kind === 'si' || row.kind === 'given' ? 'lb-r-dim' : '';
 }
 

@@ -33,6 +33,10 @@ import {
 
 export const UMBRELLA_INDIVIDUAL_ID = 'umbrella_individual';
 
+/** The full ordered category set — one scorecard marker row per entry (order
+ * must match the per-hole `won` pushes below). */
+const UMBRELLA_CATEGORIES = ['Low gross', 'Fairway', 'GIR', 'Birdie'];
+
 type BirdieRule = 'gross' | 'net';
 
 function readBirdieRule(cfg: unknown): BirdieRule {
@@ -149,16 +153,16 @@ export const umbrellaIndividual: FormatStrategy = {
                 const points = catSum * occ.courseHoleNumber * (sweep ? 2 : 1);
                 totals[i] += points;
 
-                const parts: string[] = [];
-                if (lg) parts.push('LG');
-                if (fwy) parts.push('FWY');
-                if (gir) parts.push('GIR');
-                if (bird) parts.push('BIRD');
+                const won: string[] = [];
+                if (lg) won.push('Low gross');
+                if (fwy) won.push('Fairway');
+                if (gir) won.push('GIR');
+                if (bird) won.push('Birdie');
                 const note = sweep
-                    ? `${parts.join(' + ')} = ${catSum} × ${occ.courseHoleNumber} × 2 = ${points} ☂`
-                    : parts.length === 0
+                    ? `${won.join(' + ')} = ${catSum} × ${occ.courseHoleNumber} × 2 = ${points} ☂`
+                    : won.length === 0
                       ? `0 × ${occ.courseHoleNumber} = 0`
-                      : `${parts.join(' + ')} = ${catSum} × ${occ.courseHoleNumber} = ${points}`;
+                      : `${won.join(' + ')} = ${catSum} × ${occ.courseHoleNumber} = ${points}`;
 
                 holesPer[i].push({
                     ...holeIdentity(roundContext, ctxs[i].ball.ballId, occ),
@@ -166,6 +170,8 @@ export const umbrellaIndividual: FormatStrategy = {
                     net: s.net,
                     points,
                     note,
+                    categories: won,
+                    sweep,
                 });
             });
         }
@@ -175,6 +181,7 @@ export const umbrellaIndividual: FormatStrategy = {
             holes: holesPer[i],
             totals: [{ scoringType: 'points', value: totals[i] }],
             holesPlayed: holesPlayed[i],
+            categoryDefs: UMBRELLA_CATEGORIES,
         }));
         return { ballResults };
     },
