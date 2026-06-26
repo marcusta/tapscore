@@ -171,7 +171,13 @@ export class LeaderboardComponent extends Component {
             & .lb-grid .lb-sum { font-weight: 700; background: ${t('surface-sunken')}; }
             & .lb-grid .lb-r-dim td, & .lb-grid .lb-r-dim th { color: ${t('text-muted')}; }
             & .lb-grid .lb-c-si { color: ${t('text-muted')}; font-size: 0.7rem; }
+            & .lb-card__caption { margin: ${s('sm')} 0 0; font-size: 0.72rem; font-style: italic; color: ${t('text-muted')}; }
             & .lb-card__notes { margin: ${s('sm')} 0 0; font-size: 0.72rem; color: ${t('text-muted')}; }
+            & .lb-card__notes-label {
+                display: block; font-weight: 700; text-transform: uppercase;
+                letter-spacing: 0.04em; font-size: 0.68rem; margin-bottom: 2px;
+            }
+            & .lb-card__note { display: block; }
             & .lb-card__totals {
                 list-style: none; margin: ${s('sm')} 0 0; padding: 0;
                 display: flex; flex-wrap: wrap; gap: ${s('md')};

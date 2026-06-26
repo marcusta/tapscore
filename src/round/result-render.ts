@@ -138,9 +138,14 @@ function renderScoreGrid(section: ScoreGridSection, routeSections: RouteSectionR
     const subtitle = section.subtitleFacts.length
         ? `<div class="lb-card__sub">${section.subtitleFacts.map(esc).join(' · ')}</div>`
         : '';
+    // Per-hole arithmetic (how each hole's points were earned) — a labelled,
+    // full-width block so it's visible on touch (where cell hover tooltips aren't).
     const footnotes = section.footnotes.length
-        ? `<p class="lb-card__notes">${section.footnotes.map(esc).join(' · ')}</p>`
+        ? `<div class="lb-card__notes"><span class="lb-card__notes-label">Points breakdown</span>${section.footnotes
+              .map((n) => `<span class="lb-card__note">${esc(n)}</span>`)
+              .join('')}</div>`
         : '';
+    const caption = section.caption ? `<p class="lb-card__caption">${esc(section.caption)}</p>` : '';
     const totals = section.totals.length
         ? `<ul class="lb-card__totals">${section.totals
               .map((tt) => `<li>${esc(tt.label)} = <strong>${tt.value ?? '—'}</strong></li>`)
@@ -153,7 +158,7 @@ function renderScoreGrid(section: ScoreGridSection, routeSections: RouteSectionR
     <thead>${holeHeader}</thead>
     <tbody>${section.rows.map(renderRow).join('')}</tbody>
   </table></div>
-  ${footnotes}${totals}
+  ${footnotes}${caption}${totals}
 </article>`;
 }
 

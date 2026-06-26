@@ -34,6 +34,7 @@ export interface ScoreGridSection {
     subtitleFacts: string[];
     rows: GridRow[];
     footnotes: string[];
+    caption?: string;
     totals: ({ label: string; value: null | number })[];
 }
 

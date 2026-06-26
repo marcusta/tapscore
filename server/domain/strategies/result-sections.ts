@@ -104,6 +104,12 @@ export interface ScoreGridSection {
     rows: GridRow[];
     /** Per-hole arithmetic surfaced under the table (topology, categories, multipliers). */
     footnotes: string[];
+    /**
+     * Optional one-line caption explaining a non-obvious scoring convention —
+     * e.g. that totals are normalised relative to the leader. Rendered as a small
+     * note under the card head.
+     */
+    caption?: string;
     /** Card-level totals (`label = value`). */
     totals: { label: string; value: number | null }[];
 }

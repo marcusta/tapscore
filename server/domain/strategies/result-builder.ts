@@ -227,6 +227,11 @@ function footnotesFor(r: BallResult): string[] {
         .map((h) => `h${h.occurrenceLabel ?? h.holeNumber}: ${h.note}`);
 }
 
+/** Explains the normalised running totals so the per-hole points (raw) and the
+ * running/total (leader-relative) don't read as a contradiction. */
+const NORMALIZED_CAPTION =
+    'Running totals are relative to the leader (the trailing team shows 0); per-hole points below are the raw points scored.';
+
 // --- normalised running (köpenhamnare / umbrella) --------------------------
 
 /** ballId → (playHoleId → normalised running) over the point-bearing results. */
@@ -492,6 +497,7 @@ function buildTeamCard(
         ],
         rows,
         footnotes: footnotesFor(teamResult),
+        ...(input.runningNormalized ? { caption: NORMALIZED_CAPTION } : {}),
         totals: teamResult.totals.map((t) => ({
             label: t.scoringType,
             value: normalizeTotal(t.value, t.scoringType, offsets),
@@ -532,6 +538,7 @@ function buildIndividualCard(
         subtitleFacts: facts,
         rows,
         footnotes: footnotesFor(r),
+        ...(input.runningNormalized ? { caption: NORMALIZED_CAPTION } : {}),
         totals: r.totals.map((t) => ({
             label: t.scoringType,
             value: normalizeTotal(t.value, t.scoringType, offsets),
