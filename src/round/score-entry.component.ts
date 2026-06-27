@@ -19,8 +19,6 @@ const SNAP = 'transform 320ms cubic-bezier(0.22, 1, 0.36, 1)';
 
 const tpl = template(`
     <div bind="root" class="se hidden">
-        <div bind="groupPills" class="se__groups"></div>
-
         <div bind="viewport" class="se__carousel">
             <div class="se__clip">
                 <div bind="track" class="se__track"></div>
@@ -120,26 +118,6 @@ export class ScoreEntryComponent extends Component {
         .se {
             margin-top: ${s('xl')};
             &.hidden { display: none; }
-        }
-
-        .se__groups {
-            display: flex;
-            gap: ${s('sm')};
-            margin-bottom: ${s('md')};
-            &.hidden { display: none; }
-
-            & .se__pill {
-                border: 1px solid ${t('border')};
-                border-radius: ${t('radius-pill')};
-                background: ${t('btn-bg')};
-                color: ${t('text')};
-                font-family: inherit;
-                font-size: 0.8rem;
-                font-weight: 600;
-                padding: ${s('xs')} ${s('md')};
-                cursor: pointer;
-                &.active { background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')}; }
-            }
         }
 
         /* Clipped two-cell carousel right-aligned over the score columns. */
@@ -371,7 +349,6 @@ export class ScoreEntryComponent extends Component {
     // Hole/group navigation lives in RoundViewService so the orange hole-info
     // bar (rendered by RoundComponent) and this carousel stay in lock-step.
     private holeIdx = this.svc.holeIdx;
-    private groupIdx = this.svc.groupIdx;
     private modalOpen = new Signal(false);
     private currentBallIdx = new Signal(0);
     private extendedOpen = new Signal(false);
@@ -502,20 +479,6 @@ export class ScoreEntryComponent extends Component {
             },
         });
 
-        // Group pills (only when >1 playing group).
-        const pillsHost = this.ref(frag, 'groupPills');
-        this.track(
-            effect(() => {
-                pillsHost.className = this.svc.groups().length > 1 ? 'se__groups' : 'se__groups hidden';
-            }),
-        );
-        this.$each(
-            pillsHost,
-            new Computed(() => (this.svc.groups().length > 1 ? this.svc.groups() : [])),
-            (_g, i, track) => this.groupPill(i, track),
-            (_g, i) => i,
-        );
-
         // Carousel — windowed cells (one fixed slot per offset, content reactive)
         // plus a pointer-driven, momentum-snapping transform.
         const viewport = this.ref(frag, 'viewport');
@@ -601,23 +564,6 @@ export class ScoreEntryComponent extends Component {
         );
 
         return frag;
-    }
-
-    private groupPill(index: number, track: (d: () => void) => void): HTMLElement {
-        const el = document.createElement('button');
-        el.type = 'button';
-        el.textContent = `Group ${index + 1}`;
-        el.onclick = () => {
-            this.groupIdx.set(index);
-            this.holeIdx.set(0);
-            this.currentBallIdx.set(0);
-        };
-        track(
-            effect(() => {
-                el.className = this.groupIdx.get() === index ? 'se__pill active' : 'se__pill';
-            }),
-        );
-        return el;
     }
 
     private holeItem(offset: number, track: (d: () => void) => void): HTMLElement {

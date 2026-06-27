@@ -5,6 +5,7 @@ import { RoundViewService } from './round.service';
 import { ScoreEntryComponent } from './score-entry.component';
 import { LeaderboardComponent } from './leaderboard.component';
 import { formatLabelFromSlot } from '../rounds/slot-labels';
+import type { FormatSlot } from '../api/rounds.gen';
 
 type Tab = 'score' | 'leaderboard';
 
@@ -66,6 +67,8 @@ const tpl = template(`
         </div>
     </div>
 `);
+
+const pillTpl = template(`<button bind="pill" class="round-view__fmt" type="button"></button>`);
 
 export class RoundComponent extends Component {
     static styles = `
@@ -142,15 +145,26 @@ export class RoundComponent extends Component {
             & .round-view__formats {
                 margin-top: ${s('lg')};
                 display: flex;
-                flex-wrap: wrap;
                 gap: ${s('sm')};
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: ${s('xs')};
+                scrollbar-width: none;
+                &::-webkit-scrollbar { display: none; }
 
-                & .fmt {
-                    ${card()}
-                    padding: ${s('xs')} ${s('md')};
-                    font-size: 0.85rem;
-                    font-weight: 600;
+                & .round-view__fmt {
+                    flex: 0 0 auto;
+                    border: 1px solid ${t('border')};
+                    border-radius: ${t('radius-pill')};
+                    background: ${t('btn-bg')};
                     color: ${t('text')};
+                    font-family: inherit;
+                    font-size: 0.85rem;
+                    font-weight: 700;
+                    padding: ${s('sm')} ${s('lg')};
+                    cursor: pointer;
+                    white-space: nowrap;
+                    &.active { background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')}; }
                 }
             }
 
@@ -321,12 +335,6 @@ export class RoundComponent extends Component {
                 const r = this.svc.round.get();
                 return r ? `${r.playHoles.length} holes` : '';
             },
-            formats: {
-                innerHTML: () =>
-                    (this.svc.round.get()?.formatSlots ?? [])
-                        .map((slot) => `<span class="fmt">${formatLabelFromSlot(slot)}</span>`)
-                        .join(''),
-            },
             scorePanel: {
                 className: () =>
                     this.tab.get() === 'score' ? 'round-view__panel' : 'round-view__panel hidden',
@@ -384,6 +392,17 @@ export class RoundComponent extends Component {
             },
         });
 
+        // One shared format-pill row (both tabs). A pill is pure navigation: tap
+        // it to view that format's leaderboard — from the Score tab it also flips
+        // to the leaderboard. The active highlight only shows while the leaderboard
+        // is on screen, so in Score mode the pills read as buttons, not a selection.
+        this.$each(
+            this.ref(frag, 'formats'),
+            new Computed(() => this.svc.round.get()?.formatSlots ?? []),
+            (slot, i, track) => this.slotPill(slot, i, track),
+            (slot) => slot.slotDefId,
+        );
+
         // The trust-based score-entry experience (carousel + keypad) and the
         // section-driven leaderboard. Both share the RoundViewService singleton;
         // tab visibility is toggled via the panel classes above (kept mounted so
@@ -392,5 +411,29 @@ export class RoundComponent extends Component {
         this.spawn(LeaderboardComponent, this.ref(frag, 'leaderboard'));
 
         return frag;
+    }
+
+    private slotPill(slot: FormatSlot, index: number, track: (d: () => void) => void): HTMLElement {
+        return this.wireEl(
+            pillTpl,
+            {
+                pill: {
+                    textContent: () => formatLabelFromSlot(slot),
+                    className: () =>
+                        this.tab.get() === 'leaderboard' && this.svc.selectedSlot.get() === index
+                            ? 'round-view__fmt active'
+                            : 'round-view__fmt',
+                    onclick: () => {
+                        this.svc.selectedSlot.set(index);
+                        if (this.tab.get() !== 'leaderboard') {
+                            this.tab.set('leaderboard');
+                            // Re-fetch so the board reflects the latest entered scores.
+                            void this.svc.loadResult();
+                        }
+                    },
+                },
+            },
+            track,
+        );
     }
 }

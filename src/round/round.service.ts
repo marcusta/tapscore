@@ -84,6 +84,12 @@ export class RoundViewService {
      */
     readonly holeIdx = new Signal(0);
     readonly groupIdx = new Signal(0);
+    /**
+     * Which format slot the shared pill row points at. Indexes the round's
+     * `formatSlots` (and, 1:1, the result's `slots`). Owned here so the round-level
+     * pill row, the score tab, and the leaderboard all read/write one selection.
+     */
+    readonly selectedSlot = new Signal(0);
 
     private token: string | null = null;
 
@@ -119,6 +125,7 @@ export class RoundViewService {
             // A freshly-opened round starts at the first played hole / first group.
             this.holeIdx.set(0);
             this.groupIdx.set(0);
+            this.selectedSlot.set(0);
             this.result.set(null);
         }
     }

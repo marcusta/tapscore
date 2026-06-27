@@ -1,4 +1,4 @@
-import { Component, Computed, Signal, effect, template } from '@basics/core/client/core';
+import { Component, template } from '@basics/core/client/core';
 import { t } from '../theme';
 import { s, card } from '../css';
 import { RoundViewService } from './round.service';
@@ -7,17 +7,15 @@ import type { SlotResultView } from '../api/friendly-rounds.gen';
 
 const tpl = template(`
     <div bind="root" class="lb">
-        <div bind="selector" class="lb__selector"></div>
         <div bind="status" class="lb__status hidden"></div>
         <div bind="body" class="lb__body"></div>
     </div>
 `);
 
-const pillTpl = template(`<button bind="pill" class="lb__pill" type="button"></button>`);
-
 /**
- * The no-login leaderboard for `/round?token=` (2.6e M5). A quick per-format
- * selector flips between the round's scored slots; each slot renders generic
+ * The no-login leaderboard for `/round?token=` (2.6e M5). The round-level format
+ * pill row picks which slot is shown (shared `RoundViewService.selectedSlot`);
+ * each slot renders generic
  * canonical sections — ranked metrics, match summaries, and the format-aware
  * "full scorecard" cards (deferred here from M4). The client never interprets a
  * scoring-mode string; `result-render` lays out whatever sections the server
@@ -27,32 +25,6 @@ export class LeaderboardComponent extends Component {
     static styles = `
         .lb {
             padding: ${s('lg')} ${s('lg')} ${s('2xl')};
-
-            & .lb__selector {
-                display: flex;
-                gap: ${s('sm')};
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-                padding-bottom: ${s('xs')};
-                margin-bottom: ${s('lg')};
-                scrollbar-width: none;
-                &::-webkit-scrollbar { display: none; }
-                &.hidden { display: none; }
-            }
-            & .lb__pill {
-                flex: 0 0 auto;
-                border: 1px solid ${t('border')};
-                border-radius: ${t('radius-pill')};
-                background: ${t('btn-bg')};
-                color: ${t('text')};
-                font-family: inherit;
-                font-size: 0.85rem;
-                font-weight: 700;
-                padding: ${s('sm')} ${s('lg')};
-                cursor: pointer;
-                white-space: nowrap;
-                &.active { background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')}; }
-            }
 
             & .lb__status {
                 color: ${t('text-muted')};
@@ -234,23 +206,14 @@ export class LeaderboardComponent extends Component {
     `;
 
     private svc = this.inject(RoundViewService);
-    private selected = new Signal(0);
 
     private slots = (): SlotResultView[] => this.svc.result.get()?.slots ?? [];
     private currentSlot = (): SlotResultView | null => {
         const slots = this.slots();
-        return slots[this.selected.get()] ?? slots[0] ?? null;
+        return slots[this.svc.selectedSlot.get()] ?? slots[0] ?? null;
     };
 
     render(): DocumentFragment {
-        // Keep the selection in range as slots load / change.
-        this.track(
-            effect(() => {
-                const n = this.slots().length;
-                if (n > 0 && this.selected.get() >= n) this.selected.set(0);
-            }),
-        );
-
         const frag = this.wire(tpl, {
             status: {
                 className: () => {
@@ -264,35 +227,7 @@ export class LeaderboardComponent extends Component {
             body: { innerHTML: () => this.renderBody() },
         });
 
-        // Per-format selector pills (only when >1 slot).
-        const selectorHost = this.ref(frag, 'selector');
-        this.track(
-            effect(() => {
-                selectorHost.className = this.slots().length > 1 ? 'lb__selector' : 'lb__selector hidden';
-            }),
-        );
-        this.$each(
-            selectorHost,
-            new Computed(() => (this.slots().length > 1 ? this.slots() : [])),
-            (slot, i, track) => this.slotPill(slot, i, track),
-            (slot) => slot.slotDefId,
-        );
-
         return frag;
-    }
-
-    private slotPill(slot: SlotResultView, index: number, track: (d: () => void) => void): HTMLElement {
-        return this.wireEl(
-            pillTpl,
-            {
-                pill: {
-                    textContent: slot.formatLabel,
-                    className: () => (this.selected.get() === index ? 'lb__pill active' : 'lb__pill'),
-                    onclick: () => this.selected.set(index),
-                },
-            },
-            track,
-        );
     }
 
     private renderBody(): string {
