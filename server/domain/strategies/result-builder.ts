@@ -30,6 +30,7 @@ import type {
     ScoreGridSection,
     SlotResultView,
 } from './result-sections';
+import type { ScoreGridComponentId } from './result-vocabulary';
 
 const TEAM_PREFIX = 'team:';
 
@@ -57,6 +58,7 @@ export interface BuildSlotInput {
     allowanceLabel: string;
     metrics: FormatMetric[];
     runningNormalized: boolean;
+    scoreGridComponentId?: ScoreGridComponentId;
     result: StrategyResult;
     slotBalls: SlotBall[];
     slotTeamGroupings: SlotTeamGrouping[];
@@ -407,6 +409,7 @@ function buildPairCard(
 
     return {
         kind: 'score_grid',
+        ...(input.scoreGridComponentId ? { componentId: input.scoreGridComponentId } : {}),
         // No title — the structured match panel above + the team-tinted row labels
         // already identify the two sides (avoids repeating the player names).
         title: { groups: [], joiner: '' },
@@ -484,6 +487,7 @@ function buildTeamCard(
 
     return {
         kind: 'score_grid',
+        ...(input.scoreGridComponentId ? { componentId: input.scoreGridComponentId } : {}),
         title: { groups: [grouping.ballIds], joiner: ' & ' },
         subjectBallIds: grouping.ballIds,
         holes: cols.map(holeRef),
@@ -528,6 +532,7 @@ function buildIndividualCard(
 
     return {
         kind: 'score_grid',
+        ...(input.scoreGridComponentId ? { componentId: input.scoreGridComponentId } : {}),
         title: { groups: [[r.ballId]], joiner: ' & ' },
         subjectBallIds: [r.ballId],
         holes: cols.map(holeRef),

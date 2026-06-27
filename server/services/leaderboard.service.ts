@@ -303,6 +303,7 @@ export class LeaderboardService {
                 allowanceLabel,
                 metrics: plugin.descriptor.metrics,
                 runningNormalized: plugin.descriptor.resultDisplay?.runningTotals === 'normalized',
+                scoreGridComponentId: plugin.descriptor.resultDisplay?.scoreGridComponentId,
                 result,
                 slotBalls: slot.slotBalls,
                 slotTeamGroupings: slot.slotTeamGroupings,

@@ -99,6 +99,34 @@ test('match summary renders exactly as before through the registry', () => {
     expect(html).toBe(expected);
 });
 
+function debugGrid(overrides: Partial<ScoreGridSection> = {}): ScoreGridSection {
+    return {
+        kind: 'score_grid',
+        title: { groups: [['a']], joiner: ' vs. ' },
+        subjectBallIds: ['a'],
+        holes: [hole(1)],
+        subtitleFacts: [
+            'slot #0 · Umbrella (4-ball) · 100%',
+            'CH 0',
+            'PH 0',
+            'holes played 1',
+        ],
+        rows: [
+            {
+                label: 'Points',
+                subjectBallId: 'a',
+                kind: 'points',
+                aggregate: 'sum',
+                cells: [{ playHoleId: 'ph-1', holeNumber: 1, value: 2, display: '2' }],
+            },
+        ],
+        footnotes: ['h1: gross = 4 net = 4; LG + LT = 2'],
+        caption: 'Running totals are relative to the leader.',
+        totals: [{ label: 'points', value: 2 }],
+        ...overrides,
+    };
+}
+
 test('score grid renders through default-score-grid (componentId absent)', () => {
     const grid: ScoreGridSection = {
         kind: 'score_grid',
@@ -127,6 +155,34 @@ test('score grid renders through default-score-grid (componentId absent)', () =>
     expect(html).toContain('<table class="lb-grid">');
     expect(html).toContain('name:a Gross');
     // No diagnostic for the supported default grid.
+    expect(html).not.toContain('lb-diag');
+});
+
+test('score grid dispatches by compact-match-grid component id', () => {
+    const grid: ScoreGridSection = {
+        ...debugGrid({
+            title: { groups: [], joiner: '' },
+            subtitleFacts: ['Taliban · 90%'],
+            footnotes: [],
+            caption: undefined,
+            totals: [],
+        }),
+        componentId: 'compact-match-grid',
+    };
+    const html = renderSlotCards(slot({ cards: [grid] }), routeSections, nameOf);
+
+    expect(html).toContain('lb-card--compact-match');
+    expect(html).not.toContain('lb-diag');
+});
+
+test('score grid dispatches by category-matrix-grid component id', () => {
+    const grid: ScoreGridSection = {
+        ...debugGrid(),
+        componentId: 'category-matrix-grid',
+    };
+    const html = renderSlotCards(slot({ cards: [grid] }), routeSections, nameOf);
+
+    expect(html).toContain('lb-card--category-matrix');
     expect(html).not.toContain('lb-diag');
 });
 
@@ -188,34 +244,6 @@ test('cell markers render the presentation shape through the vocabulary', () => 
     expect(html).not.toContain('win2');
 });
 
-// TEMPORARY Phase 2 compatibility: the renderer still maps the legacy
-// `mark` ('win'/'win2'/'win5') to a presentation shape so a stale cached
-// payload renders while generated clients catch up. Remove with the shim.
-test('[temporary phase-2 shim] legacy mark still maps to the presentation shape', () => {
-    const grid = {
-        kind: 'score_grid',
-        title: { groups: [], joiner: '' },
-        subjectBallIds: ['a'],
-        holes: [hole(1)],
-        subtitleFacts: [],
-        rows: [
-            {
-                label: '',
-                subjectBallId: 'a',
-                kind: 'net',
-                aggregate: 'sum',
-                team: 'a',
-                cells: [{ playHoleId: 'ph-1', holeNumber: 1, value: 2, display: '2', mark: 'win5' }],
-            },
-        ],
-        footnotes: [],
-        totals: [],
-    } as unknown as ScoreGridSection;
-    const html = renderSlotCards(slot({ cards: [grid] }), routeSections, nameOf);
-
-    expect(html).toContain('<span class="lb-mark lb-mark--diamond">2</span>');
-});
-
 test('generated GridCell no longer exposes the legacy mark tokens', async () => {
     const friendly = await Bun.file(
         new URL('../../src/api/friendly-rounds.gen.ts', import.meta.url),
@@ -255,4 +283,30 @@ test('unknown score-grid componentId yields a visible diagnostic, not dropped co
 
     expect(html).toContain('lb-diag');
     expect(html).toContain('wolf-rotation-grid');
+});
+
+test('product mode hides score-grid audit chrome', () => {
+    const html = renderSlotCards(slot({ cards: [debugGrid()] }), routeSections, nameOf);
+
+    expect(html).not.toContain('slot #0');
+    expect(html).not.toContain('CH 0');
+    expect(html).not.toContain('PH 0');
+    expect(html).not.toContain('Points breakdown');
+    expect(html).not.toContain('gross = 4 net = 4');
+    expect(html).not.toContain('Running totals are relative');
+    expect(html).toContain('holes played 1');
+    expect(html).toContain('points');
+});
+
+test('verification mode preserves score-grid audit chrome', () => {
+    const html = renderSlotCards(slot({ cards: [debugGrid()] }), routeSections, nameOf, {
+        mode: 'verification',
+    });
+
+    expect(html).toContain('slot #0');
+    expect(html).toContain('CH 0');
+    expect(html).toContain('PH 0');
+    expect(html).toContain('Points breakdown');
+    expect(html).toContain('gross = 4 net = 4');
+    expect(html).toContain('Running totals are relative');
 });

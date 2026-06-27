@@ -14,6 +14,7 @@ export const ROUND_CSS = `
   .scorecard .rowlabel { text-align: left; background: var(--sum-bg); font-weight: 600; }
   .scorecard .sum { background: var(--sum-bg); font-weight: 600; }
   .scorecard .si, .scorecard .given { color: var(--muted); font-size: 11px; }
+  .scorecard .category { color: var(--link); font-size: 12px; }
   .scorecard .dim td { color: var(--muted); }
   .grid th, .grid td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
   .grid th { background: var(--sum-bg); }
@@ -27,8 +28,15 @@ export const ROUND_CSS = `
   .arithmetic .match { color: inherit; font-weight: 700; }
   .hint { color: var(--muted); font-size: 12px; }
   .scorecard-card { border: 1px solid var(--border); padding: 1rem; margin-bottom: 1rem; border-radius: 6px; }
+  .scorecard-card--compact-match { border-color: #a77; }
+  .scorecard-card--category-matrix .scorecard th,
+  .scorecard-card--category-matrix .scorecard td { padding-left: 5px; padding-right: 5px; }
   .scorecard-card header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: .5rem; }
   .scorecard-card h3 { margin: 0; }
+  .mark { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 1.6em; height: 1.6em; border: 2px solid currentColor; border-radius: 999px; position: relative; }
+  .mark--double_ring { border-width: 3px; border-style: double; }
+  .mark--diamond { border: none; }
+  .mark--diamond::before { content: ''; position: absolute; left: 50%; top: 50%; width: 1.15em; height: 1.15em; transform: translate(-50%, -50%) rotate(45deg); border: 2px solid currentColor; }
   .totals { list-style: none; padding: 0; margin: .5rem 0 0 0; display: flex; gap: 1rem; }
   .lb-row { display: flex; gap: 2rem; flex-wrap: wrap; }
   .lb-col { min-width: 320px; }

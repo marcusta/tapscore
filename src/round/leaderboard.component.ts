@@ -117,6 +117,17 @@ export class LeaderboardComponent extends Component {
                 padding: ${s('md')};
                 margin-bottom: ${s('lg')};
             }
+            & .lb-card--compact-match {
+                border-color: color-mix(in srgb, ${t('accent')} 28%, ${t('border')});
+                padding-top: ${s('sm')};
+            }
+            & .lb-card--category-matrix .lb-grid .lb-r-cat td {
+                font-size: 0.72rem;
+                line-height: 1.1;
+            }
+            & .lb-card--category-matrix .lb-grid .lb-r-cat th {
+                max-width: 5.5rem;
+            }
             & .lb-card__head { margin-bottom: ${s('sm')}; }
             & .lb-card__head h4 {
                 margin: 0;

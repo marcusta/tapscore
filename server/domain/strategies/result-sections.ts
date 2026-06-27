@@ -19,7 +19,7 @@
 // shape is intentionally a struct (`HoleRef`) rather than a bare number so
 // that extension is additive.
 
-import type { CellMarker, Tone } from './result-vocabulary';
+import type { CellMarker, ScoreGridComponentId, Tone } from './result-vocabulary';
 
 /**
  * One scorecard column — a single itinerary occurrence. `playHoleId` is the
@@ -104,6 +104,11 @@ export interface GridRow {
  */
 export interface ScoreGridSection {
     kind: 'score_grid';
+    /**
+     * Registered score-grid renderer. Missing means `default-score-grid`; the
+     * server sets this at authoring time through the format/plugin descriptor.
+     */
+    componentId?: ScoreGridComponentId;
     /**
      * Card heading. Each group's ball names are joined by ` & `; the groups
      * are then joined by `joiner` (`' & '` for one side, `' vs. '` for a

@@ -25,6 +25,7 @@ import type {
     FormatBallRequirement,
     ScoreInput,
 } from '../strategies/format-strategy';
+import type { ScoreGridComponentId } from '../strategies/result-vocabulary';
 import type { ConfigDiagnostic, StrategyResult } from '../strategies/types';
 
 // --- Descriptor (serializable) ---------------------------------------------
@@ -143,8 +144,9 @@ export interface FormatDescriptor {
      * by the plugin so the renderer never infers display behaviour from a
      * format id. `runningTotals: 'normalized'` asks for a per-hole running row
      * normalised so the trailing subject reads 0 (köpenhamnare, umbrella).
+     * `scoreGridComponentId` selects the registered Layer-1 score-grid renderer.
      */
-    resultDisplay?: { runningTotals?: 'normalized' };
+    resultDisplay?: { runningTotals?: 'normalized'; scoreGridComponentId?: ScoreGridComponentId };
     /**
      * When true, this scoring format can score balls of ANY composition — its
      * own own-balls OR a team-composition's balls (scramble/greensomes/foursomes)

@@ -21,7 +21,7 @@ export interface Hole {
 }
 
 export interface CourseIssue {
-    severity: 'error' | 'warning';
+    severity: 'warning' | 'error';
     code: 'missing_holes' | 'unexpected_holes' | 'duplicate_stroke_index' | 'missing_stroke_indices' | 'stroke_index_out_of_range' | 'unusual_par';
     message: string;
     holeNumbers?: number[];

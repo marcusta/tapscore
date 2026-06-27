@@ -38,6 +38,7 @@ import type {
     PlannedSlot,
     ScoreEntryCapabilities,
 } from './plugin';
+import type { ScoreGridComponentId } from '../strategies/result-vocabulary';
 import type { FormatStrategy } from '../strategies/format-strategy';
 import { OWN_BALL_PER_PLAYER_ID } from '../strategies/ball-creation/own-ball-per-player';
 
@@ -67,7 +68,7 @@ interface BuiltinMeta {
     scoringMode: string;
     teamShape: string;
     metrics: FormatMetric[];
-    resultDisplay?: { runningTotals?: 'normalized' };
+    resultDisplay?: { runningTotals?: 'normalized'; scoreGridComponentId?: ScoreGridComponentId };
     /**
      * Per-hole metadata inputs this format consumes beyond strokes (umbrella's
      * GIR/fairway). Declared here so the generic score-entry surface renders the
@@ -172,6 +173,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'taliban',
         teamShape: 'better_ball',
         metrics: MATCH,
+        resultDisplay: { scoreGridComponentId: 'compact-match-grid' },
         scoresAnyBall: true,
     },
     {
@@ -181,7 +183,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'umbrella',
         teamShape: 'four_ball',
         metrics: POINTS_HIGH,
-        resultDisplay: NORMALIZED_RUNNING,
+        resultDisplay: { ...NORMALIZED_RUNNING, scoreGridComponentId: 'category-matrix-grid' },
         scoresAnyBall: true,
         // 4-ball umbrella scores GIR only (no fairway category).
         scoreEntry: { strokes: true, metadata: [{ key: 'gir', label: 'GIR', kind: 'boolean' }] },

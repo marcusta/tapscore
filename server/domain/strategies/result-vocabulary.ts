@@ -117,8 +117,15 @@ export type CellTemplate = 'plain' | 'score' | 'marked_score' | 'status_pill' | 
  * Use when:
  * - `default-score-grid` — the normal scorecard table (rows + OUT/IN/TOT
  *   totals). The default; emit nothing to get it.
+ * - `compact-match-grid` — a match-card style grid: side-tinted player rows,
+ *   deciding-score markers, and a compact standing row.
+ * - `category-matrix-grid` — a dense category matrix: one row per category plus
+ *   points/running rows, intended for category-accomplishment formats.
  */
-export type ScoreGridComponentId = 'default-score-grid';
+export type ScoreGridComponentId =
+    | 'default-score-grid'
+    | 'compact-match-grid'
+    | 'category-matrix-grid';
 
 // --- marker descriptor -----------------------------------------------------
 

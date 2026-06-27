@@ -28,7 +28,7 @@ export interface FormatDescriptor {
     requirements: FormatRequirements;
     defaults: { allowanceConfig: { type: 'flat'; pct: number } | { type: 'split'; bands: ({ pct: number; upToCh: null | number })[] } };
     metrics: FormatMetric[];
-    resultDisplay?: { runningTotals?: 'normalized' };
+    resultDisplay?: { runningTotals?: 'normalized'; scoreGridComponentId?: 'default-score-grid' | 'compact-match-grid' | 'category-matrix-grid' };
     scoresAnyBall?: boolean;
     clientAdapterId: null | string;
 }

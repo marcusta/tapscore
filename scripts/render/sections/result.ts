@@ -73,6 +73,7 @@ function cellClass(row: GridRow): string {
     if (row.kind === 'si') return 'si';
     if (row.kind === 'given') return 'given';
     if (row.kind === 'status') return 'status';
+    if (row.kind === 'category') return 'category';
     return '';
 }
 
@@ -108,6 +109,7 @@ function renderScoreGrid(
     section: ScoreGridSection,
     routeSections: RouteSectionRef[],
     nameOf: (id: string) => string,
+    opts: { cardModifier?: string } = {},
 ): string {
     const groups = groupColumns(section.holes, routeSections);
     const includeTot = groups.length > 1;
@@ -137,7 +139,15 @@ function renderScoreGrid(
                     .map((h) => {
                         const c = cells.get(h.playHoleId);
                         const title = c?.title ? ` title="${esc(c.title)}"` : '';
-                        return `<td class="${cellClass(row)}"${title}>${emph(esc(c?.display ?? ''))}</td>`;
+                        const text = emph(esc(c?.display ?? ''));
+                        const marker = c?.marker;
+                        const markerAttrs = marker?.label
+                            ? ` title="${esc(marker.label)}" aria-label="${esc(marker.label)}"`
+                            : '';
+                        const inner = marker
+                            ? `<span class="mark mark--${esc(marker.template)}"${markerAttrs}>${text}</span>`
+                            : text;
+                        return `<td class="${cellClass(row)}"${title}>${inner}</td>`;
                     })
                     .join('');
                 return body + `<td class="sum">${emph(groupSubtotal(row, g.playHoleIds))}</td>`;
@@ -168,8 +178,9 @@ function renderScoreGrid(
                   .join('')}</ul>`
             : '';
 
+    const cardClass = opts.cardModifier ? `scorecard-card ${opts.cardModifier}` : 'scorecard-card';
     return `
-<article class="scorecard-card">
+<article class="${cardClass}">
   <header>
     <h3>${title}</h3>
     <span class="muted">${section.subtitleFacts.map(esc).join(' · ')}</span>
@@ -181,6 +192,37 @@ function renderScoreGrid(
   ${footnotes}
   ${totals}
 </article>`;
+}
+
+type ScoreGridComponentId = NonNullable<ScoreGridSection['componentId']>;
+type ScoreGridRenderer = (
+    section: ScoreGridSection,
+    routeSections: RouteSectionRef[],
+    nameOf: (id: string) => string,
+) => string;
+
+const scoreGridRegistry: Record<ScoreGridComponentId, ScoreGridRenderer> = {
+    'default-score-grid': renderScoreGrid,
+    'compact-match-grid': (section, routeSections, nameOf) =>
+        renderScoreGrid(section, routeSections, nameOf, { cardModifier: 'scorecard-card--compact-match' }),
+    'category-matrix-grid': (section, routeSections, nameOf) =>
+        renderScoreGrid(section, routeSections, nameOf, { cardModifier: 'scorecard-card--category-matrix' }),
+};
+
+function scoreGridComponentId(section: ScoreGridSection): ScoreGridComponentId {
+    return section.componentId ?? 'default-score-grid';
+}
+
+function renderScoreGridSection(
+    section: ScoreGridSection,
+    routeSections: RouteSectionRef[],
+    nameOf: (id: string) => string,
+): string {
+    const componentId = scoreGridComponentId(section);
+    const renderer = (scoreGridRegistry as Record<string, ScoreGridRenderer | undefined>)[componentId];
+    return renderer
+        ? renderer(section, routeSections, nameOf)
+        : `<div class="diag">Unsupported score-grid component <code>${esc(componentId)}</code> — no generic view yet. Results are not hidden.</div>`;
 }
 
 function renderRanked(section: RankedSection, nameOf: (id: string) => string): string {
@@ -232,7 +274,7 @@ export function renderScorecards(ctx: RoundRenderContext, state: RoundRenderStat
     const slots = roundResult.slots
         .map((slot) => {
             const cards = slot.cards
-                .map((c) => renderScoreGrid(c, roundResult.routeSections, ballNameById))
+                .map((c) => renderScoreGridSection(c, roundResult.routeSections, ballNameById))
                 .join('\n');
             return `
 <h3 class="slot-divider">Slot #${slot.slotIndex} · ${esc(slot.formatLabel)} <span class="muted">· ${esc(slot.allowanceLabel)}</span></h3>

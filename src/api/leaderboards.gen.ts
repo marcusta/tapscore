@@ -28,6 +28,7 @@ export interface RouteSectionRef {
 
 export interface ScoreGridSection {
     kind: 'score_grid';
+    componentId?: 'default-score-grid' | 'compact-match-grid' | 'category-matrix-grid';
     title: { groups: string[][]; joiner: string };
     subjectBallIds: string[];
     holes: HoleRef[];

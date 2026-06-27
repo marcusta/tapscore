@@ -7,7 +7,9 @@ import {
     makeRoundContext,
     makeScoreEvent,
 } from './_testkit';
-import { talibanBetterBall } from './taliban-better-ball';
+import { BUILTIN_FORMAT_PLUGINS } from '../../formats/builtins';
+import { buildSlotResult } from '../result-builder';
+import { TALIBAN_BETTER_BALL_ID, talibanBetterBall } from './taliban-better-ball';
 
 function setup() {
     const courseHoles = make18Holes();
@@ -33,6 +35,49 @@ function setup() {
 }
 
 describe('talibanBetterBall (new contract)', () => {
+    test('result view emits the compact match grid component id', () => {
+        const { ctx, balls, groupings } = setup();
+        const [bA1, bA2, bB1, bB2] = balls;
+        const result = talibanBetterBall.score({
+            roundContext: ctx,
+            slotBalls: balls,
+            slotTeamGroupings: groupings,
+            events: [
+                makeScoreEvent(bA1.ballId, 1, 4),
+                makeScoreEvent(bA2.ballId, 1, 4),
+                makeScoreEvent(bB1.ballId, 1, 5),
+                makeScoreEvent(bB2.ballId, 1, 5),
+            ],
+        });
+
+        const view = buildSlotResult({
+            slotIndex: 0,
+            slotDefId: 'slot-taliban',
+            formatId: TALIBAN_BETTER_BALL_ID,
+            formatLabel: 'Taliban',
+            scoringMode: 'taliban',
+            teamShape: 'better_ball',
+            allowanceLabel: '90%',
+            metrics: [],
+            runningNormalized: false,
+            scoreGridComponentId: BUILTIN_FORMAT_PLUGINS.find((p) => p.descriptor.id === TALIBAN_BETTER_BALL_ID)!
+                .descriptor.resultDisplay?.scoreGridComponentId,
+            result,
+            slotBalls: balls,
+            slotTeamGroupings: groupings,
+            columns: ctx.playHoles.map((p) => ({
+                playHoleId: p.playHoleId,
+                courseHoleNumber: p.courseHoleNumber,
+                canonicalOrdinal: p.ordinal,
+                occurrenceLabel: ctx.occurrenceLabel(p.playHoleId),
+                par: p.par,
+                baseStrokeIndex: p.baseStrokeIndex,
+            })),
+        });
+
+        expect(view.cards[0]?.componentId).toBe('compact-match-grid');
+    });
+
     test('worse-ball tiebreaker: tied better-balls → worse-ball decides', () => {
         const { ctx, balls, groupings, courseHoles } = setup();
         const [bA1, bA2, bB1, bB2] = balls;

@@ -8,7 +8,9 @@ import {
     makeScoreEvent,
 } from './_testkit';
 import type { MetadataEvent } from '../types';
-import { umbrella4Ball } from './umbrella-4-ball';
+import { BUILTIN_FORMAT_PLUGINS } from '../../formats/builtins';
+import { buildSlotResult } from '../result-builder';
+import { UMBRELLA_4_BALL_ID, umbrella4Ball } from './umbrella-4-ball';
 
 function metaEvent(ballId: string, hole: number, type: string, value: unknown): MetadataEvent {
     return {
@@ -48,6 +50,55 @@ function setup() {
 }
 
 describe('umbrella4Ball (new contract)', () => {
+    test('result view emits the category matrix grid component id', () => {
+        const { ctx, balls, groupings } = setup();
+        const [bA1, bA2, bB1, bB2] = balls;
+        const result = umbrella4Ball.score({
+            roundContext: ctx,
+            slotBalls: balls,
+            slotTeamGroupings: groupings,
+            events: [
+                makeScoreEvent(bA1.ballId, 1, 3),
+                makeScoreEvent(bA2.ballId, 1, 4),
+                makeScoreEvent(bB1.ballId, 1, 4),
+                makeScoreEvent(bB2.ballId, 1, 5),
+                metaEvent(bA1.ballId, 1, 'gir', true),
+                metaEvent(bA2.ballId, 1, 'gir', true),
+            ],
+        });
+
+        const view = buildSlotResult({
+            slotIndex: 0,
+            slotDefId: 'slot-umbrella',
+            formatId: UMBRELLA_4_BALL_ID,
+            formatLabel: 'Umbrella (4-ball)',
+            scoringMode: 'umbrella',
+            teamShape: 'four_ball',
+            allowanceLabel: '100%',
+            metrics: [{ id: 'points', label: 'Points', direction: 'high' }],
+            runningNormalized: true,
+            scoreGridComponentId: BUILTIN_FORMAT_PLUGINS.find((p) => p.descriptor.id === UMBRELLA_4_BALL_ID)!
+                .descriptor.resultDisplay?.scoreGridComponentId,
+            result,
+            slotBalls: balls,
+            slotTeamGroupings: groupings,
+            columns: ctx.playHoles.map((p) => ({
+                playHoleId: p.playHoleId,
+                courseHoleNumber: p.courseHoleNumber,
+                canonicalOrdinal: p.ordinal,
+                occurrenceLabel: ctx.occurrenceLabel(p.playHoleId),
+                par: p.par,
+                baseStrokeIndex: p.baseStrokeIndex,
+            })),
+        });
+
+        expect(view.cards).toHaveLength(2);
+        expect(view.cards.map((card) => card.componentId)).toEqual([
+            'category-matrix-grid',
+            'category-matrix-grid',
+        ]);
+    });
+
     test('sweep (all 5) doubles hole points', () => {
         const { ctx, balls, groupings } = setup();
         const [bA1, bA2, bB1, bB2] = balls;

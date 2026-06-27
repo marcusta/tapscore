@@ -23,6 +23,10 @@ import type {
 } from '../api/friendly-rounds.gen';
 
 export type NameOf = (ballId: string) => string;
+export type ResultRenderMode = 'product' | 'verification';
+export interface ResultRenderOptions {
+    mode?: ResultRenderMode;
+}
 
 /** Minimal HTML escape (mirrors scripts/render/util.ts `esc`). */
 export function esc(value: unknown): string {
@@ -79,23 +83,12 @@ function rowClass(row: GridRow): string {
     return team.trim();
 }
 
-/**
- * Resolve a cell's deciding-ball marker template → the CSS modifier the
+/** Resolve a cell's deciding-ball marker template → the CSS modifier the
  * `.lb-mark--<template>` rules style. Reads the presentation-vocabulary
- * `marker.template` (`ring` | `double_ring` | `diamond` | …).
- *
- * TEMPORARY Phase 2 compatibility shim: also accepts the legacy `mark`
- * (`win`/`win2`/`win5`) so a stale cached result still renders a shape while
- * generated clients catch up. The live server no longer emits `mark`; remove
- * this branch once no producer can return it.
- */
+ * `marker.template` (`ring` | `double_ring` | `diamond` | …). */
 function cellMarkerTemplate(c: GridCell | undefined): string | null {
     if (!c) return null;
     if (c.marker) return c.marker.template;
-    const legacy = (c as { mark?: 'win' | 'win2' | 'win5' }).mark;
-    if (legacy === 'win5') return 'diamond';
-    if (legacy === 'win2') return 'double_ring';
-    if (legacy === 'win') return 'ring';
     return null;
 }
 
@@ -115,7 +108,21 @@ function groupSubtotal(row: GridRow, playHoleIds: Set<string>): string {
     return '—';
 }
 
-function renderScoreGrid(section: ScoreGridSection, routeSections: RouteSectionRef[], nameOf: NameOf): string {
+function productSubtitleFacts(facts: string[]): string[] {
+    return facts.filter((fact) => {
+        if (fact.startsWith('slot #')) return false;
+        if (/^CH -?\d/.test(fact)) return false;
+        if (/^PH -?\d/.test(fact)) return false;
+        return true;
+    });
+}
+
+function renderScoreGridBase(
+    section: ScoreGridSection,
+    routeSections: RouteSectionRef[],
+    nameOf: NameOf,
+    opts: { mode: ResultRenderMode; cardModifier?: string },
+): string {
     const groups = groupColumns(section.holes, routeSections);
 
     // Each hole-group (front 9 / back 9) renders as its OWN stacked table block so
@@ -167,17 +174,18 @@ function renderScoreGrid(section: ScoreGridSection, routeSections: RouteSectionR
         .map((g) => g.map((id) => esc(nameOf(id))).join(' & '))
         .filter(Boolean)
         .join(section.title.joiner);
-    const subtitle = section.subtitleFacts.length
-        ? `<div class="lb-card__sub">${section.subtitleFacts.map(esc).join(' · ')}</div>`
+    const subtitleFacts = opts.mode === 'verification' ? section.subtitleFacts : productSubtitleFacts(section.subtitleFacts);
+    const subtitle = subtitleFacts.length
+        ? `<div class="lb-card__sub">${subtitleFacts.map(esc).join(' · ')}</div>`
         : '';
     // Per-hole arithmetic (how each hole's points were earned) — a labelled,
     // full-width block so it's visible on touch (where cell hover tooltips aren't).
-    const footnotes = section.footnotes.length
+    const footnotes = opts.mode === 'verification' && section.footnotes.length
         ? `<div class="lb-card__notes"><span class="lb-card__notes-label">Points breakdown</span>${section.footnotes
               .map((n) => `<span class="lb-card__note">${esc(n)}</span>`)
               .join('')}</div>`
         : '';
-    const caption = section.caption ? `<p class="lb-card__caption">${esc(section.caption)}</p>` : '';
+    const caption = opts.mode === 'verification' && section.caption ? `<p class="lb-card__caption">${esc(section.caption)}</p>` : '';
     const totals = section.totals.length
         ? `<ul class="lb-card__totals">${section.totals
               .map((tt) => `<li>${esc(tt.label)} = <strong>${tt.value ?? '—'}</strong></li>`)
@@ -188,11 +196,39 @@ function renderScoreGrid(section: ScoreGridSection, routeSections: RouteSectionR
     // labels already identify who's who) — render the head only when there's a title.
     const head = title ? `<header class="lb-card__head"><h4>${title}</h4>${subtitle}</header>` : subtitle;
 
-    return `<article class="lb-card">
+    const cardClass = opts.cardModifier ? `lb-card ${opts.cardModifier}` : 'lb-card';
+    return `<article class="${cardClass}">
   ${head}
   ${blocks}
   ${footnotes}${caption}${totals}
 </article>`;
+}
+
+function renderScoreGrid(
+    section: ScoreGridSection,
+    routeSections: RouteSectionRef[],
+    nameOf: NameOf,
+    opts: { mode: ResultRenderMode },
+): string {
+    return renderScoreGridBase(section, routeSections, nameOf, opts);
+}
+
+function renderCompactMatchGrid(
+    section: ScoreGridSection,
+    routeSections: RouteSectionRef[],
+    nameOf: NameOf,
+    opts: { mode: ResultRenderMode },
+): string {
+    return renderScoreGridBase(section, routeSections, nameOf, { ...opts, cardModifier: 'lb-card--compact-match' });
+}
+
+function renderCategoryMatrixGrid(
+    section: ScoreGridSection,
+    routeSections: RouteSectionRef[],
+    nameOf: NameOf,
+    opts: { mode: ResultRenderMode },
+): string {
+    return renderScoreGridBase(section, routeSections, nameOf, { ...opts, cardModifier: 'lb-card--category-matrix' });
 }
 
 function renderRanked(section: RankedSection, nameOf: NameOf): string {
@@ -266,24 +302,23 @@ type ScoreGridRenderer = (
     section: ScoreGridSection,
     routeSections: RouteSectionRef[],
     nameOf: NameOf,
+    opts: { mode: ResultRenderMode },
 ) => string;
 
 /**
  * Registry of score-grid component renderers, keyed by `score_grid.componentId`.
- * Only `default-score-grid` exists today; richer grid components are registered
- * here (never via a format-id branch) in later phases.
+ * Richer grid components are registered here (never via a format-id branch).
  */
-const scoreGridRegistry: Record<string, ScoreGridRenderer> = {
+type ScoreGridComponentId = NonNullable<ScoreGridSection['componentId']>;
+const scoreGridRegistry: Record<ScoreGridComponentId, ScoreGridRenderer> = {
     'default-score-grid': renderScoreGrid,
+    'compact-match-grid': renderCompactMatchGrid,
+    'category-matrix-grid': renderCategoryMatrixGrid,
 };
 
-/**
- * The grid component a section selects. The current generated `ScoreGridSection`
- * has no `componentId` field yet, so read it through a local compatible shape
- * rather than editing the generated API types. Missing means `default-score-grid`.
- */
-function scoreGridComponentId(section: ScoreGridSection): string {
-    return (section as { componentId?: string }).componentId ?? 'default-score-grid';
+/** Missing means `default-score-grid`. */
+function scoreGridComponentId(section: ScoreGridSection): ScoreGridComponentId {
+    return section.componentId ?? 'default-score-grid';
 }
 
 function diagnostic(kind: string): string {
@@ -310,10 +345,13 @@ function renderScoreGridSection(
     section: ScoreGridSection,
     routeSections: RouteSectionRef[],
     nameOf: NameOf,
+    opts: { mode: ResultRenderMode },
 ): string {
     const componentId = scoreGridComponentId(section);
-    const render: ScoreGridRenderer | undefined = scoreGridRegistry[componentId];
-    return render ? render(section, routeSections, nameOf) : gridDiagnostic(componentId);
+    const render: ScoreGridRenderer | undefined = (
+        scoreGridRegistry as Record<string, ScoreGridRenderer | undefined>
+    )[componentId];
+    return render ? render(section, routeSections, nameOf, opts) : gridDiagnostic(componentId);
 }
 
 /** Leaderboard-area sections for one slot (ranked metrics + match summaries). */
@@ -326,7 +364,13 @@ export function renderSlotLeaderboard(slot: SlotResultView, nameOf: NameOf): str
 }
 
 /** Scorecard-area cards for one slot (the format-aware "full scorecard"). */
-export function renderSlotCards(slot: SlotResultView, routeSections: RouteSectionRef[], nameOf: NameOf): string {
+export function renderSlotCards(
+    slot: SlotResultView,
+    routeSections: RouteSectionRef[],
+    nameOf: NameOf,
+    options: ResultRenderOptions = {},
+): string {
     if (slot.cards.length === 0) return '';
-    return slot.cards.map((c) => renderScoreGridSection(c, routeSections, nameOf)).join('\n');
+    const mode = options.mode ?? 'product';
+    return slot.cards.map((c) => renderScoreGridSection(c, routeSections, nameOf, { mode })).join('\n');
 }
