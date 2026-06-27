@@ -144,6 +144,8 @@ export class LeaderboardComponent extends Component {
             }
             & .lb-card__sub { font-size: 0.75rem; color: ${t('text-muted')}; margin-top: 2px; }
             & .lb-card__scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            /* Stacked 9-hole blocks (front 9 / back 9) get a little breathing room. */
+            & .lb-card__scroll + .lb-card__scroll { margin-top: ${s('sm')}; }
             & .lb-grid {
                 border-collapse: collapse;
                 font-variant-numeric: tabular-nums;
