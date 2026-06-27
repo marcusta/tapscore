@@ -16,7 +16,7 @@ export { ApiError } from '@basics/core/client/api-error';
 
 // Carry the deploy base path (Vite BASE_URL) so API calls resolve under the
 // sub-path in production ('/tapscore/api') and at the root in dev ('/api').
-const API_BASE = import.meta.env.BASE_URL.replace(/\/+$/, '') + '/api';
+const API_BASE = (import.meta.env?.BASE_URL ?? '/').replace(/\/+$/, '') + '/api';
 
 export const api = {
     players: createPlayersClient(API_BASE),

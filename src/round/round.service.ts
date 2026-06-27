@@ -99,6 +99,8 @@ export class RoundViewService {
     readonly selectedSlot = new Signal(0);
 
     private token: string | null = null;
+    private loadSeq = 0;
+    private resultSeq = 0;
 
     async loadByToken(token: string, initial?: InitialPosition): Promise<void> {
         // Opening a different round resets on-course position + clears the stale
@@ -108,6 +110,10 @@ export class RoundViewService {
         // reload lands on the same hole / format leaderboard, not hole 1 / slot 0.
         const tokenChanged = token !== this.token;
         this.token = token;
+        const seq = ++this.loadSeq;
+        if (tokenChanged) {
+            this.resetForNewToken(initial);
+        }
         // The score-entry surface reads each format's declared metadata inputs
         // (umbrella GIR/fairway) from the catalog; fetch it once.
         void di.get(FormatCatalogService).load();
@@ -115,6 +121,7 @@ export class RoundViewService {
             api.friendlyRounds.byToken({ token }),
         );
         if (!data) return;
+        if (seq !== this.loadSeq || token !== this.token) return;
         this.friendlyRound.set(data.friendlyRound);
         this.round.set(data.round);
         // Balls + current scores feed the score-entry grid. Failures here are
@@ -123,6 +130,7 @@ export class RoundViewService {
             api.friendlyRounds.balls({ token }).catch(() => [] as RoundBall[]),
             api.friendlyRounds.scorecard({ token }).catch(() => [] as Scorecard[]),
         ]);
+        if (seq !== this.loadSeq || token !== this.token) return;
         // Order matters: the row inputs are uncontrolled and seed their value
         // from `strokesFor` at render time, and rendering is driven by `balls`.
         // Set the scores (and clear the optimistic overlay) FIRST so the rows
@@ -130,14 +138,6 @@ export class RoundViewService {
         this.cells.set(new Map());
         this.scorecards.set(cards);
         this.balls.set(balls);
-        if (tokenChanged) {
-            // A freshly-opened round starts at the first played hole / first group,
-            // unless the caller restored a position from the URL (reload survival).
-            this.holeIdx.set(initial?.holeIdx ?? 0);
-            this.groupIdx.set(initial?.groupIdx ?? 0);
-            this.selectedSlot.set(initial?.selectedSlot ?? 0);
-            this.result.set(null);
-        }
     }
 
     /**
@@ -146,10 +146,13 @@ export class RoundViewService {
      * scores. A failure leaves the previous result in place rather than blanking.
      */
     async loadResult(): Promise<void> {
-        if (!this.token) return;
+        const token = this.token;
+        if (!token) return;
+        const seq = ++this.resultSeq;
         const rr = await request(this.resultLoading, this.resultError, () =>
-            api.friendlyRounds.result({ token: this.token! }),
+            api.friendlyRounds.result({ token }),
         );
+        if (seq !== this.resultSeq || token !== this.token) return;
         if (rr) this.result.set(rr);
     }
 
@@ -343,5 +346,19 @@ export class RoundViewService {
         const next = new Map(this.cells.get());
         next.set(key, state);
         this.cells.set(next);
+    }
+
+    private resetForNewToken(initial?: InitialPosition): void {
+        this.resultSeq++;
+        this.friendlyRound.set(null);
+        this.round.set(null);
+        this.balls.set([]);
+        this.scorecards.set([]);
+        this.cells.set(new Map());
+        this.result.set(null);
+        this.resultError.set(null);
+        this.holeIdx.set(initial?.holeIdx ?? 0);
+        this.groupIdx.set(initial?.groupIdx ?? 0);
+        this.selectedSlot.set(initial?.selectedSlot ?? 0);
     }
 }
