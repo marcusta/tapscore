@@ -88,6 +88,7 @@ export interface GridCell {
     display?: string;
     title?: string;
     mark?: 'win' | 'win2' | 'win5';
+    team?: 'a' | 'b';
 }
 
 export interface LeaderboardsApi {

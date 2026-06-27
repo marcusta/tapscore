@@ -338,15 +338,6 @@ function runningRow(cols: ResultColumn[], running: Map<string, number>): GridRow
 
 // --- pair card -------------------------------------------------------------
 
-function formatMatchRunning(running: number, style: 'versus' | 'standalone'): string {
-    if (style === 'versus') {
-        if (running === 0) return 'AS';
-        return running > 0 ? `${running}UP` : `${-running}DN`;
-    }
-    if (running === 0) return 'AS';
-    return running > 0 ? `+${running}` : `−${-running}`;
-}
-
 /** One player's net row on the compact match card: just the net per hole, team-
  * tinted, with the deciding-hole shape (○ / ◎ / ◇) where this ball won it. */
 function matchNetRow(cols: ResultColumn[], r: BallResult, team: 'a' | 'b'): GridRow {
@@ -372,7 +363,6 @@ function buildPairCard(
     byBall: Map<string, BallResult>,
 ): ScoreGridSection {
     const cols = input.columns;
-    const style = pair.summaryStyle ?? 'versus';
     const pairById = new Map<string, PairBallResult['holes'][number]>();
     for (const ph of pair.holes) if (ph.playHoleId !== undefined) pairById.set(ph.playHoleId, ph);
 
@@ -403,9 +393,15 @@ function buildPairCard(
         kind: 'status',
         aggregate: 'none',
         emphasis: true,
-        cells: cols.map((c) =>
-            cell(c, null, formatMatchRunning(matchById.get(c.playHoleId) ?? 0, style)),
-        ),
+        // Show the standing ONLY on played holes; always the positive magnitude
+        // (or AS), with colour — not the sign — telling who's up.
+        cells: cols.map((c) => {
+            const ph = pairById.get(c.playHoleId);
+            if (!ph || ph.status === null) return cell(c, null, '');
+            const lead = matchById.get(c.playHoleId) ?? 0;
+            const gc = cell(c, null, lead === 0 ? 'AS' : String(Math.abs(lead)));
+            return lead > 0 ? { ...gc, team: 'a' as const } : lead < 0 ? { ...gc, team: 'b' as const } : gc;
+        }),
     });
 
     return {
@@ -413,10 +409,7 @@ function buildPairCard(
         title: { groups: [pair.sideA.ballIds, pair.sideB.ballIds], joiner: ' vs. ' },
         subjectBallIds: [...pair.sideA.ballIds, ...pair.sideB.ballIds],
         holes: cols.map(holeRef),
-        subtitleFacts: [
-            `slot #${input.slotIndex} · ${input.formatLabel} · ${input.allowanceLabel}`,
-            pair.summary,
-        ],
+        subtitleFacts: [`${input.formatLabel} · ${input.allowanceLabel}`],
         rows,
         footnotes: [],
         totals: [],
@@ -604,27 +597,32 @@ function buildLeaderboard(
     const pairs = input.result.pairResults ?? [];
     if (pairs.length > 0) {
         const lines: MatchLine[] = pairs.map((pair) => {
-            const style = pair.summaryStyle ?? 'versus';
-            if (style === 'standalone') {
-                return { segments: [{ text: pair.summary }], result: pair.result };
+            // Structured standing with the PLAYER names (consistent with the
+            // scorecard) — no "Team A/B" prose. Winner first, magnitude only.
+            let lead = 0;
+            let thru = 0;
+            for (const ph of pair.holes) {
+                if (ph.status === null) continue;
+                thru++;
+                if (ph.pointsDelta !== null && ph.pointsDelta !== undefined) lead += ph.pointsDelta;
             }
             const a = pair.sideA.ballIds;
             const b = pair.sideB.ballIds;
-            if (pair.result === 'won' || pair.result === 'lost') {
-                const [winner, loser] = pair.result === 'won' ? [a, b] : [b, a];
+            const tail = pair.result === 'in_progress' ? ` · thru ${thru}` : ' · final';
+            if (lead === 0) {
                 return {
-                    segments: [
-                        { ballIds: winner },
-                        { text: ' d. ' },
-                        { ballIds: loser },
-                        { text: `, ${pair.summary}` },
-                    ],
+                    segments: [{ ballIds: a }, { text: ' — all square — ' }, { ballIds: b }, { text: tail }],
                     result: pair.result,
                 };
             }
-            const tail = pair.result === 'halved' ? ` halved, ${pair.summary}` : `, ${pair.summary} (in progress)`;
+            const [winner, loser] = lead > 0 ? [a, b] : [b, a];
             return {
-                segments: [{ ballIds: a }, { text: ' vs. ' }, { ballIds: b }, { text: tail }],
+                segments: [
+                    { ballIds: winner },
+                    { text: ` ${Math.abs(lead)} up ` },
+                    { ballIds: loser },
+                    { text: tail },
+                ],
                 result: pair.result,
             };
         });

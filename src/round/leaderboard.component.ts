@@ -181,8 +181,8 @@ export class LeaderboardComponent extends Component {
             /* Deciding-ball shapes: ○ win, ◎ +2 (double ring), ◇ +5 (diamond). */
             & .lb-mark {
                 display: inline-flex; align-items: center; justify-content: center;
-                min-width: 1.55em; height: 1.55em; padding: 0 0.1em; line-height: 1;
-                border: 2px solid currentColor; border-radius: 999px;
+                box-sizing: border-box; width: 1.7em; height: 1.7em; line-height: 1;
+                vertical-align: middle; border: 2px solid currentColor; border-radius: 999px;
             }
             & .lb-mark--win2 { border-width: 3px; border-style: double; }
             & .lb-mark--win5 { border: none; position: relative; }

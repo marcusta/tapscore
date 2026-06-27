@@ -127,7 +127,8 @@ function renderScoreGrid(section: ScoreGridSection, routeSections: RouteSectionR
                         const text = emph(esc(c?.display ?? ''));
                         // A deciding-ball mark draws a shape (○ / ◎ / ◇) around the score.
                         const inner = c?.mark ? `<span class="lb-mark lb-mark--${c.mark}">${text}</span>` : text;
-                        return `<td class="${cellClass(row)}"${title}>${inner}</td>`;
+                        const cls = cellClass(row) + (c?.team ? ` lb-team-${c.team}` : '');
+                        return `<td class="${cls.trim()}"${title}>${inner}</td>`;
                     })
                     .join('');
                 const sub = `<td class="lb-sum">${emph(groupSubtotal(row, g.playHoleIds))}</td>`;

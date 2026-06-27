@@ -53,6 +53,8 @@ export interface GridCell {
      * birdie), `win5` = +5 (down eagle). Tinted by the row's `team`.
      */
     mark?: 'win' | 'win2' | 'win5';
+    /** Per-cell team tint (e.g. the standing row coloured by who's currently up). */
+    team?: 'a' | 'b';
 }
 
 /**
