@@ -205,8 +205,84 @@ function renderMatchSummary(section: MatchSummarySection, nameOf: NameOf): strin
 </div>`;
 }
 
+// --- registry dispatch (Phase 1) -------------------------------------------
+//
+// Section rendering is polymorphic by section KIND (leaderboard) and by score-grid
+// COMPONENT ID (cards), never by format id. A registry miss renders a visible
+// diagnostic instead of silently dropping content — a missing adapter must never
+// hide results (PHASES M5 / contract fallback requirement).
+
+/** A leaderboard section is one of the canonical leaderboard-area kinds. */
+type LeaderboardSection = SlotResultView['leaderboard'][number];
+
+/** Renders one leaderboard section kind. Every renderer shares this shape. */
+type SectionRenderer<S extends LeaderboardSection> = (section: S, nameOf: NameOf) => string;
+
+/**
+ * Registry of leaderboard-section renderers, keyed by `section.kind`. Defined as
+ * a mapped type so each entry is checked against its exact section type, and so
+ * adding a new leaderboard kind to the contract forces a matching renderer here.
+ */
+const sectionRegistry: {
+    [K in LeaderboardSection['kind']]: SectionRenderer<Extract<LeaderboardSection, { kind: K }>>;
+} = {
+    ranked: renderRanked,
+    match_summary: renderMatchSummary,
+};
+
+/** Renders one score grid. Every grid component shares this shape. */
+type ScoreGridRenderer = (
+    section: ScoreGridSection,
+    routeSections: RouteSectionRef[],
+    nameOf: NameOf,
+) => string;
+
+/**
+ * Registry of score-grid component renderers, keyed by `score_grid.componentId`.
+ * Only `default-score-grid` exists today; richer grid components are registered
+ * here (never via a format-id branch) in later phases.
+ */
+const scoreGridRegistry: Record<string, ScoreGridRenderer> = {
+    'default-score-grid': renderScoreGrid,
+};
+
+/**
+ * The grid component a section selects. The current generated `ScoreGridSection`
+ * has no `componentId` field yet, so read it through a local compatible shape
+ * rather than editing the generated API types. Missing means `default-score-grid`.
+ */
+function scoreGridComponentId(section: ScoreGridSection): string {
+    return (section as { componentId?: string }).componentId ?? 'default-score-grid';
+}
+
 function diagnostic(kind: string): string {
     return `<div class="lb-diag">Unrenderable result section <code>${esc(kind)}</code> — no generic view yet. Results are not hidden.</div>`;
+}
+
+function gridDiagnostic(componentId: string): string {
+    return `<div class="lb-diag">Unsupported score-grid component <code>${esc(componentId)}</code> — no generic view yet. Results are not hidden.</div>`;
+}
+
+/** Dispatch one leaderboard section through {@link sectionRegistry}. */
+function renderLeaderboardSection(section: LeaderboardSection, nameOf: NameOf): string {
+    // Contained dispatcher cast: the registry is typed per-kind on definition;
+    // the lookup widens to "any leaderboard renderer, or none" so an unknown
+    // runtime kind falls through to a visible diagnostic instead of throwing.
+    const render = (
+        sectionRegistry as Record<string, SectionRenderer<LeaderboardSection> | undefined>
+    )[section.kind];
+    return render ? render(section, nameOf) : diagnostic(section.kind);
+}
+
+/** Dispatch one score grid through {@link scoreGridRegistry}. */
+function renderScoreGridSection(
+    section: ScoreGridSection,
+    routeSections: RouteSectionRef[],
+    nameOf: NameOf,
+): string {
+    const componentId = scoreGridComponentId(section);
+    const render: ScoreGridRenderer | undefined = scoreGridRegistry[componentId];
+    return render ? render(section, routeSections, nameOf) : gridDiagnostic(componentId);
 }
 
 /** Leaderboard-area sections for one slot (ranked metrics + match summaries). */
@@ -214,20 +290,12 @@ export function renderSlotLeaderboard(slot: SlotResultView, nameOf: NameOf): str
     if (slot.leaderboard.length === 0 && slot.cards.length === 0) {
         return `<div class="lb-empty">No scores entered yet for ${esc(slot.formatLabel)}.</div>`;
     }
-    const sections = slot.leaderboard
-        .map((sec) =>
-            sec.kind === 'ranked'
-                ? renderRanked(sec, nameOf)
-                : sec.kind === 'match_summary'
-                  ? renderMatchSummary(sec, nameOf)
-                  : diagnostic((sec as { kind: string }).kind),
-        )
-        .join('');
+    const sections = slot.leaderboard.map((sec) => renderLeaderboardSection(sec, nameOf)).join('');
     return sections || `<div class="lb-empty">No leaderboard metric for ${esc(slot.formatLabel)}.</div>`;
 }
 
 /** Scorecard-area cards for one slot (the format-aware "full scorecard"). */
 export function renderSlotCards(slot: SlotResultView, routeSections: RouteSectionRef[], nameOf: NameOf): string {
     if (slot.cards.length === 0) return '';
-    return slot.cards.map((c) => renderScoreGrid(c, routeSections, nameOf)).join('\n');
+    return slot.cards.map((c) => renderScoreGridSection(c, routeSections, nameOf)).join('\n');
 }
