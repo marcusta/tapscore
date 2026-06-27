@@ -175,6 +175,22 @@ export class LeaderboardComponent extends Component {
             & .lb-grid .lb-c-si { color: ${t('text-muted')}; font-size: 0.7rem; }
             & .lb-grid .lb-r-cat th { font-weight: 400; color: ${t('text-muted')}; }
             & .lb-grid .lb-c-cat { text-align: center; color: ${t('accent')}; }
+            /* Match-card team tints (the player rows + their deciding-ball marks). */
+            & .lb-grid .lb-team-a, & .lb-grid .lb-team-a th { color: #c2452f; }
+            & .lb-grid .lb-team-b, & .lb-grid .lb-team-b th { color: #2c6cae; }
+            /* Deciding-ball shapes: ○ win, ◎ +2 (double ring), ◇ +5 (diamond). */
+            & .lb-mark {
+                display: inline-flex; align-items: center; justify-content: center;
+                min-width: 1.55em; height: 1.55em; padding: 0 0.1em; line-height: 1;
+                border: 2px solid currentColor; border-radius: 999px;
+            }
+            & .lb-mark--win2 { border-width: 3px; border-style: double; }
+            & .lb-mark--win5 { border: none; position: relative; }
+            & .lb-mark--win5::before {
+                content: ''; position: absolute; left: 50%; top: 50%;
+                width: 1.2em; height: 1.2em; transform: translate(-50%, -50%) rotate(45deg);
+                border: 2px solid currentColor;
+            }
             & .lb-card__caption { margin: ${s('sm')} 0 0; font-size: 0.72rem; font-style: italic; color: ${t('text-muted')}; }
             & .lb-card__notes { margin: ${s('sm')} 0 0; font-size: 0.72rem; color: ${t('text-muted')}; }
             & .lb-card__notes-label {

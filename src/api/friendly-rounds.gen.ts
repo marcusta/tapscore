@@ -234,6 +234,7 @@ export interface GridRow {
     cells: GridCell[];
     aggregate: 'sum' | 'last' | 'none';
     emphasis?: boolean;
+    team?: 'a' | 'b';
 }
 
 export interface RankedEntry {
@@ -254,6 +255,7 @@ export interface GridCell {
     value: null | number;
     display?: string;
     title?: string;
+    mark?: 'win' | 'win2' | 'win5';
 }
 
 export interface FriendlyRoundsApi {

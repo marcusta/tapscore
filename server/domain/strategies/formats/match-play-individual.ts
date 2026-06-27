@@ -172,6 +172,8 @@ function computePair(
             net: sA.net,
             points: null,
             note: holeNoteA,
+            // The hole winner's ball gets the ○ mark on the match card.
+            ...(status === 'won' ? { mark: 'win' as const } : {}),
         });
         holesB.push({
             ...idB,
@@ -179,6 +181,7 @@ function computePair(
             net: sB.net,
             points: null,
             note: holeNoteB,
+            ...(status === 'lost' ? { mark: 'win' as const } : {}),
         });
 
         let pairNote: string | undefined;

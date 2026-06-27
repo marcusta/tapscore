@@ -55,6 +55,9 @@ interface PlayerHole {
 interface TeamBall {
     better: number | null;
     worse: number | null;
+    /** The ball ids behind the better / worse net (the deciding-ball marker). */
+    betterBallId: string | null;
+    worseBallId: string | null;
     birdieBy: string | null;
     eagleBy: string | null;
 }
@@ -98,7 +101,12 @@ function teamBall(
     if (s2.contributed && s2.gross !== null && s2.net !== null) {
         contribs.push({ net: s2.net, gross: s2.gross, ballId: c2.ball.ballId });
     }
-    if (contribs.length === 0) return { better: null, worse: null, birdieBy: null, eagleBy: null };
+    if (contribs.length === 0) {
+        return { better: null, worse: null, betterBallId: null, worseBallId: null, birdieBy: null, eagleBy: null };
+    }
+    const byNet = [...contribs].sort((a, b) => a.net - b.net);
+    const betterBallId = byNet[0]!.ballId;
+    const worseBallId = byNet[byNet.length - 1]!.ballId;
     const nets = contribs.map((c) => c.net);
     const better = Math.min(...nets);
     const worse = Math.max(...nets);
@@ -108,7 +116,7 @@ function teamBall(
         if (c.gross <= par - 2) eagleBy = eagleBy ?? c.ballId;
         else if (c.gross <= par - 1) birdieBy = birdieBy ?? c.ballId;
     }
-    return { better, worse, birdieBy, eagleBy };
+    return { better, worse, betterBallId, worseBallId, birdieBy, eagleBy };
 }
 
 function pairSummary(
@@ -203,6 +211,7 @@ export const talibanBetterBall: FormatStrategy = {
             let points = 0;
             let awardTo: 'A' | 'B' | null = null;
             let detail = '';
+            let decidedByWorse = false;
 
             const aHas = ballA.better !== null;
             const bHas = ballB.better !== null;
@@ -233,10 +242,12 @@ export const talibanBetterBall: FormatStrategy = {
                         awardTo = 'A';
                         status = 'won';
                         detail = 'decided on worse-ball';
+                        decidedByWorse = true;
                     } else if (worseA > worseB) {
                         awardTo = 'B';
                         status = 'lost';
                         detail = 'decided on worse-ball';
+                        decidedByWorse = true;
                     } else {
                         status = 'halved';
                     }
@@ -302,14 +313,28 @@ export const talibanBetterBall: FormatStrategy = {
             const aNote = note(awardTo === 'A');
             const bNote = note(awardTo === 'B');
 
+            // The deciding ball gets the shape: the winner's better ball, or its
+            // worse ball when the hole was decided on worse-ball.
+            let decidingBallId: string | null = null;
+            let markType: 'win' | 'win2' | 'win5' | null = null;
+            if (awardTo !== null && status !== 'halved') {
+                const winnerBall = awardTo === 'A' ? ballA : ballB;
+                decidingBallId = decidedByWorse ? winnerBall.worseBallId : winnerBall.betterBallId;
+                markType = points === 5 ? 'win5' : points === 2 ? 'win2' : 'win';
+            }
+
             const pushBall = (idx: number, score: PlayerHole, n: string) => {
-                ballResults[idx].holes.push({
+                const hole: BallHoleResult = {
                     ...holeIdentity(roundContext, ballResults[idx].ballId, occ),
                     gross: score.gross,
                     net: score.net,
                     points: null,
                     note: n,
-                });
+                };
+                if (decidingBallId !== null && markType && ballResults[idx].ballId === decidingBallId) {
+                    hole.mark = markType;
+                }
+                ballResults[idx].holes.push(hole);
             };
             pushBall(0, a1, aNote);
             pushBall(1, a2, aNote);

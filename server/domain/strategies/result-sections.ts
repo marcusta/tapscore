@@ -47,6 +47,12 @@ export interface GridCell {
     display?: string;
     /** Hover annotation (e.g. stableford netPar arithmetic, umbrella categories). */
     title?: string;
+    /**
+     * Match formats: this cell's ball DECIDED the hole — the renderer draws a
+     * shape around the score. `win` = won (+1), `win2` = +2 (e.g. taliban down
+     * birdie), `win5` = +5 (down eagle). Tinted by the row's `team`.
+     */
+    mark?: 'win' | 'win2' | 'win5';
 }
 
 /**
@@ -79,6 +85,8 @@ export interface GridRow {
     aggregate: GridAggregate;
     /** Bold the row (team points, status). */
     emphasis?: boolean;
+    /** Match formats: which side this row belongs to, for a team colour tint. */
+    team?: 'a' | 'b';
 }
 
 /**

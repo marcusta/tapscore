@@ -347,6 +347,25 @@ function formatMatchRunning(running: number, style: 'versus' | 'standalone'): st
     return running > 0 ? `+${running}` : `−${-running}`;
 }
 
+/** One player's net row on the compact match card: just the net per hole, team-
+ * tinted, with the deciding-hole shape (○ / ◎ / ◇) where this ball won it. */
+function matchNetRow(cols: ResultColumn[], r: BallResult, team: 'a' | 'b'): GridRow {
+    const byId = byPlayHole(r);
+    return {
+        label: '',
+        subjectBallId: r.ballId,
+        kind: 'net',
+        aggregate: 'sum',
+        team,
+        cells: cols.map((c) => {
+            const hr = byId.get(c.playHoleId);
+            const n = hr?.net ?? null;
+            const gc = cell(c, n, n === null ? '–' : String(n));
+            return hr?.mark ? { ...gc, mark: hr.mark } : gc;
+        }),
+    };
+}
+
 function buildPairCard(
     input: BuildSlotInput,
     pair: PairBallResult,
@@ -357,79 +376,21 @@ function buildPairCard(
     const pairById = new Map<string, PairBallResult['holes'][number]>();
     for (const ph of pair.holes) if (ph.playHoleId !== undefined) pairById.set(ph.playHoleId, ph);
 
-    const sidePoints = (perspective: 'A' | 'B', playHoleId: string): number | null => {
-        const ph = pairById.get(playHoleId);
-        if (!ph || ph.status === null) return null;
-        if (style === 'standalone') return perspective === 'A' ? ph.fromA : ph.fromB;
-        if (ph.status === 'halved') return 0;
-        if (perspective === 'A') return ph.status === 'won' ? 1 : 0;
-        return ph.status === 'lost' ? 1 : 0;
-    };
+    // Compact match card: Par, then every player's net (team-tinted, with the
+    // deciding-ball shape per hole), then ONE running standing row. The verbose
+    // per-side points/run/status rows are gone — the shapes + standing carry it.
+    const rows: GridRow[] = [parRow(cols)];
 
-    // normalised per-side running (lower side reads 0).
-    const sideRunning = (perspective: 'A' | 'B'): Map<string, number> => {
-        let rawA = 0;
-        let rawB = 0;
-        const m = new Map<string, number>();
-        for (const c of cols) {
-            const pA = sidePoints('A', c.playHoleId);
-            const pB = sidePoints('B', c.playHoleId);
-            if (pA !== null) rawA += pA;
-            if (pB !== null) rawB += pB;
-            const min = Math.min(rawA, rawB);
-            m.set(c.playHoleId, (perspective === 'A' ? rawA : rawB) - min);
-        }
-        return m;
-    };
-
-    const rows: GridRow[] = [...parSiRows(cols)];
-
-    const sideBlock = (side: { teamLabel?: string; ballIds: string[] }, perspective: 'A' | 'B') => {
+    const sideNetRows = (side: { ballIds: string[] }, team: 'a' | 'b'): void => {
         for (const ballId of side.ballIds) {
             const r = byBall.get(ballId);
-            if (!r) continue;
-            rows.push(...ballScoreRows(cols, r, { subjectBallId: ballId }));
+            if (r) rows.push(matchNetRow(cols, r, team));
         }
-        const sideRow = (label: string): { label: string; subjectBallId?: string } =>
-            side.ballIds.length === 1
-                ? { label, subjectBallId: side.ballIds[0] }
-                : { label: `${side.teamLabel ?? perspective} ${label}` };
-        const pts = sideRow('pts');
-        rows.push({
-            ...pts,
-            kind: 'points',
-            aggregate: 'sum',
-            emphasis: true,
-            cells: cols.map((c) => cell(c, sidePoints(perspective, c.playHoleId), num(sidePoints(perspective, c.playHoleId)))),
-        });
-        const running = sideRunning(perspective);
-        const run = sideRow('run');
-        rows.push({
-            ...run,
-            kind: 'running',
-            aggregate: 'last',
-            cells: cols.map((c) => {
-                const v = running.get(c.playHoleId) ?? null;
-                return cell(c, v, num(v));
-            }),
-        });
     };
+    sideNetRows(pair.sideA, 'a');
+    sideNetRows(pair.sideB, 'b');
 
-    sideBlock(pair.sideA, 'A');
-    sideBlock(pair.sideB, 'B');
-
-    // Per-hole status (this pair's perspective).
-    rows.push({
-        label: 'Status',
-        kind: 'status',
-        aggregate: 'none',
-        cells: cols.map((c) => {
-            const ph = pairById.get(c.playHoleId);
-            return cell(c, null, ph?.note ?? '—');
-        }),
-    });
-
-    // Cumulative match line (idiom-specific).
+    // Cumulative match standing per hole ("1UP" / "AS" / taliban "+2").
     let running = 0;
     const matchById = new Map<string, number>();
     for (const c of cols) {
@@ -438,7 +399,7 @@ function buildPairCard(
         matchById.set(c.playHoleId, running);
     }
     rows.push({
-        label: 'Match',
+        label: 'Standing',
         kind: 'status',
         aggregate: 'none',
         emphasis: true,

@@ -339,6 +339,9 @@ export interface BallHoleResult extends HoleIdentity {
     categories?: string[];
     /** This hole was a sweep (every category) — the points multiplier applied. */
     sweep?: boolean;
+    /** Match formats: this ball DECIDED the hole — `win` (+1), `win2` (+2),
+     * `win5` (+5). Drives the deciding-ball shape on the match scorecard. */
+    mark?: 'win' | 'win2' | 'win5';
 }
 
 /** Per-ball rollup. `totals` emits one row per scoring type (gross, net, points). */

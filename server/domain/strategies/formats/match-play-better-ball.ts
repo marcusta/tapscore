@@ -219,6 +219,17 @@ export const matchPlayBetterBall: FormatStrategy = {
             const aNote = status === null ? noteA : `${statusShort(status)}${noteDetail ? ` (${noteDetail})` : ''} · ${noteA}`;
             const bNote = status === null ? noteB : `${statusShort(invert(status))}${noteDetail ? ` (${noteDetail})` : ''} · ${noteB}`;
 
+            // The winning team's BETTER ball (lower net) gets the ○ mark.
+            const betterOf = (i: number, k: number): number | null => {
+                const ni = holes[i]!.contributed ? holes[i]!.net : null;
+                const nk = holes[k]!.contributed ? holes[k]!.net : null;
+                if (ni === null && nk === null) return null;
+                if (ni === null) return k;
+                if (nk === null) return i;
+                return ni <= nk ? i : k;
+            };
+            const decidingIdx = status === 'won' ? betterOf(0, 1) : status === 'lost' ? betterOf(2, 3) : null;
+
             holes.forEach((h, j) => {
                 perBallHoles[j].push({
                     ...holeIdentity(roundContext, allBalls[j].ballId, occ),
@@ -226,6 +237,7 @@ export const matchPlayBetterBall: FormatStrategy = {
                     net: h.net,
                     points: null,
                     note: j < 2 ? aNote : bNote,
+                    ...(j === decidingIdx ? { mark: 'win' as const } : {}),
                 });
             });
 

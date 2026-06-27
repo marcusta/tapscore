@@ -72,8 +72,10 @@ function cellClass(row: GridRow): string {
     return '';
 }
 function rowClass(row: GridRow): string {
-    if (row.kind === 'category') return 'lb-r-cat';
-    return row.kind === 'si' || row.kind === 'given' ? 'lb-r-dim' : '';
+    const team = row.team ? ` lb-team-${row.team}` : '';
+    if (row.kind === 'category') return 'lb-r-cat' + team;
+    if (row.kind === 'si' || row.kind === 'given') return 'lb-r-dim' + team;
+    return team.trim();
 }
 
 function groupSubtotal(row: GridRow, playHoleIds: Set<string>): string {
@@ -122,7 +124,10 @@ function renderScoreGrid(section: ScoreGridSection, routeSections: RouteSectionR
                     .map((h) => {
                         const c = cells.get(h.playHoleId);
                         const title = c?.title ? ` title="${esc(c.title)}"` : '';
-                        return `<td class="${cellClass(row)}"${title}>${emph(esc(c?.display ?? ''))}</td>`;
+                        const text = emph(esc(c?.display ?? ''));
+                        // A deciding-ball mark draws a shape (○ / ◎ / ◇) around the score.
+                        const inner = c?.mark ? `<span class="lb-mark lb-mark--${c.mark}">${text}</span>` : text;
+                        return `<td class="${cellClass(row)}"${title}>${inner}</td>`;
                     })
                     .join('');
                 const sub = `<td class="lb-sum">${emph(groupSubtotal(row, g.playHoleIds))}</td>`;
