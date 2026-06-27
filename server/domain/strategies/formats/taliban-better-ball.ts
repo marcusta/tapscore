@@ -37,6 +37,8 @@ import {
     resolveSingleProducer,
     strokesGivenMapForProducer,
 } from './_shared';
+import { marker } from '../result-vocabulary';
+import type { CellMarker } from '../result-vocabulary';
 
 export const TALIBAN_BETTER_BALL_ID = 'taliban_better_ball';
 
@@ -314,13 +316,21 @@ export const talibanBetterBall: FormatStrategy = {
             const bNote = note(awardTo === 'B');
 
             // The deciding ball gets the shape: the winner's better ball, or its
-            // worse ball when the hole was decided on worse-ball.
+            // worse ball when the hole was decided on worse-ball. The marker is
+            // pure presentation vocabulary — the +1/+2/+5 golf meaning lives in
+            // its human `label`, never in a token name.
             let decidingBallId: string | null = null;
-            let markType: 'win' | 'win2' | 'win5' | null = null;
+            let decidingMarker: CellMarker | null = null;
             if (awardTo !== null && status !== 'halved') {
                 const winnerBall = awardTo === 'A' ? ballA : ballB;
                 decidingBallId = decidedByWorse ? winnerBall.worseBallId : winnerBall.betterBallId;
-                markType = points === 5 ? 'win5' : points === 2 ? 'win2' : 'win';
+                const tone = awardTo === 'A' ? 'side_a' : 'side_b';
+                decidingMarker =
+                    points === 5
+                        ? marker.diamond({ tone, label: 'Down-team eagle, +5' })
+                        : points === 2
+                          ? marker.doubleRing({ tone, label: 'Down-team birdie, +2' })
+                          : marker.ring({ tone, label: 'Hole won, +1' });
             }
 
             const pushBall = (idx: number, score: PlayerHole, n: string) => {
@@ -331,8 +341,8 @@ export const talibanBetterBall: FormatStrategy = {
                     points: null,
                     note: n,
                 };
-                if (decidingBallId !== null && markType && ballResults[idx].ballId === decidingBallId) {
-                    hole.mark = markType;
+                if (decidingMarker !== null && ballResults[idx].ballId === decidingBallId) {
+                    hole.marker = decidingMarker;
                 }
                 ballResults[idx].holes.push(hole);
             };

@@ -19,6 +19,8 @@
 // shape is intentionally a struct (`HoleRef`) rather than a bare number so
 // that extension is additive.
 
+import type { CellMarker, Tone } from './result-vocabulary';
+
 /**
  * One scorecard column — a single itinerary occurrence. `playHoleId` is the
  * stable identity (cells align to columns by it); `occurrenceLabel` is the
@@ -47,12 +49,15 @@ export interface GridCell {
     display?: string;
     /** Hover annotation (e.g. stableford netPar arithmetic, umbrella categories). */
     title?: string;
+    /** Optional colour intent for the cell (closed presentation vocabulary). */
+    tone?: Tone;
     /**
-     * Match formats: this cell's ball DECIDED the hole — the renderer draws a
-     * shape around the score. `win` = won (+1), `win2` = +2 (e.g. taliban down
-     * birdie), `win5` = +5 (down eagle). Tinted by the row's `team`.
+     * Match formats: this cell's ball DECIDED the hole — the renderer draws the
+     * marker's shape (ring / double_ring / diamond) around the score. The golf
+     * meaning rides in the marker `label`, never a token name. The row's `team`
+     * still drives the colour tint.
      */
-    mark?: 'win' | 'win2' | 'win5';
+    marker?: CellMarker;
     /** Per-cell team tint (e.g. the standing row coloured by who's currently up). */
     team?: 'a' | 'b';
 }

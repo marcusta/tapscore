@@ -26,6 +26,7 @@ import {
     resolveSingleProducer,
     strokesGivenMapForProducer,
 } from './_shared';
+import { marker } from '../result-vocabulary';
 
 export const MATCH_PLAY_BETTER_BALL_ID = 'match_play_better_ball';
 
@@ -237,7 +238,9 @@ export const matchPlayBetterBall: FormatStrategy = {
                     net: h.net,
                     points: null,
                     note: j < 2 ? aNote : bNote,
-                    ...(j === decidingIdx ? { mark: 'win' as const } : {}),
+                    ...(j === decidingIdx
+                        ? { marker: marker.ring({ tone: j < 2 ? 'side_a' : 'side_b', label: 'Hole won' }) }
+                        : {}),
                 });
             });
 

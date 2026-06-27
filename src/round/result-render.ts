@@ -12,6 +12,7 @@
 // missing adapter is never silently hidden (PHASES M5 requirement).
 
 import type {
+    GridCell,
     GridRow,
     HoleRef,
     MatchSummarySection,
@@ -78,6 +79,26 @@ function rowClass(row: GridRow): string {
     return team.trim();
 }
 
+/**
+ * Resolve a cell's deciding-ball marker template → the CSS modifier the
+ * `.lb-mark--<template>` rules style. Reads the presentation-vocabulary
+ * `marker.template` (`ring` | `double_ring` | `diamond` | …).
+ *
+ * TEMPORARY Phase 2 compatibility shim: also accepts the legacy `mark`
+ * (`win`/`win2`/`win5`) so a stale cached result still renders a shape while
+ * generated clients catch up. The live server no longer emits `mark`; remove
+ * this branch once no producer can return it.
+ */
+function cellMarkerTemplate(c: GridCell | undefined): string | null {
+    if (!c) return null;
+    if (c.marker) return c.marker.template;
+    const legacy = (c as { mark?: 'win' | 'win2' | 'win5' }).mark;
+    if (legacy === 'win5') return 'diamond';
+    if (legacy === 'win2') return 'double_ring';
+    if (legacy === 'win') return 'ring';
+    return null;
+}
+
 function groupSubtotal(row: GridRow, playHoleIds: Set<string>): string {
     const cells = row.cells.filter((c) => playHoleIds.has(c.playHoleId));
     if (row.aggregate === 'sum') {
@@ -113,9 +134,19 @@ function renderScoreGrid(section: ScoreGridSection, routeSections: RouteSectionR
                         const c = cells.get(h.playHoleId);
                         const title = c?.title ? ` title="${esc(c.title)}"` : '';
                         const text = emph(esc(c?.display ?? ''));
-                        // A deciding-ball mark draws a shape (○ / ◎ / ◇) around the score;
-                        // a per-cell team (the standing row) draws a filled colour pill.
-                        let inner = c?.mark ? `<span class="lb-mark lb-mark--${c.mark}">${text}</span>` : text;
+                        // A deciding-ball marker draws a shape (ring / double_ring /
+                        // diamond) around the score; a per-cell team (the standing row)
+                        // draws a filled colour pill. The marker's `label` carries the
+                        // golf meaning ("Down-team eagle, +5") — surface it as the
+                        // marker's tooltip + aria-label so the shape isn't opaque.
+                        const markTemplate = cellMarkerTemplate(c);
+                        const markLabel = c?.marker?.label;
+                        const markAttrs = markLabel
+                            ? ` title="${esc(markLabel)}" aria-label="${esc(markLabel)}"`
+                            : '';
+                        let inner = markTemplate
+                            ? `<span class="lb-mark lb-mark--${markTemplate}"${markAttrs}>${text}</span>`
+                            : text;
                         if (c?.team) inner = `<span class="lb-pill lb-pill--${c.team}">${text}</span>`;
                         return `<td class="${cellClass(row)}"${title}>${inner}</td>`;
                     })

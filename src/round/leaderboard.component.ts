@@ -175,7 +175,9 @@ export class LeaderboardComponent extends Component {
             }
             & .lb-pill--a { background: #c2452f; }
             & .lb-pill--b { background: #2c6cae; }
-            /* Deciding-ball shapes: ○ win, ◎ +2 (double ring), ◇ +5 (diamond). */
+            /* Deciding-ball marker shapes (presentation vocabulary): ring (base
+               ○), double_ring (◎), diamond (◇). The marker's label carries the
+               golf meaning; these class names stay presentation-only. */
             & .lb-mark {
                 display: inline-flex; align-items: center; justify-content: center;
                 box-sizing: border-box; width: 1.7em; height: 1.7em; line-height: 1;
@@ -183,9 +185,9 @@ export class LeaderboardComponent extends Component {
                 padding-top: 0.12em; vertical-align: middle;
                 border: 2px solid currentColor; border-radius: 999px;
             }
-            & .lb-mark--win2 { border-width: 3px; border-style: double; }
-            & .lb-mark--win5 { border: none; position: relative; }
-            & .lb-mark--win5::before {
+            & .lb-mark--double_ring { border-width: 3px; border-style: double; }
+            & .lb-mark--diamond { border: none; position: relative; }
+            & .lb-mark--diamond::before {
                 content: ''; position: absolute; left: 50%; top: 50%;
                 width: 1.2em; height: 1.2em; transform: translate(-50%, -50%) rotate(45deg);
                 border: 2px solid currentColor;

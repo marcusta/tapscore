@@ -339,7 +339,8 @@ function runningRow(cols: ResultColumn[], running: Map<string, number>): GridRow
 // --- pair card -------------------------------------------------------------
 
 /** One player's net row on the compact match card: just the net per hole, team-
- * tinted, with the deciding-hole shape (○ / ◎ / ◇) where this ball won it. */
+ * tinted, with the deciding-hole marker (ring / double_ring / diamond) where
+ * this ball won it. The marker is presentation vocabulary built by the format. */
 function matchNetRow(cols: ResultColumn[], r: BallResult, team: 'a' | 'b'): GridRow {
     const byId = byPlayHole(r);
     return {
@@ -352,7 +353,7 @@ function matchNetRow(cols: ResultColumn[], r: BallResult, team: 'a' | 'b'): Grid
             const hr = byId.get(c.playHoleId);
             const n = hr?.net ?? null;
             const gc = cell(c, n, n === null ? '–' : String(n));
-            return hr?.mark ? { ...gc, mark: hr.mark } : gc;
+            return hr?.marker ? { ...gc, marker: hr.marker } : gc;
         }),
     };
 }
