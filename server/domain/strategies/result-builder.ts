@@ -406,7 +406,9 @@ function buildPairCard(
 
     return {
         kind: 'score_grid',
-        title: { groups: [pair.sideA.ballIds, pair.sideB.ballIds], joiner: ' vs. ' },
+        // No title — the structured match panel above + the team-tinted row labels
+        // already identify the two sides (avoids repeating the player names).
+        title: { groups: [], joiner: '' },
         subjectBallIds: [...pair.sideA.ballIds, ...pair.sideB.ballIds],
         holes: cols.map(holeRef),
         subtitleFacts: [`${input.formatLabel} · ${input.allowanceLabel}`],

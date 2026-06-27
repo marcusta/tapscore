@@ -94,27 +94,15 @@ function groupSubtotal(row: GridRow, playHoleIds: Set<string>): string {
     return '—';
 }
 
-function totColumn(row: GridRow, groups: ColumnGroup[]): string {
-    if (row.aggregate === 'sum') {
-        const all = row.cells.map((c) => c.value).filter((v): v is number => v !== null);
-        return all.length === 0 ? '—' : String(all.reduce((a, b) => a + b, 0));
-    }
-    if (row.aggregate === 'last') return groupSubtotal(row, groups[groups.length - 1]!.playHoleIds);
-    return '—';
-}
-
 function renderScoreGrid(section: ScoreGridSection, routeSections: RouteSectionRef[], nameOf: NameOf): string {
     const groups = groupColumns(section.holes, routeSections);
-    const includeTot = groups.length > 1;
 
     // Each hole-group (front 9 / back 9) renders as its OWN stacked table block so
     // an 18-hole card never scrolls sideways — the traditional mobile scorecard.
-    // The grand TOT column rides only the last block (= Out + In).
-    const renderBlock = (g: (typeof groups)[number], isLast: boolean): string => {
-        const totHead = isLast && includeTot ? '<th class="lb-sum">TOT</th>' : '';
+    const renderBlock = (g: (typeof groups)[number]): string => {
         const header = `<tr><th class="lb-rowlabel">Hole</th>${g.holes
             .map((h) => `<th>${esc(h.occurrenceLabel)}</th>`)
-            .join('')}<th class="lb-sum">${esc(g.label)}</th>${totHead}</tr>`;
+            .join('')}<th class="lb-sum">${esc(g.label)}</th></tr>`;
 
         const body = section.rows
             .map((row) => {
@@ -133,18 +121,20 @@ function renderScoreGrid(section: ScoreGridSection, routeSections: RouteSectionR
                     })
                     .join('');
                 const sub = `<td class="lb-sum">${emph(groupSubtotal(row, g.playHoleIds))}</td>`;
-                const tot = isLast && includeTot ? `<td class="lb-sum">${emph(totColumn(row, groups))}</td>` : '';
-                const label = row.subjectBallId ? `${esc(nameOf(row.subjectBallId))} ${esc(row.label)}` : esc(row.label);
-                return `<tr class="${rowClass(row)}"><th class="lb-rowlabel">${label}</th>${cellsHtml}${sub}${tot}</tr>`;
+                const label = row.subjectBallId
+                    ? esc(nameOf(row.subjectBallId)) + (row.label ? ' ' + esc(row.label) : '')
+                    : esc(row.label);
+                return `<tr class="${rowClass(row)}"><th class="lb-rowlabel">${label}</th>${cellsHtml}${sub}</tr>`;
             })
             .join('');
 
         return `<div class="lb-card__scroll"><table class="lb-grid"><thead>${header}</thead><tbody>${body}</tbody></table></div>`;
     };
-    const blocks = groups.map((g, i) => renderBlock(g, i === groups.length - 1)).join('');
+    const blocks = groups.map((g) => renderBlock(g)).join('');
 
     const title = section.title.groups
         .map((g) => g.map((id) => esc(nameOf(id))).join(' & '))
+        .filter(Boolean)
         .join(section.title.joiner);
     const subtitle = section.subtitleFacts.length
         ? `<div class="lb-card__sub">${section.subtitleFacts.map(esc).join(' · ')}</div>`
@@ -163,8 +153,12 @@ function renderScoreGrid(section: ScoreGridSection, routeSections: RouteSectionR
               .join('')}</ul>`
         : '';
 
+    // Match cards drop the title (the structured panel above + the team-tinted row
+    // labels already identify who's who) — render the head only when there's a title.
+    const head = title ? `<header class="lb-card__head"><h4>${title}</h4>${subtitle}</header>` : subtitle;
+
     return `<article class="lb-card">
-  <header class="lb-card__head"><h4>${title}</h4>${subtitle}</header>
+  ${head}
   ${blocks}
   ${footnotes}${caption}${totals}
 </article>`;

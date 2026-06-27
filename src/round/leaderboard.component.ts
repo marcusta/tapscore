@@ -162,11 +162,17 @@ export class LeaderboardComponent extends Component {
                 font-variant-numeric: tabular-nums;
                 font-size: 0.8rem;
                 white-space: nowrap;
+                /* Fixed layout → every hole column is the same width (content no
+                   longer stretches a column), and front-9 / back-9 blocks align. */
+                table-layout: fixed;
+                width: 100%;
             }
             & .lb-grid th, & .lb-grid td {
-                padding: 3px 6px;
+                padding: 3px 2px;
                 text-align: center;
                 border-bottom: 1px solid ${t('border')};
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
             & .lb-grid thead th {
                 font-size: 0.7rem;
@@ -175,13 +181,14 @@ export class LeaderboardComponent extends Component {
             }
             & .lb-grid .lb-rowlabel {
                 text-align: left;
+                width: 6em;
                 position: sticky;
                 left: 0;
                 background: ${t('surface')};
                 font-weight: 600;
                 color: ${t('text')};
             }
-            & .lb-grid .lb-sum { font-weight: 700; background: ${t('surface-sunken')}; }
+            & .lb-grid .lb-sum { width: 2.4em; font-weight: 700; background: ${t('surface-sunken')}; }
             & .lb-grid .lb-r-dim td, & .lb-grid .lb-r-dim th { color: ${t('text-muted')}; }
             & .lb-grid .lb-c-si { color: ${t('text-muted')}; font-size: 0.7rem; }
             & .lb-grid .lb-r-cat th { font-weight: 400; color: ${t('text-muted')}; }
