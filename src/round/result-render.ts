@@ -125,10 +125,11 @@ function renderScoreGrid(section: ScoreGridSection, routeSections: RouteSectionR
                         const c = cells.get(h.playHoleId);
                         const title = c?.title ? ` title="${esc(c.title)}"` : '';
                         const text = emph(esc(c?.display ?? ''));
-                        // A deciding-ball mark draws a shape (○ / ◎ / ◇) around the score.
-                        const inner = c?.mark ? `<span class="lb-mark lb-mark--${c.mark}">${text}</span>` : text;
-                        const cls = cellClass(row) + (c?.team ? ` lb-team-${c.team}` : '');
-                        return `<td class="${cls.trim()}"${title}>${inner}</td>`;
+                        // A deciding-ball mark draws a shape (○ / ◎ / ◇) around the score;
+                        // a per-cell team (the standing row) draws a filled colour pill.
+                        let inner = c?.mark ? `<span class="lb-mark lb-mark--${c.mark}">${text}</span>` : text;
+                        if (c?.team) inner = `<span class="lb-pill lb-pill--${c.team}">${text}</span>`;
+                        return `<td class="${cellClass(row)}"${title}>${inner}</td>`;
                     })
                     .join('');
                 const sub = `<td class="lb-sum">${emph(groupSubtotal(row, g.playHoleIds))}</td>`;
@@ -190,17 +191,23 @@ function renderRanked(section: RankedSection, nameOf: NameOf): string {
 }
 
 function renderMatchSummary(section: MatchSummarySection, nameOf: NameOf): string {
-    const lines = section.lines
-        .map((line) => {
-            const text = line.segments
-                .map((seg) => ('text' in seg ? esc(seg.text) : esc(seg.ballIds.map(nameOf).join(' & '))))
-                .join('');
-            return `<li class="lb-match__line lb-match__line--${line.result}">${text}</li>`;
+    const panels = section.matches
+        .map((m) => {
+            const aNames = esc(m.sideA.ballIds.map(nameOf).join(' & '));
+            const bNames = esc(m.sideB.ballIds.map(nameOf).join(' & '));
+            const standing = m.magnitude === 0 ? 'AS' : `${m.magnitude} UP`;
+            const status = m.finished ? 'Final' : `thru ${m.thru}`;
+            const aLead = m.leader === 'a' ? ' lb-mp__team--lead' : '';
+            const bLead = m.leader === 'b' ? ' lb-mp__team--lead' : '';
+            return `<div class="lb-mp">
+    <div class="lb-mp__team lb-mp__team--a${aLead}">${aNames}</div>
+    <div class="lb-mp__center"><span class="lb-mp__standing">${esc(standing)}</span><span class="lb-mp__status">${esc(status)}</span></div>
+    <div class="lb-mp__team lb-mp__team--b${bLead}">${bNames}</div>
+  </div>`;
         })
         .join('');
     return `<div class="lb-section">
-  <h4 class="lb-section__title">${esc(section.title)}</h4>
-  <ul class="lb-match">${lines}</ul>
+  <h4 class="lb-section__title">${esc(section.title)}</h4>${panels}
 </div>`;
 }
 

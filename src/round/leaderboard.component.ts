@@ -111,15 +111,26 @@ export class LeaderboardComponent extends Component {
             & .lb-rank__lead td { background: ${t('accent-soft')}; }
             & .lb-rank__lead .lb-rank__pos { color: ${t('accent')}; }
 
-            & .lb-match { list-style: none; margin: 0; padding: 0; }
-            & .lb-match__line {
-                padding: ${s('sm')} ${s('md')};
-                border-bottom: 1px solid ${t('border')};
-                font-size: 0.95rem;
+            /* Structured match panel: two team blocks + a centre standing. */
+            & .lb-mp {
+                display: grid; grid-template-columns: 1fr auto 1fr; align-items: stretch;
+                border: 1px solid ${t('border')}; border-radius: 10px; overflow: hidden;
+                margin-top: ${s('sm')};
             }
-            & .lb-match__line--won { font-weight: 700; color: ${t('primary')}; }
-            & .lb-match__line--lost { color: ${t('text-muted')}; }
-            & .lb-match__line--halved { color: ${t('text')}; }
+            & .lb-mp__team {
+                padding: ${s('sm')} ${s('md')}; font-weight: 700; font-size: 0.9rem;
+                display: flex; align-items: center;
+            }
+            & .lb-mp__team--a { color: #c2452f; }
+            & .lb-mp__team--b { color: #2c6cae; justify-content: flex-end; text-align: right; }
+            & .lb-mp__team--a.lb-mp__team--lead { background: #c2452f; color: #fff; }
+            & .lb-mp__team--b.lb-mp__team--lead { background: #2c6cae; color: #fff; }
+            & .lb-mp__center {
+                display: flex; flex-direction: column; align-items: center; justify-content: center;
+                padding: ${s('xs')} ${s('md')}; gap: 1px;
+            }
+            & .lb-mp__standing { font-size: 1.25rem; font-weight: 800; line-height: 1; }
+            & .lb-mp__status { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.04em; color: ${t('text-muted')}; }
 
             /* Format-aware scorecard cards. */
             & .lb-cards__head {
@@ -178,11 +189,20 @@ export class LeaderboardComponent extends Component {
             /* Match-card team tints (the player rows + their deciding-ball marks). */
             & .lb-grid .lb-team-a, & .lb-grid .lb-team-a th { color: #c2452f; }
             & .lb-grid .lb-team-b, & .lb-grid .lb-team-b th { color: #2c6cae; }
+            /* Standing pill — team-colour background, white text (high contrast). */
+            & .lb-pill {
+                display: inline-block; min-width: 1.4em; padding: 0.05em 0.45em;
+                border-radius: 999px; color: #fff; font-weight: 700;
+            }
+            & .lb-pill--a { background: #c2452f; }
+            & .lb-pill--b { background: #2c6cae; }
             /* Deciding-ball shapes: ○ win, ◎ +2 (double ring), ◇ +5 (diamond). */
             & .lb-mark {
                 display: inline-flex; align-items: center; justify-content: center;
                 box-sizing: border-box; width: 1.7em; height: 1.7em; line-height: 1;
-                vertical-align: middle; border: 2px solid currentColor; border-radius: 999px;
+                /* Digits sit high in their line box, so nudge down to optically centre. */
+                padding-top: 0.12em; vertical-align: middle;
+                border: 2px solid currentColor; border-radius: 999px;
             }
             & .lb-mark--win2 { border-width: 3px; border-style: double; }
             & .lb-mark--win5 { border: none; position: relative; }

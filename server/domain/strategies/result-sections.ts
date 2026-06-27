@@ -141,20 +141,25 @@ export interface RankedSection {
     entries: RankedEntry[];
 }
 
-/** A line segment: literal text OR a ball reference the consumer names. */
-export type LineSegment = { text: string } | { ballIds: string[] };
-
-export interface MatchLine {
-    segments: LineSegment[];
-    /** won/lost/halved/in_progress — for optional styling. */
-    result: 'won' | 'lost' | 'halved' | 'in_progress';
+/** One head-to-head match as a structured panel: two sides, who's up + by how
+ * much, and whether it's finished. The consumer resolves ballIds → names. */
+export interface MatchPanel {
+    sideA: { ballIds: string[] };
+    sideB: { ballIds: string[] };
+    /** Which side is up — 'a', 'b', or null when all square. */
+    leader: 'a' | 'b' | null;
+    /** Holes/points the leader is up by (0 when all square). */
+    magnitude: number;
+    /** Match decided (closed out / 18 done) → show "Final"; else "thru N". */
+    finished: boolean;
+    thru: number;
 }
 
-/** Pair/team-vs-team results expressed in golf idiom (match-play, taliban). */
+/** Pair/team-vs-team results (match-play, taliban) as structured panels. */
 export interface MatchSummarySection {
     kind: 'match_summary';
     title: string;
-    lines: MatchLine[];
+    matches: MatchPanel[];
 }
 
 export type LeaderboardSection = RankedSection | MatchSummarySection;

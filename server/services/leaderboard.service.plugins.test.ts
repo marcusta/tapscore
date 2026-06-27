@@ -87,16 +87,14 @@ for (const s of SCENARIOS) {
         const ranked = rr.slots.flatMap((sl) =>
             sl.leaderboard.filter((l) => l.kind === 'ranked'),
         );
-        const matchLines = rr.slots.flatMap((sl) =>
-            sl.leaderboard.filter((l) => l.kind === 'match_summary').flatMap((m) => m.lines),
+        const matchPanels = rr.slots.flatMap((sl) =>
+            sl.leaderboard.filter((l) => l.kind === 'match_summary').flatMap((m) => m.matches),
         );
         // Every ball id that surfaces in a result section is a REAL ball id —
         // the builder resolves `team:<label>` aggregates to member ball ids.
         const sectionBallIds = [
             ...ranked.flatMap((r) => r.entries.flatMap((e) => e.ballIds)),
-            ...matchLines.flatMap((line) =>
-                line.segments.flatMap((seg) => ('ballIds' in seg ? seg.ballIds : [])),
-            ),
+            ...matchPanels.flatMap((m) => [...m.sideA.ballIds, ...m.sideB.ballIds]),
         ];
         for (const id of sectionBallIds) expect(id.startsWith('team:')).toBe(false);
 
@@ -106,7 +104,7 @@ for (const s of SCENARIOS) {
             expect(section!.entries.length).toBeGreaterThan(0);
         }
         if (s.expectPairs !== undefined) {
-            expect(matchLines).toHaveLength(s.expectPairs);
+            expect(matchPanels).toHaveLength(s.expectPairs);
         }
     });
 }

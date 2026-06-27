@@ -206,12 +206,14 @@ function renderRanked(section: RankedSection, nameOf: (id: string) => string): s
 }
 
 function renderMatchSummary(section: MatchSummarySection, nameOf: (id: string) => string): string {
-    const rows = section.lines
-        .map((line) => {
-            const text = line.segments
-                .map((s) => ('text' in s ? esc(s.text) : esc(s.ballIds.map(nameOf).join(' & '))))
-                .join('');
-            return `<tr><td>${text}</td></tr>`;
+    const rows = section.matches
+        .map((m) => {
+            const a = esc(m.sideA.ballIds.map(nameOf).join(' & '));
+            const b = esc(m.sideB.ballIds.map(nameOf).join(' & '));
+            const standing = m.magnitude === 0 ? 'AS' : `${m.magnitude} UP`;
+            const status = m.finished ? 'Final' : `thru ${m.thru}`;
+            const lead = m.leader === 'a' ? a : m.leader === 'b' ? b : `${a} / ${b}`;
+            return `<tr><td>${lead} — ${esc(standing)} (${esc(status)})</td></tr>`;
         })
         .join('');
     return `

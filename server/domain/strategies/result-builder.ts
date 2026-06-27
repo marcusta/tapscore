@@ -25,7 +25,7 @@ import type {
     GridRow,
     HoleRef,
     LeaderboardSection,
-    MatchLine,
+    MatchPanel,
     RankedEntry,
     ScoreGridSection,
     SlotResultView,
@@ -596,9 +596,7 @@ function buildLeaderboard(
 
     const pairs = input.result.pairResults ?? [];
     if (pairs.length > 0) {
-        const lines: MatchLine[] = pairs.map((pair) => {
-            // Structured standing with the PLAYER names (consistent with the
-            // scorecard) — no "Team A/B" prose. Winner first, magnitude only.
+        const matches: MatchPanel[] = pairs.map((pair) => {
             let lead = 0;
             let thru = 0;
             for (const ph of pair.holes) {
@@ -606,27 +604,16 @@ function buildLeaderboard(
                 thru++;
                 if (ph.pointsDelta !== null && ph.pointsDelta !== undefined) lead += ph.pointsDelta;
             }
-            const a = pair.sideA.ballIds;
-            const b = pair.sideB.ballIds;
-            const tail = pair.result === 'in_progress' ? ` · thru ${thru}` : ' · final';
-            if (lead === 0) {
-                return {
-                    segments: [{ ballIds: a }, { text: ' — all square — ' }, { ballIds: b }, { text: tail }],
-                    result: pair.result,
-                };
-            }
-            const [winner, loser] = lead > 0 ? [a, b] : [b, a];
             return {
-                segments: [
-                    { ballIds: winner },
-                    { text: ` ${Math.abs(lead)} up ` },
-                    { ballIds: loser },
-                    { text: tail },
-                ],
-                result: pair.result,
+                sideA: { ballIds: pair.sideA.ballIds },
+                sideB: { ballIds: pair.sideB.ballIds },
+                leader: lead > 0 ? 'a' : lead < 0 ? 'b' : null,
+                magnitude: Math.abs(lead),
+                finished: pair.result !== 'in_progress',
+                thru,
             };
         });
-        out.push({ kind: 'match_summary', title: 'Match results', lines });
+        out.push({ kind: 'match_summary', title: 'Match results', matches });
     }
 
     return out;

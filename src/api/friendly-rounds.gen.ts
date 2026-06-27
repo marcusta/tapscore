@@ -216,7 +216,7 @@ export interface RankedSection {
 export interface MatchSummarySection {
     kind: 'match_summary';
     title: string;
-    lines: MatchLine[];
+    matches: MatchPanel[];
 }
 
 export interface HoleRef {
@@ -244,9 +244,13 @@ export interface RankedEntry {
     position: number;
 }
 
-export interface MatchLine {
-    segments: ({ text: string } | { ballIds: string[] })[];
-    result: 'won' | 'lost' | 'halved' | 'in_progress';
+export interface MatchPanel {
+    sideA: { ballIds: string[] };
+    sideB: { ballIds: string[] };
+    leader: null | 'a' | 'b';
+    magnitude: number;
+    finished: boolean;
+    thru: number;
 }
 
 export interface GridCell {
