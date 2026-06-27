@@ -1091,6 +1091,12 @@ export class RoundService {
         trx: Kysely<Database> = this.db,
     ): Promise<void> {
         await this.updateById(id, trx).set({ latest_event_id: eventId }).execute();
+        // First score event promotes a not_started round to active. Guarded on
+        // status so a completed round is never reopened by a late append.
+        await this.updateById(id, trx)
+            .set({ status: 'active' })
+            .where('status', '=', 'not_started')
+            .execute();
     }
 
     /**

@@ -324,6 +324,13 @@ export class RoundViewService {
             if (cell && cell.clientEventId === clientEventId) {
                 this.patchCell(key, { ...cell, status: 'saved' });
             }
+            // The first accepted score promotes the round server-side
+            // (round.service recordLatestEvent). Mirror that locally so the
+            // status badge flips to "Live" without an extra round refetch.
+            const r = this.round.get();
+            if (r && r.status === 'not_started') {
+                this.round.set({ ...r, status: 'active' });
+            }
         } catch {
             const cell = this.cells.get().get(key);
             if (cell && cell.clientEventId === clientEventId) {

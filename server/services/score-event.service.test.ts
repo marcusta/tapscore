@@ -54,6 +54,33 @@ test('append inserts event and bumps rounds.latest_event_id', async () => {
     expect(round!.latestEventId).toBe(res.event.id);
 });
 
+test('first append promotes a not_started round to active; complete is not reopened', async () => {
+    const { scoreEventService, roundService, roundId, ballId, playHoleByCourseHole } = await setup();
+    expect((await roundService.getById(roundId))!.status).toBe('not_started');
+
+    await scoreEventService.append({
+        roundId,
+        ballId,
+        playHoleId: playHoleByCourseHole.get(1)!,
+        strokes: 4,
+        eventType: 'score_entered',
+        clientEventId: 'c1',
+    });
+    expect((await roundService.getById(roundId))!.status).toBe('active');
+
+    // A completed round must not be reopened by a late append.
+    await roundService.update(roundId, { status: 'complete' });
+    await scoreEventService.append({
+        roundId,
+        ballId,
+        playHoleId: playHoleByCourseHole.get(2)!,
+        strokes: 3,
+        eventType: 'score_entered',
+        clientEventId: 'c2',
+    });
+    expect((await roundService.getById(roundId))!.status).toBe('complete');
+});
+
 test('replaying the same clientEventId is deduped, returns original row', async () => {
     const { scoreEventService, roundId, ballId, playHoleByCourseHole } = await setup();
     const first = await scoreEventService.append({
