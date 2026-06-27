@@ -81,6 +81,7 @@ interface BuiltinMeta {
 }
 
 const NORMALIZED_RUNNING = { runningTotals: 'normalized' as const };
+const COMPACT_MATCH_GRID = { scoreGridComponentId: 'compact-match-grid' as const };
 
 const BUILTINS: BuiltinMeta[] = [
     {
@@ -108,6 +109,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'match_play',
         teamShape: 'individual',
         metrics: MATCH,
+        resultDisplay: COMPACT_MATCH_GRID,
         scoresAnyBall: true,
     },
     {
@@ -164,6 +166,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'match_play',
         teamShape: 'better_ball',
         metrics: MATCH,
+        resultDisplay: COMPACT_MATCH_GRID,
         scoresAnyBall: true,
     },
     {
@@ -173,7 +176,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'taliban',
         teamShape: 'better_ball',
         metrics: MATCH,
-        resultDisplay: { scoreGridComponentId: 'compact-match-grid' },
+        resultDisplay: COMPACT_MATCH_GRID,
         scoresAnyBall: true,
     },
     {

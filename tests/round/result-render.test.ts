@@ -251,11 +251,31 @@ test('generated GridCell no longer exposes the legacy mark tokens', async () => 
     const leaderboards = await Bun.file(
         new URL('../../src/api/leaderboards.gen.ts', import.meta.url),
     ).text();
-    for (const gen of [friendly, leaderboards]) {
-        expect(gen).not.toContain('win5');
-        expect(gen).not.toContain('win2');
-        expect(gen).not.toContain("mark?:");
-        expect(gen).toContain('marker?:');
+    const shared = await Bun.file(
+        new URL('../../server/domain/strategies/result-sections.ts', import.meta.url),
+    ).text();
+    for (const contract of [friendly, leaderboards, shared]) {
+        expect(contract).not.toContain('win5');
+        expect(contract).not.toContain('win2');
+        expect(contract).not.toContain('mark?:');
+        expect(contract).toContain('marker?:');
+    }
+});
+
+test('result renderers do not branch on format ids', async () => {
+    const mobile = await Bun.file(
+        new URL('../../src/round/result-render.ts', import.meta.url),
+    ).text();
+    const statik = await Bun.file(
+        new URL('../../scripts/render/sections/result.ts', import.meta.url),
+    ).text();
+
+    for (const renderer of [mobile, statik]) {
+        expect(renderer).not.toMatch(/\bformatId\b/);
+        expect(renderer).not.toMatch(/\bformat_id\b/);
+        expect(renderer).not.toContain('match_play');
+        expect(renderer).not.toContain('taliban');
+        expect(renderer).not.toContain('umbrella');
     }
 });
 

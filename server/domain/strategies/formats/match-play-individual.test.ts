@@ -7,9 +7,56 @@ import {
     makeRoundContext,
     makeScoreEvent,
 } from './_testkit';
-import { matchPlayIndividual } from './match-play-individual';
+import { BUILTIN_FORMAT_PLUGINS } from '../../formats/builtins';
+import { buildSlotResult } from '../result-builder';
+import { MATCH_PLAY_INDIVIDUAL_ID, matchPlayIndividual } from './match-play-individual';
 
 describe('matchPlayIndividual (new contract)', () => {
+    test('result view emits the compact match grid component id', () => {
+        const courseHoles = make18Holes();
+        const ctx = makeRoundContext(courseHoles, [
+            makeProducer('P1', { courseHandicap: 0 }),
+            makeProducer('P2', { courseHandicap: 0 }),
+        ]);
+        const bA = makeOwnBall('P1', 0, 0);
+        const bB = makeOwnBall('P2', 0, 0);
+        const result = matchPlayIndividual.score({
+            roundContext: ctx,
+            slotBalls: [bA, bB],
+            events: [
+                makeScoreEvent(bA.ballId, 1, 4),
+                makeScoreEvent(bB.ballId, 1, 5),
+            ],
+        });
+
+        const view = buildSlotResult({
+            slotIndex: 0,
+            slotDefId: 'slot-match',
+            formatId: MATCH_PLAY_INDIVIDUAL_ID,
+            formatLabel: 'Match play',
+            scoringMode: 'match_play',
+            teamShape: 'individual',
+            allowanceLabel: '100%',
+            metrics: [],
+            runningNormalized: false,
+            scoreGridComponentId: BUILTIN_FORMAT_PLUGINS.find((p) => p.descriptor.id === MATCH_PLAY_INDIVIDUAL_ID)!
+                .descriptor.resultDisplay?.scoreGridComponentId,
+            result,
+            slotBalls: [bA, bB],
+            slotTeamGroupings: [],
+            columns: ctx.playHoles.map((p) => ({
+                playHoleId: p.playHoleId,
+                courseHoleNumber: p.courseHoleNumber,
+                canonicalOrdinal: p.ordinal,
+                occurrenceLabel: ctx.occurrenceLabel(p.playHoleId),
+                par: p.par,
+                baseStrokeIndex: p.baseStrokeIndex,
+            })),
+        });
+
+        expect(view.cards[0]?.componentId).toBe('compact-match-grid');
+    });
+
     test('halved match: scratch vs scratch, all pars → AS', () => {
         const courseHoles = make18Holes();
         const ctx = makeRoundContext(courseHoles, [
