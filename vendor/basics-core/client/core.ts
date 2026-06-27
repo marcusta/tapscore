@@ -33,6 +33,12 @@ class Scheduler {
         try { fn(); } finally { this.tracking = prev; }
     }
 
+    untrack<T>(fn: () => T): T {
+        const prev = this.tracking;
+        this.tracking = null;
+        try { return fn(); } finally { this.tracking = prev; }
+    }
+
     batch(fn: () => void): void {
         this.batching = true;
         try { fn(); } finally {
@@ -63,6 +69,9 @@ export class Signal<T> {
         scheduler.subscribe(this.subs);
         return this.val;
     }
+
+    /** Read the current value WITHOUT subscribing the active effect. */
+    peek(): T { return this.val; }
 
     set(next: T): void {
         if (Object.is(this.val, next)) return;
@@ -101,6 +110,9 @@ export class Computed<T> {
         scheduler.subscribe(this.subs);
         return this.val;
     }
+
+    /** Read the current value WITHOUT subscribing the active effect. */
+    peek(): T { return this.val; }
 }
 
 export function effect(fn: () => void): () => void {
@@ -114,6 +126,17 @@ export function effect(fn: () => void): () => void {
 
 export function batch(fn: () => void): void {
     scheduler.batch(fn);
+}
+
+/**
+ * Run `fn` with reactive tracking suspended: signal reads inside it do NOT
+ * subscribe the currently-running effect. Use it to isolate side work — most
+ * importantly building a child component — from the effect that triggered it,
+ * so the child's construction/render can't leak its reads into the parent's
+ * dependency set. Nested `effect()`/`Computed` inside still track normally.
+ */
+export function untrack<T>(fn: () => T): T {
+    return scheduler.untrack(fn);
 }
 
 // ─── Dependency Injection ────────────────────────────────────────
@@ -368,8 +391,16 @@ export abstract class Component<P extends object = {}> {
         host: HTMLElement,
         ...args: {} extends PropsOf<T> ? [props?: PropsOf<T>] : [props: PropsOf<T>]
     ): T {
-        const child = new Ctor(args[0]);
-        child.mount(host);
+        // Build + render the child OUTSIDE any tracking context. If spawn() is
+        // called from a render that is itself running inside an effect (e.g. a
+        // $swap/$each renderer), an untracked boundary stops the child's own
+        // signal reads (field initializers, render) from subscribing that outer
+        // effect — which would otherwise remount the child on unrelated changes.
+        const child = untrack(() => {
+            const c = new Ctor(args[0]);
+            c.mount(host);
+            return c;
+        });
         this.children.push(child);
         return child;
     }
@@ -486,7 +517,10 @@ export abstract class Component<P extends object = {}> {
                     next.set(k, nodes.get(k)!);
                 } else {
                     const itemDisposers: (() => void)[] = [];
-                    next.set(k, renderer(item, i, d => itemDisposers.push(d)));
+                    // Only the list read drives this effect; build each item's DOM
+                    // untracked so a signal read inside a renderer (or a component
+                    // it spawns) doesn't re-run the whole list on every change.
+                    next.set(k, untrack(() => renderer(item, i, d => itemDisposers.push(d))));
                     scopes.set(k, itemDisposers);
                 }
             }
@@ -524,7 +558,10 @@ export abstract class Component<P extends object = {}> {
         let current: HTMLElement | null = null;
         this.track(effect(() => {
             if (current) { current.remove(); current = null; }
-            current = signal.get() ? onTrue() : onFalse?.() ?? null;
+            // Read the signal tracked (it drives this effect), then build the
+            // branch untracked so the branch's own reads don't subscribe here.
+            const show = signal.get();
+            current = untrack(() => (show ? onTrue() : onFalse?.() ?? null));
             if (current) host.appendChild(current);
         }));
     }
@@ -542,8 +579,14 @@ export abstract class Component<P extends object = {}> {
             const route = signal.get();
             const Ctor = map[route] ?? matchPrefix(route, map) ?? fallback;
             if (Ctor) {
-                child = new Ctor();
-                child.mount(host);
+                // Only the route read above drives this effect. Build + render
+                // the child untracked so ITS reads don't subscribe this effect
+                // and cause a remount loop on every signal the child touches.
+                child = untrack(() => {
+                    const c = new Ctor!();
+                    c.mount(host);
+                    return c;
+                });
             }
         }));
         this.track(() => child?.destroy());
@@ -584,16 +627,18 @@ export async function startApp(
                 const mod = await import('./obs/obs-shell.component');
                 ObsShell = mod.ObsShellComponent as unknown as new () => Component<any>;
             }
-            app = new ObsShell();
+            app = untrack(() => new ObsShell!());
         } else {
             if (!initRan && options?.onInit) {
                 await options.onInit();
                 initRan = true;
             }
-            app = new Root();
+            app = untrack(() => new Root());
         }
 
-        app.mount(el);
+        // mount() is also reachable from the /_obs toggle effect below; build +
+        // render the root untracked so it can't subscribe that effect.
+        untrack(() => app!.mount(el));
         inObs = obs;
     };
 

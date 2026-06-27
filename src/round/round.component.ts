@@ -1,7 +1,15 @@
-import { Component, Computed, Router, Signal, effect, template } from '@basics/core/client/core';
+import {
+    Component,
+    Computed,
+    type QueryValue,
+    Router,
+    Signal,
+    effect,
+    template,
+} from '@basics/core/client/core';
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
-import { RoundViewService } from './round.service';
+import { RoundViewService, type InitialPosition } from './round.service';
 import { ScoreEntryComponent } from './score-entry.component';
 import { LeaderboardComponent } from './leaderboard.component';
 import { formatLabelFromSlot } from '../rounds/slot-labels';
@@ -289,7 +297,12 @@ export class RoundComponent extends Component {
     private svc = this.inject(RoundViewService);
     private router = this.inject(Router);
     private tokenQ = this.router.query('token');
-    private tab = new Signal<Tab>('score');
+    // Tab + slot + hole live in the URL so a reload (or a shared link) lands on
+    // the same view. `tab` seeds from `?tab=board`; slot/hole are restored into
+    // the service via loadByToken's `initial` (see render). The single write
+    // effect below mirrors all three back to the query string on every change.
+    private initPos = this.readUrlPosition();
+    private tab = new Signal<Tab>(this.initPos.tab);
 
     private hasRound = new Computed(() => this.svc.round.get() !== null);
     private hasScoring = new Computed(() => this.svc.balls.get().length > 0);
@@ -303,7 +316,34 @@ export class RoundComponent extends Component {
         this.track(
             effect(() => {
                 const token = this.tokenQ.get();
-                if (token) void this.svc.loadByToken(token);
+                if (!token) return;
+                // Pass the URL-restored position; loadByToken applies it only when
+                // the token actually changed (a fresh open/reload).
+                void this.svc.loadByToken(token, this.initPos).then(() => {
+                    // Reloading straight into the leaderboard tab restores tab=board
+                    // but never goes through the tab/pill click that fetches the
+                    // result — so fetch it here, else the board reads "No results yet".
+                    if (this.tab.get() === 'leaderboard') void this.svc.loadResult();
+                });
+            }),
+        );
+
+        // Mirror tab + selected slot + current hole back into the query string
+        // (replace, so it doesn't pollute history). Gated on a loaded round so the
+        // pre-load defaults (score / slot 0 / hole 0) can't clobber the URL we
+        // just read on mount. Reading all three signals makes this reactive to a
+        // tab switch, a pill tap, an arrow/swipe — each rewrites the URL in place.
+        this.track(
+            effect(() => {
+                const tab = this.tab.get();
+                const slot = this.svc.selectedSlot.get();
+                const holeIdx = this.svc.holeIdx.get();
+                if (!this.hasRound.get()) return;
+                const query: Record<string, QueryValue> = { token: this.tokenQ.get() };
+                if (tab === 'leaderboard') query.tab = 'board';
+                if (slot > 0) query.slot = slot;
+                if (holeIdx > 0) query.hole = holeIdx + 1;
+                this.router.navigate(this.router.route.get(), { replace: true, query });
             }),
         );
 
@@ -411,6 +451,27 @@ export class RoundComponent extends Component {
         this.spawn(LeaderboardComponent, this.ref(frag, 'leaderboard'));
 
         return frag;
+    }
+
+    /**
+     * Parse view state out of the query string at mount: `?tab=board` → the
+     * leaderboard tab, `?slot=N` → that format pill, `?hole=H` (1-based) → the
+     * 0-based carousel index. Captured once so the write effect can't strip it
+     * before loadByToken restores slot/hole. Out-of-range values are tolerated —
+     * the carousel/slot reads clamp on access.
+     */
+    private readUrlPosition(): { tab: Tab } & InitialPosition {
+        // location.search, not router.search.get(): a one-time mount read needs no
+        // reactive subscription. Reading the browser global also keeps this off the
+        // framework signal entirely — no skew if a bundler serves a stale core.
+        const params = new URLSearchParams(location.search);
+        const slot = Number(params.get('slot'));
+        const hole = Number(params.get('hole'));
+        return {
+            tab: params.get('tab') === 'board' ? 'leaderboard' : 'score',
+            selectedSlot: Number.isFinite(slot) && slot > 0 ? slot : 0,
+            holeIdx: Number.isFinite(hole) && hole > 0 ? hole - 1 : 0,
+        };
     }
 
     private slotPill(slot: FormatSlot, index: number, track: (d: () => void) => void): HTMLElement {

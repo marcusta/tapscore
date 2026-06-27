@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { Signal, Computed, effect, batch, Component, template, Router } from './core';
+import { Signal, Computed, effect, batch, untrack, Component, template, Router } from './core';
 import type { SlotContent, SlotRenderFn } from './core';
 
 // --- Signal ---
@@ -542,4 +542,165 @@ test('$swap: exact match takes priority over prefix', () => {
     expect(mounted).toBe('prefix');
 
     app.destroy();
+});
+
+// ─── untrack / peek: reactive isolation ──────────────────────────
+
+test('untrack: signal reads inside do not subscribe the active effect', () => {
+    const a = new Signal(1);
+    const b = new Signal(10);
+    let runs = 0;
+    let sum = 0;
+
+    effect(() => {
+        runs++;
+        // a is tracked; b is read untracked so it must not become a dependency.
+        sum = a.get() + untrack(() => b.get());
+    });
+
+    expect(runs).toBe(1);
+    expect(sum).toBe(11);
+
+    b.set(20); // untracked dep — effect must NOT re-run
+    expect(runs).toBe(1);
+    expect(sum).toBe(11);
+
+    a.set(2); // tracked dep — effect re-runs, now reads latest b
+    expect(runs).toBe(2);
+    expect(sum).toBe(22);
+});
+
+test('untrack: returns the callback value', () => {
+    expect(untrack(() => 42)).toBe(42);
+});
+
+test('untrack: nested effect inside still tracks normally', () => {
+    const a = new Signal(1);
+    let inner = 0;
+    let innerRuns = 0;
+
+    untrack(() => {
+        effect(() => {
+            innerRuns++;
+            inner = a.get();
+        });
+    });
+
+    expect(innerRuns).toBe(1);
+    expect(inner).toBe(1);
+
+    a.set(5); // the inner effect owns its own tracking scope
+    expect(innerRuns).toBe(2);
+    expect(inner).toBe(5);
+});
+
+test('Signal.peek: reads value without subscribing', () => {
+    const a = new Signal(1);
+    const b = new Signal(10);
+    let runs = 0;
+
+    effect(() => {
+        runs++;
+        a.get();
+        b.peek();
+    });
+
+    expect(runs).toBe(1);
+    b.set(99); // peeked — not a dependency
+    expect(runs).toBe(1);
+    a.set(2);
+    expect(runs).toBe(2);
+});
+
+test('Computed.peek: reads value without subscribing', () => {
+    const a = new Signal(1);
+    const doubled = new Computed(() => a.get() * 2);
+    let runs = 0;
+
+    effect(() => {
+        runs++;
+        doubled.peek();
+    });
+
+    expect(runs).toBe(1);
+    expect(doubled.peek()).toBe(2);
+    a.set(5); // doubled was only peeked — effect must not re-run
+    expect(runs).toBe(1);
+    expect(doubled.peek()).toBe(10);
+});
+
+// ─── Regression: child reads must not leak into parent $swap effect ──
+
+test('$swap: a child reading a signal in render does not remount on that signal', () => {
+    // The exact bug this guards: $swap builds the child inside its own effect.
+    // Without an untracked boundary, a signal the child reads during render
+    // subscribes the $swap effect, so changing it tears down + rebuilds the
+    // child — an unintended remount (and, with a writer, an infinite loop).
+    const external = new Signal('x');
+    const route = new Signal('/page');
+    let mounts = 0;
+
+    class Page extends Component {
+        render() {
+            mounts++;
+            external.get(); // read a signal unrelated to the route during render
+            return document.createElement('div');
+        }
+    }
+
+    class App extends Component {
+        render() {
+            const el = document.createElement('div');
+            this.$swap(el, route, { '/page': Page });
+            return el;
+        }
+    }
+
+    const host = document.createElement('div');
+    const app = new App();
+    app.mount(host);
+    expect(mounts).toBe(1);
+
+    external.set('y'); // must NOT remount the child
+    expect(mounts).toBe(1);
+
+    route.set('/page'); // same route — no remount
+    expect(mounts).toBe(1);
+
+    app.destroy();
+});
+
+test('$each: a renderer reading a signal does not re-run the list on that signal', () => {
+    const external = new Signal(0);
+    const items = new Signal([1, 2, 3]);
+    let renders = 0;
+
+    class List extends Component {
+        render() {
+            const el = document.createElement('div');
+            this.$each(
+                el,
+                items,
+                (item) => {
+                    renders++;
+                    external.get(); // unrelated signal read inside the renderer
+                    const node = document.createElement('span');
+                    node.textContent = String(item);
+                    return node;
+                },
+                (item) => item,
+            );
+            return el;
+        }
+    }
+
+    const host = document.createElement('div');
+    const list = new List();
+    list.mount(host);
+    expect(renders).toBe(3);
+
+    external.set(1); // must not re-run any item renderer
+    expect(renders).toBe(3);
+
+    list.destroy();
 });

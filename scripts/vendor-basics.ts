@@ -33,4 +33,13 @@ await $`rsync -a --delete \
     ${SRC} ${DEST}`;
 
 const fileCount = (await $`find ${DEST} -type f`.text()).trim().split('\n').length;
-console.log(`✅ Vendored ${fileCount} files. Next: bun install && commit vendor/basics-core + bun.lock`);
+
+// Vite pre-bundles @basics/core as an optimized dependency and invalidates that
+// cache on the dep's VERSION, not its file contents. A vendored source change
+// keeps the same version, so vite keeps serving the stale bundle even across a
+// dev-server restart — leading to baffling "method is not a function" crashes
+// when app code calls something the cached bundle predates. Drop the cache here
+// so the next `vite` start re-optimizes against the freshly-vendored core.
+await $`rm -rf node_modules/.vite`.nothrow();
+
+console.log(`✅ Vendored ${fileCount} files (cleared node_modules/.vite). Next: bun install && commit vendor/basics-core + bun.lock`);

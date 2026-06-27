@@ -34,6 +34,13 @@ export interface CellState {
 
 const cellKey = (ballId: string, playHoleId: string) => `${ballId}|${playHoleId}`;
 
+/** On-course position restored from the URL so a reload survives in place. */
+export interface InitialPosition {
+    holeIdx?: number;
+    groupIdx?: number;
+    selectedSlot?: number;
+}
+
 /** Joined producer names for a ball (own-ball = one name, team = "A & B"). */
 export function ballDisplayName(b: RoundBall): string {
     return b.players.map((p) => p.displayName).join(' & ') || b.label || 'Ball';
@@ -93,10 +100,12 @@ export class RoundViewService {
 
     private token: string | null = null;
 
-    async loadByToken(token: string): Promise<void> {
+    async loadByToken(token: string, initial?: InitialPosition): Promise<void> {
         // Opening a different round resets on-course position + clears the stale
         // leaderboard; re-loading the SAME token (e.g. a refresh) preserves the
         // player's hole/group so a reload mid-round doesn't yank them to hole 1.
+        // `initial` lets the caller restore a position read from the URL so a
+        // reload lands on the same hole / format leaderboard, not hole 1 / slot 0.
         const tokenChanged = token !== this.token;
         this.token = token;
         // The score-entry surface reads each format's declared metadata inputs
@@ -122,10 +131,11 @@ export class RoundViewService {
         this.scorecards.set(cards);
         this.balls.set(balls);
         if (tokenChanged) {
-            // A freshly-opened round starts at the first played hole / first group.
-            this.holeIdx.set(0);
-            this.groupIdx.set(0);
-            this.selectedSlot.set(0);
+            // A freshly-opened round starts at the first played hole / first group,
+            // unless the caller restored a position from the URL (reload survival).
+            this.holeIdx.set(initial?.holeIdx ?? 0);
+            this.groupIdx.set(initial?.groupIdx ?? 0);
+            this.selectedSlot.set(initial?.selectedSlot ?? 0);
             this.result.set(null);
         }
     }
