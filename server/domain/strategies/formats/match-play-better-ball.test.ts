@@ -8,8 +8,10 @@ import {
     makeScoreEvent,
 } from './_testkit';
 import { BUILTIN_FORMAT_PLUGINS } from '../../formats/builtins';
-import { buildSlotResult } from '../result-builder';
+import { matchPlayPresenter } from './match-play.presenter';
 import { MATCH_PLAY_BETTER_BALL_ID, matchPlayBetterBall } from './match-play-better-ball';
+
+const presenter = matchPlayPresenter();
 
 function setup() {
     const courseHoles = make18Holes();
@@ -50,7 +52,7 @@ describe('matchPlayBetterBall (new contract)', () => {
             ],
         });
 
-        const view = buildSlotResult({
+        const view = presenter({
             slotIndex: 0,
             slotDefId: 'slot-match-bb',
             formatId: MATCH_PLAY_BETTER_BALL_ID,
@@ -76,6 +78,28 @@ describe('matchPlayBetterBall (new contract)', () => {
         });
 
         expect(view.cards[0]?.componentId).toBe('compact-match-grid');
+        // One titleless card, four net rows (2 per side) framed by Par/Standing.
+        expect(view.cards).toHaveLength(1);
+        expect(view.cards[0]?.title).toEqual({ groups: [], joiner: '' });
+        expect(view.cards[0]?.rows.map((row) => row.label)).toEqual(['Par', '', '', '', '', 'Standing']);
+        expect(view.cards[0]?.totals).toEqual([]);
+        // A single match-summary leaderboard section: A 1-up thru 1, in progress.
+        expect(view.leaderboard).toEqual([
+            {
+                kind: 'match_summary',
+                title: 'Match results',
+                matches: [
+                    {
+                        sideA: { ballIds: [bA1.ballId, bA2.ballId] },
+                        sideB: { ballIds: [bB1.ballId, bB2.ballId] },
+                        leader: 'a',
+                        magnitude: 1,
+                        finished: false,
+                        thru: 1,
+                    },
+                ],
+            },
+        ]);
     });
 
     test('team-vs-team: A wins with lower better-ball', () => {

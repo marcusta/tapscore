@@ -55,6 +55,11 @@ import { umbrella4BallPresenter } from '../strategies/formats/umbrella-4-ball.pr
 import { umbrellaIndividual } from '../strategies/formats/umbrella-individual';
 import { umbrellaIndividualPresenter } from '../strategies/formats/umbrella-individual.presenter';
 import { matchPlayBetterBall } from '../strategies/formats/match-play-better-ball';
+import { matchPlayPresenter } from '../strategies/formats/match-play.presenter';
+
+// One shared presenter instance for the three match-like formats — they render
+// the same compact match view (the constructor takes no config today).
+const matchPlayResultPresenter = matchPlayPresenter();
 
 const GROSS_NET: FormatMetric[] = [
     { id: 'gross', label: 'Gross', direction: 'low' },
@@ -121,6 +126,7 @@ const BUILTINS: BuiltinMeta[] = [
         teamShape: 'individual',
         metrics: MATCH,
         resultDisplay: COMPACT_MATCH_GRID,
+        renderResult: matchPlayResultPresenter,
         scoresAnyBall: true,
     },
     {
@@ -179,6 +185,7 @@ const BUILTINS: BuiltinMeta[] = [
         teamShape: 'better_ball',
         metrics: MATCH,
         resultDisplay: COMPACT_MATCH_GRID,
+        renderResult: matchPlayResultPresenter,
         scoresAnyBall: true,
     },
     {
@@ -189,6 +196,7 @@ const BUILTINS: BuiltinMeta[] = [
         teamShape: 'better_ball',
         metrics: MATCH,
         resultDisplay: COMPACT_MATCH_GRID,
+        renderResult: matchPlayResultPresenter,
         scoresAnyBall: true,
     },
     {

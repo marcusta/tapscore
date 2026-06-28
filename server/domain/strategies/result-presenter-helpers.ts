@@ -1,6 +1,14 @@
-import type { BallResult } from './types';
+import type { BallResult, PairBallResult } from './types';
 import type { FormatMetric } from '../formats/plugin';
-import type { GridCell, GridRow, HoleRef, RankedEntry, RankedSection } from './result-sections';
+import type {
+    GridCell,
+    GridRow,
+    HoleRef,
+    MatchPanel,
+    MatchSummarySection,
+    RankedEntry,
+    RankedSection,
+} from './result-sections';
 
 /**
  * One scorecard column = one itinerary occurrence, ordered by canonical
@@ -307,6 +315,35 @@ export function matchNetRow(cols: ResultColumn[], r: BallResult, team: 'a' | 'b'
             return hr?.marker ? { ...gc, marker: hr.marker } : gc;
         }),
     };
+}
+
+/**
+ * One head-to-head pair → a `MatchPanel`. Decision-free: it accumulates the
+ * A-perspective lead and holes-played over decided holes and reports who's up,
+ * by how much, and whether the match is finished. The presenter decides whether
+ * a pair becomes a panel at all.
+ */
+export function matchPanel(pair: PairBallResult): MatchPanel {
+    let lead = 0;
+    let thru = 0;
+    for (const ph of pair.holes) {
+        if (ph.status === null) continue;
+        thru++;
+        if (ph.pointsDelta !== null && ph.pointsDelta !== undefined) lead += ph.pointsDelta;
+    }
+    return {
+        sideA: { ballIds: pair.sideA.ballIds },
+        sideB: { ballIds: pair.sideB.ballIds },
+        leader: lead > 0 ? 'a' : lead < 0 ? 'b' : null,
+        magnitude: Math.abs(lead),
+        finished: pair.result !== 'in_progress',
+        thru,
+    };
+}
+
+/** Shell that wraps a list of pairs into the match-results leaderboard section. */
+export function matchSummarySection(pairs: PairBallResult[]): MatchSummarySection {
+    return { kind: 'match_summary', title: 'Match results', matches: pairs.map(matchPanel) };
 }
 
 export function rankEntries(entries: RankedEntry[], direction: 'high' | 'low'): RankedEntry[] {

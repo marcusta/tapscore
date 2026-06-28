@@ -8,8 +8,10 @@ import {
     makeScoreEvent,
 } from './_testkit';
 import { BUILTIN_FORMAT_PLUGINS } from '../../formats/builtins';
-import { buildSlotResult } from '../result-builder';
+import { matchPlayPresenter } from './match-play.presenter';
 import { TALIBAN_BETTER_BALL_ID, talibanBetterBall } from './taliban-better-ball';
+
+const presenter = matchPlayPresenter();
 
 function setup() {
     const courseHoles = make18Holes();
@@ -50,7 +52,7 @@ describe('talibanBetterBall (new contract)', () => {
             ],
         });
 
-        const view = buildSlotResult({
+        const view = presenter({
             slotIndex: 0,
             slotDefId: 'slot-taliban',
             formatId: TALIBAN_BETTER_BALL_ID,
@@ -76,6 +78,28 @@ describe('talibanBetterBall (new contract)', () => {
         });
 
         expect(view.cards[0]?.componentId).toBe('compact-match-grid');
+        // Better-ball pairing: ONE titleless card whose subjects are all four
+        // balls, with one net row per member per side (2 + 2) framed by Par/Standing.
+        expect(view.cards).toHaveLength(1);
+        expect(view.cards[0]?.title).toEqual({ groups: [], joiner: '' });
+        expect(view.cards[0]?.subjectBallIds).toEqual([bA1.ballId, bA2.ballId, bB1.ballId, bB2.ballId]);
+        expect(view.cards[0]?.subtitleFacts).toEqual(['Taliban · 90%']);
+        expect(view.cards[0]?.totals).toEqual([]);
+        expect(view.cards[0]?.rows.map((row) => row.label)).toEqual(['Par', '', '', '', '', 'Standing']);
+        // A single match-summary leaderboard section, sides resolved to members.
+        expect(view.leaderboard).toHaveLength(1);
+        const summary = view.leaderboard[0];
+        expect(summary?.kind).toBe('match_summary');
+        if (summary?.kind === 'match_summary') {
+            expect(summary.matches).toHaveLength(1);
+            expect(summary.matches[0]).toMatchObject({
+                sideA: { ballIds: [bA1.ballId, bA2.ballId] },
+                sideB: { ballIds: [bB1.ballId, bB2.ballId] },
+                leader: 'a',
+                finished: false,
+                thru: 1,
+            });
+        }
     });
 
     test('worse-ball tiebreaker: tied better-balls → worse-ball decides', () => {

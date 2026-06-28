@@ -1,26 +1,24 @@
 // Phase 2.6b-final / Slice 2b — pure StrategyResult → SlotResultView builder.
 //
-// This is the single place a plugin's scoring output becomes generic,
-// serializable render sections. It is DATA-DRIVEN, never format-id-driven:
-//   - pair results present  → unified pair cards + a match-summary section;
+// This is the default (transitional) builder for formats not yet migrated to
+// their own presenter. It is DATA-DRIVEN, never format-id-driven:
 //   - team groupings + a `team:<label>` aggregate → team cards;
 //   - otherwise             → one individual card per ball.
-// The strategy already owns every scoring rule; this builder only reshapes
-// its output (gross / net / points / status / notes) into rows + ranked +
-// match sections. The only arithmetic here is presentation arithmetic shared
+// Match-like formats (pairResults) have migrated to their own presenter; this
+// builder no longer knows about pairs. The strategy already owns every scoring
+// rule; this builder only reshapes its output (gross / net / points / status /
+// notes) into rows + ranked sections. The only arithmetic here is presentation arithmetic shared
 // across all formats: per-hole strokes-given recovered as `gross − net`, and
 // normalised running totals (cumulative points minus the trailing subject),
 // both gated by data, not by a format identity.
 
 import type {
     BallResult,
-    PairBallResult,
     SlotTeamGrouping,
 } from './types';
 import type {
     GridRow,
     LeaderboardSection,
-    MatchPanel,
     ScoreGridSection,
     SlotResultView,
 } from './result-sections';
@@ -31,7 +29,6 @@ import {
     footnotesFor,
     hasPoints,
     holeRef,
-    matchNetRow,
     netText,
     NORMALIZED_CAPTION,
     normalizeTotal,
@@ -56,70 +53,6 @@ export type { FormatResultInput } from './result-presenter';
 
 /** @deprecated use FormatResultInput */
 export type BuildSlotInput = FormatResultInput;
-
-// --- pair card -------------------------------------------------------------
-
-function buildPairCard(
-    input: BuildSlotInput,
-    pair: PairBallResult,
-    byBall: Map<string, BallResult>,
-): ScoreGridSection {
-    const cols = input.columns;
-    const pairById = new Map<string, PairBallResult['holes'][number]>();
-    for (const ph of pair.holes) if (ph.playHoleId !== undefined) pairById.set(ph.playHoleId, ph);
-
-    // Compact match card: Par, then every player's net (team-tinted, with the
-    // deciding-ball shape per hole), then ONE running standing row. The verbose
-    // per-side points/run/status rows are gone — the shapes + standing carry it.
-    const rows: GridRow[] = [parRow(cols)];
-
-    const sideNetRows = (side: { ballIds: string[] }, team: 'a' | 'b'): void => {
-        for (const ballId of side.ballIds) {
-            const r = byBall.get(ballId);
-            if (r) rows.push(matchNetRow(cols, r, team));
-        }
-    };
-    sideNetRows(pair.sideA, 'a');
-    sideNetRows(pair.sideB, 'b');
-
-    // Cumulative match standing per hole ("1UP" / "AS" / taliban "+2").
-    let running = 0;
-    const matchById = new Map<string, number>();
-    for (const c of cols) {
-        const ph = pairById.get(c.playHoleId);
-        if (ph?.pointsDelta !== null && ph?.pointsDelta !== undefined) running += ph.pointsDelta;
-        matchById.set(c.playHoleId, running);
-    }
-    rows.push({
-        label: 'Standing',
-        kind: 'status',
-        aggregate: 'none',
-        emphasis: true,
-        // Show the standing ONLY on played holes; always the positive magnitude
-        // (or AS), with colour — not the sign — telling who's up.
-        cells: cols.map((c) => {
-            const ph = pairById.get(c.playHoleId);
-            if (!ph || ph.status === null) return cell(c, null, '');
-            const lead = matchById.get(c.playHoleId) ?? 0;
-            const gc = cell(c, null, lead === 0 ? 'AS' : String(Math.abs(lead)));
-            return lead > 0 ? { ...gc, team: 'a' as const } : lead < 0 ? { ...gc, team: 'b' as const } : gc;
-        }),
-    });
-
-    return {
-        kind: 'score_grid',
-        ...(input.scoreGridComponentId ? { componentId: input.scoreGridComponentId } : {}),
-        // No title — the structured match panel above + the team-tinted row labels
-        // already identify the two sides (avoids repeating the player names).
-        title: { groups: [], joiner: '' },
-        subjectBallIds: [...pair.sideA.ballIds, ...pair.sideB.ballIds],
-        holes: cols.map(holeRef),
-        subtitleFacts: [`${input.formatLabel} · ${input.allowanceLabel}`],
-        rows,
-        footnotes: [],
-        totals: [],
-    };
-}
 
 // --- team-aggregate card ---------------------------------------------------
 
@@ -246,34 +179,10 @@ function buildLeaderboard(
         return [resultBallId];
     };
 
-    const out: LeaderboardSection[] = rankedSections(input.metrics, input.result.ballResults, {
+    return rankedSections(input.metrics, input.result.ballResults, {
         offsets,
         ballIdsFor,
     });
-
-    const pairs = input.result.pairResults ?? [];
-    if (pairs.length > 0) {
-        const matches: MatchPanel[] = pairs.map((pair) => {
-            let lead = 0;
-            let thru = 0;
-            for (const ph of pair.holes) {
-                if (ph.status === null) continue;
-                thru++;
-                if (ph.pointsDelta !== null && ph.pointsDelta !== undefined) lead += ph.pointsDelta;
-            }
-            return {
-                sideA: { ballIds: pair.sideA.ballIds },
-                sideB: { ballIds: pair.sideB.ballIds },
-                leader: lead > 0 ? 'a' : lead < 0 ? 'b' : null,
-                magnitude: Math.abs(lead),
-                finished: pair.result !== 'in_progress',
-                thru,
-            };
-        });
-        out.push({ kind: 'match_summary', title: 'Match results', matches });
-    }
-
-    return out;
 }
 
 // --- entry point -----------------------------------------------------------
@@ -282,7 +191,6 @@ export function buildSlotResult(input: BuildSlotInput): SlotResultView {
     const byBall = new Map(input.result.ballResults.map((r) => [r.ballId, r] as const));
     const labelToBallIds = new Map(input.slotTeamGroupings.map((g) => [g.teamLabel, g.ballIds] as const));
 
-    const pairs = input.result.pairResults ?? [];
     const teamResults = input.result.ballResults.filter((r) => r.ballId.startsWith(TEAM_PREFIX));
 
     // normalised running over the point-bearing results (gated by descriptor).
@@ -299,12 +207,7 @@ export function buildSlotResult(input: BuildSlotInput): SlotResultView {
     const consumed = new Set<string>();
     const cards: ScoreGridSection[] = [];
 
-    if (pairs.length > 0) {
-        for (const pair of pairs) {
-            cards.push(buildPairCard(input, pair, byBall));
-            for (const id of [...pair.sideA.ballIds, ...pair.sideB.ballIds]) consumed.add(id);
-        }
-    } else if (input.slotTeamGroupings.length > 0 && teamResults.length > 0) {
+    if (input.slotTeamGroupings.length > 0 && teamResults.length > 0) {
         const teamByLabel = new Map(teamResults.map((r) => [r.ballId.slice(TEAM_PREFIX.length), r] as const));
         for (const grouping of input.slotTeamGroupings) {
             const teamResult = teamByLabel.get(grouping.teamLabel);
@@ -324,14 +227,10 @@ export function buildSlotResult(input: BuildSlotInput): SlotResultView {
         }
     }
 
-    // Anything not folded into a pair/team card → individual card. EXCEPT in a
-    // pair-based format (match play): a ball that landed in no pair is the odd
-    // one out with no opponent. The match-summary panel already omits it, and an
-    // empty "no opponent" scorecard reads as broken — so it gets no card either.
+    // Anything not folded into a team card → individual card.
     for (const r of input.result.ballResults) {
         if (consumed.has(r.ballId)) continue;
         if (r.ballId.startsWith(TEAM_PREFIX)) continue;
-        if (pairs.length > 0) continue; // stranded odd-out in a match — hide the card
         cards.push(buildIndividualCard(input, r, runningByBall?.get(r.ballId), offsets));
     }
 

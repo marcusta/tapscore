@@ -7,12 +7,13 @@ import {
     makeRoundContext,
     makeScoreEvent,
 } from './formats/_testkit';
+import { matchPlayPresenter } from './formats/match-play.presenter';
 import { MATCH_PLAY_INDIVIDUAL_ID, matchPlayIndividual } from './formats/match-play-individual';
 import { STABLEFORD_INDIVIDUAL_ID, stablefordIndividual } from './formats/stableford-individual';
 import { stablefordIndividualPresenter } from './formats/stableford-individual.presenter';
 import { UMBRELLA_4_BALL_ID, umbrella4Ball } from './formats/umbrella-4-ball';
 import { umbrella4BallPresenter } from './formats/umbrella-4-ball.presenter';
-import { buildSlotResult, type BuildSlotInput } from './result-builder';
+import { type BuildSlotInput } from './result-builder';
 import type { MetadataEvent, RoundContext } from './types';
 
 function columnsFrom(ctx: RoundContext): BuildSlotInput['columns'] {
@@ -262,7 +263,7 @@ describe('buildSlotResult golden output', () => {
             ],
         });
 
-        const view = buildSlotResult({
+        const view = matchPlayPresenter()({
             slotIndex: 0,
             slotDefId: 'slot-match',
             formatId: MATCH_PLAY_INDIVIDUAL_ID,

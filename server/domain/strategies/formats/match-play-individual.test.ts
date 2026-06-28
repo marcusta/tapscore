@@ -8,8 +8,10 @@ import {
     makeScoreEvent,
 } from './_testkit';
 import { BUILTIN_FORMAT_PLUGINS } from '../../formats/builtins';
-import { buildSlotResult } from '../result-builder';
+import { matchPlayPresenter } from './match-play.presenter';
 import { MATCH_PLAY_INDIVIDUAL_ID, matchPlayIndividual } from './match-play-individual';
+
+const presenter = matchPlayPresenter();
 
 describe('matchPlayIndividual (new contract)', () => {
     test('result view emits the compact match grid component id', () => {
@@ -29,7 +31,7 @@ describe('matchPlayIndividual (new contract)', () => {
             ],
         });
 
-        const view = buildSlotResult({
+        const view = presenter({
             slotIndex: 0,
             slotDefId: 'slot-match',
             formatId: MATCH_PLAY_INDIVIDUAL_ID,
@@ -160,14 +162,45 @@ describe('matchPlayIndividual (new contract)', () => {
         const bA = makeOwnBall('P1', 0, 0);
         const bB = makeOwnBall('P2', 0, 0);
         const bC = makeOwnBall('P3', 0, 0);
-        const { ballResults, pairResults } = matchPlayIndividual.score({
+        const result = matchPlayIndividual.score({
             roundContext: ctx,
             slotBalls: [bA, bB, bC],
             events: [],
         });
-        expect(pairResults).toHaveLength(1);
-        expect(ballResults).toHaveLength(3);
-        const stranded = ballResults.find((r) => r.ballId === bC.ballId)!;
+        expect(result.pairResults).toHaveLength(1);
+        expect(result.ballResults).toHaveLength(3);
+        const stranded = result.ballResults.find((r) => r.ballId === bC.ballId)!;
         expect(stranded.holes.every((h) => h.note === 'no opponent')).toBe(true);
+
+        // The presenter builds cards by iterating pairs, so the stranded ball
+        // gets NO card — only the single pair card exists.
+        const view = presenter({
+            slotIndex: 0,
+            slotDefId: 'slot-match',
+            formatId: MATCH_PLAY_INDIVIDUAL_ID,
+            formatLabel: 'Match play',
+            scoringMode: 'match_play',
+            teamShape: 'individual',
+            allowanceLabel: '100%',
+            metrics: [],
+            runningNormalized: false,
+            scoreGridComponentId: 'compact-match-grid',
+            result,
+            slotBalls: [bA, bB, bC],
+            slotTeamGroupings: [],
+            columns: ctx.playHoles.map((p) => ({
+                playHoleId: p.playHoleId,
+                courseHoleNumber: p.courseHoleNumber,
+                canonicalOrdinal: p.ordinal,
+                occurrenceLabel: ctx.occurrenceLabel(p.playHoleId),
+                par: p.par,
+                baseStrokeIndex: p.baseStrokeIndex,
+            })),
+        });
+        expect(view.cards).toHaveLength(1);
+        expect(view.cards[0]?.subjectBallIds).toEqual([bA.ballId, bB.ballId]);
+        // Leaderboard panel also omits the stranded ball.
+        const summary = view.leaderboard.find((s) => s.kind === 'match_summary');
+        expect(summary?.matches).toHaveLength(1);
     });
 });
