@@ -105,8 +105,9 @@ result-section production is still centralized.
 
 - Do not rewrite scoring strategies.
 - Do not remove `score_grid`, `ranked`, or `match_summary`.
-- Do not introduce arbitrary `kind: "component"` Layer 2 sections as part of
-  this proposal.
+- Do not introduce _untyped_ `kind: "component"` Layer 2 sections (no
+  `props: Record<string, unknown>` escape). Typed, `componentId`-keyed section
+  payloads are in scope (see "Component-selected sections").
 - Do not remove reusable helpers; the goal is format-owned composition, not
   copy/paste.
 - Do not require every format to have bespoke client rendering.
@@ -238,28 +239,30 @@ It contains reusable low-level building blocks currently buried in
 - `groupTeamResults`
 - `ballName/subject helpers` if needed
 
-These helpers should be vocabulary-oriented, not format-oriented.
+Helpers stay dumb. They are pure, low-level building blocks: they take explicit
+arguments and return rows/cards/sorted entries. They do **not** decide. Anything
+that decides — which card type to build, how odd/unmatched balls are handled, how
+a match panel is assembled — is a view decision and lives in the format
+presenter, not in a shared helper.
 
-Good helper:
+Good helper (vocabulary-oriented, decision-free):
 
 ```ts
 categoryRows(columns, result)
 ```
 
-Borderline but acceptable helper:
+Bad helper (embeds a view decision — rejected):
 
 ```ts
-compactMatchCard(input, pair)
+compactMatchCard(input, pair)   // decides card shape / odd-ball handling
+stablefordRows(input)            // format-named
 ```
 
-Bad helper:
-
-```ts
-stablefordRows(input)
-```
-
-Format-specific helpers may exist, but they should live beside that format's
-presenter, not in the shared helper module.
+Format-specific composition may exist, but it lives beside that format's
+presenter, not in the shared helper module. Enforce with tests: the shared
+helper module contains no format ids, and no helper branches on `StrategyResult`
+shape. If a helper needs an `if` about format behavior, it belongs in a
+presenter.
 
 ## Format Presenters
 
@@ -323,12 +326,48 @@ a global builder.
 
 ### Match Play / Taliban
 
-Match-like formats may share a `compactMatchPresenter(...)` helper, but the
-decision to use it belongs to their presenters or plugin registration.
+Match-like formats may share composition through a thin presenter constructor
+they own — e.g. `matchPlayPresenter(config)` registered as each format's
+`renderResult`. That is a format-owned presenter factory, not a shared helper:
+it decides card shape and odd/unmatched-ball handling, so it stays on the format
+side. The decision to use it belongs to the presenter or plugin registration.
 
-The shared helper can know how to build a compact match card from `PairBallResult`
-because that is a reusable presentation pattern. The central service should not
-decide "pair results exist, therefore this is the view."
+Shared helpers stay dumb: a `matchPanel(sideA, sideB, leader, magnitude)` builder
+that assembles a `MatchPanel` from explicit fields is fine because it makes no
+decision. A helper that turns a `PairBallResult` into a card — choosing the card
+shape — is a view decision and belongs to the presenter. The central service must
+not decide "pair results exist, therefore this is the view."
+
+## Component-selected sections
+
+Presenters must be able to select the client rendering component for a section
+and emit a payload shaped for that component — not just for score grids, but for
+leaderboard sections too.
+
+Today this is asymmetric:
+
+- `ScoreGridSection` has `componentId` (the server picks the client grid
+  renderer);
+- `RankedSection` and `MatchSummarySection` are fixed shapes — a presenter
+  cannot request a leaderboard component that wants a different payload.
+
+Extend the same mechanism to leaderboard sections: a `componentId` plus a
+payload typed and closed per component, exactly like the score-grid contract.
+The constraints from the render-contract work carry over:
+
+- **No untyped escape.** No `props: Record<string, unknown>`. Each component's
+  payload is a typed, `componentId`-keyed contract (a discriminated union on
+  `componentId`), so the server emits a valid shape and the client switches to a
+  renderer typed for it. This is the same rule `VScoreGridSection` already states.
+- **No server-side registry.** The registry lives on the client. The server
+  needs only the type contract; the presenter selects a `componentId` and fills
+  the matching payload.
+- **Add components on demand.** Do not pre-build leaderboard component variants.
+  The default ranked/match shapes stay until a real format needs a different
+  structure (e.g. split sixes, a ladder); then add that one typed component.
+
+This makes the proposal's earlier non-goal precise: arbitrary *untyped* component
+sections are out; typed, `componentId`-keyed section payloads are in.
 
 ## What Happens To `resultDisplay`
 
@@ -380,6 +419,13 @@ Mark it explicitly:
 
 Any new format-specific view change should be made in a presenter, not by adding
 a new heuristic to the default presenter.
+
+The default presenter is strictly transitional and **must die completely**. The
+end state has no fallback: dispatch becomes `plugin.renderResult(input)` with no
+`?? defaultResultPresenter`. The `??` exists only during Phases B--F; Phase G
+deletes `default-result-presenter.ts` outright. Deletion is enforced by an
+architecture test (every production plugin has `renderResult`), so the type
+system forbids regressing — not a code comment.
 
 ## Migration Strategy
 
@@ -450,8 +496,11 @@ Goal: remove `categoryDefs` as a central builder mode switch.
   - `umbrella_individual`;
   - `umbrella_4_ball`.
 - Category presenters own category rows, category points rows, normalized running
-  rows, captions, and normalized totals.
-- Shared helper may provide `categoryMatrixCard(...)`.
+  rows, captions, and normalized totals — including selecting the
+  `category-matrix-grid` component.
+- Shared helpers provide only decision-free blocks (`categoryRows`,
+  `categoryPointsRow`, `runningRow`, the `scoreGridCard` shell). Choosing the
+  matrix component and assembling the card is presenter-owned.
 
 Gate:
 
@@ -466,7 +515,10 @@ Goal: remove `pairResults` as a central builder mode switch.
   - `match_play_individual`;
   - `match_play_better_ball`;
   - `taliban_better_ball`.
-- Shared helper may provide `compactMatchCard(...)` and `matchSummarySection(...)`.
+- Match-like formats share composition through a format-owned presenter
+  constructor (e.g. `matchPlayPresenter(config)`), not a shared card helper.
+- Shared helpers provide only decision-free blocks (`matchPanel(...)`,
+  `matchSummarySection(...)` shell, ranked sort).
 - Each presenter owns whether pair cards exist and how odd/unmatched balls are
   handled.
 
@@ -486,14 +538,19 @@ Candidates:
 - `kopenhamnare_individual`;
 - any remaining team/stroke variants.
 
-Each presenter can be small if it fits the default grid. The value is
-discoverability: format result shape lives with the format.
+Each presenter can be small if it fits the default grid. To avoid N
+near-identical files, provide a format-owned presenter constructor
+`defaultGridPresenter(config)`; small formats register
+`renderResult: defaultGridPresenter({...})`. This is a thin presenter factory the
+format owns, **not** a shared god-helper — it gives discoverability without
+copy/paste. The value is that format result shape lives with the format.
 
 ### Phase G -- Retire Legacy Builder
 
 Goal: `result-builder.ts` is no longer a god builder.
 
-- Delete or shrink the default presenter.
+- Delete the default presenter (`default-result-presenter.ts`) and remove the
+  `?? defaultResultPresenter` fallback; dispatch is plain `plugin.renderResult`.
 - Keep only shared helper modules.
 - Remove descriptor flags that only existed for the default builder.
 - Add architecture tests:
@@ -555,11 +612,16 @@ Avoid:
    Recommendation: only if the setup/catalog UI needs to expose it. Otherwise,
    let presenters put `componentId` directly on `ScoreGridSection`.
 
-3. Should ranked sections also become component-selected?
+3. Should ranked / leaderboard sections also become component-selected?
 
-   Recommendation: not yet. The current pain is score-grid/card assembly. Add a
-   ranked component registry only when a real ranked view needs a different
-   structure.
+   Resolved: yes. Today `ScoreGridSection` carries `componentId` so the server
+   selects the client grid renderer, but `RankedSection` and
+   `MatchSummarySection` are fixed shapes — a presenter cannot pick a leaderboard
+   component that expects a different payload. The contract must let server code
+   select a client component **and** emit the payload shape that component
+   expects. See "Component-selected sections". There is no server-side registry;
+   the registry is the client's, and the server only needs the typed,
+   `componentId`-keyed contract so presenters emit valid shapes.
 
 4. Should static verification use different presenters than product?
 
