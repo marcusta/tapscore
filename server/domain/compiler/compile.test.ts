@@ -352,3 +352,55 @@ describe('compile — itinerary + playing groups (Slice 3b)', () => {
         ).toBe(true);
     });
 });
+
+describe('compile — prunes balls no slot scores', () => {
+    // The `own_ball_per_player` strategy is GLOBAL: it mints a ball for every
+    // producer regardless of which formats reference them (ADR-0003 narrows per
+    // slot via `ballSelector.producerDefIds`, not at creation). A ball no slot
+    // scores must not be persisted — otherwise the Score view (which lists every
+    // persisted ball, with no slot filter) shows a player in no format.
+    const def: RoundDefinition = {
+        courseId: 'c1',
+        playedAt: '2026-01-01',
+        producers: ['p1', 'p2', 'p3'].map((id) => ({
+            id,
+            playerRef: { kind: 'player', id },
+            handicapIndex: 10,
+            gender: 'M',
+            teeId: 'tee-y',
+        })),
+        ballStrategies: [
+            { id: 'own', strategyId: 'own_ball_per_player', derivationConfig: { type: 'single' } },
+        ],
+        // Only p1 is scored; p2 and p3 are unticked everywhere.
+        slots: [
+            {
+                id: 'slot-1',
+                formatId: 'stableford_individual',
+                allowanceConfig: { type: 'flat', pct: 100 },
+                ballSelector: { strategyDefIds: ['own'], producerDefIds: ['p1'] },
+            },
+        ],
+    };
+
+    test('persists only the balls a slot scores, not one per producer', () => {
+        const res = compile(mkInput(def, ['p1', 'p2', 'p3']));
+        if (!res.ok) throw new Error(JSON.stringify(res.diagnostics));
+        // Own-ball mints 3 candidate balls; only p1's survives.
+        expect(res.compiled.balls).toHaveLength(1);
+        expect(res.compiled.slotBalls).toHaveLength(1);
+        // ball_players + playing-group membership track the pruned set.
+        expect(res.compiled.ballPlayers.map((bp) => bp.producerDefId)).toEqual(['p1']);
+        expect(res.compiled.playingGroupBalls).toHaveLength(1);
+        // The strategy row itself is unaffected — it is metadata, not a ball.
+        expect(res.compiled.strategies).toHaveLength(1);
+    });
+
+    test('a producer in no slot leaves no persisted ball at all', () => {
+        const res = compile(mkInput(def, ['p1', 'p2', 'p3']));
+        if (!res.ok) throw new Error(JSON.stringify(res.diagnostics));
+        const scoredProducers = new Set(res.compiled.ballPlayers.map((bp) => bp.producerDefId));
+        expect(scoredProducers.has('p2')).toBe(false);
+        expect(scoredProducers.has('p3')).toBe(false);
+    });
+});

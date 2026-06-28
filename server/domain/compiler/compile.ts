@@ -129,8 +129,6 @@ export function compile(input: CompilerInput): CompileResult {
     if (diags.length > 0) return { ok: false, diagnostics: diags };
 
     const allBalls = [...ballById.values()];
-    const ballPlayers = buildBallPlayers(allBalls, producers, diags);
-    if (diags.length > 0) return { ok: false, diagnostics: diags };
 
     const slots: CompiledSlot[] = [];
     const slotBalls: CompiledSlotBall[] = [];
@@ -147,10 +145,24 @@ export function compile(input: CompilerInput): CompileResult {
     }
     if (diags.length > 0) return { ok: false, diagnostics: diags };
 
+    // Invariant: a persisted ball is scored by ≥1 slot. Ball-creation strategies
+    // are global — `own_ball_per_player` mints a ball for EVERY producer, even
+    // ones no format scores individually (ADR-0003 narrows per-slot via
+    // `ballSelector`, not at creation). Those unscored balls must not survive:
+    // otherwise the Score view (which lists every persisted ball, no slot filter)
+    // shows a player who appears in no format. `slot_balls` is the authoritative
+    // scored set — derived one-for-one from each slot's selected balls — and
+    // `slot_ball_teams` balls are a subset of it, so it alone defines the keep set.
+    const scoredBallIds = new Set(slotBalls.map((sb) => sb.ballId));
+    const balls = allBalls.filter((b) => scoredBallIds.has(b.row.id));
+
+    const ballPlayers = buildBallPlayers(balls, producers, diags);
+    if (diags.length > 0) return { ok: false, diagnostics: diags };
+
     const { playingGroups, playingGroupBalls } = compilePlayingGroups(
         input.roundId,
         resolved,
-        allBalls,
+        balls,
         diags,
     );
     if (diags.length > 0) return { ok: false, diagnostics: diags };
@@ -160,7 +172,7 @@ export function compile(input: CompilerInput): CompileResult {
         definitionJson: JSON.stringify(resolved),
         definitionVersion: 1,
         strategies: strategies.map((s) => s.row),
-        balls: allBalls.map((b) => b.row),
+        balls: balls.map((b) => b.row),
         ballPlayers,
         slots,
         slotBalls,

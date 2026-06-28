@@ -1,12 +1,14 @@
-// Phase 2.6c — the "kitchen-sink": one event log, six balls, six slots.
+// Phase 2.6c — the "kitchen-sink": one event log, six balls emitted (four
+// survive pruning), six slots.
 //
 // Four players (Karl, Lars, Mats, Nora) on Linköpings Gul/M. A single
 // `modified_alt_shot_pair` strategy emits SIX balls in one pass:
 //   - four OWN balls (per-producer CH passes through), and
 //   - two ALT-SHOT team balls, one per pairing (avg of the pair's per-producer
 //     CHs): (Karl,Lars) and (Mats,Nora). No slot scores these team balls since
-//     the bundled foursomes format was removed (ADR-0003) — they are orphan
-//     balls, tolerated and dropped at leaderboard time.
+//     the bundled foursomes format was removed (ADR-0003). The compiler PRUNES
+//     any ball no slot scores (compile.ts invariant), so these two never
+//     persist — this round doubles as the regression guard for that prune.
 //
 //   Karl idx 6  → CH 5    Lars idx 12 → CH 12
 //   Mats idx 10 → CH 9    Nora idx 20 → CH 20
@@ -124,15 +126,8 @@ export async function apply(s: Scenario): Promise<void> {
         1: 6, 2: 5, 3: 5, 4: 6, 5: 5, 6: 7, 7: 5, 8: 6, 9: 5,
         10: 6, 11: 5, 12: 6, 13: 6, 14: 7, 15: 6, 16: 5, 17: 6, 18: 6,
     });
-    // Alt-shot team balls — one shared ball per pair.
-    await authored.play(['P1', 'P2'], {
-        1: 4, 2: 4, 3: 3, 4: 5, 5: 3, 6: 5, 7: 3, 8: 4, 9: 4,
-        10: 5, 11: 3, 12: 4, 13: 4, 14: 5, 15: 4, 16: 3, 17: 4, 18: 4,
-    });
-    await authored.play(['P3', 'P4'], {
-        1: 5, 2: 4, 3: 4, 4: 5, 5: 4, 6: 6, 7: 4, 8: 5, 9: 5,
-        10: 6, 11: 4, 12: 5, 13: 5, 14: 6, 15: 4, 16: 4, 17: 5, 18: 5,
-    });
+    // The two alt-shot team balls (P1,P2)/(P3,P4) are pruned at compile (no slot
+    // scores them), so there is nothing to play against — see header.
 
     // eslint-disable-next-line no-console
     console.log(`seed: multi-format-extreme-round created (round ${authored.round.id.slice(0, 8)})`);
