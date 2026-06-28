@@ -8,8 +8,7 @@ import {
     type RoundLeaderboardInput,
 } from '../domain/round-materializer';
 import { findFormatPlugin } from '../domain/formats/plugin';
-import { defaultResultPresenter } from '../domain/strategies/default-result-presenter';
-import type { ResultColumn } from '../domain/strategies/result-builder';
+import type { ResultColumn } from '../domain/strategies/result-presenter-helpers';
 import type { RoundResult } from '../domain/strategies/result-sections';
 import { formatAllowanceLabel, type RoundDefinition } from '../domain/round-definition';
 import type { FormatAction, RulingEvent, StrategyEvent } from '../domain/strategies/types';
@@ -27,9 +26,10 @@ import type { RulingKind, RulingTarget } from '../db/schema';
  * `format_id` is recovered from the latest `round_definitions` version keyed
  * by the stable `slot_def_id` — never from slot array position. The legacy
  * `(scoring_mode, team_shape)` columns on `slots` are not used as a lookup
- * key. Each plugin's `StrategyResult` is reshaped by the pure `result-builder`
- * into serializable {@link RoundResult} sections — there is no `Leaderboard`
- * adapter (the legacy engine + `forRound()` were deleted in Slice 2c).
+ * key. Each plugin's `StrategyResult` is reshaped by the plugin's own
+ * `renderResult` presenter into serializable {@link RoundResult} sections —
+ * there is no central builder and no `Leaderboard` adapter (the legacy engine +
+ * `forRound()` were deleted in Slice 2c).
  *
  * Hard errors (before scoring) if:
  *   a) round has no compiled slots;
@@ -236,9 +236,10 @@ export class LeaderboardService {
     /**
      * Canonical per-slot result for generic consumers (static render, and the
      * mobile client in 2.6e). Each slot is scored through its registered
-     * plugin and reshaped — by the pure `result-builder` — into serializable
-     * sections: scorecard grids + ranked metrics + match summaries. No legacy
-     * `Leaderboard` adapter, no format-id branching downstream.
+     * plugin and reshaped — by that plugin's own `renderResult` presenter —
+     * into serializable sections: scorecard grids + ranked metrics + match
+     * summaries. No central builder, no legacy `Leaderboard` adapter, no
+     * format-id branching downstream.
      */
     async resultForRound(roundId: string): Promise<RoundResult> {
         const { input, round } = await this.buildInput(roundId);
@@ -294,8 +295,7 @@ export class LeaderboardService {
                 }
                 effectiveSi.set(sb.ballId, byHole);
             }
-            const presenter = plugin.renderResult ?? defaultResultPresenter;
-            return presenter({
+            return plugin.renderResult({
                 slotIndex: slot.slotIndex,
                 slotDefId: slot.slotDefId,
                 formatId: slot.formatId,

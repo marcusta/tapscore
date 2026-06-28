@@ -315,7 +315,7 @@ export interface FormatAction {
  *
  * Fields are OPTIONAL so legacy/test-only result literals that key only on
  * `holeNumber` keep type-checking; every built-in strategy populates them via
- * `holeIdentity()`. The result-builder falls back to `holeNumber` when an id
+ * `holeIdentity()`. Presenter helpers fall back to `holeNumber` when an id
  * is absent — a route with repeated holes therefore REQUIRES the strategy to
  * populate `playHoleId`, which all built-ins do.
  */

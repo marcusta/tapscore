@@ -2,8 +2,8 @@
 //
 // WHY THIS EXISTS
 // ---------------
-// Result assembly is migrating from the central `result-builder.ts` god builder
-// to format-owned presenters (`renderResult` on each `FormatPlugin`); see
+// Result assembly migrated from a central god builder to format-owned
+// presenters (`renderResult` on each `FormatPlugin`); see
 // `docs/proposals/server-result-presenters.md`. Nothing else proves a migrated
 // format's `SlotResultView` output is byte-identical to the pre-migration
 // output:
@@ -11,8 +11,8 @@
 //     diff there proves nothing;
 //   - `check:format-fixtures` only asserts the fixture DB exists + a round
 //     count;
-//   - `result-builder.golden.test.ts` is a hand-built `toMatchObject` contract
-//     whose expectations get edited in the same commit as a migration.
+//   - `presenter-contract.golden.test.ts` is a hand-built `toMatchObject`
+//     contract whose expectations get edited in the same commit as a migration.
 //
 // This test closes that gap. For each representative format it drives the REAL
 // product path — `LeaderboardService.resultForRound` against the canonical

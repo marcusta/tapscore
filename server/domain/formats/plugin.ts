@@ -263,8 +263,9 @@ export interface FormatPlugin {
     validateConfig(config: unknown): ConfigDiagnostic[];
     deriveSlotBalls(input: DeriveSlotBallsInput): DerivedSlotBall[];
     score(input: ScoreInput): StrategyResult;
-    /** Optional: format-owned result presenter. Absent → defaultResultPresenter. */
-    renderResult?: FormatResultPresenter;
+    /** Required: format-owned result presenter. The service dispatches result
+     * assembly here — there is no central builder fallback. */
+    renderResult: FormatResultPresenter;
     /**
      * In-round action types this format accepts. Absent / empty → the format is
      * stateless and the append path rejects any action against its slots.

@@ -48,7 +48,7 @@ function metaEvent(ballId: string, hole: number, type: string, value: unknown): 
     };
 }
 
-describe('buildSlotResult golden output', () => {
+describe('presenter contract golden output', () => {
     test('keeps Stableford individual output unchanged', () => {
         const courseHoles = make18Holes().slice(0, 2);
         const ctx = makeRoundContext(courseHoles, [makeProducer('P1', { courseHandicap: 0 })]);

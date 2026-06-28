@@ -22,7 +22,7 @@
 //      here, guarded by the exhaustive `assertNever` switch.
 //
 // Phase 0 status: this vocabulary is defined and unit-tested but NOT yet wired
-// into the live `result-sections.ts` / `result-builder.ts` output. Nothing emits
+// into the live `result-sections.ts` / format presenter output. Nothing emits
 // it; no pixels move. Wiring happens in later phases.
 
 // --- closed presentation unions -------------------------------------------

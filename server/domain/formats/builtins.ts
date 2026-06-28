@@ -87,7 +87,7 @@ interface BuiltinMeta {
         runningTotals?: 'normalized';
         scoreGridComponentId?: ScoreGridComponentId;
     };
-    renderResult?: FormatResultPresenter;
+    renderResult: FormatResultPresenter;
     /**
      * Per-hole metadata inputs this format consumes beyond strokes (umbrella's
      * GIR/fairway). Declared here so the generic score-entry surface renders the
@@ -268,7 +268,7 @@ function toPlugin(meta: BuiltinMeta): FormatPlugin {
         validateConfig: (config) => strategy.validateConfig?.(config) ?? [],
         deriveSlotBalls: (input) => strategy.deriveSlotBalls(input),
         score: (input) => strategy.score(input),
-        ...(meta.renderResult ? { renderResult: meta.renderResult } : {}),
+        renderResult: meta.renderResult,
     };
 }
 

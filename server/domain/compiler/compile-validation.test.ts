@@ -59,6 +59,9 @@ function makeTestPlugin(
         },
         deriveSlotBalls,
         score: noScore,
+        renderResult: () => {
+            throw new Error('renderResult not used in compiler tests');
+        },
     };
 }
 

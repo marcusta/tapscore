@@ -18,6 +18,7 @@
 
 import type { RoundDefinition } from '../round-definition';
 import { deriveFlat, latestScoresByPlayHole } from '../strategies/formats/_shared';
+import { defaultGridPresenter } from '../strategies/formats/default-grid.presenter';
 import { createRoundContext } from '../strategies/round-context';
 import type {
     BallHoleResult,
@@ -98,6 +99,11 @@ export const canaryPlugin: FormatPlugin = {
     },
 
     deriveSlotBalls: deriveFlat,
+
+    // Canary is individual point-shaped, so it reuses the shared default-grid
+    // presenter rather than owning a bespoke one. `renderResult` is required on
+    // every plugin now that the central-builder fallback is gone.
+    renderResult: defaultGridPresenter(),
 
     score({ roundContext, slotBalls, events, formatConfig }): StrategyResult {
         const cap = (formatConfig as CanaryConfig | undefined)?.pointsCap;

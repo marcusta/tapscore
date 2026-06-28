@@ -21,6 +21,7 @@
 
 import { hasFormatPlugin, registerFormat, type FormatPlugin } from './plugin';
 import { deriveFlat, holeIdentity, latestScoresByPlayHole } from '../strategies/formats/_shared';
+import { defaultGridPresenter } from '../strategies/formats/default-grid.presenter';
 import type { BallHoleResult, BallResult, StrategyResult } from '../strategies/types';
 
 export const STATEFUL_CANARY_FORMAT_ID = 'stateful_canary';
@@ -64,6 +65,10 @@ export const statefulCanaryPlugin: FormatPlugin = {
     },
 
     deriveSlotBalls: deriveFlat,
+
+    // Individual point-shaped → reuse the shared default-grid presenter.
+    // `renderResult` is required on every plugin (no central-builder fallback).
+    renderResult: defaultGridPresenter(),
 
     actionTypes: [
         { type: 'set_captain', label: 'Set captain', requiresPlayHole: true },

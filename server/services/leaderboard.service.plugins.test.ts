@@ -178,23 +178,6 @@ test('resultForRound dispatches to a plugin renderResult presenter when present'
     expect(rr.slots[0]!.leaderboard).toEqual([]);
 });
 
-test('resultForRound falls back to the default result presenter when renderResult is absent', async () => {
-    const { ctx, courseId, teeId } = await setup();
-    const pl = await ctx.playerService.register({ username: `default-presenter-${seq++}`, password: 'password123', displayName: 'Default' });
-    registerFormat(canaryPlugin);
-    const { round } = await createCompiledRound(ctx, {
-        courseId,
-        teeId,
-        slots: [{ formatId: CANARY_FORMAT_ID as RoundFormatId, allowancePct: 100 }],
-        players: [{ kind: 'player', id: pl.id, handicapIndex: 9 }],
-    });
-
-    const rr = await ctx.leaderboardService.resultForRound(round.id);
-
-    expect(rr.slots[0]!.cards.length).toBeGreaterThan(0);
-    expect(rr.slots[0]!.leaderboard.some((s) => s.kind === 'ranked' && s.metricId === 'points')).toBe(true);
-});
-
 afterEach(() => {
     // Restore the process-global registry baseline for files that run after.
     resetBuiltInFormats();

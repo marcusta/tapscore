@@ -37,6 +37,9 @@ function makePlugin(over: Partial<FormatDescriptor> = {}, behaviour: Partial<For
         validateConfig: () => [],
         deriveSlotBalls: ({ balls }) => balls.map((b) => ({ ballId: b.ballId, playingHandicapSnapshot: b.courseHandicapSnapshot })),
         score: () => ({ ballResults: [] }),
+        renderResult: () => {
+            throw new Error('renderResult not used in these registry tests');
+        },
         ...behaviour,
     };
 }

@@ -1,7 +1,7 @@
 // Phase 2.6b-final / Slice 2b — serializable result sections.
 //
-// A format plugin's scoring output (`StrategyResult`) is turned, by the pure
-// `result-builder`, into an ordered list of SERIALIZABLE sections that fully
+// A format plugin's scoring output (`StrategyResult`) is turned, by that
+// format's `renderResult` presenter, into an ordered list of SERIALIZABLE sections that fully
 // describe what to render. Static HTML (and, in 2.6e, the mobile client) are
 // generic consumers: they lay out sections without knowing which format
 // produced them. ALL format arithmetic and golf idiom originate server-side —
