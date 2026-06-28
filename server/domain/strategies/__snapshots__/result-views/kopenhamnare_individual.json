@@ -152,8 +152,7 @@
         "subtitleFacts": [
           "slot #0 · Split sixes · 100%",
           "CH 11",
-          "PH 11",
-          "holes played 18"
+          "PH 11"
         ],
         "rows": [
           {
@@ -866,7 +865,7 @@
             ]
           },
           {
-            "label": "Running",
+            "label": "Total",
             "kind": "running",
             "aggregate": "last",
             "cells": [
@@ -1002,12 +1001,7 @@
           "h18: 3 of 6 (tied best)"
         ],
         "caption": "Running totals are relative to the leader (the trailing team shows 0); per-hole points below are the raw points scored.",
-        "totals": [
-          {
-            "label": "points",
-            "value": 38
-          }
-        ]
+        "totals": []
       },
       {
         "kind": "score_grid",
@@ -1153,8 +1147,7 @@
         "subtitleFacts": [
           "slot #0 · Split sixes · 100%",
           "CH 12",
-          "PH 12",
-          "holes played 18"
+          "PH 12"
         ],
         "rows": [
           {
@@ -1867,7 +1860,7 @@
             ]
           },
           {
-            "label": "Running",
+            "label": "Total",
             "kind": "running",
             "aggregate": "last",
             "cells": [
@@ -1996,12 +1989,7 @@
           "h17: 1 of 6 (tied rest)"
         ],
         "caption": "Running totals are relative to the leader (the trailing team shows 0); per-hole points below are the raw points scored.",
-        "totals": [
-          {
-            "label": "points",
-            "value": 0
-          }
-        ]
+        "totals": []
       },
       {
         "kind": "score_grid",
@@ -2147,8 +2135,7 @@
         "subtitleFacts": [
           "slot #0 · Split sixes · 100%",
           "CH 31",
-          "PH 31",
-          "holes played 18"
+          "PH 31"
         ],
         "rows": [
           {
@@ -2861,7 +2848,7 @@
             ]
           },
           {
-            "label": "Running",
+            "label": "Total",
             "kind": "running",
             "aggregate": "last",
             "cells": [
@@ -2996,12 +2983,7 @@
           "h18: 3 of 6 (tied best)"
         ],
         "caption": "Running totals are relative to the leader (the trailing team shows 0); per-hole points below are the raw points scored.",
-        "totals": [
-          {
-            "label": "points",
-            "value": 22
-          }
-        ]
+        "totals": []
       }
     ],
     "leaderboard": [

@@ -57,6 +57,7 @@ import { umbrellaIndividualPresenter } from '../strategies/formats/umbrella-indi
 import { matchPlayBetterBall } from '../strategies/formats/match-play-better-ball';
 import { matchPlayPresenter } from '../strategies/formats/match-play.presenter';
 import { defaultGridPresenter } from '../strategies/formats/default-grid.presenter';
+import { kopenhamnareIndividualPresenter } from '../strategies/formats/kopenhamnare-individual.presenter';
 import { stablefordBetterBallPresenter } from '../strategies/formats/stableford-better-ball.presenter';
 
 // One shared presenter instance for the three match-like formats — they render
@@ -147,7 +148,7 @@ const BUILTINS: BuiltinMeta[] = [
         teamShape: 'individual',
         metrics: POINTS_HIGH,
         resultDisplay: NORMALIZED_RUNNING,
-        renderResult: defaultGridResultPresenter,
+        renderResult: kopenhamnareIndividualPresenter,
         scoresAnyBall: true,
     },
     {

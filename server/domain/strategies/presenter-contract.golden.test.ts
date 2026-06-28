@@ -13,6 +13,7 @@ import { STABLEFORD_INDIVIDUAL_ID, stablefordIndividual } from './formats/stable
 import { stablefordIndividualPresenter } from './formats/stableford-individual.presenter';
 import { STROKE_PLAY_INDIVIDUAL_ID, strokePlayIndividual } from './formats/stroke-play-individual';
 import { KOPENHAMNARE_INDIVIDUAL_ID, kopenhamnareIndividual } from './formats/kopenhamnare-individual';
+import { kopenhamnareIndividualPresenter } from './formats/kopenhamnare-individual.presenter';
 import { STABLEFORD_BETTER_BALL_ID, stablefordBetterBall } from './formats/stableford-better-ball';
 import { defaultGridPresenter } from './formats/default-grid.presenter';
 import { stablefordBetterBallPresenter } from './formats/stableford-better-ball.presenter';
@@ -403,7 +404,7 @@ describe('presenter contract golden output', () => {
             ],
         });
 
-        const view = gridPresenter({
+        const view = kopenhamnareIndividualPresenter({
             slotIndex: 0,
             slotDefId: 'slot-kopenhamnare',
             formatId: KOPENHAMNARE_INDIVIDUAL_ID,
@@ -422,6 +423,8 @@ describe('presenter contract golden output', () => {
         expect(view.cards).toHaveLength(3);
         const leader = view.cards[0]!;
         expect('componentId' in leader).toBe(false);
+        // Split sixes owns its view: the cumulative row is "Total" (not "Running")
+        // and there is no card-footer total (it reads off the leaderboard).
         expect(leader.rows.map((row) => row.label)).toEqual([
             'Par',
             'SI',
@@ -429,13 +432,60 @@ describe('presenter contract golden output', () => {
             'Gross',
             'Net',
             'Points',
-            'Running',
+            'Total',
         ]);
         expect(leader.caption).toContain('relative to the leader');
-        // Raw 4/hole × 2 = 8 for the winner; trailing total is 0 so offsets leave it.
-        expect(leader.totals).toEqual([{ label: 'points', value: 8 }]);
+        expect(leader.totals).toEqual([]);
+        // No "holes played" subtitle fact for Split sixes.
+        expect(leader.subtitleFacts.some((f) => f.startsWith('holes played'))).toBe(false);
         const ranked = view.leaderboard.find((s) => s.kind === 'ranked' && s.metricId === 'points');
         expect(ranked && ranked.kind === 'ranked' && ranked.entries.map((e) => e.total)).toEqual([8, 4, 0]);
+    });
+
+    test('Split sixes: the Total row is blank on unplayed holes (not carried forward)', () => {
+        const courseHoles = make18Holes();
+        const ctx = makeRoundContext(courseHoles, [
+            makeProducer('P1', { courseHandicap: 0 }),
+            makeProducer('P2', { courseHandicap: 0 }),
+            makeProducer('P3', { courseHandicap: 0 }),
+        ]);
+        const b1 = makeOwnBall('P1', 0, 0);
+        const b2 = makeOwnBall('P2', 0, 0);
+        const b3 = makeOwnBall('P3', 0, 0);
+        // Only holes 1–2 played out of 18 — like a mid-round card.
+        const result = kopenhamnareIndividual.score({
+            roundContext: ctx,
+            slotBalls: [b1, b2, b3],
+            events: [
+                makeScoreEvent(b1.ballId, 1, 3),
+                makeScoreEvent(b2.ballId, 1, 4),
+                makeScoreEvent(b3.ballId, 1, 5),
+                makeScoreEvent(b1.ballId, 2, 3),
+                makeScoreEvent(b2.ballId, 2, 4),
+                makeScoreEvent(b3.ballId, 2, 5),
+            ],
+        });
+
+        const view = kopenhamnareIndividualPresenter({
+            slotIndex: 0,
+            slotDefId: 'slot-kopenhamnare',
+            formatId: KOPENHAMNARE_INDIVIDUAL_ID,
+            formatLabel: 'Split sixes',
+            scoringMode: 'kopenhamnare',
+            teamShape: 'individual',
+            allowanceLabel: '100%',
+            metrics: [{ id: 'points', label: 'Points', direction: 'high' }],
+            runningNormalized: true,
+            result,
+            slotBalls: [b1, b2, b3],
+            slotTeamGroupings: [],
+            columns: columnsFrom(ctx),
+        });
+
+        const total = view.cards[0]!.rows.find((row) => row.label === 'Total')!;
+        // Holes 1–2 carry a value; holes 3–18 are blank (no carry-forward).
+        expect(total.cells.slice(0, 2).every((c) => c.display !== '')).toBe(true);
+        expect(total.cells.slice(2).every((c) => c.display === '' && c.value === null)).toBe(true);
     });
 
     test('stableford better-ball: team card with per-member rows, Team gross/net/points, running guard, team-resolved ranked', () => {
