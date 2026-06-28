@@ -485,6 +485,7 @@ Goal: prove the model on the format that exposed the problem.
 
 Gate:
 
+- Zero diff on the `stableford_individual` snapshot (invariance guard green).
 - Stableford output intentionally lacks duplicate footer.
 - No central builder change needed for future Stableford row/card decisions.
 
@@ -504,7 +505,8 @@ Goal: remove `categoryDefs` as a central builder mode switch.
 
 Gate:
 
-- Umbrella outputs remain visually equivalent or better.
+- Zero diff on the `umbrella_individual` and `umbrella_4_ball` snapshots
+  (invariance guard green, no `UPDATE_SNAPSHOTS`).
 - Default presenter no longer needs to know about `categoryDefs`.
 
 ### Phase E -- Migrate Match-Like Formats
@@ -524,7 +526,8 @@ Goal: remove `pairResults` as a central builder mode switch.
 
 Gate:
 
-- Match/Taliban outputs remain visually equivalent or better.
+- Zero diff on the `match_play_individual`, `match_play_better_ball`, and
+  `taliban_better_ball` snapshots (invariance guard green).
 - Default presenter no longer needs to infer pair views from `pairResults`.
 
 ### Phase F -- Migrate Remaining Default-Grid Formats
@@ -570,13 +573,37 @@ Add tests that enforce the direction:
 - Default presenter contains no format names.
 - Shared helper module contains no production format ids.
 - Each migrated format has a focused test asserting component ids and key rows.
+- The committed-snapshot invariance guard (below) stays green with no
+  `UPDATE_SNAPSHOTS` across every migration phase.
 
-For each migrated format, keep fixture checks:
+### Invariance guard (primary regression gate)
 
-```bash
-bun run check:format-fixtures
-bun run render:formats
-```
+`bun run check:format-fixtures` and `bun run render:formats` do **not** prove a
+migration is behavior-preserving: `render:formats` writes into the gitignored
+`tmp/formats/`, and `check:format-fixtures` only asserts the fixture DB exists
+plus a round count. Neither compares output.
+
+The actual invariance gate is the committed-snapshot test
+`server/domain/strategies/result-view-invariance.test.ts` with snapshots under
+`server/domain/strategies/__snapshots__/result-views/*.json`. It drives the real
+`LeaderboardService.resultForRound` path for every production format and asserts
+each `SlotResultView` deep-equals its committed snapshot. Volatile compiler ids
+(hashes of random seed UUIDs) are canonicalized to first-appearance tokens so
+snapshots are rebuild-stable.
+
+Convention:
+
+- A format's snapshot is captured **while it is still on the default builder**, so
+  it freezes the pre-migration baseline. Every format slated for migration must
+  have a snapshot **before** its phase.
+- A behavior-preserving migration (Phases C--F) MUST produce a **zero snapshot
+  diff**. A green run with no snapshot change is the byte-identical proof.
+- `UPDATE_SNAPSHOTS=1 bun test …/result-view-invariance.test.ts` regenerates
+  snapshots. A snapshot diff in a migration PR is **not** a free re-baseline: it
+  means observable output changed and must be reviewed as an intentional change.
+
+Still run `check:format-fixtures` / `render:formats` for the human-inspectable
+HTML, but the snapshot guard is what gates correctness.
 
 ## Naming
 
