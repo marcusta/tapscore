@@ -433,6 +433,9 @@ Goal: prove the model on the format that exposed the problem.
   - no card footer totals.
 - Remove Stableford-specific `cardTotals: "hidden"` interpretation from the
   central/default builder if nothing else uses it.
+- Regenerate clients after removing `cardTotals` from the descriptor type; the
+  committed generated clients are currently stale and omit the server-side
+  `cardTotals?: "hidden"` field.
 
 Gate:
 
