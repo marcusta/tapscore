@@ -46,9 +46,23 @@ const tpl = template(`
                         <button bind="extOk" class="se-pad__ext-ok" type="button">✓</button>
                     </div>
                 </div>
-                <div bind="metaRow" class="se-meta hidden"></div>
                 <div bind="keys" class="se-pad__grid"></div>
-                <button bind="metaDone" class="se-done hidden" type="button">Done ›</button>
+            </div>
+
+            <div bind="stats" class="se-stats hidden">
+                <div class="se-stats__head">
+                    <button bind="statsBack" class="se-stats__back" type="button">‹</button>
+                    <span bind="statsHole" class="se-stats__hole"></span>
+                    <span class="se-stats__spacer"></span>
+                </div>
+                <div class="se-stats__who">
+                    <span bind="statsTitle" class="se-stats__name"></span>
+                    <span bind="statsScore" class="se-stats__score"></span>
+                </div>
+                <div bind="statsBody" class="se-stats__body"></div>
+                <div class="se-stats__foot">
+                    <button bind="statsNext" class="se-stats__next" type="button"></button>
+                </div>
             </div>
         </div>
 
@@ -93,7 +107,15 @@ const keyTpl = template(`
     </button>
 `);
 
-const chipTpl = template(`<button bind="chip" class="se-chip" type="button"></button>`);
+const chipTpl = template(`
+    <div class="se-stats__group">
+        <span bind="glabel" class="se-stats__group-label"></span>
+        <div class="se-stats__seg">
+            <button bind="miss" class="se-seg" type="button">Miss</button>
+            <button bind="hit" class="se-seg" type="button">Hit</button>
+        </div>
+    </div>
+`);
 
 interface PointerState {
     id: number;
@@ -267,40 +289,98 @@ export class ScoreEntryComponent extends Component {
         }
 
         .se-pad { position: relative; padding: ${s('sm')} ${s('sm')} ${s('xl')}; background: #1c1c1e; }
-        .se-meta {
-            display: flex; gap: ${s('sm')}; flex-wrap: wrap;
-            padding: 0 2px ${s('sm')};
+        .se-pad__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+
+        /* --- Stats step: a near-fullscreen screen shown after a real score on a
+           hole that collects extra info (umbrella GIR/fairway today; numeric
+           stats like bunker visits/putts later). Sits above the keypad modal;
+           "Next" persists the toggles and auto-advances. The structured layout
+           (header → player → grouped controls → footer) leaves room for richer
+           per-category inputs without changing the score-entry flow. */
+        .se-stats {
+            position: fixed; inset: 0; z-index: 60;
+            background: #121212; color: #fff;
+            display: flex; flex-direction: column;
             &.hidden { display: none; }
 
-            & .se-chip {
-                border: 1px solid rgba(255, 255, 255, 0.25);
-                border-radius: 999px;
-                background: transparent;
-                color: rgba(255, 255, 255, 0.82);
+            & .se-stats__head {
+                display: flex; align-items: center; justify-content: space-between;
+                padding: ${s('md')} ${s('lg')};
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+
+                & .se-stats__back {
+                    background: none; border: none; color: #fff; font-size: 1.8rem; line-height: 1;
+                    width: 40px; height: 40px; border-radius: 999px; cursor: pointer;
+                    &:active { background: rgba(255, 255, 255, 0.1); }
+                }
+                & .se-stats__hole { font-family: ${t('font-display')}; font-weight: 700; font-size: 1.1rem; }
+                & .se-stats__spacer { width: 40px; }
+            }
+
+            & .se-stats__who {
+                display: flex; align-items: center; justify-content: center; gap: ${s('md')};
+                padding: ${s('lg')} ${s('lg')} ${s('sm')};
+            }
+            & .se-stats__name { font-family: ${t('font-display')}; font-weight: 700; font-size: 1.4rem; }
+            & .se-stats__score {
+                min-width: 44px; height: 44px; padding: 0 8px; border-radius: 999px;
+                display: inline-flex; align-items: center; justify-content: center;
+                background: ${t('primary')}; color: #fff;
+                font-family: ${t('font-display')}; font-weight: 700; font-size: 1.3rem;
+                font-variant-numeric: tabular-nums;
+            }
+
+            & .se-stats__body {
+                flex: 1; overflow-y: auto;
+                display: flex; flex-direction: column; gap: ${s('xl')};
+                padding: ${s('lg')} ${s('lg')} ${s('xl')};
+                align-content: flex-start;
+            }
+
+            /* Each metadata category is its own labeled group. */
+            & .se-stats__group { display: flex; flex-direction: column; gap: ${s('sm')}; }
+            & .se-stats__group-label {
+                text-align: center;
+                font-family: ${t('font-display')}; font-weight: 700; font-size: 1.05rem;
+                color: rgba(255, 255, 255, 0.92);
+            }
+            & .se-stats__seg { display: flex; gap: ${s('sm')}; justify-content: center; }
+
+            /* Two-option segmented control: the stored value is always the
+               highlighted segment, so there's no implied/hidden state. */
+            & .se-seg {
+                flex: 1; max-width: 180px;
+                border: 1px solid rgba(255, 255, 255, 0.22);
+                border-radius: 14px;
+                background: #1c1c1e;
+                color: rgba(255, 255, 255, 0.55);
                 font-family: inherit;
-                font-size: 0.85rem;
+                font-size: 1.05rem;
                 font-weight: 700;
-                padding: 8px 16px;
+                padding: 18px 22px;
                 cursor: pointer;
                 &:active { background: rgba(255, 255, 255, 0.08); }
-                &.on { background: ${t('primary')}; border-color: ${t('primary')}; color: #fff; }
+                &.on-hit { background: ${t('primary')}; border-color: ${t('primary')}; color: #fff; }
+                &.on-miss { background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.45); color: #fff; }
             }
-        }
-        .se-pad__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-        .se-done {
-            margin-top: 6px;
-            width: 100%;
-            height: 52px;
-            border: none;
-            border-radius: 10px;
-            background: ${t('primary')};
-            color: #fff;
-            font-family: ${t('font-display')};
-            font-weight: 700;
-            font-size: 1.05rem;
-            cursor: pointer;
-            &:active { filter: brightness(1.1); }
-            &.hidden { display: none; }
+
+            & .se-stats__foot {
+                padding: ${s('md')} ${s('lg')} ${s('xl')};
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+            }
+            & .se-stats__next {
+                width: 100%;
+                height: 56px;
+                border: none;
+                border-radius: 12px;
+                background: ${t('primary')};
+                color: #fff;
+                font-family: ${t('font-display')};
+                font-weight: 700;
+                font-size: 1.15rem;
+                cursor: pointer;
+                &:active { filter: brightness(1.1); }
+            }
         }
         .se-key {
             height: 56px; border-radius: 10px; border: none; cursor: pointer;
@@ -353,6 +433,9 @@ export class ScoreEntryComponent extends Component {
     private currentBallIdx = new Signal(0);
     private extendedOpen = new Signal(false);
     private extendedScore = new Signal(10);
+    // After a real score on a hole that collects stats, the keypad is replaced by
+    // a dedicated stats screen; "Next" persists the toggles and auto-advances.
+    private statsOpen = new Signal(false);
     // Per-hole metadata toggles (umbrella GIR/fairway) for the open ball+hole,
     // committed alongside strokes. Reseeded from stored state when the selected
     // ball/hole changes (`lastMetaKey` guards against clobbering live toggles).
@@ -449,7 +532,7 @@ export class ScoreEntryComponent extends Component {
 
         const frag = this.wire(tpl, {
             root: { className: () => (this.hasScoring.get() ? 'se' : 'se hidden') },
-            close: { onclick: () => this.modalOpen.set(false) },
+            close: { onclick: () => { this.statsOpen.set(false); this.modalOpen.set(false); } },
             modal: { className: () => (this.modalOpen.get() ? 'se-modal' : 'se-modal hidden') },
             modalTitle: () => {
                 const ph = this.currentHole();
@@ -470,12 +553,30 @@ export class ScoreEntryComponent extends Component {
                 className: () => (this.toastMsg.get() ? 'se-toast' : 'se-toast hidden'),
                 textContent: () => this.toastMsg.get() ?? '',
             },
-            // When the hole expects metadata (umbrella GIR/fairway), entering a
-            // score does NOT auto-advance — this button does, so the player can
-            // mark GIR/fairway after the stroke. Hidden for strokes-only holes.
-            metaDone: {
-                className: () => (this.metaInputs().length > 0 ? 'se-done' : 'se-done hidden'),
-                onclick: () => this.advance(),
+            // The stats step (umbrella GIR/fairway today). Shown by `commit()`
+            // after a real score on a stats hole; "Next" persists + advances.
+            stats: { className: () => (this.statsOpen.get() ? 'se-stats' : 'se-stats hidden') },
+            statsBack: { onclick: () => this.statsOpen.set(false) },
+            statsHole: () => {
+                const ph = this.currentHole();
+                return ph ? `Hole ${this.occLabel(ph.playHoleId)} · Par ${this.parFor(ph.playHoleId)}` : '';
+            },
+            statsTitle: () => {
+                const ball = this.ballsInGroup()[this.currentBallIdx.get()];
+                return ball ? this.ballName(ball) : '';
+            },
+            statsScore: () => {
+                const ball = this.ballsInGroup()[this.currentBallIdx.get()];
+                const ph = this.currentHole();
+                if (!ball || !ph) return '';
+                return this.displayScore(this.svc.strokesFor(ball.id, ph.playHoleId));
+            },
+            statsNext: {
+                textContent: () => (this.hasMoreUnscored() ? 'Next ›' : 'Done ›'),
+                onclick: () => {
+                    this.statsOpen.set(false);
+                    this.advance();
+                },
             },
         });
 
@@ -528,16 +629,10 @@ export class ScoreEntryComponent extends Component {
         keysHost.appendChild(this.specialKey('0', 'pick up', 'se-key muted', () => this.commit(0)));
 
         // Per-hole metadata toggles (umbrella GIR/fairway), declared by the
-        // format and scoped to the hole's par via `appliesWhen`. Absent for
-        // strokes-only rounds, so the keypad is unchanged for every other format.
-        const metaHost = this.ref(frag, 'metaRow');
-        this.track(
-            effect(() => {
-                metaHost.className = this.metaInputs().length > 0 ? 'se-meta' : 'se-meta hidden';
-            }),
-        );
+        // format and scoped to the hole's par via `appliesWhen`. Rendered into
+        // the stats screen; absent for strokes-only rounds (no stats step).
         this.$each(
-            metaHost,
+            this.ref(frag, 'statsBody'),
             new Computed(() => this.metaInputs()),
             (mi, _i, track) => this.metaChip(mi, track),
             (mi) => mi.key,
@@ -672,6 +767,7 @@ export class ScoreEntryComponent extends Component {
         const idx = this.ballsInGroup().findIndex((b) => b.id === ballId);
         this.currentBallIdx.set(idx < 0 ? 0 : idx);
         this.extendedOpen.set(false);
+        this.statsOpen.set(false);
         this.modalOpen.set(true);
     }
 
@@ -690,10 +786,26 @@ export class ScoreEntryComponent extends Component {
         // COMPLETE toggle snapshot so the latest event's blob is authoritative.
         const meta = value === null ? undefined : this.metaSnapshot();
         void this.svc.setScore(ball.id, ph.playHoleId, value, meta);
-        // Strokes-only holes auto-advance for fast entry; holes that expect
-        // metadata stay put so the player can mark GIR/fairway, then tap Done.
-        if (this.metaInputs().length === 0) this.advance();
+        // A real score (>0) on a hole that collects stats opens the stats screen,
+        // where the player marks GIR/fairway and taps Next to advance. Clear,
+        // pickup, and strokes-only holes auto-advance immediately for fast entry.
+        if (value !== null && value > 0 && this.metaInputs().length > 0) {
+            this.statsOpen.set(true);
+        } else {
+            this.advance();
+        }
     }
+
+    /** True when at least one other ball on the current hole is still unscored. */
+    private hasMoreUnscored = (): boolean => {
+        const balls = this.ballsInGroup();
+        const ph = this.currentHole();
+        if (!ph) return false;
+        const cur = this.currentBallIdx.get();
+        return balls.some(
+            (b, i) => i !== cur && this.svc.strokesFor(b.id, ph.playHoleId) === null,
+        );
+    };
 
     /** Explicit booleans for every applicable toggle (so turning one OFF persists). */
     private metaSnapshot(): Record<string, unknown> | undefined {
@@ -705,12 +817,12 @@ export class ScoreEntryComponent extends Component {
         return out;
     }
 
-    private toggleMeta(key: string): void {
+    /** Set an explicit value for one toggle and persist the full snapshot. */
+    private setMeta(key: string, value: boolean): void {
         const cur = this.pendingMeta.get();
-        this.pendingMeta.set({ ...cur, [key]: !(cur[key] === true) });
-        // If a score is already in for this ball+hole, persist the toggle right
-        // away (re-send strokes + the full snapshot) so it survives without
-        // re-tapping the number. Before a score exists it rides on the commit.
+        this.pendingMeta.set({ ...cur, [key]: value });
+        // The score is already in by the time the stats screen shows, so re-send
+        // strokes + the full snapshot to persist the choice immediately.
         const ball = this.ballsInGroup()[this.currentBallIdx.get()];
         const ph = this.currentHole();
         if (!ball || !ph) return;
@@ -722,10 +834,14 @@ export class ScoreEntryComponent extends Component {
         return this.wireEl(
             chipTpl,
             {
-                chip: {
-                    textContent: mi.label,
-                    className: () => (this.pendingMeta.get()[mi.key] ? 'se-chip on' : 'se-chip'),
-                    onclick: () => this.toggleMeta(mi.key),
+                glabel: { textContent: mi.label },
+                miss: {
+                    className: () => (this.pendingMeta.get()[mi.key] ? 'se-seg' : 'se-seg on-miss'),
+                    onclick: () => this.setMeta(mi.key, false),
+                },
+                hit: {
+                    className: () => (this.pendingMeta.get()[mi.key] ? 'se-seg on-hit' : 'se-seg'),
+                    onclick: () => this.setMeta(mi.key, true),
                 },
             },
             track,
