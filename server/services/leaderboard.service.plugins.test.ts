@@ -6,6 +6,12 @@ import { test, expect, afterEach } from 'bun:test';
 import { createTestDb } from '../testing/db';
 import { createCompiledRound, type RoundFormatId } from '../testing/compiler-rounds';
 import { registerBuiltInFormats, resetBuiltInFormats } from '../domain/formats';
+import {
+    CANARY_FORMAT_ID,
+    canaryPlugin,
+} from '../domain/formats/_canary.testkit';
+import { registerFormat } from '../domain/formats/plugin';
+import type { SlotResultView } from '../domain/strategies/result-sections';
 
 // Tee rated so CH(index) == index (slope 113, CR 72, par 72).
 async function setup() {
@@ -127,7 +133,70 @@ test('resultForRound resolves formats from the canonical registry (cleared regis
     );
 });
 
+test('resultForRound dispatches to a plugin renderResult presenter when present', async () => {
+    const { ctx, courseId, teeId } = await setup();
+    const pl = await ctx.playerService.register({ username: `presenter-proof-${seq++}`, password: 'password123', displayName: 'Presenter' });
+    const presenterCalls: string[] = [];
+    const presenterPlugin = {
+        ...canaryPlugin,
+        renderResult(input: unknown): SlotResultView {
+            const i = input as {
+                slotIndex: number;
+                slotDefId: string;
+                formatId: string;
+                formatLabel: string;
+                scoringMode: string;
+                teamShape: string;
+                allowanceLabel: string;
+            };
+            presenterCalls.push(i.formatId);
+            return {
+                slotIndex: i.slotIndex,
+                slotDefId: i.slotDefId,
+                formatId: i.formatId,
+                formatLabel: i.formatLabel,
+                scoringMode: i.scoringMode,
+                teamShape: i.teamShape,
+                allowanceLabel: i.allowanceLabel,
+                cards: [],
+                leaderboard: [],
+            };
+        },
+    };
+    registerFormat(presenterPlugin);
+    const { round } = await createCompiledRound(ctx, {
+        courseId,
+        teeId,
+        slots: [{ formatId: CANARY_FORMAT_ID as RoundFormatId, allowancePct: 100 }],
+        players: [{ kind: 'player', id: pl.id, handicapIndex: 9 }],
+    });
+
+    const rr = await ctx.leaderboardService.resultForRound(round.id);
+
+    expect(presenterCalls).toEqual([CANARY_FORMAT_ID]);
+    expect(rr.slots[0]!.cards).toEqual([]);
+    expect(rr.slots[0]!.leaderboard).toEqual([]);
+});
+
+test('resultForRound falls back to the default result presenter when renderResult is absent', async () => {
+    const { ctx, courseId, teeId } = await setup();
+    const pl = await ctx.playerService.register({ username: `default-presenter-${seq++}`, password: 'password123', displayName: 'Default' });
+    registerFormat(canaryPlugin);
+    const { round } = await createCompiledRound(ctx, {
+        courseId,
+        teeId,
+        slots: [{ formatId: CANARY_FORMAT_ID as RoundFormatId, allowancePct: 100 }],
+        players: [{ kind: 'player', id: pl.id, handicapIndex: 9 }],
+    });
+
+    const rr = await ctx.leaderboardService.resultForRound(round.id);
+
+    expect(rr.slots[0]!.cards.length).toBeGreaterThan(0);
+    expect(rr.slots[0]!.leaderboard.some((s) => s.kind === 'ranked' && s.metricId === 'points')).toBe(true);
+});
+
 afterEach(() => {
     // Restore the process-global registry baseline for files that run after.
+    resetBuiltInFormats();
     registerBuiltInFormats();
 });

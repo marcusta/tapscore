@@ -26,6 +26,7 @@ import type {
     ScoreInput,
 } from '../strategies/format-strategy';
 import type { ScoreGridComponentId } from '../strategies/result-vocabulary';
+import type { FormatResultPresenter } from '../strategies/result-presenter';
 import type { ConfigDiagnostic, StrategyResult } from '../strategies/types';
 
 // --- Descriptor (serializable) ---------------------------------------------
@@ -265,6 +266,8 @@ export interface FormatPlugin {
     validateConfig(config: unknown): ConfigDiagnostic[];
     deriveSlotBalls(input: DeriveSlotBallsInput): DerivedSlotBall[];
     score(input: ScoreInput): StrategyResult;
+    /** Optional: format-owned result presenter. Absent → defaultResultPresenter. */
+    renderResult?: FormatResultPresenter;
     /**
      * In-round action types this format accepts. Absent / empty → the format is
      * stateless and the append path rejects any action against its slots.

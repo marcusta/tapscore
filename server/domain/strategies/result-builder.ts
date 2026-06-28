@@ -12,13 +12,10 @@
 // normalised running totals (cumulative points minus the trailing subject),
 // both gated by data, not by a format identity.
 
-import type { FormatMetric } from '../formats/plugin';
 import type {
     BallResult,
     PairBallResult,
-    SlotBall,
     SlotTeamGrouping,
-    StrategyResult,
 } from './types';
 import type {
     GridRow,
@@ -28,7 +25,6 @@ import type {
     ScoreGridSection,
     SlotResultView,
 } from './result-sections';
-import type { ScoreGridComponentId } from './result-vocabulary';
 import {
     ballScoreRows,
     byPlayHole,
@@ -51,36 +47,16 @@ import {
     siRow,
     type ResultColumn,
 } from './result-presenter-helpers';
+import type { FormatResultInput } from './result-presenter';
 
 export type { ResultColumn } from './result-presenter-helpers';
 
 const TEAM_PREFIX = 'team:';
 
-export interface BuildSlotInput {
-    slotIndex: number;
-    slotDefId: string;
-    formatId: string;
-    formatLabel: string;
-    scoringMode: string;
-    teamShape: string;
-    allowanceLabel: string;
-    metrics: FormatMetric[];
-    runningNormalized: boolean;
-    scoreGridComponentId?: ScoreGridComponentId;
-    /** Drop the card-footer total when it only duplicates other surfaces. */
-    hideCardTotals?: boolean;
-    result: StrategyResult;
-    slotBalls: SlotBall[];
-    slotTeamGroupings: SlotTeamGrouping[];
-    /** Played itinerary occurrences, in canonical ordinal order — the grid columns. */
-    columns: ResultColumn[];
-    /**
-     * Per-ball effective SI (ballId → playHoleId → SI), for single-producer
-     * cards on mixed-tee rounds so the displayed SI matches each ball's own-tee
-     * stroke allocation. Omit for team/pair cards and single-tee rounds.
-     */
-    effectiveSi?: Map<string, Map<string, number>>;
-}
+export type { FormatResultInput } from './result-presenter';
+
+/** @deprecated use FormatResultInput */
+export type BuildSlotInput = FormatResultInput;
 
 /** Explains the normalised running totals so the per-hole points (raw) and the
  * running/total (leader-relative) don't read as a contradiction. */

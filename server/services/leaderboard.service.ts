@@ -8,7 +8,8 @@ import {
     type RoundLeaderboardInput,
 } from '../domain/round-materializer';
 import { findFormatPlugin } from '../domain/formats/plugin';
-import { buildSlotResult, type ResultColumn } from '../domain/strategies/result-builder';
+import { defaultResultPresenter } from '../domain/strategies/default-result-presenter';
+import type { ResultColumn } from '../domain/strategies/result-builder';
 import type { RoundResult } from '../domain/strategies/result-sections';
 import { formatAllowanceLabel, type RoundDefinition } from '../domain/round-definition';
 import type { FormatAction, RulingEvent, StrategyEvent } from '../domain/strategies/types';
@@ -293,7 +294,8 @@ export class LeaderboardService {
                 }
                 effectiveSi.set(sb.ballId, byHole);
             }
-            return buildSlotResult({
+            const presenter = plugin.renderResult ?? defaultResultPresenter;
+            return presenter({
                 slotIndex: slot.slotIndex,
                 slotDefId: slot.slotDefId,
                 formatId: slot.formatId,
