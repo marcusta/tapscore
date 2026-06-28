@@ -344,6 +344,9 @@ export class CreateComponent extends Component {
     private router = this.inject(Router);
 
     render(): DocumentFragment {
+        // The service is a DI singleton — clear any prior draft so a second visit
+        // to New Round starts empty instead of leaking the last round's state.
+        this.svc.reset();
         void this.svc.load();
 
         const frag = this.wire(tpl, {

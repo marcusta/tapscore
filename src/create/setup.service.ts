@@ -153,6 +153,30 @@ export class SetupService {
     private nextSlotKey = 1;
     private nextTeamKey = 1;
 
+    /**
+     * Clear the in-progress draft back to empty. The service is a DI singleton
+     * (`di.get`), so without this a second visit to New Round would show the
+     * previous round's course/players/teams/formats. Called on mount, before
+     * `load()` repopulates the catalog and seeds a default course + player + slot.
+     */
+    reset(): void {
+        this.courses.set([]);
+        this.tees.set([]);
+        this.courseId.set('');
+        this.preset.set('full_18');
+        this.startHole.set(1);
+        this.players.set([]);
+        this.teams.set([]);
+        this.formatSlots.set([]);
+        this.diagnostics.set([]);
+        this.submitError.set(null);
+        this.submitting.set(false);
+        this.error.set(null);
+        this.nextKey = 1;
+        this.nextSlotKey = 1;
+        this.nextTeamKey = 1;
+    }
+
     async load(): Promise<void> {
         // Catalog loads in parallel; the format step renders once it arrives and
         // seeds a default slot so a round is valid out of the box (M2 parity).
