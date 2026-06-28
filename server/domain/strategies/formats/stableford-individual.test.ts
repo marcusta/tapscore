@@ -8,11 +8,16 @@ import {
     makeScoreEvent,
 } from './_testkit';
 import { BUILTIN_FORMAT_PLUGINS } from '../../formats/builtins';
-import { buildSlotResult } from '../result-builder';
 import { STABLEFORD_INDIVIDUAL_ID, stablefordIndividual } from './stableford-individual';
+import { stablefordIndividualPresenter } from './stableford-individual.presenter';
 
 describe('stablefordIndividual (new contract)', () => {
-    test('result view emits the default score grid component id', () => {
+    test('built-in plugin registers the stableford presenter', () => {
+        const plugin = BUILTIN_FORMAT_PLUGINS.find((p) => p.descriptor.id === STABLEFORD_INDIVIDUAL_ID)!;
+        expect(plugin.renderResult).toBe(stablefordIndividualPresenter);
+    });
+
+    test('presenter owns the stableford card and ranked points sections', () => {
         const courseHoles = make18Holes();
         const ctx = makeRoundContext(courseHoles, [makeProducer('P1', { courseHandicap: 0 })]);
         const ball = makeOwnBall('P1', 0, 0);
@@ -22,7 +27,7 @@ describe('stablefordIndividual (new contract)', () => {
             events: [makeScoreEvent(ball.ballId, 1, 3)],
         });
 
-        const view = buildSlotResult({
+        const view = stablefordIndividualPresenter({
             slotIndex: 0,
             slotDefId: 'slot-stableford',
             formatId: STABLEFORD_INDIVIDUAL_ID,
@@ -62,7 +67,15 @@ describe('stablefordIndividual (new contract)', () => {
             tone: 'success',
             label: 'Birdie (-1)',
         });
-        expect(view.cards[0]?.totals).toEqual([{ label: 'points', value: 3 }]);
+        expect(view.cards[0]?.totals).toEqual([]);
+        expect(view.leaderboard).toEqual([
+            {
+                kind: 'ranked',
+                metricId: 'points',
+                metricLabel: 'Points',
+                entries: [{ ballIds: [ball.ballId], total: 3, holesPlayed: 1, position: 1 }],
+            },
+        ]);
     });
 
     test('scratch: 36 points on every par-4 scored net-par', () => {

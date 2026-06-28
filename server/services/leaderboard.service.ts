@@ -306,7 +306,6 @@ export class LeaderboardService {
                 metrics: plugin.descriptor.metrics,
                 runningNormalized: plugin.descriptor.resultDisplay?.runningTotals === 'normalized',
                 scoreGridComponentId: plugin.descriptor.resultDisplay?.scoreGridComponentId,
-                hideCardTotals: plugin.descriptor.resultDisplay?.cardTotals === 'hidden',
                 result,
                 slotBalls: slot.slotBalls,
                 slotTeamGroupings: slot.slotTeamGroupings,

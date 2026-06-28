@@ -1,5 +1,6 @@
 import type { BallResult } from './types';
-import type { GridCell, GridRow, HoleRef, RankedEntry } from './result-sections';
+import type { FormatMetric } from '../formats/plugin';
+import type { GridCell, GridRow, HoleRef, RankedEntry, RankedSection } from './result-sections';
 
 /**
  * One scorecard column = one itinerary occurrence, ordered by canonical
@@ -300,4 +301,40 @@ export function rankEntries(entries: RankedEntry[], direction: 'high' | 'low'): 
         }
         return { ...e, position };
     });
+}
+
+export function rankedSections(
+    metrics: FormatMetric[],
+    ballResults: BallResult[],
+    opts: {
+        offsets?: Map<string, number> | null;
+        ballIdsFor?: (resultBallId: string) => string[];
+    } = {},
+): RankedSection[] {
+    const out: RankedSection[] = [];
+    const offsets = opts.offsets ?? null;
+    const ballIdsFor = opts.ballIdsFor ?? ((resultBallId: string) => [resultBallId]);
+
+    for (const metric of metrics) {
+        const entries: RankedEntry[] = [];
+        for (const r of ballResults) {
+            const t = r.totals.find((x) => x.scoringType === metric.id);
+            if (!t) continue;
+            entries.push({
+                ballIds: ballIdsFor(r.ballId),
+                total: normalizeTotal(t.value, metric.id, offsets),
+                holesPlayed: r.holesPlayed,
+                position: 0,
+            });
+        }
+        if (entries.length === 0) continue;
+        out.push({
+            kind: 'ranked',
+            metricId: metric.id,
+            metricLabel: metric.label,
+            entries: rankEntries(entries, metric.direction),
+        });
+    }
+
+    return out;
 }

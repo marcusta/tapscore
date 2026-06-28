@@ -9,6 +9,7 @@ import {
 } from './formats/_testkit';
 import { MATCH_PLAY_INDIVIDUAL_ID, matchPlayIndividual } from './formats/match-play-individual';
 import { STABLEFORD_INDIVIDUAL_ID, stablefordIndividual } from './formats/stableford-individual';
+import { stablefordIndividualPresenter } from './formats/stableford-individual.presenter';
 import { UMBRELLA_4_BALL_ID, umbrella4Ball } from './formats/umbrella-4-ball';
 import { buildSlotResult, type BuildSlotInput } from './result-builder';
 import type { MetadataEvent, RoundContext } from './types';
@@ -49,7 +50,7 @@ describe('buildSlotResult golden output', () => {
             events: [makeScoreEvent(ball.ballId, 1, 3), makeScoreEvent(ball.ballId, 2, 4)],
         });
 
-        const view = buildSlotResult({
+        const view = stablefordIndividualPresenter({
             slotIndex: 0,
             slotDefId: 'slot-stableford',
             formatId: STABLEFORD_INDIVIDUAL_ID,
@@ -77,7 +78,7 @@ describe('buildSlotResult golden output', () => {
                     title: { groups: [[ball.ballId]], joiner: ' & ' },
                     subjectBallIds: [ball.ballId],
                     subtitleFacts: ['slot #0 · Stableford · 100%', 'CH 0', 'PH 0', 'holes played 2'],
-                    totals: [{ label: 'points', value: 5 }],
+                    totals: [],
                 },
             ],
             leaderboard: [

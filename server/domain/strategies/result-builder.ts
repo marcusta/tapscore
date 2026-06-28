@@ -21,7 +21,6 @@ import type {
     GridRow,
     LeaderboardSection,
     MatchPanel,
-    RankedEntry,
     ScoreGridSection,
     SlotResultView,
 } from './result-sections';
@@ -42,7 +41,7 @@ import {
     parRow,
     parSiRows,
     pointsRow,
-    rankEntries,
+    rankedSections,
     runningRow,
     siRow,
     type ResultColumn,
@@ -224,12 +223,10 @@ function buildTeamCard(
         rows,
         footnotes: compact ? [] : footnotesFor(teamResult),
         ...(input.runningNormalized ? { caption: NORMALIZED_CAPTION } : {}),
-        totals: input.hideCardTotals
-            ? []
-            : teamResult.totals.map((t) => ({
-                  label: t.scoringType,
-                  value: normalizeTotal(t.value, t.scoringType, offsets),
-              })),
+        totals: teamResult.totals.map((t) => ({
+            label: t.scoringType,
+            value: normalizeTotal(t.value, t.scoringType, offsets),
+        })),
     };
 }
 
@@ -268,12 +265,10 @@ function buildIndividualCard(
         rows,
         footnotes: compact ? [] : footnotesFor(r),
         ...(input.runningNormalized ? { caption: NORMALIZED_CAPTION } : {}),
-        totals: input.hideCardTotals
-            ? []
-            : r.totals.map((t) => ({
-                  label: t.scoringType,
-                  value: normalizeTotal(t.value, t.scoringType, offsets),
-              })),
+        totals: r.totals.map((t) => ({
+            label: t.scoringType,
+            value: normalizeTotal(t.value, t.scoringType, offsets),
+        })),
     };
 }
 
@@ -284,8 +279,6 @@ function buildLeaderboard(
     labelToBallIds: Map<string, string[]>,
     offsets: Map<string, number> | null,
 ): LeaderboardSection[] {
-    const out: LeaderboardSection[] = [];
-
     const ballIdsFor = (resultBallId: string): string[] => {
         if (resultBallId.startsWith(TEAM_PREFIX)) {
             return labelToBallIds.get(resultBallId.slice(TEAM_PREFIX.length)) ?? [resultBallId];
@@ -293,26 +286,10 @@ function buildLeaderboard(
         return [resultBallId];
     };
 
-    for (const metric of input.metrics) {
-        const entries: RankedEntry[] = [];
-        for (const r of input.result.ballResults) {
-            const t = r.totals.find((x) => x.scoringType === metric.id);
-            if (!t) continue;
-            entries.push({
-                ballIds: ballIdsFor(r.ballId),
-                total: normalizeTotal(t.value, metric.id, offsets),
-                holesPlayed: r.holesPlayed,
-                position: 0,
-            });
-        }
-        if (entries.length === 0) continue;
-        out.push({
-            kind: 'ranked',
-            metricId: metric.id,
-            metricLabel: metric.label,
-            entries: rankEntries(entries, metric.direction),
-        });
-    }
+    const out: LeaderboardSection[] = rankedSections(input.metrics, input.result.ballResults, {
+        offsets,
+        ballIdsFor,
+    });
 
     const pairs = input.result.pairResults ?? [];
     if (pairs.length > 0) {

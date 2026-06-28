@@ -19,8 +19,6 @@ export interface FormatResultInput {
     metrics: FormatMetric[];
     runningNormalized: boolean;
     scoreGridComponentId?: ScoreGridComponentId;
-    /** Drop the card-footer total when it only duplicates other surfaces. */
-    hideCardTotals?: boolean;
     result: StrategyResult;
     slotBalls: SlotBall[];
     slotTeamGroupings: SlotTeamGrouping[];

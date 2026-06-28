@@ -39,11 +39,13 @@ import type {
     ScoreEntryCapabilities,
 } from './plugin';
 import type { ScoreGridComponentId } from '../strategies/result-vocabulary';
+import type { FormatResultPresenter } from '../strategies/result-presenter';
 import type { FormatStrategy } from '../strategies/format-strategy';
 import { OWN_BALL_PER_PLAYER_ID } from '../strategies/ball-creation/own-ball-per-player';
 
 import { strokePlayIndividual } from '../strategies/formats/stroke-play-individual';
 import { stablefordIndividual } from '../strategies/formats/stableford-individual';
+import { stablefordIndividualPresenter } from '../strategies/formats/stableford-individual.presenter';
 import { matchPlayIndividual } from '../strategies/formats/match-play-individual';
 import { kopenhamnareIndividual } from '../strategies/formats/kopenhamnare-individual';
 import { stablefordBetterBall } from '../strategies/formats/stableford-better-ball';
@@ -71,8 +73,8 @@ interface BuiltinMeta {
     resultDisplay?: {
         runningTotals?: 'normalized';
         scoreGridComponentId?: ScoreGridComponentId;
-        cardTotals?: 'hidden';
     };
+    renderResult?: FormatResultPresenter;
     /**
      * Per-hole metadata inputs this format consumes beyond strokes (umbrella's
      * GIR/fairway). Declared here so the generic score-entry surface renders the
@@ -105,8 +107,8 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'stableford',
         teamShape: 'individual',
         metrics: POINTS_HIGH,
-        // Footer total would just repeat the leaderboard + the points subtotal.
-        resultDisplay: { ...DEFAULT_SCORE_GRID, cardTotals: 'hidden' },
+        resultDisplay: DEFAULT_SCORE_GRID,
+        renderResult: stablefordIndividualPresenter,
         scoresAnyBall: true,
     },
     {
@@ -245,6 +247,7 @@ function toPlugin(meta: BuiltinMeta): FormatPlugin {
         validateConfig: (config) => strategy.validateConfig?.(config) ?? [],
         deriveSlotBalls: (input) => strategy.deriveSlotBalls(input),
         score: (input) => strategy.score(input),
+        ...(meta.renderResult ? { renderResult: meta.renderResult } : {}),
     };
 }
 
