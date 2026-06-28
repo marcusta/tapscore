@@ -11,12 +11,19 @@ import { matchPlayPresenter } from './formats/match-play.presenter';
 import { MATCH_PLAY_INDIVIDUAL_ID, matchPlayIndividual } from './formats/match-play-individual';
 import { STABLEFORD_INDIVIDUAL_ID, stablefordIndividual } from './formats/stableford-individual';
 import { stablefordIndividualPresenter } from './formats/stableford-individual.presenter';
+import { STROKE_PLAY_INDIVIDUAL_ID, strokePlayIndividual } from './formats/stroke-play-individual';
+import { KOPENHAMNARE_INDIVIDUAL_ID, kopenhamnareIndividual } from './formats/kopenhamnare-individual';
+import { STABLEFORD_BETTER_BALL_ID, stablefordBetterBall } from './formats/stableford-better-ball';
+import { defaultGridPresenter } from './formats/default-grid.presenter';
+import { stablefordBetterBallPresenter } from './formats/stableford-better-ball.presenter';
 import { UMBRELLA_4_BALL_ID, umbrella4Ball } from './formats/umbrella-4-ball';
 import { umbrella4BallPresenter } from './formats/umbrella-4-ball.presenter';
-import { type BuildSlotInput } from './result-builder';
+import type { FormatResultInput } from './result-presenter';
 import type { MetadataEvent, RoundContext } from './types';
 
-function columnsFrom(ctx: RoundContext): BuildSlotInput['columns'] {
+const gridPresenter = defaultGridPresenter();
+
+function columnsFrom(ctx: RoundContext): FormatResultInput['columns'] {
     return ctx.playHoles.map((p) => ({
         playHoleId: p.playHoleId,
         courseHoleNumber: p.courseHoleNumber,
@@ -323,6 +330,184 @@ describe('buildSlotResult golden output', () => {
                         thru: 2,
                     },
                 ],
+            },
+        ]);
+    });
+
+    test('stroke play individual: gross/net card, no points/running, ranked gross+net, no componentId', () => {
+        const courseHoles = make18Holes().slice(0, 2);
+        const ctx = makeRoundContext(courseHoles, [makeProducer('P1', { courseHandicap: 1 })]);
+        const ball = makeOwnBall('P1', 1, 1);
+        const result = strokePlayIndividual.score({
+            roundContext: ctx,
+            slotBalls: [ball],
+            events: [makeScoreEvent(ball.ballId, 1, 4), makeScoreEvent(ball.ballId, 2, 5)],
+        });
+
+        const view = gridPresenter({
+            slotIndex: 0,
+            slotDefId: 'slot-stroke',
+            formatId: STROKE_PLAY_INDIVIDUAL_ID,
+            formatLabel: 'Stroke play',
+            scoringMode: 'stroke_play',
+            teamShape: 'individual',
+            allowanceLabel: '100%',
+            metrics: [
+                { id: 'gross', label: 'Gross', direction: 'low' },
+                { id: 'net', label: 'Net', direction: 'low' },
+            ],
+            runningNormalized: false,
+            result,
+            slotBalls: [ball],
+            slotTeamGroupings: [],
+            columns: columnsFrom(ctx),
+        });
+
+        // Default-grid formats omit componentId entirely (not 'default-score-grid').
+        expect(view.cards).toHaveLength(1);
+        expect('componentId' in view.cards[0]!).toBe(false);
+        expect(view.cards[0]).toMatchObject({
+            kind: 'score_grid',
+            title: { groups: [[ball.ballId]], joiner: ' & ' },
+            subjectBallIds: [ball.ballId],
+            subtitleFacts: ['slot #0 · Stroke play · 100%', 'CH 1', 'PH 1', 'holes played 2'],
+        });
+        expect('caption' in view.cards[0]!).toBe(false);
+        // No points row (stroke play bears no points), no running row (absolute totals).
+        expect(view.cards[0]?.rows.map((row) => row.label)).toEqual(['Par', 'SI', 'Given', 'Gross', 'Net']);
+        expect(view.leaderboard.map((s) => s.kind === 'ranked' && s.metricId)).toEqual(['gross', 'net']);
+    });
+
+    test('köpenhamnare individual: points + running rows, caption, normalized totals + leaderboard', () => {
+        const courseHoles = make18Holes().slice(0, 2);
+        const ctx = makeRoundContext(courseHoles, [
+            makeProducer('P1', { courseHandicap: 0 }),
+            makeProducer('P2', { courseHandicap: 0 }),
+            makeProducer('P3', { courseHandicap: 0 }),
+        ]);
+        const b1 = makeOwnBall('P1', 0, 0);
+        const b2 = makeOwnBall('P2', 0, 0);
+        const b3 = makeOwnBall('P3', 0, 0);
+        // Distinct topology each hole → raw 4/2/0; trailing player already 0 so
+        // normalization (− min) is a no-op, but the running/caption machinery runs.
+        const result = kopenhamnareIndividual.score({
+            roundContext: ctx,
+            slotBalls: [b1, b2, b3],
+            events: [
+                makeScoreEvent(b1.ballId, 1, 3),
+                makeScoreEvent(b2.ballId, 1, 4),
+                makeScoreEvent(b3.ballId, 1, 5),
+                makeScoreEvent(b1.ballId, 2, 3),
+                makeScoreEvent(b2.ballId, 2, 4),
+                makeScoreEvent(b3.ballId, 2, 5),
+            ],
+        });
+
+        const view = gridPresenter({
+            slotIndex: 0,
+            slotDefId: 'slot-kopenhamnare',
+            formatId: KOPENHAMNARE_INDIVIDUAL_ID,
+            formatLabel: 'Split sixes',
+            scoringMode: 'kopenhamnare',
+            teamShape: 'individual',
+            allowanceLabel: '100%',
+            metrics: [{ id: 'points', label: 'Points', direction: 'high' }],
+            runningNormalized: true,
+            result,
+            slotBalls: [b1, b2, b3],
+            slotTeamGroupings: [],
+            columns: columnsFrom(ctx),
+        });
+
+        expect(view.cards).toHaveLength(3);
+        const leader = view.cards[0]!;
+        expect('componentId' in leader).toBe(false);
+        expect(leader.rows.map((row) => row.label)).toEqual([
+            'Par',
+            'SI',
+            'Given',
+            'Gross',
+            'Net',
+            'Points',
+            'Running',
+        ]);
+        expect(leader.caption).toContain('relative to the leader');
+        // Raw 4/hole × 2 = 8 for the winner; trailing total is 0 so offsets leave it.
+        expect(leader.totals).toEqual([{ label: 'points', value: 8 }]);
+        const ranked = view.leaderboard.find((s) => s.kind === 'ranked' && s.metricId === 'points');
+        expect(ranked && ranked.kind === 'ranked' && ranked.entries.map((e) => e.total)).toEqual([8, 4, 0]);
+    });
+
+    test('stableford better-ball: team card with per-member rows, Team gross/net/points, running guard, team-resolved ranked', () => {
+        const courseHoles = make18Holes().slice(0, 2);
+        const ctx = makeRoundContext(courseHoles, [
+            makeProducer('P1', { courseHandicap: 0 }),
+            makeProducer('P2', { courseHandicap: 0 }),
+        ]);
+        const bA = makeOwnBall('P1', 0, 0);
+        const bB = makeOwnBall('P2', 0, 0);
+        const grouping = { teamLabel: 'T1', ballIds: [bA.ballId, bB.ballId] };
+        const result = stablefordBetterBall.score({
+            roundContext: ctx,
+            slotBalls: [bA, bB],
+            slotTeamGroupings: [grouping],
+            events: [
+                makeScoreEvent(bA.ballId, 1, 4),
+                makeScoreEvent(bB.ballId, 1, 3),
+                makeScoreEvent(bA.ballId, 2, 4),
+                makeScoreEvent(bB.ballId, 2, 4),
+            ],
+        });
+
+        const view = stablefordBetterBallPresenter({
+            slotIndex: 0,
+            slotDefId: 'slot-bb',
+            formatId: STABLEFORD_BETTER_BALL_ID,
+            formatLabel: 'Better-ball Stableford',
+            scoringMode: 'stableford',
+            teamShape: 'better_ball',
+            allowanceLabel: '100%',
+            metrics: [{ id: 'points', label: 'Points', direction: 'high' }],
+            runningNormalized: false,
+            result,
+            slotBalls: [bA, bB],
+            slotTeamGroupings: [grouping],
+            columns: columnsFrom(ctx),
+        });
+
+        expect(view.cards).toHaveLength(1);
+        const card = view.cards[0]!;
+        expect('componentId' in card).toBe(false);
+        expect('caption' in card).toBe(false);
+        expect(card).toMatchObject({
+            kind: 'score_grid',
+            title: { groups: [[bA.ballId, bB.ballId]], joiner: ' & ' },
+            subjectBallIds: [bA.ballId, bB.ballId],
+            // Team cards carry no CH/PH facts.
+            subtitleFacts: ['slot #0 · Better-ball Stableford · 100%', 'holes played 2'],
+        });
+        // Par/SI, then each member's Given/Gross/Points, then team rows. No
+        // running row (absolute totals → the Phase D guard drops it).
+        expect(card.rows.map((row) => row.label)).toEqual([
+            'Par',
+            'SI',
+            'Given',
+            'Gross',
+            'Points',
+            'Given',
+            'Gross',
+            'Points',
+            'Team gross',
+            'Team net',
+            'Team points',
+        ]);
+        // Leaderboard resolves team:T1 back to the member ballIds.
+        expect(view.leaderboard).toEqual([
+            {
+                kind: 'ranked',
+                metricId: 'points',
+                metricLabel: 'Points',
+                entries: [{ ballIds: [bA.ballId, bB.ballId], total: 5, holesPlayed: 2, position: 1 }],
             },
         ]);
     });

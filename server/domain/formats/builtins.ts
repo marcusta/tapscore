@@ -56,10 +56,16 @@ import { umbrellaIndividual } from '../strategies/formats/umbrella-individual';
 import { umbrellaIndividualPresenter } from '../strategies/formats/umbrella-individual.presenter';
 import { matchPlayBetterBall } from '../strategies/formats/match-play-better-ball';
 import { matchPlayPresenter } from '../strategies/formats/match-play.presenter';
+import { defaultGridPresenter } from '../strategies/formats/default-grid.presenter';
+import { stablefordBetterBallPresenter } from '../strategies/formats/stableford-better-ball.presenter';
 
 // One shared presenter instance for the three match-like formats — they render
 // the same compact match view (the constructor takes no config today).
 const matchPlayResultPresenter = matchPlayPresenter();
+
+// One shared zero-config instance for the default individual grids
+// (stroke play + Split sixes) — every decision is derived from `input`.
+const defaultGridResultPresenter = defaultGridPresenter();
 
 const GROSS_NET: FormatMetric[] = [
     { id: 'gross', label: 'Gross', direction: 'low' },
@@ -105,6 +111,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'stroke_play',
         teamShape: 'individual',
         metrics: GROSS_NET,
+        renderResult: defaultGridResultPresenter,
         scoresAnyBall: true,
     },
     {
@@ -140,6 +147,7 @@ const BUILTINS: BuiltinMeta[] = [
         teamShape: 'individual',
         metrics: POINTS_HIGH,
         resultDisplay: NORMALIZED_RUNNING,
+        renderResult: defaultGridResultPresenter,
         scoresAnyBall: true,
     },
     {
@@ -175,6 +183,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'stableford',
         teamShape: 'better_ball',
         metrics: POINTS_HIGH,
+        renderResult: stablefordBetterBallPresenter,
         scoresAnyBall: true,
     },
     {
