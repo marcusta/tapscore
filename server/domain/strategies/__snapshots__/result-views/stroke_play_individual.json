@@ -1,0 +1,3037 @@
+[
+  {
+    "slotIndex": 0,
+    "slotDefId": "slot-0",
+    "formatId": "stroke_play_individual",
+    "formatLabel": "Stroke play",
+    "scoringMode": "stroke_play",
+    "teamShape": "individual",
+    "allowanceLabel": "100%",
+    "cards": [
+      {
+        "kind": "score_grid",
+        "title": {
+          "groups": [
+            [
+              "<id:0>"
+            ]
+          ],
+          "joiner": " & "
+        },
+        "subjectBallIds": [
+          "<id:0>"
+        ],
+        "holes": [
+          {
+            "holeNumber": 1,
+            "playHoleId": "<id:1>",
+            "courseHoleNumber": 1,
+            "canonicalOrdinal": 1,
+            "occurrenceLabel": "1"
+          },
+          {
+            "holeNumber": 2,
+            "playHoleId": "<id:2>",
+            "courseHoleNumber": 2,
+            "canonicalOrdinal": 2,
+            "occurrenceLabel": "2"
+          },
+          {
+            "holeNumber": 3,
+            "playHoleId": "<id:3>",
+            "courseHoleNumber": 3,
+            "canonicalOrdinal": 3,
+            "occurrenceLabel": "3"
+          },
+          {
+            "holeNumber": 4,
+            "playHoleId": "<id:4>",
+            "courseHoleNumber": 4,
+            "canonicalOrdinal": 4,
+            "occurrenceLabel": "4"
+          },
+          {
+            "holeNumber": 5,
+            "playHoleId": "<id:5>",
+            "courseHoleNumber": 5,
+            "canonicalOrdinal": 5,
+            "occurrenceLabel": "5"
+          },
+          {
+            "holeNumber": 6,
+            "playHoleId": "<id:6>",
+            "courseHoleNumber": 6,
+            "canonicalOrdinal": 6,
+            "occurrenceLabel": "6"
+          },
+          {
+            "holeNumber": 7,
+            "playHoleId": "<id:7>",
+            "courseHoleNumber": 7,
+            "canonicalOrdinal": 7,
+            "occurrenceLabel": "7"
+          },
+          {
+            "holeNumber": 8,
+            "playHoleId": "<id:8>",
+            "courseHoleNumber": 8,
+            "canonicalOrdinal": 8,
+            "occurrenceLabel": "8"
+          },
+          {
+            "holeNumber": 9,
+            "playHoleId": "<id:9>",
+            "courseHoleNumber": 9,
+            "canonicalOrdinal": 9,
+            "occurrenceLabel": "9"
+          },
+          {
+            "holeNumber": 10,
+            "playHoleId": "<id:10>",
+            "courseHoleNumber": 10,
+            "canonicalOrdinal": 10,
+            "occurrenceLabel": "10"
+          },
+          {
+            "holeNumber": 11,
+            "playHoleId": "<id:11>",
+            "courseHoleNumber": 11,
+            "canonicalOrdinal": 11,
+            "occurrenceLabel": "11"
+          },
+          {
+            "holeNumber": 12,
+            "playHoleId": "<id:12>",
+            "courseHoleNumber": 12,
+            "canonicalOrdinal": 12,
+            "occurrenceLabel": "12"
+          },
+          {
+            "holeNumber": 13,
+            "playHoleId": "<id:13>",
+            "courseHoleNumber": 13,
+            "canonicalOrdinal": 13,
+            "occurrenceLabel": "13"
+          },
+          {
+            "holeNumber": 14,
+            "playHoleId": "<id:14>",
+            "courseHoleNumber": 14,
+            "canonicalOrdinal": 14,
+            "occurrenceLabel": "14"
+          },
+          {
+            "holeNumber": 15,
+            "playHoleId": "<id:15>",
+            "courseHoleNumber": 15,
+            "canonicalOrdinal": 15,
+            "occurrenceLabel": "15"
+          },
+          {
+            "holeNumber": 16,
+            "playHoleId": "<id:16>",
+            "courseHoleNumber": 16,
+            "canonicalOrdinal": 16,
+            "occurrenceLabel": "16"
+          },
+          {
+            "holeNumber": 17,
+            "playHoleId": "<id:17>",
+            "courseHoleNumber": 17,
+            "canonicalOrdinal": 17,
+            "occurrenceLabel": "17"
+          },
+          {
+            "holeNumber": 18,
+            "playHoleId": "<id:18>",
+            "courseHoleNumber": 18,
+            "canonicalOrdinal": 18,
+            "occurrenceLabel": "18"
+          }
+        ],
+        "subtitleFacts": [
+          "slot #0 · Stroke play · 100%",
+          "CH 17",
+          "PH 17",
+          "holes played 9"
+        ],
+        "rows": [
+          {
+            "label": "Par",
+            "kind": "par",
+            "aggregate": "sum",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": 4,
+                "display": "4"
+              }
+            ]
+          },
+          {
+            "label": "SI",
+            "kind": "si",
+            "aggregate": "none",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 10,
+                "display": "10"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 6,
+                "display": "6"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": 16,
+                "display": "16"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 8,
+                "display": "8"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 18,
+                "display": "18"
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 2,
+                "display": "2"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 14,
+                "display": "14"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 12,
+                "display": "12"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": 15,
+                "display": "15"
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": 11,
+                "display": "11"
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": 7,
+                "display": "7"
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": 1,
+                "display": "1"
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": 13,
+                "display": "13"
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": 17,
+                "display": "17"
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": 9,
+                "display": "9"
+              }
+            ]
+          },
+          {
+            "label": "Given",
+            "kind": "given",
+            "aggregate": "none",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 0,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": null,
+                "display": ""
+              }
+            ]
+          },
+          {
+            "label": "Gross",
+            "kind": "gross",
+            "aggregate": "sum",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 6,
+                "display": "6"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": null,
+                "display": "–"
+              }
+            ]
+          },
+          {
+            "label": "Net",
+            "kind": "net",
+            "aggregate": "sum",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": 2,
+                "display": "2"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 2,
+                "display": "2"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": null,
+                "display": "–"
+              }
+            ]
+          }
+        ],
+        "footnotes": [],
+        "totals": [
+          {
+            "label": "gross",
+            "value": 37
+          },
+          {
+            "label": "net",
+            "value": 29
+          }
+        ]
+      },
+      {
+        "kind": "score_grid",
+        "title": {
+          "groups": [
+            [
+              "<id:19>"
+            ]
+          ],
+          "joiner": " & "
+        },
+        "subjectBallIds": [
+          "<id:19>"
+        ],
+        "holes": [
+          {
+            "holeNumber": 1,
+            "playHoleId": "<id:1>",
+            "courseHoleNumber": 1,
+            "canonicalOrdinal": 1,
+            "occurrenceLabel": "1"
+          },
+          {
+            "holeNumber": 2,
+            "playHoleId": "<id:2>",
+            "courseHoleNumber": 2,
+            "canonicalOrdinal": 2,
+            "occurrenceLabel": "2"
+          },
+          {
+            "holeNumber": 3,
+            "playHoleId": "<id:3>",
+            "courseHoleNumber": 3,
+            "canonicalOrdinal": 3,
+            "occurrenceLabel": "3"
+          },
+          {
+            "holeNumber": 4,
+            "playHoleId": "<id:4>",
+            "courseHoleNumber": 4,
+            "canonicalOrdinal": 4,
+            "occurrenceLabel": "4"
+          },
+          {
+            "holeNumber": 5,
+            "playHoleId": "<id:5>",
+            "courseHoleNumber": 5,
+            "canonicalOrdinal": 5,
+            "occurrenceLabel": "5"
+          },
+          {
+            "holeNumber": 6,
+            "playHoleId": "<id:6>",
+            "courseHoleNumber": 6,
+            "canonicalOrdinal": 6,
+            "occurrenceLabel": "6"
+          },
+          {
+            "holeNumber": 7,
+            "playHoleId": "<id:7>",
+            "courseHoleNumber": 7,
+            "canonicalOrdinal": 7,
+            "occurrenceLabel": "7"
+          },
+          {
+            "holeNumber": 8,
+            "playHoleId": "<id:8>",
+            "courseHoleNumber": 8,
+            "canonicalOrdinal": 8,
+            "occurrenceLabel": "8"
+          },
+          {
+            "holeNumber": 9,
+            "playHoleId": "<id:9>",
+            "courseHoleNumber": 9,
+            "canonicalOrdinal": 9,
+            "occurrenceLabel": "9"
+          },
+          {
+            "holeNumber": 10,
+            "playHoleId": "<id:10>",
+            "courseHoleNumber": 10,
+            "canonicalOrdinal": 10,
+            "occurrenceLabel": "10"
+          },
+          {
+            "holeNumber": 11,
+            "playHoleId": "<id:11>",
+            "courseHoleNumber": 11,
+            "canonicalOrdinal": 11,
+            "occurrenceLabel": "11"
+          },
+          {
+            "holeNumber": 12,
+            "playHoleId": "<id:12>",
+            "courseHoleNumber": 12,
+            "canonicalOrdinal": 12,
+            "occurrenceLabel": "12"
+          },
+          {
+            "holeNumber": 13,
+            "playHoleId": "<id:13>",
+            "courseHoleNumber": 13,
+            "canonicalOrdinal": 13,
+            "occurrenceLabel": "13"
+          },
+          {
+            "holeNumber": 14,
+            "playHoleId": "<id:14>",
+            "courseHoleNumber": 14,
+            "canonicalOrdinal": 14,
+            "occurrenceLabel": "14"
+          },
+          {
+            "holeNumber": 15,
+            "playHoleId": "<id:15>",
+            "courseHoleNumber": 15,
+            "canonicalOrdinal": 15,
+            "occurrenceLabel": "15"
+          },
+          {
+            "holeNumber": 16,
+            "playHoleId": "<id:16>",
+            "courseHoleNumber": 16,
+            "canonicalOrdinal": 16,
+            "occurrenceLabel": "16"
+          },
+          {
+            "holeNumber": 17,
+            "playHoleId": "<id:17>",
+            "courseHoleNumber": 17,
+            "canonicalOrdinal": 17,
+            "occurrenceLabel": "17"
+          },
+          {
+            "holeNumber": 18,
+            "playHoleId": "<id:18>",
+            "courseHoleNumber": 18,
+            "canonicalOrdinal": 18,
+            "occurrenceLabel": "18"
+          }
+        ],
+        "subtitleFacts": [
+          "slot #0 · Stroke play · 100%",
+          "CH 18",
+          "PH 18",
+          "holes played 9"
+        ],
+        "rows": [
+          {
+            "label": "Par",
+            "kind": "par",
+            "aggregate": "sum",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": 4,
+                "display": "4"
+              }
+            ]
+          },
+          {
+            "label": "SI",
+            "kind": "si",
+            "aggregate": "none",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 10,
+                "display": "10"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 6,
+                "display": "6"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": 16,
+                "display": "16"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 8,
+                "display": "8"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 18,
+                "display": "18"
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 2,
+                "display": "2"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 14,
+                "display": "14"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 12,
+                "display": "12"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": 15,
+                "display": "15"
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": 11,
+                "display": "11"
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": 7,
+                "display": "7"
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": 1,
+                "display": "1"
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": 13,
+                "display": "13"
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": 17,
+                "display": "17"
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": 9,
+                "display": "9"
+              }
+            ]
+          },
+          {
+            "label": "Given",
+            "kind": "given",
+            "aggregate": "none",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": null,
+                "display": ""
+              }
+            ]
+          },
+          {
+            "label": "Gross",
+            "kind": "gross",
+            "aggregate": "sum",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 6,
+                "display": "6"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 7,
+                "display": "7"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": null,
+                "display": "–"
+              }
+            ]
+          },
+          {
+            "label": "Net",
+            "kind": "net",
+            "aggregate": "sum",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 6,
+                "display": "6"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": null,
+                "display": "–"
+              }
+            ]
+          }
+        ],
+        "footnotes": [],
+        "totals": [
+          {
+            "label": "gross",
+            "value": 45
+          },
+          {
+            "label": "net",
+            "value": 36
+          }
+        ]
+      },
+      {
+        "kind": "score_grid",
+        "title": {
+          "groups": [
+            [
+              "<id:20>"
+            ]
+          ],
+          "joiner": " & "
+        },
+        "subjectBallIds": [
+          "<id:20>"
+        ],
+        "holes": [
+          {
+            "holeNumber": 1,
+            "playHoleId": "<id:1>",
+            "courseHoleNumber": 1,
+            "canonicalOrdinal": 1,
+            "occurrenceLabel": "1"
+          },
+          {
+            "holeNumber": 2,
+            "playHoleId": "<id:2>",
+            "courseHoleNumber": 2,
+            "canonicalOrdinal": 2,
+            "occurrenceLabel": "2"
+          },
+          {
+            "holeNumber": 3,
+            "playHoleId": "<id:3>",
+            "courseHoleNumber": 3,
+            "canonicalOrdinal": 3,
+            "occurrenceLabel": "3"
+          },
+          {
+            "holeNumber": 4,
+            "playHoleId": "<id:4>",
+            "courseHoleNumber": 4,
+            "canonicalOrdinal": 4,
+            "occurrenceLabel": "4"
+          },
+          {
+            "holeNumber": 5,
+            "playHoleId": "<id:5>",
+            "courseHoleNumber": 5,
+            "canonicalOrdinal": 5,
+            "occurrenceLabel": "5"
+          },
+          {
+            "holeNumber": 6,
+            "playHoleId": "<id:6>",
+            "courseHoleNumber": 6,
+            "canonicalOrdinal": 6,
+            "occurrenceLabel": "6"
+          },
+          {
+            "holeNumber": 7,
+            "playHoleId": "<id:7>",
+            "courseHoleNumber": 7,
+            "canonicalOrdinal": 7,
+            "occurrenceLabel": "7"
+          },
+          {
+            "holeNumber": 8,
+            "playHoleId": "<id:8>",
+            "courseHoleNumber": 8,
+            "canonicalOrdinal": 8,
+            "occurrenceLabel": "8"
+          },
+          {
+            "holeNumber": 9,
+            "playHoleId": "<id:9>",
+            "courseHoleNumber": 9,
+            "canonicalOrdinal": 9,
+            "occurrenceLabel": "9"
+          },
+          {
+            "holeNumber": 10,
+            "playHoleId": "<id:10>",
+            "courseHoleNumber": 10,
+            "canonicalOrdinal": 10,
+            "occurrenceLabel": "10"
+          },
+          {
+            "holeNumber": 11,
+            "playHoleId": "<id:11>",
+            "courseHoleNumber": 11,
+            "canonicalOrdinal": 11,
+            "occurrenceLabel": "11"
+          },
+          {
+            "holeNumber": 12,
+            "playHoleId": "<id:12>",
+            "courseHoleNumber": 12,
+            "canonicalOrdinal": 12,
+            "occurrenceLabel": "12"
+          },
+          {
+            "holeNumber": 13,
+            "playHoleId": "<id:13>",
+            "courseHoleNumber": 13,
+            "canonicalOrdinal": 13,
+            "occurrenceLabel": "13"
+          },
+          {
+            "holeNumber": 14,
+            "playHoleId": "<id:14>",
+            "courseHoleNumber": 14,
+            "canonicalOrdinal": 14,
+            "occurrenceLabel": "14"
+          },
+          {
+            "holeNumber": 15,
+            "playHoleId": "<id:15>",
+            "courseHoleNumber": 15,
+            "canonicalOrdinal": 15,
+            "occurrenceLabel": "15"
+          },
+          {
+            "holeNumber": 16,
+            "playHoleId": "<id:16>",
+            "courseHoleNumber": 16,
+            "canonicalOrdinal": 16,
+            "occurrenceLabel": "16"
+          },
+          {
+            "holeNumber": 17,
+            "playHoleId": "<id:17>",
+            "courseHoleNumber": 17,
+            "canonicalOrdinal": 17,
+            "occurrenceLabel": "17"
+          },
+          {
+            "holeNumber": 18,
+            "playHoleId": "<id:18>",
+            "courseHoleNumber": 18,
+            "canonicalOrdinal": 18,
+            "occurrenceLabel": "18"
+          }
+        ],
+        "subtitleFacts": [
+          "slot #0 · Stroke play · 100%",
+          "CH 12",
+          "PH 12",
+          "holes played 9"
+        ],
+        "rows": [
+          {
+            "label": "Par",
+            "kind": "par",
+            "aggregate": "sum",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": 4,
+                "display": "4"
+              }
+            ]
+          },
+          {
+            "label": "SI",
+            "kind": "si",
+            "aggregate": "none",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 10,
+                "display": "10"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 6,
+                "display": "6"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": 16,
+                "display": "16"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 8,
+                "display": "8"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 18,
+                "display": "18"
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 2,
+                "display": "2"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 14,
+                "display": "14"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 12,
+                "display": "12"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": 15,
+                "display": "15"
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": 11,
+                "display": "11"
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": 7,
+                "display": "7"
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": 1,
+                "display": "1"
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": 13,
+                "display": "13"
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": 17,
+                "display": "17"
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": 9,
+                "display": "9"
+              }
+            ]
+          },
+          {
+            "label": "Given",
+            "kind": "given",
+            "aggregate": "none",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": 0,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 0,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 0,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": null,
+                "display": ""
+              }
+            ]
+          },
+          {
+            "label": "Gross",
+            "kind": "gross",
+            "aggregate": "sum",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": null,
+                "display": "–"
+              }
+            ]
+          },
+          {
+            "label": "Net",
+            "kind": "net",
+            "aggregate": "sum",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": null,
+                "display": "–"
+              }
+            ]
+          }
+        ],
+        "footnotes": [],
+        "totals": [
+          {
+            "label": "gross",
+            "value": 35
+          },
+          {
+            "label": "net",
+            "value": 29
+          }
+        ]
+      },
+      {
+        "kind": "score_grid",
+        "title": {
+          "groups": [
+            [
+              "<id:21>"
+            ]
+          ],
+          "joiner": " & "
+        },
+        "subjectBallIds": [
+          "<id:21>"
+        ],
+        "holes": [
+          {
+            "holeNumber": 1,
+            "playHoleId": "<id:1>",
+            "courseHoleNumber": 1,
+            "canonicalOrdinal": 1,
+            "occurrenceLabel": "1"
+          },
+          {
+            "holeNumber": 2,
+            "playHoleId": "<id:2>",
+            "courseHoleNumber": 2,
+            "canonicalOrdinal": 2,
+            "occurrenceLabel": "2"
+          },
+          {
+            "holeNumber": 3,
+            "playHoleId": "<id:3>",
+            "courseHoleNumber": 3,
+            "canonicalOrdinal": 3,
+            "occurrenceLabel": "3"
+          },
+          {
+            "holeNumber": 4,
+            "playHoleId": "<id:4>",
+            "courseHoleNumber": 4,
+            "canonicalOrdinal": 4,
+            "occurrenceLabel": "4"
+          },
+          {
+            "holeNumber": 5,
+            "playHoleId": "<id:5>",
+            "courseHoleNumber": 5,
+            "canonicalOrdinal": 5,
+            "occurrenceLabel": "5"
+          },
+          {
+            "holeNumber": 6,
+            "playHoleId": "<id:6>",
+            "courseHoleNumber": 6,
+            "canonicalOrdinal": 6,
+            "occurrenceLabel": "6"
+          },
+          {
+            "holeNumber": 7,
+            "playHoleId": "<id:7>",
+            "courseHoleNumber": 7,
+            "canonicalOrdinal": 7,
+            "occurrenceLabel": "7"
+          },
+          {
+            "holeNumber": 8,
+            "playHoleId": "<id:8>",
+            "courseHoleNumber": 8,
+            "canonicalOrdinal": 8,
+            "occurrenceLabel": "8"
+          },
+          {
+            "holeNumber": 9,
+            "playHoleId": "<id:9>",
+            "courseHoleNumber": 9,
+            "canonicalOrdinal": 9,
+            "occurrenceLabel": "9"
+          },
+          {
+            "holeNumber": 10,
+            "playHoleId": "<id:10>",
+            "courseHoleNumber": 10,
+            "canonicalOrdinal": 10,
+            "occurrenceLabel": "10"
+          },
+          {
+            "holeNumber": 11,
+            "playHoleId": "<id:11>",
+            "courseHoleNumber": 11,
+            "canonicalOrdinal": 11,
+            "occurrenceLabel": "11"
+          },
+          {
+            "holeNumber": 12,
+            "playHoleId": "<id:12>",
+            "courseHoleNumber": 12,
+            "canonicalOrdinal": 12,
+            "occurrenceLabel": "12"
+          },
+          {
+            "holeNumber": 13,
+            "playHoleId": "<id:13>",
+            "courseHoleNumber": 13,
+            "canonicalOrdinal": 13,
+            "occurrenceLabel": "13"
+          },
+          {
+            "holeNumber": 14,
+            "playHoleId": "<id:14>",
+            "courseHoleNumber": 14,
+            "canonicalOrdinal": 14,
+            "occurrenceLabel": "14"
+          },
+          {
+            "holeNumber": 15,
+            "playHoleId": "<id:15>",
+            "courseHoleNumber": 15,
+            "canonicalOrdinal": 15,
+            "occurrenceLabel": "15"
+          },
+          {
+            "holeNumber": 16,
+            "playHoleId": "<id:16>",
+            "courseHoleNumber": 16,
+            "canonicalOrdinal": 16,
+            "occurrenceLabel": "16"
+          },
+          {
+            "holeNumber": 17,
+            "playHoleId": "<id:17>",
+            "courseHoleNumber": 17,
+            "canonicalOrdinal": 17,
+            "occurrenceLabel": "17"
+          },
+          {
+            "holeNumber": 18,
+            "playHoleId": "<id:18>",
+            "courseHoleNumber": 18,
+            "canonicalOrdinal": 18,
+            "occurrenceLabel": "18"
+          }
+        ],
+        "subtitleFacts": [
+          "slot #0 · Stroke play · 100%",
+          "CH 14",
+          "PH 14",
+          "holes played 9"
+        ],
+        "rows": [
+          {
+            "label": "Par",
+            "kind": "par",
+            "aggregate": "sum",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": 4,
+                "display": "4"
+              }
+            ]
+          },
+          {
+            "label": "SI",
+            "kind": "si",
+            "aggregate": "none",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 10,
+                "display": "10"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 6,
+                "display": "6"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": 16,
+                "display": "16"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 8,
+                "display": "8"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 18,
+                "display": "18"
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 2,
+                "display": "2"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 14,
+                "display": "14"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 12,
+                "display": "12"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": 15,
+                "display": "15"
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": 11,
+                "display": "11"
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": 7,
+                "display": "7"
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": 1,
+                "display": "1"
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": 13,
+                "display": "13"
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": 17,
+                "display": "17"
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": 9,
+                "display": "9"
+              }
+            ]
+          },
+          {
+            "label": "Given",
+            "kind": "given",
+            "aggregate": "none",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 0,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 1,
+                "display": "+1"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": null,
+                "display": ""
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": null,
+                "display": ""
+              }
+            ]
+          },
+          {
+            "label": "Gross",
+            "kind": "gross",
+            "aggregate": "sum",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 6,
+                "display": "6"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 6,
+                "display": "6"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 6,
+                "display": "6"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": null,
+                "display": "–"
+              }
+            ]
+          },
+          {
+            "label": "Net",
+            "kind": "net",
+            "aggregate": "sum",
+            "cells": [
+              {
+                "playHoleId": "<id:1>",
+                "holeNumber": 1,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:2>",
+                "holeNumber": 2,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:3>",
+                "holeNumber": 3,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:4>",
+                "holeNumber": 4,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:5>",
+                "holeNumber": 5,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:6>",
+                "holeNumber": 6,
+                "value": 5,
+                "display": "5"
+              },
+              {
+                "playHoleId": "<id:7>",
+                "holeNumber": 7,
+                "value": 3,
+                "display": "3"
+              },
+              {
+                "playHoleId": "<id:8>",
+                "holeNumber": 8,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:9>",
+                "holeNumber": 9,
+                "value": 4,
+                "display": "4"
+              },
+              {
+                "playHoleId": "<id:10>",
+                "holeNumber": 10,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:11>",
+                "holeNumber": 11,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:12>",
+                "holeNumber": 12,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:13>",
+                "holeNumber": 13,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:14>",
+                "holeNumber": 14,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:15>",
+                "holeNumber": 15,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:16>",
+                "holeNumber": 16,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:17>",
+                "holeNumber": 17,
+                "value": null,
+                "display": "–"
+              },
+              {
+                "playHoleId": "<id:18>",
+                "holeNumber": 18,
+                "value": null,
+                "display": "–"
+              }
+            ]
+          }
+        ],
+        "footnotes": [],
+        "totals": [
+          {
+            "label": "gross",
+            "value": null
+          },
+          {
+            "label": "net",
+            "value": null
+          }
+        ]
+      }
+    ],
+    "leaderboard": [
+      {
+        "kind": "ranked",
+        "metricId": "gross",
+        "metricLabel": "Gross",
+        "entries": [
+          {
+            "ballIds": [
+              "<id:20>"
+            ],
+            "total": 35,
+            "holesPlayed": 9,
+            "position": 1
+          },
+          {
+            "ballIds": [
+              "<id:0>"
+            ],
+            "total": 37,
+            "holesPlayed": 9,
+            "position": 2
+          },
+          {
+            "ballIds": [
+              "<id:19>"
+            ],
+            "total": 45,
+            "holesPlayed": 9,
+            "position": 3
+          },
+          {
+            "ballIds": [
+              "<id:21>"
+            ],
+            "total": null,
+            "holesPlayed": 9,
+            "position": 4
+          }
+        ]
+      },
+      {
+        "kind": "ranked",
+        "metricId": "net",
+        "metricLabel": "Net",
+        "entries": [
+          {
+            "ballIds": [
+              "<id:0>"
+            ],
+            "total": 29,
+            "holesPlayed": 9,
+            "position": 1
+          },
+          {
+            "ballIds": [
+              "<id:20>"
+            ],
+            "total": 29,
+            "holesPlayed": 9,
+            "position": 1
+          },
+          {
+            "ballIds": [
+              "<id:19>"
+            ],
+            "total": 36,
+            "holesPlayed": 9,
+            "position": 3
+          },
+          {
+            "ballIds": [
+              "<id:21>"
+            ],
+            "total": null,
+            "holesPlayed": 9,
+            "position": 4
+          }
+        ]
+      }
+    ]
+  }
+]
