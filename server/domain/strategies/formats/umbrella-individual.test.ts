@@ -8,7 +8,9 @@ import {
     makeScoreEvent,
 } from './_testkit';
 import type { MetadataEvent } from '../types';
-import { umbrellaIndividual } from './umbrella-individual';
+import { BUILTIN_FORMAT_PLUGINS } from '../../formats/builtins';
+import { buildSlotResult } from '../result-builder';
+import { UMBRELLA_INDIVIDUAL_ID, umbrellaIndividual } from './umbrella-individual';
 
 function metaEvent(ballId: string, hole: number, type: string, value: unknown): MetadataEvent {
     return {
@@ -25,6 +27,61 @@ function metaEvent(ballId: string, hole: number, type: string, value: unknown): 
 }
 
 describe('umbrellaIndividual (new contract)', () => {
+    test('result view emits the category matrix grid component id', () => {
+        const courseHoles = make18Holes();
+        const ctx = makeRoundContext(courseHoles, [
+            makeProducer('P1', { courseHandicap: 0 }),
+            makeProducer('P2', { courseHandicap: 0 }),
+            makeProducer('P3', { courseHandicap: 0 }),
+        ]);
+        const b1 = makeOwnBall('P1', 0, 0);
+        const b2 = makeOwnBall('P2', 0, 0);
+        const b3 = makeOwnBall('P3', 0, 0);
+        const result = umbrellaIndividual.score({
+            roundContext: ctx,
+            slotBalls: [b1, b2, b3],
+            events: [
+                makeScoreEvent(b1.ballId, 1, 3),
+                makeScoreEvent(b2.ballId, 1, 4),
+                makeScoreEvent(b3.ballId, 1, 4),
+                metaEvent(b1.ballId, 1, 'fairway', true),
+                metaEvent(b1.ballId, 1, 'gir', true),
+            ],
+        });
+
+        const view = buildSlotResult({
+            slotIndex: 0,
+            slotDefId: 'slot-umbrella-individual',
+            formatId: UMBRELLA_INDIVIDUAL_ID,
+            formatLabel: 'Umbrella',
+            scoringMode: 'umbrella',
+            teamShape: 'individual',
+            allowanceLabel: '100%',
+            metrics: [{ id: 'points', label: 'Points', direction: 'high' }],
+            runningNormalized: true,
+            scoreGridComponentId: BUILTIN_FORMAT_PLUGINS.find((p) => p.descriptor.id === UMBRELLA_INDIVIDUAL_ID)!
+                .descriptor.resultDisplay?.scoreGridComponentId,
+            result,
+            slotBalls: [b1, b2, b3],
+            slotTeamGroupings: [],
+            columns: ctx.playHoles.map((p) => ({
+                playHoleId: p.playHoleId,
+                courseHoleNumber: p.courseHoleNumber,
+                canonicalOrdinal: p.ordinal,
+                occurrenceLabel: ctx.occurrenceLabel(p.playHoleId),
+                par: p.par,
+                baseStrokeIndex: p.baseStrokeIndex,
+            })),
+        });
+
+        expect(view.cards).toHaveLength(3);
+        expect(view.cards.map((card) => card.componentId)).toEqual([
+            'category-matrix-grid',
+            'category-matrix-grid',
+            'category-matrix-grid',
+        ]);
+    });
+
     test('sweep on hole 1 doubles: LG+FWY+GIR+BIRD = 4×1×2 = 8', () => {
         const courseHoles = make18Holes();
         const ctx = makeRoundContext(courseHoles, [

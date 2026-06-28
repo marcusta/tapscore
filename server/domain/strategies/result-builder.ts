@@ -59,6 +59,8 @@ export interface BuildSlotInput {
     metrics: FormatMetric[];
     runningNormalized: boolean;
     scoreGridComponentId?: ScoreGridComponentId;
+    /** Drop the card-footer total when it only duplicates other surfaces. */
+    hideCardTotals?: boolean;
     result: StrategyResult;
     slotBalls: SlotBall[];
     slotTeamGroupings: SlotTeamGrouping[];
@@ -178,8 +180,10 @@ function ballScoreRows(
         kind: 'gross',
         aggregate: 'sum',
         cells: cols.map((c) => {
-            const g = byId.get(c.playHoleId)?.gross ?? null;
-            return cell(c, g, grossText(g));
+            const hr = byId.get(c.playHoleId);
+            const g = hr?.gross ?? null;
+            const gc = cell(c, g, grossText(g));
+            return hr?.marker ? { ...gc, marker: hr.marker } : gc;
         }),
     });
     if (opts.net !== false) {
@@ -498,10 +502,12 @@ function buildTeamCard(
         rows,
         footnotes: compact ? [] : footnotesFor(teamResult),
         ...(input.runningNormalized ? { caption: NORMALIZED_CAPTION } : {}),
-        totals: teamResult.totals.map((t) => ({
-            label: t.scoringType,
-            value: normalizeTotal(t.value, t.scoringType, offsets),
-        })),
+        totals: input.hideCardTotals
+            ? []
+            : teamResult.totals.map((t) => ({
+                  label: t.scoringType,
+                  value: normalizeTotal(t.value, t.scoringType, offsets),
+              })),
     };
 }
 
@@ -540,10 +546,12 @@ function buildIndividualCard(
         rows,
         footnotes: compact ? [] : footnotesFor(r),
         ...(input.runningNormalized ? { caption: NORMALIZED_CAPTION } : {}),
-        totals: r.totals.map((t) => ({
-            label: t.scoringType,
-            value: normalizeTotal(t.value, t.scoringType, offsets),
-        })),
+        totals: input.hideCardTotals
+            ? []
+            : r.totals.map((t) => ({
+                  label: t.scoringType,
+                  value: normalizeTotal(t.value, t.scoringType, offsets),
+              })),
     };
 }
 
@@ -675,10 +683,14 @@ export function buildSlotResult(input: BuildSlotInput): SlotResultView {
         }
     }
 
-    // Anything not folded into a pair/team card → individual card.
+    // Anything not folded into a pair/team card → individual card. EXCEPT in a
+    // pair-based format (match play): a ball that landed in no pair is the odd
+    // one out with no opponent. The match-summary panel already omits it, and an
+    // empty "no opponent" scorecard reads as broken — so it gets no card either.
     for (const r of input.result.ballResults) {
         if (consumed.has(r.ballId)) continue;
         if (r.ballId.startsWith(TEAM_PREFIX)) continue;
+        if (pairs.length > 0) continue; // stranded odd-out in a match — hide the card
         cards.push(buildIndividualCard(input, r, runningByBall?.get(r.ballId), offsets));
     }
 

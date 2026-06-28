@@ -145,8 +145,14 @@ export interface FormatDescriptor {
      * format id. `runningTotals: 'normalized'` asks for a per-hole running row
      * normalised so the trailing subject reads 0 (köpenhamnare, umbrella).
      * `scoreGridComponentId` selects the registered Layer-1 score-grid renderer.
+     * `cardTotals: 'hidden'` drops the card-footer total when it would only
+     * duplicate the ranked leaderboard + the grid's own subtotal (stableford).
      */
-    resultDisplay?: { runningTotals?: 'normalized'; scoreGridComponentId?: ScoreGridComponentId };
+    resultDisplay?: {
+        runningTotals?: 'normalized';
+        scoreGridComponentId?: ScoreGridComponentId;
+        cardTotals?: 'hidden';
+    };
     /**
      * When true, this scoring format can score balls of ANY composition — its
      * own own-balls OR a team-composition's balls (scramble/greensomes/foursomes)

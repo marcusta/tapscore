@@ -37,6 +37,13 @@ export const ROUND_CSS = `
   .mark--double_ring { border-width: 3px; border-style: double; }
   .mark--diamond { border: none; }
   .mark--diamond::before { content: ''; position: absolute; left: 50%; top: 50%; width: 1.15em; height: 1.15em; transform: translate(-50%, -50%) rotate(45deg); border: 2px solid currentColor; }
+  .mark--square { border-radius: 3px; }
+  .mark--double_square { border-radius: 3px; border-width: 3px; border-style: double; }
+  .mark--badge { width: auto; min-width: 1.8em; padding-left: .45em; padding-right: .45em; border-radius: 999px; }
+  .mark--box_badge { width: auto; min-width: 1.8em; padding-left: .45em; padding-right: .45em; border-radius: 3px; }
+  .mark-tone--success { color: #267348; }
+  .mark-tone--warning { color: #946200; }
+  .mark-tone--danger { color: #9b332a; }
   .totals { list-style: none; padding: 0; margin: .5rem 0 0 0; display: flex; gap: 1rem; }
   .lb-row { display: flex; gap: 2rem; flex-wrap: wrap; }
   .lb-col { min-width: 320px; }

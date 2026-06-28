@@ -68,7 +68,11 @@ interface BuiltinMeta {
     scoringMode: string;
     teamShape: string;
     metrics: FormatMetric[];
-    resultDisplay?: { runningTotals?: 'normalized'; scoreGridComponentId?: ScoreGridComponentId };
+    resultDisplay?: {
+        runningTotals?: 'normalized';
+        scoreGridComponentId?: ScoreGridComponentId;
+        cardTotals?: 'hidden';
+    };
     /**
      * Per-hole metadata inputs this format consumes beyond strokes (umbrella's
      * GIR/fairway). Declared here so the generic score-entry surface renders the
@@ -81,6 +85,7 @@ interface BuiltinMeta {
 }
 
 const NORMALIZED_RUNNING = { runningTotals: 'normalized' as const };
+const DEFAULT_SCORE_GRID = { scoreGridComponentId: 'default-score-grid' as const };
 const COMPACT_MATCH_GRID = { scoreGridComponentId: 'compact-match-grid' as const };
 
 const BUILTINS: BuiltinMeta[] = [
@@ -100,6 +105,8 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'stableford',
         teamShape: 'individual',
         metrics: POINTS_HIGH,
+        // Footer total would just repeat the leaderboard + the points subtotal.
+        resultDisplay: { ...DEFAULT_SCORE_GRID, cardTotals: 'hidden' },
         scoresAnyBall: true,
     },
     {
@@ -132,7 +139,7 @@ const BUILTINS: BuiltinMeta[] = [
         scoringMode: 'umbrella',
         teamShape: 'individual',
         metrics: POINTS_HIGH,
-        resultDisplay: NORMALIZED_RUNNING,
+        resultDisplay: { ...NORMALIZED_RUNNING, scoreGridComponentId: 'category-matrix-grid' },
         scoreEntry: {
             strokes: true,
             metadata: [

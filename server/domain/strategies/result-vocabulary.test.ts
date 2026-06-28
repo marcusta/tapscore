@@ -12,6 +12,7 @@ import {
     marker,
     markerEmphasis,
     MARKER_TEMPLATES,
+    scoreToParMarker,
     type CellMarker,
     type MarkerTemplate,
 } from './result-vocabulary';
@@ -23,6 +24,9 @@ describe('marker constructors', () => {
         expect(marker.diamond()).toEqual({ template: 'diamond' });
         expect(marker.dot()).toEqual({ template: 'dot' });
         expect(marker.badge()).toEqual({ template: 'badge' });
+        expect(marker.boxBadge()).toEqual({ template: 'box_badge' });
+        expect(marker.square()).toEqual({ template: 'square' });
+        expect(marker.doubleSquare()).toEqual({ template: 'double_square' });
     });
 
     test('optional tone/label/value are included only when provided', () => {
@@ -91,7 +95,10 @@ describe('closed vocabulary', () => {
             double_ring: 'strong',
             diamond: 'strong',
             badge: 'normal',
+            box_badge: 'normal',
             dot: 'light',
+            square: 'normal',
+            double_square: 'strong',
         });
     });
 
@@ -102,6 +109,9 @@ describe('closed vocabulary', () => {
             marker.diamond(),
             marker.dot(),
             marker.badge(),
+            marker.boxBadge(),
+            marker.square(),
+            marker.doubleSquare(),
         ].map((m) => m.template);
         expect(new Set(built)).toEqual(new Set(MARKER_TEMPLATES));
     });
@@ -116,6 +126,63 @@ describe('closed vocabulary', () => {
 // Type-level guard: a custom marker is assignable to CellMarker and is NOT one
 // of the closed templates (compile-time check; no runtime assertion needed).
 const _customIsMarker: CellMarker = marker.custom('x');
-const _knownTemplates: MarkerTemplate[] = ['ring', 'double_ring', 'diamond', 'dot', 'badge'];
+const _knownTemplates: MarkerTemplate[] = [
+    'ring',
+    'double_ring',
+    'diamond',
+    'dot',
+    'badge',
+    'box_badge',
+    'square',
+    'double_square',
+];
 void _customIsMarker;
 void _knownTemplates;
+
+describe('score-to-par marker helper', () => {
+    test('maps common golf score relationships onto presentation markers', () => {
+        expect(scoreToParMarker({ strokes: 3, par: 4 })).toEqual({
+            template: 'ring',
+            tone: 'success',
+            label: 'Birdie (-1)',
+        });
+        expect(scoreToParMarker({ strokes: 3, par: 5 })).toEqual({
+            template: 'double_ring',
+            tone: 'success',
+            label: 'Eagle (-2)',
+        });
+        expect(scoreToParMarker({ strokes: 2, par: 5 })).toEqual({
+            template: 'diamond',
+            tone: 'success',
+            label: 'Albatross (-3)',
+        });
+        expect(scoreToParMarker({ strokes: 1, par: 3 })).toEqual({
+            template: 'diamond',
+            tone: 'success',
+            label: 'Hole in one',
+        });
+        expect(scoreToParMarker({ strokes: 5, par: 4 })).toEqual({
+            template: 'square',
+            tone: 'danger',
+            label: 'Bogey (+1)',
+        });
+        expect(scoreToParMarker({ strokes: 6, par: 4 })).toEqual({
+            template: 'double_square',
+            tone: 'danger',
+            label: 'Double bogey (+2)',
+        });
+        expect(scoreToParMarker({ strokes: 7, par: 4 })).toEqual({
+            template: 'box_badge',
+            tone: 'danger',
+            label: 'Triple bogey or worse (+3)',
+            value: '+3',
+        });
+    });
+
+    test('returns no marker for par, pickup, dnp, or missing par', () => {
+        expect(scoreToParMarker({ strokes: 4, par: 4 })).toBeUndefined();
+        expect(scoreToParMarker({ strokes: 0, par: 4 })).toBeUndefined();
+        expect(scoreToParMarker({ strokes: null, par: 4 })).toBeUndefined();
+        expect(scoreToParMarker({ strokes: 4, par: null })).toBeUndefined();
+    });
+});

@@ -60,26 +60,44 @@ export class LeaderboardComponent extends Component {
                 width: 100%;
                 border-collapse: collapse;
                 font-variant-numeric: tabular-nums;
+                table-layout: fixed;
+            }
+            & .lb-rank__col-pos { width: 2.25rem; }
+            & .lb-rank__col-total { width: 4.5rem; }
+            & .lb-rank__col-thru { width: 3.25rem; }
+            & .lb-rank th,
+            & .lb-rank td {
+                vertical-align: middle;
             }
             & .lb-rank thead th {
-                text-align: left;
+                height: 1.65rem;
                 font-size: 0.7rem;
                 text-transform: uppercase;
                 letter-spacing: 0.05em;
                 color: ${t('text-muted')};
                 font-weight: 700;
-                padding: ${s('xs')} ${s('sm')};
+                line-height: 1;
+                padding: 0 ${s('sm')};
                 border-bottom: 1px solid ${t('border')};
             }
             & .lb-rank tbody td {
-                padding: ${s('sm')};
+                height: 2.25rem;
+                padding: 0 ${s('sm')};
                 border-bottom: 1px solid ${t('border')};
                 font-size: 0.95rem;
+                line-height: 1.1;
             }
-            & .lb-rank__pos { width: 2rem; font-weight: 700; color: ${t('text-muted')}; }
-            & .lb-rank__who { font-weight: 600; font-family: ${t('font-display')}; }
+            & .lb-rank__pos { text-align: center; font-weight: 700; color: ${t('text-muted')}; }
+            & .lb-rank__who {
+                text-align: left;
+                font-weight: 600;
+                font-family: ${t('font-display')};
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
             & .lb-rank__total { text-align: right; font-weight: 700; }
-            & .lb-rank__thru { text-align: right; width: 3rem; color: ${t('text-muted')}; }
+            & .lb-rank__thru { text-align: right; color: ${t('text-muted')}; }
             & .lb-rank__lead td { background: ${t('accent-soft')}; }
             & .lb-rank__lead .lb-rank__pos { color: ${t('accent')}; }
 
@@ -121,12 +139,36 @@ export class LeaderboardComponent extends Component {
                 border-color: color-mix(in srgb, ${t('accent')} 28%, ${t('border')});
                 padding-top: ${s('sm')};
             }
-            & .lb-card--category-matrix .lb-grid .lb-r-cat td {
+            & .lb-card--category-matrix .lb-grid {
                 font-size: 0.72rem;
+                table-layout: auto;
+                width: max-content;
+                min-width: 100%;
+            }
+            & .lb-card--category-matrix .lb-grid th,
+            & .lb-card--category-matrix .lb-grid td {
+                padding: 2px 1px;
+            }
+            & .lb-card--category-matrix .lb-grid .lb-rowlabel {
+                width: 5.8em;
+                min-width: 5.8em;
+                text-overflow: clip;
+            }
+            & .lb-card--category-matrix .lb-grid .lb-sum {
+                width: 2.8em;
+                min-width: 2.8em;
+            }
+            & .lb-card--category-matrix .lb-grid .lb-r-cat td {
                 line-height: 1.1;
             }
             & .lb-card--category-matrix .lb-grid .lb-r-cat th {
-                max-width: 5.5rem;
+                max-width: none;
+            }
+            & .lb-card--category-matrix .lb-grid .lb-r-points td,
+            & .lb-card--category-matrix .lb-grid .lb-r-running td {
+                font-size: 0.68rem;
+                min-width: 3.25em;
+                text-overflow: clip;
             }
             & .lb-card__head { margin-bottom: ${s('sm')}; }
             & .lb-card__head h4 {
@@ -203,6 +245,31 @@ export class LeaderboardComponent extends Component {
                 width: 1.2em; height: 1.2em; transform: translate(-50%, -50%) rotate(45deg);
                 border: 2px solid currentColor;
             }
+            & .lb-mark--square {
+                border-radius: 3px;
+            }
+            & .lb-mark--double_square {
+                border-radius: 3px;
+                border-width: 3px;
+                border-style: double;
+            }
+            & .lb-mark--badge {
+                width: auto;
+                min-width: 1.8em;
+                padding-left: 0.45em;
+                padding-right: 0.45em;
+                border-radius: 999px;
+            }
+            & .lb-mark--box_badge {
+                width: auto;
+                min-width: 1.8em;
+                padding-left: 0.45em;
+                padding-right: 0.45em;
+                border-radius: 3px;
+            }
+            & .lb-mark-tone--success { color: #267348; }
+            & .lb-mark-tone--warning { color: #946200; }
+            & .lb-mark-tone--danger { color: #9b332a; }
             & .lb-card__caption { margin: ${s('sm')} 0 0; font-size: 0.72rem; font-style: italic; color: ${t('text-muted')}; }
             & .lb-card__notes { margin: ${s('sm')} 0 0; font-size: 0.72rem; color: ${t('text-muted')}; }
             & .lb-card__notes-label {

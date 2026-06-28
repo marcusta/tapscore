@@ -15,6 +15,7 @@ import type {
     RouteSectionRef,
     ScoreGridSection,
 } from '../../../server/domain/strategies/result-sections';
+import type { Tone } from '../../../server/domain/strategies/result-vocabulary';
 import type { RoundRenderContext } from '../types';
 import type { RoundRenderState } from '../round-state';
 import { esc } from '../util';
@@ -75,6 +76,10 @@ function cellClass(row: GridRow): string {
     if (row.kind === 'status') return 'status';
     if (row.kind === 'category') return 'category';
     return '';
+}
+
+function markerToneClass(tone: Tone | undefined): string {
+    return tone === 'success' || tone === 'warning' || tone === 'danger' ? ` mark-tone--${tone}` : '';
 }
 
 function groupSubtotal(row: GridRow, playHoleIds: Set<string>): string {
@@ -145,7 +150,7 @@ function renderScoreGrid(
                             ? ` title="${esc(marker.label)}" aria-label="${esc(marker.label)}"`
                             : '';
                         const inner = marker
-                            ? `<span class="mark mark--${esc(marker.template)}"${markerAttrs}>${text}</span>`
+                            ? `<span class="mark mark--${esc(marker.template)}${markerToneClass(marker.tone)}"${markerAttrs}>${text}</span>`
                             : text;
                         return `<td class="${cellClass(row)}"${title}>${inner}</td>`;
                     })

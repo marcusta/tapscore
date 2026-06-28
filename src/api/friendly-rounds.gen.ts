@@ -261,7 +261,7 @@ export interface GridCell {
     display?: string;
     title?: string;
     tone?: 'neutral' | 'side_a' | 'side_b' | 'success' | 'warning' | 'danger';
-    marker?: { tone?: 'neutral' | 'side_a' | 'side_b' | 'success' | 'warning' | 'danger'; label?: string; value?: string; template: 'ring' | 'double_ring' | 'diamond' | 'dot' | 'badge' } | { tone?: 'neutral' | 'side_a' | 'side_b' | 'success' | 'warning' | 'danger'; label?: string; value?: string; template: 'custom'; customId: string };
+    marker?: { tone?: 'neutral' | 'side_a' | 'side_b' | 'success' | 'warning' | 'danger'; label?: string; value?: string; template: 'ring' | 'double_ring' | 'diamond' | 'dot' | 'badge' | 'box_badge' | 'square' | 'double_square' } | { tone?: 'neutral' | 'side_a' | 'side_b' | 'success' | 'warning' | 'danger'; label?: string; value?: string; template: 'custom'; customId: string };
     team?: 'a' | 'b';
 }
 

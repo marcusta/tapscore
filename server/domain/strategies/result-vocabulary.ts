@@ -59,11 +59,23 @@ export type Tone = 'neutral' | 'side_a' | 'side_b' | 'success' | 'warning' | 'da
  *   was won here) where a full ring would be too heavy.
  * - `badge` — a small pill carrying short text (`label`/`value`): a labelled
  *   status that needs a word or number, not just a shape.
+ * - `box_badge` — a sharp-corner badge carrying short text/number: an angular
+ *   labelled state, useful when the visual must not read as a round marker.
+ * - `square` — a single square outline: a one-step negative score relation.
+ * - `double_square` — a doubled square outline: a stronger negative relation.
  *
  * For a one-off visual that none of these express, do NOT widen this union —
  * use `marker.custom(id, …)`, which is explicit and greppable.
  */
-export type MarkerTemplate = 'ring' | 'double_ring' | 'diamond' | 'dot' | 'badge';
+export type MarkerTemplate =
+    | 'ring'
+    | 'double_ring'
+    | 'diamond'
+    | 'dot'
+    | 'badge'
+    | 'box_badge'
+    | 'square'
+    | 'double_square';
 
 /** Every known marker template, in declaration order — drives exhaustiveness. */
 export const MARKER_TEMPLATES: readonly MarkerTemplate[] = [
@@ -72,6 +84,9 @@ export const MARKER_TEMPLATES: readonly MarkerTemplate[] = [
     'diamond',
     'dot',
     'badge',
+    'box_badge',
+    'square',
+    'double_square',
 ];
 
 /**
@@ -223,6 +238,12 @@ export const marker = {
     dot: (opts: MarkerBase = {}): CellMarker => makeMarker('dot', opts),
     /** Labelled pill — a status needing short text (`label`/`value`). */
     badge: (opts: MarkerBase = {}): CellMarker => makeMarker('badge', opts),
+    /** Sharp-corner labelled badge — an angular status needing short text/number. */
+    boxBadge: (opts: MarkerBase = {}): CellMarker => makeMarker('box_badge', opts),
+    /** Single square outline — a one-step negative score relation. */
+    square: (opts: MarkerBase = {}): CellMarker => makeMarker('square', opts),
+    /** Doubled square outline — a stronger negative score relation. */
+    doubleSquare: (opts: MarkerBase = {}): CellMarker => makeMarker('double_square', opts),
     /**
      * The named visual escape: a one-off form none of the closed templates
      * express. `id` is rendered by a registered custom visual on the consumer.
@@ -237,6 +258,26 @@ export const marker = {
         return m;
     },
 } as const;
+
+/**
+ * Optional golf-aware helper that maps score-to-par into presentation markers.
+ * The contract still carries only abstract marker templates; golf terms live in
+ * the human-readable label. Formats opt in when they want house-consistent score
+ * embellishments without inventing their own visual vocabulary.
+ */
+export function scoreToParMarker(input: { strokes: number | null; par: number | null }): CellMarker | undefined {
+    const { strokes, par } = input;
+    if (strokes === null || par === null || strokes <= 0) return undefined;
+    const diff = strokes - par;
+    if (diff === 0) return undefined;
+    if (strokes === 1) return marker.diamond({ tone: 'success', label: 'Hole in one' });
+    if (diff <= -3) return marker.diamond({ tone: 'success', label: `Albatross (${diff})` });
+    if (diff === -2) return marker.doubleRing({ tone: 'success', label: 'Eagle (-2)' });
+    if (diff === -1) return marker.ring({ tone: 'success', label: 'Birdie (-1)' });
+    if (diff === 1) return marker.square({ tone: 'danger', label: 'Bogey (+1)' });
+    if (diff === 2) return marker.doubleSquare({ tone: 'danger', label: 'Double bogey (+2)' });
+    return marker.boxBadge({ tone: 'danger', label: `Triple bogey or worse (+${diff})`, value: `+${diff}` });
+}
 
 // --- smart constructors: cells ---------------------------------------------
 
@@ -283,9 +324,12 @@ export function markerEmphasis(template: MarkerTemplate): 'light' | 'normal' | '
             return 'light';
         case 'ring':
         case 'badge':
+        case 'box_badge':
+        case 'square':
             return 'normal';
         case 'double_ring':
         case 'diamond':
+        case 'double_square':
             return 'strong';
         default:
             return assertNever(template);

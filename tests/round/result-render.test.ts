@@ -55,7 +55,13 @@ test('ranked section renders exactly as before through the registry', () => {
     const expected = `<div class="lb-section">
   <h4 class="lb-section__title">Net</h4>
   <table class="lb-rank">
-    <thead><tr><th>#</th><th>Player</th><th>Total</th><th>Thru</th></tr></thead>
+    <colgroup>
+      <col class="lb-rank__col-pos">
+      <col class="lb-rank__col-who">
+      <col class="lb-rank__col-total">
+      <col class="lb-rank__col-thru">
+    </colgroup>
+    <thead><tr><th class="lb-rank__pos">#</th><th class="lb-rank__who">Player</th><th class="lb-rank__total">Total</th><th class="lb-rank__thru">Thru</th></tr></thead>
     <tbody><tr class="lb-rank__lead">
   <td class="lb-rank__pos">1</td>
   <td class="lb-rank__who">name:a</td>
@@ -97,6 +103,26 @@ test('match summary renders exactly as before through the registry', () => {
   </div>
 </div>`;
     expect(html).toBe(expected);
+});
+
+test('ranked section uses stable aligned columns for mobile rows', async () => {
+    const ranked: RankedSection = {
+        kind: 'ranked',
+        metricId: 'points',
+        metricLabel: 'Points',
+        entries: [{ ballIds: ['a'], total: 24, holesPlayed: 3, position: 1 }],
+    };
+    const html = renderSlotLeaderboard(slot({ leaderboard: [ranked] }), nameOf);
+    const component = await Bun.file(
+        new URL('../../src/round/leaderboard.component.ts', import.meta.url),
+    ).text();
+
+    expect(html).toContain('<colgroup>');
+    expect(html).toContain('<th class="lb-rank__total">Total</th>');
+    expect(html).toContain('<th class="lb-rank__thru">Thru</th>');
+    expect(component).toContain('table-layout: fixed');
+    expect(component).toContain('vertical-align: middle');
+    expect(component).toContain('height: 2.25rem');
 });
 
 function debugGrid(overrides: Partial<ScoreGridSection> = {}): ScoreGridSection {
@@ -183,7 +209,23 @@ test('score grid dispatches by category-matrix-grid component id', () => {
     const html = renderSlotCards(slot({ cards: [grid] }), routeSections, nameOf);
 
     expect(html).toContain('lb-card--category-matrix');
+    expect(html).toContain('lb-r-points');
     expect(html).not.toContain('lb-diag');
+});
+
+test('category matrix mobile styles keep triple-digit umbrella point cells readable', async () => {
+    const component = await Bun.file(
+        new URL('../../src/round/leaderboard.component.ts', import.meta.url),
+    ).text();
+
+    expect(component).toContain('table-layout: auto');
+    expect(component).toContain('width: max-content');
+    expect(component).toContain('min-width: 100%');
+    expect(component).toContain('& .lb-card--category-matrix .lb-grid .lb-rowlabel');
+    expect(component).toContain('& .lb-card--category-matrix .lb-grid .lb-r-points td');
+    expect(component).toContain('& .lb-card--category-matrix .lb-grid .lb-r-running td');
+    expect(component).toContain('min-width: 3.25em');
+    expect(component).toContain('text-overflow: clip');
 });
 
 test('cell markers render the presentation shape through the vocabulary', () => {
@@ -191,7 +233,7 @@ test('cell markers render the presentation shape through the vocabulary', () => 
         kind: 'score_grid',
         title: { groups: [], joiner: '' },
         subjectBallIds: ['a', 'b'],
-        holes: [hole(1), hole(2), hole(3)],
+        holes: [hole(1), hole(2), hole(3), hole(4), hole(5), hole(6)],
         subtitleFacts: [],
         rows: [
             {
@@ -222,6 +264,32 @@ test('cell markers render the presentation shape through the vocabulary', () => 
                         display: '2',
                         marker: { template: 'diamond', tone: 'side_a', label: 'Down-team eagle, +5' },
                     },
+                    {
+                        playHoleId: 'ph-4',
+                        holeNumber: 4,
+                        value: 3,
+                        display: '3',
+                        marker: { template: 'ring', tone: 'success', label: 'Birdie (-1)' },
+                    },
+                    {
+                        playHoleId: 'ph-5',
+                        holeNumber: 5,
+                        value: 6,
+                        display: '6',
+                        marker: { template: 'double_square', tone: 'danger', label: 'Double bogey (+2)' },
+                    },
+                    {
+                        playHoleId: 'ph-6',
+                        holeNumber: 6,
+                        value: 7,
+                        display: '7',
+                        marker: {
+                            template: 'box_badge',
+                            tone: 'danger',
+                            label: 'Triple bogey or worse (+3)',
+                            value: '+3',
+                        },
+                    },
                 ],
             },
         ],
@@ -238,6 +306,15 @@ test('cell markers render the presentation shape through the vocabulary', () => 
     );
     expect(html).toContain(
         '<span class="lb-mark lb-mark--diamond" title="Down-team eagle, +5" aria-label="Down-team eagle, +5">2</span>',
+    );
+    expect(html).toContain(
+        '<span class="lb-mark lb-mark--ring lb-mark-tone--success" title="Birdie (-1)" aria-label="Birdie (-1)">3</span>',
+    );
+    expect(html).toContain(
+        '<span class="lb-mark lb-mark--double_square lb-mark-tone--danger" title="Double bogey (+2)" aria-label="Double bogey (+2)">6</span>',
+    );
+    expect(html).toContain(
+        '<span class="lb-mark lb-mark--box_badge lb-mark-tone--danger" title="Triple bogey or worse (+3)" aria-label="Triple bogey or worse (+3)">7</span>',
     );
     // No legacy golf tokens leak into the markup.
     expect(html).not.toContain('win5');

@@ -77,10 +77,10 @@ function cellClass(row: GridRow): string {
     return '';
 }
 function rowClass(row: GridRow): string {
-    const team = row.team ? ` lb-team-${row.team}` : '';
-    if (row.kind === 'category') return 'lb-r-cat' + team;
-    if (row.kind === 'si' || row.kind === 'given') return 'lb-r-dim' + team;
-    return team.trim();
+    const classes = [row.kind === 'category' ? 'lb-r-cat' : `lb-r-${row.kind}`];
+    if (row.kind === 'si' || row.kind === 'given') classes.push('lb-r-dim');
+    if (row.team) classes.push(`lb-team-${row.team}`);
+    return classes.join(' ');
 }
 
 /** Resolve a cell's deciding-ball marker template → the CSS modifier the
@@ -90,6 +90,10 @@ function cellMarkerTemplate(c: GridCell | undefined): string | null {
     if (!c) return null;
     if (c.marker) return c.marker.template;
     return null;
+}
+function cellMarkerToneClass(c: GridCell | undefined): string {
+    const tone = c?.marker?.tone;
+    return tone === 'success' || tone === 'warning' || tone === 'danger' ? ` lb-mark-tone--${tone}` : '';
 }
 
 function groupSubtotal(row: GridRow, playHoleIds: Set<string>): string {
@@ -147,12 +151,13 @@ function renderScoreGridBase(
                         // golf meaning ("Down-team eagle, +5") — surface it as the
                         // marker's tooltip + aria-label so the shape isn't opaque.
                         const markTemplate = cellMarkerTemplate(c);
+                        const markTone = cellMarkerToneClass(c);
                         const markLabel = c?.marker?.label;
                         const markAttrs = markLabel
                             ? ` title="${esc(markLabel)}" aria-label="${esc(markLabel)}"`
                             : '';
                         let inner = markTemplate
-                            ? `<span class="lb-mark lb-mark--${markTemplate}"${markAttrs}>${text}</span>`
+                            ? `<span class="lb-mark lb-mark--${markTemplate}${markTone}"${markAttrs}>${text}</span>`
                             : text;
                         if (c?.team) inner = `<span class="lb-pill lb-pill--${c.team}">${text}</span>`;
                         return `<td class="${cellClass(row)}"${title}>${inner}</td>`;
@@ -245,7 +250,13 @@ function renderRanked(section: RankedSection, nameOf: NameOf): string {
     return `<div class="lb-section">
   <h4 class="lb-section__title">${esc(section.metricLabel)}</h4>
   <table class="lb-rank">
-    <thead><tr><th>#</th><th>Player</th><th>Total</th><th>Thru</th></tr></thead>
+    <colgroup>
+      <col class="lb-rank__col-pos">
+      <col class="lb-rank__col-who">
+      <col class="lb-rank__col-total">
+      <col class="lb-rank__col-thru">
+    </colgroup>
+    <thead><tr><th class="lb-rank__pos">#</th><th class="lb-rank__who">Player</th><th class="lb-rank__total">Total</th><th class="lb-rank__thru">Thru</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
 </div>`;
