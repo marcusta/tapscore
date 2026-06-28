@@ -51,7 +51,9 @@ import { kopenhamnareIndividual } from '../strategies/formats/kopenhamnare-indiv
 import { stablefordBetterBall } from '../strategies/formats/stableford-better-ball';
 import { talibanBetterBall } from '../strategies/formats/taliban-better-ball';
 import { umbrella4Ball } from '../strategies/formats/umbrella-4-ball';
+import { umbrella4BallPresenter } from '../strategies/formats/umbrella-4-ball.presenter';
 import { umbrellaIndividual } from '../strategies/formats/umbrella-individual';
+import { umbrellaIndividualPresenter } from '../strategies/formats/umbrella-individual.presenter';
 import { matchPlayBetterBall } from '../strategies/formats/match-play-better-ball';
 
 const GROSS_NET: FormatMetric[] = [
@@ -142,6 +144,7 @@ const BUILTINS: BuiltinMeta[] = [
         teamShape: 'individual',
         metrics: POINTS_HIGH,
         resultDisplay: { ...NORMALIZED_RUNNING, scoreGridComponentId: 'category-matrix-grid' },
+        renderResult: umbrellaIndividualPresenter,
         scoreEntry: {
             strokes: true,
             metadata: [
@@ -196,6 +199,7 @@ const BUILTINS: BuiltinMeta[] = [
         teamShape: 'four_ball',
         metrics: POINTS_HIGH,
         resultDisplay: { ...NORMALIZED_RUNNING, scoreGridComponentId: 'category-matrix-grid' },
+        renderResult: umbrella4BallPresenter,
         scoresAnyBall: true,
         // 4-ball umbrella scores GIR only (no fairway category).
         scoreEntry: { strokes: true, metadata: [{ key: 'gir', label: 'GIR', kind: 'boolean' }] },

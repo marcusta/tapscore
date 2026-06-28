@@ -9,8 +9,8 @@ import {
 } from './_testkit';
 import type { MetadataEvent } from '../types';
 import { BUILTIN_FORMAT_PLUGINS } from '../../formats/builtins';
-import { buildSlotResult } from '../result-builder';
 import { UMBRELLA_4_BALL_ID, umbrella4Ball } from './umbrella-4-ball';
+import { umbrella4BallPresenter } from './umbrella-4-ball.presenter';
 
 function metaEvent(ballId: string, hole: number, type: string, value: unknown): MetadataEvent {
     return {
@@ -50,7 +50,12 @@ function setup() {
 }
 
 describe('umbrella4Ball (new contract)', () => {
-    test('result view emits the category matrix grid component id', () => {
+    test('built-in plugin registers the umbrella 4-ball presenter', () => {
+        const plugin = BUILTIN_FORMAT_PLUGINS.find((p) => p.descriptor.id === UMBRELLA_4_BALL_ID)!;
+        expect(plugin.renderResult).toBe(umbrella4BallPresenter);
+    });
+
+    test('presenter owns the team category matrix cards and ranked points section', () => {
         const { ctx, balls, groupings } = setup();
         const [bA1, bA2, bB1, bB2] = balls;
         const result = umbrella4Ball.score({
@@ -66,8 +71,7 @@ describe('umbrella4Ball (new contract)', () => {
                 metaEvent(bA2.ballId, 1, 'gir', true),
             ],
         });
-
-        const view = buildSlotResult({
+        const view = umbrella4BallPresenter({
             slotIndex: 0,
             slotDefId: 'slot-umbrella',
             formatId: UMBRELLA_4_BALL_ID,
@@ -93,10 +97,82 @@ describe('umbrella4Ball (new contract)', () => {
         });
 
         expect(view.cards).toHaveLength(2);
-        expect(view.cards.map((card) => card.componentId)).toEqual([
-            'category-matrix-grid',
-            'category-matrix-grid',
+        expect(view.cards[0]?.componentId).toBe('category-matrix-grid');
+        expect(view.cards[0]?.title).toEqual({ groups: [[bA1.ballId, bA2.ballId]], joiner: ' & ' });
+        expect(view.cards[0]?.subjectBallIds).toEqual([bA1.ballId, bA2.ballId]);
+        expect(view.cards[0]?.subtitleFacts).toEqual(['slot #0 · Umbrella (4-ball) · 100%', 'holes played 1']);
+        expect(view.cards[0]?.subtitleFacts.join(' ')).not.toContain('CH ');
+        expect(view.cards[0]?.subtitleFacts.join(' ')).not.toContain('PH ');
+        expect(view.cards[0]?.rows.map((row) => row.label)).toEqual([
+            'Low gross',
+            'Low total',
+            'GIR A',
+            'GIR B',
+            'Birdie',
+            'Team points',
+            'Running',
         ]);
+        expect(view.cards[0]?.caption).toBe(
+            'Running totals are relative to the leader (the trailing team shows 0); per-hole points below are the raw points scored.',
+        );
+        expect(view.leaderboard).toEqual([
+            {
+                kind: 'ranked',
+                metricId: 'points',
+                metricLabel: 'Points',
+                entries: [
+                    { ballIds: [bA1.ballId, bA2.ballId], total: 10, holesPlayed: 1, position: 1 },
+                    { ballIds: [bB1.ballId, bB2.ballId], total: 0, holesPlayed: 0, position: 2 },
+                ],
+            },
+        ]);
+    });
+
+    test('team with no point-bearing holes gets no running row; scored team still does', () => {
+        const { ctx, balls, groupings } = setup();
+        const [bA1, bA2] = balls;
+        const scored = umbrella4Ball.score({
+            roundContext: ctx,
+            slotBalls: balls,
+            slotTeamGroupings: groupings,
+            events: [makeScoreEvent(bA1.ballId, 1, 3), makeScoreEvent(bA2.ballId, 1, 4)],
+        });
+        // Force team B to be a non-point-bearing subject (all holes null) — the
+        // umbrella scorer never emits this, but the BallResult contract allows
+        // it (a team added but not yet scored), and the presenter must guard it.
+        const result = {
+            ...scored,
+            ballResults: scored.ballResults.map((r) =>
+                r.ballId === 'team:B' ? { ...r, holes: r.holes.map((h) => ({ ...h, points: null })) } : r,
+            ),
+        };
+        const view = umbrella4BallPresenter({
+            slotIndex: 0,
+            slotDefId: 'slot-umbrella',
+            formatId: UMBRELLA_4_BALL_ID,
+            formatLabel: 'Umbrella (4-ball)',
+            scoringMode: 'umbrella',
+            teamShape: 'four_ball',
+            allowanceLabel: '100%',
+            metrics: [{ id: 'points', label: 'Points', direction: 'high' }],
+            runningNormalized: true,
+            result,
+            slotBalls: balls,
+            slotTeamGroupings: groupings,
+            columns: ctx.playHoles.map((p) => ({
+                playHoleId: p.playHoleId,
+                courseHoleNumber: p.courseHoleNumber,
+                canonicalOrdinal: p.ordinal,
+                occurrenceLabel: ctx.occurrenceLabel(p.playHoleId),
+                par: p.par,
+                baseStrokeIndex: p.baseStrokeIndex,
+            })),
+        });
+
+        const cardFor = (teamBallIds: string[]) =>
+            view.cards.find((c) => c.subjectBallIds[0] === teamBallIds[0])!;
+        expect(cardFor(groupings[0].ballIds).rows.some((row) => row.label === 'Running')).toBe(true);
+        expect(cardFor(groupings[1].ballIds).rows.some((row) => row.label === 'Running')).toBe(false);
     });
 
     test('sweep (all 5) doubles hole points', () => {

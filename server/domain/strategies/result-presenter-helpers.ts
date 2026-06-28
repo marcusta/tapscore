@@ -213,6 +213,30 @@ export function footnotesFor(r: BallResult): string[] {
 
 // --- normalised running ----------------------------------------------------
 
+/** Explains the normalised running totals so the per-hole points (raw) and the
+ * running/total (leader-relative) don't read as a contradiction. */
+export const NORMALIZED_CAPTION =
+    'Running totals are relative to the leader (the trailing team shows 0); per-hole points below are the raw points scored.';
+
+/**
+ * Per-metric normalisation offset for formats that present relative-to-last
+ * totals. Callers own the display decision and should only call this for
+ * formats whose totals are intentionally normalized.
+ */
+export function normalizationOffsets(
+    metrics: FormatMetric[],
+    ballResults: BallResult[],
+): Map<string, number> | null {
+    const offsets = new Map<string, number>();
+    for (const metric of metrics) {
+        const totals = ballResults
+            .map((r) => r.totals.find((t) => t.scoringType === metric.id)?.value)
+            .filter((v): v is number => v !== null && v !== undefined);
+        if (totals.length > 0) offsets.set(metric.id, Math.min(...totals));
+    }
+    return offsets.size > 0 ? offsets : null;
+}
+
 /** ballId → (playHoleId → normalised running) over the point-bearing results. */
 export function normalizedRunning(
     cols: ResultColumn[],

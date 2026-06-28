@@ -11,6 +11,7 @@ import { MATCH_PLAY_INDIVIDUAL_ID, matchPlayIndividual } from './formats/match-p
 import { STABLEFORD_INDIVIDUAL_ID, stablefordIndividual } from './formats/stableford-individual';
 import { stablefordIndividualPresenter } from './formats/stableford-individual.presenter';
 import { UMBRELLA_4_BALL_ID, umbrella4Ball } from './formats/umbrella-4-ball';
+import { umbrella4BallPresenter } from './formats/umbrella-4-ball.presenter';
 import { buildSlotResult, type BuildSlotInput } from './result-builder';
 import type { MetadataEvent, RoundContext } from './types';
 
@@ -165,7 +166,7 @@ describe('buildSlotResult golden output', () => {
             ],
         });
 
-        const view = buildSlotResult({
+        const view = umbrella4BallPresenter({
             slotIndex: 0,
             slotDefId: 'slot-umbrella',
             formatId: UMBRELLA_4_BALL_ID,

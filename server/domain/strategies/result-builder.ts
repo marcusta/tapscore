@@ -27,15 +27,15 @@ import type {
 import {
     ballScoreRows,
     byPlayHole,
-    categoryPointsRow,
-    categoryRows,
     cell,
     footnotesFor,
     hasPoints,
     holeRef,
     matchNetRow,
     netText,
+    NORMALIZED_CAPTION,
     normalizeTotal,
+    normalizationOffsets,
     normalizedRunning,
     num,
     parRow,
@@ -56,32 +56,6 @@ export type { FormatResultInput } from './result-presenter';
 
 /** @deprecated use FormatResultInput */
 export type BuildSlotInput = FormatResultInput;
-
-/** Explains the normalised running totals so the per-hole points (raw) and the
- * running/total (leader-relative) don't read as a contradiction. */
-const NORMALIZED_CAPTION =
-    'Running totals are relative to the leader (the trailing team shows 0); per-hole points below are the raw points scored.';
-
-// --- normalised running (köpenhamnare / umbrella) --------------------------
-
-/**
- * Per-metric normalisation offset for formats that present relative-to-last
- * totals (köpenhamnare, umbrella — same `runningTotals: 'normalized'` gate as
- * the running row). Subtracting `min(total)` makes the trailing player read 0
- * and every other total their lead over them. Order is preserved (a constant
- * shift), so ranking is unchanged. Returns null for absolute-total formats.
- */
-function normalizationOffsets(input: BuildSlotInput): Map<string, number> | null {
-    if (!input.runningNormalized) return null;
-    const offsets = new Map<string, number>();
-    for (const metric of input.metrics) {
-        const totals = input.result.ballResults
-            .map((r) => r.totals.find((t) => t.scoringType === metric.id)?.value)
-            .filter((v): v is number => v !== null && v !== undefined);
-        if (totals.length > 0) offsets.set(metric.id, Math.min(...totals));
-    }
-    return offsets.size > 0 ? offsets : null;
-}
 
 // --- pair card -------------------------------------------------------------
 
@@ -158,56 +132,46 @@ function buildTeamCard(
     offsets: Map<string, number> | null,
 ): ScoreGridSection {
     const cols = input.columns;
-    // Category-points formats (umbrella) get a COMPACT card: one marker row per
-    // category (● where the team won it) + the team points, since only the
-    // categories explain the score. Everything else keeps the stroke detail.
-    const compact = (teamResult.categoryDefs?.length ?? 0) > 0;
     const rows: GridRow[] = [];
-    if (compact) {
-        rows.push(...categoryRows(cols, teamResult));
-        rows.push(categoryPointsRow(cols, teamResult, 'Team points'));
-    } else {
-        rows.push(...parSiRows(cols));
-        for (const ballId of grouping.ballIds) {
-            const r = byBall.get(ballId);
-            if (!r) continue; // some team formats emit only the aggregate, no per-ball rows
-            if (hasPoints(r)) {
-                // Points-bearing per-ball result (e.g. better-ball Stableford): show
-                // each producer's strokes received + gross + their individual points
-                // so the reader sees WHICH ball fed the team's best-ball per hole.
-                rows.push(...ballScoreRows(cols, r, { subjectBallId: ballId, given: true, net: false }));
-                rows.push(pointsRow(cols, r, 'Points', false, ballId));
-            } else {
-                rows.push(...ballScoreRows(cols, r, { subjectBallId: ballId, given: false }));
-            }
+    rows.push(...parSiRows(cols));
+    for (const ballId of grouping.ballIds) {
+        const r = byBall.get(ballId);
+        if (!r) continue; // some team formats emit only the aggregate, no per-ball rows
+        if (hasPoints(r)) {
+            // Points-bearing per-ball result (e.g. better-ball Stableford): show
+            // each producer's strokes received + gross + their individual points
+            // so the reader sees WHICH ball fed the team's best-ball per hole.
+            rows.push(...ballScoreRows(cols, r, { subjectBallId: ballId, given: true, net: false }));
+            rows.push(pointsRow(cols, r, 'Points', false, ballId));
+        } else {
+            rows.push(...ballScoreRows(cols, r, { subjectBallId: ballId, given: false }));
         }
-        // Team combined gross (LT for umbrella / best-ball gross for better-ball).
-        if (teamResult.holes.some((h) => h.gross !== null)) {
-            const byId = byPlayHole(teamResult);
-            rows.push({
-                label: 'Team gross',
-                kind: 'gross',
-                aggregate: 'sum',
-                cells: cols.map((c) => {
-                    const g = byId.get(c.playHoleId)?.gross ?? null;
-                    return cell(c, g, g === null ? '—' : String(g));
-                }),
-            });
-        }
-        if (teamResult.holes.some((h) => h.net !== null)) {
-            const byId = byPlayHole(teamResult);
-            rows.push({
-                label: 'Team net',
-                kind: 'net',
-                aggregate: 'sum',
-                cells: cols.map((c) => {
-                    const n = byId.get(c.playHoleId)?.net ?? null;
-                    return cell(c, n, netText(n));
-                }),
-            });
-        }
-        rows.push(pointsRow(cols, teamResult, 'Team points', true));
     }
+    if (teamResult.holes.some((h) => h.gross !== null)) {
+        const byId = byPlayHole(teamResult);
+        rows.push({
+            label: 'Team gross',
+            kind: 'gross',
+            aggregate: 'sum',
+            cells: cols.map((c) => {
+                const g = byId.get(c.playHoleId)?.gross ?? null;
+                return cell(c, g, g === null ? '—' : String(g));
+            }),
+        });
+    }
+    if (teamResult.holes.some((h) => h.net !== null)) {
+        const byId = byPlayHole(teamResult);
+        rows.push({
+            label: 'Team net',
+            kind: 'net',
+            aggregate: 'sum',
+            cells: cols.map((c) => {
+                const n = byId.get(c.playHoleId)?.net ?? null;
+                return cell(c, n, netText(n));
+            }),
+        });
+    }
+    rows.push(pointsRow(cols, teamResult, 'Team points', true));
     if (running) rows.push(runningRow(cols, running));
 
     return {
@@ -221,7 +185,7 @@ function buildTeamCard(
             `holes played ${teamResult.holesPlayed}`,
         ],
         rows,
-        footnotes: compact ? [] : footnotesFor(teamResult),
+        footnotes: footnotesFor(teamResult),
         ...(input.runningNormalized ? { caption: NORMALIZED_CAPTION } : {}),
         totals: teamResult.totals.map((t) => ({
             label: t.scoringType,
@@ -240,12 +204,8 @@ function buildIndividualCard(
 ): ScoreGridSection {
     const cols = input.columns;
     const chBall = input.slotBalls.find((b) => b.ballId === r.ballId);
-    // Compact category card for umbrella (category-points), stroke detail otherwise.
-    const compact = (r.categoryDefs?.length ?? 0) > 0;
-    const rows: GridRow[] = compact
-        ? [...categoryRows(cols, r), categoryPointsRow(cols, r)]
-        : [parRow(cols), siRow(cols, input.effectiveSi?.get(r.ballId)), ...ballScoreRows(cols, r)];
-    if (!compact && hasPoints(r)) rows.push(pointsRow(cols, r));
+    const rows: GridRow[] = [parRow(cols), siRow(cols, input.effectiveSi?.get(r.ballId)), ...ballScoreRows(cols, r)];
+    if (hasPoints(r)) rows.push(pointsRow(cols, r));
     if (running) rows.push(runningRow(cols, running));
 
     const facts = [`slot #${input.slotIndex} · ${input.formatLabel} · ${input.allowanceLabel}`];
@@ -263,7 +223,7 @@ function buildIndividualCard(
         holes: cols.map(holeRef),
         subtitleFacts: facts,
         rows,
-        footnotes: compact ? [] : footnotesFor(r),
+        footnotes: footnotesFor(r),
         ...(input.runningNormalized ? { caption: NORMALIZED_CAPTION } : {}),
         totals: r.totals.map((t) => ({
             label: t.scoringType,
@@ -334,7 +294,7 @@ export function buildSlotResult(input: BuildSlotInput): SlotResultView {
     // Same gate, applied to the totals: ranked + card totals read relative to the
     // trailing player (min → 0), so the displayed total matches the running row's
     // last cell. Null for absolute-total formats — every other format unchanged.
-    const offsets = normalizationOffsets(input);
+    const offsets = input.runningNormalized ? normalizationOffsets(input.metrics, input.result.ballResults) : null;
 
     const consumed = new Set<string>();
     const cards: ScoreGridSection[] = [];
