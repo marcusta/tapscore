@@ -18,15 +18,41 @@ export async function seedDev(ctx: TestContext): Promise<void> {
         username: 'alice',
         password: 'password123',
         displayName: 'Alice Andersson',
+        gender: 'F',
+        handicapIndex: 10.0,
     });
     const bob = await ensurePlayer(ctx, {
         username: 'bob',
         password: 'password123',
         displayName: 'Bob Berglund',
+        gender: 'M',
+        handicapIndex: 18.0,
     });
 
     await ensureHandicap(ctx, alice.id, 10.0);
     await ensureHandicap(ctx, bob.id, 18.0);
+
+    // Friend pool for testing the friends/search flow — all password123.
+    // Varied gender + index; one without gender (roster row stays editable)
+    // and one without index (roster row asks for it).
+    const FRIEND_POOL = [
+        { username: 'erik', displayName: 'Erik Ekström', gender: 'M', index: 5.4 },
+        { username: 'sara', displayName: 'Sara Sjöberg', gender: 'F', index: 12.7 },
+        { username: 'johan', displayName: 'Johan Johansson', gender: 'M', index: 22.1 },
+        { username: 'karin', displayName: 'Karin Karlsson', gender: 'F', index: 30.5 },
+        { username: 'pelle', displayName: 'Pelle Persson', gender: null, index: 15.0 },
+        { username: 'mia', displayName: 'Mia Månsson', gender: 'F', index: null },
+    ] as const;
+    for (const f of FRIEND_POOL) {
+        const p = await ensurePlayer(ctx, {
+            username: f.username,
+            password: 'password123',
+            displayName: f.displayName,
+            gender: f.gender,
+            handicapIndex: f.index,
+        });
+        if (f.index !== null) await ensureHandicap(ctx, p.id, f.index);
+    }
 
     const club = await ensureClub(ctx, 'Halmstad GK');
     const course = await ensureCourse(ctx, club.id, 'North', 18);
@@ -135,12 +161,29 @@ async function ensureFriendlyRound(ctx: TestContext, courseId: string, teeId: st
 
 async function ensurePlayer(
     ctx: TestContext,
-    input: { username: string; password: string; displayName: string },
+    input: {
+        username: string;
+        password: string;
+        displayName: string;
+        gender?: 'M' | 'F' | null;
+        handicapIndex?: number | null;
+    },
 ) {
     const existing = (await ctx.playerService.list()).find(
         (p) => p.username === input.username,
     );
-    if (existing) return existing;
+    if (existing) {
+        // Idempotent-with-patching: a seed row created before the seed gained a
+        // field gets that field filled in on the next boot (never overwrites a
+        // non-null value — a hand-edited dev profile wins).
+        if (existing.gender === null && input.gender != null) {
+            await ctx.playerService.updateProfile(existing.id, { gender: input.gender });
+        }
+        if (existing.handicapIndex === null && input.handicapIndex != null) {
+            await ctx.playerService.updateHandicapIndex(existing.id, input.handicapIndex);
+        }
+        return existing;
+    }
     return ctx.playerService.register(input);
 }
 
