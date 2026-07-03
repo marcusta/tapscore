@@ -21,6 +21,7 @@ function makePlugin(over: Partial<FormatDescriptor> = {}, behaviour: Partial<For
         descriptor: {
             id: 'test_format',
             label: 'Test format',
+            labels: { en: 'Test format' },
             description: 'A format for tests.',
             scoringMode: 'test',
             teamShape: 'individual',
@@ -84,6 +85,13 @@ describe('format registry', () => {
         const [descriptor] = formatCatalog();
         expect(JSON.parse(JSON.stringify(descriptor))).toEqual(descriptor);
     });
+
+    it('catalog carries the localized labels set alongside the canonical-English label', () => {
+        registerFormat(makePlugin({ labels: { en: 'Test format', sv: 'Testformat' } }));
+        const descriptor = formatCatalog().find((d) => d.id === 'test_format');
+        expect(descriptor?.label).toBe('Test format');
+        expect(descriptor?.labels).toEqual({ en: 'Test format', sv: 'Testformat' });
+    });
 });
 
 describe('descriptor validation', () => {
@@ -93,6 +101,9 @@ describe('descriptor validation', () => {
         ['empty description', { description: '' }],
         ['empty scoringMode', { scoringMode: '' }],
         ['empty teamShape', { teamShape: '' }],
+        ['empty labels.en', { labels: { en: '' } }],
+        ['label / labels.en mismatch', { label: 'Test format', labels: { en: 'Something else' } }],
+        ['empty labels.sv when present', { labels: { en: 'Test format', sv: '' } }],
     ];
     for (const [name, over] of bad) {
         it(`rejects: ${name}`, () => {
@@ -158,6 +169,16 @@ describe('descriptor validation', () => {
 
     it('registerFormat fails loud on an invalid descriptor', () => {
         expect(() => registerFormat(makePlugin({ id: '' }))).toThrow(/invalid format descriptor/);
+    });
+
+    it('accepts a descriptor with no Swedish label (sv is optional)', () => {
+        const d = makePlugin({ labels: { en: 'Test format' } }).descriptor;
+        expect(() => assertValidDescriptor(d)).not.toThrow();
+    });
+
+    it('accepts a descriptor with a Swedish label matching the English canonical label', () => {
+        const d = makePlugin({ labels: { en: 'Test format', sv: 'Testformat' } }).descriptor;
+        expect(() => assertValidDescriptor(d)).not.toThrow();
     });
 });
 

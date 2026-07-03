@@ -12,5 +12,5 @@ import { FormatCatalogService } from '../create/format-catalog.service';
 export function formatLabelFromSlot(slot: FormatSlot): string {
     const catalog = di.get(FormatCatalogService);
     void catalog.load();
-    return catalog.byId(slot.formatId)?.label ?? `${slot.scoringMode} · ${slot.teamShape}`;
+    return catalog.labelOf(slot.formatId) ?? `${slot.scoringMode} · ${slot.teamShape}`;
 }

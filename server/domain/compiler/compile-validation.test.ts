@@ -43,6 +43,7 @@ function makeTestPlugin(
         descriptor: {
             id,
             label: id,
+            labels: { en: id },
             description: `test plugin ${id}`,
             scoringMode: 'test',
             teamShape: 'test',

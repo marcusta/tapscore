@@ -10,10 +10,12 @@ import type { FormatDescriptor } from '../../src/api/setup.gen';
 function descriptor(
     id: string,
     balls: FormatDescriptor['requirements']['balls'],
+    labels: FormatDescriptor['labels'] = { en: id },
 ): FormatDescriptor {
     return {
         id,
-        label: id,
+        label: labels.en,
+        labels,
         description: '',
         scoringMode: 'stableford',
         teamShape: 'individual',
@@ -96,4 +98,45 @@ test('isSideFormat: only team_grouping formats aggregate sides; a team ball is n
     expect(svc.isSideFormat('better_ball')).toBe(true);
     expect(svc.isSideFormat('scramble')).toBe(false);
     expect(svc.isSideFormat('stableford_individual')).toBe(false);
+});
+
+// labelOf (2.7d — format-label i18n): picks labels[locale], falling back to
+// labels.en, then to the descriptor's canonical `label`. `locale` is an
+// explicit param here (defaults to `currentLocale()` in production) so these
+// tests never touch `navigator.language`.
+
+const withSwedish = descriptor(
+    'stableford_individual',
+    { producerCount: { min: 1, max: 1 }, ballMode: 'own' },
+    { en: 'Stableford', sv: 'Poängbogey' },
+);
+const englishOnly = descriptor(
+    'match_play_individual',
+    { producerCount: { min: 1, max: 1 }, ballMode: 'own' },
+    { en: 'Match play' },
+);
+
+test('labelOf: sv locale picks the Swedish label when present', () => {
+    const svc = new FormatCatalogService();
+    svc.descriptors.set([withSwedish]);
+    expect(svc.labelOf(withSwedish, 'sv')).toBe('Poängbogey');
+    expect(svc.labelOf('stableford_individual', 'sv')).toBe('Poängbogey');
+});
+
+test('labelOf: en locale picks labels.en', () => {
+    const svc = new FormatCatalogService();
+    svc.descriptors.set([withSwedish]);
+    expect(svc.labelOf(withSwedish, 'en')).toBe('Stableford');
+});
+
+test('labelOf: sv locale falls back to labels.en when no Swedish label is declared', () => {
+    const svc = new FormatCatalogService();
+    svc.descriptors.set([englishOnly]);
+    expect(svc.labelOf(englishOnly, 'sv')).toBe('Match play');
+    expect(svc.labelOf('match_play_individual', 'sv')).toBe('Match play');
+});
+
+test('labelOf: unknown format id returns null', () => {
+    const svc = catalog();
+    expect(svc.labelOf('wolf', 'sv')).toBeNull();
 });

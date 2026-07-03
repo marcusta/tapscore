@@ -603,7 +603,10 @@ export class CreateComponent extends Component {
                 },
             ),
             options: {
-                get: () => this.svc.catalog.descriptors.get().map((d) => ({ value: d.id, label: d.label })),
+                get: () =>
+                    this.svc.catalog
+                        .descriptors.get()
+                        .map((d) => ({ value: d.id, label: this.svc.catalog.labelOf(d) ?? d.label })),
             },
         });
 

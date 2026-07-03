@@ -49,6 +49,7 @@ function descriptor(
     return {
         id,
         label: id,
+        labels: { en: id },
         description: '',
         scoringMode: 'stableford',
         teamShape: 'individual',

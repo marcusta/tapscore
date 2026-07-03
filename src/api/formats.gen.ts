@@ -4,6 +4,7 @@ import { apiFetch } from '@basics/core/client/fetch';
 export interface FormatDescriptor {
     id: string;
     label: string;
+    labels: FormatLabels;
     description: string;
     scoringMode: string;
     teamShape: string;
@@ -13,6 +14,11 @@ export interface FormatDescriptor {
     resultDisplay?: { runningTotals?: 'normalized'; scoreGridComponentId?: 'default-score-grid' | 'compact-match-grid' | 'category-matrix-grid' };
     scoresAnyBall?: boolean;
     clientAdapterId: null | string;
+}
+
+export interface FormatLabels {
+    en: string;
+    sv?: string;
 }
 
 export interface FormatRequirements {

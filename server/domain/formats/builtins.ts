@@ -31,6 +31,7 @@
 // config, ADR-0001); config-less formats validate clean.
 
 import type {
+    FormatLabels,
     FormatMetric,
     FormatPlugin,
     FormatSetupInput,
@@ -80,6 +81,8 @@ const MATCH: FormatMetric[] = [];
 interface BuiltinMeta {
     strategy: FormatStrategy;
     label: string;
+    /** Swedish display name. `label` (English) is threaded in as `labels.en`. */
+    labelSv: string;
     description: string;
     scoringMode: string;
     teamShape: string;
@@ -108,6 +111,7 @@ const BUILTINS: BuiltinMeta[] = [
     {
         strategy: strokePlayIndividual,
         label: 'Stroke play',
+        labelSv: 'Slagspel',
         description: 'Gross + net stroke totals; lowest wins.',
         scoringMode: 'stroke_play',
         teamShape: 'individual',
@@ -118,6 +122,7 @@ const BUILTINS: BuiltinMeta[] = [
     {
         strategy: stablefordIndividual,
         label: 'Stableford',
+        labelSv: 'Poängbogey',
         description: 'Points per hole against net par; highest wins.',
         scoringMode: 'stableford',
         teamShape: 'individual',
@@ -129,6 +134,7 @@ const BUILTINS: BuiltinMeta[] = [
     {
         strategy: matchPlayIndividual,
         label: 'Match play',
+        labelSv: 'Matchspel',
         description: 'Head-to-head per hole; pairs balls in supplied order.',
         scoringMode: 'match_play',
         teamShape: 'individual',
@@ -139,10 +145,10 @@ const BUILTINS: BuiltinMeta[] = [
     },
     {
         strategy: kopenhamnareIndividual,
-        // English display name; "Köpenhamnare" is the Swedish original. The
-        // stable id stays `kopenhamnare_individual`. Per-language labels are a
-        // deferred enhancement (see PHASES.md "Deferred — format-name i18n").
+        // English display name; "Köpenhamnare" is the Swedish original,
+        // carried in `labelSv`. The stable id stays `kopenhamnare_individual`.
         label: 'Split sixes',
+        labelSv: 'Köpenhamnare',
         description: 'Three-way per-hole point distribution; highest wins.',
         scoringMode: 'kopenhamnare',
         teamShape: 'individual',
@@ -154,6 +160,7 @@ const BUILTINS: BuiltinMeta[] = [
     {
         strategy: umbrellaIndividual,
         label: 'Umbrella',
+        labelSv: 'Umbrella',
         description: 'Per-hole category points (long-game, fairway, GIR, birdie).',
         scoringMode: 'umbrella',
         teamShape: 'individual',
@@ -180,6 +187,7 @@ const BUILTINS: BuiltinMeta[] = [
     {
         strategy: stablefordBetterBall,
         label: 'Better-ball Stableford',
+        labelSv: 'Bästboll poängbogey',
         description: 'Best Stableford score per team per hole.',
         scoringMode: 'stableford',
         teamShape: 'better_ball',
@@ -190,6 +198,7 @@ const BUILTINS: BuiltinMeta[] = [
     {
         strategy: matchPlayBetterBall,
         label: 'Better-ball match play',
+        labelSv: 'Bästboll matchspel',
         description: 'Best-ball-per-team head-to-head match play.',
         scoringMode: 'match_play',
         teamShape: 'better_ball',
@@ -201,6 +210,7 @@ const BUILTINS: BuiltinMeta[] = [
     {
         strategy: talibanBetterBall,
         label: 'Taliban',
+        labelSv: 'Taliban',
         description: 'Team better-ball with weighted birdie/eagle bonus pairs.',
         scoringMode: 'taliban',
         teamShape: 'better_ball',
@@ -212,6 +222,7 @@ const BUILTINS: BuiltinMeta[] = [
     {
         strategy: umbrella4Ball,
         label: 'Umbrella (4-ball)',
+        labelSv: 'Umbrella (4-boll)',
         description: 'Team umbrella with per-player GIR categories.',
         scoringMode: 'umbrella',
         teamShape: 'four_ball',
@@ -252,6 +263,7 @@ function toPlugin(meta: BuiltinMeta): FormatPlugin {
         descriptor: {
             id: strategy.id,
             label: meta.label,
+            labels: { en: meta.label, sv: meta.labelSv } satisfies FormatLabels,
             description: meta.description,
             scoringMode: meta.scoringMode,
             teamShape: meta.teamShape,

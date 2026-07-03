@@ -37,6 +37,7 @@ export const statefulCanaryPlugin: FormatPlugin = {
     descriptor: {
         id: STATEFUL_CANARY_FORMAT_ID,
         label: 'Stateful canary',
+        labels: { en: 'Stateful canary' },
         description: 'Test-only format proving the stateful format-action seam (rotating role + per-hole partner + ordered call).',
         scoringMode: 'custom',
         teamShape: 'individual',

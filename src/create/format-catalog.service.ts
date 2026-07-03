@@ -2,6 +2,7 @@ import { Signal } from '@basics/core/client/core';
 import { request, type RequestError } from '@basics/core/client/request';
 import { api } from '../api';
 import type { FormatDescriptor } from '../api/setup.gen';
+import { currentLocale, type Locale } from '../locale';
 
 // Phase 2.6e M3 — the catalog-driven format step's data source. Loads the
 // SERVER's registered format descriptors via the no-auth `GET /setup/formats`
@@ -51,6 +52,23 @@ export class FormatCatalogService {
 
     byId(id: string): FormatDescriptor | null {
         return this.descriptors.get().find((d) => d.id === id) ?? null;
+    }
+
+    /**
+     * Locale-appropriate display label for a descriptor (or a format id
+     * looked up against the loaded catalog). Picks `labels[locale]`, falling
+     * back to `labels.en`, then to the descriptor's canonical `label`. Never
+     * throws on an unknown id — returns `null` so callers keep their own
+     * fallback (e.g. `slot-labels.ts`'s scoringMode/teamShape string).
+     *
+     * `locale` defaults to `currentLocale()` (the browser's `navigator.language`);
+     * pass it explicitly to test locale-specific behaviour without touching
+     * global state.
+     */
+    labelOf(descriptorOrId: FormatDescriptor | string, locale: Locale = currentLocale()): string | null {
+        const d = typeof descriptorOrId === 'string' ? this.byId(descriptorOrId) : descriptorOrId;
+        if (!d) return null;
+        return d.labels?.[locale] ?? d.labels?.en ?? d.label;
     }
 
     /** Classify a descriptor into the UI shape the format step renders. */

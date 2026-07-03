@@ -125,13 +125,30 @@ export interface FormatRequirements {
 }
 
 /**
+ * Per-language display names for a format. `en` is required and is the
+ * canonical-English name — it MUST equal `FormatDescriptor.label` (kept as a
+ * convenience field so existing English-only consumers — presenters'
+ * `formatLabel`, the static renderer, the many fixtures/tests — read it
+ * without threading locale through anything). `sv` is optional; absent ⇒
+ * callers fall back to `en`. The stable `id` stays the language-independent
+ * key everywhere; `labels` is presentation-only.
+ */
+export interface FormatLabels {
+    en: string;
+    sv?: string;
+}
+
+/**
  * Serializable format metadata. Drives the server `GET /formats` catalog
  * (Slice 5) and the generic mobile UI (Slice 6). Carries NO functions —
  * `JSON.parse(JSON.stringify(descriptor))` must round-trip identically.
  */
 export interface FormatDescriptor {
     id: string;
+    /** Canonical-English name; kept equal to `labels.en`. See `FormatLabels`. */
     label: string;
+    /** Localized display names. `labels.en` must equal `label`. */
+    labels: FormatLabels;
     description: string;
     /** Query metadata, registry-derived — NOT a behaviour lookup key. */
     scoringMode: string;
@@ -293,6 +310,11 @@ export function assertValidDescriptor(d: FormatDescriptor): void {
     const id = typeof d?.id === 'string' ? d.id : '<missing id>';
     if (!nonEmpty(d?.id)) fail(id, 'id must be a non-empty string');
     if (!nonEmpty(d.label)) fail(id, 'label must be a non-empty string');
+    if (!nonEmpty(d.labels?.en)) fail(id, 'labels.en must be a non-empty string');
+    if (d.label !== d.labels.en) fail(id, 'label must equal labels.en');
+    if (d.labels.sv !== undefined && !nonEmpty(d.labels.sv)) {
+        fail(id, 'labels.sv must be a non-empty string when present');
+    }
     if (!nonEmpty(d.description)) fail(id, 'description must be a non-empty string');
     if (!nonEmpty(d.scoringMode)) fail(id, 'scoringMode must be a non-empty string');
     if (!nonEmpty(d.teamShape)) fail(id, 'teamShape must be a non-empty string');

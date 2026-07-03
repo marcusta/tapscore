@@ -22,6 +22,7 @@ export interface Tee {
 export interface FormatDescriptor {
     id: string;
     label: string;
+    labels: FormatLabels;
     description: string;
     scoringMode: string;
     teamShape: string;
@@ -51,6 +52,11 @@ export interface TeeRating {
     slope: number;
     par: number;
     totalLengthM: number;
+}
+
+export interface FormatLabels {
+    en: string;
+    sv?: string;
 }
 
 export interface FormatRequirements {

@@ -57,6 +57,7 @@ export const canaryPlugin: FormatPlugin = {
     descriptor: {
         id: CANARY_FORMAT_ID,
         label: 'Canary points',
+        labels: { en: 'Canary points' },
         description: 'Test-only high-wins format proving the plugin contract.',
         scoringMode: 'canary_points',
         teamShape: 'individual',
