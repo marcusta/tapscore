@@ -1033,6 +1033,8 @@ Purpose: delete carried debt that multiplies in cost once Competition/Series wra
 
 **Mandatory stop + focused visual review.** Generate the FriendlyRound verification page, give one clickable link, and ask the user to check wrapper identity/share behavior, the guest-claim flip, manual handicap history, and recorded_by attribution. Commit after approval: `phase 3 complete: friendly round`.
 
+**Status: AWAITING VISUAL VERIFY (2026-07-03).** Implemented: server `889fbcc` (registration w/ session issuance, manual handicap via `handicap.service.record`, `GuestClaimService` w/ tombstone columns mig 032, optional-session `creator_player_id` + `recorded_by_player_id`, dashboard my-rounds), client `67a8050` (register mode, `/profile` w/ history, claim-me card, add-me player-ref producers, landing my-rounds), `7d1382b` (shareToken on produced entries), `95a20ca` (seeds `player-manual-handicap`/`guest-claim`/`attributed-scoring` + `scripts/render-phase3-verify.ts` → `tmp/formats/phase3-verify.html`, regen `bun scripts/render-phase3-verify.ts`). Gates: 564 server + 110 client tests, fixture oracle 14 rounds identical. Full client loop browser-verified. Awaiting user approval of the verify page, then commit the completion marker.
+
 ---
 
 ## Phases 3.5–10 — scale-up roadmap (expanded 2026-07-03)
