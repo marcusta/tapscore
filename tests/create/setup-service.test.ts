@@ -193,6 +193,62 @@ test('allowance: a parseable pct is emitted flat; junk falls back to 100', async
     expect(lastDraft.formats[1].allowanceConfig).toEqual({ type: 'flat', pct: 100 });
 });
 
+// --- "Add me" (Phase 3): registered-player producer refs ------------------
+
+test('an addMe row emits a player-kind producer ref and mints NO guest for it', async () => {
+    const svc = makeService();
+    svc.addMe({ id: 'player-42', displayName: 'Marcus', handicapIndex: 18.4 });
+    addPlayer(svc, 'Guesty', '20');
+    addSlot(svc, 'stableford_individual');
+
+    // Prefilled from the profile: display name + current index, guest fields off.
+    const meRow = svc.players.get()[0]!;
+    expect(meRow.name).toBe('Marcus');
+    expect(meRow.handicapIndex).toBe('18.4');
+    expect(meRow.playerId).toBe('player-42');
+
+    const res = await svc.submit();
+    expect(res.ok).toBe(true);
+    expect(lastDraft.producers).toHaveLength(2);
+    expect(lastDraft.producers[0].playerRef).toEqual({ kind: 'player', id: 'player-42' });
+    expect(lastDraft.producers[0].handicapIndex).toBe(18.4);
+    expect(lastDraft.producers[1].playerRef).toEqual({ kind: 'guest', id: 'guest-1' });
+    // Exactly one guest minted — the registered row never touches guest creation.
+    expect(apiMock.guestPlayers.create).toHaveBeenCalledTimes(1);
+    // Both are ordinary subjects of the format.
+    expect(lastDraft.formats[0].subjects).toEqual([
+        { kind: 'player', producerDefId: 'p1' },
+        { kind: 'player', producerDefId: 'p2' },
+    ]);
+});
+
+test('addMe is idempotent per player id; removal re-arms it', () => {
+    const svc = makeService();
+    const me = { id: 'player-42', displayName: 'Marcus', handicapIndex: null };
+    svc.addMe(me);
+    svc.addMe(me);
+    expect(svc.players.get()).toHaveLength(1);
+    expect(svc.hasPlayer('player-42')).toBe(true);
+    // Null index ⇒ empty raw field (the pre-check will demand a value).
+    expect(svc.players.get()[0]!.handicapIndex).toBe('');
+
+    svc.removePlayer(svc.players.get()[0]!.key);
+    expect(svc.hasPlayer('player-42')).toBe(false);
+    svc.addMe(me);
+    expect(svc.players.get()).toHaveLength(1);
+});
+
+test('an addMe row with a stale/empty index still hits the local pre-check', async () => {
+    const svc = makeService();
+    svc.addMe({ id: 'player-42', displayName: 'Marcus', handicapIndex: null });
+    addSlot(svc, 'stableford_individual');
+
+    const res = await svc.submit();
+    expect(res.ok).toBe(false);
+    expect(svc.diagnostics.get().map((d) => d.path)).toContain('producers[0].handicapIndex');
+    expect(apiMock.friendlyRounds.create).not.toHaveBeenCalled();
+});
+
 // --- Team validation + mixed topology ------------------------------------
 
 test('single-ball team: members carry per-player allowances; a ball format scores players AND the team', async () => {

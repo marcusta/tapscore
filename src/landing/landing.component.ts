@@ -1,7 +1,9 @@
 import { Component, Router, template } from '@basics/core/client/core';
+import { AuthService } from '@basics/core/client/auth';
 import { t } from '../theme';
 import { s, btn, card } from '../css';
 import { LandingService } from './landing.service';
+import { roleLabel } from './my-rounds';
 import { formatLabelFromSlot } from '../rounds/slot-labels';
 
 const tpl = template(`
@@ -14,6 +16,14 @@ const tpl = template(`
         <button bind="createBtn" class="landing__create" type="button">
             <span class="landing__create-plus">+</span> Create round
         </button>
+        <div bind="mySection" class="landing__mine">
+            <div class="landing__section">
+                <span class="landing__section-title">My rounds</span>
+                <span bind="myCount" class="landing__count"></span>
+            </div>
+            <div bind="myEmpty" class="landing__empty">Nothing on your card yet — rounds you create or play in land here.</div>
+            <div bind="myList" class="landing__list"></div>
+        </div>
         <div class="landing__section">
             <span class="landing__section-title">Rounds</span>
             <span bind="count" class="landing__count"></span>
@@ -28,6 +38,20 @@ const rowTpl = template(`
     <button bind="row" type="button" class="round-row">
         <div class="round-row__top">
             <span bind="course" class="round-row__course"></span>
+            <span bind="status" class="round-row__status"></span>
+        </div>
+        <div class="round-row__bottom">
+            <span bind="date"></span>
+            <span bind="formats" class="round-row__formats"></span>
+        </div>
+    </button>
+`);
+
+const myRowTpl = template(`
+    <button bind="row" type="button" class="round-row">
+        <div class="round-row__top">
+            <span bind="course" class="round-row__course"></span>
+            <span bind="role" class="round-row__role"></span>
             <span bind="status" class="round-row__status"></span>
         </div>
         <div class="round-row__bottom">
@@ -115,6 +139,20 @@ export class LandingComponent extends Component {
                 &.hidden { display: none; }
             }
 
+            & .landing__mine {
+                margin-bottom: ${s('xl')};
+                &.hidden { display: none; }
+            }
+
+            & .round-row__role {
+                font-size: 0.7rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                color: ${t('accent')};
+                flex-shrink: 0;
+            }
+
             & .landing__list {
                 display: flex;
                 flex-direction: column;
@@ -187,14 +225,35 @@ export class LandingComponent extends Component {
     `;
 
     private svc = this.inject(LandingService);
+    private auth = this.inject(AuthService);
     private router = this.inject(Router);
 
     render(): DocumentFragment {
         void this.svc.load();
+        // Logged in: enrich with the dashboard halves. Logged out: never asked,
+        // so the landing stays byte-identical to the no-login experience.
+        const loggedIn = () => this.auth.currentUser.get() !== null;
+        if (loggedIn()) void this.svc.loadMine();
 
         const frag = this.wire(tpl, {
             createBtn: { onclick: () => this.router.navigate('/create') },
-            signin: { onclick: () => this.router.navigate('/login') },
+            signin: {
+                textContent: () => (loggedIn() ? 'Profile' : 'Sign in'),
+                onclick: () => this.router.navigate(loggedIn() ? '/profile' : '/login'),
+            },
+            mySection: {
+                className: () => (loggedIn() ? 'landing__mine' : 'landing__mine hidden'),
+            },
+            myCount: () => {
+                const n = this.svc.myRounds.get().length;
+                return n === 0 ? '' : `${n} on the card`;
+            },
+            myEmpty: {
+                className: () =>
+                    loggedIn() && this.svc.myRounds.get().length === 0 && !this.svc.mineLoading.get()
+                        ? 'landing__empty'
+                        : 'landing__empty hidden',
+            },
             count: () => {
                 const n = this.svc.rounds.get().length;
                 return n === 0 ? '' : `${n} on the card`;
@@ -233,6 +292,41 @@ export class LandingComponent extends Component {
                     track,
                 ),
             (item) => item.friendlyRound.id,
+        );
+
+        // "My rounds" — the merged produced+created list. A row without a
+        // reachable share token renders but can't navigate (no friendly
+        // wrapper to open); everything else taps through like the public list.
+        this.$each(
+            this.ref(frag, 'myList'),
+            this.svc.myRounds,
+            (item, _i, track) =>
+                this.wireEl(
+                    myRowTpl,
+                    {
+                        row: {
+                            disabled: () => item.token === null,
+                            onclick: () => {
+                                if (item.token === null) return;
+                                this.router.navigate('/round', {
+                                    query: { token: item.token },
+                                });
+                            },
+                        },
+                        course: () => item.round.courseNameSnapshot ?? 'Round',
+                        role: () => roleLabel(item),
+                        status: {
+                            textContent: () =>
+                                statusText[item.round.status] ?? item.round.status,
+                            className: () => `round-row__status s-${item.round.status}`,
+                        },
+                        date: () => item.round.date,
+                        formats: () =>
+                            item.round.formatSlots.map(formatLabelFromSlot).join(' · '),
+                    },
+                    track,
+                ),
+            (item) => item.round.id,
         );
 
         return frag;

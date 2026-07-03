@@ -1,8 +1,10 @@
 import { Component, Router, template, effect, Signal } from '@basics/core/client/core';
+import { AuthService } from '@basics/core/client/auth';
 import { SelectComponent, type SelectOption } from '@basics/core/client/ui/select';
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { SetupService, type PlayerForm, type RoutePreset } from './setup.service';
+import { ProfileService } from '../profile/profile.service';
 
 // Phase 2.6e M2 — the real no-login setup flow. Pick a course + route, add
 // players (name · handicap index · gender · per-player tee) with the derived
@@ -39,6 +41,7 @@ const tpl = template(`
             <p class="setup__hint">Name, handicap index, gender and tee. The course handicap is derived from the tee.</p>
             <div bind="players" class="setup__players"></div>
             <button bind="addPlayer" class="setup__add" type="button">+ Add player</button>
+            <button bind="addMe" class="setup__add setup__addme hidden" type="button"></button>
         </section>
 
         <section class="setup__section">
@@ -231,6 +234,7 @@ export class CreateComponent extends Component {
                 width: 100%; margin-top: ${s('md')}; padding: ${s('md')}; ${btn()}
                 font-family: inherit; font-weight: 700; font-size: 0.95rem;
             }
+            & .setup__addme.hidden { display: none; }
 
             & .setup__banner {
                 color: ${t('error')}; font-size: 0.875rem; margin-bottom: ${s('md')};
@@ -342,16 +346,40 @@ export class CreateComponent extends Component {
 
     private svc = this.inject(SetupService);
     private router = this.inject(Router);
+    private auth = this.inject(AuthService);
+    private profile = this.inject(ProfileService);
 
     render(): DocumentFragment {
         // The service is a DI singleton — clear any prior draft so a second visit
         // to New Round starts empty instead of leaking the last round's state.
         this.svc.reset();
         void this.svc.load();
+        // Logged in: fetch the profile so "Add me" can prefill name + index.
+        if (this.auth.currentUser.get()) void this.profile.load();
+
+        // The "Add me" row rides on the logged-in profile: shown while signed
+        // in and not already on the roster.
+        const me = () => this.profile.player.get();
+        const canAddMe = () => {
+            const p = me();
+            return (
+                this.auth.currentUser.get() !== null &&
+                p !== null &&
+                !this.svc.hasPlayer(p.id)
+            );
+        };
 
         const frag = this.wire(tpl, {
             back: { onclick: () => this.router.navigate('/') },
             addPlayer: { onclick: () => this.svc.addPlayer() },
+            addMe: {
+                className: () => (canAddMe() ? 'setup__add setup__addme' : 'setup__add setup__addme hidden'),
+                textContent: () => `+ Add me (${me()?.displayName ?? ''})`,
+                onclick: () => {
+                    const p = me();
+                    if (p) this.svc.addMe({ id: p.id, displayName: p.displayName, handicapIndex: p.handicapIndex });
+                },
+            },
             addTeam: { onclick: () => this.svc.addTeam() },
             addFormat: { onclick: () => this.svc.addFormatSlot() },
             formatNote: {
@@ -812,9 +840,19 @@ export class CreateComponent extends Component {
             playerTpl,
             {
                 // Uncontrolled text inputs: no reactive `value` binding (would
-                // reset the caret on every keystroke). Initial value is empty.
-                name: { oninput: (e: Event) => this.svc.patchPlayer(key, { name: (e.target as HTMLInputElement).value }) },
-                index: { oninput: (e: Event) => this.svc.patchPlayer(key, { handicapIndex: (e.target as HTMLInputElement).value }) },
+                // reset the caret on every keystroke). Initial value comes from
+                // the row (empty for a fresh guest, prefilled for "Add me").
+                // A registered row's name is read-only — the server resolves
+                // the display name from the players table, not from this field.
+                name: {
+                    value: current()?.name ?? '',
+                    readOnly: () => !!current()?.playerId,
+                    oninput: (e: Event) => this.svc.patchPlayer(key, { name: (e.target as HTMLInputElement).value }),
+                },
+                index: {
+                    value: current()?.handicapIndex ?? '',
+                    oninput: (e: Event) => this.svc.patchPlayer(key, { handicapIndex: (e.target as HTMLInputElement).value }),
+                },
                 remove: { onclick: () => this.svc.removePlayer(key) },
                 ch: {
                     textContent: () => {

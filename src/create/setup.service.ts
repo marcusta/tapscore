@@ -84,7 +84,9 @@ const MAX_TEAM_SIZE = 10;
 
 const TEAM_LETTERS = 'ABCDEFGH';
 
-/** One row of the players step. Free-form entry → a `guest_player` on submit. */
+/** One row of the players step. Free-form entry → a `guest_player` on submit;
+ * a row carrying `playerId` (the logged-in "Add me" row) emits a `player`-kind
+ * producer ref instead — no guest is minted for it. */
 export interface PlayerForm {
     /** Stable identity for `$each` keying — survives field edits so input
      * focus is never lost. NOT the producer def-id (that's positional). */
@@ -94,6 +96,10 @@ export interface PlayerForm {
     handicapIndex: string;
     gender: Gender;
     teeId: string;
+    /** Registered-player id (Phase 3 "Add me"); absent ⇒ a guest row. The
+     * server resolves the display name from the players table for these, so
+     * `name` is a prefilled read-only label, not submitted identity. */
+    playerId?: string;
 }
 
 /** Derived course-handicap breakdown for one player — the visible arithmetic. */
@@ -219,6 +225,33 @@ export class SetupService {
             ...this.players.get(),
             { key: this.nextKey++, name: '', handicapIndex: '', gender: 'M', teeId },
         ]);
+    }
+
+    /**
+     * Add the logged-in player to the roster (Phase 3 "Add me"): name + current
+     * handicap index prefilled, emitted on submit as a `player`-kind producer
+     * ref (never a guest). Gender is still asked — the players table has none.
+     * Idempotent per player id; a second tap is a no-op.
+     */
+    addMe(me: { id: string; displayName: string; handicapIndex: number | null }): void {
+        if (this.hasPlayer(me.id)) return;
+        const teeId = this.tees.get()[0]?.id ?? '';
+        this.players.set([
+            ...this.players.get(),
+            {
+                key: this.nextKey++,
+                name: me.displayName,
+                handicapIndex: me.handicapIndex === null ? '' : String(me.handicapIndex),
+                gender: 'M',
+                teeId,
+                playerId: me.id,
+            },
+        ]);
+    }
+
+    /** True when a registered player already holds a roster row. */
+    hasPlayer(playerId: string): boolean {
+        return this.players.get().some((p) => p.playerId === playerId);
     }
 
     removePlayer(key: number): void {
@@ -777,19 +810,28 @@ export class SetupService {
 
         this.submitting.set(true);
         try {
-            // 1. Mint a guest_player per row (no-auth), capturing its id.
+            // 1. Resolve each row's producer ref: a registered "Add me" row
+            //    references its player id directly; every other row mints a
+            //    guest_player (no-auth), capturing its id.
             const producers = [];
             for (let i = 0; i < roster.length; i++) {
                 const p = roster[i];
                 const index = Number.parseFloat(p.handicapIndex);
-                const guest = await api.guestPlayers.create({
-                    displayName: p.name.trim(),
-                    gender: p.gender,
-                    handicapIndex: index,
-                });
+                const playerRef = p.playerId
+                    ? { kind: 'player' as const, id: p.playerId }
+                    : {
+                          kind: 'guest' as const,
+                          id: (
+                              await api.guestPlayers.create({
+                                  displayName: p.name.trim(),
+                                  gender: p.gender,
+                                  handicapIndex: index,
+                              })
+                          ).id,
+                      };
                 producers.push({
                     producerDefId: `p${i + 1}`,
-                    playerRef: { kind: 'guest' as const, id: guest.id },
+                    playerRef,
                     handicapIndex: index,
                     gender: p.gender,
                     teeId: p.teeId,

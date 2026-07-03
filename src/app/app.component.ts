@@ -7,6 +7,7 @@ import { CreateComponent } from '../create/create.component';
 import { LoginComponent } from '../auth/login.component';
 import { PlayersComponent } from '../players/players.component';
 import { RoundsComponent } from '../rounds/rounds.component';
+import { ProfileComponent } from '../profile/profile.component';
 
 const tpl = template(`
     <div class="app-shell">
@@ -46,6 +47,7 @@ export class AppComponent extends Component {
             '/login': LoginComponent,
             '/rounds': RoundsComponent,
             '/players': PlayersComponent,
+            '/profile': ProfileComponent,
         }, LandingComponent);
 
         return frag;

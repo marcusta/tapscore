@@ -12,6 +12,7 @@ import { s, btn, input, card } from '../css';
 import { RoundViewService, type InitialPosition } from './round.service';
 import { ScoreEntryComponent } from './score-entry.component';
 import { LeaderboardComponent } from './leaderboard.component';
+import { ClaimCardComponent } from './claim-card.component';
 import { formatLabelFromSlot } from '../rounds/slot-labels';
 import type { FormatSlot } from '../api/rounds.gen';
 
@@ -56,6 +57,8 @@ const tpl = template(`
                         </div>
                         <p class="round-view__share-hint">Anyone with this link can open and score — no sign-in.</p>
                     </div>
+
+                    <div bind="claim"></div>
                 </div>
 
                 <div bind="lbPanel" class="round-view__panel hidden">
@@ -469,6 +472,9 @@ export class RoundComponent extends Component {
         // carousel/keypad state survives a tab switch).
         this.spawn(ScoreEntryComponent, this.ref(frag, 'scoring'));
         this.spawn(LeaderboardComponent, this.ref(frag, 'leaderboard'));
+        // Phase 3: the guest-claim affordance — self-hiding (logged-out /
+        // no unclaimed guests / viewer already plays here ⇒ renders nothing).
+        this.spawn(ClaimCardComponent, this.ref(frag, 'claim'));
 
         return frag;
     }

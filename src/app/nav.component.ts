@@ -17,6 +17,12 @@ const tpl = template(`
             </svg>
             <span>Players</span>
         </a>
+        <a bind="profileLink" href="/profile">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="8" r="4"/><path d="M5 20c.7-4 3.3-6 7-6s6.3 2 7 6"/>
+            </svg>
+            <span>Profile</span>
+        </a>
     </nav>
 `);
 
@@ -63,6 +69,7 @@ export class NavComponent extends Component {
             },
             roundsLink: this.router.link('/rounds'),
             playersLink: this.router.link('/players'),
+            profileLink: this.router.link('/profile'),
         });
     }
 }
