@@ -53,4 +53,19 @@ export class ProfileService {
         await this.load();
         return true;
     }
+
+    /**
+     * Save gender (M / F / null-to-clear) via the profile endpoint. The
+     * create flow's "Add me"/friends rows read `player.gender` to prefill +
+     * lock their gender control, so refresh `player` from the response
+     * rather than guessing locally.
+     */
+    async saveGender(gender: 'M' | 'F' | null): Promise<boolean> {
+        const saved = await request(this.saving, this.saveError, () =>
+            api.players.updateProfile({ gender }),
+        );
+        if (!saved) return false;
+        this.player.set(saved);
+        return true;
+    }
 }

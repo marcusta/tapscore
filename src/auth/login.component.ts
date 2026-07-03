@@ -23,6 +23,10 @@ const tpl = template(`
             <div bind="registerFields" class="login__register">
                 <input bind="displayName" type="text" placeholder="Display name" autocomplete="name" />
                 <input bind="hcp" inputmode="decimal" placeholder="Handicap index (optional)" />
+                <div class="login__genderrow">
+                    <span>Gender (optional)</span>
+                    <div bind="gender" class="login__genderseg"></div>
+                </div>
             </div>
             <button type="submit" bind="submit">Sign in</button>
         </form>
@@ -89,6 +93,28 @@ export class LoginComponent extends Component {
                     &.hidden { display: none; }
                 }
 
+                & .login__genderrow {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: ${s('md')};
+                    font-size: 0.85rem;
+                    color: ${t('text-muted')};
+                }
+
+                & .login__genderseg {
+                    display: flex;
+                    gap: ${s('xs')};
+
+                    & button {
+                        padding: ${s('sm')} ${s('lg')};
+                        font-size: 0.9rem;
+                        font-weight: 700;
+                        ${btn()}
+                        &.on { background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')}; }
+                    }
+                }
+
                 & button {
                     padding: ${s('md')} ${s('lg')};
                     font-size: 1rem;
@@ -127,6 +153,7 @@ export class LoginComponent extends Component {
     private password = '';
     private displayName = '';
     private hcp = '';
+    private gender = new Signal<'M' | 'F' | null>(null);
 
     /** Where a successful sign-in/registration lands: `?next=`, else home —
      * the logged-in app IS the no-login app, enriched (Phase 3 nav rework). */
@@ -166,6 +193,7 @@ export class LoginComponent extends Component {
                 password: this.password,
                 displayName: this.displayName.trim(),
                 handicapIndex,
+                gender: this.gender.get(),
             });
             this.auth.currentUser.set({ id: player.id, username: player.username });
             this.router.navigate(this.destination('/'), true);
@@ -186,7 +214,7 @@ export class LoginComponent extends Component {
         const isRegister = () => this.mode.get() === 'register';
         const loading = () => this.auth.loading.get() || this.busy.get();
 
-        return this.wire(tpl, {
+        const frag = this.wire(tpl, {
             root: { inert: () => loading() },
             error: {
                 className: () =>
@@ -244,5 +272,32 @@ export class LoginComponent extends Component {
                 },
             },
         });
+
+        // Gender segmented control: M / F / Not set. Optional — registering
+        // with no selection leaves gender null server-side.
+        const genderOptions: Array<{ value: 'M' | 'F' | null; label: string }> = [
+            { value: 'M', label: 'M' },
+            { value: 'F', label: 'F' },
+            { value: null, label: 'Not set' },
+        ];
+        this.$each(
+            this.ref(frag, 'gender'),
+            () => genderOptions,
+            (opt, _i, track) =>
+                this.wireEl(
+                    template(`<button bind="b" type="button"></button>`),
+                    {
+                        b: {
+                            textContent: () => opt.label,
+                            className: () => (this.gender.get() === opt.value ? 'on' : ''),
+                            onclick: () => this.gender.set(opt.value),
+                        },
+                    },
+                    track,
+                ),
+            (opt) => opt.label,
+        );
+
+        return frag;
     }
 }

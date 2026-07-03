@@ -22,6 +22,15 @@ const tpl = template(`
             </header>
 
             <section class="profile__card">
+                <span class="profile__label">Gender</span>
+                <div class="profile__gender-row">
+                    <div bind="gender" class="profile__genderseg"></div>
+                </div>
+                <p class="profile__hint">Used for tee ratings — set once and it locks in "Add me" during round setup.</p>
+                <p bind="genderErr" class="profile__err"></p>
+            </section>
+
+            <section class="profile__card">
                 <span class="profile__label">Handicap index</span>
                 <div class="profile__hcp-row">
                     <span bind="hcp" class="profile__hcp"></span>
@@ -122,6 +131,23 @@ export class ProfileComponent extends Component {
                 & .profile__err {
                     margin: ${s('sm')} 0 0; font-size: 0.85rem; color: ${t('error')};
                     &:empty { display: none; }
+                }
+
+                & .profile__gender-row { margin-top: ${s('sm')}; }
+                & .profile__genderseg {
+                    display: flex;
+                    gap: ${s('xs')};
+
+                    & button {
+                        flex: 1;
+                        padding: ${s('sm')} 0;
+                        font-family: inherit;
+                        font-size: 0.9rem;
+                        font-weight: 700;
+                        ${btn()}
+                        &.on { background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')}; }
+                        &:disabled { opacity: 0.5; cursor: default; }
+                    }
                 }
             }
 
@@ -227,6 +253,9 @@ export class ProfileComponent extends Component {
                 textContent: () =>
                     this.localErr.get() || this.svc.saveError.get()?.message || '',
             },
+            genderErr: {
+                textContent: () => this.svc.saveError.get()?.message || '',
+            },
             historyEmpty: {
                 className: () =>
                     this.svc.history.get().length === 0
@@ -253,6 +282,32 @@ export class ProfileComponent extends Component {
                     date: () => h.effectiveDate,
                 }, track),
             (h) => h.id,
+        );
+
+        // Gender segmented control: M / F / Not set. Saves immediately on
+        // tap (no separate save step, unlike the handicap index field).
+        const genderOptions: Array<{ value: 'M' | 'F' | null; label: string }> = [
+            { value: 'M', label: 'M' },
+            { value: 'F', label: 'F' },
+            { value: null, label: 'Not set' },
+        ];
+        this.$each(
+            this.ref(frag, 'gender'),
+            () => genderOptions,
+            (opt, _i, track) =>
+                this.wireEl(
+                    template(`<button bind="b" type="button"></button>`),
+                    {
+                        b: {
+                            textContent: () => opt.label,
+                            className: () => (this.svc.player.get()?.gender === opt.value ? 'on' : ''),
+                            disabled: () => this.svc.saving.get(),
+                            onclick: () => void this.svc.saveGender(opt.value),
+                        },
+                    },
+                    track,
+                ),
+            (opt) => opt.label,
         );
 
         return frag;
