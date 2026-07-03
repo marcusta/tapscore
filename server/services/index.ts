@@ -9,7 +9,6 @@ import { GuestPlayerService } from './guest-player.service';
 import { HandicapService } from './handicap.service';
 import { RoleService } from './role.service';
 import { RoundService, type RoundServiceDeps } from './round.service';
-import { ParticipantService } from './participant.service';
 import { ScoreEventService } from './score-event.service';
 import { ScorecardService } from './scorecard.service';
 import { LeaderboardService } from './leaderboard.service';
@@ -98,13 +97,6 @@ export function createServices(db: Kysely<Database>) {
             courseRouteTemplateService,
         ),
     );
-    // ParticipantService is retained for legacy fixture paths + render-lib
-    // bridge reads. The `/participants` API is unmounted from main.ts —
-    // no live write path calls into it anymore.
-    const participantService = new ParticipantService(db, handicapService, teeService);
-    // Tee-time scheduling is superseded by playing groups (Slice 3b): the
-    // RoundDefinition owns playing groups and the compiler derives them. The
-    // legacy `tee_times` table survives only as a backfill source.
     const scoreEventService = new ScoreEventService(db, roundService);
     const scorecardService = new ScorecardService(db);
     const leaderboardService = new LeaderboardService(
@@ -138,7 +130,6 @@ export function createServices(db: Kysely<Database>) {
         handicapService,
         roleService,
         roundService,
-        participantService,
         scoreEventService,
         scorecardService,
         leaderboardService,

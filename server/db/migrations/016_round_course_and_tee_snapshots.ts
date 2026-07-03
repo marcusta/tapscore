@@ -1,5 +1,4 @@
 import { type Kysely, sql } from 'kysely';
-import { backfillRoundSnapshots } from '../backfill/round-snapshots';
 
 /**
  * Phase 2.6a — course + hole snapshot tables, soft-delete column.
@@ -9,15 +8,11 @@ import { backfillRoundSnapshots } from '../backfill/round-snapshots';
  * the balls refactor — so this migration deliberately omits
  * `rounds.tee_rating_snapshot` etc.
  *
- * Writes only happen via migration backfill for rounds that existed at
- * migration time. Rounds created between 2.6a and 2.6b receive no
- * snapshot rows; live snapshot capture moves to the RoundCompiler in
- * 2.6b. The render handles the empty case gracefully.
- *
- * For dev hand-verification (no prod data yet), the backfill logic is
- * extracted into `server/db/backfill/round-snapshots.ts` and can also be
- * invoked post-seed via `bun scripts/backfill-round-snapshots.ts` to
- * simulate the migration-time state against seeded rounds.
+ * History note (Phase 2.7a): this migration originally ended with a
+ * legacy backfill (`backfillRoundSnapshots`) that populated the snapshot
+ * tables from the pre-compiler `participants` bridge for rounds existing
+ * at migration time. The bridge schema was edited out of the chain; on a
+ * fresh DB the backfill was a no-op, so only the schema DDL remains.
  *
  * Column name note: existing tables use `hole_number` (see `course_holes`,
  * `tee_hole_lengths`). The spec prose in PHASES.md says `hole_no`; code
@@ -82,6 +77,4 @@ export async function up(db: Kysely<any>): Promise<void> {
         .on('round_tee_holes')
         .column('tee_id')
         .execute();
-
-    await backfillRoundSnapshots(db);
 }

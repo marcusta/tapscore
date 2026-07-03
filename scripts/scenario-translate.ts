@@ -313,13 +313,11 @@ function toSlotDefinition(
             })),
         };
     }
-    // Unwrap `scopeConfig.config` → `formatConfig`. The scenario DSL passes
-    // the full FormatSlotConfig shape (`{ scope?, config? }`) for parity
-    // with `round_format_slots.scope_config`. The compiler-facing
-    // `formatConfig` only carries the inner format-specific blob;
-    // `round.service.create` re-wraps it back into `{ config: ... }` when
-    // writing the legacy row. Matches the inversion synthesize-legacy.ts
-    // does (line 188: `slotDef.formatConfig = scope.config`).
+    // Unwrap `scopeConfig.config` → `formatConfig`. The scenario DSL keeps
+    // the full FormatSlotConfig shape (`{ scope?, config? }`) — historically
+    // the legacy `round_format_slots.scope_config` shape, dropped in
+    // migration 032. The compiler-facing `formatConfig` only carries the
+    // inner format-specific blob.
     if (s.scopeConfig !== undefined && s.scopeConfig !== null) {
         const sc = s.scopeConfig as {
             scope?: { participantIds?: string[] };

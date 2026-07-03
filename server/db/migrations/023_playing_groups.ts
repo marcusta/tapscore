@@ -15,9 +15,8 @@ import { type Kysely, sql } from 'kysely';
  *
  * `start_play_hole_id` uses a COMPOSITE same-round FK
  * `(round_id, start_play_hole_id) → round_play_holes(round_id, id)` so a group
- * physically cannot start at an occurrence from another round. The legacy
- * `tee_times` table + migration 011 survive as a deprecated backfill source
- * only; the physical drop is deferred to the later legacy-schema slice.
+ * physically cannot start at an occurrence from another round. (The legacy
+ * `tee_times` table this replaced was edited out of the chain in Phase 2.7a.)
  */
 export async function up(db: Kysely<any>): Promise<void> {
     await db.schema

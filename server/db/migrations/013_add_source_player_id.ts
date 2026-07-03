@@ -59,9 +59,12 @@ export async function up(db: Kysely<any>): Promise<void> {
 
     await sql`DROP TRIGGER IF EXISTS scorecards_rebuild_on_event`.execute(db);
 
+    // History note (Phase 2.7a): participant_id originally referenced the
+    // legacy participants table; the FK was edited out of the chain when the
+    // legacy bridge schema was deleted (see migration 012's note).
     await sql`
         CREATE TABLE scorecards_new (
-            participant_id TEXT NOT NULL REFERENCES participants(id) ON DELETE CASCADE,
+            participant_id TEXT NOT NULL,
             hole INTEGER NOT NULL,
             strokes INTEGER,
             recorded_by_player_id TEXT REFERENCES players(id) ON DELETE SET NULL,

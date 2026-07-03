@@ -26,49 +26,11 @@ const RoundStatus = Type.Union([
     Type.Literal('active'),
     Type.Literal('complete'),
 ]);
-const ScoringMode = Type.Union([
-    Type.Literal('stroke_play'),
-    Type.Literal('stableford'),
-    Type.Literal('match_play'),
-    Type.Literal('kopenhamnare'),
-    Type.Literal('skins'),
-    Type.Literal('custom'),
-]);
-const TeamShape = Type.Union([
-    Type.Literal('individual'),
-    Type.Literal('better_ball'),
-    Type.Literal('four_ball'),
-    Type.Literal('custom'),
-]);
-
-// `scopeConfig` at the wire carries `{ scope?, config? }` (both optional),
-// or null. Using `Type.Unknown()` here keeps the wire permissive — format
-// strategies type their own `config` shape at the call site, and the
-// service normalises legacy blobs on read (see `FormatSlotConfig`).
-const ScopeConfigInput = Type.Union([
-    Type.Null(),
-    Type.Object({
-        scope: Type.Optional(
-            Type.Object({ participantIds: Type.Array(Type.String()) }),
-        ),
-        config: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-    }),
-]);
-
-const FormatSlotInput = Type.Object({
-    slotIndex: Type.Number(),
-    scoringMode: ScoringMode,
-    teamShape: TeamShape,
-    allowancePct: Type.Number(),
-    scopeConfig: ScopeConfigInput,
-});
-
 /**
  * Phase 2.6b/3b.3.3 — `create` accepts a `RoundDefinition` directly. The
- * service drives compile + persist in one transaction. The old
- * `{courseId, date, formatSlots, …}` shape moved to `roundService.createLegacy`
- * for remaining legacy fixture paths; it is intentionally NOT wired into
- * the HTTP API.
+ * service drives compile + persist in one transaction. (The old
+ * `{courseId, date, formatSlots, …}` legacy-bridge shape was deleted in
+ * Phase 2.7a along with the `round_format_slots` table.)
  */
 const CreateRoundInput = Type.Object({
     definition: RoundDefinition,
@@ -96,7 +58,6 @@ const UpdateRoundInput = Type.Object({
     windowEnd: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     selfOrganize: Type.Optional(Type.Boolean()),
     status: Type.Optional(RoundStatus),
-    formatSlots: Type.Optional(Type.Array(FormatSlotInput)),
 });
 
 // --- API descriptor ---
@@ -109,7 +70,7 @@ export function createRoundsApi(svc: RoundService) {
         get:    { method: 'GET'    as const, path: '/rounds/get',    fn: (input: Static<typeof IdInput>)           => svc.getById(input.id),                                                                                                                                                                                                       schema: IdInput,          middleware: mw },
         create: { method: 'POST'   as const, path: '/rounds',        fn: (input: Static<typeof CreateRoundInput>)  => svc.create({ definition: input.definition }),                                                                                                                                                                                schema: CreateRoundInput, middleware: mw },
         createFromDraft: { method: 'POST' as const, path: '/rounds/from-draft', fn: (input: Static<typeof CreateFromDraftInput>) => svc.createFromDraft(input.draft), schema: CreateFromDraftInput, middleware: mw },
-        update: { method: 'POST'   as const, path: '/rounds/update', fn: (input: Static<typeof UpdateRoundInput>)  => svc.update(input.id, { date: input.date, roundType: input.roundType, venueType: input.venueType, startListMode: input.startListMode, windowStart: input.windowStart, windowEnd: input.windowEnd, selfOrganize: input.selfOrganize, status: input.status, formatSlots: input.formatSlots }), schema: UpdateRoundInput, middleware: mw },
+        update: { method: 'POST'   as const, path: '/rounds/update', fn: (input: Static<typeof UpdateRoundInput>)  => svc.update(input.id, { date: input.date, roundType: input.roundType, venueType: input.venueType, startListMode: input.startListMode, windowStart: input.windowStart, windowEnd: input.windowEnd, selfOrganize: input.selfOrganize, status: input.status }), schema: UpdateRoundInput, middleware: mw },
         remove: { method: 'DELETE' as const, path: '/rounds/:id',    fn: (input: Static<typeof IdInput>)           => svc.remove(input.id),                                                                                                                                                                                                        schema: IdInput,          middleware: mw },
     };
 }

@@ -120,8 +120,9 @@ describe('format architecture invariants', () => {
         // registration) and its `validateConfig` (co-located with score()). The
         // generic draft builder and the pure compiler must therefore never pick a
         // ball-creation strategy by format, switch on a built-in format id, or
-        // inline a format's config-field validation. (synthesize-legacy.ts is the
-        // separate legacy scoring_mode→format_id bridge and is out of scope.)
+        // inline a format's config-field validation. (The legacy
+        // scoring_mode→format_id bridge, synthesize-legacy.ts, was deleted in
+        // Phase 2.7a — see the checks below.)
         const GENERIC_INFRA = [
             'server/domain/round-setup/builder.ts',
             'server/domain/compiler/compile.ts',
@@ -136,6 +137,40 @@ describe('format architecture invariants', () => {
             if (!GENERIC_INFRA.includes(f.rel)) continue;
             for (const token of banned) {
                 if (f.text.includes(token)) offenders.push(`${f.rel} ⟶ ${token}`);
+            }
+        }
+        expect(offenders).toEqual([]);
+    });
+
+    // --- Phase 2.7a — legacy bridge schema deleted ---------------------------
+    //
+    // The four legacy bridge tables (participants / participant_players /
+    // tee_times / round_format_slots) and the synthesize-legacy
+    // scoring_mode→format_id bridge were edited out of the migration chain
+    // entirely — a fresh DB never creates them. NO code (migrations included)
+    // may reference them. Any hit is a resurrection.
+
+    it('references no deleted legacy bridge table anywhere (2.7a)', () => {
+        // Matches the table-name forms code actually uses: quoted strings in
+        // Kysely calls ('participants' / "participants") and raw-SQL keyword
+        // + table pairs (FROM participants, JOIN …) including inside template
+        // literals. Backticked doc-prose mentions in comments are not flagged.
+        const DROPPED_TABLE_REF =
+            /['"](participants|participant_players|tee_times|round_format_slots)['"]|(?:FROM|JOIN|INTO|TABLE|UPDATE)\s+(participants|participant_players|tee_times|round_format_slots)\b/i;
+        const offenders: string[] = [];
+        for (const f of files) {
+            const m = f.text.match(DROPPED_TABLE_REF);
+            if (m) offenders.push(`${f.rel} ⟶ ${m[0]}`);
+        }
+        expect(offenders).toEqual([]);
+    });
+
+    it('has no synthesize-legacy module or import (2.7a)', () => {
+        const offenders: string[] = [];
+        for (const f of files) {
+            if (f.rel.includes('synthesize-legacy')) offenders.push(f.rel);
+            if (/from\s+['"][^'"]*synthesize-legacy['"]/.test(f.text)) {
+                offenders.push(`${f.rel} ⟶ import`);
             }
         }
         expect(offenders).toEqual([]);

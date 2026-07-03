@@ -1,6 +1,5 @@
 import { test, expect, beforeAll } from 'bun:test';
 import { createTestDb } from '../testing/db';
-import type { LegacyFormatSlotInput } from './round.service';
 import type { RoundDefinition } from '../domain/round-definition';
 import { registerBuiltInBallCreationStrategies } from '../domain/strategies/ball-creation';
 import { registerBuiltInFormats } from '../domain/formats';
@@ -13,104 +12,10 @@ beforeAll(() => {
     if (!hasFormatPlugin(CANARY_FORMAT_ID)) registerFormat(canaryPlugin);
 });
 
-async function setup() {
-    const ctx = await createTestDb();
-    const club = await ctx.clubService.create({ name: 'Halmstad GK' });
-    const course = await ctx.courseService.create({
-        clubId: club.id,
-        name: 'North',
-        holeCount: 18,
-    });
-    return { ...ctx, clubId: club.id, courseId: course.id };
-}
-
-function singleStrokeSlot(): LegacyFormatSlotInput {
-    return {
-        slotIndex: 0,
-        scoringMode: 'stroke_play',
-        teamShape: 'individual',
-        allowancePct: 100,
-        scopeConfig: null,
-    };
-}
-
-// --- Legacy createLegacy / update path -------------------------------------
-//
-// `createLegacy` still writes the deprecated `round_format_slots` table (the
-// bridge retired in a later legacy-schema slice). Input validation lives
-// here; the canonical read model now comes from `slots`, so these tests
-// assert only the validation + legacy-storage cascade, not the read shape.
-
-test('createLegacy rejects empty format slots', async () => {
-    const { roundService, courseId } = await setup();
-    await expect(
-        roundService.createLegacy({
-            courseId,
-            date: '2026-05-01',
-            roundType: 'full_18',
-            venueType: 'outdoor',
-            startListMode: 'structured',
-            formatSlots: [],
-        }),
-    ).rejects.toThrow(/at least one format slot/);
-});
-
-test('createLegacy rejects non-contiguous slot indices', async () => {
-    const { roundService, courseId } = await setup();
-    await expect(
-        roundService.createLegacy({
-            courseId,
-            date: '2026-05-01',
-            roundType: 'full_18',
-            venueType: 'outdoor',
-            startListMode: 'structured',
-            formatSlots: [{ ...singleStrokeSlot(), slotIndex: 5 }],
-        }),
-    ).rejects.toThrow(/contiguous/);
-});
-
-test('createLegacy rejects allowance out of range', async () => {
-    const { roundService, courseId } = await setup();
-    await expect(
-        roundService.createLegacy({
-            courseId,
-            date: '2026-05-01',
-            roundType: 'full_18',
-            venueType: 'outdoor',
-            startListMode: 'structured',
-            formatSlots: [{ ...singleStrokeSlot(), allowancePct: 150 }],
-        }),
-    ).rejects.toThrow(/allowancePct/);
-});
-
-test('remove cascades to legacy round_format_slots rows', async () => {
-    const { roundService, courseId, db } = await setup();
-    const r = await roundService.createLegacy({
-        courseId,
-        date: '2026-05-01',
-        roundType: 'full_18',
-        venueType: 'outdoor',
-        startListMode: 'structured',
-        formatSlots: [singleStrokeSlot()],
-    });
-    await roundService.remove(r.id);
-    const leftover = await db
-        .selectFrom('round_format_slots')
-        .selectAll()
-        .where('round_id', '=', r.id)
-        .execute();
-    expect(leftover).toHaveLength(0);
-});
-
 test('course delete is blocked by RESTRICT when rounds reference it', async () => {
-    const { roundService, courseService, courseId } = await setup();
-    await roundService.createLegacy({
-        courseId,
-        date: '2026-05-01',
-        roundType: 'full_18',
-        venueType: 'outdoor',
-        startListMode: 'structured',
-        formatSlots: [singleStrokeSlot()],
+    const { roundService, courseService, courseId, teeId, aliceId } = await setupWithTeeAndPlayer();
+    await roundService.create({
+        definition: singlePlayerDef({ courseId, teeId, playerId: aliceId }),
     });
     await expect(courseService.remove(courseId)).rejects.toThrow();
 });
@@ -209,14 +114,6 @@ test('create({definition}) persists rounds row + slots read model + compiler tab
     expect(slot.allowancePct).toBe(95);
     expect(slot.allowanceConfig).toEqual({ type: 'flat', pct: 95 });
     expect(slot.ballMode).toBe('own');
-
-    // No legacy round_format_slots rows written by the canonical path.
-    const legacy = await db
-        .selectFrom('round_format_slots')
-        .selectAll()
-        .where('round_id', '=', round.id)
-        .execute();
-    expect(legacy).toHaveLength(0);
 
     // Compiler tables populated.
     const balls = await db

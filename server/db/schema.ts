@@ -19,9 +19,6 @@ export interface Database {
     round_play_tee_holes: RoundPlayTeeHolesTable;
     playing_groups: PlayingGroupsTable;
     playing_group_balls: PlayingGroupBallsTable;
-    round_format_slots: RoundFormatSlotsTable;
-    participants: ParticipantsTable;
-    participant_players: ParticipantPlayersTable;
     round_definitions: RoundDefinitionsTable;
     round_ball_strategies: RoundBallStrategiesTable;
     balls: BallsTable;
@@ -29,7 +26,6 @@ export interface Database {
     slots: SlotsTable;
     slot_balls: SlotBallsTable;
     slot_ball_teams: SlotBallTeamsTable;
-    tee_times: TeeTimesTable;
     score_events: ScoreEventsTable;
     scorecards: ScorecardsTable;
     setup_correction_events: SetupCorrectionEventsTable;
@@ -71,8 +67,7 @@ export interface RoundTeeHolesTable {
     round_id: string;
     /**
      * Live FK to `tees.id`. Nullable post-migration-017 — on tee deletion
-     * the FK nulls out (matches `participants.tee_id_snapshot`). Frozen
-     * identity survives in `tee_name_snapshot`.
+     * the FK nulls out. Frozen identity survives in `tee_name_snapshot`.
      */
     tee_id: string | null;
     tee_name_snapshot: string;
@@ -141,53 +136,6 @@ export type TeamShape =
     | 'better_ball'
     | 'four_ball'
     | 'custom';
-
-export interface RoundFormatSlotsTable {
-    round_id: string;
-    slot_index: number;
-    scoring_mode: ScoringMode;
-    team_shape: TeamShape;
-    allowance_pct: number;
-    scope_config: string | null;
-}
-
-export interface ParticipantsTable {
-    id: string;
-    round_id: string;
-    team_label: string | null;
-    category_snapshot: string | null;
-    tee_id_snapshot: string | null;
-    handicap_index_snapshot: number | null;
-    course_handicap_snapshot: number | null;
-    playing_handicap_snapshot: number | null;
-    is_locked: number;
-    is_dq: number;
-    admin_modified_by: string | null;
-    admin_modified_at: string | null;
-    admin_notes: string | null;
-    created_at: Generated<string>;
-}
-
-export interface ParticipantPlayersTable {
-    id: string;
-    participant_id: string;
-    player_id: string | null;
-    guest_player_id: string | null;
-    handicap_index_snapshot: number | null;
-    course_handicap_snapshot: number | null;
-    playing_handicap_snapshot: number | null;
-    created_at: Generated<string>;
-}
-
-export interface TeeTimesTable {
-    id: string;
-    round_id: string;
-    start_time: string;
-    start_hole: number;
-    capacity: number;
-    hitting_bay: string | null;
-    created_at: Generated<string>;
-}
 
 export type ScoreEventType =
     | 'score_entered'
@@ -426,7 +374,7 @@ export interface BallPlayersTable {
     handicap_index_snapshot: number;
     category_snapshot: string | null;
     gender_snapshot: 'M' | 'F' | null;
-    /** Live FK; nulls on tee deletion (mirrors `participants.tee_id_snapshot`). */
+    /** Live FK; nulls on tee deletion. Frozen identity stays in `tee_name_snapshot`. */
     tee_id: string | null;
     tee_name_snapshot: string;
     course_rating_snapshot: number;

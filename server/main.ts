@@ -13,10 +13,8 @@ import { createTeesApi } from './api/tees.api';
 import { createGuestPlayersApi } from './api/guest-players.api';
 import { createHandicapApi } from './api/handicap.api';
 import { createRoundsApi } from './api/rounds.api';
-// Phase 2.6b/3b.3.3 — participants API unmounted. RoundCompiler is the
-// single live write boundary for round setup; the `participants` /
-// `participant_players` tables stay for legacy fixture paths + the
-// render-lib bridge, but no HTTP routes target them.
+// RoundCompiler is the single live write boundary for round setup; the
+// legacy participants bridge (API + tables) was deleted in Phase 2.7a.
 import { createScoreEventsApi } from './api/score-events.api';
 import { createScorecardsApi } from './api/scorecards.api';
 import { createCorrectionsApi } from './api/corrections.api';

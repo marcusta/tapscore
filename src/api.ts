@@ -5,7 +5,6 @@ import { createTeesClient } from './api/tees.gen';
 import { createGuestPlayersClient } from './api/guest-players.gen';
 import { createHandicapClient } from './api/handicap.gen';
 import { createRoundsClient } from './api/rounds.gen';
-import { createParticipantsClient } from './api/participants.gen';
 import { createScoreEventsClient } from './api/score-events.gen';
 import { createScorecardsClient } from './api/scorecards.gen';
 import { createLeaderboardsClient } from './api/leaderboards.gen';
@@ -26,7 +25,6 @@ export const api = {
     guestPlayers: createGuestPlayersClient(API_BASE),
     handicap: createHandicapClient(API_BASE),
     rounds: createRoundsClient(API_BASE),
-    participants: createParticipantsClient(API_BASE),
     scoreEvents: createScoreEventsClient(API_BASE),
     scorecards: createScorecardsClient(API_BASE),
     leaderboards: createLeaderboardsClient(API_BASE),

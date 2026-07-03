@@ -32,7 +32,9 @@ import {
 // --- Output types ---
 
 /**
- * Typed shape of `round_format_slots.scope_config` (stored as JSON text).
+ * Slot-scope/config JSON shape shared with the scenario DSL. (Historically
+ * the stored shape of the legacy `round_format_slots.scope_config` column,
+ * dropped in migration 032.)
  *
  * Two keys, two concerns:
  *   - `scope` — which participants this slot applies to. Multi-slot routing
@@ -73,20 +75,6 @@ export interface FormatSlot {
     allowanceConfig: FormatAllowanceConfig;
     formatConfig: unknown;
     ballMode: SlotBallMode;
-}
-
-/**
- * Legacy slot input shape for the deprecated `createLegacy` / `update`
- * paths (and the HTTP `update` descriptor). These still write the legacy
- * `round_format_slots` table — the bridge retired in a later legacy-schema
- * slice. The canonical `create({ definition })` path does not use this.
- */
-export interface LegacyFormatSlotInput {
-    slotIndex: number;
-    scoringMode: ScoringMode;
-    teamShape: TeamShape;
-    allowancePct: number;
-    scopeConfig: FormatSlotConfig | null;
 }
 
 // --- Itinerary + playing-group read model (Slice 3b) -----------------------
@@ -176,24 +164,6 @@ export interface Round {
 }
 
 /**
- * Legacy create-input — courseId + metadata + flat formatSlots array.
- * Retained for the handful of tests / seed paths that don't yet go through
- * the compiler. New code goes through `create({ definition })` which drives
- * the compiler directly. Slice 3d.5 will retire this path entirely.
- */
-export interface CreateRoundLegacyInput {
-    courseId: string;
-    date: string;
-    roundType: RoundType;
-    venueType: VenueType;
-    startListMode: StartListMode;
-    windowStart?: string | null;
-    windowEnd?: string | null;
-    selfOrganize?: boolean;
-    formatSlots: LegacyFormatSlotInput[];
-}
-
-/**
  * Canonical create-input (Phase 2.6b/3b.3.3). The `RoundDefinition` carries
  * both round-level metadata (roundType, venueType, etc. — same fields the
  * legacy input had) AND the compiler input (producers, ballStrategies,
@@ -250,14 +220,13 @@ export interface UpdateRoundInput {
     windowEnd?: string | null;
     selfOrganize?: boolean;
     status?: RoundStatus;
-    formatSlots?: LegacyFormatSlotInput[];
 }
 
 // --- Compiler wiring ---
 //
 // Minimal dep surface so `create()` can build a `CompilerInput` without
 // pulling the full service bundle. `createServices()` wires these up at
-// construction time; tests may pass a stubbed bag or use `createLegacy()`.
+// construction time; tests may pass a stubbed bag.
 
 export interface RoundServiceDeps {
     getCourseHoles(courseId: string): Promise<
@@ -526,9 +495,7 @@ export class RoundService {
         return this.rounds().where('id', '=', id);
     }
 
-    // Canonical slot read — from the compiler-owned `slots` table. (The
-    // legacy `round_format_slots` table is no longer read; it survives only
-    // as a deprecated write bridge for `createLegacy` / `update`.)
+    // Canonical slot read — from the compiler-owned `slots` table.
     private slotsFor(roundId: string) {
         return this.db.selectFrom('slots').selectAll().where('round_id', '=', roundId);
     }
@@ -633,24 +600,6 @@ export class RoundService {
         return trx.deleteFrom('rounds').where('id', '=', id);
     }
 
-    private insertSlots(
-        rows: {
-            round_id: string;
-            slot_index: number;
-            scoring_mode: ScoringMode;
-            team_shape: TeamShape;
-            allowance_pct: number;
-            scope_config: string | null;
-        }[],
-        trx: Kysely<Database> = this.db,
-    ) {
-        return trx.insertInto('round_format_slots').values(rows);
-    }
-
-    private deleteSlotsFor(roundId: string, trx: Kysely<Database> = this.db) {
-        return trx.deleteFrom('round_format_slots').where('round_id', '=', roundId);
-    }
-
     // --- Methods ---
 
     async list(): Promise<Round[]> {
@@ -750,8 +699,7 @@ export class RoundService {
     /**
      * Canonical create — compiles `definition` + persists v1 rows to the
      * compiler-output tables (018), including the `slots` rows that the read
-     * model now reads from. Throws on compile diagnostics. This path no
-     * longer writes the legacy `round_format_slots` table (Slice 3a).
+     * model now reads from. Throws on compile diagnostics.
      */
     async create(input: CreateRoundInput): Promise<Round> {
         const result = await this.compileAndPersist(input.definition);
@@ -806,7 +754,7 @@ export class RoundService {
     private async buildCompilerInput(roundId: string, def: RoundDefinition): Promise<CompilerInput> {
         if (!this.deps) {
             throw new Error(
-                'RoundService compiler paths require RoundServiceDeps (use createLegacy from test contexts that stub compiler input).',
+                'RoundService compiler paths require RoundServiceDeps.',
             );
         }
         const deps = this.deps;
@@ -968,56 +916,7 @@ export class RoundService {
         return { ok: true, round };
     }
 
-    /**
-     * Legacy create — round + round_format_slots only. No compiler-table
-     * writes. A few fixture paths still need this for narrow tests that
-     * don't touch scoring; new code should use `create({ definition })`.
-     * Slice 3d.5 will retire this method.
-     */
-    async createLegacy(input: CreateRoundLegacyInput): Promise<Round> {
-        this.validateSlots(input.formatSlots);
-        const id = crypto.randomUUID();
-
-        await this.db.transaction().execute(async (trx) => {
-            await this.insertRound(
-                {
-                    id,
-                    course_id: input.courseId,
-                    date: input.date,
-                    round_type: input.roundType,
-                    venue_type: input.venueType,
-                    start_list_mode: input.startListMode,
-                    window_start: input.windowStart ?? null,
-                    window_end: input.windowEnd ?? null,
-                    self_organize: input.selfOrganize ? 1 : 0,
-                    status: 'not_started',
-                },
-                trx,
-            ).execute();
-            await this.insertSlots(
-                input.formatSlots.map((s) => ({
-                    round_id: id,
-                    slot_index: s.slotIndex,
-                    scoring_mode: s.scoringMode,
-                    team_shape: s.teamShape,
-                    allowance_pct: s.allowancePct,
-                    scope_config:
-                        s.scopeConfig === null || s.scopeConfig === undefined
-                            ? null
-                            : JSON.stringify(s.scopeConfig),
-                })),
-                trx,
-            ).execute();
-        });
-
-        const result = await this.getById(id);
-        if (!result) throw new Error(`Round ${id} not found after create`);
-        return result;
-    }
-
     async update(id: string, input: UpdateRoundInput): Promise<Round> {
-        if (input.formatSlots !== undefined) this.validateSlots(input.formatSlots);
-
         await this.db.transaction().execute(async (trx) => {
             const patch: Record<string, unknown> = {};
             if (input.date !== undefined) patch.date = input.date;
@@ -1031,25 +930,6 @@ export class RoundService {
             if (input.status !== undefined) patch.status = input.status;
             if (Object.keys(patch).length > 0) {
                 await this.updateById(id, trx).set(patch).execute();
-            }
-            if (input.formatSlots !== undefined) {
-                await this.deleteSlotsFor(id, trx).execute();
-                if (input.formatSlots.length > 0) {
-                    await this.insertSlots(
-                        input.formatSlots.map((s) => ({
-                            round_id: id,
-                            slot_index: s.slotIndex,
-                            scoring_mode: s.scoringMode,
-                            team_shape: s.teamShape,
-                            allowance_pct: s.allowancePct,
-                            scope_config:
-                                s.scopeConfig === null || s.scopeConfig === undefined
-                                    ? null
-                                    : JSON.stringify(s.scopeConfig),
-                        })),
-                        trx,
-                    ).execute();
-                }
             }
         });
 
@@ -1146,18 +1026,4 @@ export class RoundService {
         return nextVersion;
     }
 
-    private validateSlots(slots: LegacyFormatSlotInput[]): void {
-        if (slots.length === 0) throw new Error('Round needs at least one format slot');
-        const indices = slots.map((s) => s.slotIndex).sort((a, b) => a - b);
-        for (let i = 0; i < indices.length; i++) {
-            if (indices[i] !== i) {
-                throw new Error('Slot indices must be 0..N-1, contiguous and unique');
-            }
-        }
-        for (const s of slots) {
-            if (s.allowancePct < 0 || s.allowancePct > 100) {
-                throw new Error(`allowancePct must be 0..100 (got ${s.allowancePct})`);
-            }
-        }
-    }
 }

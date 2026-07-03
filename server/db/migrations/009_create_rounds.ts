@@ -43,20 +43,8 @@ export async function up(db: Kysely<any>): Promise<void> {
         .column('course_id')
         .execute();
 
-    await db.schema
-        .createTable('round_format_slots')
-        .addColumn('round_id', 'text', (col) =>
-            col.notNull().references('rounds.id').onDelete('cascade'),
-        )
-        .addColumn('slot_index', 'integer', (col) => col.notNull())
-        .addColumn('scoring_mode', 'text', (col) => col.notNull())
-        .addColumn('team_shape', 'text', (col) => col.notNull())
-        .addColumn('allowance_pct', 'integer', (col) => col.notNull())
-        .addColumn('scope_config', 'text')
-        .addPrimaryKeyConstraint('round_format_slots_pk', ['round_id', 'slot_index'])
-        .addCheckConstraint(
-            'round_format_slots_allowance_check',
-            sql`allowance_pct >= 0 AND allowance_pct <= 100`,
-        )
-        .execute();
+    // History note (Phase 2.7a): this migration originally also created the
+    // legacy `round_format_slots` bridge table, edited out of the chain when
+    // the legacy bridge schema was deleted. The canonical `slots` table
+    // arrives with the compiler tables in migration 018.
 }

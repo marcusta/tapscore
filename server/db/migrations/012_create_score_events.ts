@@ -1,5 +1,12 @@
 import { type Kysely, sql } from 'kysely';
 
+/**
+ * History note (Phase 2.7a): `participant_id` originally carried an FK onto
+ * the legacy `participants` table, which was edited out of the chain when
+ * the legacy bridge schema was deleted. The column itself must stay — the
+ * 013/020/025/030 rebuild lineage selects it by name — so it survives here
+ * as a plain text column until migration 020 drops it in favour of ball_id.
+ */
 export async function up(db: Kysely<any>): Promise<void> {
     await db.schema
         .createTable('score_events')
@@ -7,9 +14,7 @@ export async function up(db: Kysely<any>): Promise<void> {
         .addColumn('round_id', 'text', (col) =>
             col.notNull().references('rounds.id').onDelete('cascade'),
         )
-        .addColumn('participant_id', 'text', (col) =>
-            col.notNull().references('participants.id').onDelete('cascade'),
-        )
+        .addColumn('participant_id', 'text', (col) => col.notNull())
         .addColumn('hole', 'integer', (col) => col.notNull())
         .addColumn('strokes', 'integer')
         .addColumn('event_type', 'text', (col) => col.notNull())
@@ -48,9 +53,7 @@ export async function up(db: Kysely<any>): Promise<void> {
     // Materialised scorecard view — (participant_id, hole) holds latest event state.
     await db.schema
         .createTable('scorecards')
-        .addColumn('participant_id', 'text', (col) =>
-            col.notNull().references('participants.id').onDelete('cascade'),
-        )
+        .addColumn('participant_id', 'text', (col) => col.notNull())
         .addColumn('hole', 'integer', (col) => col.notNull())
         .addColumn('strokes', 'integer')
         .addColumn('recorded_by_player_id', 'text', (col) =>
