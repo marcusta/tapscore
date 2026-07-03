@@ -980,6 +980,30 @@ Client:
 
 ---
 
+## Phase 2.7 — Scale-up close-out
+
+**Spec:** none (hygiene before the wrapper phases). Runs after the final 2.6e gate.
+
+Purpose: delete carried debt that multiplies in cost once Competition/Series wrappers land on top. None of it is architectural; all of it is cheaper now than later.
+
+### 2.7a — Legacy schema drop
+- Drop tables: `participants`, `participant_players`, `tee_times`, `round_format_slots` (deprecated bridge since 2.6b/3a/3b) plus their migration-era backfill/synthesis utilities (`createLegacy`, `synthesize-legacy.ts`).
+- Extend the architecture ratchet: no reference to the dropped tables outside migrations.
+
+### 2.7b — Client slot identity
+- Key slot selection, format pills, and result lookup by `slotDefId` (opaque + stable per 2.6d-final E3), not positional index. The `result.slots[i]` ↔ `round.formatSlots[i]` index-match assumption dies here — competition rounds with inherited-then-overridden slot configs will reorder/skip slots.
+
+### 2.7c — Offline pending-score queue
+- Persist the optimistic pending/error cells (localStorage, keyed by `clientEventId`) and flush on load/regained connectivity. Idempotency already makes replay safe; today a reload in a dead zone silently drops unsent scores.
+- Client test: enter score offline → reload → queue flushes → exactly one event server-side.
+
+### 2.7d — Format-label i18n (deferred TODO from 2.6e)
+- `label: string` → localized label set (`labels: { en, sv? }`), stable `id` unchanged. Additive; no schema change.
+
+**Gate:** all checks/tests green; 20 canonical fixtures numerically identical; ratchet extended and green; reload-replay test proves the queue. Visual gate: not applicable (explicitly — no visible output change). Commit `phase 2.7 complete: scale-up close-out`.
+
+---
+
 ## Phase 3 — FriendlyRound
 
 **Spec:** §4 (FriendlyRound).
@@ -991,6 +1015,9 @@ Client:
 - WHS posting: if `post_to_handicap`, a completed round writes to `handicap_history` via `handicap.service`.
 - WHS posting first evaluates the frozen route policy. Standard eligible routes post normally; custom/repeated/subset routes without valid route rating/slope/par treatment complete and score normally but return a visible `route_not_whs_eligible` result instead of manufacturing a handicap record.
 - FriendlyRound leaderboard = Round leaderboard. No new engine.
+- Guest claim: creating an account offers to claim past guest rounds — one-time flip of `ball_players.guest_player_id` → `player_id` (spec §17 open item 5). `display_name_snapshot` stays frozen; the dashboard query picks the rounds up via the live FK.
+- Score-event attribution: populate `recorded_by_player_id` whenever a session exists. Trust-based writes stay legal without login; with login the audit trail is real. Required before Phase 4 — competition scoring needs who/when.
+- Login stays a side door that *enriches* (dashboard, handicap history, claims), never gates create/score. This principle survives into competitions: round-scoped links remain token-scoped for markers.
 
 **HTML render expectations:**
 - Round page header shows the FriendlyRound wrapper metadata: creator, share token, `post_to_handicap` flag.
@@ -998,19 +1025,197 @@ Client:
 - Index page distinguishes friendly rounds from plain rounds (badge / column).
 - Seed: `friendly-round-with-posting` — creator + guest join via share token, standard eligible route completes, handicap history row appears.
 - Seed: `friendly-custom-route-not-postable` — repeated/custom-SI route completes with results but no handicap history write; page shows the exact ineligibility reason.
+- Seed: `guest-claim` — guest plays a round, account created + claim runs, dashboard query returns the round; the scorecard still renders the frozen display name.
 
 **Mandatory stop + focused visual review.** Generate the FriendlyRound verification page, give one clickable link, and ask the user to check only wrapper identity/share behavior plus the contrast between eligible posting and `route_not_whs_eligible`. Commit after approval: `phase 3 complete: friendly round`.
 
 ---
 
-## Phases 4–10 (high-level, planned in detail after Phase 3 review)
+## Phases 3.5–10 — scale-up roadmap (expanded 2026-07-03)
 
-- **4. CompetitionRound + Competition** — 1:1 extension wrapping Round; Competition aggregates 1..N CompetitionRounds; default format slots, categories, cut rules, finalization snapshot.
-- **5. PointTemplate + Category + Enrollment** — reusable point tables, per-tour categories with competition_category_tees mapping, enrollment lifecycle.
-- **6. Tour** — individuals + fixed partnerships; player-level standings; tour documents.
-- **7. Series** — fixed teams; team-level standings; team-to-series many-to-many; editable per-format-slot lineup.
-- **8. Standings** — the four computed views (round leaderboard, competition leaderboard, competition results, tour/series standings) kept strictly separate; projected vs official.
-- **9. Real-time** — added to `@basics/core` (framework change): WebSocket transport, cursor, client event queue, coalescing. Tapscore is the first consumer.
-- **10. Documents, finalization audit, admin tooling, manual-import flow** — final production polish.
+Expanded from the earlier high-level stubs. **Execution-order change: Series (fixed teams) now precedes Tour** — it exercises the engine hardest (multi-format rounds, team scoring, lineups), it is the primary dogfood target (red-vs-blue free-form events), and Tour's standings machinery benefits from the team-points fold existing first. Each phase still gets a slice-level plan at the start of its own session; the sections below fix scope, schema, extension points, render plans, and gates.
 
-Plan each in detail at the start of its own session by expanding the corresponding section here. Each expansion **must** include an HTML render plan per the standing rule above — what the new wrapper / view / computation looks like on screen, and which seed(s) exercise it. Sketch the section contents (course/competition meta → participants → scorecards → leaderboard → standings → events / audit) so a future you knows what to render before starting the implementation.
+Design principle carried through every phase: **Round stays context-free; each layer above it is a thin wrapper table + a pure fold over frozen lower-layer results + a pluggable strategy registry for the variable part** — the same pattern that survived the format-plugin deletion proof. The new pluggable axes are: `AggregationStrategy` (Phase 4), `TieBehaviour` (Phase 5), `TeamPointsRule` (Phase 6), `StandingsStrategy` (Phase 8). Each gets the same registry discipline as formats: serializable descriptor, `validateConfig`, architecture-ratchet test forbidding id-branching outside the registry.
+
+---
+
+## Phase 3.5 — Multi-group rounds + interim live leaderboard
+
+**Spec:** §3 (Start List / Playing Group), §11 (versioned cursor — polling subset only).
+
+The compiler already accepts explicit `playingGroups[]` (start time, start play-hole, membership) and rejects cross-group team balls. This phase surfaces groups in setup + on-course UX and adds cursor polling so a multi-group field can watch a live board. No engine change.
+
+- Draft: `/create` gains a playing-groups step — assign producers to groups, per-group start time + start play-hole (shotgun = different start entries; already supported by `round_play_holes`). Default stays one group.
+- Score entry: explicit group selector (pills); carousel scoped to the selected group's `playedOrder`. Today group switching is implicit and confusing with 2+ groups.
+- Leaderboard: rows show group + thru-N (holes completed along that group's played order).
+- Interim polling (replaced by Phase 9 push): `GET /friendly-rounds/result` gains `?cursor=` riding `rounds.latest_event_id`; unchanged cursor → tiny `{ unchanged: true }` response. Client polls ~20 s while the leaderboard tab is visible; never while backgrounded.
+
+**HTML render expectations:**
+- Round page shows groups with start times/start holes and each group's rotated played order.
+- Leaderboard shows thru-N per row; groups visibly distinct.
+- Seeds: `multi-group-tee-times` (3 groups, 8-min intervals), `multi-group-shotgun` (groups start on 1/5/10; rotation visible).
+
+**Gate:** create a 3-group round through the draft; switch groups on the score tab; leaderboard shows correct thru-N per group; polling updates a second client without reload. Mandatory stop + focused visual review. Commit `phase 3.5 complete: multi-group + live board`.
+
+---
+
+## Phase 4 — Competition + CompetitionRound
+
+**Spec:** §4 (CompetitionRound), §5 (Competition), §10 (computed views), §12 (audit).
+
+**Design decisions (locked 2026-07-03):**
+
+1. **Inheritance is setup-time copying, not runtime lookup.** A Competition holds *defaults* (format slots, category→tee map, start-list mode). Creating round N materialises those defaults into that round's own draft/`RoundDefinition`, where the admin overrides freely (Friday better-ball, Saturday singles = different slot lists in different RoundDefinitions). The Round engine never reads competition state; corrections keep flowing through the existing `setup_correction_event` recompile machinery per round. This is what "different round settings per round" means concretely.
+2. **The competition leaderboard is a pure fold** over per-round `RoundResult`s through a registered **`AggregationStrategy`**.
+
+Tables:
+- `competitions` — id, name, lifecycle (`draft → setup → active → finalized`), `default_config_json` (default slots + category-tee map + start-list mode), `aggregation` (strategy id + config JSON), `point_template_id?` (Phase 5), `cut_rules_json?`, `is_results_final`, `results_finalized_at`, `owner_player_id`. Tour/series FKs arrive with their phases as add-column migrations (FK-target rule respected).
+- `competition_rounds` — id, `competition_id` FK, `round_id` FK unique, `round_number`, `cut_eligible`, `post_cut`. 1:1 extension of `rounds`, structural mirror of `friendly_rounds`.
+- `competition_participants` — explicit roster: `competition_id`, `player_id` XOR `guest_player_id`, `display_name_snapshot`, `category?`, `cut_after_round?`, `withdrawn_at?`. Aggregation joins per-round balls to the roster via PlayerRef; round-N drafts are generated from roster minus cut/withdrawn.
+- `competition_results` — finalization snapshot, immutable: `(competition_id, participant_id, scoring_type)` → position, points, totals JSON, tiebreak JSON. Written on finalize; audit event records who/when.
+
+Domain:
+- **`AggregationStrategy` registry.** Contract: `aggregate({ roundResults, roster, config }) → CompetitionResultView` — pure, no DB. Built-ins: `stroke_total` (sum gross/net across rounds, lowest wins), `round_points_sum` (per-round points from a metric, summed), `best_n_of_m` (config: n).
+- Cut: `applyCut(afterRound)` evaluates `cut_rules_json` (`top_n | top_percent | within_strokes`) against the aggregate thru that round, stamps `cut_after_round` on roster rows, writes a cut audit event. Cut participants are excluded from later round drafts.
+- Finalization: validates all rounds complete → writes `competition_results` → flips lifecycle; the service refuses mutation afterwards.
+- Role enforcement: first real `role_grants` middleware — `competition_admin` + `owner_player_id` gate setup mutation, cut, finalize, rulings. Play/score paths stay token-scoped per round.
+
+API/client:
+- Competition CRUD; round materialisation (`POST /competitions/:id/rounds` copies defaults → returns a pre-filled draft for the existing create flow); cut + finalize endpoints (auth-gated).
+- Client: competition list + detail — rounds list (each opens the existing round UI unchanged), aggregated leaderboard rendered through the existing generic `ranked` section renderer.
+
+**HTML render expectations:**
+- Competition page: meta + lifecycle, roster with categories, per-round leaderboard summaries, aggregated board **with arithmetic** (`R1 74 + R2 70 = 144`), cut line visualised, finalized results visually distinct from the live aggregate.
+- Index page surfaces competitions alongside rounds.
+- Seeds: `competition-36-stroke` (2 rounds, stroke_total), `competition-cut-after-r1` (top-N cut, one participant misses), `competition-round-points` (round_points_sum with an overridden Saturday format).
+
+**Gate:** two-round competition created from defaults; round 2 overrides its slot list; cut applies between rounds; aggregate arithmetic verifiable by eye; finalize freezes results (mutation rejected after). Mandatory stop + visual review. Commit `phase 4 complete: competition wrapper + aggregation`.
+
+---
+
+## Phase 5 — PointTemplate + Category + tie behaviours
+
+**Spec:** §5 (Point Template, Category). Enrollment moves to Phase 7 (it is tour-scoped per spec).
+
+- `point_templates` — id, name, scope (`global` now; tour-scoped later), mapping JSON (position → points), `tie_behaviour` (strategy id + config).
+- **`TieBehaviour` strategy registry** (spec: "we need to be able to add new behaviours"). Pure: `assign(positionsWithTies, template, config) → points[]`. Built-ins: `shared_average` (tied players average the covered positions' points), `shared_equal` (all get the tied position's points), `distinct_by_tiebreak` (tiebreakers order them; each gets own points).
+- `competition_categories` + `competition_category_tees` — categories defined at competition level for now ("Men 0–5", "Women"); category → tee mapping per competition. Tour-level inheritance lands with Phase 7. Categories flow into round drafts as per-producer category + tee defaults (already snapshotted on `ball_players.category_snapshot`).
+- `round_points_sum` aggregation (Phase 4) and standings (Phase 8) consume templates through one shared resolver.
+
+**HTML render expectations:**
+- Point template page: the table, plus a worked tie example rendered inline (`two tied 2nd: (8+6)/2 = 7 each`).
+- Competition setup shows the category → tee mapping; the round page shows producers' category + tee flowing from it.
+- Seeds: `point-template-ties` (each tie behaviour exercised once), `competition-categories` (two categories, different tees, mixed genders).
+
+**Gate:** tie arithmetic verifiable by eye for all three behaviours; category tee mapping lands in per-producer snapshots. Visual review. Commit `phase 5 complete: point templates + categories`.
+
+---
+
+## Phase 6 — Series + teams (Ryder-Cup shape) — pulled ahead of Tour
+
+**Spec:** §6 (Series, Free-form Event), §19 (team scoring — added 2026-07-03, resolves former open question 7).
+
+Tables:
+- `series` — id, name, `team_points_config` (default TeamPointsRule id + config, per format/teamShape), created_at. Admins via `role_grants` (`series_admin`).
+- `teams` — id, name, colour, logo_url?.
+- `series_teams` — M:N junction (spec: team-to-series is many-to-many).
+- `team_members` — team_id, `player_id` XOR `guest_player_id`. Guests allowed for friendly dogfood; registered players expected for durable standings.
+- `competitions.series_id` — add-column migration.
+- `slot_lineups` — competition_round_id, `slot_def_id`, team_id, ordered producer refs (player XOR guest). **The editable "who plays this slot for this team" data** (spec §6 free-form goal). Materialising a round's draft reads lineups → producers + teams + format subjects; captains edit per slot per round up to round start; a lineup edit regenerates the round draft (compiler recompile machinery unchanged).
+
+Domain — **`TeamPointsRule`** (new registry, same discipline as formats):
+
+```ts
+interface TeamPointsRule {
+  id: string                          // 'match_win_half' | 'sum_best_k' | 'rank_points'
+  descriptor: { label: string; description: string; appliesTo: 'match' | 'ranked' | 'any' }
+  validateConfig(config: unknown): ConfigDiagnostic[]
+  // Pure fold: one slot's result + ball→team membership → per-team points.
+  teamPoints(input: {
+    slotResult: StrategyResult                        // exactly what plugin.score() emitted
+    ballTeams: { ballId: string; teamId: string }[]   // resolved from lineups / slot_ball_teams
+    pointTemplate?: PointTemplate                     // for rank-mapped rules
+    config: unknown
+  }): { teamId: string; points: number; detail: string }[]  // detail = auditable arithmetic
+}
+```
+
+Built-ins:
+- `match_win_half` — reads match state: win 1 / half ½ / loss 0 (config: points per win/half).
+- `sum_best_k` — per team, sum the best k balls' metric (config: metric id, k); winner takes configured points or feeds `rank_points`.
+- `rank_points` — rank team aggregates by a metric, map positions through a point template (ties via Phase 5 TieBehaviour).
+
+Series standings = fold of team points across all slots of all competition rounds in the series. Mixed formats in one round are already native (slots); each slot maps to team points independently through its configured rule — a Ryder Cup Saturday = one Round with 4 foursomes-match slots + 4 fourball-match slots, `match_win_half` on each. Stroke- or points-driven team events ride `sum_best_k` / `rank_points` on the same fold. Config is data on the series with per-competition/per-slot override — a new free-form red-vs-blue event needs zero code.
+
+Architecture ratchet extended: no TeamPointsRule-id branching outside its registry.
+
+Client: series page (teams, competitions, running team score), captain lineup editor per slot per round, team-coloured result sections (team colour already renders in grids).
+
+**HTML render expectations:**
+- Ryder-Cup board: sessions (rounds) × matches, per-match status in golf idiom ("2 UP thru 14", "Halved"), per-match team-points contribution, running team totals with the full sum visible.
+- Lineup table per session: slot → team → players, with edit history.
+- A stroke-driven team event page proving the non-match path (sum_best_k arithmetic inline).
+- Seeds: `ryder-cup-weekend` (2 teams, 3 rounds: foursomes / fourballs / singles, match_win_half), `team-stableford-series` (sum_best_k k=2 over stableford, rank_points through a template).
+
+**Gate:** the mini-Ryder-Cup seed renders correct team totals traceable match by match; a new free-form red-vs-blue event with different formats per round is creatable with zero code changes; a lineup edit before round start regenerates the draft correctly. Mandatory stop + visual review. Commit `phase 6 complete: series + team points`.
+
+---
+
+## Phase 7 — Tour (individuals + fixed partnerships)
+
+**Spec:** §5 (Enrollment), §6 (Tour).
+
+- `tours` — id, name, point_template_id, created_at; `tour_admin` grants.
+- `competitions.tour_id` — add-column migration.
+- `enrollments` — tour_id, optional `player_id` (email+name invites are valid; account linked later — reuse the guest-claim flip pattern from Phase 3), lifecycle `pending → requested → active | rejected`, category assignment, handicap snapshot at enrollment.
+- Categories lift: tour-level categories inherited by competitions (`competition_category_tees` keeps per-competition tee mapping).
+- Fixed partnerships: a 2-player partnership as the cross-competition participant — modelled on the Phase 6 `teams`/`team_members` tables; the standings key is the pair.
+
+**HTML render expectations:**
+- Tour page: enrollments with lifecycle states, categories, competitions list, a simple official-results table (the full standings engine is Phase 8).
+- Seeds: `tour-with-enrollments` (pending/active/rejected mix + an email-only invite), `tour-partnership` (pair as participant).
+
+**Gate:** enrollment lifecycle walks end-to-end; an email-only enrollment links to an account later; category tees inherit into a competition. Visual review. Commit `phase 7 complete: tour + enrollment`.
+
+---
+
+## Phase 8 — Standings (the four views, projected vs official)
+
+**Spec:** §10, §14 item 1.
+
+- **`StandingsStrategy` registry** (final pluggable axis): `standings({ results, config, pointTemplate }) → StandingsView`. Built-ins: `sum_all`, `best_n_of_m`, `drop_worst_k`. Config lives on the tour/series — league variants are data + at most one strategy file.
+- Projected vs official: official consumes only finalized `competition_results`; projected additionally folds live competition aggregates. Both rendered; projected clearly badged.
+- The four computed views stay strictly separate query paths: round leaderboard (live), competition leaderboard (live fold), competition results (frozen), standings (fold of results; projected variant also reads live folds).
+- Gross and net standings independent (results already keyed by `scoring_type`).
+
+**HTML render expectations:**
+- Standings table with projected vs official side by side; per-player expansion shows which competitions counted, dropped scores struck through, points arithmetic inline.
+- Seeds: `tour-standings-best-3-of-4` (a dropped round visible), `series-standings-projected` (one live competition moves projected but not official).
+
+**Gate:** projected ≠ official while a competition is live; equal after finalize; dropped-round arithmetic verifiable by eye. Visual review. Commit `phase 8 complete: standings`.
+
+---
+
+## Phase 9 — Real-time
+
+**Spec:** §11. Framework change in `@basics/core` — tapscore is the first consumer.
+
+- WebSocket transport + SSE fallback; cursor = `rounds.latest_event_id` (already maintained); reconnect fills the gap from `last_seen_cursor`.
+- Subscription granularity per §11: round-leaderboard channel (aggregated deltas), playing-group channel (raw events for the marker view), competition-leaderboard channel.
+- Server-side coalescing (~500 ms debounce per round channel).
+- Replaces the Phase 3.5 polling; the persistent pending-event queue from 2.7c becomes the offline write path feeding reconnect flush.
+
+**Gate:** two phones on one round see each other's scores without manual refresh; airplane-mode entry flushes on reconnect; battery-honest (no background keep-alive). Commit `phase 9 complete: real-time`.
+
+---
+
+## Phase 10 — Documents, audit surfacing, admin tooling, manual import
+
+**Spec:** §7, §12, §13.
+
+- Documents (rules/schedule/announcements, landing designation, versioned) scoped to tour/series.
+- Audit surfacing: finalization/cut/correction/ruling logs rendered on admin pages (the typed events already exist from 2.6d).
+- Manual entry/import: admin 9+9+total without per-hole detail (spec §13); formats already tolerate missing per-hole data via `manual_override` events.
+- Admin tooling polish: score-correction UI over the typed-event endpoints from 2.6d.
+
+Plan the detailed slices at phase start per the standing rule, including the HTML render plan and seeds.

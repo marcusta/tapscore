@@ -652,7 +652,7 @@ To resolve before or during implementation:
 4. **Real-time updates** — push (websockets) or poll? Affects leaderboard architecture.
 5. **Offline score entry** — expected for outdoor play on poor cell coverage. Design-in from day one or defer?
 6. **Notifications** — in-app, email, push? Not modelled here; out of scope for the core domain but needs a touchpoint.
-7. **Team composition for free-form events** — data model for "who plays in this format slot of this round" within a series. Sketch needed.
+7. **Team composition for free-form events** — data model for "who plays in this format slot of this round" within a series. **Resolved (2026-07-03): see §19** — `slot_lineups` + pluggable `TeamPointsRule`.
 8. **FriendlyRound → Competition promotion** — supported operation, or out of scope? If supported: does the Round keep its ID and gain a CompetitionRound wrapper, or is it copied?
 9. **FriendlyRound inside a Tour** — allowed? Probably not (tours are competitive), but some products let social rounds count toward loose standings. Decide.
 10. **Schema choice** — 1:1 extension tables (FriendlyRound, CompetitionRound) vs single Round table with discriminator + nullable columns. Preference: extension tables for decoupling at schema level.
@@ -1220,6 +1220,55 @@ Works for solo and team rounds — a shared team-ball surfaces for each producer
 - **Do not introduce** "league" as a separate concept — it collapses into series.
 - An individual player's 18 holes of play are represented by their **scorecard** within a Round, not called a "round" at that level to avoid ambiguity.
 - Match-play brackets use **stage** for sub-phases, not "round", to avoid clashing with the Round entity.
+
+---
+
+## 19. Team Scoring for Series (resolves §16 item 7)
+
+How a slot result becomes team points in a Series — the missing sketch for free-form team events (Ryder-Cup shape and beyond). Added 2026-07-03.
+
+### Lineups
+
+```
+slot_lineups
+  competition_round_id, slot_def_id, team_id,
+  producer refs (player_id XOR guest_player_id, ordered)
+```
+
+Per (competition round × format slot × team): the producers that team fields in that slot. **Editable data up to round start** — materialising the round's draft reads lineups → producers + teams + format subjects, then the normal builder/compiler pipeline runs. A lineup edit regenerates the draft; the compiler's recompile machinery (stable def-ids, content-addressed output ids) is unchanged. Captains configure Friday foursomes pairings independent of Saturday fourballs with no code per event.
+
+### TeamPointsRule
+
+A pluggable axis beside format plugins and ball-creation strategies, with the same registry discipline (serializable descriptor, `validateConfig`, architecture-ratchet test). A pure fold from one slot's `StrategyResult` plus ball→team membership to per-team points:
+
+```ts
+interface TeamPointsRule {
+  id: string                          // 'match_win_half' | 'sum_best_k' | 'rank_points'
+  descriptor: { label: string; description: string; appliesTo: 'match' | 'ranked' | 'any' }
+  validateConfig(config: unknown): ConfigDiagnostic[]
+  teamPoints(input: {
+    slotResult: StrategyResult                        // exactly what plugin.score() emitted
+    ballTeams: { ballId: string; teamId: string }[]   // resolved from lineups / slot_ball_teams
+    pointTemplate?: PointTemplate                     // for rank-mapped rules
+    config: unknown
+  }): { teamId: string; points: number; detail: string }[]  // detail = auditable arithmetic
+}
+```
+
+Built-ins:
+
+- `match_win_half` — reads match state: win 1 / half ½ / loss 0 (config: points per win/half).
+- `sum_best_k` — per team, sum the best k balls' metric (config: metric id, k); winner takes configured points or feeds `rank_points`.
+- `rank_points` — rank team aggregates by a metric, map positions through a point template (ties via the point template's tie behaviour).
+
+### Composition
+
+Series standings = Σ team points over all slots of all competition rounds of all competitions in the series. Mixed formats in one round are native (format slots); each slot maps to team points independently through its configured rule:
+
+- Ryder Cup Saturday = one Round, 4 foursomes-match slots + 4 fourball-match slots, `match_win_half` on each.
+- Stroke- or points-driven team events ride `sum_best_k` / `rank_points` on the same fold.
+
+Rule selection + config live on the series (`team_points_config`, defaults per format/team-shape) with per-competition and per-slot override — data, not code. This closes the §6 free-form promise: a new red-vs-blue event with arbitrary format mixes requires no code changes.
 
 ---
 
