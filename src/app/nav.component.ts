@@ -62,10 +62,16 @@ export class NavComponent extends Component {
     render(): DocumentFragment {
         return this.wire(tpl, {
             root: {
-                className: () =>
-                    this.auth.currentUser.get() && this.router.route.get() !== '/login'
-                        ? 'tabbar'
-                        : 'tabbar hidden',
+                className: () => {
+                    const route = this.router.route.get();
+                    // /round is immersive on-course mode: it has its own
+                    // Score/Leaderboard dock, and its ← back link exits to the
+                    // landing. Stacking the global tabbar under it wastes
+                    // on-course screen space.
+                    const hidden =
+                        !this.auth.currentUser.get() || route === '/login' || route === '/round';
+                    return hidden ? 'tabbar hidden' : 'tabbar';
+                },
             },
             homeLink: this.router.link('/'),
             friendsLink: this.router.link('/friends'),
