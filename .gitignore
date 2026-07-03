@@ -11,3 +11,4 @@ tmp
 .claude/settings.local.json
 deploy-tmp/
 *.local-backup
+data/*.bak*
