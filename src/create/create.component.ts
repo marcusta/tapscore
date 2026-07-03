@@ -3,8 +3,9 @@ import { AuthService } from '@basics/core/client/auth';
 import { SelectComponent, type SelectOption } from '@basics/core/client/ui/select';
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
-import { SetupService, type PlayerForm, type RoutePreset } from './setup.service';
+import { SetupService, type RoutePreset } from './setup.service';
 import { ProfileService } from '../profile/profile.service';
+import { FriendsService } from '../friends/friends.service';
 
 // Phase 2.6e M2 — the real no-login setup flow. Pick a course + route, add
 // players (name · handicap index · gender · per-player tee) with the derived
@@ -16,7 +17,7 @@ const PRESETS: RoutePreset[] = ['full_18', 'front_9', 'back_9'];
 
 const tpl = template(`
     <div class="setup">
-        <button bind="back" class="setup__back" type="button">← Rounds</button>
+        <button bind="back" class="setup__back" type="button">← Home</button>
         <header class="setup__head">
             <h1>New round</h1>
             <p>No sign-in required.</p>
@@ -42,6 +43,11 @@ const tpl = template(`
             <div bind="players" class="setup__players"></div>
             <button bind="addPlayer" class="setup__add" type="button">+ Add player</button>
             <button bind="addMe" class="setup__add setup__addme hidden" type="button"></button>
+            <button bind="addFriends" class="setup__add setup__addme hidden" type="button">+ From friends</button>
+            <div bind="friendPicker" class="setup__friends hidden">
+                <div bind="friendRows" class="setup__friendrows"></div>
+                <p class="setup__hint">Everyone on your friends list is already in the round.</p>
+            </div>
         </section>
 
         <section class="setup__section">
@@ -131,6 +137,15 @@ const teamCardTpl = template(`
             <p bind="teamMeta" class="fslot__teammeta"></p>
         </div>
     </div>
+`);
+
+// One tappable friend in the compact "From friends" picker.
+const friendRowTpl = template(`
+    <button bind="row" type="button" class="frow">
+        <span bind="name" class="frow__name"></span>
+        <span bind="username" class="frow__username"></span>
+        <span bind="hcp" class="frow__hcp"></span>
+    </button>
 `);
 
 const memberRowTpl = template(`
@@ -235,6 +250,35 @@ export class CreateComponent extends Component {
                 font-family: inherit; font-weight: 700; font-size: 0.95rem;
             }
             & .setup__addme.hidden { display: none; }
+
+            & .setup__friends {
+                margin-top: ${s('sm')}; padding: ${s('sm')}; ${card()}
+                &.hidden { display: none; }
+
+                & .setup__friendrows { display: flex; flex-direction: column; }
+                & .setup__hint { margin: ${s('xs')} ${s('sm')}; }
+                & .setup__friendrows:not(:empty) + .setup__hint { display: none; }
+
+                & .frow {
+                    display: flex; align-items: baseline; gap: ${s('sm')};
+                    width: 100%; padding: ${s('md')} ${s('sm')};
+                    background: none; border: none; border-bottom: 1px solid ${t('border')};
+                    font-family: inherit; text-align: left; cursor: pointer;
+                    &:last-child { border-bottom: none; }
+
+                    & .frow__name { font-weight: 600; font-size: 0.95rem; }
+                    & .frow__username {
+                        flex: 1; min-width: 0; color: ${t('text-muted')}; font-size: 0.8rem;
+                        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                    }
+                    & .frow__hcp {
+                        flex-shrink: 0; font-weight: 700; font-size: 0.85rem;
+                        color: ${t('accent')}; background: ${t('accent-soft')};
+                        border-radius: ${t('radius-pill')}; padding: 2px 10px;
+                        font-variant-numeric: tabular-nums;
+                    }
+                }
+            }
 
             & .setup__banner {
                 color: ${t('error')}; font-size: 0.875rem; margin-bottom: ${s('md')};
@@ -348,14 +392,22 @@ export class CreateComponent extends Component {
     private router = this.inject(Router);
     private auth = this.inject(AuthService);
     private profile = this.inject(ProfileService);
+    private friends = this.inject(FriendsService);
+    /** The compact "From friends" picker is a disclosure under its button. */
+    private pickerOpen = new Signal(false);
 
     render(): DocumentFragment {
         // The service is a DI singleton — clear any prior draft so a second visit
         // to New Round starts empty instead of leaking the last round's state.
         this.svc.reset();
+        this.pickerOpen.set(false);
         void this.svc.load();
-        // Logged in: fetch the profile so "Add me" can prefill name + index.
-        if (this.auth.currentUser.get()) void this.profile.load();
+        // Logged in: fetch the profile ("Add me" prefill) + the friends list
+        // (the "From friends" picker).
+        if (this.auth.currentUser.get()) {
+            void this.profile.load();
+            void this.friends.load();
+        }
 
         // The "Add me" row rides on the logged-in profile: shown while signed
         // in and not already on the roster.
@@ -377,8 +429,27 @@ export class CreateComponent extends Component {
                 textContent: () => `+ Add me (${me()?.displayName ?? ''})`,
                 onclick: () => {
                     const p = me();
-                    if (p) this.svc.addMe({ id: p.id, displayName: p.displayName, handicapIndex: p.handicapIndex });
+                    if (p) this.svc.addMe({ id: p.id, displayName: p.displayName, handicapIndex: p.handicapIndex, gender: p.gender });
                 },
+            },
+            // "From friends": only a logged-in player with a non-empty friends
+            // list sees it; it discloses a compact picker of friends not
+            // already on the roster.
+            addFriends: {
+                className: () =>
+                    this.auth.currentUser.get() !== null && this.friends.friends.get().length > 0
+                        ? 'setup__add setup__addme'
+                        : 'setup__add setup__addme hidden',
+                textContent: () => (this.pickerOpen.get() ? '− From friends' : '+ From friends'),
+                onclick: () => this.pickerOpen.set(!this.pickerOpen.get()),
+            },
+            friendPicker: {
+                className: () =>
+                    this.pickerOpen.get() &&
+                    this.auth.currentUser.get() !== null &&
+                    this.friends.friends.get().length > 0
+                        ? 'setup__friends'
+                        : 'setup__friends hidden',
             },
             addTeam: { onclick: () => this.svc.addTeam() },
             addFormat: { onclick: () => this.svc.addFormatSlot() },
@@ -471,6 +542,35 @@ export class CreateComponent extends Component {
             options: { get: () => this.svc.startHoleOptions().map((n) => ({ value: String(n), label: String(n) })) },
         });
 
+        // The picker lists friends NOT already on the roster (dedupe by player
+        // id); tapping one adds a registered-player row and drops it from the
+        // list. Rows track the roster reactively, so an added friend vanishes
+        // and a removed one reappears.
+        this.$each(
+            this.ref(frag, 'friendRows'),
+            () => this.friends.friends.get().filter((f) => !this.svc.hasPlayer(f.id)),
+            (f, _i, track) =>
+                this.wireEl(
+                    friendRowTpl,
+                    {
+                        row: {
+                            onclick: () =>
+                                this.svc.addFriend({
+                                    id: f.id,
+                                    displayName: f.displayName,
+                                    handicapIndex: f.handicapIndex,
+                                    gender: f.gender,
+                                }),
+                        },
+                        name: () => f.displayName,
+                        username: () => `@${f.username}`,
+                        hcp: () => (f.handicapIndex === null ? '–' : f.handicapIndex.toFixed(1)),
+                    },
+                    track,
+                ),
+            (f) => f.id,
+        );
+
         // Editable player rows. Keyed by stable `key` so a field edit never
         // recreates the row (keeps input focus). Reactive reads look the player
         // up by key — never the closed-over snapshot, which goes stale on patch.
@@ -509,7 +609,12 @@ export class CreateComponent extends Component {
     private mountSelect(
         host: HTMLElement,
         track: (d: () => void) => void,
-        props: { value: Signal<string>; options: { get: () => SelectOption[] }; placeholder?: string },
+        props: {
+            value: Signal<string>;
+            options: { get: () => SelectOption[] };
+            placeholder?: string;
+            disabled?: { get: () => boolean };
+        },
     ): void {
         const child = new SelectComponent(props);
         child.mount(host);
@@ -883,6 +988,10 @@ export class CreateComponent extends Component {
                 (v) => this.svc.patchPlayer(key, { gender: v as 'M' | 'F' }),
             ),
             options: { get: () => [{ value: 'M', label: 'M' }, { value: 'F', label: 'F' }] },
+            // A registered row whose profile carries a gender is locked to it
+            // (tee ratings follow the profile); a null profile gender stays
+            // editable — the rating still needs one.
+            disabled: { get: () => current()?.genderKnown === true },
         });
         this.mountSelect(this.ref(el, 'tee'), track, {
             value: this.bound(

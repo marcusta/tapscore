@@ -4,7 +4,7 @@ import { t } from '../theme';
 import { s, btn, card } from '../css';
 import { LandingService } from './landing.service';
 import { roleLabel } from './my-rounds';
-import { formatLabelFromSlot } from '../rounds/slot-labels';
+import { formatLabelFromSlot } from '../round/slot-labels';
 
 const tpl = template(`
     <div class="landing">
@@ -210,6 +210,7 @@ export class LandingComponent extends Component {
 
             & .landing__signin {
                 display: block;
+                &.hidden { display: none; }
                 margin: ${s('2xl')} auto 0;
                 padding: ${s('sm')} ${s('lg')};
                 background: none;
@@ -237,9 +238,11 @@ export class LandingComponent extends Component {
 
         const frag = this.wire(tpl, {
             createBtn: { onclick: () => this.router.navigate('/create') },
+            // Logged in, the bottom nav owns Profile — the footer link would be
+            // redundant, so it only renders for the logged-out landing.
             signin: {
-                textContent: () => (loggedIn() ? 'Profile' : 'Sign in'),
-                onclick: () => this.router.navigate(loggedIn() ? '/profile' : '/login'),
+                className: () => (loggedIn() ? 'landing__signin hidden' : 'landing__signin'),
+                onclick: () => this.router.navigate('/login'),
             },
             mySection: {
                 className: () => (loggedIn() ? 'landing__mine' : 'landing__mine hidden'),

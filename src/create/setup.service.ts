@@ -96,10 +96,14 @@ export interface PlayerForm {
     handicapIndex: string;
     gender: Gender;
     teeId: string;
-    /** Registered-player id (Phase 3 "Add me"); absent ⇒ a guest row. The
-     * server resolves the display name from the players table for these, so
-     * `name` is a prefilled read-only label, not submitted identity. */
+    /** Registered-player id (Phase 3 "Add me" / "From friends"); absent ⇒ a
+     * guest row. The server resolves the display name from the players table
+     * for these, so `name` is a prefilled read-only label, not submitted
+     * identity. */
     playerId?: string;
+    /** The gender came from the registered player's profile — the row's
+     * gender control locks (a profile-null gender stays editable). */
+    genderKnown?: boolean;
 }
 
 /** Derived course-handicap breakdown for one player — the visible arithmetic. */
@@ -228,23 +232,45 @@ export class SetupService {
     }
 
     /**
-     * Add the logged-in player to the roster (Phase 3 "Add me"): name + current
-     * handicap index prefilled, emitted on submit as a `player`-kind producer
-     * ref (never a guest). Gender is still asked — the players table has none.
-     * Idempotent per player id; a second tap is a no-op.
+     * Add the logged-in player to the roster (Phase 3 "Add me"): the same
+     * registered-player row as a friend — see `addFriend`.
      */
-    addMe(me: { id: string; displayName: string; handicapIndex: number | null }): void {
-        if (this.hasPlayer(me.id)) return;
+    addMe(me: {
+        id: string;
+        displayName: string;
+        handicapIndex: number | null;
+        gender?: Gender | null;
+    }): void {
+        this.addFriend(me);
+    }
+
+    /**
+     * Add a registered player to the roster (Phase 3 "From friends" — and the
+     * logged-in "Add me", which is the same shape): name + current handicap
+     * index prefilled, emitted on submit as a `player`-kind producer ref
+     * (never a guest). A profile gender prefills and locks the row's control;
+     * a null profile gender defaults to 'M' and stays editable — the tee
+     * rating still needs one either way. Tee is always chosen manually.
+     * Idempotent per player id; a second tap is a no-op (dedupe by playerId).
+     */
+    addFriend(friend: {
+        id: string;
+        displayName: string;
+        handicapIndex: number | null;
+        gender?: Gender | null;
+    }): void {
+        if (this.hasPlayer(friend.id)) return;
         const teeId = this.tees.get()[0]?.id ?? '';
         this.players.set([
             ...this.players.get(),
             {
                 key: this.nextKey++,
-                name: me.displayName,
-                handicapIndex: me.handicapIndex === null ? '' : String(me.handicapIndex),
-                gender: 'M',
+                name: friend.displayName,
+                handicapIndex: friend.handicapIndex === null ? '' : String(friend.handicapIndex),
+                gender: friend.gender ?? 'M',
+                genderKnown: friend.gender != null,
                 teeId,
-                playerId: me.id,
+                playerId: friend.id,
             },
         ]);
     }

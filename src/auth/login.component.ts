@@ -128,8 +128,8 @@ export class LoginComponent extends Component {
     private displayName = '';
     private hcp = '';
 
-    /** Where a successful sign-in/registration lands: `?next=`, else the
-     * fallback (login keeps its historical `/rounds`; register goes home). */
+    /** Where a successful sign-in/registration lands: `?next=`, else home —
+     * the logged-in app IS the no-login app, enriched (Phase 3 nav rework). */
     private destination(fallback: string): string {
         const next = this.nextQ.get();
         return next && next.startsWith('/') ? next : fallback;
@@ -139,7 +139,7 @@ export class LoginComponent extends Component {
         this.registerError.set('');
         if (this.mode.get() === 'login') {
             const ok = await this.auth.login(this.username, this.password);
-            if (ok) this.router.navigate(this.destination('/rounds'), true);
+            if (ok) this.router.navigate(this.destination('/'), true);
             return;
         }
         // Register mode. The endpoint issues the session cookie itself; mirror

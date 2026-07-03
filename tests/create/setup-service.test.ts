@@ -249,6 +249,83 @@ test('an addMe row with a stale/empty index still hits the local pre-check', asy
     expect(apiMock.friendlyRounds.create).not.toHaveBeenCalled();
 });
 
+// --- "From friends" (Phase 3): friend rows on the roster -------------------
+
+test('addFriend emits a player-kind producer ref with prefilled index + gender, minting NO guest', async () => {
+    const svc = makeService();
+    svc.addFriend({ id: 'friend-7', displayName: 'Anna Andersson', handicapIndex: 12.3, gender: 'F' });
+    addPlayer(svc, 'Guesty', '20');
+    addSlot(svc, 'stableford_individual');
+
+    // Prefills: server-resolved name label, current index, profile gender (locked).
+    const row = svc.players.get()[0]!;
+    expect(row.name).toBe('Anna Andersson');
+    expect(row.handicapIndex).toBe('12.3');
+    expect(row.gender).toBe('F');
+    expect(row.genderKnown).toBe(true);
+    expect(row.playerId).toBe('friend-7');
+
+    const res = await svc.submit();
+    expect(res.ok).toBe(true);
+    expect(lastDraft.producers[0].playerRef).toEqual({ kind: 'player', id: 'friend-7' });
+    expect(lastDraft.producers[0].handicapIndex).toBe(12.3);
+    expect(lastDraft.producers[0].gender).toBe('F');
+    expect(lastDraft.producers[1].playerRef).toEqual({ kind: 'guest', id: 'guest-1' });
+    // Only the free-form row minted a guest.
+    expect(apiMock.guestPlayers.create).toHaveBeenCalledTimes(1);
+});
+
+test('a friend with a null gender defaults to M but stays editable (not locked)', async () => {
+    const svc = makeService();
+    svc.addFriend({ id: 'friend-7', displayName: 'Anna', handicapIndex: 4, gender: null });
+    addSlot(svc, 'stableford_individual');
+
+    const row = svc.players.get()[0]!;
+    expect(row.gender).toBe('M');
+    expect(row.genderKnown).toBe(false);
+
+    // Editable: the roster row's gender pick sticks and is what submits.
+    svc.patchPlayer(row.key, { gender: 'F' });
+    await svc.submit();
+    expect(lastDraft.producers[0].gender).toBe('F');
+});
+
+test('a friend with a null index leaves the field empty and hits the required pre-check', async () => {
+    const svc = makeService();
+    svc.addFriend({ id: 'friend-7', displayName: 'Anna', handicapIndex: null, gender: 'F' });
+    addSlot(svc, 'stableford_individual');
+    expect(svc.players.get()[0]!.handicapIndex).toBe('');
+
+    const res = await svc.submit();
+    expect(res.ok).toBe(false);
+    expect(svc.diagnostics.get().map((d) => d.path)).toContain('producers[0].handicapIndex');
+    expect(apiMock.friendlyRounds.create).not.toHaveBeenCalled();
+});
+
+test('addFriend dedupes by playerId — also against an addMe row; removal re-arms', () => {
+    const svc = makeService();
+    const anna = { id: 'friend-7', displayName: 'Anna', handicapIndex: 4, gender: 'F' as const };
+    svc.addFriend(anna);
+    svc.addFriend(anna);
+    expect(svc.players.get()).toHaveLength(1);
+
+    // addMe and addFriend share the registered-player path: same id, one row.
+    svc.addMe({ id: 'friend-7', displayName: 'Anna', handicapIndex: 4 });
+    expect(svc.players.get()).toHaveLength(1);
+
+    svc.removePlayer(svc.players.get()[0]!.key);
+    svc.addFriend(anna);
+    expect(svc.players.get()).toHaveLength(1);
+});
+
+test('addMe carries the profile gender when it has one (same lock as a friend row)', () => {
+    const svc = makeService();
+    svc.addMe({ id: 'player-42', displayName: 'Marcus', handicapIndex: 18.4, gender: 'M' });
+    const row = svc.players.get()[0]!;
+    expect(row.gender).toBe('M');
+    expect(row.genderKnown).toBe(true);
+});
+
 // --- Team validation + mixed topology ------------------------------------
 
 test('single-ball team: members carry per-player allowances; a ball format scores players AND the team', async () => {

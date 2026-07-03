@@ -13,7 +13,7 @@ import { RoundViewService, type InitialPosition } from './round.service';
 import { ScoreEntryComponent } from './score-entry.component';
 import { LeaderboardComponent } from './leaderboard.component';
 import { ClaimCardComponent } from './claim-card.component';
-import { formatLabelFromSlot } from '../rounds/slot-labels';
+import { formatLabelFromSlot } from './slot-labels';
 import type { FormatSlot } from '../api/rounds.gen';
 
 type Tab = 'score' | 'leaderboard';
@@ -33,7 +33,7 @@ function parseSlotParam(raw: string | null): string | number | undefined {
 const tpl = template(`
     <div class="round-view">
         <div bind="main" class="round-view__main">
-            <button bind="back" class="round-view__back" type="button">← Rounds</button>
+            <button bind="back" class="round-view__back" type="button">← Home</button>
             <div bind="notfound" class="round-view__notfound">That share link didn't lead to a round.</div>
             <div bind="body" class="round-view__body">
                 <header class="round-view__head">
@@ -360,6 +360,11 @@ export class RoundComponent extends Component {
                 const tab = this.tab.get();
                 const slotDefId = this.svc.selectedSlotDefId();
                 const holeIdx = this.svc.holeIdx.get();
+                // Only ever rewrite OUR OWN URL. `navigate(route.get())` below
+                // tracks the route, so leaving /round fires this once more —
+                // without the guard it stamps `?token=` over the next screen's
+                // query (e.g. clobbering /login?next=/friends).
+                if (this.router.route.get() !== '/round') return;
                 if (!this.hasRound.get()) return;
                 const query: Record<string, QueryValue> = { token: this.tokenQ.get() };
                 if (tab === 'leaderboard') query.tab = 'board';

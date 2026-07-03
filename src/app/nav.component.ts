@@ -5,17 +5,17 @@ import { s } from '../css';
 
 const tpl = template(`
     <nav class="tabbar" bind="root">
-        <a bind="roundsLink" href="/rounds">
+        <a bind="homeLink" href="/">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M8 21V4l9 3.5L8 11"/><circle cx="8" cy="21" r="0.5" fill="currentColor"/>
+                <path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v10h12V10"/><path d="M10 20v-5.5h4V20"/>
             </svg>
-            <span>Rounds</span>
+            <span>Home</span>
         </a>
-        <a bind="playersLink" href="/players">
+        <a bind="friendsLink" href="/friends">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="9" cy="8" r="3.5"/><path d="M3.5 20c.5-3.5 2.7-5.5 5.5-5.5s5 2 5.5 5.5"/><circle cx="16.5" cy="9.5" r="2.8"/><path d="M16.8 14.6c2.2.4 3.5 2 3.9 4.9"/>
             </svg>
-            <span>Players</span>
+            <span>Friends</span>
         </a>
         <a bind="profileLink" href="/profile">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -67,8 +67,8 @@ export class NavComponent extends Component {
                         ? 'tabbar'
                         : 'tabbar hidden',
             },
-            roundsLink: this.router.link('/rounds'),
-            playersLink: this.router.link('/players'),
+            homeLink: this.router.link('/'),
+            friendsLink: this.router.link('/friends'),
             profileLink: this.router.link('/profile'),
         });
     }

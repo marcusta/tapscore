@@ -3,6 +3,7 @@ import { AuthService } from '@basics/core/client/auth';
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { ProfileService } from './profile.service';
+import { FriendsService } from '../friends/friends.service';
 
 // Phase 3 profile — the logged-in side door's home: display name, the
 // manually maintained handicap index (edit → `players/me/handicap`), and the
@@ -176,6 +177,7 @@ export class ProfileComponent extends Component {
     `;
 
     private svc = this.inject(ProfileService);
+    private friends = this.inject(FriendsService);
     private auth = this.inject(AuthService);
     private router = this.inject(Router);
     private indexDraft = new Signal('');
@@ -235,6 +237,7 @@ export class ProfileComponent extends Component {
                 onclick: async () => {
                     await this.auth.logout();
                     this.svc.clear();
+                    this.friends.clear();
                     this.router.navigate('/');
                 },
             },

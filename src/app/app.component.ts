@@ -5,8 +5,7 @@ import { LandingComponent } from '../landing/landing.component';
 import { RoundComponent } from '../round/round.component';
 import { CreateComponent } from '../create/create.component';
 import { LoginComponent } from '../auth/login.component';
-import { PlayersComponent } from '../players/players.component';
-import { RoundsComponent } from '../rounds/rounds.component';
+import { FriendsComponent } from '../friends/friends.component';
 import { ProfileComponent } from '../profile/profile.component';
 
 const tpl = template(`
@@ -45,8 +44,7 @@ export class AppComponent extends Component {
             '/round': RoundComponent,
             '/create': CreateComponent,
             '/login': LoginComponent,
-            '/rounds': RoundsComponent,
-            '/players': PlayersComponent,
+            '/friends': FriendsComponent,
             '/profile': ProfileComponent,
         }, LandingComponent);
 
