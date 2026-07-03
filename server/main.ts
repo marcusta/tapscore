@@ -7,6 +7,7 @@ import { log } from '@basics/core/server/logger';
 import { createServices } from './services/index';
 import { mount } from '@basics/core/server/mount';
 import { createPlayersApi } from './api/players.api';
+import { createFriendsApi } from './api/friends.api';
 import { createClubsApi } from './api/clubs.api';
 import { createCoursesApi } from './api/courses.api';
 import { createTeesApi } from './api/tees.api';
@@ -41,6 +42,7 @@ const { app, db, bootstrapAuth } = await createApp<Database>(
 const services = createServices(db);
 const {
     playerService,
+    friendService,
     clubService,
     courseService,
     courseRouteTemplateService,
@@ -65,7 +67,8 @@ const { sessions } = await bootstrapAuth({
     findUser: (id) => playerService.findById(id),
 });
 
-mount(app, '/api', createPlayersApi(playerService, handicapService, sessions, config.sessionCookie));
+mount(app, '/api', createPlayersApi(playerService, handicapService, friendService, sessions, config.sessionCookie));
+mount(app, '/api', createFriendsApi(friendService));
 mount(app, '/api', createClubsApi(clubService));
 mount(app, '/api', createCoursesApi(courseService));
 mount(app, '/api', createTeesApi(teeService));

@@ -17,6 +17,7 @@ import { FormatActionService } from './format-action.service';
 import { DashboardService } from './dashboard.service';
 import { FriendlyRoundService } from './friendly-round.service';
 import { GuestClaimService } from './guest-claim.service';
+import { FriendService } from './friend.service';
 import type { CompilerTeeContext, Gender } from '../domain/compiler/types';
 
 /**
@@ -84,6 +85,7 @@ export function createServices(db: Kysely<Database>) {
     // maintenance append to handicap_history through it (Phase 3).
     const handicapService = new HandicapService(db);
     const playerService = new PlayerService(db, handicapService);
+    const friendService = new FriendService(db);
     const clubService = new ClubService(db);
     const courseService = new CourseService(db);
     const courseRouteTemplateService = new CourseRouteTemplateService(db);
@@ -126,6 +128,7 @@ export function createServices(db: Kysely<Database>) {
     return {
         db,
         playerService,
+        friendService,
         clubService,
         courseService,
         courseRouteTemplateService,

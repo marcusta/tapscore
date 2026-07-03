@@ -2,6 +2,7 @@ import { sql, type Kysely, type Selectable } from 'kysely';
 import type { Database, PlayersTable } from '../db/schema';
 import { NotFoundError, type AuthUser } from '@basics/core/server/auth';
 import type { HandicapEntry, HandicapService } from './handicap.service';
+import type { Gender } from '../domain/compiler/types';
 
 // --- Output types ---
 
@@ -13,8 +14,32 @@ export interface Player {
     avatarUrl: string | null;
     homeClubId: string | null;
     handicapIndex: number | null;
+    /**
+     * Nullable registration/profile field (migration 033, friends-list
+     * roster-drop feature). Missing gender stays editable on a roster row.
+     */
+    gender: Gender | null;
     /** Soft-delete tombstone (§17). Null = active. */
     deletedAt: string | null;
+}
+
+/**
+ * Slim profile shape shared by friend-list entries and search results
+ * (see friend.service.ts `listFor`). `handicapIndex` is the LIVE
+ * `players.handicap_index` column — "current value" per the same convention
+ * `updateHandicapIndex` already treats it under, not a `handicap_history`
+ * join.
+ */
+export interface PlayerProfile {
+    id: string;
+    username: string;
+    displayName: string;
+    gender: Gender | null;
+    handicapIndex: number | null;
+}
+
+export interface PlayerSearchResult extends PlayerProfile {
+    isFriend: boolean;
 }
 
 export interface RegisterInput {
@@ -25,6 +50,7 @@ export interface RegisterInput {
     avatarUrl?: string | null;
     homeClubId?: string | null;
     handicapIndex?: number | null;
+    gender?: Gender | null;
 }
 
 // --- Row mapping ---
@@ -40,6 +66,7 @@ function toPlayer(row: PlayerRow): Player {
         avatarUrl: row.avatar_url,
         homeClubId: row.home_club_id,
         handicapIndex: row.handicap_index,
+        gender: row.gender,
         deletedAt: row.deleted_at,
     };
 }
@@ -81,6 +108,7 @@ export class PlayerService {
             avatar_url: string | null;
             home_club_id: string | null;
             handicap_index: number | null;
+            gender: Gender | null;
         },
         trx: Kysely<Database> = this.db,
     ) {
@@ -106,6 +134,7 @@ export class PlayerService {
             avatar_url: input.avatarUrl ?? null,
             home_club_id: input.homeClubId ?? null,
             handicap_index: input.handicapIndex ?? null,
+            gender: input.gender ?? null,
         };
 
         await this.insertPlayer(values).execute();
@@ -118,6 +147,7 @@ export class PlayerService {
             avatarUrl: values.avatar_url,
             homeClubId: values.home_club_id,
             handicapIndex: values.handicap_index,
+            gender: values.gender,
             deletedAt: null,
         };
     }
@@ -171,6 +201,26 @@ export class PlayerService {
         });
     }
 
+    /**
+     * Profile self-update (Phase 3 friends-list feature): currently only
+     * `gender`. POST (not PATCH) to match this codebase's existing partial-
+     * update convention — `updateHandicapIndex` is exposed as `POST
+     * /players/me/handicap`, not PATCH; no PATCH endpoint exists anywhere in
+     * server/api/*.api.ts, so introducing one here would be a one-off rather
+     * than a followed convention.
+     */
+    async updateProfile(playerId: string, input: { gender?: Gender | null }): Promise<Player> {
+        const row = await this.byId(playerId).executeTakeFirst();
+        if (!row || row.deleted_at !== null) throw new NotFoundError('player not found');
+
+        if (input.gender !== undefined) {
+            await this.updatePlayerById(playerId).set({ gender: input.gender }).execute();
+        }
+
+        const updated = await this.byId(playerId).executeTakeFirstOrThrow();
+        return toPlayer(updated);
+    }
+
     async verify(username: string, password: string): Promise<AuthUser | null> {
         const row = await this.byUsername(username).executeTakeFirst();
         if (!row) return null;
@@ -202,6 +252,48 @@ export class PlayerService {
     async listActive(): Promise<Player[]> {
         const rows = await this.players().where('deleted_at', 'is', null).execute();
         return rows.map(toPlayer);
+    }
+
+    /**
+     * Player search (friends-list feature): case-insensitive substring match
+     * on `username` OR `display_name`, excluding the caller and soft-deleted
+     * players, capped at 20 results. `q.length < 2` short-circuits to `[]`
+     * without hitting the DB — avoids a full unindexed LIKE scan on every
+     * keystroke of a 0-1 char query. `friendIds`, if given, is used to stamp
+     * `isFriend` on each result — kept as a plain Set param rather than this
+     * service reaching into FriendService, so PlayerService stays free of
+     * sibling-service imports (composition root wires the two together, same
+     * pattern as `buildRoundServiceDeps` in services/index.ts).
+     */
+    async search(callerId: string, q: string, friendIds?: Set<string>): Promise<PlayerSearchResult[]> {
+        const query = q.trim();
+        if (query.length < 2) return [];
+
+        // Escape LIKE metacharacters so a literal '%' or '_' in the query
+        // matches itself instead of acting as a wildcard.
+        const escaped = query.toLowerCase().replace(/[\\%_]/g, '\\$&');
+        const needle = `%${escaped}%`;
+        const rows = await this.players()
+            .where('deleted_at', 'is', null)
+            .where('id', '!=', callerId)
+            .where((eb) =>
+                eb.or([
+                    sql<boolean>`lower(username) LIKE ${needle} ESCAPE '\\'`,
+                    sql<boolean>`lower(display_name) LIKE ${needle} ESCAPE '\\'`,
+                ]),
+            )
+            .orderBy('display_name')
+            .limit(20)
+            .execute();
+
+        return rows.map((row) => ({
+            id: row.id,
+            username: row.username,
+            displayName: row.display_name,
+            gender: row.gender,
+            handicapIndex: row.handicap_index,
+            isFriend: friendIds?.has(row.id) ?? false,
+        }));
     }
 
     /** True when the player exists AND is not soft/hard-deleted. Drives live

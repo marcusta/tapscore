@@ -6,7 +6,11 @@ import { createPlayersApi } from './players.api';
 
 async function setup() {
     const ctx = await setupRoutes([seedPlayer]);
-    mount(ctx.app, '/api', createPlayersApi(ctx.playerService, ctx.handicapService, ctx.sessions));
+    mount(
+        ctx.app,
+        '/api',
+        createPlayersApi(ctx.playerService, ctx.handicapService, ctx.friendService, ctx.sessions),
+    );
     return ctx;
 }
 
@@ -30,6 +34,7 @@ test('GET /api/players/me with session returns Player from descriptor', async ()
         avatarUrl: null,
         homeClubId: null,
         handicapIndex: null,
+        gender: null,
         deletedAt: null,
     });
 });
@@ -141,5 +146,57 @@ test('POST /api/players/me/handicap updates the live index AND appends history',
 test('GET /api/players/me/handicap-history without session returns 401', async () => {
     const { app } = await setup();
     const res = await req(app, 'GET', '/api/players/me/handicap-history');
+    expect(res.status).toBe(401);
+});
+
+// --- Phase 3: gender (registration/profile field, friends-list slice) ---
+
+test('POST /api/players/register with gender persists it through to /players/me', async () => {
+    const { app } = await setup();
+    const res = await req(app, 'POST', '/api/players/register', {
+        username: 'eva',
+        password: 'password123',
+        displayName: 'Eva E.',
+        gender: 'F',
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).gender).toBe('F');
+
+    const cookie = extractSessionCookie(res);
+    const me = await req(app, 'GET', '/api/players/me', undefined, cookie);
+    expect((await me.json()).gender).toBe('F');
+});
+
+test('POST /api/players/register rejects an invalid gender with 400', async () => {
+    const { app } = await setup();
+    const res = await req(app, 'POST', '/api/players/register', {
+        username: 'frank',
+        password: 'password123',
+        displayName: 'Frank F.',
+        gender: 'X',
+    });
+    expect(res.status).toBe(400);
+});
+
+test('POST /api/players/me/profile sets gender; omitting it leaves it untouched', async () => {
+    const { app } = await setup();
+    const cookie = await loginAs(app, 'alice', 'password123'); // seeded without gender
+
+    const set = await req(app, 'POST', '/api/players/me/profile', { gender: 'F' }, cookie);
+    expect(set.status).toBe(200);
+    expect((await set.json()).gender).toBe('F');
+
+    // An empty profile update is a no-op, not a reset to null.
+    const noop = await req(app, 'POST', '/api/players/me/profile', {}, cookie);
+    expect(noop.status).toBe(200);
+    expect((await noop.json()).gender).toBe('F');
+
+    const me = await req(app, 'GET', '/api/players/me', undefined, cookie);
+    expect((await me.json()).gender).toBe('F');
+});
+
+test('POST /api/players/me/profile without session returns 401', async () => {
+    const { app } = await setup();
+    const res = await req(app, 'POST', '/api/players/me/profile', { gender: 'M' });
     expect(res.status).toBe(401);
 });

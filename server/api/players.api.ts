@@ -8,20 +8,35 @@ import {
 } from '@basics/core/server/auth';
 import type { PlayerService } from '../services/player.service';
 import type { HandicapService } from '../services/handicap.service';
+import type { FriendService } from '../services/friend.service';
 
 // --- Input schemas ---
+
+const Gender = Type.Union([Type.Literal('M'), Type.Literal('F')]);
 
 const RegisterInput = Type.Object({
     username: Type.String({ minLength: 1 }),
     password: Type.String({ minLength: 8 }),
     displayName: Type.String({ minLength: 1 }),
     handicapIndex: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
+    gender: Type.Optional(Type.Union([Gender, Type.Null()])),
 });
 
 const UpdateHandicapInput = Type.Object({
     handicapIndex: Type.Number(),
     /** `YYYY-MM-DD`; defaults to today on the server. */
     effectiveDate: Type.Optional(Type.String()),
+});
+
+const UpdateProfileInput = Type.Object({
+    gender: Type.Optional(Type.Union([Gender, Type.Null()])),
+});
+
+// `q` is optional: a missing/empty query is a legal "no results yet" state
+// (the client fires this on every keystroke), answered with `[]` by the
+// service's <2-chars fast path — not a 400 validation error.
+const SearchInput = Type.Object({
+    q: Type.Optional(Type.String()),
 });
 
 // --- API descriptor ---
@@ -36,10 +51,22 @@ const UpdateHandicapInput = Type.Object({
  * body-supplied player id — manual index maintenance is self-service only
  * (Phase 3 scope decision: no WHS/federation posting; `handicap_history`
  * records every manual edit append-only via `HandicapService.record`).
+ *
+ * `updateProfile` is POST, not PATCH — matches `updateHandicap`'s existing
+ * partial-update convention; no PATCH endpoint exists anywhere in
+ * server/api/*.api.ts, so introducing one would be a one-off, not a followed
+ * pattern.
+ *
+ * `search` needs to know the caller's friend set to stamp `isFriend` on
+ * results, so it takes `friends: FriendService` alongside `svc`/`handicaps`
+ * — composed at the API layer rather than PlayerService reaching into a
+ * sibling service (same "composition root wires services together" pattern
+ * as `buildRoundServiceDeps` in services/index.ts).
  */
 export function createPlayersApi(
     svc: PlayerService,
     handicaps: HandicapService,
+    friends: FriendService,
     sessions: SessionStore,
     cookieName = 'session',
 ) {
@@ -77,6 +104,25 @@ export function createPlayersApi(
             method: 'GET' as const,
             path: '/players/me/handicap-history',
             fn: (c: Context) => handicaps.historyFor(requireUser(c).id),
+            middleware: mw,
+        },
+        updateProfile: {
+            method: 'POST' as const,
+            path: '/players/me/profile',
+            fn: (input: Static<typeof UpdateProfileInput>, c: Context) =>
+                svc.updateProfile(requireUser(c).id, input),
+            schema: UpdateProfileInput,
+            middleware: mw,
+        },
+        search: {
+            method: 'GET' as const,
+            path: '/players/search',
+            fn: async (input: Static<typeof SearchInput>, c: Context) => {
+                const callerId = requireUser(c).id;
+                const friendIds = await friends.friendIdsFor(callerId);
+                return svc.search(callerId, input.q ?? '', friendIds);
+            },
+            schema: SearchInput,
             middleware: mw,
         },
     };

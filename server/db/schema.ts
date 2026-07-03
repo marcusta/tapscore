@@ -33,6 +33,7 @@ export interface Database {
     ruling_events: RulingEventsTable;
     format_action_events: FormatActionEventsTable;
     friendly_rounds: FriendlyRoundsTable;
+    friendships: FriendshipsTable;
 }
 
 export type RoundType = 'full_18' | 'front_9' | 'back_9' | 'custom_holes';
@@ -544,6 +545,23 @@ export interface PlayersTable {
     avatar_url: string | null;
     home_club_id: string | null;
     handicap_index: number | null;
+    /**
+     * Nullable registration/profile field (migration 033, PHASES.md
+     * 2026-07-03 friends-list request). Missing gender stays editable on a
+     * roster row — unlike `guest_players.gender`, which is NOT NULL.
+     */
+    gender: 'M' | 'F' | null;
     deleted_at: string | null;
+    created_at: Generated<string>;
+}
+
+/**
+ * One-directional contact list (migration 033). Row `(player_id,
+ * friend_player_id)` means "player_id has friend_player_id as a contact" —
+ * no approval flow, no reverse implication. See migration doc comment.
+ */
+export interface FriendshipsTable {
+    player_id: string;
+    friend_player_id: string;
     created_at: Generated<string>;
 }

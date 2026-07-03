@@ -1,4 +1,5 @@
 import { createPlayersClient } from './api/players.gen';
+import { createFriendsClient } from './api/friends.gen';
 import { createClubsClient } from './api/clubs.gen';
 import { createCoursesClient } from './api/courses.gen';
 import { createTeesClient } from './api/tees.gen';
@@ -20,6 +21,7 @@ const API_BASE = (import.meta.env?.BASE_URL ?? '/').replace(/\/+$/, '') + '/api'
 
 export const api = {
     players: createPlayersClient(API_BASE),
+    friends: createFriendsClient(API_BASE),
     clubs: createClubsClient(API_BASE),
     courses: createCoursesClient(API_BASE),
     tees: createTeesClient(API_BASE),
