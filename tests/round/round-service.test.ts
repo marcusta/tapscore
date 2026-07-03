@@ -38,7 +38,12 @@ mock.module('../../src/api', () => ({ api: apiMock }));
 
 const { RoundViewService } = await import('../../src/round/round.service');
 
-function roundPayload(token: string, roundId: string, courseName: string): unknown {
+function roundPayload(
+    token: string,
+    roundId: string,
+    courseName: string,
+    formatSlots: unknown[] = [],
+): unknown {
     return {
         friendlyRound: { id: `fr-${roundId}`, roundId, shareToken: token },
         round: {
@@ -48,8 +53,23 @@ function roundPayload(token: string, roundId: string, courseName: string): unkno
             status: 'active',
             playHoles: [],
             playingGroups: [],
-            formatSlots: [],
+            formatSlots,
         },
+    };
+}
+
+/** Minimal FormatSlot fixture — only the fields selection resolution reads. */
+function slot(slotDefId: string, slotIndex: number): unknown {
+    return {
+        slotIndex,
+        slotDefId,
+        formatId: `fmt-${slotDefId}`,
+        scoringMode: 'stroke_play',
+        teamShape: 'individual',
+        allowancePct: 100,
+        allowanceConfig: { type: 'flat', pct: 100 },
+        formatConfig: null,
+        ballMode: 'own',
     };
 }
 
@@ -113,4 +133,148 @@ test('a slow stale token response cannot overwrite the latest loaded round', asy
     await slowLoad;
 
     expect(svc.round.get()?.id).toBe('round-latest');
+});
+
+// --- Slot selection resolves by slotDefId, never by positional index (2.7b) ---
+
+test('with no explicit selection, selectedSlotDefId falls back to the first declared slot', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    const load = svc.loadByToken('tok');
+    byToken
+        .get('tok')!
+        .resolve(roundPayload('tok', 'r1', 'Course', [slot('slot-b', 0), slot('slot-a', 1)]));
+    await load;
+
+    expect(svc.selectedSlot.get()).toBeNull();
+    expect(svc.selectedSlotDefId()).toBe('slot-b');
+});
+
+test('selectedSlotDefId returns null for a round with zero format slots', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    const load = svc.loadByToken('tok');
+    byToken.get('tok')!.resolve(roundPayload('tok', 'r1', 'Course', []));
+    await load;
+
+    expect(svc.selectedSlotDefId()).toBeNull();
+});
+
+test('selectSlot points selection at a slot by id, independent of its position', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    const load = svc.loadByToken('tok');
+    byToken
+        .get('tok')!
+        .resolve(
+            roundPayload('tok', 'r1', 'Course', [
+                slot('slot-a', 0),
+                slot('slot-b', 1),
+                slot('slot-c', 2),
+            ]),
+        );
+    await load;
+
+    svc.selectSlot('slot-c');
+    expect(svc.selectedSlotDefId()).toBe('slot-c');
+
+    svc.selectSlot('slot-a');
+    expect(svc.selectedSlotDefId()).toBe('slot-a');
+});
+
+test('an unknown/stale slotDefId falls back to the first slot rather than resolving to nothing', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    const load = svc.loadByToken('tok');
+    byToken
+        .get('tok')!
+        .resolve(roundPayload('tok', 'r1', 'Course', [slot('slot-a', 0), slot('slot-b', 1)]));
+    await load;
+
+    svc.selectSlot('slot-does-not-exist');
+    expect(svc.selectedSlotDefId()).toBe('slot-a');
+});
+
+test('a legacy numeric InitialPosition.selectedSlot (pre-2.7b URL) resolves to that slot index once formatSlots load', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    const load = svc.loadByToken('tok', { selectedSlot: 1 });
+    byToken
+        .get('tok')!
+        .resolve(
+            roundPayload('tok', 'r1', 'Course', [
+                slot('slot-a', 0),
+                slot('slot-b', 1),
+                slot('slot-c', 2),
+            ]),
+        );
+    await load;
+
+    expect(svc.selectedSlotDefId()).toBe('slot-b');
+});
+
+test('a legacy numeric InitialPosition.selectedSlot that is out of range is dropped, falling back to the first slot', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    const load = svc.loadByToken('tok', { selectedSlot: 99 });
+    byToken
+        .get('tok')!
+        .resolve(roundPayload('tok', 'r1', 'Course', [slot('slot-a', 0), slot('slot-b', 1)]));
+    await load;
+
+    expect(svc.selectedSlotDefId()).toBe('slot-a');
+});
+
+test('a string InitialPosition.selectedSlot (current URL form) is treated directly as a slotDefId', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    const load = svc.loadByToken('tok', { selectedSlot: 'slot-c' });
+    byToken
+        .get('tok')!
+        .resolve(
+            roundPayload('tok', 'r1', 'Course', [
+                slot('slot-a', 0),
+                slot('slot-b', 1),
+                slot('slot-c', 2),
+            ]),
+        );
+    await load;
+
+    expect(svc.selectedSlotDefId()).toBe('slot-c');
+});
+
+test('leaderboard-style result lookup by slotDefId picks the right slot even when result.slots is reordered relative to formatSlots', async () => {
+    // Regression fixture for the index-math bug this refactor closes: if a
+    // consumer naively read `result.slots[formatSlotIndex]`, selecting
+    // formatSlots[0] ("slot-a") would read result.slots[0] here — which is
+    // "slot-b"'s data, not "slot-a"'s. The id-keyed lookup must not do that.
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    const load = svc.loadByToken('tok');
+    byToken
+        .get('tok')!
+        .resolve(roundPayload('tok', 'r1', 'Course', [slot('slot-a', 0), slot('slot-b', 1)]));
+    await load;
+
+    resultsByToken.set('tok', {
+        // Deliberately reversed vs. formatSlots order.
+        slots: [
+            { slotDefId: 'slot-b', formatLabel: 'Format B' },
+            { slotDefId: 'slot-a', formatLabel: 'Format A' },
+        ],
+        routeSections: [],
+        posting: { eligible: true, reason: null },
+    });
+    await svc.loadResult();
+
+    // Selecting formatSlots[0] ("slot-a") ...
+    svc.selectSlot('slot-a');
+    const selectedId = svc.selectedSlotDefId();
+    const slots = svc.result.get()?.slots ?? [];
+
+    // ... must resolve to the "slot-a" result entry (index 1), never
+    // result.slots[0] (which is "slot-b").
+    const byId = slots.find((s) => s.slotDefId === selectedId);
+    expect(byId?.formatLabel).toBe('Format A');
+    expect(slots[0]?.formatLabel).not.toBe(byId?.formatLabel);
 });

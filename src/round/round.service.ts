@@ -38,7 +38,12 @@ const cellKey = (ballId: string, playHoleId: string) => `${ballId}|${playHoleId}
 export interface InitialPosition {
     holeIdx?: number;
     groupIdx?: number;
-    selectedSlot?: number;
+    /**
+     * The `slotDefId` to select, or (legacy) a numeric positional index from a
+     * pre-slotDefId URL. `loadByToken` resolves either form once the round's
+     * `formatSlots` are known.
+     */
+    selectedSlot?: string | number;
 }
 
 /** Joined producer names for a ball (own-ball = one name, team = "A & B"). */
@@ -92,15 +97,26 @@ export class RoundViewService {
     readonly holeIdx = new Signal(0);
     readonly groupIdx = new Signal(0);
     /**
-     * Which format slot the shared pill row points at. Indexes the round's
-     * `formatSlots` (and, 1:1, the result's `slots`). Owned here so the round-level
-     * pill row, the score tab, and the leaderboard all read/write one selection.
+     * Which format slot the shared pill row points at, keyed by the slot's
+     * stable `slotDefId` — NOT a positional index. Competition rounds
+     * (inherit-then-override) can reorder or skip slots relative to a base
+     * format set, so `formatSlots[i]` and `result.slots[i]` are not guaranteed
+     * to line up; every consumer must resolve through slotDefId, never index.
+     * `null` means "no explicit selection yet" — resolves to the first slot.
+     * Owned here so the round-level pill row, the score tab, and the
+     * leaderboard all read/write one selection.
      */
-    readonly selectedSlot = new Signal(0);
+    readonly selectedSlot = new Signal<string | null>(null);
 
     private token: string | null = null;
     private loadSeq = 0;
     private resultSeq = 0;
+    /**
+     * A legacy numeric `?slot=` index from `InitialPosition`, held until the
+     * round's `formatSlots` arrive so it can be translated into a slotDefId
+     * (once — the URL is rewritten to the id form as soon as we can).
+     */
+    private pendingSlotIndex: number | null = null;
 
     async loadByToken(token: string, initial?: InitialPosition): Promise<void> {
         // Opening a different round resets on-course position + clears the stale
@@ -124,6 +140,16 @@ export class RoundViewService {
         if (seq !== this.loadSeq || token !== this.token) return;
         this.friendlyRound.set(data.friendlyRound);
         this.round.set(data.round);
+        // A legacy numeric `?slot=` index can only be translated to a
+        // slotDefId once the round's formatSlots are known. Consume it once —
+        // an unresolvable index (out of range) is simply dropped, falling
+        // back to the first slot like any other unknown selection.
+        if (this.pendingSlotIndex !== null) {
+            const slots = data.round.formatSlots;
+            const resolved = slots[this.pendingSlotIndex]?.slotDefId ?? null;
+            this.pendingSlotIndex = null;
+            if (resolved !== null) this.selectedSlot.set(resolved);
+        }
         // Balls + current scores feed the score-entry grid. Failures here are
         // non-fatal — the round still renders; the grid just starts empty.
         const [balls, cards] = await Promise.all([
@@ -166,6 +192,28 @@ export class RoundViewService {
     /** Resolve a ball id → live name for a result section (consumer-side naming). */
     nameOf(ballId: string): string {
         return this.ballNameById.get().get(ballId) ?? ballId;
+    }
+
+    // --- Format slot selection (pills + leaderboard), keyed by slotDefId ---
+
+    /**
+     * The `slotDefId` currently selected, resolved against the round's actual
+     * `formatSlots`: an explicit selection wins if it still names a real slot;
+     * otherwise (nothing selected yet, or the id no longer exists — e.g. a
+     * stale URL) falls back to the first declared slot. `null` for a round
+     * with zero format slots.
+     */
+    selectedSlotDefId(): string | null {
+        const slots = this.round.get()?.formatSlots ?? [];
+        if (slots.length === 0) return null;
+        const wanted = this.selectedSlot.get();
+        if (wanted !== null && slots.some((s) => s.slotDefId === wanted)) return wanted;
+        return slots[0]?.slotDefId ?? null;
+    }
+
+    /** Point the shared selection at a slot by its stable id. */
+    selectSlot(slotDefId: string): void {
+        this.selectedSlot.set(slotDefId);
     }
 
     // --- Shared on-course navigation (carousel + orange hole bar) ---
@@ -359,6 +407,18 @@ export class RoundViewService {
         this.resultError.set(null);
         this.holeIdx.set(initial?.holeIdx ?? 0);
         this.groupIdx.set(initial?.groupIdx ?? 0);
-        this.selectedSlot.set(initial?.selectedSlot ?? 0);
+        // A string is already a slotDefId (current URL form); a number is a
+        // legacy positional index that can only be resolved once formatSlots
+        // are loaded, so it's parked until loadByToken applies it.
+        const selectedSlot = initial?.selectedSlot;
+        this.pendingSlotIndex = null;
+        if (typeof selectedSlot === 'string') {
+            this.selectedSlot.set(selectedSlot);
+        } else if (typeof selectedSlot === 'number') {
+            this.pendingSlotIndex = selectedSlot;
+            this.selectedSlot.set(null);
+        } else {
+            this.selectedSlot.set(null);
+        }
     }
 }

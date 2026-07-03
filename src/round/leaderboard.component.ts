@@ -288,9 +288,16 @@ export class LeaderboardComponent extends Component {
     private svc = this.inject(RoundViewService);
 
     private slots = (): SlotResultView[] => this.svc.result.get()?.slots ?? [];
+    /**
+     * The selected slot's result view, matched by `slotDefId` — never by
+     * index. `result.slots` order isn't guaranteed to match `round.formatSlots`
+     * order (competition rounds can inherit-then-override and reorder/skip
+     * slots), so index-based lookup can silently surface the wrong format.
+     */
     private currentSlot = (): SlotResultView | null => {
         const slots = this.slots();
-        return slots[this.svc.selectedSlot.get()] ?? slots[0] ?? null;
+        const wanted = this.svc.selectedSlotDefId();
+        return slots.find((s) => s.slotDefId === wanted) ?? slots[0] ?? null;
     };
 
     render(): DocumentFragment {

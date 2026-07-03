@@ -17,6 +17,18 @@ import type { FormatSlot } from '../api/rounds.gen';
 
 type Tab = 'score' | 'leaderboard';
 
+/**
+ * `?slot=` is a `slotDefId` (opaque string) as of 2.7b. A pre-2.7b link may
+ * still carry the old positional index — recognisable as a value that's
+ * entirely digits — which is passed through as a legacy numeric fallback for
+ * `RoundViewService` to resolve once. Anything else (absent, non-numeric) is
+ * taken as-is: a real slotDefId, or `undefined` when there's no param at all.
+ */
+function parseSlotParam(raw: string | null): string | number | undefined {
+    if (raw === null || raw === '') return undefined;
+    return /^\d+$/.test(raw) ? Number(raw) : raw;
+}
+
 const tpl = template(`
     <div class="round-view">
         <div bind="main" class="round-view__main">
@@ -336,12 +348,13 @@ export class RoundComponent extends Component {
         this.track(
             effect(() => {
                 const tab = this.tab.get();
-                const slot = this.svc.selectedSlot.get();
+                const slotDefId = this.svc.selectedSlotDefId();
                 const holeIdx = this.svc.holeIdx.get();
                 if (!this.hasRound.get()) return;
                 const query: Record<string, QueryValue> = { token: this.tokenQ.get() };
                 if (tab === 'leaderboard') query.tab = 'board';
-                if (slot > 0) query.slot = slot;
+                const firstSlotId = this.svc.round.get()?.formatSlots[0]?.slotDefId ?? null;
+                if (slotDefId && slotDefId !== firstSlotId) query.slot = slotDefId;
                 if (holeIdx > 0) query.hole = holeIdx + 1;
                 this.router.navigate(this.router.route.get(), { replace: true, query });
             }),
@@ -455,21 +468,26 @@ export class RoundComponent extends Component {
 
     /**
      * Parse view state out of the query string at mount: `?tab=board` → the
-     * leaderboard tab, `?slot=N` → that format pill, `?hole=H` (1-based) → the
+     * leaderboard tab, `?slot=` → that format pill, `?hole=H` (1-based) → the
      * 0-based carousel index. Captured once so the write effect can't strip it
      * before loadByToken restores slot/hole. Out-of-range values are tolerated —
      * the carousel/slot reads clamp on access.
+     *
+     * `slot` is a `slotDefId` (opaque string) today. Older shared links may
+     * still carry the pre-2.7b positional index — a value that parses fully as
+     * a positive integer is treated as that legacy index one time; the write
+     * effect immediately rewrites the URL to the id form once resolved.
      */
     private readUrlPosition(): { tab: Tab } & InitialPosition {
         // location.search, not router.search.get(): a one-time mount read needs no
         // reactive subscription. Reading the browser global also keeps this off the
         // framework signal entirely — no skew if a bundler serves a stale core.
         const params = new URLSearchParams(location.search);
-        const slot = Number(params.get('slot'));
+        const slotParam = params.get('slot');
         const hole = Number(params.get('hole'));
         return {
             tab: params.get('tab') === 'board' ? 'leaderboard' : 'score',
-            selectedSlot: Number.isFinite(slot) && slot > 0 ? slot : 0,
+            selectedSlot: parseSlotParam(slotParam),
             holeIdx: Number.isFinite(hole) && hole > 0 ? hole - 1 : 0,
         };
     }
@@ -481,11 +499,12 @@ export class RoundComponent extends Component {
                 pill: {
                     textContent: () => formatLabelFromSlot(slot),
                     className: () =>
-                        this.tab.get() === 'leaderboard' && this.svc.selectedSlot.get() === index
+                        this.tab.get() === 'leaderboard' &&
+                        this.svc.selectedSlotDefId() === slot.slotDefId
                             ? 'round-view__fmt active'
                             : 'round-view__fmt',
                     onclick: () => {
-                        this.svc.selectedSlot.set(index);
+                        this.svc.selectSlot(slot.slotDefId);
                         if (this.tab.get() !== 'leaderboard') {
                             this.tab.set('leaderboard');
                             // Re-fetch so the board reflects the latest entered scores.
