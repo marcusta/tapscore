@@ -235,6 +235,14 @@ export interface GuestPlayersTable {
     display_name: string;
     gender: 'M' | 'F';
     handicap_index: number | null;
+    /**
+     * Guest-claim tombstone (migration 032, spec §17 open item 5). Set once
+     * when a registered player claims this guest's `ball_players` rows; the
+     * row is kept forever (never deleted) so the claim is auditable and a
+     * second claim can be refused with a structured conflict.
+     */
+    claimed_by_player_id: string | null;
+    claimed_at: string | null;
     created_at: Generated<string>;
 }
 

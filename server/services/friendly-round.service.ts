@@ -34,8 +34,8 @@ export type CreateFriendlyRoundResult =
 /**
  * A trust-based score write, addressed by share token instead of round id.
  * Derived from `AppendScoreEventInput` minus `roundId` (resolved from the
- * token) and `recordedByPlayerId` (there are no identities in 2.6e — every
- * event is written with `recorded_by_player_id = null`). Deriving rather than
+ * token) and `recordedByPlayerId` (session-resolved by the server — see
+ * `appendScoreByToken`; never client-supplied). Deriving rather than
  * re-listing keeps the token path in lock-step with the canonical append input.
  */
 export type TokenScoreInput = Omit<
@@ -78,7 +78,16 @@ export class FriendlyRoundService {
         private leaderboards: LeaderboardService,
     ) {}
 
-    async create(draft: RoundSetupDraft): Promise<CreateFriendlyRoundResult> {
+    /**
+     * `creatorPlayerId` is SERVER-resolved (Phase 3): the API layer reads it
+     * from the session the global auth middleware validated — it is never
+     * accepted from the request body. Anonymous creation stays fully
+     * functional; a session merely enriches the wrapper with its creator.
+     */
+    async create(
+        draft: RoundSetupDraft,
+        creatorPlayerId: string | null = null,
+    ): Promise<CreateFriendlyRoundResult> {
         // Compile the round first. Invalid setup returns structured diagnostics
         // and mints nothing — no half-written round, wrapper, or token.
         const created = await this.rounds.createFromDraft(draft);
@@ -88,7 +97,7 @@ export class FriendlyRoundService {
             id: crypto.randomUUID(),
             roundId: created.round.id,
             shareToken: crypto.randomUUID(),
-            creatorPlayerId: null,
+            creatorPlayerId,
             createdAt: new Date().toISOString(),
         };
         await this.db
@@ -97,7 +106,7 @@ export class FriendlyRoundService {
                 id: friendlyRound.id,
                 round_id: friendlyRound.roundId,
                 share_token: friendlyRound.shareToken,
-                creator_player_id: null,
+                creator_player_id: creatorPlayerId,
             })
             .execute();
 
@@ -128,6 +137,28 @@ export class FriendlyRoundService {
         const rows = await this.db
             .selectFrom('friendly_rounds')
             .selectAll()
+            .orderBy(sql`rowid`, 'desc')
+            .execute();
+        const out: Array<{ friendlyRound: FriendlyRound; round: Round }> = [];
+        for (const row of rows) {
+            const round = await this.rounds.getById(row.round_id);
+            if (round) out.push({ friendlyRound: toFriendlyRound(row), round });
+        }
+        return out;
+    }
+
+    /**
+     * Friendly rounds created by a specific player, newest first, each with
+     * its resolved round (the "my rounds — created" dashboard half; the
+     * "produced" half is the §17 ball_players query in DashboardService).
+     */
+    async listByCreator(
+        playerId: string,
+    ): Promise<Array<{ friendlyRound: FriendlyRound; round: Round }>> {
+        const rows = await this.db
+            .selectFrom('friendly_rounds')
+            .selectAll()
+            .where('creator_player_id', '=', playerId)
             .orderBy(sql`rowid`, 'desc')
             .execute();
         const out: Array<{ friendlyRound: FriendlyRound; round: Round }> = [];
@@ -192,15 +223,22 @@ export class FriendlyRoundService {
     }
 
     /**
-     * Append a trust-based score event to the token's round. Identity-less
-     * (`recordedByPlayerId: null`) and idempotent on `clientEventId`. Returns
-     * `null` for an unknown token (nothing written).
+     * Append a trust-based score event to the token's round. Idempotent on
+     * `clientEventId`. Returns `null` for an unknown token (nothing written).
+     *
+     * Attribution (Phase 3): `recordedByPlayerId` is SERVER-resolved — the API
+     * layer passes the session identity when one accompanied the request, and
+     * `null` otherwise. It is deliberately NOT part of `TokenScoreInput`, so a
+     * client can never assert someone else's identity through the body. The
+     * write stays legal without login; with login the audit trail is real.
      */
-    async appendScoreByToken(input: TokenScoreInput): Promise<AppendResult | null> {
+    async appendScoreByToken(
+        input: TokenScoreInput,
+        recordedByPlayerId: string | null = null,
+    ): Promise<AppendResult | null> {
         const roundId = await this.roundIdForToken(input.token);
         if (roundId === null) return null;
         const { token: _token, ...event } = input;
-        // No identity in 2.6e — every trust-based event is written unattributed.
-        return this.scoreEvents.append({ ...event, roundId, recordedByPlayerId: null });
+        return this.scoreEvents.append({ ...event, roundId, recordedByPlayerId });
     }
 }

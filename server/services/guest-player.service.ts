@@ -8,6 +8,9 @@ export interface GuestPlayer {
     displayName: string;
     gender: 'M' | 'F';
     handicapIndex: number | null;
+    /** Claim tombstone (migration 032): who absorbed this guest identity, and when. */
+    claimedByPlayerId: string | null;
+    claimedAt: string | null;
 }
 
 export interface CreateGuestPlayerInput {
@@ -26,6 +29,8 @@ function toGuestPlayer(row: GuestPlayerRow): GuestPlayer {
         displayName: row.display_name,
         gender: row.gender,
         handicapIndex: row.handicap_index,
+        claimedByPlayerId: row.claimed_by_player_id,
+        claimedAt: row.claimed_at,
     };
 }
 
@@ -72,6 +77,8 @@ export class GuestPlayerService {
             displayName: values.display_name,
             gender: values.gender,
             handicapIndex: values.handicap_index,
+            claimedByPlayerId: null,
+            claimedAt: null,
         };
     }
 

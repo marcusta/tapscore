@@ -1,6 +1,8 @@
 import { Type, type Static } from '@sinclair/typebox';
-import { NotFoundError } from '@basics/core/server/auth';
+import type { Context } from 'hono';
+import { NotFoundError, requireAuth, requireUser } from '@basics/core/server/auth';
 import type { FriendlyRoundService } from '../services/friendly-round.service';
+import type { GuestClaimService } from '../services/guest-claim.service';
 import { RoundSetupDraft } from '../domain/round-setup/draft';
 import { EventType } from './score-events.api';
 
@@ -9,6 +11,11 @@ import { EventType } from './score-events.api';
 const CreateInput = Type.Object({ draft: RoundSetupDraft });
 const ByTokenInput = Type.Object({ token: Type.String() });
 const ByRoundInput = Type.Object({ roundId: Type.String() });
+
+const ClaimGuestInput = Type.Object({
+    token: Type.String(),
+    guestPlayerId: Type.String(),
+});
 
 // Trust-based score write (2.6e M4): same shape as the score-events API minus
 // `roundId` (resolved from the token) and `recordedByPlayerId` (no identities).
@@ -26,10 +33,24 @@ const ScoreInput = Type.Object({
 
 // --- API descriptor ---
 //
-// NO `requireAuth()`: the FriendlyRound front door is the whole point of 2.6e —
-// anyone creates a round, reads it, and (via the existing score-events API)
-// writes scores with only the share token. The share token is the only
-// credential; the trust boundary is documented on FriendlyRoundService.
+// NO `requireAuth()` on the token paths: the FriendlyRound front door is the
+// whole point of 2.6e — anyone creates a round, reads it, and writes scores
+// with only the share token. The share token is the only credential; the
+// trust boundary is documented on FriendlyRoundService.
+//
+// OPTIONAL session (Phase 3): the global `createAuth` middleware (wired once
+// in main.ts/bootstrapAuth) validates the session cookie on EVERY request and
+// sets `c.var.user` when valid — `requireAuth()` only gates on it. So a
+// no-auth route reads the identity opportunistically via `optionalUserId(c)`:
+// present → create/score are attributed; absent → they proceed unattributed.
+// Identity always comes from the session, never from the request body.
+//
+// `claimGuest` is the one gated endpoint here: claiming rewires rows to a
+// player_id, which only exists for a logged-in caller.
+
+function optionalUserId(c: Context): string | null {
+    return c.get('user')?.id ?? null;
+}
 
 // The framework collapses a null return into `{ ok: true }` over HTTP
 // (mount.ts), so a miss must throw `NotFoundError` (→ 404) to be distinguishable
@@ -64,21 +85,33 @@ async function resultOr404(svc: FriendlyRoundService, token: string) {
     return found;
 }
 
-async function scoreOr404(svc: FriendlyRoundService, input: Static<typeof ScoreInput>) {
-    const res = await svc.appendScoreByToken(input);
+async function scoreOr404(
+    svc: FriendlyRoundService,
+    input: Static<typeof ScoreInput>,
+    recordedByPlayerId: string | null,
+) {
+    const res = await svc.appendScoreByToken(input, recordedByPlayerId);
     if (res === null) throw new NotFoundError('friendly round not found');
     return res;
 }
 
-export function createFriendlyRoundsApi(svc: FriendlyRoundService) {
+export function createFriendlyRoundsApi(svc: FriendlyRoundService, claims: GuestClaimService) {
     return {
         list:      { method: 'GET'  as const, path: '/friendly-rounds',           fn: ()                                    => svc.list() },
-        create:    { method: 'POST' as const, path: '/friendly-rounds',           fn: (input: Static<typeof CreateInput>)   => svc.create(input.draft),                schema: CreateInput },
+        create:    { method: 'POST' as const, path: '/friendly-rounds',           fn: (input: Static<typeof CreateInput>, c: Context) => svc.create(input.draft, optionalUserId(c)), schema: CreateInput },
         byToken:   { method: 'GET'  as const, path: '/friendly-rounds/by-token',   fn: (input: Static<typeof ByTokenInput>)  => byTokenOr404(svc, input.token),         schema: ByTokenInput },
         get:       { method: 'GET'  as const, path: '/friendly-rounds/get',        fn: (input: Static<typeof ByRoundInput>)  => byRoundOr404(svc, input.roundId),       schema: ByRoundInput },
         balls:     { method: 'GET'  as const, path: '/friendly-rounds/balls',      fn: (input: Static<typeof ByTokenInput>)  => ballsOr404(svc, input.token),           schema: ByTokenInput },
         scorecard: { method: 'GET'  as const, path: '/friendly-rounds/scorecard',  fn: (input: Static<typeof ByTokenInput>)  => scorecardOr404(svc, input.token),       schema: ByTokenInput },
         result:    { method: 'GET'  as const, path: '/friendly-rounds/result',     fn: (input: Static<typeof ByTokenInput>)  => resultOr404(svc, input.token),         schema: ByTokenInput },
-        score:     { method: 'POST' as const, path: '/friendly-rounds/score',      fn: (input: Static<typeof ScoreInput>)    => scoreOr404(svc, input),                 schema: ScoreInput },
+        score:     { method: 'POST' as const, path: '/friendly-rounds/score',      fn: (input: Static<typeof ScoreInput>, c: Context) => scoreOr404(svc, input, optionalUserId(c)),   schema: ScoreInput },
+        claimGuest: {
+            method: 'POST' as const,
+            path: '/friendly-rounds/claim-guest',
+            fn: (input: Static<typeof ClaimGuestInput>, c: Context) =>
+                claims.claimGuest({ ...input, playerId: requireUser(c).id }),
+            schema: ClaimGuestInput,
+            middleware: [requireAuth()],
+        },
     };
 }

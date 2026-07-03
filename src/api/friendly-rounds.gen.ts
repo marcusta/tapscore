@@ -60,6 +60,14 @@ export interface AppendResult {
     inserted: boolean;
 }
 
+export interface ClaimGuestResult {
+    roundId: string;
+    guestPlayerId: string;
+    playerId: string;
+    ballPlayersFlipped: number;
+    scoreEventsFlipped: number;
+}
+
 export interface FormatSlot {
     slotIndex: number;
     slotDefId: string;
@@ -274,6 +282,7 @@ export interface FriendlyRoundsApi {
     scorecard(input: { token: string }): Promise<Scorecard[]>;
     result(input: { token: string }): Promise<RoundResult>;
     score(input: { sourcePlayerId?: null | string; sourceGuestPlayerId?: null | string; metadata?: null | { [x: string]: unknown; }; token: string; ballId: string; playHoleId: string; strokes: null | number; eventType: 'score_entered' | 'score_cleared' | 'score_confirmed' | 'manual_override'; clientEventId: string }): Promise<AppendResult>;
+    claimGuest(input: { token: string; guestPlayerId: string }): Promise<ClaimGuestResult>;
 }
 
 export function createFriendlyRoundsClient(baseUrl: string): FriendlyRoundsApi {
@@ -321,6 +330,9 @@ export function createFriendlyRoundsClient(baseUrl: string): FriendlyRoundsApi {
         },
         async score(input) {
             return apiFetch({ method: 'POST', url: `${baseUrl}/friendly-rounds/score`, body: input });
+        },
+        async claimGuest(input) {
+            return apiFetch({ method: 'POST', url: `${baseUrl}/friendly-rounds/claim-guest`, body: input });
         },
     };
 }

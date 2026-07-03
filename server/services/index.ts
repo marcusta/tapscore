@@ -16,6 +16,7 @@ import { CorrectionService } from './correction.service';
 import { FormatActionService } from './format-action.service';
 import { DashboardService } from './dashboard.service';
 import { FriendlyRoundService } from './friendly-round.service';
+import { GuestClaimService } from './guest-claim.service';
 import type { CompilerTeeContext, Gender } from '../domain/compiler/types';
 
 /**
@@ -79,13 +80,15 @@ function buildRoundServiceDeps(
 }
 
 export function createServices(db: Kysely<Database>) {
-    const playerService = new PlayerService(db);
+    // HandicapService before PlayerService: registration + manual index
+    // maintenance append to handicap_history through it (Phase 3).
+    const handicapService = new HandicapService(db);
+    const playerService = new PlayerService(db, handicapService);
     const clubService = new ClubService(db);
     const courseService = new CourseService(db);
     const courseRouteTemplateService = new CourseRouteTemplateService(db);
     const teeService = new TeeService(db);
     const guestPlayerService = new GuestPlayerService(db);
-    const handicapService = new HandicapService(db);
     const roleService = new RoleService(db);
     const roundService = new RoundService(
         db,
@@ -119,6 +122,7 @@ export function createServices(db: Kysely<Database>) {
         scorecardService,
         leaderboardService,
     );
+    const guestClaimService = new GuestClaimService(db);
     return {
         db,
         playerService,
@@ -137,5 +141,6 @@ export function createServices(db: Kysely<Database>) {
         formatActionService,
         dashboardService,
         friendlyRoundService,
+        guestClaimService,
     };
 }

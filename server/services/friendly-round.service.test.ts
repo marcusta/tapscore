@@ -111,3 +111,65 @@ test('invalid draft returns diagnostics and mints no wrapper or token', async ()
     const rows = await ctx.db.selectFrom('friendly_rounds').selectAll().execute();
     expect(rows).toHaveLength(0);
 });
+
+// --- Phase 3: account-bound enrichment (creator + attribution) ---
+
+test('create records the creator when a session identity is supplied', async () => {
+    const { ctx, draft } = await setup();
+    const player = await ctx.playerService.selfRegister({
+        username: 'alice', password: 'password123', displayName: 'Alice A.',
+    });
+    const result = await ctx.friendlyRoundService.create(draft, player.id);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.friendlyRound.creatorPlayerId).toBe(player.id);
+
+    // Exposed on the by-token read.
+    const found = await ctx.friendlyRoundService.findByToken(result.friendlyRound.shareToken);
+    expect(found!.friendlyRound.creatorPlayerId).toBe(player.id);
+});
+
+test('listByCreator returns only the caller-created rounds, newest first', async () => {
+    const { ctx, draft } = await setup();
+    const alice = await ctx.playerService.selfRegister({
+        username: 'alice', password: 'password123', displayName: 'Alice A.',
+    });
+    const bob = await ctx.playerService.selfRegister({
+        username: 'bob', password: 'password123', displayName: 'Bob B.',
+    });
+    const a1 = await ctx.friendlyRoundService.create(draft, alice.id);
+    await ctx.friendlyRoundService.create(draft, bob.id);
+    const a2 = await ctx.friendlyRoundService.create(draft, alice.id);
+    await ctx.friendlyRoundService.create(draft); // anonymous
+    if (!a1.ok || !a2.ok) throw new Error('setup failed');
+
+    const mine = await ctx.friendlyRoundService.listByCreator(alice.id);
+    expect(mine).toHaveLength(2);
+    expect(mine[0]!.friendlyRound.id).toBe(a2.friendlyRound.id);
+    expect(mine[1]!.friendlyRound.id).toBe(a1.friendlyRound.id);
+});
+
+test('appendScoreByToken attributes recorded_by when a session identity is supplied, null otherwise', async () => {
+    const { ctx, draft } = await setup();
+    const player = await ctx.playerService.selfRegister({
+        username: 'alice', password: 'password123', displayName: 'Alice A.',
+    });
+    const created = await ctx.friendlyRoundService.create(draft);
+    if (!created.ok) throw new Error('setup failed');
+    const token = created.friendlyRound.shareToken;
+    const ballId = (await ctx.friendlyRoundService.ballsByToken(token))![0]!.id;
+    const holes = created.round.playingGroups[0]!.playedOrder;
+
+    // With identity → attributed.
+    const attributed = await ctx.friendlyRoundService.appendScoreByToken(
+        { token, ballId, playHoleId: holes[0]!.playHoleId, strokes: 4, eventType: 'score_entered', clientEventId: 'att-1' },
+        player.id,
+    );
+    expect(attributed!.event.recordedByPlayerId).toBe(player.id);
+
+    // Without → stays the trust-based null write.
+    const anonymous = await ctx.friendlyRoundService.appendScoreByToken(
+        { token, ballId, playHoleId: holes[1]!.playHoleId, strokes: 5, eventType: 'score_entered', clientEventId: 'att-2' },
+    );
+    expect(anonymous!.event.recordedByPlayerId).toBeNull();
+});

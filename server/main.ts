@@ -23,6 +23,7 @@ import { createLeaderboardsApi } from './api/leaderboards.api';
 import { createFormatsApi } from './api/formats.api';
 import { createCourseRouteTemplatesApi } from './api/course-route-templates.api';
 import { createFriendlyRoundsApi } from './api/friendly-rounds.api';
+import { createDashboardApi } from './api/dashboard.api';
 import { createSetupApi } from './api/setup.api';
 import { seedDev } from './db/seeds/dev';
 import { registerBuiltInBallCreationStrategies } from './domain/strategies/ball-creation';
@@ -51,16 +52,20 @@ const {
     scorecardService,
     leaderboardService,
     friendlyRoundService,
+    guestClaimService,
+    dashboardService,
     correctionService,
     formatActionService,
 } = services;
 
-await bootstrapAuth({
+// `sessions` is captured so self-serve registration can issue a session
+// cookie exactly like login does (framework `issueSessionCookie`).
+const { sessions } = await bootstrapAuth({
     verify: (u, p) => playerService.verify(u, p),
     findUser: (id) => playerService.findById(id),
 });
 
-mount(app, '/api', createPlayersApi(playerService));
+mount(app, '/api', createPlayersApi(playerService, handicapService, sessions, config.sessionCookie));
 mount(app, '/api', createClubsApi(clubService));
 mount(app, '/api', createCoursesApi(courseService));
 mount(app, '/api', createTeesApi(teeService));
@@ -72,7 +77,8 @@ mount(app, '/api', createScorecardsApi(scorecardService));
 mount(app, '/api', createLeaderboardsApi(leaderboardService));
 mount(app, '/api', createFormatsApi());
 mount(app, '/api', createCourseRouteTemplatesApi(courseRouteTemplateService));
-mount(app, '/api', createFriendlyRoundsApi(friendlyRoundService));
+mount(app, '/api', createFriendlyRoundsApi(friendlyRoundService, guestClaimService));
+mount(app, '/api', createDashboardApi(dashboardService, friendlyRoundService));
 mount(app, '/api', createSetupApi(courseService, teeService));
 mount(app, '/api', createCorrectionsApi(correctionService));
 mount(app, '/api', createFormatActionsApi(formatActionService));

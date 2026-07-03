@@ -6,6 +6,8 @@ export interface GuestPlayer {
     displayName: string;
     gender: 'M' | 'F';
     handicapIndex: null | number;
+    claimedByPlayerId: null | string;
+    claimedAt: null | string;
 }
 
 export interface GuestPlayersApi {

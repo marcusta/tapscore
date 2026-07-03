@@ -1,6 +1,7 @@
 import { sql, type Kysely, type Selectable } from 'kysely';
 import type { Database, PlayersTable } from '../db/schema';
-import type { AuthUser } from '@basics/core/server/auth';
+import { NotFoundError, type AuthUser } from '@basics/core/server/auth';
+import type { HandicapEntry, HandicapService } from './handicap.service';
 
 // --- Output types ---
 
@@ -43,8 +44,16 @@ function toPlayer(row: PlayerRow): Player {
     };
 }
 
+/** Today as a plain `YYYY-MM-DD` — the `handicap_history.effective_date` grain. */
+function todayIsoDate(): string {
+    return new Date().toISOString().slice(0, 10);
+}
+
 export class PlayerService {
-    constructor(private db: Kysely<Database>) {}
+    constructor(
+        private db: Kysely<Database>,
+        private handicaps: HandicapService,
+    ) {}
 
     // --- Queries (read) ---
 
@@ -78,6 +87,10 @@ export class PlayerService {
         return trx.insertInto('players').values(values);
     }
 
+    private updatePlayerById(id: string, trx: Kysely<Database> = this.db) {
+        return trx.updateTable('players').where('id', '=', id);
+    }
+
     // --- Methods ---
 
     async register(input: RegisterInput): Promise<Player> {
@@ -107,6 +120,55 @@ export class PlayerService {
             handicapIndex: values.handicap_index,
             deletedAt: null,
         };
+    }
+
+    /**
+     * Phase 3 self-serve registration. Same as `register`, plus: when the new
+     * account arrives WITH a handicap index, the initial `handicap_history`
+     * row is appended through `HandicapService.record` (source `'manual'`,
+     * effective today, entered by the new player themself) — the index is
+     * manually maintained in-app (no WHS/federation posting, PHASES.md
+     * 2026-07-03 scope decision), so every index the system ever holds must
+     * be traceable to a manual history entry.
+     */
+    async selfRegister(input: RegisterInput): Promise<Player> {
+        const player = await this.register(input);
+        if (player.handicapIndex !== null) {
+            await this.handicaps.record({
+                playerId: player.id,
+                handicapIndex: player.handicapIndex,
+                source: 'manual',
+                effectiveDate: todayIsoDate(),
+                enteredByPlayerId: player.id,
+            });
+        }
+        return player;
+    }
+
+    /**
+     * Manual handicap maintenance (Phase 3): set the player's live
+     * `handicap_index` AND append the change to `handicap_history` via
+     * `HandicapService.record` (source `'manual'`, entered by the player,
+     * effective today unless a date is provided). Per-round snapshots are
+     * untouched — history is append-only and the live column is only a
+     * convenience "current value".
+     */
+    async updateHandicapIndex(
+        playerId: string,
+        handicapIndex: number,
+        effectiveDate?: string,
+    ): Promise<HandicapEntry> {
+        const row = await this.byId(playerId).executeTakeFirst();
+        if (!row || row.deleted_at !== null) throw new NotFoundError('player not found');
+
+        await this.updatePlayerById(playerId).set({ handicap_index: handicapIndex }).execute();
+        return this.handicaps.record({
+            playerId,
+            handicapIndex,
+            source: 'manual',
+            effectiveDate: effectiveDate ?? todayIsoDate(),
+            enteredByPlayerId: playerId,
+        });
     }
 
     async verify(username: string, password: string): Promise<AuthUser | null> {
