@@ -986,6 +986,8 @@ Client:
 
 Purpose: delete carried debt that multiplies in cost once Competition/Series wrappers land on top. None of it is architectural; all of it is cheaper now than later.
 
+**Status: COMPLETE (2026-07-03).** 2.7a `867a5f2` (history-edit approach — user declared DB data disposable, so legacy migrations were removed from the chain instead of appending a drop; `synthesize-legacy.ts` + all backfills deleted outright, −3.8k lines; fresh-DB schema proven byte-identical to deployed minus the four legacy tables; ratchet extended incl. migrations, negative-control proven). 2.7b `9d20ae4` (selection by `slotDefId` with legacy numeric `?slot=` fallback; reordering regression test). 2.7c `2867994` (`src/round/pending-queue.ts`, coalesced per cell, 14-day prune + 200 cap, flush on load + `online` event; reload-replay proof test). 2.7d `4d2abb4` (`labels: {en, sv}` beside canonical `label` with `label === labels.en` enforced; `src/locale.ts` + `labelOf()`; all 9 built-ins have Swedish labels; server result pipeline stays canonical-English by design). Final gate: 3 typechecks, **530 server + 95 client tests, 0 fail**, fixture oracle green (14 rounds — note: earlier "20 fixtures" figures in this file are stale counts from before the ADR-0003 seed consolidation).
+
 ### 2.7a — Legacy schema drop
 - Drop tables: `participants`, `participant_players`, `tee_times`, `round_format_slots` (deprecated bridge since 2.6b/3a/3b) plus their migration-era backfill/synthesis utilities (`createLegacy`, `synthesize-legacy.ts`).
 - Extend the architecture ratchet: no reference to the dropped tables outside migrations.
@@ -1000,7 +1002,7 @@ Purpose: delete carried debt that multiplies in cost once Competition/Series wra
 ### 2.7d — Format-label i18n (deferred TODO from 2.6e)
 - `label: string` → localized label set (`labels: { en, sv? }`), stable `id` unchanged. Additive; no schema change.
 
-**Gate:** all checks/tests green; 20 canonical fixtures numerically identical; ratchet extended and green; reload-replay test proves the queue. Visual gate: not applicable (explicitly — no visible output change). Commit `phase 2.7 complete: scale-up close-out`.
+**Gate (passed 2026-07-03):** all checks/tests green (530 server + 95 client); canonical fixtures numerically identical (14 rounds); ratchet extended and green (negative-control proven); reload-replay test proves the queue. Visual gate: not applicable (explicitly — no visible output change; the only user-visible delta is Swedish labels under a Swedish browser locale, unit-tested). Commit `phase 2.7 complete: scale-up close-out`.
 
 ---
 
