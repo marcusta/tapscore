@@ -340,6 +340,13 @@ export class RoundComponent extends Component {
             }),
         );
 
+        // Coming back into coverage while this round is on screen: replay any
+        // queued (never-acked) score writes without waiting for a reload or a
+        // manual retry. Torn down with the component like every other listener.
+        const onOnline = () => void this.svc.flushPending();
+        window.addEventListener('online', onOnline);
+        this.track(() => window.removeEventListener('online', onOnline));
+
         // Mirror tab + selected slot + current hole back into the query string
         // (replace, so it doesn't pollute history). Gated on a loaded round so the
         // pre-load defaults (score / slot 0 / hole 0) can't clobber the URL we

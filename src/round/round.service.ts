@@ -14,6 +14,7 @@ import type {
 import type { MetadataApplies, MetadataInput } from '../api/setup.gen';
 import { FormatCatalogService } from '../create/format-catalog.service';
 import { clampIndex } from './hole-carousel';
+import { PendingScoreQueue } from './pending-queue';
 
 const ORD_WORDS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
 
@@ -72,6 +73,12 @@ export function metadataApplies(a: MetadataApplies | undefined, par: number, hol
  * token is the only credential; every write goes through `friendlyRounds.score`
  * with no identity attached. Entry is optimistic + idempotent: each cell carries
  * a stable `clientEventId`, so a network retry dedupes rather than double-posts.
+ *
+ * Pending writes also persist to a localStorage-backed `PendingScoreQueue`
+ * (2.7c): every attempt is enqueued before the POST and dequeued on ack, so a
+ * reload in a dead zone keeps the unsent scores. `loadByToken` (and the
+ * browser `online` event, wired by the round component) flushes the current
+ * token's leftovers, each reusing its stored `clientEventId`.
  */
 export class RoundViewService {
     readonly loading = new Signal(false);
@@ -111,12 +118,16 @@ export class RoundViewService {
     private token: string | null = null;
     private loadSeq = 0;
     private resultSeq = 0;
+    /** Guards against overlapping flushes (loadByToken + an `online` event). */
+    private flushing = false;
     /**
      * A legacy numeric `?slot=` index from `InitialPosition`, held until the
      * round's `formatSlots` arrive so it can be translated into a slotDefId
      * (once — the URL is rewritten to the id form as soon as we can).
      */
     private pendingSlotIndex: number | null = null;
+
+    constructor(private readonly queue: PendingScoreQueue = new PendingScoreQueue()) {}
 
     async loadByToken(token: string, initial?: InitialPosition): Promise<void> {
         // Opening a different round resets on-course position + clears the stale
@@ -164,6 +175,10 @@ export class RoundViewService {
         this.cells.set(new Map());
         this.scorecards.set(cards);
         this.balls.set(balls);
+        // Replay writes a previous page load never got acked (dead-zone reload).
+        // Each reuses its stored clientEventId, so an event that actually landed
+        // before the reload dedupes server-side instead of double-counting.
+        await this.flushPending();
     }
 
     /**
@@ -339,8 +354,13 @@ export class RoundViewService {
     ): Promise<void> {
         const key = cellKey(ballId, playHoleId);
         const clientEventId = crypto.randomUUID();
+        // The optimistic overlay updates unconditionally (and synchronously);
+        // persistence + POST only make sense once a share token is known.
         this.patchCell(key, { strokes, metadata, status: 'saving', clientEventId });
-        await this.post(ballId, playHoleId, strokes, metadata, clientEventId);
+        const token = this.token;
+        if (!token) return;
+        this.enqueue(token, ballId, playHoleId, strokes, metadata, clientEventId);
+        await this.post(token, ballId, playHoleId, strokes, metadata, clientEventId);
     }
 
     /** Re-send a cell that failed, reusing its `clientEventId` (idempotent). */
@@ -349,21 +369,82 @@ export class RoundViewService {
         const cell = this.cells.get().get(key);
         if (!cell) return;
         this.patchCell(key, { ...cell, status: 'saving' });
-        await this.post(ballId, playHoleId, cell.strokes, cell.metadata, cell.clientEventId);
+        const token = this.token;
+        if (!token) return;
+        this.enqueue(token, ballId, playHoleId, cell.strokes, cell.metadata, cell.clientEventId);
+        await this.post(token, ballId, playHoleId, cell.strokes, cell.metadata, cell.clientEventId);
+    }
+
+    /**
+     * Re-send this round's queued (never-acked) writes in queue order. Called
+     * after `loadByToken` (reload recovery) and on the browser `online` event
+     * (the round component owns that listener). Each entry re-marks its cell as
+     * an optimistic `saving` overlay — so a flush after reload resurfaces the
+     * pending value in the grid — then goes through the normal post path:
+     * success acks + dequeues, failure leaves it queued and the cell `error`.
+     */
+    async flushPending(): Promise<void> {
+        const token = this.token;
+        if (!token || this.flushing) return;
+        this.flushing = true;
+        try {
+            for (const ev of this.queue.entriesFor(token)) {
+                // The round switched out from under the flush — stop; the
+                // remaining entries stay queued for their own token.
+                if (token !== this.token) return;
+                this.patchCell(cellKey(ev.ballId, ev.playHoleId), {
+                    strokes: ev.strokes,
+                    metadata: ev.metadata,
+                    status: 'saving',
+                    clientEventId: ev.clientEventId,
+                });
+                await this.post(
+                    token,
+                    ev.ballId,
+                    ev.playHoleId,
+                    ev.strokes,
+                    ev.metadata,
+                    ev.clientEventId,
+                );
+            }
+        } finally {
+            this.flushing = false;
+        }
+    }
+
+    /** Persist a write attempt before its POST; best-effort, never throws. */
+    private enqueue(
+        token: string,
+        ballId: string,
+        playHoleId: string,
+        strokes: number | null,
+        metadata: Record<string, unknown> | null | undefined,
+        clientEventId: string,
+    ): void {
+        this.queue.enqueue({
+            token,
+            ballId,
+            playHoleId,
+            strokes,
+            eventType: strokes === null ? 'score_cleared' : 'score_entered',
+            clientEventId,
+            ...(metadata !== undefined ? { metadata } : {}),
+            queuedAt: Date.now(),
+        });
     }
 
     private async post(
+        token: string,
         ballId: string,
         playHoleId: string,
         strokes: number | null,
         metadata: Record<string, unknown> | null | undefined,
         clientEventId: string,
     ): Promise<void> {
-        if (!this.token) return;
         const key = cellKey(ballId, playHoleId);
         try {
             await api.friendlyRounds.score({
-                token: this.token,
+                token,
                 ballId,
                 playHoleId,
                 strokes,
@@ -371,6 +452,10 @@ export class RoundViewService {
                 clientEventId,
                 ...(metadata != null ? { metadata } : {}),
             });
+            // Acked — drop the persisted copy. Keyed on the exact clientEventId:
+            // if a newer edit coalesced this cell's queue entry meanwhile, the
+            // ids differ and the newer pending write stays queued.
+            this.queue.remove(clientEventId);
             const cell = this.cells.get().get(key);
             if (cell && cell.clientEventId === clientEventId) {
                 this.patchCell(key, { ...cell, status: 'saved' });
@@ -378,11 +463,14 @@ export class RoundViewService {
             // The first accepted score promotes the round server-side
             // (round.service recordLatestEvent). Mirror that locally so the
             // status badge flips to "Live" without an extra round refetch.
+            // Guarded on the token so a slow flush for a switched-away round
+            // can't promote the newly-opened one.
             const r = this.round.get();
-            if (r && r.status === 'not_started') {
+            if (token === this.token && r && r.status === 'not_started') {
                 this.round.set({ ...r, status: 'active' });
             }
         } catch {
+            // Stays queued for a later flush (reload / `online` / manual retry).
             const cell = this.cells.get().get(key);
             if (cell && cell.clientEventId === clientEventId) {
                 this.patchCell(key, { ...cell, status: 'error' });
