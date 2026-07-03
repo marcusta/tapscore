@@ -1010,26 +1010,28 @@ Purpose: delete carried debt that multiplies in cost once Competition/Series wra
 
 **Spec:** §4 (FriendlyRound).
 
-**Note (2026-06-14):** the `friendly_rounds` **wrapper + `share_token` + no-auth round-scoped access** were pulled forward into **2.6e M1** so the mobile client could ship as a no-login on-course app. Phase 3 now layers the **account-bound** parts on top: `creator_player_id` becoming meaningful, `post_to_handicap`, WHS posting + eligibility, and the authenticated guest-join. Reconcile the M1 table with this list (add `post_to_handicap`, populate `creator_player_id`) rather than recreating it.
+**Note (2026-06-14):** the `friendly_rounds` **wrapper + `share_token` + no-auth round-scoped access** were pulled forward into **2.6e M1** so the mobile client could ship as a no-login on-course app. Phase 3 now layers the **account-bound** parts on top: `creator_player_id` becoming meaningful, the authenticated guest-claim, score-event attribution, and manual handicap maintenance.
 
-- `friendly_rounds` 1:1 extension of `rounds`: round_id (FK unique), creator_player_id, share_token (unique), post_to_handicap (boolean). (Wrapper + token already exist from 2.6e M1.)
+**Scope decision (2026-07-03):** there is **no federation integration** — no posting to Svenska Golfförbundet or any WHS system. A registered player's handicap index is **manually maintained in-app**: the player edits it; `handicap_history` (Phase 1g, source `'manual'`) records every change append-only with effective date. No score-differential engine, no automatic index revision, no `post_to_handicap` flag. The frozen route handicap policy stays exactly as-is (it drives CH derivation and remains available as informational eligibility metadata), but nothing acts on posting eligibility. An automatic `'calculated'` source remains a possible far-future addition; not planned.
+
+- `friendly_rounds` 1:1 extension of `rounds`: round_id (FK unique), creator_player_id, share_token (unique). (Wrapper + token already exist from 2.6e M1; the authenticated create path populates `creator_player_id`.)
+- Self-serve account creation (needed for guest-claim): register with username/password + display name + handicap index; profile screen edits display name + index.
+- Manual handicap maintenance: editing the index appends to `handicap_history` (`source: 'manual'`, effective date, entered_by = self); profile shows the history. Round setup pre-fills a logged-in player's current index but the per-round snapshot model is unchanged.
 - Share-token join flow: guest creates a `guest_player`, joins via token, reads scoped to the round. (Open trust-based join exists from M1; this adds the account-aware path.)
-- WHS posting: if `post_to_handicap`, a completed round writes to `handicap_history` via `handicap.service`.
-- WHS posting first evaluates the frozen route policy. Standard eligible routes post normally; custom/repeated/subset routes without valid route rating/slope/par treatment complete and score normally but return a visible `route_not_whs_eligible` result instead of manufacturing a handicap record.
 - FriendlyRound leaderboard = Round leaderboard. No new engine.
 - Guest claim: creating an account offers to claim past guest rounds — one-time flip of `ball_players.guest_player_id` → `player_id` (spec §17 open item 5). `display_name_snapshot` stays frozen; the dashboard query picks the rounds up via the live FK.
 - Score-event attribution: populate `recorded_by_player_id` whenever a session exists. Trust-based writes stay legal without login; with login the audit trail is real. Required before Phase 4 — competition scoring needs who/when.
 - Login stays a side door that *enriches* (dashboard, handicap history, claims), never gates create/score. This principle survives into competitions: round-scoped links remain token-scoped for markers.
 
 **HTML render expectations:**
-- Round page header shows the FriendlyRound wrapper metadata: creator, share token, `post_to_handicap` flag.
-- If the round is completed and `post_to_handicap` is true, the post-round section shows the WHS entries that would/did get written to `handicap_history` per participant, with the arithmetic.
+- Round page header shows the FriendlyRound wrapper metadata: creator (when set), share token.
 - Index page distinguishes friendly rounds from plain rounds (badge / column).
-- Seed: `friendly-round-with-posting` — creator + guest join via share token, standard eligible route completes, handicap history row appears.
-- Seed: `friendly-custom-route-not-postable` — repeated/custom-SI route completes with results but no handicap history write; page shows the exact ineligibility reason.
+- Profile/handicap surface: current index + append-only history (each row: index, source, effective date, entered by).
+- Seed: `player-manual-handicap` — registered player with several manual `handicap_history` entries; profile/render shows the chain.
 - Seed: `guest-claim` — guest plays a round, account created + claim runs, dashboard query returns the round; the scorecard still renders the frozen display name.
+- Seed: `attributed-scoring` — a logged-in player's score events carry `recorded_by_player_id`; anonymous token events stay null.
 
-**Mandatory stop + focused visual review.** Generate the FriendlyRound verification page, give one clickable link, and ask the user to check only wrapper identity/share behavior plus the contrast between eligible posting and `route_not_whs_eligible`. Commit after approval: `phase 3 complete: friendly round`.
+**Mandatory stop + focused visual review.** Generate the FriendlyRound verification page, give one clickable link, and ask the user to check wrapper identity/share behavior, the guest-claim flip, manual handicap history, and recorded_by attribution. Commit after approval: `phase 3 complete: friendly round`.
 
 ---
 

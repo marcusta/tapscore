@@ -250,7 +250,7 @@ A Round configured for low-friction, ad-hoc play. A FriendlyRound is a 1:1 exten
 - Share token (link-based join)
 - Guest players allowed (name + handicap + gender without user account)
 - Minimal-auth entry
-- Post-to-handicap flag (does this round post to WHS handicap history?)
+- ~~Post-to-handicap flag~~ **(Dropped 2026-07-03: no federation/WHS integration — the handicap index is manually maintained in-app; `handicap_history` records manual edits only.)**
 - Not part of any tour or series
 
 Leaderboard of a FriendlyRound is the Round's leaderboard — same engine, different audience.
@@ -613,7 +613,7 @@ The current codebase has `manual_score_out`, `manual_score_in`, `manual_score_to
 6. **Scoring type dimension on results** — results row is keyed by `(participant, scoring_type)`, so gross and net have separate position and points.
 7. **No-result vs pickup** — `null` means did not play the hole, `0` means picked up (penalty in stableford, max in net). Different semantics.
 8. **Round is context-free** — a CompetitionRound and a FriendlyRound share the same Round engine. Same scoring code, same leaderboard code, same start-list code.
-9. **Handicap posting** — any Round can post to WHS handicap history, regardless of whether it is friendly or competitive. Decided per-round via a flag.
+9. **Handicap posting** — ~~any Round can post to WHS handicap history via a per-round flag~~ **Superseded (2026-07-03): no federation/WHS posting integration exists or is planned. The handicap index is manually maintained in-app; `handicap_history` is the append-only record of manual edits (source `'manual'`). The frozen route handicap policy remains for CH derivation and informational eligibility only. A `'calculated'` source is a possible far-future addition.**
 
 ---
 
@@ -648,7 +648,7 @@ To resolve before or during implementation:
 
 1. **Venue / Bay** as first-class entities or strings on round? Depends on whether simulator booking (across rounds and competitions) becomes a use case.
 2. **Media** (photos / video) — placeholder now, or defer entirely?
-3. **Handicap calculation engine** — reuse existing WHS implementation or wrap a library? Current codebase has one worth porting.
+3. **Handicap calculation engine** — ~~reuse existing WHS implementation or wrap a library?~~ **Resolved (2026-07-03): out of scope. Index is manually maintained in-app (see §14 item 9). Course/playing-handicap derivation from the index (already built) is all the calculation the app does.**
 4. **Real-time updates** — push (websockets) or poll? Affects leaderboard architecture.
 5. **Offline score entry** — expected for outdoor play on poor cell coverage. Design-in from day one or defer?
 6. **Notifications** — in-app, email, push? Not modelled here; out of scope for the core domain but needs a touchpoint.
