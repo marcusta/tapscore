@@ -156,10 +156,13 @@ export class RoundsComponent extends Component {
             complete: 'Done',
         };
 
+        // Admin/internal rounds (created via the direct RoundDefinition path,
+        // not the no-login FriendlyRound flow) have no share token, so this
+        // list is read-only — there's no live score/results view to drill
+        // into (the legacy `/score` + `/results` auth routes were dead stubs
+        // and are deleted in 2.6e M6). Scoring/results happen at `/round?token=`.
         this.$each(this.ref(frag, 'list'), this.svc.rounds, (r, _i, track) => this.wireEl(rowTpl, {
-            row: {
-                onclick: () => this.router.navigate('/score', { query: { roundId: r.id } }),
-            },
+            row: { disabled: true },
             course: () => r.courseNameSnapshot ?? 'Round',
             status: {
                 textContent: () => statusText[r.status] ?? r.status,
