@@ -92,4 +92,7 @@ test('GET /dashboard/my-rounds returns created rounds, and produced rounds after
     expect(body.produced).toHaveLength(1);
     expect(body.produced[0].round.id).toBe(created.round.id);
     expect(body.produced[0].ballIds).toHaveLength(1);
+    // The produced entry carries its own share token (joined against
+    // friendly_rounds server-side) — the same token the round was created with.
+    expect(body.produced[0].shareToken).toBe(created.friendlyRound.shareToken);
 });

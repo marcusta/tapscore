@@ -5,6 +5,7 @@ export interface DashboardRoundEntry {
     round: Round;
     ballIds: string[];
     slots: DashboardSlotEntry[];
+    shareToken: null | string;
 }
 
 export interface FriendlyRound {

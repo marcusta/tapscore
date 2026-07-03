@@ -8,10 +8,8 @@ import type { FriendlyRound, Round } from '../api/friendly-rounds.gen';
 
 export interface MyRoundEntry {
     round: Round;
-    /** Share token for navigation. Produced entries don't carry the friendly
-     * wrapper, so the token is joined from `created` or the public rounds
-     * list; null when the round has no reachable friendly wrapper (the row
-     * renders but can't navigate). */
+    /** Share token for navigation; null when the round has no friendly
+     * wrapper (the row renders but can't navigate). */
     token: string | null;
     played: boolean;
     created: boolean;
@@ -27,19 +25,15 @@ export function roleLabel(e: Pick<MyRoundEntry, 'played' | 'created'>): string {
  * Merge `dashboard.myRounds` into one list, newest first.
  *
  * - Deduped by `round.id`; a round both created and played keeps both flags.
- * - Tokens come from `created` entries directly; produced-only rounds join
- *   against `allRounds` (the landing's public friendly-round list) by round id.
+ * - Tokens come straight from each half — `produced` now carries its own
+ *   `shareToken` (server-joined against `friendly_rounds`), so no client-side
+ *   join against the public rounds list is needed.
  * - Order: date descending, then round id for a stable tie-break.
  */
 export function buildMyRounds(
-    produced: readonly Pick<DashboardRoundEntry, 'round'>[],
+    produced: readonly Pick<DashboardRoundEntry, 'round' | 'shareToken'>[],
     created: readonly { friendlyRound: FriendlyRound; round: Round }[],
-    allRounds: readonly { friendlyRound: FriendlyRound; round: Round }[] = [],
 ): MyRoundEntry[] {
-    const tokenByRoundId = new Map<string, string>();
-    for (const item of allRounds) {
-        tokenByRoundId.set(item.round.id, item.friendlyRound.shareToken);
-    }
     const byId = new Map<string, MyRoundEntry>();
     for (const item of created) {
         byId.set(item.round.id, {
@@ -56,7 +50,7 @@ export function buildMyRounds(
         } else {
             byId.set(item.round.id, {
                 round: item.round,
-                token: tokenByRoundId.get(item.round.id) ?? null,
+                token: item.shareToken,
                 played: true,
                 created: false,
             });

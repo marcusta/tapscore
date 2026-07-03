@@ -3,9 +3,9 @@ import { buildMyRounds, roleLabel } from '../../src/landing/my-rounds';
 import type { FriendlyRound, Round } from '../../src/api/friendly-rounds.gen';
 
 // Pure merge of dashboard.myRounds (produced + created) into the deduped
-// landing "My rounds" list, incl. the token join for produced-only entries
-// (the dashboard's produced half carries no share token — see the client-side
-// join note in landing.service).
+// landing "My rounds" list. Both halves now carry their own share token —
+// produced entries are server-joined against `friendly_rounds` — so this is
+// a straight merge/dedupe with no client-side token join.
 
 function round(id: string, date: string): Round {
     return { id, date } as unknown as Round;
@@ -25,11 +25,14 @@ function listItem(id: string, date: string, token: string) {
     return { friendlyRound: friendly(id, token), round: round(id, date) };
 }
 
+function produced(id: string, date: string, shareToken: string | null) {
+    return { round: round(id, date), shareToken };
+}
+
 test('created-only and produced-only rounds both surface, newest first', () => {
     const out = buildMyRounds(
-        [{ round: round('r1', '2026-07-01') }],
+        [produced('r1', '2026-07-01', 'tok-1')],
         [listItem('r2', '2026-07-02', 'tok-2')],
-        [listItem('r1', '2026-07-01', 'tok-1'), listItem('r2', '2026-07-02', 'tok-2')],
     );
     expect(out.map((e) => e.round.id)).toEqual(['r2', 'r1']);
     expect(out[0]).toMatchObject({ token: 'tok-2', played: false, created: true });
@@ -38,19 +41,17 @@ test('created-only and produced-only rounds both surface, newest first', () => {
 
 test('a round both created and played dedupes to ONE entry with both flags', () => {
     const out = buildMyRounds(
-        [{ round: round('r1', '2026-07-01') }],
+        [produced('r1', '2026-07-01', 'tok-1')],
         [listItem('r1', '2026-07-01', 'tok-1')],
-        [],
     );
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ token: 'tok-1', played: true, created: true });
 });
 
-test('produced rounds join their token from the public list; unjoinable ⇒ null token', () => {
+test('produced rounds carry their own token; no wrapper ⇒ null token', () => {
     const out = buildMyRounds(
-        [{ round: round('r1', '2026-07-01') }, { round: round('r2', '2026-07-02') }],
+        [produced('r1', '2026-07-01', 'tok-1'), produced('r2', '2026-07-02', null)],
         [],
-        [listItem('r1', '2026-07-01', 'tok-1')],
     );
     expect(out.find((e) => e.round.id === 'r1')!.token).toBe('tok-1');
     expect(out.find((e) => e.round.id === 'r2')!.token).toBeNull();
@@ -58,8 +59,7 @@ test('produced rounds join their token from the public list; unjoinable ⇒ null
 
 test('same-date rounds order stably by id', () => {
     const out = buildMyRounds(
-        [{ round: round('b', '2026-07-01') }, { round: round('a', '2026-07-01') }],
-        [],
+        [produced('b', '2026-07-01', null), produced('a', '2026-07-01', null)],
         [],
     );
     expect(out.map((e) => e.round.id)).toEqual(['a', 'b']);
@@ -67,8 +67,7 @@ test('same-date rounds order stably by id', () => {
 
 test('duplicate produced entries (one ball per row upstream) collapse to one', () => {
     const out = buildMyRounds(
-        [{ round: round('r1', '2026-07-01') }, { round: round('r1', '2026-07-01') }],
-        [],
+        [produced('r1', '2026-07-01', 'tok-1'), produced('r1', '2026-07-01', 'tok-1')],
         [],
     );
     expect(out).toHaveLength(1);

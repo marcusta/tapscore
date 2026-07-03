@@ -67,6 +67,9 @@ test('dashboard lists a player round with per-slot PH + finishing position', asy
     const dash = await ctx.dashboardService.forPlayer(ann.id);
     expect(dash).toHaveLength(1);
     expect(dash[0].round.id).toBe(round.id);
+    // Round created directly via RoundService (not FriendlyRoundService) —
+    // no friendly wrapper, so no share token to join.
+    expect(dash[0].shareToken).toBeNull();
     const slot = dash[0].slots[0];
     expect(slot.formatId).toBe('stableford_individual');
     expect(slot.playingHandicap).toBe(10);

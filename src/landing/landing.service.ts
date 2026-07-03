@@ -17,9 +17,9 @@ export interface FriendlyRoundListItem {
  *
  * When a session exists the landing is enriched with "My rounds" —
  * `dashboard/my-rounds` (produced + created), merged/deduped by
- * `buildMyRounds`. Produced entries carry no share token, so tokens for them
- * are joined from the public list above. Logged out, `loadMine` is never
- * called and the landing renders exactly as before.
+ * `buildMyRounds`. Each half carries its own share token (produced entries
+ * are server-joined against `friendly_rounds`). Logged out, `loadMine` is
+ * never called and the landing renders exactly as before.
  */
 export class LandingService {
     readonly loading = new Signal(false);
@@ -38,7 +38,7 @@ export class LandingService {
     readonly myRounds = new Computed<MyRoundEntry[]>(() => {
         const mine = this.mine.get();
         if (!mine) return [];
-        return buildMyRounds(mine.produced, mine.created, this.rounds.get());
+        return buildMyRounds(mine.produced, mine.created);
     });
 
     async load(): Promise<void> {

@@ -42,6 +42,9 @@ export interface DashboardRoundEntry {
     /** The player's ball ids in this round (1 own-ball + any team balls). */
     ballIds: string[];
     slots: DashboardSlotEntry[];
+    /** Share token for navigation, joined from `friendly_rounds`. Null when
+     *  the round has no friendly wrapper (e.g. a round created without one). */
+    shareToken: string | null;
 }
 
 export class DashboardService {
@@ -91,6 +94,18 @@ export class DashboardService {
             if (!list.includes(row.ball_id)) list.push(row.ball_id);
         }
 
+        // Batch-join share tokens for every round at once (not per-round in
+        // the loop below) — a round without a friendly wrapper has none.
+        const tokenRows =
+            order.length === 0
+                ? []
+                : await this.db
+                      .selectFrom('friendly_rounds')
+                      .select(['round_id', 'share_token'])
+                      .where('round_id', 'in', order)
+                      .execute();
+        const tokenByRoundId = new Map(tokenRows.map((r) => [r.round_id, r.share_token]));
+
         const out: DashboardRoundEntry[] = [];
         for (const roundId of order) {
             const round = await this.roundService.getById(roundId);
@@ -129,7 +144,7 @@ export class DashboardService {
                 }
             }
             slots.sort((a, b) => (a.slotIndex ?? 0) - (b.slotIndex ?? 0));
-            out.push({ round, ballIds, slots });
+            out.push({ round, ballIds, slots, shareToken: tokenByRoundId.get(roundId) ?? null });
         }
         return out;
     }
