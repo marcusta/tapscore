@@ -17,6 +17,7 @@ export interface SlotResultView {
     allowanceLabel: string;
     cards: ScoreGridSection[];
     leaderboard: (RankedSection | MatchSummarySection)[];
+    subjectLabels?: { ballId: string; label: string; memberBallIds: string[] }[];
 }
 
 export interface RouteSectionRef {

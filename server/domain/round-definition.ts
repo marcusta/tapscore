@@ -162,9 +162,25 @@ const SlotTeamGrouping = Type.Object({
             label: Type.String({ minLength: 1 }),
             producerDefIds: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
         }),
-        { minItems: 2 },
+        // A side format's own teamCount requirement enforces ≥2 teams; an
+        // aggregated slot (ADR-0004 `sideAggregation`) may legitimately group
+        // a SINGLE side alongside ungrouped individual subjects.
+        { minItems: 1 },
     ),
 });
+
+/**
+ * ADR-0004 — sides as subjects. When present on a slot, each `teamGrouping`
+ * team is not a side handed to the format: it is ONE virtual scoring subject.
+ * The engine synthesizes the side's per-hole value stream at materialisation
+ * (best net among the side's balls for `best_net`) and presents it to the
+ * UNCHANGED format as an ordinary ball. Stored as data so future variants
+ * ('sum', 'worst') are new values, not new formats. Only `best_net` exists.
+ */
+export const SlotSideAggregation = Type.Object({
+    type: Type.Literal('best_net'),
+});
+export type SlotSideAggregation = Static<typeof SlotSideAggregation>;
 
 // --- Route itinerary, SI provenance, handicap policy (Slice 3b) ------------
 //
@@ -282,6 +298,15 @@ const SlotDefinition = Type.Object({
     allowanceConfig: FormatAllowanceConfig,
     ballSelector: Type.Optional(SlotBallSelector),
     teamGrouping: Type.Optional(SlotTeamGrouping),
+    /**
+     * ADR-0004 — when set, `teamGrouping` teams are AGGREGATED into virtual
+     * scoring subjects (one per team) instead of being handed to the format
+     * as sides. Balls not covered by any team stay individual subjects.
+     * Only meaningful on ball-ranking formats; the compiler rejects it on
+     * side formats (`requiresSlotTeamGrouping`) and on formats consuming
+     * per-ball metadata.
+     */
+    sideAggregation: Type.Optional(SlotSideAggregation),
     /**
      * Per-format configuration — birdieRule (umbrella), handicapMode
      * (köpenhamnare), etc. Opaque at the RoundDefinition layer; each

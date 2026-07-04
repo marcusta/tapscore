@@ -283,13 +283,28 @@ function renderMatchSummary(section: MatchSummarySection, nameOf: (id: string) =
 </div>`;
 }
 
+/**
+ * Per-slot name resolver: an aggregated side's VIRTUAL subject id (ADR-0004)
+ * names no persisted ball — the slot's `subjectLabels` carries its display
+ * label (the side's team label). Prefer that; fall back to ball metadata.
+ */
+function slotNameOf(
+    slot: { subjectLabels?: { ballId: string; label: string }[] },
+    ballNameById: (id: string) => string,
+): (id: string) => string {
+    if (!slot.subjectLabels || slot.subjectLabels.length === 0) return ballNameById;
+    const byId = new Map(slot.subjectLabels.map((s) => [s.ballId, s.label]));
+    return (id) => byId.get(id) ?? ballNameById(id);
+}
+
 export function renderScorecards(ctx: RoundRenderContext, state: RoundRenderState): string {
     const { roundResult } = ctx;
     const { ballNameById } = state;
     const slots = roundResult.slots
         .map((slot) => {
+            const nameOf = slotNameOf(slot, ballNameById);
             const cards = slot.cards
-                .map((c) => renderScoreGridSection(c, roundResult.routeSections, ballNameById))
+                .map((c) => renderScoreGridSection(c, roundResult.routeSections, nameOf))
                 .join('\n');
             return `
 <h3 class="slot-divider">Slot #${slot.slotIndex} · ${esc(slot.formatLabel)} <span class="muted">· ${esc(slot.allowanceLabel)}</span></h3>
@@ -308,11 +323,12 @@ export function renderLeaderboard(ctx: RoundRenderContext, state: RoundRenderSta
     const { ballNameById } = state;
     const slots = roundResult.slots
         .map((slot) => {
+            const nameOf = slotNameOf(slot, ballNameById);
             const cols = slot.leaderboard
                 .map((sec) =>
                     sec.kind === 'ranked'
-                        ? renderRanked(sec, ballNameById)
-                        : renderMatchSummary(sec, ballNameById),
+                        ? renderRanked(sec, nameOf)
+                        : renderMatchSummary(sec, nameOf),
                 )
                 .join('');
             const header = `Slot #${slot.slotIndex} · ${esc(slot.formatLabel)} @ ${esc(slot.allowanceLabel)}`;

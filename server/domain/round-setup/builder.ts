@@ -396,6 +396,15 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
 
         const individuals: string[] = [];
         const teamStratIds: string[] = [];
+        // ADR-0004 — multi-ball (side) subjects on a ball format. Each side's
+        // members keep their own balls; the side is AGGREGATED into one
+        // virtual subject at materialisation. The builder only emits data:
+        // the member balls, the side grouping, and the aggregation marker.
+        const sides: { label: string; producerDefIds: string[] }[] = [];
+        const sideStratIds = new Set<string>();
+        const sideOwnBallProducers: string[] = [];
+        const formatTakesMetadata =
+            (plugin.descriptor.requirements.scoreEntry?.metadata?.length ?? 0) > 0;
         sel.subjects.forEach((subj, si) => {
             const subjPath = `${fmtPath}.subjects[${si}]`;
             if (subj.kind === 'player') {
@@ -418,12 +427,57 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
                     });
                     return;
                 }
-                if (teamKind(team) !== 'single_ball') {
-                    diags.push({
-                        code: 'ball_format_rejects_side_subject',
-                        message: `format '${sel.formatId}' ranks balls, but team '${team.id}' is a multi-ball side — score it with a side format (better-ball etc.)`,
-                        path: subjPath,
-                    });
+                if (teamKind(team) === 'multi_ball') {
+                    // A side as a ball-format subject (ADR-0004). Formats
+                    // consuming per-ball metadata (umbrella's GIR) refuse:
+                    // aggregating metadata across a side is undefined.
+                    if (formatTakesMetadata) {
+                        diags.push({
+                            code: 'format_metadata_rejects_side_subject',
+                            message: `format '${sel.formatId}' consumes per-ball metadata (GIR etc.), which has no defined aggregation across a side — pick a metadata-free format for team '${team.id}', or score its members individually`,
+                            path: subjPath,
+                        });
+                        return;
+                    }
+                    const sideProducers: string[] = [];
+                    for (const m of team.members) {
+                        if (isPlayerMember(m)) {
+                            if (!rosterIds.has(m.producerDefId)) {
+                                diags.push({
+                                    code: 'unknown_producer_in_team',
+                                    message: `side '${team.id}' member '${m.producerDefId}' is not in the roster`,
+                                    path: subjPath,
+                                });
+                                continue;
+                            }
+                            sideStratIds.add(ensureOwnBallStrat());
+                            sideOwnBallProducers.push(m.producerDefId);
+                            sideProducers.push(m.producerDefId);
+                        } else {
+                            const nested = teamsById.get(m.teamId);
+                            if (!nested) {
+                                diags.push({
+                                    code: 'unknown_subject_team',
+                                    message: `side '${team.id}' member team '${m.teamId}' is not a round team`,
+                                    path: subjPath,
+                                });
+                                continue;
+                            }
+                            if (teamKind(nested) !== 'single_ball') {
+                                diags.push({
+                                    code: 'nested_team_must_be_single_ball',
+                                    message: `side '${team.id}' member team '${nested.id}' must be a single-ball team`,
+                                    path: subjPath,
+                                });
+                                continue;
+                            }
+                            sideStratIds.add(ensureTeamStrat(nested));
+                            for (const nm of nested.members) {
+                                if (isPlayerMember(nm)) sideProducers.push(nm.producerDefId);
+                            }
+                        }
+                    }
+                    sides.push({ label: team.label ?? team.id, producerDefIds: sideProducers });
                     return;
                 }
                 for (const m of team.members) {
@@ -445,9 +499,31 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
             }
         });
 
+        // A producer can't be BOTH an individual subject and a side member in
+        // the same slot: the shared own-ball strategy mints one ball per
+        // producer, and one ball can't simultaneously stand alone and be
+        // aggregated into a side.
+        if (sides.length > 0) {
+            const inSides = new Set(sides.flatMap((s) => s.producerDefIds));
+            for (const pid of individuals) {
+                if (inSides.has(pid)) {
+                    diags.push({
+                        code: 'side_member_also_individual_subject',
+                        message: `format '${sel.formatId}' lists producer '${pid}' both as an individual subject and inside a side — one ball cannot be both`,
+                        path: `${fmtPath}.subjects`,
+                    });
+                }
+            }
+        }
+
         const strategyDefIds: string[] = [];
-        if (individuals.length > 0) strategyDefIds.push(ensureOwnBallStrat());
+        if (individuals.length > 0 || sideOwnBallProducers.length > 0) {
+            strategyDefIds.push(ensureOwnBallStrat());
+        }
         strategyDefIds.push(...teamStratIds);
+        for (const sid of sideStratIds) {
+            if (!strategyDefIds.includes(sid)) strategyDefIds.push(sid);
+        }
 
         // Whole-roster detection: when the subjects are exactly every roster
         // producer as individual players (no team subjects), the selection is
@@ -461,7 +537,14 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
         // subject keeps today's explicit selector untouched. `individuals` is
         // roster-validated above, so set-size equality ⇔ full coverage.
         const coversWholeRoster =
-            teamStratIds.length === 0 && new Set(individuals).size === rosterIds.size;
+            teamStratIds.length === 0 &&
+            sides.length === 0 &&
+            new Set(individuals).size === rosterIds.size;
+
+        // Own-ball narrowing: the chosen individuals PLUS every side member
+        // playing their own ball (nested single-ball team members ride their
+        // team-ball strategy instead).
+        const ownBallProducers = [...individuals, ...sideOwnBallProducers];
 
         slotByIndex[i] = {
             id: `slot-${i}`,
@@ -472,8 +555,15 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
             allowanceConfig: sel.allowanceConfig ?? { type: 'flat', pct: 100 },
             ballSelector: {
                 strategyDefIds,
-                ...(individuals.length > 0 && !coversWholeRoster ? { producerDefIds: individuals } : {}),
+                ...(ownBallProducers.length > 0 && !coversWholeRoster
+                    ? { producerDefIds: ownBallProducers }
+                    : {}),
             },
+            // ADR-0004 — sides become virtual subjects: the grouping names the
+            // member balls; the marker tells materialisation to aggregate.
+            ...(sides.length > 0
+                ? { teamGrouping: { teams: sides }, sideAggregation: { type: 'best_net' as const } }
+                : {}),
             ...(sel.formatConfig !== undefined ? { formatConfig: sel.formatConfig } : {}),
         };
     });

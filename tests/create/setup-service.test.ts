@@ -45,6 +45,7 @@ const { di } = await import('@basics/core/client/core');
 function descriptor(
     id: string,
     balls: FormatDescriptor['requirements']['balls'],
+    scoreEntry?: FormatDescriptor['requirements']['scoreEntry'],
 ): FormatDescriptor {
     return {
         id,
@@ -53,7 +54,7 @@ function descriptor(
         description: '',
         scoringMode: 'stableford',
         teamShape: 'individual',
-        requirements: { balls },
+        requirements: { balls, ...(scoreEntry ? { scoreEntry } : {}) },
         defaults: { allowanceConfig: { type: 'flat', pct: 100 } },
         metrics: [],
         clientAdapterId: null,
@@ -69,6 +70,12 @@ const catalogDescriptors: FormatDescriptor[] = [
         requiresSlotTeamGrouping: true,
         slotTeamGrouping: { teamSize: { min: 2, max: 2 }, teamCount: { min: 2 } },
     }),
+    // Metadata-consuming ball format — refuses side subjects (ADR-0004).
+    descriptor(
+        'umbrella_individual',
+        { producerCount: { min: 1, max: 1 }, ballMode: 'own' },
+        { strokes: true, metadata: [{ key: 'gir', label: 'GIR', kind: 'boolean' }] },
+    ),
 ];
 
 const course: SetupCourse = {
@@ -522,21 +529,65 @@ test('derivedCH picks the gender-matched rating and mirrors the WHS rounding', (
     expect(d.rating.gender).toBe('F');
 });
 
-test("switching a subject team's kind prunes the now-mismatched format tick", () => {
+test("switching a subject team's kind prunes only where the kind no longer fits (ADR-0004)", () => {
     const svc = makeService();
     const k1 = addPlayer(svc, 'Anna', '10');
     const k2 = addPlayer(svc, 'Bert', '20');
+    // Metadata-free ball format: takes single-ball teams AND (ADR-0004) sides.
     const ballSlot = addSlot(svc, 'stableford_individual');
+    // Metadata-consuming ball format: never takes a side.
+    const metaSlot = addSlot(svc, 'umbrella_individual');
 
     svc.addTeam();
     const team = svc.teams.get().at(-1)!.key;
     svc.setTeamMember(team, k1, true);
     svc.setTeamMember(team, k2, true);
     svc.setSubjectTeam(ballSlot, team, true);
+    svc.setSubjectTeam(metaSlot, team, true);
     expect(svc.subjectTeamIn(ballSlot, team)).toBe(true);
+    expect(svc.subjectTeamIn(metaSlot, team)).toBe(true);
 
-    svc.setTeamKind(team, 'multi_ball'); // no longer a ball format's subject class
-    expect(svc.subjectTeamIn(ballSlot, team)).toBe(false);
+    svc.setTeamKind(team, 'multi_ball');
+    // A side stays a valid stableford subject (virtual aggregation)…
+    expect(svc.subjectTeamIn(ballSlot, team)).toBe(true);
+    // …but is pruned from the metadata format (no defined GIR aggregation).
+    expect(svc.subjectTeamIn(metaSlot, team)).toBe(false);
+});
+
+test('a ball format emits a side subject: draft carries the multi-ball team + team subject (ADR-0004)', async () => {
+    const svc = makeService();
+    const k1 = addPlayer(svc, 'Anna', '10');
+    const k2 = addPlayer(svc, 'Bert', '20');
+    const k3 = addPlayer(svc, 'Cleo', '5');
+    const slot = addSlot(svc, 'stableford_individual');
+
+    svc.addTeam();
+    const side = svc.teams.get().at(-1)!.key;
+    svc.setTeamKind(side, 'multi_ball');
+    svc.setTeamMember(side, k1, true);
+    svc.setTeamMember(side, k2, true);
+    svc.setSubjectTeam(slot, side, true);
+    // Cleo rides along as an individual subject next to the side.
+    svc.setSubjectPlayer(slot, k1, false);
+    svc.setSubjectPlayer(slot, k2, false);
+
+    await svc.submit();
+    expect(lastDraft.teams).toEqual([
+        {
+            id: String(side),
+            label: 'Team A',
+            formation: 'scramble', // default preset label; scoring-irrelevant metadata
+            kind: 'multi_ball',
+            members: [
+                { producerDefId: 'p1', allowancePct: 100 },
+                { producerDefId: 'p2', allowancePct: 100 },
+            ],
+        },
+    ]);
+    expect(lastDraft.formats[0].subjects).toEqual([
+        { kind: 'player', producerDefId: 'p3' },
+        { kind: 'team', teamId: String(side) },
+    ]);
 });
 
 test('removing a team drops it from nesting sides and from format subjects', () => {

@@ -142,6 +142,30 @@ describe('format architecture invariants', () => {
         expect(offenders).toEqual([]);
     });
 
+    it('keeps side aggregation OUT of format modules (ADR-0004)', () => {
+        // Sides-as-subjects is an ENGINE seam: the materializer synthesizes a
+        // side's virtual stream and the format scores ordinary subjects. A
+        // format module that mentions the aggregation marker, imports the
+        // synthesis module, or hand-rolls a best_net branch is re-bundling
+        // composition into scoring — exactly what ADR-0004 forbids. (This is
+        // the guard against a future `kopenhamnare_better_ball`-style format
+        // variant per composition.)
+        const AGGREGATION_TOKENS = [
+            'sideAggregation',
+            'side-aggregation',
+            'virtualSideBallId',
+            'best_net',
+        ];
+        const offenders: string[] = [];
+        for (const f of files) {
+            if (!f.rel.startsWith('server/domain/strategies/formats/')) continue;
+            for (const token of AGGREGATION_TOKENS) {
+                if (f.text.includes(token)) offenders.push(`${f.rel} ⟶ ${token}`);
+            }
+        }
+        expect(offenders).toEqual([]);
+    });
+
     // --- Phase 2.7a — legacy bridge schema deleted ---------------------------
     //
     // The four legacy bridge tables (participants / participant_players /

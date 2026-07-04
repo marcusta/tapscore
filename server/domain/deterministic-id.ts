@@ -20,7 +20,12 @@ export type IdNamespace =
     | 'tapscore:slot:v1'
     | 'tapscore:round_ball_strategy:v1'
     | 'tapscore:round_play_hole:v1'
-    | 'tapscore:playing_group:v1';
+    | 'tapscore:playing_group:v1'
+    // ADR-0004 — virtual side subjects. NEVER persisted (synthesized at
+    // materialisation), but content-addressed on (slot_def_id, team label) so
+    // the virtual subject's identity survives recompiles exactly like the
+    // persisted ids do.
+    | 'tapscore:virtual_side_ball:v1';
 
 /**
  * Deterministic id for compiler outputs. Pure function of `(namespace,

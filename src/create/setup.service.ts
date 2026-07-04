@@ -446,11 +446,10 @@ export class SetupService {
     private pruneStaleTeamSubjects(): void {
         this.formatSlots.set(
             this.formatSlots.get().map((slot) => {
-                const side = this.isSideFormat(slot.formatId);
                 let changed = false;
                 const next = { ...slot.subjectTeams };
                 for (const t of this.teams.get()) {
-                    if (next[t.key] === true && (t.kind === 'multi_ball') !== side) {
+                    if (next[t.key] === true && !this.teamKindFitsFormat(slot.formatId, t.kind)) {
                         delete next[t.key];
                         changed = true;
                     }
@@ -464,6 +463,17 @@ export class SetupService {
      * players + single-ball teams. Drives which subjects a slot lists. */
     isSideFormat(formatId: string): boolean {
         return this.catalog.isSideFormat(formatId);
+    }
+
+    /**
+     * Can a team of `kind` be a subject of `formatId`? Side formats take
+     * multi-ball teams only; ball formats take single-ball teams always, and
+     * multi-ball (side) teams too when the format supports side aggregation
+     * (ADR-0004 — metadata-consuming formats like umbrella do not).
+     */
+    teamKindFitsFormat(formatId: string, kind: 'single_ball' | 'multi_ball'): boolean {
+        if (this.isSideFormat(formatId)) return kind === 'multi_ball';
+        return kind === 'single_ball' || this.catalog.acceptsSideSubjects(formatId);
     }
 
     removeTeam(key: number): void {
@@ -964,13 +974,15 @@ export class SetupService {
                     }
                 }
             }
-            // Only emit a team subject whose kind matches the format — guards a
-            // stale tick left after the slot's format changed.
+            // Only emit a team subject whose kind fits the format — guards a
+            // stale tick left after the slot's format changed. A ball format
+            // may take a multi-ball side when it supports side aggregation
+            // (ADR-0004); the server derives teamGrouping + the marker.
             for (const team of this.teams.get()) {
                 if (
                     slot.subjectTeams[team.key] === true &&
                     liveTeamKeys.has(team.key) &&
-                    (team.kind === 'multi_ball') === side
+                    this.teamKindFitsFormat(slot.formatId, team.kind)
                 ) {
                     subjects.push({ kind: 'team', teamId: String(team.key) });
                 }

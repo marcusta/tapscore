@@ -301,7 +301,12 @@ test('a side format given a single-ball (merge) team is a structured diagnostic'
     expect(r.diagnostics.some((d) => d.code === 'side_format_requires_side_subjects')).toBe(true);
 });
 
-test('a ball format given a multi-ball (side) team is a structured diagnostic', async () => {
+test('a metadata-consuming ball format given a side subject is a structured diagnostic (ADR-0004)', async () => {
+    // ADR-0004 flipped the general rule: a ball format ACCEPTS multi-ball
+    // (side) subjects — the engine aggregates the side into one virtual
+    // subject. The remaining refusal is metadata-consuming formats
+    // (umbrella's GIR): aggregating per-ball metadata across a side is
+    // undefined, so the builder rejects with a structured diagnostic.
     const ctx = await setup(4);
     const draft: RoundSetupDraft = {
         courseId: ctx.courseId,
@@ -310,11 +315,10 @@ test('a ball format given a multi-ball (side) team is a structured diagnostic', 
         teams: [
             { id: 'A', label: 'Side A', kind: 'multi_ball', members: [{ producerDefId: 'p1', allowancePct: 100 }, { producerDefId: 'p2', allowancePct: 100 }] },
         ],
-        // stableford_individual ranks balls; a side team is not a ball.
-        formats: [{ formatId: 'stableford_individual', subjects: [{ kind: 'team', teamId: 'A' }] }],
+        formats: [{ formatId: 'umbrella_individual', subjects: [{ kind: 'team', teamId: 'A' }] }],
     };
     const r = buildRoundDefinition(draft);
     expect(r.ok).toBe(false);
     if (r.ok) throw new Error('expected rejection');
-    expect(r.diagnostics.some((d) => d.code === 'ball_format_rejects_side_subject')).toBe(true);
+    expect(r.diagnostics.some((d) => d.code === 'format_metadata_rejects_side_subject')).toBe(true);
 });

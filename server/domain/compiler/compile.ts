@@ -685,6 +685,40 @@ function compileSlot(
     // grouping, …) still runs.
     const anyBall = plugin.descriptor.scoresAnyBall === true;
 
+    // --- Side aggregation (ADR-0004) — structural preconditions -------------
+    // Aggregation is slot DATA, validated generically off the descriptor:
+    //   - a side format consumes the grouping itself; aggregating it away is
+    //     contradictory;
+    //   - a format consuming per-ball metadata (umbrella's GIR) has no defined
+    //     metadata aggregation — refuse rather than mis-score;
+    //   - aggregation without a grouping has nothing to aggregate.
+    const aggregation = slotDef.sideAggregation;
+    if (aggregation) {
+        if (req.requiresSlotTeamGrouping) {
+            diags.push({
+                code: 'side_aggregation_on_side_format',
+                message: `slot '${slotDef.id}' format '${format.id}' consumes its team grouping directly (a side format); sideAggregation does not apply`,
+                path: `${slotPath}.sideAggregation`,
+                formatId: format.id,
+            });
+        }
+        if ((plugin.descriptor.requirements.scoreEntry?.metadata?.length ?? 0) > 0) {
+            diags.push({
+                code: 'side_aggregation_metadata_format',
+                message: `slot '${slotDef.id}' format '${format.id}' consumes per-ball metadata, which has no defined side aggregation — score sides with a metadata-free format`,
+                path: `${slotPath}.sideAggregation`,
+                formatId: format.id,
+            });
+        }
+        if (!slotDef.teamGrouping) {
+            diags.push({
+                code: 'side_aggregation_requires_team_grouping',
+                message: `slot '${slotDef.id}' declares sideAggregation but no teamGrouping — there are no sides to aggregate`,
+                path: `${slotPath}.sideAggregation`,
+            });
+        }
+    }
+
     // --- Per-ball producer count ------------------------------------------
     if (req.producerCount && !anyBall) {
         for (const b of selected) {
@@ -722,9 +756,36 @@ function compileSlot(
         }
     }
 
+    // --- Team grouping (presence + cardinality + disjointness + coverage) --
+    // Resolved BEFORE the slot ball count so an aggregated slot (ADR-0004)
+    // can count SUBJECTS (one per side + each ungrouped ball) rather than
+    // raw balls.
+    if (req.requiresSlotTeamGrouping && !slotDef.teamGrouping) {
+        diags.push({
+            code: 'missing_team_grouping',
+            message: `slot '${slotDef.id}' uses format '${format.id}' which requires teamGrouping`,
+            path: `${slotPath}.teamGrouping`,
+            formatId: format.id,
+        });
+    }
+    const teamResolutions = slotDef.teamGrouping
+        ? validateTeamGrouping(slotDef, req, selected, diags, {
+              // Aggregation leaves ungrouped balls as individual subjects; a
+              // side format still requires every ball inside a side.
+              requireCoverage: !aggregation,
+          })
+        : [];
+
     // --- Slot ball count ---------------------------------------------------
+    // For an aggregated slot the format's ball-count contract applies to the
+    // SUBJECTS it will score: one virtual ball per side + each uncovered ball.
     if (req.slotBallCount) {
-        const n = selected.length;
+        let n = selected.length;
+        if (aggregation && slotDef.teamGrouping) {
+            const covered = new Set(teamResolutions.flatMap((tr) => tr.balls.map((b) => b.row.id)));
+            const uncovered = selected.filter((b) => !covered.has(b.row.id)).length;
+            n = teamResolutions.length + uncovered;
+        }
         if (req.slotBallCount.min !== undefined && n < req.slotBallCount.min) {
             diags.push({
                 code: 'slot_ball_count_below_min',
@@ -755,19 +816,6 @@ function compileSlot(
             });
         }
     }
-
-    // --- Team grouping (presence + cardinality + disjointness + coverage) --
-    if (req.requiresSlotTeamGrouping && !slotDef.teamGrouping) {
-        diags.push({
-            code: 'missing_team_grouping',
-            message: `slot '${slotDef.id}' uses format '${format.id}' which requires teamGrouping`,
-            path: `${slotPath}.teamGrouping`,
-            formatId: format.id,
-        });
-    }
-    const teamResolutions = slotDef.teamGrouping
-        ? validateTeamGrouping(slotDef, req, selected, diags)
-        : [];
 
     // --- Hole-segment schedule (optional, plugin-owned coordinate) ---------
     const rawSegments = readHoleSegments(slotDef.formatConfig);
@@ -954,7 +1002,9 @@ function validateTeamGrouping(
     req: FormatBallRequirement,
     selected: ResolvedBall[],
     diags: CompilerDiagnostic[],
+    opts: { requireCoverage?: boolean } = {},
 ): TeamBallResolution[] {
+    const requireCoverage = opts.requireCoverage ?? true;
     const teams = slotDef.teamGrouping!.teams;
     const tgPath = `slots[${slotDef.id}].teamGrouping`;
     const tg = req.slotTeamGrouping;
@@ -1058,14 +1108,18 @@ function validateTeamGrouping(
         }
     }
 
-    // Coverage — every selected ball belongs to exactly one team.
-    for (const b of selected) {
-        if (!ballToTeams.has(b.row.id)) {
-            diags.push({
-                code: 'ball_not_in_any_team',
-                message: `slot '${slotDef.id}' ball ${b.row.id} is not assigned to any team`,
-                path: tgPath,
-            });
+    // Coverage — every selected ball belongs to exactly one team. Relaxed for
+    // aggregated slots (ADR-0004): an uncovered ball is an INDIVIDUAL subject
+    // ranked alongside the sides, not a grouping mistake.
+    if (requireCoverage) {
+        for (const b of selected) {
+            if (!ballToTeams.has(b.row.id)) {
+                diags.push({
+                    code: 'ball_not_in_any_team',
+                    message: `slot '${slotDef.id}' ball ${b.row.id} is not assigned to any team`,
+                    path: tgPath,
+                });
+            }
         }
     }
 

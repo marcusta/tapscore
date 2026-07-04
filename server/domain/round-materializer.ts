@@ -30,8 +30,10 @@ import type {
     StrategyEvent,
     TeeSnapshot,
 } from './strategies/types';
+import type { SlotSideAggregation } from './round-definition';
 import { createRoundContext } from './strategies/round-context';
 import { replayFormatActionsBySlot } from './strategies/format-actions';
+import { aggregateSlotSubjects, type VirtualSideSubject } from './side-aggregation';
 
 // --- Input DTOs (one per compiler table the service reads) -----------------
 
@@ -69,6 +71,12 @@ export interface MaterializeSlot {
     /** Resolved from the round definition (the format identity). */
     formatId: string;
     formatConfig: unknown;
+    /**
+     * ADR-0004 — from the round definition. When set, the slot's team
+     * groupings are aggregated into virtual scoring subjects here at
+     * materialisation; the format sees ordinary balls.
+     */
+    sideAggregation?: SlotSideAggregation;
 }
 
 export interface MaterializeSlotBall {
@@ -137,6 +145,14 @@ export interface MaterializedSlot {
     slotTeamGroupings: SlotTeamGrouping[];
     /** Replayed, supersession-resolved actions for this slot (§17). */
     formatActions: FormatAction[];
+    /**
+     * ADR-0004 — present iff the slot aggregates sides into virtual subjects.
+     * `slotBalls` then already holds the virtual balls (+ passthrough
+     * individuals) and `slotTeamGroupings` is empty (the grouping was
+     * consumed by the aggregation); this carries the provenance a renderer
+     * needs (team label + member ball ids per virtual subject).
+     */
+    virtualSubjects?: VirtualSideSubject[];
 }
 
 export interface MaterializedRound {
@@ -228,6 +244,11 @@ export function materializeRound(input: RoundLeaderboardInput): MaterializedRoun
         ppcByBall.set(bp.ballId, list);
     }
 
+    // ADR-0004 — synthesized side streams join the strategy event stream.
+    // Virtual ball ids are content-addressed per (slot, team label), so one
+    // slot's synthetic events are invisible to every other slot's balls.
+    const syntheticEvents: StrategyEvent[] = [];
+
     const slots: MaterializedSlot[] = [...input.slots]
         .sort((a, b) => a.slotIndex - b.slotIndex)
         .map((slot) => {
@@ -257,6 +278,31 @@ export function materializeRound(input: RoundLeaderboardInput): MaterializedRoun
                 ([teamLabel, ballIds]) => ({ teamLabel, ballIds }),
             );
 
+            // ADR-0004 — aggregate side groupings into virtual subjects. The
+            // format then scores ordinary balls: the grouping is consumed
+            // here, never passed on.
+            if (slot.sideAggregation && slotTeamGroupings.length > 0) {
+                const aggregated = aggregateSlotSubjects({
+                    aggregation: slot.sideAggregation,
+                    slotDefId: slot.slotDefId,
+                    slotBalls,
+                    slotTeamGroupings,
+                    roundContext,
+                    events: input.events,
+                });
+                syntheticEvents.push(...aggregated.syntheticEvents);
+                return {
+                    slotDefId: slot.slotDefId,
+                    slotIndex: slot.slotIndex,
+                    formatId: slot.formatId,
+                    formatConfig: slot.formatConfig,
+                    slotBalls: aggregated.slotBalls,
+                    slotTeamGroupings: [],
+                    formatActions: actionsBySlot.get(slot.slotDefId) ?? [],
+                    virtualSubjects: aggregated.virtualSubjects,
+                };
+            }
+
             return {
                 slotDefId: slot.slotDefId,
                 slotIndex: slot.slotIndex,
@@ -268,5 +314,5 @@ export function materializeRound(input: RoundLeaderboardInput): MaterializedRoun
             };
         });
 
-    return { roundContext, slots, events: input.events };
+    return { roundContext, slots, events: [...input.events, ...syntheticEvents] };
 }

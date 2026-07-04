@@ -239,6 +239,13 @@ export class RoundViewService {
     readonly ballNameById = new Computed<Map<string, string>>(() => {
         const m = new Map<string, string>();
         for (const b of this.balls.get()) m.set(b.id, ballDisplayName(b));
+        // ADR-0004 — an aggregated side's VIRTUAL subject id names no
+        // persisted ball; each slot's `subjectLabels` carries its display
+        // label (the side's team label). Virtual ids are content-addressed
+        // per (slot, team label), so folding all slots into one map is safe.
+        for (const slot of this.result.get()?.slots ?? []) {
+            for (const s of slot.subjectLabels ?? []) m.set(s.ballId, s.label);
+        }
         return m;
     });
 

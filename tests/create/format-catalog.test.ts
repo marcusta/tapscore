@@ -100,6 +100,22 @@ test('isSideFormat: only team_grouping formats aggregate sides; a team ball is n
     expect(svc.isSideFormat('stableford_individual')).toBe(false);
 });
 
+test('acceptsSideSubjects (ADR-0004): metadata-free ball formats only', () => {
+    const metaFormat: FormatDescriptor = {
+        ...descriptor('umbrella_individual', { producerCount: { min: 1, max: 1 }, ballMode: 'own' }),
+        requirements: {
+            balls: { producerCount: { min: 1, max: 1 }, ballMode: 'own' },
+            scoreEntry: { strokes: true, metadata: [{ key: 'gir', label: 'GIR', kind: 'boolean' }] },
+        },
+    };
+    const svc = new FormatCatalogService();
+    svc.descriptors.set([individual, teamBall, sideFormat, metaFormat]);
+    expect(svc.acceptsSideSubjects('stableford_individual')).toBe(true); // aggregated virtual subject
+    expect(svc.acceptsSideSubjects('better_ball')).toBe(false); // side format: consumes sides directly
+    expect(svc.acceptsSideSubjects('umbrella_individual')).toBe(false); // per-ball metadata: undefined aggregation
+    expect(svc.acceptsSideSubjects('missing')).toBe(false);
+});
+
 // labelOf (2.7d — format-label i18n): picks labels[locale], falling back to
 // labels.en, then to the descriptor's canonical `label`. `locale` is an
 // explicit param here (defaults to `currentLocale()` in production) so these

@@ -820,9 +820,11 @@ export class CreateComponent extends Component {
         });
 
         // Subject checklist — what this format can score. A SIDE format
-        // (better-ball) scores multi-ball (side) teams only; a BALL format scores
-        // individual players + single-ball teams. One keyed list (kind-prefixed)
-        // so a single eachInto owns the host.
+        // (better-ball) scores multi-ball (side) teams only; a BALL format
+        // scores individual players + single-ball teams + (ADR-0004, when the
+        // format supports side aggregation) multi-ball sides as one virtual
+        // subject each. One keyed list (kind-prefixed) so a single eachInto
+        // owns the host.
         type Subj = { kind: 'player' | 'team'; subKey: number };
         const subjects = (): Subj[] => {
             const side = this.svc.isSideFormat(formatId());
@@ -831,7 +833,9 @@ export class CreateComponent extends Component {
                 out.push(...this.svc.players.get().map((p) => ({ kind: 'player' as const, subKey: p.key })));
             }
             for (const tm of this.svc.teams.get()) {
-                if ((tm.kind === 'multi_ball') === side) out.push({ kind: 'team' as const, subKey: tm.key });
+                if (this.svc.teamKindFitsFormat(formatId(), tm.kind)) {
+                    out.push({ kind: 'team' as const, subKey: tm.key });
+                }
             }
             return out;
         };

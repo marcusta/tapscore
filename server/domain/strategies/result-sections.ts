@@ -12,7 +12,10 @@
 // functions, no class instances. Balls are referenced by id; the consumer
 // resolves display names from its own ball metadata. Synthetic `team:<label>`
 // ids never cross this boundary — the builder resolves a team to its member
-// ball ids, so every `ballIds` array holds real ball ids.
+// ball ids, so every `ballIds` array holds real ball ids, with ONE addition:
+// an aggregated side's VIRTUAL subject id (ADR-0004) may appear, and the
+// slot's `subjectLabels` carries its display label + member ball ids so the
+// consumer needs no other source.
 //
 // Hole-addressed rows carry only `holeNumber` today. Slice 3c adds stable
 // `playHoleId` + physical-hole/ordinal display metadata alongside it; the
@@ -199,6 +202,15 @@ export interface SlotResultView {
     cards: ScoreGridSection[];
     /** Leaderboard-area sections (ranked metrics + match summaries). */
     leaderboard: LeaderboardSection[];
+    /**
+     * ADR-0004 — virtual side subjects scored by this slot. A virtual ball id
+     * appears in `ballIds` / `subjectBallIds` like any other, but it names no
+     * persisted ball; the consumer resolves it to `label` (the side's team
+     * label) via this list instead of its ball metadata. `memberBallIds` are
+     * the side's real member balls (score entry stays on those). Absent for
+     * slots with no aggregated sides.
+     */
+    subjectLabels?: { ballId: string; label: string; memberBallIds: string[] }[];
 }
 
 export interface RoundResult {

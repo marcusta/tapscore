@@ -111,4 +111,18 @@ export class FormatCatalogService {
     isSideFormat(id: string): boolean {
         return this.classifyId(id)?.kind === 'team_grouping';
     }
+
+    /**
+     * ADR-0004 — a BALL format may additionally score a multi-ball (side)
+     * team: the engine aggregates the side's best net into one virtual
+     * subject. Two exclusions, both descriptor-driven: side formats (they
+     * consume sides directly, not as aggregated subjects) and formats that
+     * take per-ball metadata (umbrella's GIR — no defined side aggregation).
+     */
+    acceptsSideSubjects(id: string): boolean {
+        const d = this.byId(id);
+        if (!d) return false;
+        if (this.isSideFormat(id)) return false;
+        return (d.requirements.scoreEntry?.metadata?.length ?? 0) === 0;
+    }
 }

@@ -14,6 +14,7 @@ export const MANUAL_FORMAT_SEEDS = [
     'match-play-better-ball-round',
     'taliban-round',
     'kopenhamnare-round',
+    'kopenhamnare-sides-round',
     'umbrella-round',
     'umbrella-individual-round',
     'multi-format-3p-round',

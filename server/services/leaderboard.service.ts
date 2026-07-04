@@ -10,7 +10,11 @@ import {
 import { findFormatPlugin } from '../domain/formats/plugin';
 import type { ResultColumn } from '../domain/strategies/result-presenter-helpers';
 import type { RoundResult } from '../domain/strategies/result-sections';
-import { formatAllowanceLabel, type RoundDefinition } from '../domain/round-definition';
+import {
+    formatAllowanceLabel,
+    type RoundDefinition,
+    type SlotSideAggregation,
+} from '../domain/round-definition';
 import type { FormatAction, RulingEvent, StrategyEvent } from '../domain/strategies/types';
 import { applyRulingsToSlot, rulingEventsOf } from '../domain/strategies/rulings';
 import type { CourseHole } from '../domain/round-holes';
@@ -94,6 +98,7 @@ export class LeaderboardService {
                 slotIndex: s.ordinal,
                 formatId: fmt.formatId,
                 formatConfig: fmt.formatConfig,
+                ...(fmt.sideAggregation ? { sideAggregation: fmt.sideAggregation } : {}),
             };
         });
 
@@ -295,7 +300,7 @@ export class LeaderboardService {
                 }
                 effectiveSi.set(sb.ballId, byHole);
             }
-            return plugin.renderResult({
+            const view = plugin.renderResult({
                 slotIndex: slot.slotIndex,
                 slotDefId: slot.slotDefId,
                 formatId: slot.formatId,
@@ -312,6 +317,14 @@ export class LeaderboardService {
                 columns,
                 effectiveSi,
             });
+            // ADR-0004 — virtual side subjects are not persisted balls, so a
+            // consumer can't resolve their names from ball metadata. Attach
+            // the provenance (team label + member ball ids) generically; the
+            // presenter output itself is untouched.
+            if (slot.virtualSubjects && slot.virtualSubjects.length > 0) {
+                return { ...view, subjectLabels: slot.virtualSubjects };
+            }
+            return view;
         });
 
         return {
@@ -329,10 +342,16 @@ export class LeaderboardService {
         };
     }
 
-    /** Latest `round_definitions` version → `slot_def_id` → format id + config. */
+    /** Latest `round_definitions` version → `slot_def_id` → format id + config
+     * (+ the ADR-0004 side-aggregation marker, when the slot carries one). */
     private async formatBySlotDef(
         roundId: string,
-    ): Promise<Map<string, { formatId: string; formatConfig: unknown }>> {
+    ): Promise<
+        Map<
+            string,
+            { formatId: string; formatConfig: unknown; sideAggregation?: SlotSideAggregation }
+        >
+    > {
         const row = await this.db
             .selectFrom('round_definitions')
             .where('round_id', '=', roundId)
@@ -340,11 +359,18 @@ export class LeaderboardService {
             .select(['definition_json'])
             .executeTakeFirst();
 
-        const out = new Map<string, { formatId: string; formatConfig: unknown }>();
+        const out = new Map<
+            string,
+            { formatId: string; formatConfig: unknown; sideAggregation?: SlotSideAggregation }
+        >();
         if (!row) return out;
         const def = JSON.parse(row.definition_json) as RoundDefinition;
         for (const slot of def.slots) {
-            out.set(slot.id, { formatId: slot.formatId, formatConfig: slot.formatConfig });
+            out.set(slot.id, {
+                formatId: slot.formatId,
+                formatConfig: slot.formatConfig,
+                ...(slot.sideAggregation ? { sideAggregation: slot.sideAggregation } : {}),
+            });
         }
         return out;
     }
