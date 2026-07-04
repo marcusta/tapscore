@@ -536,7 +536,7 @@ export class CreateComponent extends Component {
             banner: {
                 textContent: () => {
                     const msgs = [
-                        ...this.svc.generalDiagnostics().map((d) => d.message),
+                        ...this.svc.humanizedGeneral(),
                         ...(this.svc.submitError.get() ? [this.svc.submitError.get()!] : []),
                     ];
                     return msgs.join('\n');
@@ -797,11 +797,7 @@ export class CreateComponent extends Component {
                             : 'of each player’s course handicap',
                 },
                 err: {
-                    textContent: () =>
-                        this.svc
-                            .diagnosticsForFormat(index)
-                            .map((d) => d.message)
-                            .join(' · '),
+                    textContent: () => this.svc.humanizedForFormat(index).join(' · '),
                 },
             },
             track,

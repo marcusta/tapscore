@@ -140,6 +140,8 @@ export const umbrella4Ball: FormatStrategy = {
             producerCount: { min: 1, max: 1 },
             ballMode: 'own',
             requiresSlotTeamGrouping: true,
+            // Fixed 2v2: per-player GIR-A/GIR-B categories and the 2-ball
+            // low-total category are defined for exactly a pair per side.
             slotBallCount: { min: 4, max: 4 },
             slotTeamGrouping: { teamCount: { min: 2, max: 2 }, teamSize: { min: 2, max: 2 } },
         };

@@ -37,6 +37,20 @@ export interface CompilerDiagnostic {
     message: string;
     /** Dotted path into the RoundDefinition where applicable. */
     path?: string;
+    /**
+     * Additive structured fields for the client to humanize a refusal without
+     * re-parsing `message` prose. Populated on the team-size / team-count /
+     * ball-count / missing-grouping refusals (the ones a setup UI shows inline).
+     * All optional — a diagnostic without them still renders via its `message`.
+     */
+    formatId?: string;
+    /** The offending team's authoring label (team-size refusals). */
+    teamLabel?: string;
+    /** The count that violated a bound (balls in a team, teams in a slot, …). */
+    actual?: number;
+    /** The bound that was violated, when the refusal is a min/max. */
+    allowedMin?: number;
+    allowedMax?: number;
 }
 
 export type CompileResult =

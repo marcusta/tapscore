@@ -145,6 +145,8 @@ export const talibanBetterBall: FormatStrategy = {
             producerCount: { min: 1, max: 1 },
             ballMode: 'own',
             requiresSlotTeamGrouping: true,
+            // Fixed 2v2: the worse-ball tiebreak is pair-specific (better vs the
+            // single worse ball); it has no defined generalisation past a pair.
             slotBallCount: { min: 4, max: 4 },
             slotTeamGrouping: { teamCount: { min: 2, max: 2 }, teamSize: { min: 2, max: 2 } },
         };

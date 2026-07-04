@@ -140,6 +140,100 @@ test('a side format playing allowance threads to the slot (better-ball @ 90%)', 
     expect(slot.allowanceConfig).toEqual({ type: 'flat', pct: 90 });
 });
 
+// Two sides of THREE players each (own balls) — the user's reported scenario.
+function twoSidesOfThreeDraft(
+    ctx: Awaited<ReturnType<typeof setup>>,
+    formatId: string,
+): RoundSetupDraft {
+    return {
+        courseId: ctx.courseId,
+        playedAt: '2026-06-26',
+        producers: producers(ctx.teeId, ctx.players),
+        teams: [
+            {
+                id: 'A',
+                label: 'Team A',
+                kind: 'multi_ball',
+                members: [
+                    { producerDefId: 'p1', allowancePct: 100 },
+                    { producerDefId: 'p2', allowancePct: 100 },
+                    { producerDefId: 'p3', allowancePct: 100 },
+                ],
+            },
+            {
+                id: 'B',
+                label: 'Team B',
+                kind: 'multi_ball',
+                members: [
+                    { producerDefId: 'p4', allowancePct: 100 },
+                    { producerDefId: 'p5', allowancePct: 100 },
+                    { producerDefId: 'p6', allowancePct: 100 },
+                ],
+            },
+        ],
+        formats: [{ formatId, subjects: [{ kind: 'team', teamId: 'A' }, { kind: 'team', teamId: 'B' }] }],
+    };
+}
+
+test('GATE: 6 players, Stableford better-ball, 2 teams of 3 → builds + compiles end-to-end', async () => {
+    const ctx = await setup(6);
+    const result = await ctx.roundService.createFromDraft(
+        twoSidesOfThreeDraft(ctx, 'stableford_better_ball'),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
+
+    const balls = await ctx.roundService.ballsForRound(result.round.id);
+    expect(balls).toHaveLength(6); // six own balls (no merged team balls)
+    for (const b of balls) expect(b.players).toHaveLength(1);
+
+    const def = (await ctx.roundService.latestDefinition(result.round.id))!.definition;
+    const slot = def.slots.find((s) => s.formatId === 'stableford_better_ball')!;
+    expect(slot.teamGrouping!.teams.map((t) => t.producerDefIds.slice().sort())).toEqual([
+        ['p1', 'p2', 'p3'],
+        ['p4', 'p5', 'p6'],
+    ]);
+});
+
+test('GATE: best-of-3 better-ball scoring over two teams of three matches a hand oracle', async () => {
+    const ctx = await setup(6);
+    const created = await ctx.roundService.createFromDraft(
+        twoSidesOfThreeDraft(ctx, 'stableford_better_ball'),
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) throw new Error(JSON.stringify(created.diagnostics));
+
+    const balls = await ctx.roundService.ballsForRound(created.round.id);
+    const ballOf = (name: string) => balls.find((b) => b.players[0]!.displayName === name)!;
+    const occ = created.round.playHoles.map((p) => p.id);
+
+    // Par 4, scratch. Hole 1: A = bogey/par/birdie → best 3; B = all bogey → 1.
+    //                 Hole 2: A = all par → 2; B = par/birdie/bogey → best 3.
+    // Team totals: A = 3 + 2 = 5; B = 1 + 3 = 4.
+    const scores: [string, number, number][] = [
+        ['P1', 5, 4],
+        ['P2', 4, 4],
+        ['P3', 3, 4],
+        ['P4', 5, 4],
+        ['P5', 5, 3],
+        ['P6', 5, 5],
+    ];
+    let ev = 0;
+    for (const [name, h1, h2] of scores) {
+        const ballId = ballOf(name).id;
+        await ctx.scoreEventService.append({ roundId: created.round.id, ballId, playHoleId: occ[0]!, strokes: h1, eventType: 'score_entered', clientEventId: `e${ev++}` });
+        await ctx.scoreEventService.append({ roundId: created.round.id, ballId, playHoleId: occ[1]!, strokes: h2, eventType: 'score_entered', clientEventId: `e${ev++}` });
+    }
+
+    const rr = await ctx.leaderboardService.resultForRound(created.round.id);
+    const slot = rr.slots.find((s) => s.formatId === 'stableford_better_ball')!;
+    const ranked = slot.leaderboard.find((s) => s.kind === 'ranked')!;
+    expect(ranked.entries).toHaveLength(2); // two teams of three
+    expect(ranked.entries.map((e) => e.total ?? 0).sort((a, b) => a - b)).toEqual([4, 5]);
+    // Each team entry resolves to its three member ball ids.
+    for (const e of ranked.entries) expect(e.ballIds).toHaveLength(3);
+});
+
 test('match-play better-ball over two side subjects compiles (4 balls, 2 sides)', async () => {
     const ctx = await setup(4);
     const result = await ctx.roundService.createFromDraft(twoSidesDraft(ctx, 'match_play_better_ball'));

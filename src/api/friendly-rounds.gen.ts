@@ -34,6 +34,11 @@ export interface CompilerDiagnostic {
     code: string;
     message: string;
     path?: string;
+    formatId?: string;
+    teamLabel?: string;
+    actual?: number;
+    allowedMin?: number;
+    allowedMax?: number;
 }
 
 export interface RoundBall {

@@ -166,6 +166,65 @@ describe('matchPlayBetterBall (new contract)', () => {
         expect(h1.status).toBe('halved');
     });
 
+    test('teams of 3: best-ball is lowest net across all three side members', () => {
+        const courseHoles = make18Holes();
+        const ctx = makeRoundContext(courseHoles, [
+            makeProducer('P1', { courseHandicap: 0 }),
+            makeProducer('P2', { courseHandicap: 0 }),
+            makeProducer('P3', { courseHandicap: 0 }),
+            makeProducer('P4', { courseHandicap: 0 }),
+            makeProducer('P5', { courseHandicap: 0 }),
+            makeProducer('P6', { courseHandicap: 0 }),
+        ]);
+        const a = [makeOwnBall('P1', 0, 0), makeOwnBall('P2', 0, 0), makeOwnBall('P3', 0, 0)];
+        const b = [makeOwnBall('P4', 0, 0), makeOwnBall('P5', 0, 0), makeOwnBall('P6', 0, 0)];
+        const groupings = [
+            { teamLabel: 'A', ballIds: a.map((x) => x.ballId) },
+            { teamLabel: 'B', ballIds: b.map((x) => x.ballId) },
+        ];
+
+        // Every hole: side A's THIRD member pars (4) while A's other two bogey;
+        // all three of B bogey (5). A's best ball (4) beats B's best ball (5).
+        const events = courseHoles.flatMap((h) => [
+            makeScoreEvent(a[0].ballId, h.holeNumber, 5),
+            makeScoreEvent(a[1].ballId, h.holeNumber, 5),
+            makeScoreEvent(a[2].ballId, h.holeNumber, 4),
+            makeScoreEvent(b[0].ballId, h.holeNumber, 5),
+            makeScoreEvent(b[1].ballId, h.holeNumber, 5),
+            makeScoreEvent(b[2].ballId, h.holeNumber, 5),
+        ]);
+
+        const { ballResults, pairResults } = matchPlayBetterBall.score({
+            roundContext: ctx,
+            slotBalls: [...a, ...b],
+            slotTeamGroupings: groupings,
+            events,
+        });
+
+        // Six per-ball results (3 per side); the pair carries all three ids per side.
+        expect(ballResults).toHaveLength(6);
+        expect(pairResults![0].sideA.ballIds).toEqual(a.map((x) => x.ballId));
+        expect(pairResults![0].sideB.ballIds).toEqual(b.map((x) => x.ballId));
+
+        // A wins every hole on best-ball → closed out 10 & 8.
+        expect(pairResults![0].result).toBe('won');
+        expect(pairResults![0].winner).toBe('A');
+        expect(pairResults![0].summary).toBe('10 & 8');
+
+        // Hole 1: A's better ball 4, B's better ball 5.
+        const h1 = pairResults![0].holes.find((h) => h.holeNumber === 1)!;
+        expect(h1.status).toBe('won');
+        expect(h1.fromA).toBe(4);
+        expect(h1.fromB).toBe(5);
+
+        // The deciding-ball ○ marker sits on A's third member (the par), not the
+        // two bogey balls.
+        const markedH1 = ballResults
+            .filter((r) => r.holes.find((h) => h.holeNumber === 1 && h.marker))
+            .map((r) => r.ballId);
+        expect(markedH1).toEqual([a[2].ballId]);
+    });
+
     test('no-ball forfeit: B both pick up, A has ball → A wins hole', () => {
         const courseHoles = make18Holes();
         const ctx = makeRoundContext(courseHoles, [

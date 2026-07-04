@@ -1,12 +1,14 @@
 // Phase 2.6b/2 — stableford × better-ball.
 //
-// 2v2 own-ball format. Unlike legacy (which read per-player rows off one
-// team-participant scorecard), the new model carries two own-balls per
-// team and combines them at score time. Slot team grouping declares
-// which balls form each team.
+// N-per-team own-ball format (2..10). Unlike legacy (which read per-player
+// rows off one team-participant scorecard), the new model carries one
+// own-ball per team member and combines them at score time. Slot team
+// grouping declares which balls form each team. Best-ball semantics (best
+// ball of the team per hole) generalise cleanly to any team size — the
+// per-hole pick is already a max/min over all the team's balls.
 //
-// Per team per hole: max of the two balls' individual stableford points;
-// null if both null. Best-ball gross/net = min of non-null values.
+// Per team per hole: max of the team balls' individual stableford points;
+// null if all null. Best-ball gross/net = min of non-null values.
 
 import type { FormatStrategy } from '../format-strategy';
 import type { BallHoleResult, BallResult, StrategyResult } from '../types';
@@ -28,7 +30,9 @@ export const stablefordBetterBall: FormatStrategy = {
             producerCount: { min: 1, max: 1 },
             ballMode: 'own',
             requiresSlotTeamGrouping: true,
-            slotTeamGrouping: { teamSize: { min: 2, max: 2 } },
+            // Best-ball generalises to any team size — 2 teams of 3, 4 of 2,
+            // etc. Bounds match team_ball's 2..10 composition window.
+            slotTeamGrouping: { teamSize: { min: 2, max: 10 } },
         };
     },
 
@@ -43,9 +47,9 @@ export const stablefordBetterBall: FormatStrategy = {
         const ballResults: BallResult[] = [];
 
         for (const team of teams) {
-            if (team.balls.length !== 2) {
+            if (team.balls.length < 2) {
                 throw new Error(
-                    `stableford_better_ball: team '${team.teamLabel}' needs exactly 2 balls (got ${team.balls.length})`,
+                    `stableford_better_ball: team '${team.teamLabel}' needs at least 2 balls (got ${team.balls.length})`,
                 );
             }
             const perBall = team.balls.map((b) => ({

@@ -5,6 +5,11 @@ import type { SetupCourse, Tee, TeeRating } from '../api/setup.gen';
 import type { CompilerDiagnostic } from '../api/friendly-rounds.gen';
 import { courseHandicap, courseHandicapRaw } from './handicap';
 import { FormatCatalogService } from './format-catalog.service';
+import {
+    diagnosticsForFormatCard,
+    generalDiagnostics as bucketGeneralDiagnostics,
+    humanizeDiagnostic,
+} from './diagnostics';
 
 export type Gender = 'M' | 'F';
 export type RoutePreset = 'full_18' | 'front_9' | 'back_9';
@@ -871,21 +876,33 @@ export class SetupService {
         return roster.filter((p) => !covered.has(p.key));
     }
 
-    /** Diagnostics whose path targets `formats[i]`, for inline slot display. */
+    /**
+     * Diagnostics for format card `index`. Folds slot-scoped compiler refusals
+     * (`slots[slot-N]…`, where slot-N ⇔ this format's draft index) onto the card
+     * alongside its `formats[index]…` planner diagnostics. Raw shape; use
+     * `humanizedForFormat` for display strings.
+     */
     diagnosticsForFormat(index: number): CompilerDiagnostic[] {
-        return this.diagnostics.get().filter((d) => d.path?.startsWith(`formats[${index}]`));
+        return diagnosticsForFormatCard(this.diagnostics.get(), index);
     }
 
-    /** Diagnostics not attributable to a specific player row, format slot, or group. */
+    /** Human-readable messages for format card `index`, humanized via the catalog label. */
+    humanizedForFormat(index: number): string[] {
+        return this.diagnosticsForFormat(index).map((d) =>
+            humanizeDiagnostic(d, (id) => this.catalog.labelOf(id)),
+        );
+    }
+
+    /** Diagnostics not attributable to a specific player row, format card, or group. */
     generalDiagnostics(): CompilerDiagnostic[] {
-        return this.diagnostics
-            .get()
-            .filter(
-                (d) =>
-                    !d.path?.startsWith('producers[') &&
-                    !d.path?.startsWith('formats[') &&
-                    !d.path?.startsWith('playingGroups'),
-            );
+        return bucketGeneralDiagnostics(this.diagnostics.get());
+    }
+
+    /** Human-readable messages for the general (non-card) diagnostics. */
+    humanizedGeneral(): string[] {
+        return this.generalDiagnostics().map((d) =>
+            humanizeDiagnostic(d, (id) => this.catalog.labelOf(id)),
+        );
     }
 
     private parsePct(s: string): number {

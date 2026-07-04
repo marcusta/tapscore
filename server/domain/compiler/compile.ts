@@ -730,6 +730,9 @@ function compileSlot(
                 code: 'slot_ball_count_below_min',
                 message: `slot '${slotDef.id}' has ${n} balls; format '${format.id}' requires min ${req.slotBallCount.min}`,
                 path: slotPath,
+                formatId: format.id,
+                actual: n,
+                allowedMin: req.slotBallCount.min,
             });
         }
         if (req.slotBallCount.max !== undefined && n > req.slotBallCount.max) {
@@ -737,6 +740,9 @@ function compileSlot(
                 code: 'slot_ball_count_above_max',
                 message: `slot '${slotDef.id}' has ${n} balls; format '${format.id}' allows max ${req.slotBallCount.max}`,
                 path: slotPath,
+                formatId: format.id,
+                actual: n,
+                allowedMax: req.slotBallCount.max,
             });
         }
         if (req.slotBallCount.multipleOf !== undefined && n % req.slotBallCount.multipleOf !== 0) {
@@ -744,6 +750,8 @@ function compileSlot(
                 code: 'slot_ball_count_not_multiple',
                 message: `slot '${slotDef.id}' has ${n} balls; format '${format.id}' requires multiple of ${req.slotBallCount.multipleOf}`,
                 path: slotPath,
+                formatId: format.id,
+                actual: n,
             });
         }
     }
@@ -754,6 +762,7 @@ function compileSlot(
             code: 'missing_team_grouping',
             message: `slot '${slotDef.id}' uses format '${format.id}' which requires teamGrouping`,
             path: `${slotPath}.teamGrouping`,
+            formatId: format.id,
         });
     }
     const teamResolutions = slotDef.teamGrouping
@@ -956,6 +965,9 @@ function validateTeamGrouping(
                 code: 'team_count_below_min',
                 message: `slot '${slotDef.id}' has ${teams.length} teams; format '${slotDef.formatId}' requires min ${tg.teamCount.min}`,
                 path: tgPath,
+                formatId: slotDef.formatId,
+                actual: teams.length,
+                allowedMin: tg.teamCount.min,
             });
         }
         if (tg.teamCount.max !== undefined && teams.length > tg.teamCount.max) {
@@ -963,6 +975,9 @@ function validateTeamGrouping(
                 code: 'team_count_above_max',
                 message: `slot '${slotDef.id}' has ${teams.length} teams; format '${slotDef.formatId}' allows max ${tg.teamCount.max}`,
                 path: tgPath,
+                formatId: slotDef.formatId,
+                actual: teams.length,
+                allowedMax: tg.teamCount.max,
             });
         }
     }
@@ -997,6 +1012,9 @@ function validateTeamGrouping(
                 code: 'empty_team_grouping',
                 message: `slot '${slotDef.id}' team '${team.label}' resolves to 0 balls`,
                 path: tgPath,
+                formatId: slotDef.formatId,
+                teamLabel: team.label,
+                actual: 0,
             });
         }
         if (tg?.teamSize) {
@@ -1005,6 +1023,10 @@ function validateTeamGrouping(
                     code: 'team_size_below_min',
                     message: `slot '${slotDef.id}' team '${team.label}' has ${teamBalls.length} balls; format '${slotDef.formatId}' requires min ${tg.teamSize.min}`,
                     path: tgPath,
+                    formatId: slotDef.formatId,
+                    teamLabel: team.label,
+                    actual: teamBalls.length,
+                    allowedMin: tg.teamSize.min,
                 });
             }
             if (tg.teamSize.max !== undefined && teamBalls.length > tg.teamSize.max) {
@@ -1012,6 +1034,10 @@ function validateTeamGrouping(
                     code: 'team_size_above_max',
                     message: `slot '${slotDef.id}' team '${team.label}' has ${teamBalls.length} balls; format '${slotDef.formatId}' allows max ${tg.teamSize.max}`,
                     path: tgPath,
+                    formatId: slotDef.formatId,
+                    teamLabel: team.label,
+                    actual: teamBalls.length,
+                    allowedMax: tg.teamSize.max,
                 });
             }
         }

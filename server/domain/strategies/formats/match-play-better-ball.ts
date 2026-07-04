@@ -1,10 +1,12 @@
 // Phase 2.6b/2 — match-play × better-ball.
 //
-// 2v2 better-ball: each team's hole score = lower net of its two balls.
-// Strokes differential spans all 4 balls: lowest PH plays 0; others get
-// delta to low, by-SI. Pickup/DNP/no-event → ball does not contribute;
-// if neither of a team's balls contributes, team has "no ball" this hole.
-// Running state + close-out match match-play-individual semantics.
+// Two-sided better-ball, N balls per side (2..10 each): each team's hole
+// score = lowest net across ALL its balls. Strokes differential spans every
+// ball on both sides: lowest PH plays 0; others get delta to low, by-SI.
+// Pickup/DNP/no-event → ball does not contribute; if none of a team's balls
+// contributes, team has "no ball" this hole. Running state + close-out match
+// match-play-individual semantics. Better-ball (min net) generalises past a
+// pair — the deciding-ball marker goes on the winning side's lowest-net ball.
 
 import type { FormatStrategy } from '../format-strategy';
 import type {
@@ -74,12 +76,14 @@ function ballHole(c: BallCtx, playHoleId: string): PlayerHole {
     return { gross: strokes, net: strokes - given, contributed: true, engaged: true };
 }
 
-function teamBall(a: PlayerHole, b: PlayerHole): TeamBall {
+// Best ball of a side = lowest net across every contributing member ball.
+function teamBall(holes: PlayerHole[]): TeamBall {
     const c: { gross: number; net: number }[] = [];
-    if (a.contributed && a.gross !== null && a.net !== null) c.push({ gross: a.gross, net: a.net });
-    if (b.contributed && b.gross !== null && b.net !== null) c.push({ gross: b.gross, net: b.net });
+    for (const h of holes) {
+        if (h.contributed && h.gross !== null && h.net !== null) c.push({ gross: h.gross, net: h.net });
+    }
     if (c.length === 0) {
-        return { gross: null, net: null, hasBall: false, engaged: a.engaged || b.engaged };
+        return { gross: null, net: null, hasBall: false, engaged: holes.some((h) => h.engaged) };
     }
     return {
         gross: Math.min(...c.map((x) => x.gross)),
@@ -87,6 +91,18 @@ function teamBall(a: PlayerHole, b: PlayerHole): TeamBall {
         hasBall: true,
         engaged: true,
     };
+}
+
+// Index (into `holes`) of the side's lowest-net contributing ball — the one
+// that carries the hole-won marker. Null when no ball contributed.
+function bestBallIndex(holes: PlayerHole[]): number | null {
+    let best: number | null = null;
+    for (let i = 0; i < holes.length; i++) {
+        const h = holes[i]!;
+        if (!h.contributed || h.net === null) continue;
+        if (best === null || h.net < holes[best]!.net!) best = i;
+    }
+    return best;
 }
 
 function statusShort(s: 'won' | 'lost' | 'halved'): string {
@@ -139,8 +155,11 @@ export const matchPlayBetterBall: FormatStrategy = {
             producerCount: { min: 1, max: 1 },
             ballMode: 'own',
             requiresSlotTeamGrouping: true,
-            slotBallCount: { min: 4, max: 4 },
-            slotTeamGrouping: { teamCount: { min: 2, max: 2 }, teamSize: { min: 2, max: 2 } },
+            // Two sides of 2..10 balls each. Best-ball match play compares the
+            // lower net of each side, so the side sizes need not match and can
+            // exceed a pair (2 teams of 3, etc.). Bounds match team_ball's 2..10.
+            slotBallCount: { min: 4, max: 20 },
+            slotTeamGrouping: { teamCount: { min: 2, max: 2 }, teamSize: { min: 2, max: 10 } },
         };
     },
 
@@ -152,23 +171,24 @@ export const matchPlayBetterBall: FormatStrategy = {
         }
         const teams = groupBallsByTeam(slotBalls, slotTeamGroupings);
         for (const t of teams) {
-            if (t.balls.length !== 2) {
-                throw new Error(`match_play_better_ball: team '${t.teamLabel}' needs 2 balls`);
+            if (t.balls.length < 2) {
+                throw new Error(`match_play_better_ball: team '${t.teamLabel}' needs at least 2 balls (got ${t.balls.length})`);
             }
         }
         const [teamA, teamB] = teams;
-        const allBalls = [teamA.balls[0], teamA.balls[1], teamB.balls[0], teamB.balls[1]];
+        // Balls laid out side A first, then side B; `aCount` marks the split so a
+        // ball's global index maps back to its side.
+        const aCount = teamA.balls.length;
+        const allBalls = [...teamA.balls, ...teamB.balls];
         const refBallId = allBalls[0].ballId;
         const ordered = roundContext.playedOrderForBall(refBallId);
 
         const effPHs = normalizeMatchPlayPHs(allBalls.map((b) => b.playingHandicapSnapshot));
-        const [ca1, ca2, cb1, cb2] = allBalls.map((b, i) =>
-            buildCtx(b, effPHs[i], roundContext, events),
-        );
+        const ctxs = allBalls.map((b, i) => buildCtx(b, effPHs[i], roundContext, events));
 
         const pairHoles: PairBallHoleResult[] = [];
-        const perBallHoles: BallHoleResult[][] = [[], [], [], []];
-        const perBallHolesPlayed = [0, 0, 0, 0];
+        const perBallHoles: BallHoleResult[][] = allBalls.map(() => []);
+        const perBallHolesPlayed = allBalls.map(() => 0);
 
         let leadA = 0;
         let decidedCount = 0;
@@ -178,12 +198,14 @@ export const matchPlayBetterBall: FormatStrategy = {
 
         for (let i = 0; i < ordered.length; i++) {
             const occ = ordered[i];
-            const holes = [ca1, ca2, cb1, cb2].map((c) => ballHole(c, occ.playHoleId));
+            const holes = ctxs.map((c) => ballHole(c, occ.playHoleId));
             holes.forEach((h, j) => {
                 if (h.engaged) perBallHolesPlayed[j]++;
             });
-            const tbA = teamBall(holes[0], holes[1]);
-            const tbB = teamBall(holes[2], holes[3]);
+            const holesA = holes.slice(0, aCount);
+            const holesB = holes.slice(aCount);
+            const tbA = teamBall(holesA);
+            const tbB = teamBall(holesB);
 
             let status: 'won' | 'lost' | 'halved' | null = null;
             let noteDetail: string | null = null;
@@ -220,26 +242,27 @@ export const matchPlayBetterBall: FormatStrategy = {
             const aNote = status === null ? noteA : `${statusShort(status)}${noteDetail ? ` (${noteDetail})` : ''} · ${noteA}`;
             const bNote = status === null ? noteB : `${statusShort(invert(status))}${noteDetail ? ` (${noteDetail})` : ''} · ${noteB}`;
 
-            // The winning team's BETTER ball (lower net) gets the ○ mark.
-            const betterOf = (i: number, k: number): number | null => {
-                const ni = holes[i]!.contributed ? holes[i]!.net : null;
-                const nk = holes[k]!.contributed ? holes[k]!.net : null;
-                if (ni === null && nk === null) return null;
-                if (ni === null) return k;
-                if (nk === null) return i;
-                return ni <= nk ? i : k;
-            };
-            const decidingIdx = status === 'won' ? betterOf(0, 1) : status === 'lost' ? betterOf(2, 3) : null;
+            // The winning side's BEST ball (lowest net) gets the ○ mark. Resolve
+            // it within the side's slice, then offset back to the global index.
+            let decidingIdx: number | null = null;
+            if (status === 'won') {
+                const idx = bestBallIndex(holesA);
+                decidingIdx = idx === null ? null : idx;
+            } else if (status === 'lost') {
+                const idx = bestBallIndex(holesB);
+                decidingIdx = idx === null ? null : aCount + idx;
+            }
 
             holes.forEach((h, j) => {
+                const isSideA = j < aCount;
                 perBallHoles[j].push({
                     ...holeIdentity(roundContext, allBalls[j].ballId, occ),
                     gross: h.gross,
                     net: h.net,
                     points: null,
-                    note: j < 2 ? aNote : bNote,
+                    note: isSideA ? aNote : bNote,
                     ...(j === decidingIdx
-                        ? { marker: marker.ring({ tone: j < 2 ? 'side_a' : 'side_b', label: 'Hole won' }) }
+                        ? { marker: marker.ring({ tone: isSideA ? 'side_a' : 'side_b', label: 'Hole won' }) }
                         : {}),
                 });
             });
