@@ -122,6 +122,27 @@ export interface RulingInput {
     clientEventId: string;
 }
 
+/**
+ * A setup correction whose mutated definition the CALLER composed (Phase 3.5
+ * self-join): the caller supplies the full new `RoundDefinitionInput` plus the
+ * audit payload, and this service runs the SAME compile + one-transaction
+ * persist as `applySetupCorrection`. Exists so multi-field compositions (add a
+ * producer + extend a playing group) reuse the established recompile machinery
+ * instead of growing a parallel path.
+ */
+export interface ComposedSetupCorrectionInput {
+    roundId: string;
+    target: SetupCorrectionTarget;
+    targetRef: Record<string, string>;
+    oldValue: unknown;
+    newValue: unknown;
+    reason: string;
+    recordedBy?: string | null;
+    clientEventId: string;
+    /** The full mutated definition input to recompile from. */
+    definition: RoundDefinitionInput;
+}
+
 export class CorrectionService {
     constructor(
         private db: Kysely<Database>,
@@ -131,15 +152,8 @@ export class CorrectionService {
     // --- setup_correction_event ------------------------------------------------
 
     async applySetupCorrection(input: SetupCorrectionInput): Promise<CorrectionResult> {
-        const existing = await this.db
-            .selectFrom('setup_correction_events')
-            .where('round_id', '=', input.roundId)
-            .where('client_event_id', '=', input.clientEventId)
-            .select(['id', 'result_version'])
-            .executeTakeFirst();
-        if (existing) {
-            return { ok: true, eventId: existing.id, version: existing.result_version ?? 0 };
-        }
+        const existing = await this.dedupSetupCorrection(input.roundId, input.clientEventId);
+        if (existing) return existing;
 
         const latest = await this.roundService.latestDefinition(input.roundId);
         if (!latest) {
@@ -162,7 +176,35 @@ export class CorrectionService {
             throw err;
         }
 
-        const compiled = await this.roundService.compileDefinition(input.roundId, def);
+        return this.applyComposedSetupCorrection({
+            roundId: input.roundId,
+            target: input.target,
+            targetRef: input.targetRef,
+            oldValue,
+            newValue: input.newValue,
+            reason: input.reason,
+            recordedBy: input.recordedBy ?? null,
+            clientEventId: input.clientEventId,
+            definition: def,
+        });
+    }
+
+    /**
+     * Compile a caller-composed definition and persist the correction event +
+     * recompiled outputs in ONE transaction — the shared tail of every
+     * setup-correction path (`applySetupCorrection` funnels through here; the
+     * Phase 3.5 self-join composes its own definition and calls it directly).
+     * Also advances the round's result cursor (`rounds.latest_event_id`) so
+     * `?cursor=` result polling sees the recompiled result, WITHOUT touching
+     * lifecycle status.
+     */
+    async applyComposedSetupCorrection(
+        input: ComposedSetupCorrectionInput,
+    ): Promise<CorrectionResult> {
+        const existing = await this.dedupSetupCorrection(input.roundId, input.clientEventId);
+        if (existing) return existing;
+
+        const compiled = await this.roundService.compileDefinition(input.roundId, input.definition);
         if (!compiled.ok) return { ok: false, diagnostics: compiled.diagnostics };
 
         const eventId = crypto.randomUUID();
@@ -174,7 +216,7 @@ export class CorrectionService {
                     round_id: input.roundId,
                     target: input.target,
                     target_ref: JSON.stringify(input.targetRef),
-                    old_value: oldValue === undefined ? null : JSON.stringify(oldValue),
+                    old_value: input.oldValue === undefined ? null : JSON.stringify(input.oldValue),
                     new_value: JSON.stringify(input.newValue),
                     reason: input.reason,
                     recorded_by_player_id: input.recordedBy ?? null,
@@ -190,10 +232,26 @@ export class CorrectionService {
                 .set({ result_version: r.version })
                 .where('id', '=', eventId)
                 .execute();
+            await this.roundService.bumpResultCursor(input.roundId, eventId, trx);
             return r.version;
         });
 
         return { ok: true, eventId, version };
+    }
+
+    /** Idempotency probe shared by the two setup-correction entry points. */
+    private async dedupSetupCorrection(
+        roundId: string,
+        clientEventId: string,
+    ): Promise<CorrectionResult | null> {
+        const existing = await this.db
+            .selectFrom('setup_correction_events')
+            .where('round_id', '=', roundId)
+            .where('client_event_id', '=', clientEventId)
+            .select(['id', 'result_version'])
+            .executeTakeFirst();
+        if (!existing) return null;
+        return { ok: true, eventId: existing.id, version: existing.result_version ?? 0 };
     }
 
     // --- allowance_override_event ---------------------------------------------
@@ -304,6 +362,8 @@ export class CorrectionService {
                 .set({ result_version: v })
                 .where('id', '=', eventId)
                 .execute();
+            // Allowance changes reshape PHs → results; move the polling cursor.
+            await this.roundService.bumpResultCursor(input.roundId, eventId, trx);
             return v;
         });
 
@@ -328,20 +388,25 @@ export class CorrectionService {
         if (refDiag) return { ok: false, diagnostics: [refDiag] };
 
         const id = crypto.randomUUID();
-        await this.db
-            .insertInto('ruling_events')
-            .values({
-                id,
-                round_id: input.roundId,
-                target: input.target,
-                target_id: input.targetId,
-                ruling_kind: input.rulingKind,
-                value: JSON.stringify(input.value),
-                reason: input.reason,
-                recorded_by_player_id: input.recordedBy ?? null,
-                client_event_id: input.clientEventId,
-            })
-            .execute();
+        await this.db.transaction().execute(async (trx) => {
+            await trx
+                .insertInto('ruling_events')
+                .values({
+                    id,
+                    round_id: input.roundId,
+                    target: input.target,
+                    target_id: input.targetId,
+                    ruling_kind: input.rulingKind,
+                    value: JSON.stringify(input.value),
+                    reason: input.reason,
+                    recorded_by_player_id: input.recordedBy ?? null,
+                    client_event_id: input.clientEventId,
+                })
+                .execute();
+            // Rulings are read at score() time → they change results; move the
+            // polling cursor in the same transaction as the append.
+            await this.roundService.bumpResultCursor(input.roundId, id, trx);
+        });
         return { ok: true, id };
     }
 

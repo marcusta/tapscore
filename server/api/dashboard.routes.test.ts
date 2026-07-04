@@ -19,7 +19,7 @@ beforeEach(() => {
 async function setup() {
     const ctx: RouteTestContext = await setupRoutes([seedPlayer]);
     mount(ctx.app, '/api', createDashboardApi(ctx.dashboardService, ctx.friendlyRoundService));
-    mount(ctx.app, '/api', createFriendlyRoundsApi(ctx.friendlyRoundService, ctx.guestClaimService));
+    mount(ctx.app, '/api', createFriendlyRoundsApi(ctx.friendlyRoundService, ctx.guestClaimService, ctx.roundJoinService));
 
     const club = await ctx.clubService.create({ name: 'Dash GC' });
     const course = await ctx.courseService.create({

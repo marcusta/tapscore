@@ -2,6 +2,7 @@ import { Type, type Static } from '@sinclair/typebox';
 import type { Context } from 'hono';
 import { NotFoundError, requireAuth, requireUser } from '@basics/core/server/auth';
 import type { FriendlyRoundService } from '../services/friendly-round.service';
+import type { RoundJoinService } from '../services/round-join.service';
 import type { GuestClaimService } from '../services/guest-claim.service';
 import { RoundSetupDraft } from '../domain/round-setup/draft';
 import { EventType } from './score-events.api';
@@ -11,6 +12,21 @@ import { EventType } from './score-events.api';
 const CreateInput = Type.Object({ draft: RoundSetupDraft });
 const ByTokenInput = Type.Object({ token: Type.String() });
 const ByRoundInput = Type.Object({ roundId: Type.String() });
+
+// Result read with the OPTIONAL Phase 3.5 polling cursor. Omitted cursor =
+// the pre-cursor client — it always gets the full result envelope.
+const ResultInput = Type.Object({
+    token: Type.String(),
+    cursor: Type.Optional(Type.String()),
+});
+
+// Self-join (Phase 3.5): identity, display name, handicap index and gender all
+// come from the CALLER's profile (session), never the body — only the tee is
+// the joiner's choice.
+const JoinInput = Type.Object({
+    token: Type.String(),
+    teeId: Type.String(),
+});
 
 const ClaimGuestInput = Type.Object({
     token: Type.String(),
@@ -79,10 +95,20 @@ async function scorecardOr404(svc: FriendlyRoundService, token: string) {
     return found;
 }
 
-async function resultOr404(svc: FriendlyRoundService, token: string) {
-    const found = await svc.resultByToken(token);
+async function resultOr404(svc: FriendlyRoundService, token: string, cursor?: string) {
+    const found = await svc.resultWithCursorByToken(token, cursor);
     if (found === null) throw new NotFoundError('friendly round not found');
     return found;
+}
+
+async function joinOr404(
+    joins: RoundJoinService,
+    input: Static<typeof JoinInput>,
+    playerId: string,
+) {
+    const res = await joins.joinByToken({ ...input, playerId });
+    if (res === null) throw new NotFoundError('friendly round not found');
+    return res;
 }
 
 async function scoreOr404(
@@ -95,7 +121,11 @@ async function scoreOr404(
     return res;
 }
 
-export function createFriendlyRoundsApi(svc: FriendlyRoundService, claims: GuestClaimService) {
+export function createFriendlyRoundsApi(
+    svc: FriendlyRoundService,
+    claims: GuestClaimService,
+    joins: RoundJoinService,
+) {
     return {
         list:      { method: 'GET'  as const, path: '/friendly-rounds',           fn: ()                                    => svc.list() },
         create:    { method: 'POST' as const, path: '/friendly-rounds',           fn: (input: Static<typeof CreateInput>, c: Context) => svc.create(input.draft, optionalUserId(c)), schema: CreateInput },
@@ -103,8 +133,19 @@ export function createFriendlyRoundsApi(svc: FriendlyRoundService, claims: Guest
         get:       { method: 'GET'  as const, path: '/friendly-rounds/get',        fn: (input: Static<typeof ByRoundInput>)  => byRoundOr404(svc, input.roundId),       schema: ByRoundInput },
         balls:     { method: 'GET'  as const, path: '/friendly-rounds/balls',      fn: (input: Static<typeof ByTokenInput>)  => ballsOr404(svc, input.token),           schema: ByTokenInput },
         scorecard: { method: 'GET'  as const, path: '/friendly-rounds/scorecard',  fn: (input: Static<typeof ByTokenInput>)  => scorecardOr404(svc, input.token),       schema: ByTokenInput },
-        result:    { method: 'GET'  as const, path: '/friendly-rounds/result',     fn: (input: Static<typeof ByTokenInput>)  => resultOr404(svc, input.token),         schema: ByTokenInput },
+        result:    { method: 'GET'  as const, path: '/friendly-rounds/result',     fn: (input: Static<typeof ResultInput>)   => resultOr404(svc, input.token, input.cursor), schema: ResultInput },
         score:     { method: 'POST' as const, path: '/friendly-rounds/score',      fn: (input: Static<typeof ScoreInput>, c: Context) => scoreOr404(svc, input, optionalUserId(c)),   schema: ScoreInput },
+        // Auth REQUIRED: the caller's profile IS the join payload (identity,
+        // name, index, gender). 409s (already started / already in) surface via
+        // ConflictError; profile/tee/slot refusals are structured diagnostics.
+        join: {
+            method: 'POST' as const,
+            path: '/friendly-rounds/join',
+            fn: (input: Static<typeof JoinInput>, c: Context) =>
+                joinOr404(joins, input, requireUser(c).id),
+            schema: JoinInput,
+            middleware: [requireAuth()],
+        },
         claimGuest: {
             method: 'POST' as const,
             path: '/friendly-rounds/claim-guest',

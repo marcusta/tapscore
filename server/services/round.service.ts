@@ -962,15 +962,34 @@ export class RoundService {
     }
 
     /**
+     * Move the round's result cursor (`rounds.latest_event_id`) to `eventId`
+     * WITHOUT touching lifecycle status. Phase 3.5: the column is an opaque
+     * change marker for `?cursor=` result polling — EVERY result-changing
+     * append advances it (score events via `recordLatestEvent`, plus setup
+     * corrections, allowance overrides, rulings and format actions via this
+     * method), so a matching cursor guarantees an unchanged result. The value
+     * is whatever event id moved it last; clients treat it as opaque.
+     */
+    async bumpResultCursor(
+        id: string,
+        eventId: string,
+        trx: Kysely<Database> = this.db,
+    ): Promise<void> {
+        await this.updateById(id, trx).set({ latest_event_id: eventId }).execute();
+    }
+
+    /**
      * Called by score-event.service after a successful append. Not exposed via
-     * the descriptor; score events are the only path that moves the cursor.
+     * the descriptor; score events are the only path that also promotes the
+     * round's lifecycle (other cursor movers call `bumpResultCursor` directly —
+     * a pre-start setup correction must never activate the round).
      */
     async recordLatestEvent(
         id: string,
         eventId: string,
         trx: Kysely<Database> = this.db,
     ): Promise<void> {
-        await this.updateById(id, trx).set({ latest_event_id: eventId }).execute();
+        await this.bumpResultCursor(id, eventId, trx);
         // First score event promotes a not_started round to active. Guarded on
         // status so a completed round is never reopened by a late append.
         await this.updateById(id, trx)

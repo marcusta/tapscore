@@ -280,8 +280,9 @@ export interface FriendlyRoundsApi {
     get(input: { roundId: string }): Promise<FriendlyRound>;
     balls(input: { token: string }): Promise<RoundBall[]>;
     scorecard(input: { token: string }): Promise<Scorecard[]>;
-    result(input: { token: string }): Promise<RoundResult>;
+    result(input: { cursor?: string; token: string }): Promise<{ unchanged: true; cursor: string } | { unchanged: false; cursor: null | string; result: RoundResult }>;
     score(input: { sourcePlayerId?: null | string; sourceGuestPlayerId?: null | string; metadata?: null | { [x: string]: unknown; }; token: string; ballId: string; playHoleId: string; strokes: null | number; eventType: 'score_entered' | 'score_cleared' | 'score_confirmed' | 'manual_override'; clientEventId: string }): Promise<AppendResult>;
+    join(input: { teeId: string; token: string }): Promise<{ ok: true; round: Round } | { ok: false; diagnostics: CompilerDiagnostic[] }>;
     claimGuest(input: { token: string; guestPlayerId: string }): Promise<ClaimGuestResult>;
 }
 
@@ -330,6 +331,9 @@ export function createFriendlyRoundsClient(baseUrl: string): FriendlyRoundsApi {
         },
         async score(input) {
             return apiFetch({ method: 'POST', url: `${baseUrl}/friendly-rounds/score`, body: input });
+        },
+        async join(input) {
+            return apiFetch({ method: 'POST', url: `${baseUrl}/friendly-rounds/join`, body: input });
         },
         async claimGuest(input) {
             return apiFetch({ method: 'POST', url: `${baseUrl}/friendly-rounds/claim-guest`, body: input });

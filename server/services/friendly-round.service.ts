@@ -43,6 +43,19 @@ export type TokenScoreInput = Omit<
     'roundId' | 'recordedByPlayerId'
 > & { token: string };
 
+/**
+ * Cursored result read (Phase 3.5 interim polling). `cursor` rides
+ * `rounds.latest_event_id` — an opaque per-round change marker advanced by
+ * every result-changing append (score events, setup corrections, allowance
+ * overrides, rulings, format actions; see `RoundService.bumpResultCursor`).
+ * A matching cursor short-circuits to `{ unchanged: true }` WITHOUT computing
+ * the result; a stale/absent cursor returns the full result plus the current
+ * cursor. `cursor` is `null` until the first result-changing event.
+ */
+export type CursoredRoundResult =
+    | { unchanged: true; cursor: string }
+    | { unchanged: false; cursor: string | null; result: RoundResult };
+
 // --- Row mapping ---
 
 type FriendlyRoundRow = Selectable<FriendlyRoundsTable>;
@@ -220,6 +233,34 @@ export class FriendlyRoundService {
         const roundId = await this.roundIdForToken(token);
         if (roundId === null) return null;
         return this.leaderboards.resultForRound(roundId);
+    }
+
+    /**
+     * `resultByToken` wrapped in the Phase 3.5 polling envelope. When the
+     * caller's `cursor` still matches `rounds.latest_event_id`, nothing has
+     * changed the result since that read — return the tiny `unchanged`
+     * response without touching the scoring layer. Any other case (no cursor,
+     * stale cursor, or a round that has no cursor yet) computes the full
+     * result. The client stores the returned `cursor` for its next poll.
+     */
+    async resultWithCursorByToken(
+        token: string,
+        cursor?: string,
+    ): Promise<CursoredRoundResult | null> {
+        const roundId = await this.roundIdForToken(token);
+        if (roundId === null) return null;
+        const row = await this.db
+            .selectFrom('rounds')
+            .select('latest_event_id')
+            .where('id', '=', roundId)
+            .executeTakeFirst();
+        if (!row) return null;
+        const current = row.latest_event_id;
+        if (cursor !== undefined && current !== null && cursor === current) {
+            return { unchanged: true, cursor: current };
+        }
+        const result = await this.leaderboards.resultForRound(roundId);
+        return { unchanged: false, cursor: current, result };
     }
 
     /**

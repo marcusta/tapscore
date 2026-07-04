@@ -30,7 +30,12 @@ const apiMock = {
         }),
         balls: mock(async ({ token }: { token: string }) => ballsByToken.get(token) ?? []),
         scorecard: mock(async ({ token }: { token: string }) => scorecardsByToken.get(token) ?? []),
-        result: mock(async ({ token }: { token: string }) => resultsByToken.get(token) ?? null),
+        // Phase 3.5: the endpoint answers with the cursor envelope; the mock
+        // wraps the stored raw RoundResult the way the server would.
+        result: mock(async ({ token }: { token: string }) => {
+            const result = resultsByToken.get(token);
+            return result ? { unchanged: false, cursor: null, result } : null;
+        }),
     },
 };
 

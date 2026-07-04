@@ -17,7 +17,7 @@ beforeEach(() => {
 
 async function setup() {
     const ctx: RouteTestContext = await setupRoutes([seedPlayer]);
-    mount(ctx.app, '/api', createFriendlyRoundsApi(ctx.friendlyRoundService, ctx.guestClaimService));
+    mount(ctx.app, '/api', createFriendlyRoundsApi(ctx.friendlyRoundService, ctx.guestClaimService, ctx.roundJoinService));
 
     const club = await ctx.clubService.create({ name: 'Friendly GC' });
     const course = await ctx.courseService.create({
@@ -219,4 +219,145 @@ test('POST /friendly-rounds/claim-guest flips the guest to the caller', async ()
         { token, guestPlayerId: guestId }, cookie,
     );
     expect(again.status).toBe(409);
+});
+
+// --- Phase 3.5: cursored result polling + self-join via link -----------------
+
+test('GET /friendly-rounds/result without a cursor returns the full envelope (pre-cursor clients keep working)', async () => {
+    const { ctx, draft } = await setup();
+    const a = await scoreArgs(ctx, draft);
+
+    const res = await req(ctx.app, 'GET', `/api/friendly-rounds/result?token=${a.token}`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.unchanged).toBe(false);
+    expect(body.cursor).toBeNull(); // no result-changing event yet
+    expect(body.result.slots).toHaveLength(1);
+});
+
+test('GET /friendly-rounds/result?cursor= rides rounds.latest_event_id: unchanged → tiny response, stale → full', async () => {
+    const { ctx, draft } = await setup();
+    const a = await scoreArgs(ctx, draft);
+    await req(ctx.app, 'POST', '/api/friendly-rounds/score', {
+        token: a.token, ballId: a.ballId, playHoleId: a.playHoleIds[0],
+        strokes: 4, eventType: 'score_entered', clientEventId: 'cursor-http-1',
+    });
+
+    const full = await (await req(ctx.app, 'GET', `/api/friendly-rounds/result?token=${a.token}`)).json();
+    expect(full.unchanged).toBe(false);
+    expect(full.cursor).toBeString();
+
+    // Matching cursor → tiny unchanged response, no result computed.
+    const same = await (
+        await req(ctx.app, 'GET', `/api/friendly-rounds/result?token=${a.token}&cursor=${full.cursor}`)
+    ).json();
+    expect(same).toEqual({ unchanged: true, cursor: full.cursor });
+
+    // Another score moves the cursor → the old one is stale → full result.
+    await req(ctx.app, 'POST', '/api/friendly-rounds/score', {
+        token: a.token, ballId: a.ballId, playHoleId: a.playHoleIds[1],
+        strokes: 5, eventType: 'score_entered', clientEventId: 'cursor-http-2',
+    });
+    const stale = await (
+        await req(ctx.app, 'GET', `/api/friendly-rounds/result?token=${a.token}&cursor=${full.cursor}`)
+    ).json();
+    expect(stale.unchanged).toBe(false);
+    expect(stale.cursor).not.toBe(full.cursor);
+    expect(stale.result.slots).toHaveLength(1);
+});
+
+test('GET /friendly-rounds/result returns 404 for an unknown token', async () => {
+    const { ctx } = await setup();
+    const res = await req(ctx.app, 'GET', '/api/friendly-rounds/result?token=nope&cursor=x');
+    expect(res.status).toBe(404);
+});
+
+async function joinReady(ctx: RouteTestContext, draft: unknown) {
+    await ctx.playerService.register({
+        username: 'joan', password: 'password123', displayName: 'Joan Joiner',
+        handicapIndex: 12.4, gender: 'M',
+    });
+    const cookie = await loginAs(ctx.app, 'joan', 'password123');
+    const me = await (await req(ctx.app, 'GET', '/api/auth/me', undefined, cookie)).json();
+    const created = await (await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })).json();
+    return { cookie, me, token: created.friendlyRound.shareToken as string, round: created.round };
+}
+
+test('POST /friendly-rounds/join without a session returns 401', async () => {
+    const { ctx, draft } = await setup();
+    const created = await (await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })).json();
+    const res = await req(ctx.app, 'POST', '/api/friendly-rounds/join', {
+        token: created.friendlyRound.shareToken, teeId: 'whatever',
+    });
+    expect(res.status).toBe(401);
+});
+
+test('POST /friendly-rounds/join adds the caller from their profile and returns the fresh round', async () => {
+    const { ctx, draft } = await setup();
+    const teeId = (draft as { producers: { teeId: string }[] }).producers[0]!.teeId;
+    const { cookie, me, token } = await joinReady(ctx, draft);
+
+    const res = await req(ctx.app, 'POST', '/api/friendly-rounds/join', { token, teeId }, cookie);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    // Fresh hydrated round: the joiner overflowed the (full) default group.
+    expect(body.round.playingGroups).toHaveLength(2);
+    const balls = await (await req(ctx.app, 'GET', `/api/friendly-rounds/balls?token=${token}`)).json();
+    expect(balls).toHaveLength(3);
+    const joinerBall = balls.find(
+        (b: { players: { playerId: string | null }[] }) => b.players.some((p) => p.playerId === me.id),
+    );
+    expect(joinerBall).toBeTruthy();
+
+    // Second join → 409 (already a producer).
+    const again = await req(ctx.app, 'POST', '/api/friendly-rounds/join', { token, teeId }, cookie);
+    expect(again.status).toBe(409);
+});
+
+test('POST /friendly-rounds/join on an active round returns 409', async () => {
+    const { ctx, draft } = await setup();
+    const teeId = (draft as { producers: { teeId: string }[] }).producers[0]!.teeId;
+    const a = await scoreArgs(ctx, draft); // scoring activates the round
+    await req(ctx.app, 'POST', '/api/friendly-rounds/score', {
+        token: a.token, ballId: a.ballId, playHoleId: a.playHoleIds[0],
+        strokes: 4, eventType: 'score_entered', clientEventId: 'join-http-act',
+    });
+    await ctx.playerService.register({
+        username: 'joan', password: 'password123', displayName: 'Joan Joiner',
+        handicapIndex: 12.4, gender: 'M',
+    });
+    const cookie = await loginAs(ctx.app, 'joan', 'password123');
+
+    const res = await req(ctx.app, 'POST', '/api/friendly-rounds/join', { token: a.token, teeId }, cookie);
+    expect(res.status).toBe(409);
+});
+
+test('POST /friendly-rounds/join refuses a profile without gender/handicap via structured diagnostics, not a 500', async () => {
+    const { ctx, draft } = await setup();
+    const teeId = (draft as { producers: { teeId: string }[] }).producers[0]!.teeId;
+    const created = await (await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })).json();
+    // seeded alice has neither gender nor handicap index.
+    const cookie = await loginAs(ctx.app, 'alice', 'password123');
+
+    const res = await req(ctx.app, 'POST', '/api/friendly-rounds/join', {
+        token: created.friendlyRound.shareToken, teeId,
+    }, cookie);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    const codes = body.diagnostics.map((d: { code: string }) => d.code);
+    expect(codes).toContain('missing_gender');
+    expect(codes).toContain('missing_handicap_index');
+});
+
+test('POST /friendly-rounds/join returns 404 for an unknown token', async () => {
+    const { ctx } = await setup();
+    await ctx.playerService.register({
+        username: 'joan', password: 'password123', displayName: 'Joan Joiner',
+        handicapIndex: 12.4, gender: 'M',
+    });
+    const cookie = await loginAs(ctx.app, 'joan', 'password123');
+    const res = await req(ctx.app, 'POST', '/api/friendly-rounds/join', { token: 'nope', teeId: 'x' }, cookie);
+    expect(res.status).toBe(404);
 });

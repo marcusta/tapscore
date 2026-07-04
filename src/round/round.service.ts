@@ -190,11 +190,14 @@ export class RoundViewService {
         const token = this.token;
         if (!token) return;
         const seq = ++this.resultSeq;
+        // Phase 3.5: the endpoint returns a cursor envelope for polling. This
+        // call site stays cursor-less (always the full result) — the ~20 s
+        // leaderboard poll that sends `cursor` back is a later slice.
         const rr = await request(this.resultLoading, this.resultError, () =>
             api.friendlyRounds.result({ token }),
         );
         if (seq !== this.resultSeq || token !== this.token) return;
-        if (rr) this.result.set(rr);
+        if (rr && !rr.unchanged) this.result.set(rr.result);
     }
 
     /** Display name for a ball: joined producer names, else its label, else the id. */

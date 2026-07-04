@@ -178,24 +178,29 @@ export class FormatActionService {
         if (diags.length > 0) return { ok: false, diagnostics: diags };
 
         const id = crypto.randomUUID();
-        await this.db
-            .insertInto('format_action_events')
-            .values({
-                id,
-                round_id: input.roundId,
-                slot_def_id: input.slotDefId,
-                play_hole_id: playHoleId,
-                sequence: actionInput.sequence,
-                action_type: input.actionType,
-                schema_version: actionInput.schemaVersion,
-                subject_ball_id: actionInput.subjectBallId,
-                subject_producer_def_id: actionInput.subjectProducerDefId,
-                payload: JSON.stringify(input.payload),
-                supersedes_action_id: input.supersedesActionId ?? null,
-                recorded_by_player_id: input.recordedBy ?? null,
-                client_event_id: input.clientEventId,
-            })
-            .execute();
+        await this.db.transaction().execute(async (trx) => {
+            await trx
+                .insertInto('format_action_events')
+                .values({
+                    id,
+                    round_id: input.roundId,
+                    slot_def_id: input.slotDefId,
+                    play_hole_id: playHoleId,
+                    sequence: actionInput.sequence,
+                    action_type: input.actionType,
+                    schema_version: actionInput.schemaVersion,
+                    subject_ball_id: actionInput.subjectBallId,
+                    subject_producer_def_id: actionInput.subjectProducerDefId,
+                    payload: JSON.stringify(input.payload),
+                    supersedes_action_id: input.supersedesActionId ?? null,
+                    recorded_by_player_id: input.recordedBy ?? null,
+                    client_event_id: input.clientEventId,
+                })
+                .execute();
+            // Format actions feed score() replay → they change results; move
+            // the polling cursor in the same transaction as the append.
+            await this.roundService.bumpResultCursor(input.roundId, id, trx);
+        });
         return { ok: true, id };
     }
 }
