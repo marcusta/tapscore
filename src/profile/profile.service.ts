@@ -21,8 +21,14 @@ export class ProfileService {
     readonly saving = new Signal(false);
     readonly saveError = new Signal<RequestError | null>(null);
 
-    /** Load `me` + the append-only history. Safe to call repeatedly. */
-    async load(): Promise<void> {
+    /**
+     * Load `me` + the append-only history. Load-once per session unless
+     * forced — mutations refresh explicitly (`saveIndex` forces, `saveGender`
+     * writes the response back), so remounts never need a refetch. Also caps
+     * the blast radius of any pathological remount loop at one request.
+     */
+    async load(force = false): Promise<void> {
+        if (!force && (this.player.get() !== null || this.loading.get())) return;
         const data = await request(this.loading, this.error, () =>
             Promise.all([api.players.me(), api.players.myHandicapHistory()]),
         );
@@ -50,7 +56,7 @@ export class ProfileService {
             api.players.updateHandicap({ handicapIndex }),
         );
         if (!saved) return false;
-        await this.load();
+        await this.load(true);
         return true;
     }
 

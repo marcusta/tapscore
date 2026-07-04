@@ -58,7 +58,11 @@ export class FriendsService {
         },
     );
 
-    async load(): Promise<void> {
+    async load(force = false): Promise<void> {
+        // Load-once per session: mutations (add/remove) keep `friends` fresh
+        // locally, so remounts never need a refetch. Also caps the blast
+        // radius of any pathological remount loop at one request.
+        if (!force && (this.loaded.get() || this.loading.get())) return;
         const data = await request(this.loading, this.error, () => api.friends.list());
         if (!data) return;
         this.friends.set(sortProfiles(data));
