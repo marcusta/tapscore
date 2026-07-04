@@ -97,6 +97,15 @@ export class LeaderboardComponent extends Component {
                 white-space: nowrap;
             }
             & .lb-rank__total { text-align: right; font-weight: 700; }
+            /* Phase 3.5: group tag next to a player's name — only rendered when
+               the round has 2+ playing groups (single-group rounds get nothing,
+               same look as before this phase). */
+            & .lb-rank__group {
+                font-size: 0.7rem;
+                font-weight: 600;
+                color: ${t('text-muted')};
+                margin-left: ${s('xs')};
+            }
             & .lb-rank__thru { text-align: right; color: ${t('text-muted')}; }
             & .lb-rank__lead td { background: ${t('accent-soft')}; }
             & .lb-rank__lead .lb-rank__pos { color: ${t('accent')}; }
@@ -323,7 +332,8 @@ export class LeaderboardComponent extends Component {
         const slot = this.currentSlot();
         if (!slot) return '<div class="lb-empty">No formats in this round.</div>';
         const nameOf = (id: string) => this.svc.nameOf(id);
-        const leaderboard = renderSlotLeaderboard(slot, nameOf);
+        const groupOf = (id: string) => this.svc.groupLabelOf(id);
+        const leaderboard = renderSlotLeaderboard(slot, nameOf, groupOf);
         const cards = renderSlotCards(slot, result.routeSections, nameOf);
         const cardsBlock = cards ? `<h3 class="lb-cards__head">Scorecard</h3>${cards}` : '';
         return leaderboard + cardsBlock;

@@ -23,10 +23,14 @@ import type {
 } from '../api/friendly-rounds.gen';
 
 export type NameOf = (ballId: string) => string;
+/** Ball id → "Group N" label, or `null` on a single-group round (Phase 3.5). */
+export type GroupOf = (ballId: string) => string | null;
 export type ResultRenderMode = 'product' | 'verification';
 export interface ResultRenderOptions {
     mode?: ResultRenderMode;
 }
+
+const noGroup: GroupOf = () => null;
 
 /** Minimal HTML escape (mirrors scripts/render/util.ts `esc`). */
 export function esc(value: unknown): string {
@@ -236,16 +240,30 @@ function renderCategoryMatrixGrid(
     return renderScoreGridBase(section, routeSections, nameOf, { ...opts, cardModifier: 'lb-card--category-matrix' });
 }
 
-function renderRanked(section: RankedSection, nameOf: NameOf): string {
+/**
+ * The entry's group label, when every ball in it (own-ball or team) shares
+ * ONE group — mixed-group teams shouldn't happen (the compiler rejects
+ * cross-group team balls per §3), but a defensive mismatch just omits the
+ * label rather than guessing.
+ */
+function entryGroupLabel(ballIds: readonly string[], groupOf: GroupOf): string | null {
+    const labels = new Set(ballIds.map(groupOf));
+    if (labels.size !== 1) return null;
+    return [...labels][0] ?? null;
+}
+
+function renderRanked(section: RankedSection, nameOf: NameOf, groupOf: GroupOf = noGroup): string {
     const rows = section.entries
-        .map(
-            (e) => `<tr class="${e.position === 1 ? 'lb-rank__lead' : ''}">
+        .map((e) => {
+            const group = entryGroupLabel(e.ballIds, groupOf);
+            const groupTag = group ? ` <span class="lb-rank__group">${esc(group)}</span>` : '';
+            return `<tr class="${e.position === 1 ? 'lb-rank__lead' : ''}">
   <td class="lb-rank__pos">${e.position}</td>
-  <td class="lb-rank__who">${esc(e.ballIds.map(nameOf).join(' & '))}</td>
+  <td class="lb-rank__who">${esc(e.ballIds.map(nameOf).join(' & '))}${groupTag}</td>
   <td class="lb-rank__total">${e.total ?? '—'}</td>
   <td class="lb-rank__thru">${e.holesPlayed}</td>
-</tr>`,
-        )
+</tr>`;
+        })
         .join('');
     return `<div class="lb-section">
   <h4 class="lb-section__title">${esc(section.metricLabel)}</h4>
@@ -294,18 +312,24 @@ function renderMatchSummary(section: MatchSummarySection, nameOf: NameOf): strin
 type LeaderboardSection = SlotResultView['leaderboard'][number];
 
 /** Renders one leaderboard section kind. Every renderer shares this shape. */
-type SectionRenderer<S extends LeaderboardSection> = (section: S, nameOf: NameOf) => string;
+type SectionRenderer<S extends LeaderboardSection> = (
+    section: S,
+    nameOf: NameOf,
+    groupOf: GroupOf,
+) => string;
 
 /**
  * Registry of leaderboard-section renderers, keyed by `section.kind`. Defined as
  * a mapped type so each entry is checked against its exact section type, and so
  * adding a new leaderboard kind to the contract forces a matching renderer here.
+ * `match_summary` ignores `groupOf` — a match panel already names both sides
+ * explicitly, so a group tag would be redundant.
  */
 const sectionRegistry: {
     [K in LeaderboardSection['kind']]: SectionRenderer<Extract<LeaderboardSection, { kind: K }>>;
 } = {
     ranked: renderRanked,
-    match_summary: renderMatchSummary,
+    match_summary: (section, nameOf) => renderMatchSummary(section, nameOf),
 };
 
 /** Renders one score grid. Every grid component shares this shape. */
@@ -341,14 +365,14 @@ function gridDiagnostic(componentId: string): string {
 }
 
 /** Dispatch one leaderboard section through {@link sectionRegistry}. */
-function renderLeaderboardSection(section: LeaderboardSection, nameOf: NameOf): string {
+function renderLeaderboardSection(section: LeaderboardSection, nameOf: NameOf, groupOf: GroupOf): string {
     // Contained dispatcher cast: the registry is typed per-kind on definition;
     // the lookup widens to "any leaderboard renderer, or none" so an unknown
     // runtime kind falls through to a visible diagnostic instead of throwing.
     const render = (
         sectionRegistry as Record<string, SectionRenderer<LeaderboardSection> | undefined>
     )[section.kind];
-    return render ? render(section, nameOf) : diagnostic(section.kind);
+    return render ? render(section, nameOf, groupOf) : diagnostic(section.kind);
 }
 
 /** Dispatch one score grid through {@link scoreGridRegistry}. */
@@ -365,12 +389,16 @@ function renderScoreGridSection(
     return render ? render(section, routeSections, nameOf, opts) : gridDiagnostic(componentId);
 }
 
-/** Leaderboard-area sections for one slot (ranked metrics + match summaries). */
-export function renderSlotLeaderboard(slot: SlotResultView, nameOf: NameOf): string {
+/**
+ * Leaderboard-area sections for one slot (ranked metrics + match summaries).
+ * `groupOf` (Phase 3.5) is optional — a single-group round (the common case)
+ * passes nothing and every entry renders exactly as before.
+ */
+export function renderSlotLeaderboard(slot: SlotResultView, nameOf: NameOf, groupOf: GroupOf = noGroup): string {
     if (slot.leaderboard.length === 0 && slot.cards.length === 0) {
         return `<div class="lb-empty">No scores entered yet for ${esc(slot.formatLabel)}.</div>`;
     }
-    const sections = slot.leaderboard.map((sec) => renderLeaderboardSection(sec, nameOf)).join('');
+    const sections = slot.leaderboard.map((sec) => renderLeaderboardSection(sec, nameOf, groupOf)).join('');
     return sections || `<div class="lb-empty">No leaderboard metric for ${esc(slot.formatLabel)}.</div>`;
 }
 

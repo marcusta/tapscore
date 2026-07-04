@@ -95,6 +95,12 @@ export class RoundViewService {
     readonly resultLoading = new Signal(false);
     /** Separate from `error`: a non-fatal leaderboard fetch must not flag the whole round. */
     readonly resultError = new Signal<RequestError | null>(null);
+    /**
+     * The cursor from the last non-`unchanged` result response (Phase 3.5).
+     * Sent back on the next poll so an unchanged round replies with the tiny
+     * `{ unchanged: true }` envelope instead of re-serialising the full result.
+     */
+    private resultCursor: string | null = null;
 
     /**
      * Shared on-course navigation state. Both the score-entry carousel and the
@@ -185,19 +191,48 @@ export class RoundViewService {
      * Fetch the canonical `RoundResult` for the leaderboard. Loaded on demand
      * (when the leaderboard tab is shown) and re-fetched to reflect newly-entered
      * scores. A failure leaves the previous result in place rather than blanking.
+     * Cursor-less on purpose: an explicit tab-open/refresh always wants the full
+     * result, never a `{ unchanged: true }` short-circuit against a stale cursor
+     * from a previous token/session.
      */
     async loadResult(): Promise<void> {
         const token = this.token;
         if (!token) return;
         const seq = ++this.resultSeq;
-        // Phase 3.5: the endpoint returns a cursor envelope for polling. This
-        // call site stays cursor-less (always the full result) — the ~20 s
-        // leaderboard poll that sends `cursor` back is a later slice.
         const rr = await request(this.resultLoading, this.resultError, () =>
             api.friendlyRounds.result({ token }),
         );
         if (seq !== this.resultSeq || token !== this.token) return;
-        if (rr && !rr.unchanged) this.result.set(rr.result);
+        if (!rr) return;
+        this.resultCursor = rr.cursor;
+        if (!rr.unchanged) this.result.set(rr.result);
+    }
+
+    /**
+     * The ~20s leaderboard poll (Phase 3.5). Sends back the cursor from the
+     * last response so an unaltered round answers with the tiny
+     * `{ unchanged: true }` envelope — no re-render, no wasted parse. Silent
+     * on failure (a transient poll miss shouldn't surface as a page error);
+     * the next tick just tries again. Does NOT touch `resultLoading` — a
+     * background poll must not flash the "Loading results…" status text over
+     * an already-rendered board.
+     */
+    async pollResult(): Promise<void> {
+        const token = this.token;
+        if (!token) return;
+        const seq = ++this.resultSeq;
+        let rr;
+        try {
+            rr = await api.friendlyRounds.result({
+                token,
+                ...(this.resultCursor !== null ? { cursor: this.resultCursor } : {}),
+            });
+        } catch {
+            return;
+        }
+        if (seq !== this.resultSeq || token !== this.token) return;
+        this.resultCursor = rr.cursor;
+        if (!rr.unchanged) this.result.set(rr.result);
     }
 
     /** Display name for a ball: joined producer names, else its label, else the id. */
@@ -210,6 +245,29 @@ export class RoundViewService {
     /** Resolve a ball id → live name for a result section (consumer-side naming). */
     nameOf(ballId: string): string {
         return this.ballNameById.get().get(ballId) ?? ballId;
+    }
+
+    /**
+     * Ball id → "Group N" label (Phase 3.5), built straight off
+     * `RoundPlayingGroup.ballIds` — no join, no server change: the round
+     * payload already carries the membership the leaderboard needs. `null`
+     * per ball when the round has fewer than 2 groups (nothing to
+     * disambiguate) or the ball isn't in any group (shouldn't happen, but a
+     * missing label beats a wrong one).
+     */
+    readonly groupLabelByBallId = new Computed<Map<string, string>>(() => {
+        const m = new Map<string, string>();
+        const groups = this.groups();
+        if (groups.length < 2) return m;
+        groups.forEach((g, i) => {
+            for (const ballId of g.ballIds) m.set(ballId, `Group ${i + 1}`);
+        });
+        return m;
+    });
+
+    /** Group label for a ball, or `null` on a single-group round (nothing to show). */
+    groupLabelOf(ballId: string): string | null {
+        return this.groupLabelByBallId.get().get(ballId) ?? null;
     }
 
     // --- Format slot selection (pills + leaderboard), keyed by slotDefId ---
@@ -489,6 +547,7 @@ export class RoundViewService {
 
     private resetForNewToken(initial?: InitialPosition): void {
         this.resultSeq++;
+        this.resultCursor = null;
         this.friendlyRound.set(null);
         this.round.set(null);
         this.balls.set([]);

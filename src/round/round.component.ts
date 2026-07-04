@@ -13,10 +13,15 @@ import { RoundViewService, type InitialPosition } from './round.service';
 import { ScoreEntryComponent } from './score-entry.component';
 import { LeaderboardComponent } from './leaderboard.component';
 import { ClaimCardComponent } from './claim-card.component';
+import { JoinCardComponent } from './join-card.component';
 import { formatLabelFromSlot } from './slot-labels';
+import { shouldPoll } from './poll-gate';
 import type { FormatSlot } from '../api/rounds.gen';
 
 type Tab = 'score' | 'leaderboard';
+
+/** Leaderboard poll cadence (Phase 3.5) — interim substitute for Phase 9 push. */
+const LEADERBOARD_POLL_MS = 20_000;
 
 /**
  * `?slot=` is a `slotDefId` (opaque string) as of 2.7b. A pre-2.7b link may
@@ -60,6 +65,7 @@ const tpl = template(`
                     </div>
 
                     <div bind="claim"></div>
+                    <div bind="join"></div>
                 </div>
 
                 <div bind="lbPanel" class="round-view__panel hidden">
@@ -352,6 +358,10 @@ export class RoundComponent extends Component {
     // effect below mirrors all three back to the query string on every change.
     private initPos = this.readUrlPosition();
     private tab = new Signal<Tab>(this.initPos.tab);
+    // Mirrors `document.hidden` (inverted) so the leaderboard-poll gate can
+    // read it like any other reactive signal. Updated by a `visibilitychange`
+    // listener wired in `render()` and torn down with the component.
+    private pageVisible = new Signal(!document.hidden);
 
     private hasRound = new Computed(() => this.svc.round.get() !== null);
     private hasScoring = new Computed(() => this.svc.balls.get().length > 0);
@@ -383,6 +393,41 @@ export class RoundComponent extends Component {
         const onOnline = () => void this.svc.flushPending();
         window.addEventListener('online', onOnline);
         this.track(() => window.removeEventListener('online', onOnline));
+
+        // Leaderboard poll (Phase 3.5, interim substitute for Phase 9 push).
+        // `pageVisible` mirrors `document.hidden` so the gate reads it like
+        // any other signal; the listener is torn down the same way `online`
+        // is above.
+        const onVisibility = () => this.pageVisible.set(!document.hidden);
+        document.addEventListener('visibilitychange', onVisibility);
+        this.track(() => document.removeEventListener('visibilitychange', onVisibility));
+
+        // One interval, started/stopped by the gate rather than left running
+        // and no-op'd — an inactive round view should hold no timer at all.
+        // The effect re-evaluates on every tab switch, visibility change, and
+        // round-status change (not_started → active on the first score), so
+        // opening the leaderboard starts the timer and navigating away (this
+        // effect's disposer, and the whole component's teardown via `track`)
+        // stops it — never a orphaned timer surviving a route change.
+        let pollTimer: ReturnType<typeof setInterval> | null = null;
+        this.track(
+            effect(() => {
+                const gate = shouldPoll({
+                    tab: this.tab.get(),
+                    pageVisible: this.pageVisible.get(),
+                    status: this.svc.round.get()?.status ?? null,
+                });
+                if (gate && pollTimer === null) {
+                    pollTimer = setInterval(() => void this.svc.pollResult(), LEADERBOARD_POLL_MS);
+                } else if (!gate && pollTimer !== null) {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                }
+            }),
+        );
+        this.track(() => {
+            if (pollTimer !== null) clearInterval(pollTimer);
+        });
 
         // Mirror tab + selected slot + current hole back into the query string
         // (replace, so it doesn't pollute history). Gated on a loaded round so the
@@ -530,6 +575,11 @@ export class RoundComponent extends Component {
         // Phase 3: the guest-claim affordance — self-hiding (logged-out /
         // no unclaimed guests / viewer already plays here ⇒ renders nothing).
         this.spawn(ClaimCardComponent, this.ref(frag, 'claim'));
+        // Phase 3.5: the self-join affordance — self-hiding (logged-out /
+        // round already started / viewer already a producer ⇒ renders
+        // nothing). Distinct action from claim above: claim flips an existing
+        // guest row, join mints a brand new producer — both can show together.
+        this.spawn(JoinCardComponent, this.ref(frag, 'join'));
 
         return frag;
     }
