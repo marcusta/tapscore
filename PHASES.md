@@ -1057,6 +1057,7 @@ The compiler already accepts explicit `playingGroups[]` (start time, start play-
 - Score entry: explicit group selector (pills); carousel scoped to the selected group's `playedOrder`. Today group switching is implicit and confusing with 2+ groups.
 - Leaderboard: rows show group + thru-N (holes completed along that group's played order).
 - Interim polling (replaced by Phase 9 push): `GET /friendly-rounds/result` gains `?cursor=` riding `rounds.latest_event_id`; unchanged cursor → tiny `{ unchanged: true }` response. Client polls ~20 s while the leaderboard tab is visible; never while backgrounded.
+- **Self-join via link (added 2026-07-04, from Phase 3 testing):** a logged-in player opening a `not_started` round they're not in gets "Add me to this round" — the server composes a new `RoundDefinition` version (new producer from the caller's profile + chosen tee; added to whole-roster own-ball slots, never to explicit-subset or team slots; appended to the first playing group with free capacity, else a new group) through the 2.6d correction/recompile machinery. Refused once the round is active or if the caller is already a producer (as player or unclaimed-guest ambiguity is fine — claim handles that path). Completes the drop-the-link-in-the-chat flow.
 
 **HTML render expectations:**
 - Round page shows groups with start times/start holes and each group's rotated played order.
