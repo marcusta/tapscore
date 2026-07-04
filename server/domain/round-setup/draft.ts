@@ -122,6 +122,19 @@ export const DraftFormatSelection = Type.Object({
 });
 
 /**
+ * One playing group of the start list (Phase 3.5). Members reference the
+ * roster by producer def-id (`p1`…), exactly as `formats[]`/`teams[]` do.
+ * `startHole` is a COURSE hole number on the round's route (shotgun = groups
+ * with different numbers); absent ⇒ the route's first occurrence. `startTime`
+ * is a display string (typically `HH:MM`); absent ⇒ the round's `playedAt`.
+ */
+export const DraftPlayingGroup = Type.Object({
+    members: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+    startTime: Type.Optional(Type.String({ minLength: 1 })),
+    startHole: Type.Optional(Type.Integer({ minimum: 1 })),
+});
+
+/**
  * Route selection. A bare draft (no `route`, optional `roundType`) is a
  * conventional preset. `templateId` is resolved + frozen by the service before
  * the builder runs; the explicit fields below are the frozen result OR a
@@ -153,6 +166,15 @@ export const RoundSetupDraft = Type.Object({
     /** Round-level teams (ADR-0003) — referenced by a format's `subjects`. */
     teams: Type.Optional(Type.Array(DraftRoundTeam)),
     formats: Type.Array(DraftFormatSelection),
+    /**
+     * Optional start list (Phase 3.5): partition the roster into playing
+     * groups with per-group start time + start hole. Absent ⇒ the compiler's
+     * default — one group, everyone, starting at the route head. Present ⇒
+     * the groups must cover the whole roster exactly once (the compiler
+     * enforces exhaustive, exclusive membership; the builder mirrors it with
+     * friendlier diagnostics).
+     */
+    playingGroups: Type.Optional(Type.Array(DraftPlayingGroup, { minItems: 1 })),
 });
 
 export type DraftProducer = Static<typeof DraftProducer>;
@@ -162,6 +184,7 @@ export type DraftTeamMember = Static<typeof DraftTeamMember>;
 export type DraftTeamMemberPlayer = Static<typeof DraftTeamMemberPlayer>;
 export type DraftTeamMemberTeam = Static<typeof DraftTeamMemberTeam>;
 export type BallSubject = Static<typeof BallSubject>;
+export type DraftPlayingGroup = Static<typeof DraftPlayingGroup>;
 
 /** A team's kind, defaulting to single-ball (merge) for back-compat. */
 export function teamKind(team: DraftRoundTeam): 'single_ball' | 'multi_ball' {

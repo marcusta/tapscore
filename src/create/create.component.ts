@@ -58,6 +58,17 @@ const tpl = template(`
         </section>
 
         <section class="setup__section">
+            <h2>Playing groups</h2>
+            <p class="setup__hint">Optional. Split the field into groups with their own tee times or start holes (shotgun).</p>
+            <div bind="groups" class="setup__fslots"></div>
+            <p bind="groupNote" class="setup__note"></p>
+            <p bind="groupWarn" class="setup__warn"></p>
+            <button bind="splitGroups" class="setup__add" type="button">Split into groups</button>
+            <button bind="addGroup" class="setup__add hidden" type="button">+ Add group</button>
+            <button bind="clearGroups" class="setup__add hidden" type="button">Keep everyone together</button>
+        </section>
+
+        <section class="setup__section">
             <h2>Formats</h2>
             <p class="setup__hint">Each format scores a set of balls — tick the players and teams it ranks.</p>
             <div bind="formats" class="setup__fslots"></div>
@@ -139,6 +150,28 @@ const teamCardTpl = template(`
     </div>
 `);
 
+// One playing-group card: start time + start hole, then exclusive member picks.
+const groupCardTpl = template(`
+    <div class="fslot">
+        <div class="fslot__top">
+            <span bind="groupName" class="fslot__teamname"></span>
+            <button bind="remove" class="fslot__remove" type="button" aria-label="Remove">✕</button>
+        </div>
+        <div class="fslot__group">
+            <span class="fslot__label">Start</span>
+            <div class="grp__start">
+                <input bind="time" type="time" class="grp__time" />
+                <div bind="hole" class="grp__hole"></div>
+            </div>
+        </div>
+        <div class="fslot__group">
+            <span class="fslot__label">Players</span>
+            <div bind="memberRows" class="fslot__teamrows"></div>
+            <p bind="meta" class="fslot__teammeta"></p>
+        </div>
+    </div>
+`);
+
 // One tappable friend in the compact "From friends" picker.
 const friendRowTpl = template(`
     <button bind="row" type="button" class="frow">
@@ -190,6 +223,12 @@ export class CreateComponent extends Component {
 
             & .setup__note {
                 margin: ${s('sm')} 0 0; font-size: 0.82rem; color: ${t('text-muted')};
+                &:empty { display: none; }
+            }
+
+            & .setup__warn {
+                margin: ${s('sm')} 0 0; font-size: 0.82rem; color: ${t('error')};
+                white-space: pre-line;
                 &:empty { display: none; }
             }
 
@@ -249,7 +288,7 @@ export class CreateComponent extends Component {
                 width: 100%; margin-top: ${s('md')}; padding: ${s('md')}; ${btn()}
                 font-family: inherit; font-weight: 700; font-size: 0.95rem;
             }
-            & .setup__addme.hidden { display: none; }
+            & .setup__add.hidden { display: none; }
 
             & .setup__friends {
                 margin-top: ${s('sm')}; padding: ${s('sm')}; ${card()}
@@ -375,6 +414,12 @@ export class CreateComponent extends Component {
                     font-size: 0.82rem; color: ${t('error')};
                     &:empty { display: none; }
                 }
+
+                & .grp__start {
+                    display: flex; gap: ${s('sm')}; align-items: stretch;
+                    & .grp__time { flex: 1; min-width: 0; padding: ${s('sm')} ${s('md')}; font-size: 1rem; font-family: inherit; ${input()} }
+                    & .grp__hole { flex: 1; min-width: 0; font-size: 1rem; }
+                }
             }
 
             & .setup__create {
@@ -452,6 +497,33 @@ export class CreateComponent extends Component {
                         : 'setup__friends hidden',
             },
             addTeam: { onclick: () => this.svc.addTeam() },
+            splitGroups: {
+                className: () => (this.svc.groupsEnabled() ? 'setup__add hidden' : 'setup__add'),
+                onclick: () => this.svc.splitIntoGroups(),
+            },
+            addGroup: {
+                className: () => (this.svc.groupsEnabled() ? 'setup__add' : 'setup__add hidden'),
+                onclick: () => this.svc.addGroup(),
+            },
+            clearGroups: {
+                className: () => (this.svc.groupsEnabled() ? 'setup__add' : 'setup__add hidden'),
+                onclick: () => this.svc.clearGroups(),
+            },
+            groupNote: {
+                textContent: () => {
+                    const out = this.svc.ungroupedPlayers();
+                    if (out.length === 0) return '';
+                    const who = out.map((p) => p.name.trim() || 'A player').join(', ');
+                    return `${who} ${out.length > 1 ? "aren't" : "isn't"} in a group yet — every player needs one.`;
+                },
+            },
+            groupWarn: {
+                textContent: () =>
+                    [
+                        ...this.svc.crossGroupTeamWarnings(),
+                        ...this.svc.diagnosticsForGroups().map((d) => d.message),
+                    ].join('\n'),
+            },
             addFormat: { onclick: () => this.svc.addFormatSlot() },
             formatNote: {
                 textContent: () => {
@@ -587,6 +659,14 @@ export class CreateComponent extends Component {
             this.svc.teams,
             (team, _i, track) => this.teamCard(team.key, track),
             (team) => team.key,
+        );
+
+        // Playing-group cards (Phase 3.5).
+        this.$each(
+            this.ref(frag, 'groups'),
+            this.svc.groups,
+            (group, _i, track) => this.groupCard(group.key, track),
+            (group) => group.key,
         );
 
         // Format slots. Keyed by stable slot key; each card reads its slot by
@@ -793,6 +873,88 @@ export class CreateComponent extends Component {
             {
                 chk: { checked: () => checked(), onchange: (e: Event) => setIn((e.target as HTMLInputElement).checked) },
                 name: { textContent: () => label() },
+            },
+            track,
+        );
+    }
+
+    /**
+     * One playing-group card: a start time (HH:MM), a start hole picked from
+     * the chosen route's holes (shotgun = different holes per group), and the
+     * group's players. Member ticks are EXCLUSIVE — ticking a player here
+     * moves them out of their previous group (see `setGroupMember`).
+     */
+    private groupCard(key: number, track: (d: () => void) => void): HTMLElement {
+        const el = this.wireEl(
+            groupCardTpl,
+            {
+                remove: { onclick: () => this.svc.removeGroup(key) },
+                groupName: {
+                    textContent: () => {
+                        const g = this.svc.groupByKey(key);
+                        return g ? this.svc.groupLabel(g) : 'Group';
+                    },
+                },
+                // Uncontrolled: static initial value, oninput-only (no caret reset).
+                time: {
+                    value: this.svc.groupByKey(key)?.startTime ?? '',
+                    oninput: (e: Event) => this.svc.setGroupStartTime(key, (e.target as HTMLInputElement).value),
+                },
+                meta: {
+                    textContent: () => {
+                        const size = this.svc.groupSize(key);
+                        if (size === 0) return 'Tick the players who walk with this group.';
+                        return `${size} player${size === 1 ? '' : 's'}`;
+                    },
+                },
+            },
+            track,
+        );
+        // Start hole: the route's holes, '' = the route's first hole.
+        this.mountSelect(this.ref(el, 'hole'), track, {
+            value: this.bound(
+                track,
+                () => {
+                    const h = this.svc.groupByKey(key)?.startHole;
+                    return h == null ? '' : String(h);
+                },
+                (v) => this.svc.setGroupStartHole(key, v === '' ? null : Number(v)),
+            ),
+            options: {
+                get: () => [
+                    { value: '', label: 'First hole' },
+                    ...this.svc.startHoleOptions().map((n) => ({ value: String(n), label: `Hole ${n}` })),
+                ],
+            },
+        });
+        this.eachInto(
+            this.ref(el, 'memberRows'),
+            track,
+            () => this.svc.players.get(),
+            (p, _i, rowTrack) => this.groupMemberRow(key, p.key, rowTrack),
+            (p) => p.key,
+        );
+        return el;
+    }
+
+    /** A group member tick: exclusive across groups (a move, not a copy). */
+    private groupMemberRow(
+        groupKey: number,
+        playerKey: number,
+        track: (d: () => void) => void,
+    ): HTMLElement {
+        return this.wireEl(
+            subjectRowTpl,
+            {
+                chk: {
+                    checked: () => this.svc.groupMemberIn(groupKey, playerKey),
+                    onchange: (e: Event) =>
+                        this.svc.setGroupMember(groupKey, playerKey, (e.target as HTMLInputElement).checked),
+                },
+                name: {
+                    textContent: () =>
+                        this.svc.players.get().find((p) => p.key === playerKey)?.name?.trim() || 'Player',
+                },
             },
             track,
         );

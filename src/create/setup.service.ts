@@ -48,6 +48,28 @@ export interface TeamForm {
     memberTeams: Record<number, boolean>;
 }
 
+/**
+ * One playing group of the start list (Phase 3.5). Membership is EXCLUSIVE —
+ * ticking a player into a group moves them out of any other. `startTime` is a
+ * raw `HH:MM` string ('' = none: the server defaults to the round date);
+ * `startHole` is a course hole number from the chosen route (null = the
+ * route's first hole). No groups at all ⇒ the server's default single group.
+ */
+export interface GroupForm {
+    key: number;
+    startTime: string;
+    startHole: number | null;
+    /** Player `key` → member of this group. */
+    members: Record<number, boolean>;
+}
+
+/** One playing group in the draft (the shape the server's draft expects). */
+interface DraftPlayingGroup {
+    members: string[];
+    startTime?: string;
+    startHole?: number;
+}
+
 /** A member of a draft team: a player (with merge allowance) or a nested team. */
 type DraftTeamMember = { producerDefId: string; allowancePct: number } | { teamId: string };
 
@@ -147,6 +169,9 @@ export class SetupService {
     /** Round-level teams (ADR-0003) — optional; referenced by a format's subjects. */
     readonly teams = new Signal<TeamForm[]>([]);
 
+    /** Playing groups (Phase 3.5) — empty ⇒ one default group, everyone. */
+    readonly groups = new Signal<GroupForm[]>([]);
+
     /** 1..N format instances (slots). M3 replaces M2's single hardcoded default. */
     readonly formatSlots = new Signal<FormatSlotForm[]>([]);
 
@@ -162,6 +187,7 @@ export class SetupService {
     private nextKey = 1;
     private nextSlotKey = 1;
     private nextTeamKey = 1;
+    private nextGroupKey = 1;
 
     /**
      * Clear the in-progress draft back to empty. The service is a DI singleton
@@ -177,6 +203,7 @@ export class SetupService {
         this.startHole.set(1);
         this.players.set([]);
         this.teams.set([]);
+        this.groups.set([]);
         this.formatSlots.set([]);
         this.diagnostics.set([]);
         this.submitError.set(null);
@@ -185,6 +212,7 @@ export class SetupService {
         this.nextKey = 1;
         this.nextSlotKey = 1;
         this.nextTeamKey = 1;
+        this.nextGroupKey = 1;
     }
 
     async load(): Promise<void> {
@@ -282,6 +310,15 @@ export class SetupService {
 
     removePlayer(key: number): void {
         this.players.set(this.players.get().filter((p) => p.key !== key));
+        // Drop the removed player from any playing group holding them.
+        this.groups.set(
+            this.groups.get().map((g) => {
+                if (g.members[key] === undefined) return g;
+                const members = { ...g.members };
+                delete members[key];
+                return { ...g, members };
+            }),
+        );
     }
 
     patchPlayer(key: number, patch: Partial<Omit<PlayerForm, 'key'>>): void {
@@ -554,6 +591,158 @@ export class SetupService {
         );
     }
 
+    // --- Playing groups (Phase 3.5) ---
+
+    /** True while the user has split the field (any group card exists). */
+    groupsEnabled(): boolean {
+        return this.groups.get().length > 0;
+    }
+
+    /**
+     * "Split into groups": seed two group cards — everyone in group 1, group 2
+     * empty — so the user only moves the players who walk separately.
+     */
+    splitIntoGroups(): void {
+        if (this.groupsEnabled()) return;
+        const everyone: Record<number, boolean> = {};
+        for (const p of this.players.get()) everyone[p.key] = true;
+        this.groups.set([
+            { key: this.nextGroupKey++, startTime: '', startHole: null, members: everyone },
+            { key: this.nextGroupKey++, startTime: '', startHole: null, members: {} },
+        ]);
+    }
+
+    /** "Keep everyone together": back to the server's default single group. */
+    clearGroups(): void {
+        this.groups.set([]);
+    }
+
+    addGroup(): void {
+        if (!this.groupsEnabled()) return;
+        this.groups.set([
+            ...this.groups.get(),
+            { key: this.nextGroupKey++, startTime: '', startHole: null, members: {} },
+        ]);
+    }
+
+    removeGroup(key: number): void {
+        const next = this.groups.get().filter((g) => g.key !== key);
+        // Removing the second-to-last card is "keep everyone together".
+        this.groups.set(next.length > 1 ? next : []);
+    }
+
+    groupByKey(key: number): GroupForm | null {
+        return this.groups.get().find((g) => g.key === key) ?? null;
+    }
+
+    groupLabel(group: GroupForm): string {
+        const i = this.groups.get().findIndex((g) => g.key === group.key);
+        return `Group ${Math.max(0, i) + 1}`;
+    }
+
+    groupMemberIn(groupKey: number, playerKey: number): boolean {
+        return this.groupByKey(groupKey)?.members[playerKey] === true;
+    }
+
+    /**
+     * Group membership is exclusive: ticking a player into a group removes
+     * them from every other, so the checkboxes read as "which group do they
+     * walk with", never a double-booking.
+     */
+    setGroupMember(groupKey: number, playerKey: number, inGroup: boolean): void {
+        this.groups.set(
+            this.groups.get().map((g) => {
+                const isTarget = g.key === groupKey;
+                const has = g.members[playerKey] === true;
+                if (isTarget && inGroup && !has) return { ...g, members: { ...g.members, [playerKey]: true } };
+                if (has && (!isTarget || !inGroup)) {
+                    const members = { ...g.members };
+                    delete members[playerKey];
+                    return { ...g, members };
+                }
+                return g;
+            }),
+        );
+    }
+
+    setGroupStartTime(key: number, startTime: string): void {
+        this.groups.set(this.groups.get().map((g) => (g.key === key ? { ...g, startTime } : g)));
+    }
+
+    setGroupStartHole(key: number, startHole: number | null): void {
+        this.groups.set(this.groups.get().map((g) => (g.key === key ? { ...g, startHole } : g)));
+    }
+
+    /** Roster members of a group, in roster order. */
+    groupSize(key: number): number {
+        const g = this.groupByKey(key);
+        if (!g) return 0;
+        return this.players.get().filter((p) => g.members[p.key] === true).length;
+    }
+
+    /**
+     * Players in no group while groups are enabled — a blocking problem (the
+     * compiler requires every player in exactly one group), surfaced as an
+     * inline hint before submit even tries.
+     */
+    ungroupedPlayers(): PlayerForm[] {
+        if (!this.groupsEnabled()) return [];
+        const covered = new Set<number>();
+        for (const g of this.groups.get()) {
+            for (const k of Object.keys(g.members)) if (g.members[Number(k)]) covered.add(Number(k));
+        }
+        return this.players.get().filter((p) => !covered.has(p.key));
+    }
+
+    /**
+     * A single-ball (merged) team whose players walk in different groups can't
+     * exist — one ball can't be in two places; the compiler rejects it at
+     * submit. Warn inline while the user is still arranging groups.
+     */
+    crossGroupTeamWarnings(): string[] {
+        if (!this.groupsEnabled()) return [];
+        const groupOf = new Map<number, number>();
+        this.groups.get().forEach((g, gi) => {
+            for (const k of Object.keys(g.members)) if (g.members[Number(k)]) groupOf.set(Number(k), gi);
+        });
+        const out: string[] = [];
+        for (const team of this.teams.get()) {
+            if (team.kind !== 'single_ball' || !this.isTeamLive(team)) continue;
+            const groupsHit = new Set<number>();
+            for (const k of Object.keys(team.pctByPlayer)) {
+                const gi = groupOf.get(Number(k));
+                if (gi !== undefined) groupsHit.add(gi);
+            }
+            if (groupsHit.size > 1) {
+                out.push(
+                    `${this.teamLabel(team)} plays one combined ball, but its players are in different groups — keep them in the same group.`,
+                );
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Playing groups → the draft's `playingGroups[]`. Only groups with members
+     * are emitted (an empty card is scaffolding, not intent); no groups (or
+     * only empty cards) ⇒ nothing, keeping the server's one-group default.
+     */
+    private buildGroups(roster: PlayerForm[], defIdByKey: Map<number, string>): DraftPlayingGroup[] {
+        return this.groups
+            .get()
+            .map((g) => ({
+                members: roster.filter((p) => g.members[p.key] === true).map((p) => defIdByKey.get(p.key)!),
+                ...(g.startTime.trim() !== '' ? { startTime: g.startTime.trim() } : {}),
+                ...(g.startHole !== null ? { startHole: g.startHole } : {}),
+            }))
+            .filter((g) => g.members.length > 0);
+    }
+
+    /** Diagnostics whose path targets `playingGroups…`, for inline display. */
+    diagnosticsForGroups(): CompilerDiagnostic[] {
+        return this.diagnostics.get().filter((d) => d.path?.startsWith('playingGroups'));
+    }
+
     // --- Format subjects (which balls a format scores) ---
 
     /** A player is a subject of this format unless explicitly unticked. */
@@ -622,6 +811,12 @@ export class SetupService {
         if (!holes.includes(this.startHole.get())) {
             this.startHole.set(holes[0] ?? 1);
         }
+        // A group start hole that fell off the route reverts to "first hole".
+        this.groups.set(
+            this.groups.get().map((g) =>
+                g.startHole !== null && !holes.includes(g.startHole) ? { ...g, startHole: null } : g,
+            ),
+        );
     }
 
     /** Live CH breakdown for a player, or null when inputs are incomplete. */
@@ -681,11 +876,16 @@ export class SetupService {
         return this.diagnostics.get().filter((d) => d.path?.startsWith(`formats[${index}]`));
     }
 
-    /** Diagnostics not attributable to a specific player row or format slot. */
+    /** Diagnostics not attributable to a specific player row, format slot, or group. */
     generalDiagnostics(): CompilerDiagnostic[] {
         return this.diagnostics
             .get()
-            .filter((d) => !d.path?.startsWith('producers[') && !d.path?.startsWith('formats['));
+            .filter(
+                (d) =>
+                    !d.path?.startsWith('producers[') &&
+                    !d.path?.startsWith('formats[') &&
+                    !d.path?.startsWith('playingGroups'),
+            );
     }
 
     private parsePct(s: string): number {
@@ -871,6 +1071,7 @@ export class SetupService {
             const defIdByKey = new Map<number, string>();
             roster.forEach((p, i) => defIdByKey.set(p.key, `p${i + 1}`));
             const teams = this.buildTeams(roster, defIdByKey);
+            const playingGroups = this.buildGroups(roster, defIdByKey);
             const draft = {
                 courseId: this.courseId.get(),
                 playedAt: new Date().toISOString().slice(0, 10),
@@ -879,6 +1080,7 @@ export class SetupService {
                 producers,
                 ...(teams.length > 0 ? { teams } : {}),
                 formats: this.buildFormats(roster, defIdByKey),
+                ...(playingGroups.length > 0 ? { playingGroups } : {}),
             };
 
             // 3. POST to the no-auth front door.

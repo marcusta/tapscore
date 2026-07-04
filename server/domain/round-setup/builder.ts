@@ -464,6 +464,8 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
         };
     });
 
+    const draftGroups = buildPlayingGroups(draft, rosterIds, diags);
+
     if (diags.length > 0) return { ok: false, diagnostics: diags };
 
     const slots = slotByIndex.filter((s): s is SlotDefinition => s !== null);
@@ -474,11 +476,122 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
         ...(draft.roundType ? { roundType: draft.roundType } : {}),
         ...(draft.venueType ? { venueType: draft.venueType } : {}),
         ...routeFields(draft),
+        ...(draftGroups ? { playingGroups: draftGroups } : {}),
         producers,
         ballStrategies,
         slots,
     };
     return { ok: true, definition };
+}
+
+/**
+ * The draft's start list → `RoundDefinitionInput.playingGroups` (Phase 3.5).
+ * Absent ⇒ `undefined` (the compiler defaults to one group covering everyone).
+ * Present ⇒ each group's members must be roster producers, each producer in at
+ * most one group, and the groups together must cover the WHOLE roster — the
+ * compiler enforces exhaustive-and-exclusive membership at compile time; this
+ * mirrors it here with diagnostics that point at the offending draft control.
+ *
+ * `startHole` (a course hole number, as the wizard shows it) resolves to the
+ * compiler's 1-based itinerary `startOrdinal`: against the explicit
+ * `route.playHoles` when the draft carries one, otherwise by the conventional
+ * preset's hole numbering (full 18 → ordinal = hole, back nine → hole − 9).
+ * Out-of-itinerary ordinals on unconventional courses still fall through to
+ * normalize's `invalid_group_start`.
+ */
+function buildPlayingGroups(
+    draft: RoundSetupDraft,
+    rosterIds: Set<string>,
+    diags: CompilerDiagnostic[],
+): PlayingGroupInput[] | undefined {
+    const groups = draft.playingGroups;
+    if (!groups) return undefined;
+    if (draft.route?.playingGroups) {
+        diags.push({
+            code: 'conflicting_playing_groups',
+            message: 'the draft carries playing groups both at top level and inside route — supply only one',
+            path: 'playingGroups',
+        });
+        return undefined;
+    }
+
+    const seen = new Map<string, number>(); // producerDefId → group index
+    const out: PlayingGroupInput[] = [];
+    groups.forEach((g, i) => {
+        const path = `playingGroups[${i}]`;
+        for (const pid of g.members) {
+            if (!rosterIds.has(pid)) {
+                diags.push({
+                    code: 'unknown_producer_in_group',
+                    message: `playing group ${i + 1} names '${pid}', which is not on the roster`,
+                    path: `${path}.members`,
+                });
+            } else if (seen.has(pid)) {
+                diags.push({
+                    code: 'producer_in_multiple_groups',
+                    message: `'${pid}' is in playing groups ${seen.get(pid)! + 1} and ${i + 1} — a player can only walk with one group`,
+                    path: `${path}.members`,
+                });
+            } else {
+                seen.set(pid, i);
+            }
+        }
+
+        let startOrdinal = 1;
+        if (g.startHole !== undefined) {
+            const ord = resolveStartOrdinal(draft, g.startHole);
+            if (ord === undefined) {
+                diags.push({
+                    code: 'unknown_group_start_hole',
+                    message: `playing group ${i + 1} starts on hole ${g.startHole}, which is not on this round's route`,
+                    path: `${path}.startHole`,
+                });
+                return;
+            }
+            startOrdinal = ord;
+        }
+
+        out.push({
+            id: `pg-${i + 1}`,
+            startTime: g.startTime ?? draft.playedAt,
+            startOrdinal,
+            capacity: g.members.length,
+            producerDefIds: [...g.members],
+        });
+    });
+
+    const missing = draft.producers
+        .map((p) => p.producerDefId)
+        .filter((pid) => !seen.has(pid));
+    if (missing.length > 0) {
+        diags.push({
+            code: 'producer_not_in_any_group',
+            message: `${missing.map((m) => `'${m}'`).join(', ')} ${missing.length > 1 ? 'are' : 'is'} not in any playing group — assign every player to a group, or remove the groups to keep everyone together`,
+            path: 'playingGroups',
+        });
+    }
+    return out;
+}
+
+/**
+ * Resolve a course hole number to a 1-based itinerary ordinal. An explicit
+ * route resolves against its play holes (first occurrence wins when a hole
+ * repeats); a conventional preset resolves by its standard numbering.
+ */
+function resolveStartOrdinal(draft: RoundSetupDraft, startHole: number): number | undefined {
+    const playHoles = draft.route?.playHoles;
+    if (playHoles) {
+        const idx = playHoles.findIndex((ph) => ph.courseHoleNumber === startHole);
+        return idx >= 0 ? idx + 1 : undefined;
+    }
+    switch (draft.roundType ?? 'full_18') {
+        case 'front_9':
+            return startHole >= 1 && startHole <= 9 ? startHole : undefined;
+        case 'back_9':
+            return startHole >= 10 && startHole <= 18 ? startHole - 9 : undefined;
+        default:
+            return startHole >= 1 && startHole <= 18 ? startHole : undefined;
+    }
 }
 
 /** Pass through any explicit route fields the draft carries. */

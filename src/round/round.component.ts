@@ -47,6 +47,7 @@ const tpl = template(`
                 <div class="round-view__formats" bind="formats"></div>
 
                 <div bind="scorePanel" class="round-view__panel">
+                    <div bind="groupTabs" class="round-view__groups hidden"></div>
                     <div bind="scoring"></div>
 
                     <div class="round-view__share">
@@ -92,6 +93,8 @@ const tpl = template(`
 `);
 
 const pillTpl = template(`<button bind="pill" class="round-view__fmt" type="button"></button>`);
+
+const groupPillTpl = template(`<button bind="pill" class="round-view__grp" type="button"></button>`);
 
 export class RoundComponent extends Component {
     static styles = `
@@ -188,6 +191,37 @@ export class RoundComponent extends Component {
                     cursor: pointer;
                     white-space: nowrap;
                     &.active { background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')}; }
+                }
+            }
+
+            /* Playing-group selector (Phase 3.5) — shown only when the round
+               has 2+ groups; scopes the score carousel to one group's balls
+               and its rotated itinerary. */
+            & .round-view__groups {
+                margin-top: ${s('md')};
+                display: flex;
+                gap: ${s('sm')};
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: ${s('xs')};
+                scrollbar-width: none;
+                &::-webkit-scrollbar { display: none; }
+                &.hidden { display: none; }
+
+                & .round-view__grp {
+                    flex: 0 0 auto;
+                    border: 1px solid ${t('border')};
+                    border-radius: ${t('radius-pill')};
+                    background: ${t('btn-bg')};
+                    color: ${t('text')};
+                    font-family: inherit;
+                    font-size: 0.85rem;
+                    font-weight: 700;
+                    padding: ${s('sm')} ${s('lg')};
+                    cursor: pointer;
+                    white-space: nowrap;
+                    font-variant-numeric: tabular-nums;
+                    &.active { background: ${t('accent')}; color: ${t('primary-text')}; border-color: ${t('accent')}; }
                 }
             }
 
@@ -407,6 +441,10 @@ export class RoundComponent extends Component {
                 className: () =>
                     this.tab.get() === 'score' ? 'round-view__panel' : 'round-view__panel hidden',
             },
+            groupTabs: {
+                className: () =>
+                    this.svc.groups().length > 1 ? 'round-view__groups' : 'round-view__groups hidden',
+            },
             lbPanel: {
                 className: () =>
                     this.tab.get() === 'leaderboard' ? 'round-view__panel' : 'round-view__panel hidden',
@@ -460,6 +498,18 @@ export class RoundComponent extends Component {
             },
         });
 
+        // Playing-group pills (Phase 3.5): visible only when the round has 2+
+        // groups. Tapping one points the shared groupIdx at that group — the
+        // score carousel + orange hole bar re-scope to its balls and its
+        // rotated played order (the hole index carries over; group itineraries
+        // are equal length, just rotated).
+        this.$each(
+            this.ref(frag, 'groupTabs'),
+            new Computed(() => this.svc.groups()),
+            (g, i, track) => this.groupPill(i, track),
+            (g) => g.id,
+        );
+
         // One shared format-pill row (both tabs). A pill is pure navigation: tap
         // it to view that format's leaderboard — from the Score tab it also flips
         // to the leaderboard. The active highlight only shows while the leaderboard
@@ -508,6 +558,34 @@ export class RoundComponent extends Component {
             selectedSlot: parseSlotParam(slotParam),
             holeIdx: Number.isFinite(hole) && hole > 0 ? hole - 1 : 0,
         };
+    }
+
+    /** One group pill: "Group N · 09:00 · H10" (time/hole shown when set). */
+    private groupPill(index: number, track: (d: () => void) => void): HTMLElement {
+        return this.wireEl(
+            groupPillTpl,
+            {
+                pill: {
+                    textContent: () => {
+                        const g = this.svc.groups()[index];
+                        if (!g) return `Group ${index + 1}`;
+                        const parts = [`Group ${index + 1}`];
+                        // startTime defaults to the round DATE when the draft
+                        // set none — only a real clock time is worth a pill slot.
+                        if (g.startTime.includes(':')) parts.push(g.startTime);
+                        const hole = this.svc.playHoleById(g.startPlayHoleId)?.courseHoleNumber;
+                        if (hole !== undefined && g.startOrdinal !== 1) parts.push(`H${hole}`);
+                        return parts.join(' · ');
+                    },
+                    className: () =>
+                        this.svc.groupIdx.get() === index
+                            ? 'round-view__grp active'
+                            : 'round-view__grp',
+                    onclick: () => this.svc.groupIdx.set(index),
+                },
+            },
+            track,
+        );
     }
 
     private slotPill(slot: FormatSlot, index: number, track: (d: () => void) => void): HTMLElement {

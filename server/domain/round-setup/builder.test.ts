@@ -151,3 +151,166 @@ test('no formats selected is a structured diagnostic', () => {
     if (r.ok) throw new Error('expected failure');
     expect(r.diagnostics[0]).toMatchObject({ code: 'no_formats_selected', path: 'formats' });
 });
+
+// --- Playing groups (Phase 3.5) ---------------------------------------------
+
+const STABLEFORD = [{ formatId: 'stableford_individual' }];
+
+function groupsDraft(playingGroups: RoundSetupDraft['playingGroups']): RoundSetupDraft {
+    return { courseId: 'c1', playedAt: '2026-07-04', producers: ROSTER, formats: STABLEFORD, playingGroups };
+}
+
+test('draft playing groups map to definition groups with tee times + capacities', () => {
+    const def = ok(
+        buildRoundDefinition(
+            groupsDraft([
+                { members: ['p1', 'p2'], startTime: '09:00' },
+                { members: ['p3', 'p4'], startTime: '09:08' },
+            ]),
+        ),
+    );
+    expect(def.playingGroups).toEqual([
+        { id: 'pg-1', startTime: '09:00', startOrdinal: 1, capacity: 2, producerDefIds: ['p1', 'p2'] },
+        { id: 'pg-2', startTime: '09:08', startOrdinal: 1, capacity: 2, producerDefIds: ['p3', 'p4'] },
+    ]);
+});
+
+test('no draft groups ⇒ no definition groups (compiler defaults one group, everyone)', () => {
+    const def = ok(buildRoundDefinition(groupsDraft(undefined)));
+    expect(def.playingGroups).toBeUndefined();
+
+    const result = compile(makeCanaryCompilerInput('r1', def));
+    if (!result.ok) throw new Error(result.diagnostics.map((d) => d.code).join(', '));
+    expect(result.compiled.playingGroups).toHaveLength(1);
+    expect(result.compiled.playingGroupBalls).toHaveLength(4);
+});
+
+test('omitted startTime defaults to the round date; omitted startHole to the route head', () => {
+    const def = ok(buildRoundDefinition(groupsDraft([{ members: ['p1', 'p2', 'p3', 'p4'] }])));
+    expect(def.playingGroups).toEqual([
+        { id: 'pg-1', startTime: '2026-07-04', startOrdinal: 1, capacity: 4, producerDefIds: ['p1', 'p2', 'p3', 'p4'] },
+    ]);
+});
+
+test('shotgun: per-group start holes resolve to itinerary ordinals (full 18: hole = ordinal)', () => {
+    const def = ok(
+        buildRoundDefinition(
+            groupsDraft([
+                { members: ['p1', 'p2'], startHole: 1 },
+                { members: ['p3', 'p4'], startHole: 10 },
+            ]),
+        ),
+    );
+    expect(def.playingGroups![0]).toMatchObject({ startOrdinal: 1 });
+    expect(def.playingGroups![1]).toMatchObject({ startOrdinal: 10 });
+
+    // Through the compiler: group 2 starts at the ph-10 occurrence.
+    const result = compile(makeCanaryCompilerInput('r1', def));
+    if (!result.ok) throw new Error(result.diagnostics.map((d) => d.code).join(', '));
+    expect(result.compiled.playingGroups).toHaveLength(2);
+    const startHole = (g: (typeof result.compiled.playingGroups)[number]) =>
+        result.compiled.playHoles.find((ph) => ph.id === g.startPlayHoleId)!.courseHoleNumber;
+    expect(startHole(result.compiled.playingGroups[0]!)).toBe(1);
+    expect(startHole(result.compiled.playingGroups[1]!)).toBe(10);
+    // Membership rows: 2 balls per group.
+    const byGroup = new Map<string, number>();
+    for (const gb of result.compiled.playingGroupBalls) {
+        byGroup.set(gb.playingGroupId, (byGroup.get(gb.playingGroupId) ?? 0) + 1);
+    }
+    expect([...byGroup.values()]).toEqual([2, 2]);
+});
+
+test('back-nine preset: start hole 10 is itinerary ordinal 1', () => {
+    const draft = groupsDraft([
+        { members: ['p1', 'p2'], startHole: 10 },
+        { members: ['p3', 'p4'], startHole: 14 },
+    ]);
+    draft.roundType = 'back_9';
+    const def = ok(buildRoundDefinition(draft));
+    expect(def.playingGroups!.map((g) => g.startOrdinal)).toEqual([1, 5]);
+});
+
+test('a group start hole resolves against an explicit (rotated) route', () => {
+    const draft = groupsDraft([
+        { members: ['p1', 'p2'], startHole: 5 },
+        { members: ['p3', 'p4'], startHole: 1 },
+    ]);
+    draft.roundType = 'custom_holes';
+    draft.route = {
+        playHoles: Array.from({ length: 18 }, (_, i) => ({ courseHoleNumber: ((i + 4) % 18) + 1 })), // 5..18,1..4
+        routeHandicapPolicy: { type: 'explicit', postingEligible: false },
+    };
+    const def = ok(buildRoundDefinition(draft));
+    expect(def.playingGroups!.map((g) => g.startOrdinal)).toEqual([1, 15]);
+});
+
+test('group diagnostics: off-roster member, double assignment, unknown start hole, partial coverage', () => {
+    const r = buildRoundDefinition(
+        groupsDraft([
+            { members: ['p1', 'pZ'], startHole: 99 },
+            { members: ['p1', 'p3'] },
+        ]),
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error('expected failure');
+    expect(r.diagnostics).toContainEqual(
+        expect.objectContaining({ code: 'unknown_producer_in_group', path: 'playingGroups[0].members' }),
+    );
+    expect(r.diagnostics).toContainEqual(
+        expect.objectContaining({ code: 'producer_in_multiple_groups', path: 'playingGroups[1].members' }),
+    );
+    expect(r.diagnostics).toContainEqual(
+        expect.objectContaining({ code: 'unknown_group_start_hole', path: 'playingGroups[0].startHole' }),
+    );
+    // p2 + p4 are covered by no group — the builder mirrors the compiler's
+    // exhaustive-partition requirement with a friendlier message.
+    const coverage = r.diagnostics.find((d) => d.code === 'producer_not_in_any_group');
+    expect(coverage?.path).toBe('playingGroups');
+    expect(coverage?.message).toContain("'p2'");
+    expect(coverage?.message).toContain("'p4'");
+});
+
+test('front-nine preset: a back-nine start hole is an unknown group start hole', () => {
+    const draft = groupsDraft([
+        { members: ['p1', 'p2'], startHole: 10 },
+        { members: ['p3', 'p4'] },
+    ]);
+    draft.roundType = 'front_9';
+    const r = buildRoundDefinition(draft);
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error('expected failure');
+    expect(r.diagnostics.some((d) => d.code === 'unknown_group_start_hole')).toBe(true);
+});
+
+test('top-level draft groups + route.playingGroups is a conflict diagnostic', () => {
+    const draft = groupsDraft([{ members: ['p1', 'p2', 'p3', 'p4'] }]);
+    draft.route = {
+        playingGroups: [
+            { startTime: '08:00', startOrdinal: 1, capacity: 4, producerDefIds: ['p1', 'p2', 'p3', 'p4'] },
+        ],
+    };
+    const r = buildRoundDefinition(draft);
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error('expected failure');
+    expect(r.diagnostics.some((d) => d.code === 'conflicting_playing_groups')).toBe(true);
+});
+
+test('a cross-group team ball is rejected by the compiler (surfaced pre-submit in the wizard)', () => {
+    const draft: RoundSetupDraft = {
+        courseId: 'c1',
+        playedAt: '2026-07-04',
+        producers: ROSTER,
+        teams: TEAMS,
+        formats: [{ formatId: 'stroke_play_individual', subjects: TEAM_SUBJECTS }],
+        // TA = p1+p2 merged into ONE ball, but p1 and p2 walk in different groups.
+        playingGroups: [
+            { members: ['p1', 'p3'] },
+            { members: ['p2', 'p4'] },
+        ],
+    };
+    const def = ok(buildRoundDefinition(draft));
+    const result = compile(makeCanaryCompilerInput('r1', def));
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected compile failure');
+    expect(result.diagnostics.some((d) => d.code === 'team_ball_crosses_playing_groups')).toBe(true);
+});
