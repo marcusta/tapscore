@@ -153,20 +153,42 @@ test('join lands in the first playing group with free capacity', async () => {
     expect(group.ballIds).toContain(joinerBall.id);
 });
 
-test('join overflows to a new group when every group is full, mirroring the last start', async () => {
+test('the default group is NOT born full: a plain join lands in it (2 of 4)', async () => {
     const { ctx, tee, draft, joiner } = await setup();
-    // Default normalize: one group with capacity = producer count → full.
+    // Default normalize: one group, capacity max(4, 2) = 4 → room for a joiner.
+    const { token, round } = await createRound(ctx, draft);
+    expect(round.playingGroups).toHaveLength(1);
+    expect(round.playingGroups[0]!.capacity).toBe(4);
+
+    const res = await ctx.roundJoinService.joinByToken({ token, teeId: tee.id, playerId: joiner.id });
+    expect(res!.ok).toBe(true);
+    if (!res!.ok) return;
+
+    // The joiner joined the EXISTING group — no fresh group spawned.
+    expect(res!.round.playingGroups).toHaveLength(1);
+    const group = res!.round.playingGroups[0]!;
+    expect(group.id).toBe(round.playingGroups[0]!.id);
+    const balls = await ctx.roundService.ballsForRound(round.id);
+    const joinerBall = balls.find((b) => b.players.some((p) => p.playerId === joiner.id))!;
+    expect(group.ballIds).toContain(joinerBall.id);
+    expect(group.ballIds).toHaveLength(3);
+});
+
+test('groupChoice "new" forces a fresh group even when one has space, mirroring the last start', async () => {
+    const { ctx, tee, draft, joiner } = await setup();
     const { token, round } = await createRound(ctx, draft);
     expect(round.playingGroups).toHaveLength(1);
 
-    const res = await ctx.roundJoinService.joinByToken({ token, teeId: tee.id, playerId: joiner.id });
+    const res = await ctx.roundJoinService.joinByToken({
+        token, teeId: tee.id, playerId: joiner.id, groupChoice: 'new',
+    });
     expect(res!.ok).toBe(true);
     if (!res!.ok) return;
 
     expect(res!.round.playingGroups).toHaveLength(2);
     const [first, added] = res!.round.playingGroups;
     expect(first!.id).toBe(round.playingGroups[0]!.id);
-    expect(first!.ballIds).toHaveLength(2);
+    expect(first!.ballIds).toHaveLength(2); // original two, untouched
     // New group: same start time + start hole as the last group; the joiner's
     // ball is its only member; standard-flight capacity for later joiners.
     expect(added!.startTime).toBe(first!.startTime);
@@ -175,6 +197,79 @@ test('join overflows to a new group when every group is full, mirroring the last
     const balls = await ctx.roundService.ballsForRound(round.id);
     const joinerBall = balls.find((b) => b.players.some((p) => p.playerId === joiner.id))!;
     expect(added!.ballIds).toEqual([joinerBall.id]);
+});
+
+test('groupChoice targeting a specific group with space lands the joiner there', async () => {
+    const { ctx, tee, draft, joiner } = await setup();
+    // Two groups, each with room (capacity 4, one player each). The joiner
+    // targets the SECOND group by its runtime id.
+    const twoGroups: RoundSetupDraft = {
+        ...draft,
+        route: {
+            playingGroups: [
+                { startTime: '2026-07-04T09:00:00Z', startOrdinal: 1, capacity: 4, producerDefIds: ['p1'] },
+                { startTime: '2026-07-04T09:10:00Z', startOrdinal: 1, capacity: 4, producerDefIds: ['p2'] },
+            ],
+        },
+    };
+    const { token, round } = await createRound(ctx, twoGroups);
+    expect(round.playingGroups).toHaveLength(2);
+    const secondId = round.playingGroups[1]!.id;
+
+    const res = await ctx.roundJoinService.joinByToken({
+        token, teeId: tee.id, playerId: joiner.id, groupChoice: secondId,
+    });
+    expect(res!.ok).toBe(true);
+    if (!res!.ok) return;
+
+    expect(res!.round.playingGroups).toHaveLength(2);
+    const balls = await ctx.roundService.ballsForRound(round.id);
+    const joinerBall = balls.find((b) => b.players.some((p) => p.playerId === joiner.id))!;
+    // Landed in the CHOSEN (second) group, not the first-with-space (which
+    // would be group 1 under the default scan).
+    const chosen = res!.round.playingGroups.find((g) => g.id === secondId)!;
+    expect(chosen.ballIds).toContain(joinerBall.id);
+    const first = res!.round.playingGroups.find((g) => g.id === round.playingGroups[0]!.id)!;
+    expect(first.ballIds).not.toContain(joinerBall.id);
+});
+
+test('groupChoice targeting a FULL group refuses with a group_full diagnostic', async () => {
+    const { ctx, tee, draft, joiner } = await setup();
+    // One tight group: capacity 2, both slots taken → full.
+    const fullGroup: RoundSetupDraft = {
+        ...draft,
+        route: {
+            playingGroups: [
+                { startTime: '2026-07-04T09:00:00Z', startOrdinal: 1, capacity: 2, producerDefIds: ['p1', 'p2'] },
+            ],
+        },
+    };
+    const { token, round } = await createRound(ctx, fullGroup);
+    const fullId = round.playingGroups[0]!.id;
+
+    const res = await ctx.roundJoinService.joinByToken({
+        token, teeId: tee.id, playerId: joiner.id, groupChoice: fullId,
+    });
+    expect(res!.ok).toBe(false);
+    if (res!.ok) return;
+    expect(res!.diagnostics[0]!.code).toBe('group_full');
+    expect(res!.diagnostics[0]!.path).toBe('groupChoice');
+    // Nothing was added — the round still has exactly its two original balls.
+    const balls = await ctx.roundService.ballsForRound(round.id);
+    expect(balls).toHaveLength(2);
+});
+
+test('groupChoice naming an unknown group refuses with an unknown_group diagnostic', async () => {
+    const { ctx, tee, draft, joiner } = await setup();
+    const { token } = await createRound(ctx, draft);
+
+    const res = await ctx.roundJoinService.joinByToken({
+        token, teeId: tee.id, playerId: joiner.id, groupChoice: 'no-such-group-id',
+    });
+    expect(res!.ok).toBe(false);
+    if (res!.ok) return;
+    expect(res!.diagnostics[0]!.code).toBe('unknown_group');
+    expect(res!.diagnostics[0]!.path).toBe('groupChoice');
 });
 
 test('explicit-subset and team-composition slots stay untouched by a join', async () => {

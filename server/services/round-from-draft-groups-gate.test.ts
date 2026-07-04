@@ -67,7 +67,8 @@ test('GATE: a 2-group draft compiles to two playing_groups rows with correct mem
     const groups = result.round.playingGroups;
     expect(groups).toHaveLength(2);
     expect(groups.map((g) => g.startTime)).toEqual(['09:00', '09:08']);
-    expect(groups.map((g) => g.capacity)).toEqual([3, 3]);
+    // Capacity is max(4, members): 3-player groups aren't born full (join-choice fix).
+    expect(groups.map((g) => g.capacity)).toEqual([4, 4]);
     // Both groups start at the route head and walk the plain itinerary.
     for (const g of groups) {
         expect(g.startOrdinal).toBe(1);

@@ -10,6 +10,7 @@ import {
     type ResolvedRoundDefinition,
     type SlotDefinition,
 } from '../domain/round-definition';
+import { hashId } from '../domain/deterministic-id';
 import type { CorrectionService } from './correction.service';
 import type { PlayerService } from './player.service';
 import type { Round, RoundService } from './round.service';
@@ -20,8 +21,9 @@ import type { Round, RoundService } from './round.service';
  * A logged-in player holding a `not_started` round's share token adds
  * THEMSELVES to the round: the service composes a new `RoundDefinition`
  * version from the latest one (new producer from the caller's profile +
- * chosen tee, appended to the first playing group with free capacity, else a
- * new group) and persists it through the established 2.6d setup-correction
+ * chosen tee, placed into the caller's chosen group — or, by default, the
+ * first playing group with free capacity, else a new group) and persists it
+ * through the established 2.6d setup-correction
  * recompile machinery (`CorrectionService.applyComposedSetupCorrection`).
  * Content-addressed ids keep every existing ball — and its append-only score
  * events — untouched across the recompile.
@@ -42,7 +44,8 @@ import type { Round, RoundService } from './round.service';
  *   - round already active/complete, or caller already a producer → thrown
  *     `ConflictError` (409);
  *   - caller profile lacking gender / handicap index, bad tee, no joinable
- *     slot, or compile diagnostics → `{ ok: false, diagnostics }` (200).
+ *     slot, a chosen group that is full / unknown, or compile diagnostics →
+ *     `{ ok: false, diagnostics }` (200).
  *   Never a 500 for an ordinary refusal.
  */
 
@@ -50,11 +53,24 @@ export type JoinRoundResult =
     | { ok: true; round: Round }
     | { ok: false; diagnostics: CompilerDiagnostic[] };
 
+/**
+ * Where the joiner wants to land:
+ *   - absent → current behaviour (first group with space, else a fresh group);
+ *   - `'new'` → force a brand-new group even if an existing one has space;
+ *   - any other string → a specific target group, addressed by its RUNTIME
+ *     group id (the `id` the round payload exposes client-side, `Round`'s
+ *     `RoundPlayingGroup.id`). The service resolves it to the definition group
+ *     and refuses (`unknown_group` / `group_full`) if it is missing or full.
+ */
+export type GroupChoice = 'new' | (string & {});
+
 export interface JoinByTokenInput {
     token: string;
     teeId: string;
     /** SERVER-resolved from the session — never from the request body. */
     playerId: string;
+    /** Optional target group. See {@link GroupChoice}. */
+    groupChoice?: GroupChoice;
 }
 
 /**
@@ -230,7 +246,9 @@ export class RoundJoinService {
         def.producers = [...def.producers, producer];
 
         const groups = (def.playingGroups ?? []) as PlayingGroupInput[];
-        const { groupDefId, oldGroup, newGroup } = placeInGroups(groups, producer.id, def);
+        const placement = placeInGroups(groups, producer.id, def, roundId, input.groupChoice);
+        if (!placement.ok) return { ok: false, diagnostics: placement.diagnostics };
+        const { groupDefId, oldGroup, newGroup } = placement;
         def.playingGroups = groups;
 
         // --- Persist through the established correction/recompile machinery --
@@ -286,26 +304,75 @@ function slotIsJoinable(slot: SlotDefinition, openStrategyIds: Set<string>): boo
     return openStrategyIds.size > 0;
 }
 
+type PlaceResult =
+    | {
+          ok: true;
+          groupDefId: string;
+          oldGroup: Record<string, unknown> | null;
+          newGroup: Record<string, unknown>;
+      }
+    | { ok: false; diagnostics: CompilerDiagnostic[] };
+
 /**
- * Append `producerDefId` to the first playing group with free capacity,
- * else push a new group (start time + start hole mirroring the LAST group,
- * standard-flight capacity). Mutates `groups` in place; returns the audit
- * projections (`oldGroup` is `null` when a new group was created).
+ * Place `producerDefId` into a playing group. Mutates `groups` in place; on
+ * success returns the audit projections (`oldGroup` is `null` when a fresh
+ * group was created).
+ *
+ * `choice` selects the target:
+ *   - absent → the first group with free capacity, else a fresh group
+ *     (start time + hole mirroring the LAST group, standard-flight capacity);
+ *   - `'new'` → always a fresh group, even when an existing one has space;
+ *   - any other string → the existing group whose RUNTIME id (`hashId` of its
+ *     def id under `roundId` — the id the round payload exposes) matches. A
+ *     miss is `unknown_group`; a full match is `group_full`.
  */
 function placeInGroups(
     groups: PlayingGroupInput[],
     producerDefId: string,
     def: { playedAt: string },
-): {
-    groupDefId: string;
-    oldGroup: Record<string, unknown> | null;
-    newGroup: Record<string, unknown>;
-} {
-    const open = groups.find((g) => g.producerDefIds.length < g.capacity);
-    if (open) {
-        const oldGroup = groupProjection(open);
-        open.producerDefIds = [...open.producerDefIds, producerDefId];
-        return { groupDefId: open.id!, oldGroup, newGroup: groupProjection(open) };
+    roundId: string,
+    choice?: GroupChoice,
+): PlaceResult {
+    if (choice !== undefined && choice !== 'new') {
+        const target = groups.find(
+            (g) => g.id !== undefined && runtimeGroupId(roundId, g.id) === choice,
+        );
+        if (!target) {
+            return {
+                ok: false,
+                diagnostics: [
+                    {
+                        code: 'unknown_group',
+                        message: `no playing group '${choice}' in this round`,
+                        path: 'groupChoice',
+                    },
+                ],
+            };
+        }
+        if (target.producerDefIds.length >= target.capacity) {
+            return {
+                ok: false,
+                diagnostics: [
+                    {
+                        code: 'group_full',
+                        message: 'that group is full — pick another group or start a new one',
+                        path: 'groupChoice',
+                    },
+                ],
+            };
+        }
+        const oldGroup = groupProjection(target);
+        target.producerDefIds = [...target.producerDefIds, producerDefId];
+        return { ok: true, groupDefId: target.id!, oldGroup, newGroup: groupProjection(target) };
+    }
+
+    if (choice !== 'new') {
+        const open = groups.find((g) => g.producerDefIds.length < g.capacity);
+        if (open) {
+            const oldGroup = groupProjection(open);
+            open.producerDefIds = [...open.producerDefIds, producerDefId];
+            return { ok: true, groupDefId: open.id!, oldGroup, newGroup: groupProjection(open) };
+        }
     }
 
     const last = groups[groups.length - 1];
@@ -326,7 +393,13 @@ function placeInGroups(
         producerDefIds: [producerDefId],
     };
     groups.push(created);
-    return { groupDefId: created.id!, oldGroup: null, newGroup: groupProjection(created) };
+    return { ok: true, groupDefId: created.id!, oldGroup: null, newGroup: groupProjection(created) };
+}
+
+/** The runtime group id the round payload exposes for a def group. Mirrors
+ *  `compile.ts`'s `hashId('tapscore:playing_group:v1', roundId, groupDefId)`. */
+function runtimeGroupId(roundId: string, groupDefId: string): string {
+    return hashId('tapscore:playing_group:v1', roundId, groupDefId);
 }
 
 function groupProjection(g: PlayingGroupInput): Record<string, unknown> {

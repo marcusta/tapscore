@@ -569,7 +569,11 @@ function buildPlayingGroups(
             id: `pg-${i + 1}`,
             startTime: g.startTime ?? draft.playedAt,
             startOrdinal,
-            capacity: g.members.length,
+            // Sane default: a standard flight (4) or the group's own size if it
+            // already exceeds four. A group is NOT born full, so a self-joiner
+            // (RoundJoinService) can land in an existing group with space rather
+            // than always spawning a fresh one — the user's expected choice.
+            capacity: Math.max(4, g.members.length),
             producerDefIds: [...g.members],
         });
     });

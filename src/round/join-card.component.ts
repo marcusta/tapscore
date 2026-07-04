@@ -1,11 +1,11 @@
-import { Component, Router, Signal, effect, template } from '@basics/core/client/core';
+import { Component, Computed, Router, Signal, effect, template } from '@basics/core/client/core';
 import { AuthService } from '@basics/core/client/auth';
 import { SelectComponent } from '@basics/core/client/ui/select';
 import { api, ApiError } from '../api';
 import { t } from '../theme';
 import { s, btn, card } from '../css';
 import { RoundViewService } from './round.service';
-import { canShowJoinCard } from './join';
+import { canShowJoinCard, deriveGroupPicker } from './join';
 import type { CompilerDiagnostic } from '../api/friendly-rounds.gen';
 import type { Tee } from '../api/setup.gen';
 
@@ -25,6 +25,10 @@ const tpl = template(`
     <div bind="root" class="join-card hidden">
         <span class="join-card__label">Playing this round?</span>
         <p class="join-card__hint">Add yourself with your own tee — this creates your own scorecard.</p>
+        <div bind="groupRow" class="join-card__group hidden">
+            <label class="join-card__group-label">Group</label>
+            <div bind="groupHost" class="join-card__group-select"></div>
+        </div>
         <div class="join-card__row">
             <div bind="teeHost" class="join-card__tee"></div>
             <button bind="join" class="join-card__btn" type="button">Add me</button>
@@ -55,6 +59,16 @@ export class JoinCardComponent extends Component {
                 margin: ${s('sm')} 0 0;
                 font-size: 0.8rem;
                 color: ${t('text-muted')};
+            }
+            & .join-card__group {
+                margin-top: ${s('md')};
+                &.hidden { display: none; }
+            }
+            & .join-card__group-label {
+                display: block;
+                font-size: 0.8rem;
+                color: ${t('text-muted')};
+                margin-bottom: ${s('xs')};
             }
             & .join-card__row {
                 display: flex;
@@ -101,6 +115,9 @@ export class JoinCardComponent extends Component {
     private teeId = new Signal('');
     private tees = new Signal<Tee[]>([]);
     private loadedForCourseId: string | null = null;
+    // The chosen playing group: a group's runtime id, the 'new' sentinel, or ''
+    // before the picker has defaulted. Sent as `groupChoice` on join.
+    private groupChoice = new Signal('');
 
     private eligible(): boolean {
         return canShowJoinCard(
@@ -147,7 +164,14 @@ export class JoinCardComponent extends Component {
         this.diagnostics.set([]);
         this.joining.set(true);
         try {
-            const res = await api.friendlyRounds.join({ token, teeId });
+            // Send the chosen group only when the picker actually offered one.
+            // Absent groupChoice = current server default (first with space).
+            const choice = this.groupChoice.get();
+            const res = await api.friendlyRounds.join({
+                token,
+                teeId,
+                ...(choice ? { groupChoice: choice } : {}),
+            });
             if (res.ok) {
                 await this.svc.loadByToken(token);
             } else {
@@ -172,9 +196,35 @@ export class JoinCardComponent extends Component {
         // or a join elsewhere).
         this.track(effect(() => this.ensureTeesLoaded()));
 
+        // Group picker options, derived from the round's playing groups. When
+        // the round has ≥1 group the viewer SEES where they'll land (even a
+        // single group with space) and can pick another or start a fresh one.
+        const picker = new Computed(() => deriveGroupPicker(this.svc.groups()));
+        // Default-select the first group with space (or "new group") whenever
+        // the derived default changes and the viewer hasn't chosen otherwise —
+        // and reset a stale choice that no longer names a real option (e.g. the
+        // round refetched and a group filled up).
+        this.track(
+            effect(() => {
+                const p = picker.get();
+                const current = this.groupChoice.get();
+                if (!current || !p.options.some((o) => o.value === current && !o.disabled)) {
+                    this.groupChoice.set(p.defaultValue);
+                }
+            }),
+        );
+
         const frag = this.wire(tpl, {
             root: {
                 className: () => (this.eligible() ? 'join-card' : 'join-card hidden'),
+            },
+            groupRow: {
+                // Show only when there's a real group to choose between; a round
+                // with no groups yet has nothing to pick.
+                className: () =>
+                    this.svc.groups().length > 0
+                        ? 'join-card__group'
+                        : 'join-card__group hidden',
             },
             join: {
                 disabled: () => this.joining.get() || !this.teeId.get(),
@@ -205,6 +255,14 @@ export class JoinCardComponent extends Component {
         });
         teeSelect.mount(this.ref(frag, 'teeHost'));
         this.track(() => teeSelect.destroy());
+
+        const groupSelect = new SelectComponent({
+            value: this.groupChoice,
+            options: { get: () => picker.get().options },
+            placeholder: 'Group',
+        });
+        groupSelect.mount(this.ref(frag, 'groupHost'));
+        this.track(() => groupSelect.destroy());
 
         return frag;
     }

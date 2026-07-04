@@ -283,9 +283,11 @@ test('draft playing groups map to definition groups with tee times + capacities'
             ]),
         ),
     );
+    // Capacity is max(4, members): a 2-player group is NOT born full, so a
+    // self-joiner can still land in it (the join-choice fix).
     expect(def.playingGroups).toEqual([
-        { id: 'pg-1', startTime: '09:00', startOrdinal: 1, capacity: 2, producerDefIds: ['p1', 'p2'] },
-        { id: 'pg-2', startTime: '09:08', startOrdinal: 1, capacity: 2, producerDefIds: ['p3', 'p4'] },
+        { id: 'pg-1', startTime: '09:00', startOrdinal: 1, capacity: 4, producerDefIds: ['p1', 'p2'] },
+        { id: 'pg-2', startTime: '09:08', startOrdinal: 1, capacity: 4, producerDefIds: ['p3', 'p4'] },
     ]);
 });
 
@@ -304,6 +306,24 @@ test('omitted startTime defaults to the round date; omitted startHole to the rou
     expect(def.playingGroups).toEqual([
         { id: 'pg-1', startTime: '2026-07-04', startOrdinal: 1, capacity: 4, producerDefIds: ['p1', 'p2', 'p3', 'p4'] },
     ]);
+});
+
+test('a group larger than a flight keeps its own size as capacity (max(4, n))', () => {
+    // ROSTER has 4 players; extend the draft to a 5-player single group and
+    // assert capacity tracks the group size once it exceeds a standard flight.
+    const bigRoster: RoundSetupDraft['producers'] = [
+        ...ROSTER,
+        { producerDefId: 'p5', playerRef: { kind: 'guest', id: 'g5' }, handicapIndex: 5, gender: 'M', teeId: 't1' },
+    ];
+    const draft: RoundSetupDraft = {
+        courseId: 'c1',
+        playedAt: '2026-07-04',
+        producers: bigRoster,
+        formats: STABLEFORD,
+        playingGroups: [{ members: ['p1', 'p2', 'p3', 'p4', 'p5'] }],
+    };
+    const def = ok(buildRoundDefinition(draft));
+    expect(def.playingGroups![0]!.capacity).toBe(5);
 });
 
 test('shotgun: per-group start holes resolve to itinerary ordinals (full 18: hole = ordinal)', () => {

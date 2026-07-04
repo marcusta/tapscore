@@ -111,11 +111,14 @@ export function normalize(input: CompilerInput): NormalizeResult {
         });
     } else if (playHoles.length > 0) {
         // Default: one group, all producers, starting at the first occurrence.
+        // Capacity is a standard flight (4), or the roster size when it already
+        // exceeds four — the group is not born full, leaving room for a
+        // self-joiner to land here instead of always spawning a fresh group.
         playingGroups.push({
             id: 'pg-1',
             startTime: def.playedAt,
             startPlayHoleDefId: playHoles[0].id,
-            capacity: def.producers.length,
+            capacity: Math.max(4, def.producers.length),
             producerDefIds: def.producers.map((p) => p.id),
         });
     }

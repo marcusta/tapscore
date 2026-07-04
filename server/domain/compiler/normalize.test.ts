@@ -65,6 +65,9 @@ describe('normalize — conventional defaults', () => {
         expect(d.playingGroups).toHaveLength(1);
         expect(d.playingGroups[0].producerDefIds).toEqual(['p1', 'p2']);
         expect(d.playingGroups[0].startPlayHoleDefId).toBe('ph-1');
+        // Capacity is max(4, roster) — the default group is NOT born full, so a
+        // self-joiner can land in it rather than always spawning a new group.
+        expect(d.playingGroups[0].capacity).toBe(4);
     });
 
     test('front_9 → 1..9, casual + posting-ineligible (no route rating)', () => {

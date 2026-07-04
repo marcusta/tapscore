@@ -301,8 +301,9 @@ test('POST /friendly-rounds/join adds the caller from their profile and returns 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    // Fresh hydrated round: the joiner overflowed the (full) default group.
-    expect(body.round.playingGroups).toHaveLength(2);
+    // Fresh hydrated round: the default group has capacity 4 (max(4, roster)),
+    // so the joiner lands IN it — no overflow group is spawned.
+    expect(body.round.playingGroups).toHaveLength(1);
     const balls = await (await req(ctx.app, 'GET', `/api/friendly-rounds/balls?token=${token}`)).json();
     expect(balls).toHaveLength(3);
     const joinerBall = balls.find(

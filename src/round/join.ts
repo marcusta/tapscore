@@ -1,4 +1,4 @@
-import type { RoundBall } from '../api/friendly-rounds.gen';
+import type { RoundBall, RoundPlayingGroup } from '../api/friendly-rounds.gen';
 
 // Phase 3.5 self-join — pure derivation of WHETHER the join card should show
 // on a round view. The server (`RoundJoinService.joinByToken`) owns the real
@@ -45,4 +45,64 @@ export function canShowJoinCard(
         }
     }
     return true;
+}
+
+// --- Group picker derivation --------------------------------------------------
+//
+// When a round already has ≥1 playing group, the join card lets the viewer
+// choose WHERE they land instead of silently overflowing into a fresh group.
+// This is the pure occupancy/label/default derivation the card renders; the
+// server (`RoundJoinService.placeInGroups`) re-validates the choice, so a
+// stale option is refused with a `group_full` / `unknown_group` diagnostic
+// rather than mis-seating anyone.
+
+/** The literal option meaning "put me in a brand-new group". */
+export const NEW_GROUP_CHOICE = 'new';
+
+export interface GroupPickerOption {
+    /** The `groupChoice` value to send to the join API: a group's runtime id,
+     *  or {@link NEW_GROUP_CHOICE}. */
+    value: string;
+    /** Compact human label, e.g. `Group 1 · 09:00 — 2 of 4`. */
+    label: string;
+    /** True when the group is full — the option renders disabled. */
+    disabled: boolean;
+}
+
+export interface GroupPicker {
+    options: GroupPickerOption[];
+    /** The option to pre-select: the first group with space, else "new group". */
+    defaultValue: string;
+}
+
+/**
+ * Build the join card's group picker from the round's playing groups. Each
+ * existing group becomes an option "Group N · <time> — <n> of <cap>" (disabled
+ * when full), followed by a "Start a new group" option. A group's `startTime`
+ * is only shown when it carries a real clock time (it defaults to the round
+ * DATE when the draft set none — see round.component's group pills).
+ *
+ * The default is the first group with free capacity; if every group is full,
+ * the default is the "new group" option.
+ *
+ * With no groups at all (`groups` empty), returns just the "new group" option,
+ * default-selected — the caller decides whether to render the picker (a round
+ * with zero groups has nothing to choose between).
+ */
+export function deriveGroupPicker(groups: readonly RoundPlayingGroup[]): GroupPicker {
+    const options: GroupPickerOption[] = groups.map((g, i) => {
+        const occupancy = g.ballIds.length;
+        const parts = [`Group ${i + 1}`];
+        if (g.startTime.includes(':')) parts.push(g.startTime);
+        return {
+            value: g.id,
+            label: `${parts.join(' · ')} — ${occupancy} of ${g.capacity}`,
+            disabled: occupancy >= g.capacity,
+        };
+    });
+
+    const firstOpen = options.find((o) => !o.disabled);
+    options.push({ value: NEW_GROUP_CHOICE, label: 'Start a new group', disabled: false });
+
+    return { options, defaultValue: firstOpen?.value ?? NEW_GROUP_CHOICE };
 }

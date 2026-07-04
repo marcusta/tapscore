@@ -21,11 +21,18 @@ const ResultInput = Type.Object({
 });
 
 // Self-join (Phase 3.5): identity, display name, handicap index and gender all
-// come from the CALLER's profile (session), never the body — only the tee is
-// the joiner's choice.
+// come from the CALLER's profile (session), never the body — the tee and the
+// (optional) target playing group are the joiner's choice.
+//
+// `groupChoice`:
+//   - absent → first group with space, else a fresh group (default);
+//   - `'new'` → force a fresh group even when one has space;
+//   - a group's RUNTIME id (RoundPlayingGroup.id) → that group, if it has space
+//     (`group_full` / `unknown_group` diagnostic otherwise).
 const JoinInput = Type.Object({
     token: Type.String(),
     teeId: Type.String(),
+    groupChoice: Type.Optional(Type.String()),
 });
 
 const ClaimGuestInput = Type.Object({
