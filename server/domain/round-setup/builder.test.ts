@@ -126,6 +126,120 @@ test('a producer subset narrows a shared own-ball strategy via a producer select
     expect(kopBalls).toHaveLength(3);
 });
 
+// --- Whole-roster subjects → open selector (Phase 3.5 joinability) -----------
+
+test('subjects covering every roster player emit an OPEN own-ball selector (no producerDefIds)', () => {
+    const draft: RoundSetupDraft = {
+        courseId: 'c1',
+        playedAt: '2026-07-04',
+        producers: ROSTER,
+        formats: [
+            {
+                formatId: 'stableford_individual',
+                subjects: ROSTER.map((p) => ({ kind: 'player' as const, producerDefId: p.producerDefId })),
+            },
+        ],
+    };
+    const def = ok(buildRoundDefinition(draft));
+
+    expect(def.ballStrategies).toHaveLength(1);
+    // The whole-roster form: strategy only, NO producerDefIds — semantically
+    // identical selection today, but joinable + future-producer-absorbing.
+    expect(def.slots[0].ballSelector).toEqual({ strategyDefIds: [def.ballStrategies[0].id] });
+
+    // Semantic equivalence: compiles to the same 4 own-balls in the slot that
+    // an explicit all-producer selector would select.
+    const result = compile(makeCanaryCompilerInput('r1', def));
+    if (!result.ok) throw new Error(result.diagnostics.map((d) => d.code).join(', '));
+    const slotById = new Map(result.compiled.slots.map((s) => [s.slotDefId, s.id]));
+    const slotBalls = result.compiled.slotBalls.filter((sb) => sb.slotId === slotById.get('slot-0'));
+    expect(slotBalls).toHaveLength(4);
+});
+
+test('a subjects SUBSET (an unticked player) keeps the explicit producer selector', () => {
+    const draft: RoundSetupDraft = {
+        courseId: 'c1',
+        playedAt: '2026-07-04',
+        producers: ROSTER,
+        formats: [
+            {
+                formatId: 'stableford_individual',
+                subjects: [
+                    { kind: 'player', producerDefId: 'p1' },
+                    { kind: 'player', producerDefId: 'p2' },
+                    { kind: 'player', producerDefId: 'p3' },
+                ],
+            },
+        ],
+    };
+    const def = ok(buildRoundDefinition(draft));
+    expect(def.slots[0].ballSelector).toEqual({
+        strategyDefIds: [def.ballStrategies[0].id],
+        producerDefIds: ['p1', 'p2', 'p3'],
+    });
+});
+
+test('a team subject keeps the explicit selector even when every player is also a subject', () => {
+    const draft: RoundSetupDraft = {
+        courseId: 'c1',
+        playedAt: '2026-07-04',
+        producers: ROSTER,
+        teams: TEAMS,
+        formats: [
+            {
+                formatId: 'stableford_individual',
+                subjects: [
+                    ...ROSTER.map((p) => ({ kind: 'player' as const, producerDefId: p.producerDefId })),
+                    { kind: 'team', teamId: 'TA' },
+                ],
+            },
+        ],
+    };
+    const def = ok(buildRoundDefinition(draft));
+    // Mixed individuals + team ball is NOT a plain whole-roster own-ball slot —
+    // the explicit form stays so the slot's meaning is pinned.
+    expect(def.slots[0].ballSelector!.producerDefIds).toEqual(['p1', 'p2', 'p3', 'p4']);
+    expect(def.slots[0].ballSelector!.strategyDefIds).toHaveLength(2); // own-ball + team ball
+});
+
+test('mixed draft: all-players stableford is open; a 2-player match stays an explicit subset', () => {
+    const draft: RoundSetupDraft = {
+        courseId: 'c1',
+        playedAt: '2026-07-04',
+        producers: ROSTER,
+        formats: [
+            {
+                formatId: 'stableford_individual',
+                subjects: ROSTER.map((p) => ({ kind: 'player' as const, producerDefId: p.producerDefId })),
+            },
+            {
+                formatId: 'match_play_individual',
+                subjects: [
+                    { kind: 'player', producerDefId: 'p1' },
+                    { kind: 'player', producerDefId: 'p2' },
+                ],
+            },
+        ],
+    };
+    const def = ok(buildRoundDefinition(draft));
+
+    const own = def.ballStrategies.filter((s) => s.strategyId === 'own_ball_per_player');
+    expect(own).toHaveLength(1); // shared across both slots
+    expect(def.slots[0].ballSelector).toEqual({ strategyDefIds: [own[0].id] });
+    expect(def.slots[1].ballSelector).toEqual({
+        strategyDefIds: [own[0].id],
+        producerDefIds: ['p1', 'p2'],
+    });
+
+    const result = compile(makeCanaryCompilerInput('r1', def));
+    if (!result.ok) throw new Error(result.diagnostics.map((d) => d.code).join(', '));
+    const slotById = new Map(result.compiled.slots.map((s) => [s.slotDefId, s.id]));
+    const countFor = (slotDefId: string) =>
+        result.compiled.slotBalls.filter((sb) => sb.slotId === slotById.get(slotDefId)).length;
+    expect(countFor('slot-0')).toBe(4);
+    expect(countFor('slot-1')).toBe(2);
+});
+
 test('unknown format id and off-roster team producer return structured diagnostics', () => {
     const draft: RoundSetupDraft = {
         courseId: 'c1',

@@ -449,6 +449,20 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
         if (individuals.length > 0) strategyDefIds.push(ensureOwnBallStrat());
         strategyDefIds.push(...teamStratIds);
 
+        // Whole-roster detection: when the subjects are exactly every roster
+        // producer as individual players (no team subjects), the selection is
+        // semantically a whole-roster own-ball slot, so emit the OPEN form —
+        // no `producerDefIds`. The selected balls are identical either way
+        // (the shared own-ball strategy mints one ball per roster producer,
+        // and a whole-roster allow-list filters nothing out); the open form
+        // additionally lets the slot absorb future producers, which is what
+        // "everyone plays" means — self-join (`RoundJoinService`) only extends
+        // such slots. A narrowed subset (an unticked player) or any team
+        // subject keeps today's explicit selector untouched. `individuals` is
+        // roster-validated above, so set-size equality ⇔ full coverage.
+        const coversWholeRoster =
+            teamStratIds.length === 0 && new Set(individuals).size === rosterIds.size;
+
         slotByIndex[i] = {
             id: `slot-${i}`,
             formatId: sel.formatId,
@@ -458,7 +472,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
             allowanceConfig: sel.allowanceConfig ?? { type: 'flat', pct: 100 },
             ballSelector: {
                 strategyDefIds,
-                ...(individuals.length > 0 ? { producerDefIds: individuals } : {}),
+                ...(individuals.length > 0 && !coversWholeRoster ? { producerDefIds: individuals } : {}),
             },
             ...(sel.formatConfig !== undefined ? { formatConfig: sel.formatConfig } : {}),
         };

@@ -222,6 +222,57 @@ test('explicit-subset and team-composition slots stay untouched by a join', asyn
     expect(bySlot.get('slot-2')).toBe(1); // the team ball only — untouched
 });
 
+test('a UI-shaped draft (subjects listing every player) builds a joinable round end-to-end', async () => {
+    const { ctx, tee, joiner, guests, course } = await setup();
+    // Exactly what the create wizard submits (setup.service.buildFormats,
+    // ADR-0003): every roster player as an individual subject + a flat
+    // allowance. The builder must recognise this as whole-roster and emit the
+    // open own-ball selector — otherwise every UI-created round refuses with
+    // no_joinable_slot. A second, deliberately narrowed 2-player format rides
+    // along to prove subsets stay closed in the same round.
+    const draft: RoundSetupDraft = {
+        courseId: course.id,
+        playedAt: '2026-07-04',
+        producers: [
+            { producerDefId: 'p1', playerRef: { kind: 'guest', id: guests.g1.id }, handicapIndex: 8, gender: 'M', teeId: tee.id },
+            { producerDefId: 'p2', playerRef: { kind: 'guest', id: guests.g2.id }, handicapIndex: 14, gender: 'M', teeId: tee.id },
+        ],
+        formats: [
+            {
+                formatId: 'stableford_individual',
+                allowanceConfig: { type: 'flat', pct: 100 },
+                subjects: [
+                    { kind: 'player', producerDefId: 'p1' },
+                    { kind: 'player', producerDefId: 'p2' },
+                ],
+            },
+            {
+                formatId: 'stroke_play_individual',
+                allowanceConfig: { type: 'flat', pct: 100 },
+                subjects: [{ kind: 'player', producerDefId: 'p1' }],
+            },
+        ],
+    };
+    const { token, round } = await createRound(ctx, draft);
+
+    const res = await ctx.roundJoinService.joinByToken({ token, teeId: tee.id, playerId: joiner.id });
+    expect(res).not.toBeNull();
+    expect(res!.ok).toBe(true);
+    if (!res!.ok) return;
+
+    // The joiner's own ball landed in the whole-roster slot — and ONLY there.
+    const balls = await ctx.roundService.ballsForRound(round.id);
+    expect(balls).toHaveLength(3);
+    const joinerBall = balls.find((b) => b.players.some((p) => p.playerId === joiner.id));
+    expect(joinerBall).toBeTruthy();
+    expect(joinerBall!.slots.map((s) => s.slotDefId)).toEqual(['slot-0']);
+
+    const bySlot = new Map<string, number>();
+    for (const b of balls) for (const s of b.slots) bySlot.set(s.slotDefId, (bySlot.get(s.slotDefId) ?? 0) + 1);
+    expect(bySlot.get('slot-0')).toBe(3); // p1, p2, joiner
+    expect(bySlot.get('slot-1')).toBe(1); // narrowed subset untouched
+});
+
 // --- Refusals -------------------------------------------------------------------
 
 test('join refuses an active round with 409', async () => {
