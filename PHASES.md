@@ -1066,6 +1066,8 @@ The compiler already accepts explicit `playingGroups[]` (start time, start play-
 
 **Gate:** create a 3-group round through the draft; switch groups on the score tab; leaderboard shows correct thru-N per group; polling updates a second client without reload. Mandatory stop + focused visual review. Commit `phase 3.5 complete: multi-group + live board`.
 
+**Status: AWAITING VISUAL VERIFY (2026-07-04).** Implemented: server `f7dc9bd` (result `?cursor=` riding `latest_event_id`, bumped by scores AND corrections/allowance/rulings/format-actions via `bumpResultCursor`; `POST /friendly-rounds/join` composing a new definition version through the shared correction tail, audit target `playing_group`, idempotent `client_event_id`), groups `f1e630f` (draft `playingGroups[]` + builder mapping w/ 5 diagnostics + create-flow section + round-view group pills + shotgun rotation browser-verified), round-view `e7d3be2` (visibility-gated 20s leaderboard polling w/ `shouldPoll` pure gate, join card w/ tee select + profile-gap diagnostics, group labels on ranked rows), joinability `67c817b` (whole-roster subjects emit the open selector — UI-created rounds joinable; semantic equivalence proven in-test), verification `cc54e41` (seeds `multi-group-tee-times`/`multi-group-shotgun`/`self-join-proof` + `scripts/render-phase3.5-verify.ts` → `tmp/formats/phase35-verify.html`). Gates: **629 server + 154 client tests**, fixture oracle 14 rounds identical. Known behavior flagged for review: the default playing group's capacity == roster size, so a self-join on a small round opens a NEW group for the joiner instead of appending to the flight — candidate tweak: default capacity 4 (or join-time append-if-<4).
+
 ---
 
 ## Phase 4 — Competition + CompetitionRound
