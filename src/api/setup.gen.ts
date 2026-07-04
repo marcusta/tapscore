@@ -70,6 +70,7 @@ export interface FormatMetric {
     id: string;
     label: string;
     direction: 'high' | 'low';
+    pace?: 'par' | { perHole: number };
 }
 
 export interface FormatBallRequirement {

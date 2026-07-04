@@ -49,6 +49,6 @@ export const stablefordIndividualPresenter: FormatResultPresenter = (input) => {
         teamShape: input.teamShape,
         allowanceLabel: input.allowanceLabel,
         cards,
-        leaderboard: rankedSections(input.metrics, input.result.ballResults),
+        leaderboard: rankedSections(input.metrics, input.result.ballResults, { columns: cols }),
     };
 };

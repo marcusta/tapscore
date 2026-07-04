@@ -230,6 +230,16 @@ function renderScoreGridSection(
         : `<div class="diag">Unsupported score-grid component <code>${esc(componentId)}</code> — no generic view yet. Results are not hidden.</div>`;
 }
 
+/** Compact live-board pace chip — the metric relative to its playing-to-pace
+ * baseline over the entry's own thru-N, so the server's ordering explains
+ * itself. `E` at pace, signed otherwise (real minus sign). Absent when the
+ * metric declares no pace. */
+function paceChip(paceDelta: number | undefined): string {
+    if (paceDelta === undefined) return '';
+    const text = paceDelta === 0 ? 'E' : paceDelta > 0 ? `+${paceDelta}` : `−${Math.abs(paceDelta)}`;
+    return ` <span class="lb-pace">${esc(text)}</span>`;
+}
+
 function renderRanked(section: RankedSection, nameOf: (id: string) => string): string {
     const rows = section.entries
         .map(
@@ -237,7 +247,7 @@ function renderRanked(section: RankedSection, nameOf: (id: string) => string): s
 <tr>
   <td class="num">${e.position}</td>
   <td>${esc(e.ballIds.map(nameOf).join(' & '))}</td>
-  <td class="num">${e.total ?? '—'}</td>
+  <td class="num">${e.total ?? '—'}${paceChip(e.paceDelta)}</td>
   <td class="num muted">${e.holesPlayed}</td>
 </tr>`,
         )

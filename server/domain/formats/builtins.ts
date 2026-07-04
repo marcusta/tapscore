@@ -69,11 +69,25 @@ const matchPlayResultPresenter = matchPlayPresenter();
 // (stroke play + Split sixes) — every decision is derived from `input`.
 const defaultGridResultPresenter = defaultGridPresenter();
 
+// Stroke play ranks by to-par (strokes relative to par-so-far), the same
+// live-board principle as stableford's to-pace: mid-round, an entry thru fewer
+// holes isn't unfairly ahead just for having a smaller absolute stroke sum.
+// `pace: 'par'` targets par-so-far over each entry's own scored holes; both
+// metrics are LOW, so a negative delta reads as under par.
 const GROSS_NET: FormatMetric[] = [
-    { id: 'gross', label: 'Gross', direction: 'low' },
-    { id: 'net', label: 'Net', direction: 'low' },
+    { id: 'gross', label: 'Gross', direction: 'low', pace: 'par' },
+    { id: 'net', label: 'Net', direction: 'low', pace: 'par' },
 ];
 const POINTS_HIGH: FormatMetric[] = [{ id: 'points', label: 'Points', direction: 'high' }];
+// Stableford's points metric declares its live-board pace (2 points per hole
+// counted = playing to handicap). A ranked live board then orders by points
+// relative to that pace so entries at different thru-N compare fairly, instead
+// of by absolute total. Kept SEPARATE from POINTS_HIGH because köpenhamnare +
+// umbrella reuse POINTS_HIGH and their normalized running totals are already
+// field-relative — pace must NOT be declared there.
+const STABLEFORD_POINTS: FormatMetric[] = [
+    { id: 'points', label: 'Points', direction: 'high', pace: { perHole: 2 } },
+];
 // Pair-only formats (match-play, taliban) rank nothing scalar — their result
 // is a match/comparison section, not a ranked metric. Empty metrics is valid.
 const MATCH: FormatMetric[] = [];
@@ -126,7 +140,7 @@ const BUILTINS: BuiltinMeta[] = [
         description: 'Points per hole against net par; highest wins.',
         scoringMode: 'stableford',
         teamShape: 'individual',
-        metrics: POINTS_HIGH,
+        metrics: STABLEFORD_POINTS,
         resultDisplay: DEFAULT_SCORE_GRID,
         renderResult: stablefordIndividualPresenter,
         scoresAnyBall: true,
@@ -191,7 +205,7 @@ const BUILTINS: BuiltinMeta[] = [
         description: 'Best Stableford score per team per hole.',
         scoringMode: 'stableford',
         teamShape: 'better_ball',
-        metrics: POINTS_HIGH,
+        metrics: STABLEFORD_POINTS,
         renderResult: stablefordBetterBallPresenter,
         scoresAnyBall: true,
     },

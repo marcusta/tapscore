@@ -2965,7 +2965,8 @@
             ],
             "total": 35,
             "holesPlayed": 9,
-            "position": 1
+            "position": 1,
+            "paceDelta": 0
           },
           {
             "ballIds": [
@@ -2973,7 +2974,8 @@
             ],
             "total": 37,
             "holesPlayed": 9,
-            "position": 2
+            "position": 2,
+            "paceDelta": 2
           },
           {
             "ballIds": [
@@ -2981,7 +2983,8 @@
             ],
             "total": 45,
             "holesPlayed": 9,
-            "position": 3
+            "position": 3,
+            "paceDelta": 10
           },
           {
             "ballIds": [
@@ -3004,7 +3007,8 @@
             ],
             "total": 29,
             "holesPlayed": 9,
-            "position": 1
+            "position": 1,
+            "paceDelta": -6
           },
           {
             "ballIds": [
@@ -3012,7 +3016,8 @@
             ],
             "total": 29,
             "holesPlayed": 9,
-            "position": 1
+            "position": 1,
+            "paceDelta": -6
           },
           {
             "ballIds": [
@@ -3020,7 +3025,8 @@
             ],
             "total": 36,
             "holesPlayed": 9,
-            "position": 3
+            "position": 3,
+            "paceDelta": 1
           },
           {
             "ballIds": [

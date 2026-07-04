@@ -1,5 +1,5 @@
 import type { BallResult, PairBallResult } from './types';
-import type { FormatMetric } from '../formats/plugin';
+import type { FormatMetric, MetricPace } from '../formats/plugin';
 import type {
     GridCell,
     GridRow,
@@ -346,22 +346,81 @@ export function matchSummarySection(pairs: PairBallResult[]): MatchSummarySectio
     return { kind: 'match_summary', title: 'Match results', matches: pairs.map(matchPanel) };
 }
 
+/**
+ * Direction-aware compare of one entry's `key` field (`total` or `paceDelta`).
+ * Null keys sort last regardless of direction. A `low` metric ranks the
+ * smallest key first; `high` ranks the largest first.
+ */
+function compareByKey(
+    a: RankedEntry,
+    b: RankedEntry,
+    key: 'total' | 'paceDelta',
+    direction: 'high' | 'low',
+): number {
+    const av = a[key] ?? null;
+    const bv = b[key] ?? null;
+    if (av === null && bv === null) return 0;
+    if (av === null) return 1;
+    if (bv === null) return -1;
+    return direction === 'low' ? av - bv : bv - av;
+}
+
+/**
+ * Sort ranked entries and stamp 1-based positions (ties share a position).
+ *
+ * When ANY entry carries `paceDelta` (the metric declared a live-board pace),
+ * the section sorts by `paceDelta` — metric relative to the playing-to-pace
+ * baseline over each entry's own thru-N — with `total` as the tiebreak, so a
+ * team ahead of pace ranks above a team behind it even on fewer holes. When no
+ * entry carries `paceDelta`, it sorts by absolute `total` exactly as before.
+ * With equal thru across all entries the pace target is a uniform shift, so the
+ * pace order is provably identical to the absolute-total order.
+ *
+ * Positions are assigned on the SORTED key: consecutive entries whose ranking
+ * key ties share a position (paceDelta ties when pace is active, total ties
+ * otherwise).
+ */
 export function rankEntries(entries: RankedEntry[], direction: 'high' | 'low'): RankedEntry[] {
+    const usePace = entries.some((e) => e.paceDelta !== undefined);
+    const key = usePace ? 'paceDelta' : 'total';
     const sorted = [...entries].sort((a, b) => {
-        if (a.total === null && b.total === null) return 0;
-        if (a.total === null) return 1;
-        if (b.total === null) return -1;
-        return direction === 'low' ? a.total - b.total : b.total - a.total;
+        const primary = compareByKey(a, b, key, direction);
+        if (primary !== 0 || !usePace) return primary;
+        // Pace tiebreak: fall back to absolute total (same direction).
+        return compareByKey(a, b, 'total', direction);
     });
     let last: number | null | undefined;
     let position = 0;
     return sorted.map((e, i) => {
-        if (e.total !== last) {
+        const rankKey = usePace ? (e.paceDelta ?? null) : e.total;
+        if (rankKey !== last) {
             position = i + 1;
-            last = e.total;
+            last = rankKey;
         }
         return { ...e, position };
     });
+}
+
+/**
+ * The pace target (expected metric) for an entry that has counted `thru` holes
+ * and, for the `'par'` pace, a `parSoFar` sum over those scored holes.
+ *   - `{ perHole: n }` → `n × thru`.
+ *   - `'par'`          → `parSoFar`.
+ */
+function paceTarget(pace: MetricPace, thru: number, parSoFar: number): number {
+    return pace === 'par' ? parSoFar : pace.perHole * thru;
+}
+
+/** Sum of par over the holes a ball result scored (non-null gross). Requires
+ * the play-hole columns so a repeated physical hole's occurrences are summed
+ * distinctly (keyed by `playHoleId`). Used only for the `'par'` pace. */
+function parSoFarFor(r: BallResult, parByPlayHole: Map<string, number>): number {
+    let sum = 0;
+    for (const h of r.holes) {
+        if (h.gross === null) continue;
+        if (h.playHoleId !== undefined) sum += parByPlayHole.get(h.playHoleId) ?? 0;
+    }
+    return sum;
 }
 
 export function rankedSections(
@@ -370,23 +429,39 @@ export function rankedSections(
     opts: {
         offsets?: Map<string, number> | null;
         ballIdsFor?: (resultBallId: string) => string[];
+        /**
+         * Play-hole columns (par per occurrence). Required for a `pace: 'par'`
+         * metric so par-so-far can be summed over each entry's scored holes;
+         * unused for `{ perHole }` pace and for non-pace metrics.
+         */
+        columns?: ResultColumn[];
     } = {},
 ): RankedSection[] {
     const out: RankedSection[] = [];
     const offsets = opts.offsets ?? null;
     const ballIdsFor = opts.ballIdsFor ?? ((resultBallId: string) => [resultBallId]);
+    const parByPlayHole = new Map((opts.columns ?? []).map((c) => [c.playHoleId, c.par] as const));
 
     for (const metric of metrics) {
         const entries: RankedEntry[] = [];
         for (const r of ballResults) {
             const t = r.totals.find((x) => x.scoringType === metric.id);
             if (!t) continue;
-            entries.push({
+            const total = normalizeTotal(t.value, metric.id, offsets);
+            const entry: RankedEntry = {
                 ballIds: ballIdsFor(r.ballId),
-                total: normalizeTotal(t.value, metric.id, offsets),
+                total,
                 holesPlayed: r.holesPlayed,
                 position: 0,
-            });
+            };
+            // Pace delta: metric relative to the playing-to-pace baseline over
+            // this entry's own thru-N. Only when the metric declares a pace and
+            // the entry has a total to compare.
+            if (metric.pace !== undefined && total !== null) {
+                const parSoFar = metric.pace === 'par' ? parSoFarFor(r, parByPlayHole) : 0;
+                entry.paceDelta = total - paceTarget(metric.pace, r.holesPlayed, parSoFar);
+            }
+            entries.push(entry);
         }
         if (entries.length === 0) continue;
         out.push({

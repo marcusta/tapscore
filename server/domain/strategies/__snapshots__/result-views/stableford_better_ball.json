@@ -2884,7 +2884,8 @@
             ],
             "total": 35,
             "holesPlayed": 17,
-            "position": 1
+            "position": 1,
+            "paceDelta": 1
           },
           {
             "ballIds": [
@@ -2893,7 +2894,8 @@
             ],
             "total": 23,
             "holesPlayed": 18,
-            "position": 2
+            "position": 2,
+            "paceDelta": -13
           }
         ]
       }

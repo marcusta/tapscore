@@ -106,7 +106,10 @@ export function defaultGridPresenter(): FormatResultPresenter {
             teamShape: input.teamShape,
             allowanceLabel: input.allowanceLabel,
             cards,
-            leaderboard: rankedSections(input.metrics, input.result.ballResults, { offsets }),
+            leaderboard: rankedSections(input.metrics, input.result.ballResults, {
+                offsets,
+                columns: cols,
+            }),
         };
     };
 }

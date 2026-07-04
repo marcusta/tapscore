@@ -356,6 +356,53 @@ test('result renderers do not branch on format ids', async () => {
     }
 });
 
+// --- pace chip (live-board ranking) -----------------------------------------
+//
+// A ranked entry carrying `paceDelta` shows a compact chip next to the total so
+// the server's pace ordering explains itself: `+4` (over), `−5` (under), `E`
+// (even). Entries without `paceDelta` (non-pace metrics) render exactly as
+// before — no chip.
+
+function rankedWith(entries: RankedSection['entries']): RankedSection {
+    return { kind: 'ranked', metricId: 'points', metricLabel: 'Points', entries };
+}
+
+test('pace chip renders +N / −N / E next to the total, tone-classed', () => {
+    const ranked = rankedWith([
+        { ballIds: ['a'], total: 8, holesPlayed: 2, paceDelta: 4, position: 1 },
+        { ballIds: ['b'], total: 9, holesPlayed: 7, paceDelta: -5, position: 2 },
+        { ballIds: ['c'], total: 36, holesPlayed: 18, paceDelta: 0, position: 3 },
+    ]);
+    const html = renderSlotLeaderboard(slot({ leaderboard: [ranked] }), nameOf);
+
+    // over-pace: signed positive
+    expect(html).toContain('<span class="lb-rank__pace lb-rank__pace--over">+4</span>');
+    // under-pace: real minus sign (U+2212), not ASCII hyphen
+    expect(html).toContain('<span class="lb-rank__pace lb-rank__pace--under">−5</span>');
+    // even: E
+    expect(html).toContain('<span class="lb-rank__pace lb-rank__pace--even">E</span>');
+    // the chip sits inside the total cell, after the total value
+    expect(html).toContain('<td class="lb-rank__total">8 <span class="lb-rank__pace lb-rank__pace--over">+4</span></td>');
+});
+
+test('no pace chip when the entry carries no paceDelta (non-pace metric)', () => {
+    const ranked = rankedWith([
+        { ballIds: ['a'], total: 70, holesPlayed: 18, position: 1 },
+        { ballIds: ['b'], total: 72, holesPlayed: 18, position: 2 },
+    ]);
+    const html = renderSlotLeaderboard(slot({ leaderboard: [ranked] }), nameOf);
+
+    expect(html).not.toContain('lb-rank__pace');
+    // total cell is exactly the value, no trailing chip span
+    expect(html).toContain('<td class="lb-rank__total">70</td>');
+});
+
+test('pace chip still shown when total is present but zero', () => {
+    const ranked = rankedWith([{ ballIds: ['a'], total: 0, holesPlayed: 4, paceDelta: -8, position: 1 }]);
+    const html = renderSlotLeaderboard(slot({ leaderboard: [ranked] }), nameOf);
+    expect(html).toContain('<td class="lb-rank__total">0 <span class="lb-rank__pace lb-rank__pace--under">−8</span></td>');
+});
+
 test('unknown leaderboard section kind yields a visible diagnostic, not dropped content', () => {
     const bogus = { kind: 'totally_unknown' } as unknown as RankedSection;
     const html = renderSlotLeaderboard(slot({ leaderboard: [bogus] }), nameOf);

@@ -139,6 +139,16 @@ export interface RankedEntry {
     ballIds: string[];
     total: number | null;
     holesPlayed: number;
+    /**
+     * Live-board pace delta — the metric relative to its declared pace over the
+     * holes THIS entry has counted (`total − pace-target-for(holesPlayed)`).
+     * Present only when the ranked metric declares a `pace` and the entry has a
+     * total; the section is sorted by it (direction-aware, tiebreak = total) so
+     * entries at different thru-N compare fairly. Absent ⇒ the section ranked by
+     * absolute total (köpenhamnare/umbrella/match). The consumer surfaces it as
+     * a small chip; ordering stays server-side.
+     */
+    paceDelta?: number;
     /** 1-based; ties share a position. */
     position: number;
 }

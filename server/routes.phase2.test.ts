@@ -159,17 +159,25 @@ test('full round flow: 4 participants, events, leaderboard, idempotency, replay'
     const gross = rankedSection(rr, 'gross');
     expect(gross.entries).toHaveLength(4);
     const firstEntry = gross.entries[0]!;
-    // Dan has only 1 stroke total (4), tied with Alice and Bob having 2 holes played.
-    // Among played totals: Dan=4, Alice=9, Bob=11, Carol=6.
-    // So order: Dan (4), Carol (6), Alice (9), Bob (11).
+    // A LIVE stroke-play board ranks by TO-PAR (strokes relative to par-so-far),
+    // not absolute strokes — otherwise a player thru fewer holes is unfairly
+    // ahead. All holes are par 4, so par-so-far = 4 × holes played:
+    //   Dan:   4 over 1 hole  → to-par  0 (E)
+    //   Alice: 9 over 2 holes → to-par +1
+    //   Carol: 6 over 1 hole  → to-par +2
+    //   Bob:  11 over 2 holes → to-par +3
+    // So order: Dan (E), Alice (+1), Carol (+2), Bob (+3). Alice — +1 thru 2 —
+    // correctly outranks Carol — +2 thru 1 — even on a higher absolute total.
     expect(firstEntry.ballIds).toEqual([danBall]);
     expect(firstEntry.total).toBe(4);
+    expect(firstEntry.paceDelta).toBe(0);
     expect(gross.entries.map((e) => e.ballIds[0])).toEqual([
         danBall,
-        carolBall,
         aliceBall,
+        carolBall,
         bobBall,
     ]);
+    expect(gross.entries.map((e) => e.paceDelta)).toEqual([0, 1, 2, 3]);
 });
 
 test('replay determinism: events inserted out of order converge to same state', async () => {

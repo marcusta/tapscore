@@ -252,6 +252,22 @@ function entryGroupLabel(ballIds: readonly string[], groupOf: GroupOf): string |
     return [...labels][0] ?? null;
 }
 
+/**
+ * Compact chip showing a ranked entry's live-board pace delta — the metric
+ * relative to its playing-to-pace baseline over that entry's own thru-N, which
+ * is WHY the server ordered the board this way (a team ahead of pace ranks
+ * above one behind it even on fewer holes). `E` when even (0), a signed number
+ * otherwise (real minus sign). Absent when the section carries no `paceDelta`
+ * (metrics whose descriptor declares no pace render exactly as before).
+ * Presentation only: the server owns the ordering.
+ */
+function paceChip(paceDelta: number | undefined): string {
+    if (paceDelta === undefined) return '';
+    const text = paceDelta === 0 ? 'E' : paceDelta > 0 ? `+${paceDelta}` : `−${Math.abs(paceDelta)}`;
+    const tone = paceDelta === 0 ? 'even' : paceDelta > 0 ? 'over' : 'under';
+    return ` <span class="lb-rank__pace lb-rank__pace--${tone}">${esc(text)}</span>`;
+}
+
 function renderRanked(section: RankedSection, nameOf: NameOf, groupOf: GroupOf = noGroup): string {
     const rows = section.entries
         .map((e) => {
@@ -260,7 +276,7 @@ function renderRanked(section: RankedSection, nameOf: NameOf, groupOf: GroupOf =
             return `<tr class="${e.position === 1 ? 'lb-rank__lead' : ''}">
   <td class="lb-rank__pos">${e.position}</td>
   <td class="lb-rank__who">${esc(e.ballIds.map(nameOf).join(' & '))}${groupTag}</td>
-  <td class="lb-rank__total">${e.total ?? '—'}</td>
+  <td class="lb-rank__total">${e.total ?? '—'}${paceChip(e.paceDelta)}</td>
   <td class="lb-rank__thru">${e.holesPlayed}</td>
 </tr>`;
         })

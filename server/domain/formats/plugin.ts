@@ -44,10 +44,36 @@ export type MetricDirection = 'high' | 'low';
  * sections are authoritative; metrics describe only genuinely rankable
  * scalar totals.
  */
+/**
+ * How a ranked metric declares its "playing to expectation" pace, so a LIVE
+ * board (entries at different thru-N) ranks by metric-relative-to-pace rather
+ * than by absolute total. Golf convention: a live stableford board ranks by
+ * points relative to the 2-points-per-hole pace (36 = playing to handicap),
+ * exactly like stroke play ranks by to-par rather than absolute strokes.
+ *
+ *   - `{ perHole: n }` — the expected metric per hole counted (stableford: 2).
+ *     An entry's pace target is `perHole × thru`; `paceDelta = total − target`.
+ *   - `'par'` — the expected total is par-so-far (the sum of par over the
+ *     holes the entry has scored); `paceDelta = total − parSoFar`. For
+ *     stroke-play to-par ranking (a LOW metric: negative delta = under par).
+ *
+ * Absent ⇒ the metric ranks by absolute total (köpenhamnare/umbrella running
+ * totals are already field-relative; match state carries no scalar).
+ */
+export type MetricPace = { perHole: number } | 'par';
+
 export interface FormatMetric {
     id: string;
     label: string;
     direction: MetricDirection;
+    /**
+     * Optional live-board pace declaration. When set, ranked sections sort by
+     * `paceDelta` (metric relative to this pace, direction-aware) instead of
+     * absolute total, so entries at different thru-N are compared fairly. When
+     * every entry has equal thru, the order is a uniform shift of the absolute
+     * order — provably identical. Absent ⇒ absolute-total ranking (today).
+     */
+    pace?: MetricPace;
 }
 
 /**
@@ -345,6 +371,17 @@ export function assertValidDescriptor(d: FormatDescriptor): void {
         if (!nonEmpty(m.label)) fail(id, `metric '${m.id}' needs a non-empty label`);
         if (m.direction !== 'high' && m.direction !== 'low') {
             fail(id, `metric '${m.id}' direction must be high|low (got ${String(m.direction)})`);
+        }
+        if (m.pace !== undefined) {
+            const okPar = m.pace === 'par';
+            const okPerHole =
+                typeof m.pace === 'object' &&
+                m.pace !== null &&
+                typeof m.pace.perHole === 'number' &&
+                Number.isFinite(m.pace.perHole);
+            if (!okPar && !okPerHole) {
+                fail(id, `metric '${m.id}' pace must be 'par' or { perHole: number }`);
+            }
         }
         if (seenMetric.has(m.id)) fail(id, `duplicate metric id '${m.id}'`);
         seenMetric.add(m.id);

@@ -255,6 +255,7 @@ export interface RankedEntry {
     ballIds: string[];
     total: null | number;
     holesPlayed: number;
+    paceDelta?: number;
     position: number;
 }
 
