@@ -35,7 +35,7 @@ export function createFriendsApi(svc: FriendService) {
         list: {
             method: 'GET' as const,
             path: '/friends',
-            fn: (c: Context) => svc.listFor(requireUser(c).id),
+            fn: (c: Context) => svc.listFor(requireUser(c).id, new Date().toISOString()),
             middleware: mw,
         },
         add: {

@@ -8,13 +8,22 @@ import {
     sortProfiles,
     upsertFriend,
 } from '../../src/friends/friends-state';
-import type { PlayerProfile } from '../../src/api/friends.gen';
+import type { FriendProfile } from '../../src/api/friends.gen';
 import type { PlayerSearchResult } from '../../src/api/players.gen';
 
 // Pure list/search state for the Phase 3 friends slice — no signals, no api.
 
-function profile(id: string, displayName: string): PlayerProfile {
-    return { id, username: id, displayName, gender: null, handicapIndex: null };
+function profile(id: string, displayName: string): FriendProfile {
+    return {
+        id,
+        username: id,
+        displayName,
+        gender: null,
+        handicapIndex: null,
+        sharedRoundCount: 0,
+        lastPlayedAt: null,
+        frecency: 0,
+    };
 }
 
 function result(id: string, isFriend = false): PlayerSearchResult {
@@ -34,7 +43,7 @@ test('isSearchable requires MIN_SEARCH_CHARS after trimming', () => {
 
 // --- Friends list transitions ------------------------------------------------
 
-test('sortProfiles orders by display name, case-insensitively', () => {
+test('sortProfiles (Suggested) falls back to alpha when no one has shared history', () => {
     const sorted = sortProfiles([profile('1', 'berit'), profile('2', 'Adam'), profile('3', 'Cleo')]);
     expect(sorted.map((p) => p.displayName)).toEqual(['Adam', 'berit', 'Cleo']);
 });

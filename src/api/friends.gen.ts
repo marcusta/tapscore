@@ -1,7 +1,10 @@
 // GENERATED — DO NOT EDIT
 import { apiFetch } from '@basics/core/client/fetch';
 
-export interface PlayerProfile {
+export interface FriendProfile {
+    sharedRoundCount: number;
+    lastPlayedAt: null | string;
+    frecency: number;
     id: string;
     username: string;
     displayName: string;
@@ -16,7 +19,7 @@ export interface Friendship {
 }
 
 export interface FriendsApi {
-    list(): Promise<PlayerProfile[]>;
+    list(): Promise<FriendProfile[]>;
     add(input: { friendId: string }): Promise<Friendship>;
     remove(input: { friendId: string }): Promise<{ ok: boolean }>;
 }

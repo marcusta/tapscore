@@ -6,6 +6,7 @@ import { s, btn, input, card } from '../css';
 import { SetupService, type RoutePreset } from './setup.service';
 import { ProfileService } from '../profile/profile.service';
 import { FriendsService } from '../friends/friends.service';
+import { sortFriends } from '../friends/friend-sort';
 
 // Phase 2.6e M2 — the real no-login setup flow. Pick a course + route, add
 // players (name · handicap index · gender · per-player tee) with the derived
@@ -719,7 +720,14 @@ export class CreateComponent extends Component {
         // and a removed one reappears.
         this.$each(
             this.ref(frag, 'friendRows'),
-            () => this.friends.friends.get().filter((f) => !this.svc.hasPlayer(f.id)),
+            // Frecency order — the on-course "who's playing today?" moment wants
+            // regulars first (same sort module as the Friends tab, always
+            // Suggested here — no A–Z toggle in the picker).
+            () =>
+                sortFriends(
+                    this.friends.friends.get().filter((f) => !this.svc.hasPlayer(f.id)),
+                    'frecency',
+                ),
             (f, _i, track) =>
                 this.wireEl(
                     friendRowTpl,

@@ -4,7 +4,8 @@ import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { FriendsService } from './friends.service';
 import { isSearchable } from './friends-state';
-import type { PlayerProfile } from '../api/friends.gen';
+import { friendSubtitle, sortFriends } from './friend-sort';
+import type { FriendProfile } from '../api/friends.gen';
 
 // Phase 3 friends — the one-directional contact list behind the auth side
 // door (mirrors /profile's sign-in prompt when logged out). Search registered
@@ -34,7 +35,13 @@ const tpl = template(`
             </section>
 
             <section class="friends__section">
-                <h2>My friends</h2>
+                <div class="friends__sechead">
+                    <h2>My friends</h2>
+                    <div bind="sortToggle" class="friends__sort" role="group" aria-label="Sort friends">
+                        <button bind="sortFrecency" type="button" class="friends__sortbtn">Suggested</button>
+                        <button bind="sortAlpha" type="button" class="friends__sortbtn">A–Z</button>
+                    </div>
+                </div>
                 <div bind="friendsEmpty" class="friends__empty">No friends yet — search above to add the people you play with.</div>
                 <div bind="friends" class="friends__list"></div>
             </section>
@@ -60,7 +67,7 @@ const friendTpl = template(`
         <span bind="initials" class="friend-row__badge"></span>
         <span class="friend-row__who">
             <span bind="name" class="friend-row__name"></span>
-            <span bind="username" class="friend-row__username"></span>
+            <span bind="subtitle" class="friend-row__subtitle"></span>
         </span>
         <span bind="hcp" class="friend-row__hcp"></span>
         <button bind="remove" class="friend-row__remove" type="button" aria-label="Remove friend">✕</button>
@@ -120,6 +127,31 @@ export class FriendsComponent extends Component {
                 }
             }
 
+            & .friends__sechead {
+                display: flex; align-items: center; justify-content: space-between;
+                gap: ${s('md')};
+                & h2 { margin: 0; }
+            }
+
+            & .friends__sort {
+                display: inline-flex; flex-shrink: 0;
+                border: 1px solid ${t('border')}; border-radius: ${t('radius-pill')};
+                overflow: hidden;
+                &.hidden { display: none; }
+
+                & .friends__sortbtn {
+                    ${btn()}
+                    font-family: inherit; font-size: 0.78rem; font-weight: 700;
+                    padding: ${s('xs')} ${s('md')};
+                    background: transparent; color: ${t('text-muted')};
+                    border: none; border-radius: 0;
+
+                    &[aria-pressed='true'] {
+                        background: ${t('primary')}; color: ${t('primary-text')};
+                    }
+                }
+            }
+
             & .friends__search {
                 width: 100%;
                 padding: ${s('md')} ${s('lg')};
@@ -166,10 +198,12 @@ export class FriendsComponent extends Component {
                     font-weight: 600; font-size: 1rem;
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                 }
-                & .friend-row__username {
+                & .friend-row__username,
+                & .friend-row__subtitle {
                     color: ${t('text-muted')}; font-size: 0.8rem;
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                 }
+                & .friend-row__subtitle:empty { display: none; }
                 & .friend-row__hcp {
                     font-weight: 700; flex-shrink: 0;
                     color: ${t('accent')}; background: ${t('accent-soft')};
@@ -241,6 +275,21 @@ export class FriendsComponent extends Component {
                         ? 'friends__empty'
                         : 'friends__empty hidden',
             },
+            // Sort toggle — only meaningful once there are friends to reorder.
+            sortToggle: {
+                className: () =>
+                    this.svc.friends.get().length > 0
+                        ? 'friends__sort'
+                        : 'friends__sort hidden',
+            },
+            sortFrecency: {
+                'aria-pressed': () => String(this.svc.sortMode.get() === 'frecency'),
+                onclick: () => this.svc.setSortMode('frecency'),
+            },
+            sortAlpha: {
+                'aria-pressed': () => String(this.svc.sortMode.get() === 'alpha'),
+                onclick: () => this.svc.setSortMode('alpha'),
+            },
         });
 
         // Search results — Add flips to a "✓ Friend" tick once added (isFriend
@@ -275,17 +324,23 @@ export class FriendsComponent extends Component {
             (r) => r.id,
         );
 
-        // My friends — remove is a small ✕, mirroring the roster rows' affordance.
+        // My friends — reordered live by the Suggested⇄A–Z toggle; the subtitle
+        // ("played 6×, last week") self-explains the Suggested order. `now` is
+        // captured once per render for a stable relative time.
+        const now = new Date().toISOString();
         this.$each(
             this.ref(frag, 'friends'),
-            this.svc.friends,
-            (f: PlayerProfile, _i, track) =>
+            () => sortFriends(this.svc.friends.get(), this.svc.sortMode.get()),
+            (f: FriendProfile, _i, track) =>
                 this.wireEl(
                     friendTpl,
                     {
                         initials: () => initialsOf(f.displayName),
                         name: () => f.displayName,
-                        username: () => `@${f.username}`,
+                        subtitle: () => {
+                            const live = this.svc.friends.get().find((x) => x.id === f.id) ?? f;
+                            return friendSubtitle(live, now);
+                        },
                         hcp: () => (f.handicapIndex === null ? '–' : f.handicapIndex.toFixed(1)),
                         remove: {
                             disabled: () => this.svc.mutating.get(),

@@ -66,8 +66,25 @@ test('POST /api/friends adds a friend; GET /api/friends returns the profile shap
             displayName: 'Bob Bengtsson',
             gender: 'M',
             handicapIndex: 12.4,
+            // Frecency signals — present on every friend; a friend with no
+            // shared rounds carries the never-played defaults.
+            sharedRoundCount: 0,
+            lastPlayedAt: null,
+            frecency: 0,
         },
     ]);
+});
+
+test('GET /api/friends carries the frecency signal fields on every friend', async () => {
+    const ctx = await setup();
+    const bob = await addPlayer(ctx, 'bob', 'Bob Bengtsson');
+    const cookie = await loginAs(ctx.app, 'alice', 'password123');
+    await req(ctx.app, 'POST', '/api/friends', { friendId: bob.id }, cookie);
+
+    const [friend] = await (await req(ctx.app, 'GET', '/api/friends', undefined, cookie)).json();
+    expect(friend).toHaveProperty('sharedRoundCount', 0);
+    expect(friend).toHaveProperty('lastPlayedAt', null);
+    expect(friend).toHaveProperty('frecency', 0);
 });
 
 test('the list is one-directional: adding does not put the caller on the friend\'s list', async () => {

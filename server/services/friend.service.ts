@@ -2,6 +2,7 @@ import type { Kysely, Selectable } from 'kysely';
 import type { Database, FriendshipsTable } from '../db/schema';
 import { ConflictError, NotFoundError } from '@basics/core/server/auth';
 import type { PlayerProfile } from './player.service';
+import { scoreFrecency } from '../domain/frecency';
 
 // --- Output types ---
 
@@ -9,6 +10,20 @@ export interface Friendship {
     playerId: string;
     friendPlayerId: string;
     createdAt: string;
+}
+
+/**
+ * A friend profile enriched with the caller's shared-play signals — the
+ * inputs the client sorts on to float regulars to the top (see
+ * `server/domain/frecency.ts` for the scoring formula). `sharedRoundCount`
+ * counts rounds where BOTH the caller and this friend produced a ball;
+ * `lastPlayedAt` is the most recent such round's date (null when never);
+ * `frecency` is the recency-weighted frequency (0 when never).
+ */
+export interface FriendProfile extends PlayerProfile {
+    sharedRoundCount: number;
+    lastPlayedAt: string | null;
+    frecency: number;
 }
 
 // --- Row mapping ---
@@ -117,14 +132,48 @@ export class FriendService {
     }
 
     /**
-     * Friend profiles, joined onto `players`. A friend who was soft-deleted
+     * Rounds the caller and each friend BOTH produced a ball in — the raw
+     * material for the frecency signals. ONE query, not N: it self-joins
+     * `ball_players` (caller side ⋈ friend side) through the shared `balls →
+     * rounds` chain, so every (friend, round) co-production comes back in a
+     * single pass. Only registered producers count — the join keys on
+     * `player_id`, so guest rows (`player_id IS NULL`) never match. DISTINCT
+     * on (friend, round) collapses the case where two players shared several
+     * balls in one round (e.g. multiple slots) to a single shared round.
+     * Soft-deleted friends are filtered by the caller (`listFor`) via the
+     * `players.deleted_at` guard, so no extra guard is needed here.
+     */
+    private sharedRounds(playerId: string) {
+        return this.db
+            .selectFrom('ball_players as me')
+            .innerJoin('balls as mb', 'mb.id', 'me.ball_id')
+            .innerJoin('rounds as r', 'r.id', 'mb.round_id')
+            // The friend's ball in the SAME round, then the friend's producer
+            // row on it.
+            .innerJoin('balls as fb', 'fb.round_id', 'mb.round_id')
+            .innerJoin('ball_players as friend', 'friend.ball_id', 'fb.id')
+            .where('me.player_id', '=', playerId)
+            .where('friend.player_id', 'is not', null)
+            .whereRef('friend.player_id', '!=', 'me.player_id')
+            .select(['friend.player_id as friendId', 'r.id as roundId', 'r.date as playedAt'])
+            .distinct()
+            .execute();
+    }
+
+    /**
+     * Friend profiles, joined onto `players`, enriched with per-friend
+     * shared-play signals (see `FriendProfile`). A friend who was soft-deleted
      * AFTER being added is excluded — the contact list should not surface a
      * dead account (matches how `PlayerService.listActive` treats soft
      * deletes elsewhere). The `friendships` row itself is left untouched
      * (not cleaned up) so a later hard-delete's cascading FK is the only
      * thing that ever removes it.
+     *
+     * `now` is injected (ISO-8601) and threaded straight into the pure
+     * `scoreFrecency` domain function so ordering is deterministic; the API
+     * layer passes `new Date().toISOString()`.
      */
-    async listFor(playerId: string): Promise<PlayerProfile[]> {
+    async listFor(playerId: string, now: string): Promise<FriendProfile[]> {
         const rows = await this.db
             .selectFrom('friendships')
             .innerJoin('players', 'players.id', 'friendships.friend_player_id')
@@ -140,6 +189,20 @@ export class FriendService {
             .orderBy('players.display_name')
             .execute();
 
-        return rows;
+        // One pass over the caller's co-production map, bucketed by friend.
+        const byFriend = new Map<string, { playedAt: string }[]>();
+        for (const s of await this.sharedRounds(playerId)) {
+            const list = byFriend.get(s.friendId!) ?? [];
+            list.push({ playedAt: s.playedAt });
+            byFriend.set(s.friendId!, list);
+        }
+
+        return rows.map((row) => {
+            const { sharedRoundCount, lastPlayedAt, frecency } = scoreFrecency(
+                byFriend.get(row.id) ?? [],
+                now,
+            );
+            return { ...row, sharedRoundCount, lastPlayedAt, frecency };
+        });
     }
 }

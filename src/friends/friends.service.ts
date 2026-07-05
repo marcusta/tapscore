@@ -1,7 +1,7 @@
 import { Signal } from '@basics/core/client/core';
 import { request, type RequestError } from '@basics/core/client/request';
 import { api } from '../api';
-import type { PlayerProfile } from '../api/friends.gen';
+import type { FriendProfile } from '../api/friends.gen';
 import type { PlayerSearchResult } from '../api/players.gen';
 import {
     createSearchRunner,
@@ -10,6 +10,7 @@ import {
     sortProfiles,
     upsertFriend,
 } from './friends-state';
+import { type FriendSortMode, loadSortMode, saveSortMode } from './friend-sort-pref';
 
 /**
  * The one-directional friends list (Phase 3) + the player search that feeds
@@ -23,9 +24,13 @@ import {
 export class FriendsService {
     readonly loading = new Signal(false);
     readonly error = new Signal<RequestError | null>(null);
-    readonly friends = new Signal<PlayerProfile[]>([]);
+    readonly friends = new Signal<FriendProfile[]>([]);
     /** True once a list fetch has resolved — gates the "no friends" empty state. */
     readonly loaded = new Signal(false);
+
+    /** Suggested⇄A–Z toggle; seeded from localStorage, persisted on change.
+     *  The service list stays in Suggested order; the display re-sorts. */
+    readonly sortMode = new Signal<FriendSortMode>(loadSortMode());
 
     /** The raw search box text (echoed back to the input). */
     readonly query = new Signal('');
@@ -90,9 +95,20 @@ export class FriendsService {
                 displayName: p.displayName,
                 gender: p.gender,
                 handicapIndex: p.handicapIndex,
+                // No shared history yet — sorts as never-played until the next
+                // server load recomputes the signals.
+                sharedRoundCount: 0,
+                lastPlayedAt: null,
+                frecency: 0,
             }),
         );
         this.results.set(markIsFriend(this.results.get(), p.id, true));
+    }
+
+    /** Flip the Suggested⇄A–Z sort mode and persist it. */
+    setSortMode(mode: FriendSortMode): void {
+        this.sortMode.set(mode);
+        saveSortMode(mode);
     }
 
     async remove(id: string): Promise<void> {
