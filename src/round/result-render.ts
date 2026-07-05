@@ -275,7 +275,7 @@ function renderRanked(section: RankedSection, nameOf: NameOf, groupOf: GroupOf =
             const groupTag = group ? ` <span class="lb-rank__group">${esc(group)}</span>` : '';
             return `<tr class="${e.position === 1 ? 'lb-rank__lead' : ''}">
   <td class="lb-rank__pos">${e.position}</td>
-  <td class="lb-rank__who">${esc(e.ballIds.map(nameOf).join(' & '))}${groupTag}</td>
+  <td class="lb-rank__who"><span class="lb-rank__name">${esc(e.ballIds.map(nameOf).join(' & '))}</span>${groupTag}</td>
   <td class="lb-rank__total">${e.total ?? '—'}${paceChip(e.paceDelta)}</td>
   <td class="lb-rank__thru">${e.holesPlayed}</td>
 </tr>`;

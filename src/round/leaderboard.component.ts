@@ -92,9 +92,18 @@ export class LeaderboardComponent extends Component {
                 text-align: left;
                 font-weight: 600;
                 font-family: ${t('font-display')};
+                /* Flex so a long NAME ellipsizes while the group tag stays
+                   whole — before this, the cell-level ellipsis cut the tag
+                   ("Gr…") on narrow screens. */
+                display: flex;
+                align-items: baseline;
+                min-width: 0;
+            }
+            & .lb-rank__name {
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
+                min-width: 0;
             }
             & .lb-rank__total { text-align: right; font-weight: 700; }
             /* Phase 3.5: group tag next to a player's name — only rendered when
@@ -105,6 +114,8 @@ export class LeaderboardComponent extends Component {
                 font-weight: 600;
                 color: ${t('text-muted')};
                 margin-left: ${s('xs')};
+                flex: none;
+                white-space: nowrap;
             }
             & .lb-rank__thru { text-align: right; color: ${t('text-muted')}; }
             & .lb-rank__lead td { background: ${t('accent-soft')}; }
