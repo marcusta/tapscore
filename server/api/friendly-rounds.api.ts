@@ -3,6 +3,7 @@ import type { Context } from 'hono';
 import { NotFoundError, requireAuth, requireUser } from '@basics/core/server/auth';
 import type { FriendlyRoundService } from '../services/friendly-round.service';
 import type { RoundJoinService } from '../services/round-join.service';
+import type { RoundLeaveService } from '../services/round-leave.service';
 import type { RoundEditService } from '../services/round-edit.service';
 import type { GuestClaimService } from '../services/guest-claim.service';
 import { RoundSetupDraft } from '../domain/round-setup/draft';
@@ -128,6 +129,12 @@ async function joinOr404(
     return res;
 }
 
+async function leaveOr404(leaves: RoundLeaveService, token: string, playerId: string) {
+    const res = await leaves.leaveByToken({ token, playerId });
+    if (res === null) throw new NotFoundError('friendly round not found');
+    return res;
+}
+
 async function scoreOr404(
     svc: FriendlyRoundService,
     input: Static<typeof ScoreInput>,
@@ -179,6 +186,7 @@ export function createFriendlyRoundsApi(
     claims: GuestClaimService,
     joins: RoundJoinService,
     edits: RoundEditService,
+    leaves: RoundLeaveService,
 ) {
     return {
         list:      { method: 'GET'  as const, path: '/friendly-rounds',           fn: ()                                    => svc.list() },
@@ -221,6 +229,19 @@ export function createFriendlyRoundsApi(
             fn: (input: Static<typeof JoinInput>, c: Context) =>
                 joinOr404(joins, input, requireUser(c).id),
             schema: JoinInput,
+            middleware: [requireAuth()],
+        },
+        // Auth REQUIRED — the FIRST identity-gated, self-scoped mutation. The
+        // caller removes THEMSELVES (their producer + own ball + their score
+        // events) from the round; identity is the session's, never the body's.
+        // Ordinary refusals (not in the round, shared team ball, degenerate
+        // slot) are structured `{ ok: false, diagnostics }`, never a 500.
+        leave: {
+            method: 'POST' as const,
+            path: '/friendly-rounds/leave',
+            fn: (input: Static<typeof ByTokenInput>, c: Context) =>
+                leaveOr404(leaves, input.token, requireUser(c).id),
+            schema: ByTokenInput,
             middleware: [requireAuth()],
         },
         claimGuest: {

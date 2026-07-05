@@ -352,7 +352,7 @@ export interface RoundDefinitionsTable {
 // definition versions with no draft counterpart. Latest = MAX(version).
 // Rounds without rows here are not editable via the setup wizard.
 
-export type RoundSetupDraftSourceKind = 'initial' | 'setup_edit' | 'self_join';
+export type RoundSetupDraftSourceKind = 'initial' | 'setup_edit' | 'self_join' | 'self_leave';
 
 export interface RoundSetupDraftsTable {
     round_id: string;

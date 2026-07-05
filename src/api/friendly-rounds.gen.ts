@@ -296,6 +296,7 @@ export interface FriendlyRoundsApi {
     finish(input: { token: string }): Promise<{ status: 'not_started' | 'active' | 'complete'; completedAt: string }>;
     reopen(input: { token: string }): Promise<{ status: 'not_started' | 'active' | 'complete' }>;
     join(input: { groupChoice?: string; teeId: string; token: string }): Promise<{ ok: true; round: Round } | { ok: false; diagnostics: CompilerDiagnostic[] }>;
+    leave(input: { token: string }): Promise<{ ok: true; round: Round } | { ok: false; diagnostics: CompilerDiagnostic[] }>;
     claimGuest(input: { token: string; guestPlayerId: string }): Promise<ClaimGuestResult>;
 }
 
@@ -366,6 +367,9 @@ export function createFriendlyRoundsClient(baseUrl: string): FriendlyRoundsApi {
         },
         async join(input) {
             return apiFetch({ method: 'POST', url: `${baseUrl}/friendly-rounds/join`, body: input });
+        },
+        async leave(input) {
+            return apiFetch({ method: 'POST', url: `${baseUrl}/friendly-rounds/leave`, body: input });
         },
         async claimGuest(input) {
             return apiFetch({ method: 'POST', url: `${baseUrl}/friendly-rounds/claim-guest`, body: input });

@@ -142,6 +142,19 @@ export interface ComposedSetupCorrectionInput {
     /** The full mutated definition input to recompile from. */
     definition: RoundDefinitionInput;
     /**
+     * Optional writes that must land ATOMICALLY with the correction event,
+     * BEFORE the recompiled outputs are diff-persisted (Phase 3.5 leave-round:
+     * the caller's own ball's `score_events`/`scorecards` rows are deleted
+     * here, so the recompile's diff-delete of that ball passes the
+     * `score_events.ball_id ON DELETE RESTRICT` FK). Runs inside the same
+     * transaction, after the event row inserted; NOT invoked on an idempotent
+     * replay (the dedup short-circuit returns before any write).
+     */
+    beforePersist?: (
+        trx: Kysely<Database>,
+        info: { eventId: string },
+    ) => Promise<void>;
+    /**
      * Optional extra writes that must land ATOMICALLY with the correction
      * event + recompiled outputs (Phase 3.5: the setup-edit / self-join paths
      * append the round's stored `RoundSetupDraft` version, and the edit path
@@ -235,6 +248,9 @@ export class CorrectionService {
                     client_event_id: input.clientEventId,
                 })
                 .execute();
+            if (input.beforePersist) {
+                await input.beforePersist(trx, { eventId });
+            }
             const r = await persistCompiledRound(trx, compiled.compiled, {
                 sourceKind: 'setup_correction',
                 sourceEventId: eventId,

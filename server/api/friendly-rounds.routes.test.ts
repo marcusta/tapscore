@@ -17,7 +17,7 @@ beforeEach(() => {
 
 async function setup() {
     const ctx: RouteTestContext = await setupRoutes([seedPlayer]);
-    mount(ctx.app, '/api', createFriendlyRoundsApi(ctx.friendlyRoundService, ctx.guestClaimService, ctx.roundJoinService, ctx.roundEditService));
+    mount(ctx.app, '/api', createFriendlyRoundsApi(ctx.friendlyRoundService, ctx.guestClaimService, ctx.roundJoinService, ctx.roundEditService, ctx.roundLeaveService));
 
     const club = await ctx.clubService.create({ name: 'Friendly GC' });
     const course = await ctx.courseService.create({
@@ -487,4 +487,65 @@ test('POST /friendly-rounds/reopen flips a finished round back to active and cle
     const round = (await (await req(ctx.app, 'GET', `/api/friendly-rounds/by-token?token=${token}`)).json()).round;
     expect(round.status).toBe('active');
     expect(round.completedAt).toBeNull();
+});
+
+// --- Leave (Phase 3.5 — the FIRST identity-gated, self-scoped mutation) ----------
+//
+// Unlike the trust-based token surface above, leaving REQUIRES a session and
+// only ever removes the CALLER — playerId comes from the session, never the
+// body. Ordinary refusals (not in the round, shared team ball) are structured
+// diagnostics over 200; a missing session is the route middleware's 401.
+
+test('POST /friendly-rounds/leave without a session returns 401', async () => {
+    const { ctx, draft } = await setup();
+    const created = await (await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })).json();
+    const res = await req(ctx.app, 'POST', '/api/friendly-rounds/leave', {
+        token: created.friendlyRound.shareToken,
+    });
+    expect(res.status).toBe(401);
+});
+
+test('POST /friendly-rounds/leave removes the caller (joined earlier), leaving co-players intact', async () => {
+    const { ctx, draft } = await setup();
+    const teeId = (draft as { producers: { teeId: string }[] }).producers[0]!.teeId;
+    const { cookie, me, token } = await joinReady(ctx, draft);
+    await req(ctx.app, 'POST', '/api/friendly-rounds/join', { token, teeId }, cookie);
+
+    // The caller scores a hole, then bails on their own participation.
+    const balls = await (await req(ctx.app, 'GET', `/api/friendly-rounds/balls?token=${token}`)).json();
+    const mine = balls.find((b: { players: { playerId: string | null }[] }) =>
+        b.players.some((p: { playerId: string | null }) => p.playerId === me.id));
+    const round = (await (await req(ctx.app, 'GET', `/api/friendly-rounds/by-token?token=${token}`)).json()).round;
+    const playHoleId = round.playingGroups[0].playedOrder[0].playHoleId;
+    await req(ctx.app, 'POST', '/api/friendly-rounds/score', {
+        token, ballId: mine.id, playHoleId, strokes: 9,
+        eventType: 'score_entered', clientEventId: 'leave-http-1',
+    }, cookie);
+
+    const res = await req(ctx.app, 'POST', '/api/friendly-rounds/leave', { token }, cookie);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    const after = await (await req(ctx.app, 'GET', `/api/friendly-rounds/balls?token=${token}`)).json();
+    expect(after).toHaveLength(2);
+    expect(after.some((b: { players: { playerId: string | null }[] }) =>
+        b.players.some((p: { playerId: string | null }) => p.playerId === me.id))).toBe(false);
+});
+
+test('POST /friendly-rounds/leave for a caller not in the round refuses with diagnostics (200, never 500)', async () => {
+    const { ctx, draft } = await setup();
+    const { cookie, token } = await joinReady(ctx, draft); // registered but NOT joined
+    const res = await req(ctx.app, 'POST', '/api/friendly-rounds/leave', { token }, cookie);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.diagnostics[0].code).toBe('not_in_round');
+});
+
+test('POST /friendly-rounds/leave is 404 for an unknown token', async () => {
+    const { ctx, draft } = await setup();
+    const { cookie } = await joinReady(ctx, draft);
+    const res = await req(ctx.app, 'POST', '/api/friendly-rounds/leave', { token: 'nope' }, cookie);
+    expect(res.status).toBe(404);
 });

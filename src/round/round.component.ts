@@ -15,6 +15,7 @@ import { LeaderboardComponent } from './leaderboard.component';
 import { ClaimCardComponent } from './claim-card.component';
 import { JoinCardComponent } from './join-card.component';
 import { EditCardComponent } from './edit-card.component';
+import { LeaveCardComponent } from './leave-card.component';
 import { formatLabelFromSlot } from './slot-labels';
 import { shouldPoll } from './poll-gate';
 import { ConfirmComponent } from '@basics/core/client/ui/confirm';
@@ -70,6 +71,7 @@ const tpl = template(`
                     <div bind="claim"></div>
                     <div bind="join"></div>
 
+                    <div bind="leave"></div>
                     <button bind="finishBtn" class="round-view__finish" type="button"></button>
                     <button bind="deleteBtn" class="round-view__delete" type="button">Delete round</button>
                     <div bind="confirmHost"></div>
@@ -654,6 +656,12 @@ export class RoundComponent extends Component {
         // nothing). Distinct action from claim above: claim flips an existing
         // guest row, join mints a brand new producer — both can show together.
         this.spawn(JoinCardComponent, this.ref(frag, 'join'));
+        // Phase 3.5: the leave-round affordance — the FIRST identity-gated,
+        // self-scoped mutation. Self-hiding (logged-out / viewer not a
+        // producer ⇒ renders nothing). Distinct from "Delete round" below:
+        // leave removes ONLY the caller's producer + ball + scores; delete
+        // destroys the whole round for everyone.
+        this.spawn(LeaveCardComponent, this.ref(frag, 'leave'));
 
         // Delete-round confirmation. Same trust boundary as scoring — the
         // token is the credential, so no identity gate. On success the round

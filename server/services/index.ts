@@ -17,6 +17,7 @@ import { FormatActionService } from './format-action.service';
 import { DashboardService } from './dashboard.service';
 import { FriendlyRoundService } from './friendly-round.service';
 import { RoundJoinService } from './round-join.service';
+import { RoundLeaveService } from './round-leave.service';
 import { RoundEditService } from './round-edit.service';
 import { GuestClaimService } from './guest-claim.service';
 import { FriendService } from './friend.service';
@@ -132,6 +133,7 @@ export function createServices(db: Kysely<Database>) {
         correctionService,
         playerService,
     );
+    const roundLeaveService = new RoundLeaveService(db, roundService, correctionService);
     const roundEditService = new RoundEditService(db, roundService, correctionService);
     const guestClaimService = new GuestClaimService(db);
     return {
@@ -154,6 +156,7 @@ export function createServices(db: Kysely<Database>) {
         dashboardService,
         friendlyRoundService,
         roundJoinService,
+        roundLeaveService,
         roundEditService,
         guestClaimService,
     };
