@@ -14,6 +14,7 @@ import { ScoreEntryComponent } from './score-entry.component';
 import { LeaderboardComponent } from './leaderboard.component';
 import { ClaimCardComponent } from './claim-card.component';
 import { JoinCardComponent } from './join-card.component';
+import { EditCardComponent } from './edit-card.component';
 import { formatLabelFromSlot } from './slot-labels';
 import { shouldPoll } from './poll-gate';
 import type { FormatSlot } from '../api/rounds.gen';
@@ -64,6 +65,7 @@ const tpl = template(`
                         <p class="round-view__share-hint">Anyone with this link can open and score — no sign-in.</p>
                     </div>
 
+                    <div bind="edit"></div>
                     <div bind="claim"></div>
                     <div bind="join"></div>
                 </div>
@@ -572,6 +574,9 @@ export class RoundComponent extends Component {
         // carousel/keypad state survives a tab switch).
         this.spawn(ScoreEntryComponent, this.ref(frag, 'scoring'));
         this.spawn(LeaderboardComponent, this.ref(frag, 'leaderboard'));
+        // Phase 3.5: the edit-round affordance — self-hiding unless the server's
+        // setup() says this round is editable (not-started/active, from a draft).
+        this.spawn(EditCardComponent, this.ref(frag, 'edit'));
         // Phase 3: the guest-claim affordance — self-hiding (logged-out /
         // no unclaimed guests / viewer already plays here ⇒ renders nothing).
         this.spawn(ClaimCardComponent, this.ref(frag, 'claim'));

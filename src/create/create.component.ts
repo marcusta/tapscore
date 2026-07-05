@@ -16,16 +16,20 @@ import { FriendsService } from '../friends/friends.service';
 const PRESETS: RoutePreset[] = ['full_18', 'front_9', 'back_9'];
 
 const tpl = template(`
-    <div class="setup">
+    <div bind="root" class="setup">
         <button bind="back" class="setup__back" type="button">← Home</button>
         <header class="setup__head">
-            <h1>New round</h1>
-            <p>No sign-in required.</p>
+            <h1 bind="title">New round</h1>
+            <p bind="subtitle">No sign-in required.</p>
         </header>
+
+        <div bind="blocked" class="setup__blocked hidden"></div>
 
         <section class="setup__section">
             <h2>Course</h2>
             <div bind="course" class="setup__select"></div>
+            <p bind="lockNote" class="setup__locknote hidden">Scores have been recorded — the course and route are locked for this round.</p>
+            <p bind="routeErr" class="setup__warn"></p>
         </section>
 
         <section class="setup__section">
@@ -48,6 +52,7 @@ const tpl = template(`
                 <div bind="friendRows" class="setup__friendrows"></div>
                 <p class="setup__hint">Everyone on your friends list is already in the round.</p>
             </div>
+            <p bind="rosterErr" class="setup__warn"></p>
         </section>
 
         <section class="setup__section">
@@ -78,6 +83,7 @@ const tpl = template(`
 
         <div bind="banner" class="setup__banner"></div>
         <button bind="create" class="setup__create" type="button">Create round</button>
+        <button bind="cancel" class="setup__cancel hidden" type="button">Cancel</button>
     </div>
 `);
 
@@ -195,6 +201,13 @@ export class CreateComponent extends Component {
     static styles = `
         .setup {
             padding: ${s('lg')} ${s('lg')} ${s('2xl')};
+
+            /* Not-editable (complete / no stored draft): only the head + blocked
+               note + back button remain; the form body is removed. */
+            &.setup--blocked > .setup__section,
+            &.setup--blocked > .setup__banner,
+            &.setup--blocked > .setup__create,
+            &.setup--blocked > .setup__cancel { display: none; }
 
             & .setup__back {
                 background: none; border: none; font-family: inherit;
@@ -430,6 +443,25 @@ export class CreateComponent extends Component {
                 &:hover { background: ${t('primary')}; }
                 &:disabled { opacity: 0.5; cursor: default; }
             }
+
+            & .setup__cancel {
+                width: 100%; margin-top: ${s('md')}; padding: ${s('md')}; ${btn()}
+                background: none; font-family: inherit; font-weight: 600; font-size: 0.95rem;
+                color: ${t('text-muted')};
+                &.hidden { display: none; }
+            }
+
+            & .setup__blocked {
+                padding: ${s('lg')}; ${card()}
+                background: ${t('surface-sunken')}; color: ${t('text-muted')};
+                font-size: 0.95rem; margin-bottom: ${s('xl')};
+                &.hidden { display: none; }
+            }
+
+            & .setup__locknote {
+                margin: ${s('sm')} 0 0; font-size: 0.8rem; color: ${t('text-muted')};
+                &.hidden { display: none; }
+            }
         }
     `;
 
@@ -442,17 +474,36 @@ export class CreateComponent extends Component {
     private pickerOpen = new Signal(false);
 
     render(): DocumentFragment {
-        // The service is a DI singleton — clear any prior draft so a second visit
-        // to New Round starts empty instead of leaking the last round's state.
-        this.svc.reset();
+        // A `?token=` in the URL puts the flow in EDIT MODE — load the stored
+        // draft behind that token and prefill every control (SetupService.
+        // loadForEdit resets first). No token ⇒ the fresh-round path. Reading the
+        // query here (in render, once per mount) — never in a field initializer,
+        // which would re-run on every $swap remount ($swap-signal footgun).
+        const editToken = this.router.query('token').get();
+        const isEdit = !!editToken;
         this.pickerOpen.set(false);
-        void this.svc.load();
+        if (isEdit) {
+            void this.svc.loadForEdit(editToken);
+        } else {
+            // The service is a DI singleton — clear any prior draft so a second
+            // visit to New Round starts empty instead of leaking prior state.
+            this.svc.reset();
+            void this.svc.load();
+        }
         // Logged in: fetch the profile ("Add me" prefill) + the friends list
-        // (the "From friends" picker).
+        // (the "From friends" picker). Skipped in edit mode — the roster is
+        // fixed by the stored draft; adding self/friends still works via the
+        // buttons, but the prefill fetch isn't needed for the edit affordance.
         if (this.auth.currentUser.get()) {
             void this.profile.load();
             void this.friends.load();
         }
+
+        // Edit mode where the round is no longer editable (complete / no stored
+        // draft): the form is hidden and a friendly note shown instead.
+        const editBlocked = () => isEdit && this.svc.editBlockedReason.get() !== null;
+        // Course + route are frozen once anything is scored (server refuses too).
+        const courseLocked = () => isEdit && this.svc.hasScores.get();
 
         // The "Add me" row rides on the logged-in profile: shown while signed
         // in and not already on the roster.
@@ -467,7 +518,40 @@ export class CreateComponent extends Component {
         };
 
         const frag = this.wire(tpl, {
-            back: { onclick: () => this.router.navigate('/') },
+            // When the round can't be edited, hide the form body and show only
+            // the blocked note + back button (the modifier greys everything else).
+            root: { className: () => (editBlocked() ? 'setup setup--blocked' : 'setup') },
+            back: {
+                textContent: () => (isEdit ? '← Back to round' : '← Home'),
+                onclick: () =>
+                    isEdit && editToken
+                        ? this.router.navigate('/round', { query: { token: editToken } })
+                        : this.router.navigate('/'),
+            },
+            title: { textContent: () => (isEdit ? 'Edit round' : 'New round') },
+            subtitle: {
+                textContent: () =>
+                    isEdit ? 'Change the setup — scored balls are preserved.' : 'No sign-in required.',
+            },
+            blocked: {
+                className: () => (editBlocked() ? 'setup__blocked' : 'setup__blocked hidden'),
+                textContent: () =>
+                    this.svc.editBlockedReason.get() === 'round_complete'
+                        ? 'This round is complete — its setup can no longer be edited.'
+                        : this.svc.editBlockedReason.get() === 'no_stored_draft'
+                          ? "This round didn't come from the setup wizard, so it can't be edited here."
+                          : '',
+            },
+            lockNote: {
+                className: () => (courseLocked() ? 'setup__locknote' : 'setup__locknote hidden'),
+            },
+            routeErr: { textContent: () => this.svc.humanizedRoute().join('\n') },
+            rosterErr: { textContent: () => this.svc.humanizedRoster().join('\n') },
+            cancel: {
+                className: () => (isEdit ? 'setup__cancel' : 'setup__cancel hidden'),
+                onclick: () =>
+                    editToken && this.router.navigate('/round', { query: { token: editToken } }),
+            },
             addPlayer: { onclick: () => this.svc.addPlayer() },
             addMe: {
                 className: () => (canAddMe() ? 'setup__add setup__addme' : 'setup__add setup__addme hidden'),
@@ -544,10 +628,18 @@ export class CreateComponent extends Component {
             },
             create: {
                 disabled: () => this.svc.submitting.get(),
-                textContent: () => (this.svc.submitting.get() ? 'Creating…' : 'Create round'),
+                textContent: () =>
+                    this.svc.submitting.get()
+                        ? isEdit
+                            ? 'Saving…'
+                            : 'Creating…'
+                        : isEdit
+                          ? 'Save changes'
+                          : 'Create round',
                 onclick: async () => {
                     const result = await this.svc.submit();
                     if (result.ok) {
+                        // Edit lands back on the same round; create on the new one.
                         this.router.navigate('/round', { query: { token: result.token } });
                     }
                 },
@@ -565,7 +657,11 @@ export class CreateComponent extends Component {
                         b: {
                             textContent: () => this.svc.presetLabel(p),
                             className: () => (this.svc.preset.get() === p ? 'on' : ''),
-                            onclick: () => this.svc.setPreset(p),
+                            // Route is locked once anything is scored (edit mode).
+                            disabled: () => courseLocked(),
+                            onclick: () => {
+                                if (!courseLocked()) this.svc.setPreset(p);
+                            },
                         },
                     },
                     track,
@@ -604,6 +700,8 @@ export class CreateComponent extends Component {
                 },
             },
             placeholder: 'Select a course',
+            // Course is frozen once anything is scored (edit mode; server refuses too).
+            disabled: { get: () => courseLocked() },
         });
         this.mountSelect(this.ref(frag, 'startHole'), compTrack, {
             value: this.bound(
@@ -612,6 +710,7 @@ export class CreateComponent extends Component {
                 (v) => this.svc.startHole.set(Number(v)),
             ),
             options: { get: () => this.svc.startHoleOptions().map((n) => ({ value: String(n), label: String(n) })) },
+            disabled: { get: () => courseLocked() },
         });
 
         // The picker lists friends NOT already on the roster (dedupe by player

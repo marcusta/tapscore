@@ -47,12 +47,14 @@ export function diagnosticsForFormatCard(
     return all.filter((d) => formatCardIndexOf(d) === index);
 }
 
-/** Diagnostics not attributable to a player row, a format card, or a playing group. */
+/** Diagnostics not attributable to a player row, a format card, a playing group,
+ * the roster (edit-mode `producers`), or the route (edit-mode `route`). */
 export function generalDiagnostics(all: CompilerDiagnostic[]): CompilerDiagnostic[] {
     return all.filter(
         (d) =>
-            !d.path?.startsWith('producers[') &&
+            !d.path?.startsWith('producers') &&
             !d.path?.startsWith('playingGroups') &&
+            d.path !== 'route' &&
             formatCardIndexOf(d) === null,
     );
 }
@@ -122,6 +124,18 @@ export function humanizeDiagnostic(
                 return `${fmt} needs its players grouped into teams — tick the teams it scores.`;
             }
             break;
+        // --- Edit-mode locks (Phase 3.5) ---
+        case 'producer_has_scores':
+            // The server names the scored player(s) in its message; keep it.
+            return d.message;
+        case 'scored_ball_orphaned':
+            return d.message;
+        case 'edit_locked_course_route':
+            return 'Scores have already been recorded — the course and route are locked for this round.';
+        case 'round_complete':
+            return 'This round is complete — its setup can no longer be edited.';
+        case 'not_editable':
+            return 'This round can no longer be edited.';
     }
     // Unknown code, or a known code missing its structured fields: keep the raw
     // compiler message. Never drop a refusal on the floor.

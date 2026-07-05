@@ -10,6 +10,7 @@ import {
     generalDiagnostics as bucketGeneralDiagnostics,
     humanizeDiagnostic,
 } from './diagnostics';
+import { draftToForms, type StoredDraft } from './draft-to-forms';
 
 export type Gender = 'M' | 'F';
 export type RoutePreset = 'full_18' | 'front_9' | 'back_9';
@@ -131,6 +132,16 @@ export interface PlayerForm {
     /** The gender came from the registered player's profile — the row's
      * gender control locks (a profile-null gender stays editable). */
     genderKnown?: boolean;
+    /** EDIT MODE only — an EXISTING guest's player id, prefilled from the stored
+     * draft. Present ⇒ submit re-uses this guest instead of minting a new one,
+     * so the guest keeps their content-addressed ball (and its scores). Absent
+     * on a fresh guest row ⇒ a guest is minted on submit as before. */
+    guestPlayerId?: string;
+    /** EDIT MODE only — the producer def-id this row had in the stored draft.
+     * Preserved on submit so an unchanged producer keeps a stable def-id (the
+     * server's `producer_has_scores` guard reads `ball_players.producer_def_id`).
+     * Absent on a newly-added row ⇒ a positional def-id is minted on submit. */
+    producerDefId?: string;
 }
 
 /** Derived course-handicap breakdown for one player — the visible arithmetic. */
@@ -186,6 +197,20 @@ export class SetupService {
     /** A submit-level message not tied to a specific control. */
     readonly submitError = new Signal<string | null>(null);
 
+    // --- Edit mode (Phase 3.5) -------------------------------------------------
+    /** The share token being edited; null ⇒ create mode. Set by `loadForEdit`. */
+    readonly editToken = new Signal<string | null>(null);
+    /** True once any score exists — course + route lock (server refuses too). */
+    readonly hasScores = new Signal(false);
+    /** The stored round status while editing (`not_started` | `active`). */
+    readonly editStatus = new Signal<'not_started' | 'active' | 'complete' | null>(null);
+    /** A non-editable reason from `setup()` (complete / no stored draft). */
+    readonly editBlockedReason = new Signal<'round_complete' | 'no_stored_draft' | null>(null);
+    /** The stored draft's `playedAt`, preserved verbatim on an edit re-submit so
+     * an edit never silently re-dates the round to today. Null ⇒ create mode
+     * (submit stamps today). */
+    private editPlayedAt: string | null = null;
+
     /** The server-backed format catalog drives the whole format step. */
     readonly catalog = di.get(FormatCatalogService);
 
@@ -214,6 +239,11 @@ export class SetupService {
         this.submitError.set(null);
         this.submitting.set(false);
         this.error.set(null);
+        this.editToken.set(null);
+        this.hasScores.set(false);
+        this.editStatus.set(null);
+        this.editBlockedReason.set(null);
+        this.editPlayedAt = null;
         this.nextKey = 1;
         this.nextSlotKey = 1;
         this.nextTeamKey = 1;
@@ -230,6 +260,71 @@ export class SetupService {
         if (!this.courseId.get() && data.length > 0) {
             await this.selectCourse(data[0].id);
         }
+    }
+
+    /**
+     * EDIT MODE entry (Phase 3.5). Load the stored draft behind `token`, prefill
+     * every form control from it, and flip the service into edit mode (submit
+     * then calls `editSetup`, not create). Loads the course catalog + the
+     * round's own course tees + the format catalog exactly like `load()` so all
+     * selects have their options; resolves producer display names from the
+     * round's balls (the draft carries only the ref id).
+     *
+     * When the round is not editable (complete / no stored draft) the reason is
+     * surfaced on `editBlockedReason` and no prefill happens — the component
+     * shows a friendly message instead of the form.
+     */
+    async loadForEdit(token: string): Promise<void> {
+        this.reset();
+        this.editToken.set(token);
+        // Catalog first so the format selects have options (mirrors load()).
+        await this.catalog.load();
+
+        const setup = await request(this.loading, this.error, () =>
+            api.friendlyRounds.setup({ token }),
+        );
+        if (!setup) return;
+        this.editStatus.set(setup.status);
+        if (!setup.editable) {
+            this.editBlockedReason.set(setup.reason);
+            return;
+        }
+        this.hasScores.set(setup.hasScores);
+        this.editPlayedAt = setup.draft.playedAt;
+
+        // Course catalog (for the course label) + this round's course tees.
+        const courses = await request(this.loading, this.error, () => api.setup.courses());
+        if (courses) this.courses.set(courses);
+        const tees = await request(this.loading, this.error, () =>
+            api.setup.teesByCourse({ courseId: setup.draft.courseId }),
+        );
+        this.tees.set(tees ?? []);
+
+        // Resolve producer display names from the round's balls (draft → ref id
+        // only). A guest keeps their entered name; a registered player shows the
+        // profile name the server resolved at create time.
+        const balls = await request(this.loading, this.error, () =>
+            api.friendlyRounds.balls({ token }),
+        );
+        const nameByDefId = new Map<string, string>();
+        for (const b of balls ?? []) {
+            for (const bp of b.players) nameByDefId.set(bp.producerDefId, bp.displayName);
+        }
+
+        const forms = draftToForms(setup.draft as StoredDraft, (id) => nameByDefId.get(id) ?? '');
+        this.courseId.set(forms.courseId);
+        this.preset.set(forms.preset);
+        this.startHole.set(forms.startHole);
+        this.players.set(forms.players);
+        this.teams.set(forms.teams);
+        this.groups.set(forms.groups);
+        this.formatSlots.set(forms.formatSlots);
+        // Resume the key counters PAST every prefilled key so a freshly-added
+        // row/team/group/slot never collides with a prefilled one.
+        this.nextKey = forms.nextKey;
+        this.nextTeamKey = forms.nextTeamKey;
+        this.nextGroupKey = forms.nextGroupKey;
+        this.nextSlotKey = forms.nextSlotKey;
     }
 
     async selectCourse(id: string): Promise<void> {
@@ -864,6 +959,30 @@ export class SetupService {
     }
 
     /**
+     * EDIT MODE — roster-level refusals the server couldn't tie to one row
+     * (a scored player can't be removed → `producer_has_scores`, path
+     * `producers`). Rendered as a note under the Players section. Humanized via
+     * the same presenter as everything else.
+     */
+    humanizedRoster(): string[] {
+        return this.diagnostics
+            .get()
+            .filter((d) => d.path === 'producers')
+            .map((d) => humanizeDiagnostic(d, (id) => this.catalog.labelOf(id)));
+    }
+
+    /**
+     * EDIT MODE — course/route lock refusals (path `route`), rendered under the
+     * Course section. Distinct from the create-mode banner.
+     */
+    humanizedRoute(): string[] {
+        return this.diagnostics
+            .get()
+            .filter((d) => d.path === 'route')
+            .map((d) => humanizeDiagnostic(d, (id) => this.catalog.labelOf(id)));
+    }
+
+    /**
      * Players on the roster who are in no format yet. The engine tolerates this
      * (they simply aren't scored), so it's a gentle non-blocking hint — surfaced
      * to catch the easy mistake of forgetting to add someone to a format, never
@@ -1063,29 +1182,44 @@ export class SetupService {
             return { ok: false };
         }
 
+        const editToken = this.editToken.get();
+
         this.submitting.set(true);
         try {
+            // 0. Assign each row a STABLE producer def-id: an edited row keeps the
+            //    def-id it carried in the stored draft (so its scored ball, keyed
+            //    on ref set, and the server's producer_has_scores guard both stay
+            //    valid); a freshly-added row gets a collision-free `p-<key>` (the
+            //    stored ids are `p1..pN`, so the dash never clashes). Create mode
+            //    has no stored ids ⇒ positional `p1..pN`, the original behaviour.
+            const defIdByKey = new Map<number, string>();
+            roster.forEach((p, i) => {
+                defIdByKey.set(p.key, p.producerDefId ?? (editToken ? `p-${p.key}` : `p${i + 1}`));
+            });
+
             // 1. Resolve each row's producer ref: a registered "Add me" row
-            //    references its player id directly; every other row mints a
-            //    guest_player (no-auth), capturing its id.
+            //    references its player id directly; an existing guest row (edit
+            //    mode) re-uses its guest id so the guest keeps their ball; every
+            //    other (fresh) guest row mints a new guest_player, capturing its id.
             const producers = [];
-            for (let i = 0; i < roster.length; i++) {
-                const p = roster[i];
+            for (const p of roster) {
                 const index = Number.parseFloat(p.handicapIndex);
                 const playerRef = p.playerId
                     ? { kind: 'player' as const, id: p.playerId }
-                    : {
-                          kind: 'guest' as const,
-                          id: (
-                              await api.guestPlayers.create({
-                                  displayName: p.name.trim(),
-                                  gender: p.gender,
-                                  handicapIndex: index,
-                              })
-                          ).id,
-                      };
+                    : p.guestPlayerId
+                      ? { kind: 'guest' as const, id: p.guestPlayerId }
+                      : {
+                            kind: 'guest' as const,
+                            id: (
+                                await api.guestPlayers.create({
+                                    displayName: p.name.trim(),
+                                    gender: p.gender,
+                                    handicapIndex: index,
+                                })
+                            ).id,
+                        };
                 producers.push({
-                    producerDefId: `p${i + 1}`,
+                    producerDefId: defIdByKey.get(p.key)!,
                     playerRef,
                     handicapIndex: index,
                     gender: p.gender,
@@ -1097,13 +1231,11 @@ export class SetupService {
             //    1..N format slots; ball-creation strategy ids stay server-owned
             //    — the client only submits formatId / teams / allowance.
             const { roundType, route } = this.buildRoute();
-            const defIdByKey = new Map<number, string>();
-            roster.forEach((p, i) => defIdByKey.set(p.key, `p${i + 1}`));
             const teams = this.buildTeams(roster, defIdByKey);
             const playingGroups = this.buildGroups(roster, defIdByKey);
             const draft = {
                 courseId: this.courseId.get(),
-                playedAt: new Date().toISOString().slice(0, 10),
+                playedAt: this.editPlayedAt ?? new Date().toISOString().slice(0, 10),
                 roundType,
                 ...(route ? { route } : {}),
                 producers,
@@ -1112,7 +1244,17 @@ export class SetupService {
                 ...(playingGroups.length > 0 ? { playingGroups } : {}),
             };
 
-            // 3. POST to the no-auth front door.
+            // 3. EDIT MODE — full-document replace via editSetup (same token, same
+            //    round); success stays on this token. CREATE MODE — POST a new
+            //    round to the no-auth front door and return the fresh token.
+            if (editToken) {
+                const result = await api.friendlyRounds.editSetup({ token: editToken, draft });
+                if (!result.ok) {
+                    this.diagnostics.set(result.diagnostics);
+                    return { ok: false };
+                }
+                return { ok: true, token: editToken };
+            }
             const result = await api.friendlyRounds.create({ draft });
             if (!result.ok) {
                 this.diagnostics.set(result.diagnostics);
@@ -1121,7 +1263,11 @@ export class SetupService {
             return { ok: true, token: result.friendlyRound.shareToken };
         } catch (e) {
             this.submitError.set(
-                e instanceof ApiError ? e.message : 'Could not create the round. Try again.',
+                e instanceof ApiError
+                    ? e.message
+                    : editToken
+                      ? 'Could not save the round. Try again.'
+                      : 'Could not create the round. Try again.',
             );
             return { ok: false };
         } finally {
