@@ -11,7 +11,8 @@ import {
     type SlotDefinition,
 } from '../domain/round-definition';
 import { hashId } from '../domain/deterministic-id';
-import type { CorrectionService } from './correction.service';
+import type { RoundSetupDraft } from '../domain/round-setup/draft';
+import type { ComposedSetupCorrectionInput, CorrectionService } from './correction.service';
 import type { PlayerService } from './player.service';
 import type { Round, RoundService } from './round.service';
 
@@ -251,12 +252,27 @@ export class RoundJoinService {
         const { groupDefId, oldGroup, newGroup } = placement;
         def.playingGroups = groups;
 
+        // --- Keep the stored RoundSetupDraft canonical (Phase 3.5 edit) ------
+        // A draft-originated round carries a versioned draft document; the
+        // join must land there too, or a later wizard edit would silently
+        // drop the joiner. Rounds without a draft chain (admin/legacy) skip.
+        const storedDraft = await this.rounds.latestSetupDraft(roundId);
+        const updatedDraft = storedDraft
+            ? draftWithJoin(
+                  storedDraft.draft,
+                  producer,
+                  groups,
+                  latest.definition,
+                  oldGroup === null,
+              )
+            : null;
+
         // --- Persist through the established correction/recompile machinery --
         // Target `playing_group` is the closest fitting typed target: the
         // user-visible mutation is "this producer joined that group"; the added
         // producer definition rides inside `new_value` so the audit chain
         // carries the whole change.
-        const res = await this.corrections.applyComposedSetupCorrection({
+        const correction: ComposedSetupCorrectionInput = {
             roundId,
             target: 'playing_group',
             targetRef: { playingGroupDefId: groupDefId },
@@ -268,13 +284,85 @@ export class RoundJoinService {
             // dedupes instead of double-appending.
             clientEventId: `self-join:${input.playerId}`,
             definition: def,
-        });
+        };
+        if (updatedDraft) {
+            // Draft version appended ATOMICALLY with the correction + recompile.
+            correction.afterPersist = async (trx, info) => {
+                await this.rounds.appendSetupDraftVersion(
+                    trx,
+                    roundId,
+                    updatedDraft,
+                    'self_join',
+                    info.eventId,
+                );
+            };
+        }
+        const res = await this.corrections.applyComposedSetupCorrection(correction);
         if (!res.ok) return { ok: false, diagnostics: res.diagnostics };
 
         const round = await this.rounds.getById(roundId);
         if (!round) throw new Error(`round ${roundId} not found after self-join recompile`);
         return { ok: true, round };
     }
+}
+
+// --- Stored-draft composition (Phase 3.5 edit-after-create) -------------------
+
+/**
+ * The stored `RoundSetupDraft` with the joiner folded in, so the draft the
+ * wizard edits later matches what actually compiled:
+ *   - the joiner appended to `producers`;
+ *   - `playingGroups` rebuilt from the POST-JOIN definition groups (members /
+ *     start time / start hole), EXCEPT when the draft had no groups and the
+ *     joiner landed in the default group — absent still means "everyone
+ *     together", which now includes the joiner.
+ *
+ * Start holes round-trip by course hole number (`DraftPlayingGroup.startHole`),
+ * resolved back through the builder as the FIRST occurrence of that number —
+ * exact for every conventional route; a custom route that repeats a course
+ * hole AND shotgun-starts a group on the later occurrence would re-anchor to
+ * the first one on the next edit (accepted: that setup is not draft-authorable
+ * today).
+ */
+function draftWithJoin(
+    stored: RoundSetupDraft,
+    producer: ProducerDefinition,
+    defGroups: PlayingGroupInput[],
+    definition: ResolvedRoundDefinition,
+    createdNewGroup: boolean,
+): RoundSetupDraft {
+    const producers: RoundSetupDraft['producers'] = [
+        ...stored.producers,
+        {
+            producerDefId: producer.id,
+            playerRef: producer.playerRef,
+            handicapIndex: producer.handicapIndex,
+            ...(producer.gender ? { gender: producer.gender } : {}),
+            teeId: producer.teeId,
+        },
+    ];
+
+    if (stored.playingGroups === undefined && !createdNewGroup) {
+        // Default single group absorbed the joiner — absent stays canonical.
+        return { ...stored, producers };
+    }
+
+    const holeByDefId = new Map(definition.playHoles.map((p) => [p.id, p.courseHoleNumber]));
+    const ordered = definition.playHoles;
+    const playingGroups = defGroups.map((g) => {
+        let startHole: number | undefined;
+        if (g.startPlayHoleDefId !== undefined) {
+            startHole = holeByDefId.get(g.startPlayHoleDefId);
+        } else if (g.startOrdinal !== undefined) {
+            startHole = ordered[g.startOrdinal - 1]?.courseHoleNumber;
+        }
+        return {
+            members: [...g.producerDefIds],
+            startTime: g.startTime,
+            ...(startHole !== undefined ? { startHole } : {}),
+        };
+    });
+    return { ...stored, producers, playingGroups };
 }
 
 // --- Composition helpers -----------------------------------------------------

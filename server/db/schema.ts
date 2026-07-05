@@ -20,6 +20,7 @@ export interface Database {
     playing_groups: PlayingGroupsTable;
     playing_group_balls: PlayingGroupBallsTable;
     round_definitions: RoundDefinitionsTable;
+    round_setup_drafts: RoundSetupDraftsTable;
     round_ball_strategies: RoundBallStrategiesTable;
     balls: BallsTable;
     ball_players: BallPlayersTable;
@@ -340,6 +341,27 @@ export interface RoundDefinitionsTable {
     source_event_id: string | null;
 }
 
+// --- Phase 3.5 — persisted, versioned RoundSetupDraft (edit-after-create). ---
+//
+// Sibling (round_id, version) chain to `round_definitions`, deliberately NOT
+// 1:1 with it: only draft-shaped writes (create, setup edit, self-join) mint
+// draft versions; per-field corrections and allowance overrides mint
+// definition versions with no draft counterpart. Latest = MAX(version).
+// Rounds without rows here are not editable via the setup wizard.
+
+export type RoundSetupDraftSourceKind = 'initial' | 'setup_edit' | 'self_join';
+
+export interface RoundSetupDraftsTable {
+    round_id: string;
+    version: number;
+    /** Serialized `RoundSetupDraft` (route template already resolved + frozen). */
+    draft_json: string;
+    source_kind: RoundSetupDraftSourceKind;
+    /** `setup_correction_events.id` for `setup_edit`/`self_join`; null for `initial`. */
+    source_event_id: string | null;
+    created_at: Generated<string>;
+}
+
 export interface RoundBallStrategiesTable {
     /** Deterministic content-addressed: `hash(round_id, strategy_def_id)`. */
     id: string;
@@ -451,7 +473,10 @@ export type SetupCorrectionTarget =
     // Route-shaped inputs (PHASES.md 2.6d): occurrence par/SI/tee override, and
     // playing-group membership/start. Same stable-def-id targeting discipline.
     | 'play_hole'
-    | 'playing_group';
+    | 'playing_group'
+    // Phase 3.5 edit-after-create: a whole-document wizard edit. `target_ref`
+    // carries the produced draft version; old/new values are the full drafts.
+    | 'setup_draft';
 
 export interface SetupCorrectionEventsTable {
     id: string;

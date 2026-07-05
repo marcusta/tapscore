@@ -3,6 +3,7 @@ import type { Context } from 'hono';
 import { NotFoundError, requireAuth, requireUser } from '@basics/core/server/auth';
 import type { FriendlyRoundService } from '../services/friendly-round.service';
 import type { RoundJoinService } from '../services/round-join.service';
+import type { RoundEditService } from '../services/round-edit.service';
 import type { GuestClaimService } from '../services/guest-claim.service';
 import { RoundSetupDraft } from '../domain/round-setup/draft';
 import { EventType } from './score-events.api';
@@ -38,6 +39,15 @@ const JoinInput = Type.Object({
 const ClaimGuestInput = Type.Object({
     token: Type.String(),
     guestPlayerId: Type.String(),
+});
+
+// Edit-after-create (Phase 3.5): the wizard re-submits the FULL replacement
+// draft. `clientEventId` is the idempotency key (optional — a retry-less
+// client may omit it). Identity is session-resolved, never body-supplied.
+const EditSetupInput = Type.Object({
+    token: Type.String(),
+    draft: RoundSetupDraft,
+    clientEventId: Type.Optional(Type.String({ minLength: 1 })),
 });
 
 // Trust-based score write (2.6e M4): same shape as the score-events API minus
@@ -128,10 +138,27 @@ async function scoreOr404(
     return res;
 }
 
+async function setupOr404(edits: RoundEditService, token: string) {
+    const res = await edits.setupByToken(token);
+    if (res === null) throw new NotFoundError('friendly round not found');
+    return res;
+}
+
+async function editOr404(
+    edits: RoundEditService,
+    input: Static<typeof EditSetupInput>,
+    recordedByPlayerId: string | null,
+) {
+    const res = await edits.editByToken({ ...input, recordedByPlayerId });
+    if (res === null) throw new NotFoundError('friendly round not found');
+    return res;
+}
+
 export function createFriendlyRoundsApi(
     svc: FriendlyRoundService,
     claims: GuestClaimService,
     joins: RoundJoinService,
+    edits: RoundEditService,
 ) {
     return {
         list:      { method: 'GET'  as const, path: '/friendly-rounds',           fn: ()                                    => svc.list() },
@@ -142,6 +169,13 @@ export function createFriendlyRoundsApi(
         scorecard: { method: 'GET'  as const, path: '/friendly-rounds/scorecard',  fn: (input: Static<typeof ByTokenInput>)  => scorecardOr404(svc, input.token),       schema: ByTokenInput },
         result:    { method: 'GET'  as const, path: '/friendly-rounds/result',     fn: (input: Static<typeof ResultInput>)   => resultOr404(svc, input.token, input.cursor), schema: ResultInput },
         score:     { method: 'POST' as const, path: '/friendly-rounds/score',      fn: (input: Static<typeof ScoreInput>, c: Context) => scoreOr404(svc, input, optionalUserId(c)),   schema: ScoreInput },
+        // Edit-after-create (Phase 3.5). NO auth, like the rest of the token
+        // front door: the share token is the credential. The read returns the
+        // stored draft + editability (locks derive from `status`/`hasScores`);
+        // the write replaces the whole draft and recompiles through the
+        // composed-correction path. An optional session attributes the edit.
+        setup:     { method: 'GET'  as const, path: '/friendly-rounds/setup',      fn: (input: Static<typeof ByTokenInput>)  => setupOr404(edits, input.token),         schema: ByTokenInput },
+        editSetup: { method: 'POST' as const, path: '/friendly-rounds/setup',      fn: (input: Static<typeof EditSetupInput>, c: Context) => editOr404(edits, input, optionalUserId(c)), schema: EditSetupInput },
         // Auth REQUIRED: the caller's profile IS the join payload (identity,
         // name, index, gender). 409s (already started / already in) surface via
         // ConflictError; profile/tee/slot refusals are structured diagnostics.

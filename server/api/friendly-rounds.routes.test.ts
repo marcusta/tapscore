@@ -17,7 +17,7 @@ beforeEach(() => {
 
 async function setup() {
     const ctx: RouteTestContext = await setupRoutes([seedPlayer]);
-    mount(ctx.app, '/api', createFriendlyRoundsApi(ctx.friendlyRoundService, ctx.guestClaimService, ctx.roundJoinService));
+    mount(ctx.app, '/api', createFriendlyRoundsApi(ctx.friendlyRoundService, ctx.guestClaimService, ctx.roundJoinService, ctx.roundEditService));
 
     const club = await ctx.clubService.create({ name: 'Friendly GC' });
     const course = await ctx.courseService.create({
@@ -361,4 +361,59 @@ test('POST /friendly-rounds/join returns 404 for an unknown token', async () => 
     const cookie = await loginAs(ctx.app, 'joan', 'password123');
     const res = await req(ctx.app, 'POST', '/api/friendly-rounds/join', { token: 'nope', teeId: 'x' }, cookie);
     expect(res.status).toBe(404);
+});
+
+// --- Edit-after-create (Phase 3.5) --------------------------------------------
+
+test('GET /friendly-rounds/setup returns the stored draft with NO login; 404 for a bad token', async () => {
+    const { ctx, draft } = await setup();
+    const created = await (await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })).json();
+    const token = created.friendlyRound.shareToken;
+
+    const res = await req(ctx.app, 'GET', `/api/friendly-rounds/setup?token=${token}`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.editable).toBe(true);
+    expect(body.status).toBe('not_started');
+    expect(body.hasScores).toBe(false);
+    expect(body.draftVersion).toBe(1);
+    expect(body.draft).toEqual(draft);
+
+    expect((await req(ctx.app, 'GET', '/api/friendly-rounds/setup?token=nope')).status).toBe(404);
+});
+
+test('POST /friendly-rounds/setup edits the round with NO login; a lock refuses with diagnostics, not a 500', async () => {
+    const { ctx, draft } = await setup();
+    const created = await (await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })).json();
+    const token = created.friendlyRound.shareToken;
+
+    // Happy path: bump p1's handicap index through the wire.
+    const d = draft as { producers: { producerDefId: string; handicapIndex: number }[] };
+    const edited = {
+        ...draft,
+        producers: d.producers.map((p) =>
+            p.producerDefId === 'p1' ? { ...p, handicapIndex: 9.9 } : p,
+        ),
+    };
+    const ok = await req(ctx.app, 'POST', '/api/friendly-rounds/setup', { token, draft: edited });
+    expect(ok.status).toBe(200);
+    const okBody = await ok.json();
+    expect(okBody.ok).toBe(true);
+    expect(okBody.round.formatSlots).toHaveLength(1);
+
+    // Lock path: score a hole, then try a route change → structured refusal.
+    const balls = await (await req(ctx.app, 'GET', `/api/friendly-rounds/balls?token=${token}`)).json();
+    const round = created.round;
+    await req(ctx.app, 'POST', '/api/friendly-rounds/score', {
+        token, ballId: balls[0].id,
+        playHoleId: round.playingGroups[0].playedOrder[0].playHoleId,
+        strokes: 5, eventType: 'score_entered', clientEventId: 'setup-http-1',
+    });
+    const locked = await req(ctx.app, 'POST', '/api/friendly-rounds/setup', {
+        token, draft: { ...edited, roundType: 'front_9' },
+    });
+    expect(locked.status).toBe(200);
+    const lockedBody = await locked.json();
+    expect(lockedBody.ok).toBe(false);
+    expect(lockedBody.diagnostics[0].code).toBe('edit_locked_course_route');
 });

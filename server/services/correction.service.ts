@@ -141,6 +141,18 @@ export interface ComposedSetupCorrectionInput {
     clientEventId: string;
     /** The full mutated definition input to recompile from. */
     definition: RoundDefinitionInput;
+    /**
+     * Optional extra writes that must land ATOMICALLY with the correction
+     * event + recompiled outputs (Phase 3.5: the setup-edit / self-join paths
+     * append the round's stored `RoundSetupDraft` version, and the edit path
+     * syncs round-level metadata columns). Runs inside the same transaction,
+     * after the recompile persisted; NOT invoked on an idempotent replay
+     * (the dedup short-circuit returns before any write).
+     */
+    afterPersist?: (
+        trx: Kysely<Database>,
+        info: { eventId: string; version: number },
+    ) => Promise<void>;
 }
 
 export class CorrectionService {
@@ -233,6 +245,9 @@ export class CorrectionService {
                 .where('id', '=', eventId)
                 .execute();
             await this.roundService.bumpResultCursor(input.roundId, eventId, trx);
+            if (input.afterPersist) {
+                await input.afterPersist(trx, { eventId, version: r.version });
+            }
             return r.version;
         });
 
@@ -566,6 +581,16 @@ function applySetupMutation(
             if (nv.startTime !== undefined) g.startTime = nv.startTime;
             if (nv.producerDefIds !== undefined) g.producerDefIds = nv.producerDefIds;
             return old;
+        }
+        case 'setup_draft': {
+            // Whole-document wizard edits are composed by RoundEditService and
+            // persisted via `applyComposedSetupCorrection` — there is no
+            // per-field mutation to apply here.
+            throw new CorrectionInputError(
+                'unsupported_target',
+                `target 'setup_draft' is written by the setup-edit path, not the field-level correction API`,
+                'target',
+            );
         }
         default: {
             const exhaustive: never = target;

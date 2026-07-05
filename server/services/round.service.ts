@@ -722,19 +722,31 @@ export class RoundService {
      * `RoundDefinition` creation stays the internal/admin/testing `create`.
      */
     async createFromDraft(draft: RoundSetupDraft): Promise<CreateFromDraftResult> {
-        let resolved = draft;
-        if (draft.route?.templateId) {
-            if (!this.deps?.resolveRouteTemplate) {
-                throw new Error('route templates require a resolveRouteTemplate dep');
-            }
-            const frozen = await this.deps.resolveRouteTemplate(draft.route.templateId);
-            resolved = { ...draft, route: frozen };
-        }
+        const resolved = await this.resolveDraftRoute(draft);
 
         const built = buildRoundDefinition(resolved);
         if (!built.ok) return { ok: false, diagnostics: built.diagnostics };
 
-        return this.compileAndPersist(built.definition);
+        // Persist the RESOLVED draft as v1 alongside the round (same
+        // transaction) — the canonical, editable source the Phase 3.5
+        // setup-edit path reads back and re-submits.
+        return this.compileAndPersist(built.definition, resolved);
+    }
+
+    /**
+     * Resolve + FREEZE a draft's named route template into explicit route
+     * fields (Phase 3.5: shared by `createFromDraft` and the setup-edit path).
+     * A draft without `route.templateId` passes through untouched. The frozen
+     * draft — not the template reference — is what gets built, compiled, and
+     * persisted, so a later template change never silently reshapes a round.
+     */
+    async resolveDraftRoute(draft: RoundSetupDraft): Promise<RoundSetupDraft> {
+        if (!draft.route?.templateId) return draft;
+        if (!this.deps?.resolveRouteTemplate) {
+            throw new Error('route templates require a resolveRouteTemplate dep');
+        }
+        const frozen = await this.deps.resolveRouteTemplate(draft.route.templateId);
+        return { ...draft, route: frozen };
     }
 
     /**
@@ -876,7 +888,10 @@ export class RoundService {
         return compile(compilerInput);
     }
 
-    private async compileAndPersist(def: RoundDefinition): Promise<CreateFromDraftResult> {
+    private async compileAndPersist(
+        def: RoundDefinition,
+        originatingDraft?: RoundSetupDraft,
+    ): Promise<CreateFromDraftResult> {
         const id = crypto.randomUUID();
         const compilerInput = await this.buildCompilerInput(id, def);
 
@@ -909,6 +924,20 @@ export class RoundService {
             await persistCompiledRound(trx, compileResult.compiled, {
                 sourceKind: 'initial',
             });
+            // Draft-originated rounds store draft v1 in the SAME transaction —
+            // the round is editable from birth or not at all (Phase 3.5).
+            if (originatingDraft) {
+                await trx
+                    .insertInto('round_setup_drafts')
+                    .values({
+                        round_id: id,
+                        version: 1,
+                        draft_json: JSON.stringify(originatingDraft),
+                        source_kind: 'initial',
+                        source_event_id: null,
+                    })
+                    .execute();
+            }
         });
 
         const round = await this.getById(id);
@@ -1041,6 +1070,68 @@ export class RoundService {
             .set({ superseded_by_version: nextVersion })
             .where('round_id', '=', roundId)
             .where('version', '=', prior.version)
+            .execute();
+        return nextVersion;
+    }
+
+    // --- Persisted RoundSetupDraft chain (Phase 3.5 edit-after-create) ------
+
+    /**
+     * The latest stored `RoundSetupDraft` version for a round, parsed. Null
+     * when the round did not originate from a draft (direct-definition/admin
+     * path, or pre-034 rounds) — such rounds are not wizard-editable.
+     */
+    async latestSetupDraft(
+        roundId: string,
+    ): Promise<{ version: number; draft: RoundSetupDraft } | null> {
+        const row = await this.db
+            .selectFrom('round_setup_drafts')
+            .where('round_id', '=', roundId)
+            .orderBy('version', 'desc')
+            .limit(1)
+            .select(['version', 'draft_json'])
+            .executeTakeFirst();
+        if (!row) return null;
+        return { version: row.version, draft: JSON.parse(row.draft_json) as RoundSetupDraft };
+    }
+
+    /**
+     * Append the next `round_setup_drafts` version. Caller supplies the
+     * transaction (the draft append always rides the same transaction as the
+     * correction event + recompile that produced it) and the triggering
+     * `setup_correction_events` id. Returns the version written. No-ops into
+     * an error-free skip is deliberately NOT offered — callers must only
+     * append when a stored draft chain exists (`latestSetupDraft`).
+     */
+    async appendSetupDraftVersion(
+        trx: Kysely<Database>,
+        roundId: string,
+        draft: RoundSetupDraft,
+        sourceKind: 'setup_edit' | 'self_join',
+        sourceEventId: string,
+    ): Promise<number> {
+        const prior = await trx
+            .selectFrom('round_setup_drafts')
+            .select('version')
+            .where('round_id', '=', roundId)
+            .orderBy('version', 'desc')
+            .limit(1)
+            .executeTakeFirst();
+        if (prior === undefined) {
+            throw new Error(
+                `appendSetupDraftVersion: round ${roundId} has no stored draft chain`,
+            );
+        }
+        const nextVersion = prior.version + 1;
+        await trx
+            .insertInto('round_setup_drafts')
+            .values({
+                round_id: roundId,
+                version: nextVersion,
+                draft_json: JSON.stringify(draft),
+                source_kind: sourceKind,
+                source_event_id: sourceEventId,
+            })
             .execute();
         return nextVersion;
     }
