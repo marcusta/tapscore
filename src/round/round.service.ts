@@ -195,6 +195,29 @@ export class RoundViewService {
      * result, never a `{ unchanged: true }` short-circuit against a stale cursor
      * from a previous token/session.
      */
+    /** True while a delete request is in flight (disables the affordance). */
+    readonly deleting = new Signal(false);
+
+    /**
+     * Permanently delete the loaded round — for everyone (the token-scoped
+     * DELETE; same trust boundary as scoring). Resolves true on success so the
+     * caller can navigate away; false when no round is loaded, a delete is
+     * already in flight, or the server refused — the view stays put.
+     */
+    async deleteRound(): Promise<boolean> {
+        const token = this.token;
+        if (!token || this.deleting.get()) return false;
+        this.deleting.set(true);
+        try {
+            await api.friendlyRounds.remove({ token });
+            return true;
+        } catch {
+            return false;
+        } finally {
+            this.deleting.set(false);
+        }
+    }
+
     async loadResult(): Promise<void> {
         const token = this.token;
         if (!token) return;

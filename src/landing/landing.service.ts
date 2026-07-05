@@ -4,6 +4,7 @@ import { api } from '../api';
 import type { FriendlyRound, Round } from '../api/friendly-rounds.gen';
 import type { DashboardRoundEntry } from '../api/dashboard.gen';
 import { buildMyRounds, type MyRoundEntry } from './my-rounds';
+import { withoutRound } from './round-list';
 
 export interface FriendlyRoundListItem {
     friendlyRound: FriendlyRound;
@@ -54,5 +55,28 @@ export class LandingService {
             api.dashboard.myRounds(),
         );
         if (data) this.mine.set(data);
+    }
+
+    /**
+     * Delete a round by its share token (same trust boundary as scoring — the
+     * token IS the credential), then prune it from both loaded lists in place
+     * so the row disappears without a full reload. Resolves false when the
+     * server refused (unknown token / network); the lists stay untouched.
+     */
+    async remove(token: string, roundId: string): Promise<boolean> {
+        try {
+            await api.friendlyRounds.remove({ token });
+        } catch {
+            return false;
+        }
+        this.rounds.set(withoutRound(this.rounds.get(), roundId));
+        const mine = this.mine.get();
+        if (mine) {
+            this.mine.set({
+                produced: withoutRound(mine.produced, roundId),
+                created: withoutRound(mine.created, roundId),
+            });
+        }
+        return true;
     }
 }

@@ -967,12 +967,33 @@ export class RoundService {
         return result;
     }
 
+    /**
+     * Transactional full teardown of a round and its entire FK graph.
+     *
+     * RESTRICT rows go first, explicitly (migrations 020/025):
+     *   - score_events.ball_id      → balls            ON DELETE RESTRICT
+     *   - score_events.play_hole_id → round_play_holes ON DELETE RESTRICT
+     *   - scorecards.play_hole_id   → round_play_holes ON DELETE RESTRICT
+     * SQLite enforces RESTRICT immediately, even mid-cascade of the same
+     * DELETE statement, so deleting the round row while these still exist
+     * would trip the FK. All score_events carry this round_id; every
+     * scorecard's ball belongs to this round — the two deletes below clear
+     * every RESTRICT dependent.
+     *
+     * Everything else is ON DELETE CASCADE off `rounds` (directly or
+     * transitively) and falls to the final delete: friendly_rounds,
+     * round_definitions, round_setup_drafts, round_course_holes,
+     * round_tee_holes, round_play_holes (→ round_play_tee_holes),
+     * playing_groups (→ playing_group_balls), round_ball_strategies,
+     * balls (→ ball_players, slot_balls, slot_ball_teams), slots,
+     * setup_correction_events, allowance_override_events, ruling_events,
+     * format_action_events.
+     *
+     * `guest_players` are NOT deleted: they carry no round FK, and the same
+     * guest can be referenced by other rounds' ball_players (RESTRICT) or be
+     * claimed by a player. Orphaned guest rows are harmless by design.
+     */
     async remove(id: string): Promise<void> {
-        // score_events.play_hole_id and scorecards.play_hole_id are ON DELETE
-        // RESTRICT against round_play_holes (Slice 3c, migration 025). Deleting
-        // the round cascades to both round_play_holes AND these dependent rows,
-        // but SQLite may visit round_play_holes first and trip the RESTRICT FK.
-        // Clear the dependents explicitly before the round cascade fires.
         await this.db.transaction().execute(async (trx) => {
             await trx
                 .deleteFrom('score_events')

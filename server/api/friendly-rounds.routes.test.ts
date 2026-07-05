@@ -417,3 +417,34 @@ test('POST /friendly-rounds/setup edits the round with NO login; a lock refuses 
     expect(lockedBody.ok).toBe(false);
     expect(lockedBody.diagnostics[0].code).toBe('edit_locked_course_route');
 });
+
+test('DELETE /friendly-rounds/:token deletes the round with NO login; the token then 404s', async () => {
+    const { ctx, draft } = await setup();
+    const created = await (await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })).json();
+    const token = created.friendlyRound.shareToken;
+
+    // Score a hole first — deletion must tear down event/scorecard rows too.
+    const balls = await (await req(ctx.app, 'GET', `/api/friendly-rounds/balls?token=${token}`)).json();
+    await req(ctx.app, 'POST', '/api/friendly-rounds/score', {
+        token, ballId: balls[0].id,
+        playHoleId: created.round.playingGroups[0].playedOrder[0].playHoleId,
+        strokes: 4, eventType: 'score_entered', clientEventId: 'del-http-1',
+    });
+
+    const res = await req(ctx.app, 'DELETE', `/api/friendly-rounds/${token}`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+
+    // Gone for everyone: the share link 404s and the landing list is empty.
+    expect((await req(ctx.app, 'GET', `/api/friendly-rounds/by-token?token=${token}`)).status).toBe(404);
+    expect(await (await req(ctx.app, 'GET', '/api/friendly-rounds')).json()).toEqual([]);
+});
+
+test('DELETE /friendly-rounds/:token returns 404 for an unknown token and deletes nothing', async () => {
+    const { ctx, draft } = await setup();
+    await req(ctx.app, 'POST', '/api/friendly-rounds', { draft });
+
+    const res = await req(ctx.app, 'DELETE', '/api/friendly-rounds/no-such-token');
+    expect(res.status).toBe(404);
+    expect(await (await req(ctx.app, 'GET', '/api/friendly-rounds')).json()).toHaveLength(1);
+});

@@ -138,6 +138,12 @@ async function scoreOr404(
     return res;
 }
 
+async function removeOr404(svc: FriendlyRoundService, token: string) {
+    const res = await svc.removeByToken(token);
+    if (!res.ok) throw new NotFoundError('friendly round not found');
+    return { ok: true };
+}
+
 async function setupOr404(edits: RoundEditService, token: string) {
     const res = await edits.setupByToken(token);
     if (res === null) throw new NotFoundError('friendly round not found');
@@ -176,6 +182,14 @@ export function createFriendlyRoundsApi(
         // composed-correction path. An optional session attributes the edit.
         setup:     { method: 'GET'  as const, path: '/friendly-rounds/setup',      fn: (input: Static<typeof ByTokenInput>)  => setupOr404(edits, input.token),         schema: ByTokenInput },
         editSetup: { method: 'POST' as const, path: '/friendly-rounds/setup',      fn: (input: Static<typeof EditSetupInput>, c: Context) => editOr404(edits, input, optionalUserId(c)), schema: EditSetupInput },
+        // Delete-round (token-scoped). Path param, not body — the framework's
+        // mount() reads DELETE input from `c.req.param()` only (same
+        // convention as `DELETE /friends/:friendId`). NO auth: the share
+        // token is the credential, and anyone holding it already controls
+        // every score in the round — deletion is not a new privilege in the
+        // no-login model. Creator-gating is deferred to the auth/roles phase;
+        // the trust boundary is documented on FriendlyRoundService.
+        remove:    { method: 'DELETE' as const, path: '/friendly-rounds/:token', fn: (input: Static<typeof ByTokenInput>) => removeOr404(svc, input.token), schema: ByTokenInput },
         // Auth REQUIRED: the caller's profile IS the join payload (identity,
         // name, index, gender). 409s (already started / already in) surface via
         // ConflictError; profile/tee/slot refusals are structured diagnostics.

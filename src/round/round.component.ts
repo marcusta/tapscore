@@ -17,6 +17,7 @@ import { JoinCardComponent } from './join-card.component';
 import { EditCardComponent } from './edit-card.component';
 import { formatLabelFromSlot } from './slot-labels';
 import { shouldPoll } from './poll-gate';
+import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import type { FormatSlot } from '../api/rounds.gen';
 
 type Tab = 'score' | 'leaderboard';
@@ -68,6 +69,9 @@ const tpl = template(`
                     <div bind="edit"></div>
                     <div bind="claim"></div>
                     <div bind="join"></div>
+
+                    <button bind="deleteBtn" class="round-view__delete" type="button">Delete round</button>
+                    <div bind="confirmHost"></div>
                 </div>
 
                 <div bind="lbPanel" class="round-view__panel hidden">
@@ -271,6 +275,31 @@ export class RoundComponent extends Component {
                     color: ${t('text-muted')};
                 }
             }
+
+            /* Danger zone: last thing on the score panel, visually quiet —
+               a bordered ghost button in the error tone, never a filled CTA. */
+            & .round-view__delete {
+                width: 100%;
+                margin-top: ${s('2xl')};
+                padding: ${s('md')};
+                background: none;
+                border: 1px solid ${t('border')};
+                border-radius: ${t('radius')};
+                font-family: inherit;
+                font-size: 0.9rem;
+                font-weight: 700;
+                color: ${t('error')};
+                cursor: pointer;
+
+                &:hover, &:active { border-color: ${t('error')}; }
+                &:focus-visible { outline: 2px solid ${t('error')}; outline-offset: 2px; }
+                &:disabled { opacity: 0.5; cursor: default; }
+            }
+        }
+
+        /* App-level accessibility override for the framework confirm dialog. */
+        @media (prefers-reduced-motion: reduce) {
+            .ui-confirm { transition: none; }
         }
 
         /* --- Pinned bottom dock: orange hole bar + Score/Leaderboard tabs --- */
@@ -367,6 +396,8 @@ export class RoundComponent extends Component {
 
     private hasRound = new Computed(() => this.svc.round.get() !== null);
     private hasScoring = new Computed(() => this.svc.balls.get().length > 0);
+    /** Delete-round confirmation dialog visibility. */
+    private deleteOpen = new Signal(false);
 
     private shareUrl = new Computed(() => {
         const token = this.tokenQ.get();
@@ -500,6 +531,10 @@ export class RoundComponent extends Component {
             copy: {
                 onclick: () => void navigator.clipboard?.writeText(this.shareUrl.get()),
             },
+            deleteBtn: {
+                onclick: () => this.deleteOpen.set(true),
+                disabled: () => this.svc.deleting.get(),
+            },
 
             // Bottom dock — only meaningful once a round has loaded.
             dock: {
@@ -585,6 +620,32 @@ export class RoundComponent extends Component {
         // nothing). Distinct action from claim above: claim flips an existing
         // guest row, join mints a brand new producer — both can show together.
         this.spawn(JoinCardComponent, this.ref(frag, 'join'));
+
+        // Delete-round confirmation. Same trust boundary as scoring — the
+        // token is the credential, so no identity gate. On success the round
+        // is gone for everyone; navigate home.
+        this.spawn(ConfirmComponent, this.ref(frag, 'confirmHost'), {
+            open: this.deleteOpen,
+            title: 'Delete round?',
+            message:
+                "This permanently removes the round and all its scores for everyone. This can't be undone.",
+            confirmLabel: 'Delete',
+            cancelLabel: 'Cancel',
+            danger: true,
+            onconfirm: () => {
+                void this.svc.deleteRound().then((ok) => {
+                    if (ok) this.router.navigate('/');
+                });
+            },
+        });
+
+        // Escape cancels the confirm dialog (backdrop click already cancels
+        // via the framework overlay).
+        const onKeydown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && this.deleteOpen.get()) this.deleteOpen.set(false);
+        };
+        window.addEventListener('keydown', onKeydown);
+        this.track(() => window.removeEventListener('keydown', onKeydown));
 
         return frag;
     }

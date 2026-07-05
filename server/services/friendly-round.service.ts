@@ -44,6 +44,15 @@ export type TokenScoreInput = Omit<
 > & { token: string };
 
 /**
+ * Result of a token-scoped round deletion. Discriminated so the API layer can
+ * turn an unknown token into a 404 without a thrown error crossing the
+ * service boundary.
+ */
+export type RemoveFriendlyRoundResult =
+    | { ok: true }
+    | { ok: false; reason: 'not_found' };
+
+/**
  * Cursored result read (Phase 3.5 interim polling). `cursor` rides
  * `rounds.latest_event_id` — an opaque per-round change marker advanced by
  * every result-changing append (score events, setup corrections, allowance
@@ -281,5 +290,32 @@ export class FriendlyRoundService {
         if (roundId === null) return null;
         const { token: _token, ...event } = input;
         return this.scoreEvents.append({ ...event, roundId, recordedByPlayerId });
+    }
+
+    /**
+     * Delete the token's round — permanently, for everyone.
+     *
+     * Trust boundary: SAME as scoring. In the no-login model the share token
+     * is the only credential, and anyone holding it already controls every
+     * score in the round (write, clear, override). Deletion therefore grants
+     * no privilege the token didn't already carry; it is deliberately NOT
+     * gated on the creator. Creator/role gating is deferred to the auth/roles
+     * phase, together with the rest of per-actor authorization.
+     *
+     * Teardown is `RoundService.remove` — one transaction that clears the
+     * RESTRICT-referenced event/scorecard rows explicitly and lets the
+     * `ON DELETE CASCADE` graph take the rest (see that method's comment for
+     * the full inventory). `guest_players` rows are intentionally LEFT in
+     * place: they carry no round FK, other rounds may reference the same
+     * guest via `ball_players`, and a claimed guest is wired to a real
+     * player — orphaned guest rows are harmless, deleting a shared one is not.
+     *
+     * Unknown token → `{ ok: false, reason: 'not_found' }`; nothing deleted.
+     */
+    async removeByToken(token: string): Promise<RemoveFriendlyRoundResult> {
+        const roundId = await this.roundIdForToken(token);
+        if (roundId === null) return { ok: false, reason: 'not_found' };
+        await this.rounds.remove(roundId);
+        return { ok: true };
     }
 }

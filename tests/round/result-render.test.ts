@@ -64,12 +64,12 @@ test('ranked section renders exactly as before through the registry', () => {
     <thead><tr><th class="lb-rank__pos">#</th><th class="lb-rank__who">Player</th><th class="lb-rank__total">Total</th><th class="lb-rank__thru">Thru</th></tr></thead>
     <tbody><tr class="lb-rank__lead">
   <td class="lb-rank__pos">1</td>
-  <td class="lb-rank__who">name:a</td>
+  <td class="lb-rank__who"><span class="lb-rank__name">name:a</span></td>
   <td class="lb-rank__total">70</td>
   <td class="lb-rank__thru">18</td>
 </tr><tr class="">
   <td class="lb-rank__pos">2</td>
-  <td class="lb-rank__who">name:b</td>
+  <td class="lb-rank__who"><span class="lb-rank__name">name:b</span></td>
   <td class="lb-rank__total">72</td>
   <td class="lb-rank__thru">18</td>
 </tr></tbody>
