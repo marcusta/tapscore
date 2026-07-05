@@ -1,4 +1,5 @@
 import { Computed, Signal, di } from '@basics/core/client/core';
+import { AuthService } from '@basics/core/client/auth';
 import { request, type RequestError } from '@basics/core/client/request';
 import { api } from '../api';
 import type {
@@ -16,6 +17,7 @@ import { FormatCatalogService } from '../create/format-catalog.service';
 import { clampIndex } from './hole-carousel';
 import { PendingScoreQueue } from './pending-queue';
 import { recordDeviceRound, removeDeviceRound } from '../landing/device-rounds';
+import { markSeen, forgetSeen } from '../landing/seen-rounds';
 
 const ORD_WORDS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
 
@@ -167,6 +169,12 @@ export class RoundViewService {
             completedAt: data.round.completedAt,
             lastSeenAt: new Date().toISOString(),
         });
+        // Opening a round marks it "seen" for the logged-in "New — you were
+        // added" strip, so it drops out once viewed. Only meaningful when
+        // logged in (the strip is gated on identity); a logged-out open has no
+        // strip to affect. Keyed by round id (the strip's dashboard entries
+        // are id-keyed), device-local.
+        if (di.get(AuthService).currentUser.get()) markSeen(data.round.id);
         // A legacy numeric `?slot=` index can only be translated to a
         // slotDefId once the round's formatSlots are known. Consume it once —
         // an unresolvable index (out of range) is simply dropped, falling
@@ -223,6 +231,10 @@ export class RoundViewService {
             // Drop it from this device's recent list too, so a deleted round
             // never lingers on the logged-out landing/history.
             removeDeviceRound(token);
+            // Housekeeping: drop its seen-id so a deleted round doesn't hold a
+            // slot in the capped seen set.
+            const roundId = this.round.get()?.id;
+            if (roundId) forgetSeen(roundId);
             return true;
         } catch {
             return false;

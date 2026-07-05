@@ -1,14 +1,18 @@
-import { Component, Router, template } from '@basics/core/client/core';
+import { Component, Computed, Router, template } from '@basics/core/client/core';
 import { AuthService } from '@basics/core/client/auth';
 import { t } from '../theme';
 import { s } from '../css';
+import { LandingService } from '../landing/landing.service';
 
 const tpl = template(`
     <nav class="tabbar" bind="root">
         <a bind="homeLink" href="/">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v10h12V10"/><path d="M10 20v-5.5h4V20"/>
-            </svg>
+            <span class="tabbar__icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v10h12V10"/><path d="M10 20v-5.5h4V20"/>
+                </svg>
+                <span bind="badge" class="tabbar__badge"></span>
+            </span>
             <span>Home</span>
         </a>
         <a bind="friendsLink" href="/friends">
@@ -51,6 +55,31 @@ export class NavComponent extends Component {
 
                 & svg { width: 26px; height: 26px; }
 
+                & .tabbar__icon { position: relative; display: inline-flex; }
+
+                /* "New — you were added" badge on the Home tab: a small accent
+                   pill with the count. Hidden entirely at 0 (kept honest). */
+                & .tabbar__badge {
+                    position: absolute;
+                    top: -4px;
+                    right: -8px;
+                    min-width: 16px;
+                    height: 16px;
+                    padding: 0 4px;
+                    box-sizing: border-box;
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    background: ${t('accent')};
+                    color: ${t('topbar-bg')};
+                    font-size: 0.62rem;
+                    font-weight: 800;
+                    line-height: 1;
+                    border-radius: ${t('radius-pill')};
+
+                    &.show { display: inline-flex; }
+                }
+
                 &.active { color: ${t('accent')}; }
             }
         }
@@ -58,6 +87,14 @@ export class NavComponent extends Component {
 
     private router = this.inject(Router);
     private auth = this.inject(AuthService);
+    private landing = this.inject(LandingService);
+
+    // The new-to-you count for the Home-tab badge. Only honest when logged in;
+    // `newRounds` is empty otherwise. Reads the same shared LandingService the
+    // landing populates via `loadMine`.
+    private newCount = new Computed(() =>
+        this.auth.currentUser.get() ? this.landing.newRounds.get().length : 0,
+    );
 
     render(): DocumentFragment {
         return this.wire(tpl, {
@@ -74,6 +111,16 @@ export class NavComponent extends Component {
                 },
             },
             homeLink: this.router.link('/'),
+            badge: {
+                textContent: () => {
+                    const n = this.newCount.get();
+                    return n === 0 ? '' : String(n);
+                },
+                className: () => {
+                    const n = this.newCount.get();
+                    return n === 0 ? 'tabbar__badge' : 'tabbar__badge show';
+                },
+            },
             friendsLink: this.router.link('/friends'),
             profileLink: this.router.link('/profile'),
         });

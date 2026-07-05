@@ -18,6 +18,14 @@ const tpl = template(`
             <span class="landing__create-plus">+</span> Create round
         </button>
 
+        <div bind="newSection" class="landing__section-block landing__new">
+            <div class="landing__section">
+                <span class="landing__section-title">New — you were added</span>
+                <span bind="newCount" class="landing__count landing__new-count"></span>
+            </div>
+            <div bind="newList" class="landing__list"></div>
+        </div>
+
         <div bind="ongoingSection" class="landing__section-block">
             <div class="landing__section">
                 <span class="landing__section-title">Ongoing</span>
@@ -118,6 +126,17 @@ export class LandingComponent extends Component {
             & .landing__section-block {
                 margin-bottom: ${s('xl')};
                 &.hidden { display: none; }
+            }
+
+            /* The "New — you were added" strip reads as a highlight: its count
+               is an accent pill so a fresh add draws the eye at the top. */
+            & .landing__new-count {
+                background: ${t('accent-soft')};
+                color: ${t('accent')};
+                font-weight: 700;
+                border-radius: ${t('radius-pill')};
+                padding: 1px 9px;
+                font-size: 0.8rem;
             }
 
             & .landing__section {
@@ -300,6 +319,13 @@ export class LandingComponent extends Component {
     private ongoing = new Computed(() => this.parts.get().ongoing);
     private finished = new Computed(() => this.parts.get().finished);
 
+    // The "New — you were added" strip: friend-added, unseen produced rounds
+    // (logged-in only — `svc.newRounds` is empty when logged out). Reuses the
+    // shared `LandingRow` shape + row renderer.
+    private newRows = new Computed<LandingRow[]>(() =>
+        this.loggedIn.get() ? landingRows.fromMyRounds(this.svc.newRounds.get()) : [],
+    );
+
     // Delete confirmation: one shared dialog; the tapped row parks its target
     // here and opens it.
     private deleteOpen = new Signal(false);
@@ -330,6 +356,16 @@ export class LandingComponent extends Component {
                 className: () => (anyRows() ? 'landing__history' : 'landing__history hidden'),
                 onclick: () => this.router.navigate('/history'),
             },
+            newSection: {
+                className: () =>
+                    this.newRows.get().length > 0
+                        ? 'landing__section-block landing__new'
+                        : 'landing__section-block landing__new hidden',
+            },
+            newCount: () => {
+                const n = this.newRows.get().length;
+                return n === 0 ? '' : String(n);
+            },
             ongoingSection: {
                 className: () =>
                     this.ongoing.get().length > 0
@@ -355,6 +391,12 @@ export class LandingComponent extends Component {
             },
         });
 
+        this.$each(
+            this.ref(frag, 'newList'),
+            this.newRows,
+            (row, _i, track) => this.roundRow(row, track),
+            (row) => row.key,
+        );
         this.$each(
             this.ref(frag, 'ongoingList'),
             this.ongoing,
