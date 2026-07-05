@@ -48,6 +48,7 @@ function roundPayload(token: string): unknown {
         round: {
             id: `round-${token}`,
             courseNameSnapshot: 'Course',
+            completedAt: null,
             date: '2026-07-03',
             status: 'active',
             playHoles: [],

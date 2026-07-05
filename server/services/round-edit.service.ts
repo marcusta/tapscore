@@ -26,7 +26,9 @@ import type { Round, RoundService } from './round.service';
  * events key only (ball_id, play_hole_id), never a slot.
  *
  * Locks & guardrails (structured diagnostics, never a 500 for a refusal):
- *   - round `complete`                      → `round_complete` (all edits);
+ *   - NOTE: a `complete` friendly round is NOT locked — "finish" is purely
+ *     organizational; finalization locks arrive with competition rounds
+ *     (Phase 4). The `round_complete` reason/diagnostic is dormant.
  *   - no stored draft (non-draft round)     → `not_editable`;
  *   - ANY score event exists → course + route changes refused
  *                                           → `edit_locked_course_route`;
@@ -109,9 +111,10 @@ export class RoundEditService {
     async setupByToken(token: string): Promise<SetupReadResult | null> {
         const round = await this.roundForToken(token);
         if (!round) return null;
-        if (round.status === 'complete') {
-            return { editable: false, status: round.status, reason: 'round_complete' };
-        }
+        // Friendly rounds never lock on completion; finalization locks arrive
+        // with competition rounds (Phase 4). A `complete` round stays editable —
+        // "finish" is purely organizational (it moves the round to the landing's
+        // "Recently finished" section), so we do NOT refuse here on status.
         const stored = await this.rounds.latestSetupDraft(round.id);
         if (!stored) {
             return { editable: false, status: round.status, reason: 'no_stored_draft' };
@@ -135,9 +138,9 @@ export class RoundEditService {
         if (!round) return null;
         const roundId = round.id;
 
-        if (round.status === 'complete') {
-            return refuse('round_complete', 'the round is complete — its setup can no longer be edited');
-        }
+        // Friendly rounds never lock on completion; finalization locks arrive
+        // with competition rounds (Phase 4). A `complete` round is still fully
+        // editable — no status-based refusal here.
 
         const stored = await this.rounds.latestSetupDraft(roundId);
         if (!stored) {

@@ -155,6 +155,9 @@ export interface Round {
     status: RoundStatus;
     latestEventId: string | null;
     courseNameSnapshot: string | null;
+    /** ISO time the round was FINISHED; null until it is (drives the landing's
+     *  "Recently finished" 14-day window). Set with `status='complete'`. */
+    completedAt: string | null;
     formatSlots: FormatSlot[];
     playHoles: RoundPlayHole[];
     routeSi: RoundRouteSi;
@@ -318,6 +321,7 @@ function toRound(row: RoundRow, parts: RoundParts): Round {
         status: row.status,
         latestEventId: row.latest_event_id,
         courseNameSnapshot: row.course_name_snapshot,
+        completedAt: row.completed_at,
         formatSlots: parts.formatSlots,
         playHoles: parts.playHoles,
         routeSi: parts.routeSi,

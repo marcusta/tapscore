@@ -34,6 +34,7 @@ function repeatedRound(): Round {
         status: 'active',
         latestEventId: null,
         courseNameSnapshot: 'Course',
+        completedAt: null,
         formatSlots: [],
         playHoles: [playHole('ph-1', 1, 1, 4), playHole('ph-7a', 2, 7, 3), playHole('ph-7b', 3, 7, 3)],
         routeSi: { mode: 'official', sourceLabel: null, sourceVersion: null, allocationCycleSize: 3 },

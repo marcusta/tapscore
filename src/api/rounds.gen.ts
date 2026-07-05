@@ -14,6 +14,7 @@ export interface Round {
     status: 'not_started' | 'active' | 'complete';
     latestEventId: null | string;
     courseNameSnapshot: null | string;
+    completedAt: null | string;
     formatSlots: FormatSlot[];
     playHoles: RoundPlayHole[];
     routeSi: RoundRouteSi;

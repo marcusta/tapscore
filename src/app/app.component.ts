@@ -2,6 +2,7 @@ import { Component, Router, template } from '@basics/core/client/core';
 import { t } from '../theme';
 import { NavComponent } from './nav.component';
 import { LandingComponent } from '../landing/landing.component';
+import { HistoryComponent } from '../history/history.component';
 import { RoundComponent } from '../round/round.component';
 import { CreateComponent } from '../create/create.component';
 import { LoginComponent } from '../auth/login.component';
@@ -41,6 +42,7 @@ export class AppComponent extends Component {
         this.spawn(NavComponent, this.ref(frag, 'nav'));
         this.$swap(this.ref(frag, 'content'), this.router.route, {
             '/': LandingComponent,
+            '/history': HistoryComponent,
             '/round': RoundComponent,
             '/create': CreateComponent,
             '/login': LoginComponent,

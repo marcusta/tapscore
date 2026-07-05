@@ -5,7 +5,9 @@
 // token-scoped edit endpoint replaces the whole draft and recompiles through
 // the 2.6d composed-correction path. Content-addressed ids keep untouched
 // balls' score events valid; locks (course/route after scoring, scored-
-// producer removal, completed round) refuse with structured diagnostics.
+// producer removal) refuse with structured diagnostics. NOTE: a `complete`
+// friendly round is NOT locked — "finish" is organizational only; finalization
+// locks arrive with competition rounds (Phase 4).
 
 import { test, expect, beforeEach } from 'bun:test';
 import { createTestDb, type TestContext } from '../testing/db';
@@ -489,21 +491,25 @@ test('FK reality: score_events.ball_id is ON DELETE RESTRICT — a raw scored-ba
     ).rejects.toThrow(/FOREIGN KEY constraint/i);
 });
 
-test('LOCK: a complete round refuses every edit (and reads as not editable)', async () => {
+test('NO LOCK: a complete friendly round stays editable (finish is organizational only)', async () => {
+    // Friendly rounds never lock on completion; finalization locks arrive with
+    // competition rounds (Phase 4). "Finish" only moves the round to the
+    // landing's "Recently finished" section — it seals nothing.
     const { ctx, redTee, draft } = await setup();
     const { token, round } = await createRound(ctx, draft);
     await ctx.roundService.update(round.id, { status: 'complete' });
 
     const read = await ctx.roundEditService.setupByToken(token);
-    expect(read).toEqual({ editable: false, status: 'complete', reason: 'round_complete' });
+    expect(read).not.toBeNull();
+    expect(read!.editable).toBe(true);
+    if (!read!.editable) return;
+    expect(read!.status).toBe('complete');
 
     const edited = editedProducers(draft, (p) =>
         p.producerDefId === 'p1' ? { ...p, teeId: redTee.id } : p,
     );
     const res = await ctx.roundEditService.editByToken({ token, draft: edited });
-    expect(res!.ok).toBe(false);
-    if (res!.ok) return;
-    expect(res!.diagnostics[0]!.code).toBe('round_complete');
+    expect(res!.ok).toBe(true);
 });
 
 test('bad references refuse with diagnostics, never a 500', async () => {

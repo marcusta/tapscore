@@ -1,11 +1,11 @@
-import { Component, Router, Signal, template } from '@basics/core/client/core';
+import { Component, Computed, Router, Signal, template } from '@basics/core/client/core';
 import { AuthService } from '@basics/core/client/auth';
 import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import { t } from '../theme';
 import { s, btn, card } from '../css';
 import { LandingService } from './landing.service';
-import { roleLabel } from './my-rounds';
-import { formatLabelFromSlot } from '../round/slot-labels';
+import { landingRows, type LandingRow } from './rows';
+import { partitionRounds, type Partitioned } from './partition';
 
 const tpl = template(`
     <div class="landing">
@@ -17,20 +17,26 @@ const tpl = template(`
         <button bind="createBtn" class="landing__create" type="button">
             <span class="landing__create-plus">+</span> Create round
         </button>
-        <div bind="mySection" class="landing__mine">
+
+        <div bind="ongoingSection" class="landing__section-block">
             <div class="landing__section">
-                <span class="landing__section-title">My rounds</span>
-                <span bind="myCount" class="landing__count"></span>
+                <span class="landing__section-title">Ongoing</span>
+                <span bind="ongoingCount" class="landing__count"></span>
             </div>
-            <div bind="myEmpty" class="landing__empty">Nothing on your card yet — rounds you create or play in land here.</div>
-            <div bind="myList" class="landing__list"></div>
+            <div bind="ongoingList" class="landing__list"></div>
         </div>
-        <div class="landing__section">
-            <span class="landing__section-title">Rounds</span>
-            <span bind="count" class="landing__count"></span>
+
+        <div bind="finishedSection" class="landing__section-block">
+            <div class="landing__section">
+                <span class="landing__section-title">Recently finished</span>
+                <span bind="finishedCount" class="landing__count"></span>
+            </div>
+            <div bind="finishedList" class="landing__list"></div>
         </div>
+
         <div bind="empty" class="landing__empty">No rounds yet — create one to tee off.</div>
-        <div bind="list" class="landing__list"></div>
+
+        <button bind="history" class="landing__history" type="button">See all rounds →</button>
         <button bind="signin" class="landing__signin" type="button">Sign in</button>
         <div bind="confirmHost"></div>
     </div>
@@ -41,22 +47,6 @@ const tpl = template(`
 const trashSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
 
 const rowTpl = template(`
-    <div class="round-row">
-        <button bind="row" type="button" class="round-row__main">
-            <div class="round-row__top">
-                <span bind="course" class="round-row__course"></span>
-                <span bind="status" class="round-row__status"></span>
-            </div>
-            <div class="round-row__bottom">
-                <span bind="date"></span>
-                <span bind="formats" class="round-row__formats"></span>
-            </div>
-        </button>
-        <button bind="del" type="button" class="round-row__del" aria-label="Delete round">${trashSvg}</button>
-    </div>
-`);
-
-const myRowTpl = template(`
     <div class="round-row">
         <button bind="row" type="button" class="round-row__main">
             <div class="round-row__top">
@@ -73,10 +63,10 @@ const myRowTpl = template(`
     </div>
 `);
 
-const statusText: Record<string, string> = {
+export const STATUS_TEXT: Record<string, string> = {
     not_started: 'Not started',
     active: 'Live',
-    complete: 'Done',
+    complete: 'Finished',
 };
 
 export class LandingComponent extends Component {
@@ -125,6 +115,11 @@ export class LandingComponent extends Component {
                 & .landing__create-plus { font-size: 1.4rem; line-height: 1; }
             }
 
+            & .landing__section-block {
+                margin-bottom: ${s('xl')};
+                &.hidden { display: none; }
+            }
+
             & .landing__section {
                 display: flex;
                 align-items: baseline;
@@ -151,11 +146,6 @@ export class LandingComponent extends Component {
                 &.hidden { display: none; }
             }
 
-            & .landing__mine {
-                margin-bottom: ${s('xl')};
-                &.hidden { display: none; }
-            }
-
             & .round-row__role {
                 font-size: 0.7rem;
                 font-weight: 700;
@@ -163,6 +153,8 @@ export class LandingComponent extends Component {
                 letter-spacing: 0.08em;
                 color: ${t('accent')};
                 flex-shrink: 0;
+
+                &.hidden { display: none; }
             }
 
             & .landing__list {
@@ -240,6 +232,8 @@ export class LandingComponent extends Component {
                     gap: ${s('md')};
                     color: ${t('text-muted')};
                     font-size: 0.85rem;
+
+                    &.hidden { display: none; }
                 }
                 & .round-row__formats {
                     text-align: right;
@@ -249,10 +243,25 @@ export class LandingComponent extends Component {
                 }
             }
 
+            & .landing__history {
+                display: block;
+                margin: ${s('sm')} auto 0;
+                padding: ${s('sm')} ${s('lg')};
+                background: none;
+                border: none;
+                font-family: inherit;
+                font-size: 0.9rem;
+                font-weight: 700;
+                color: ${t('accent')};
+                cursor: pointer;
+
+                &.hidden { display: none; }
+            }
+
             & .landing__signin {
                 display: block;
                 &.hidden { display: none; }
-                margin: ${s('2xl')} auto 0;
+                margin: ${s('lg')} auto 0;
                 padding: ${s('sm')} ${s('lg')};
                 background: none;
                 border: none;
@@ -275,9 +284,24 @@ export class LandingComponent extends Component {
     private auth = this.inject(AuthService);
     private router = this.inject(Router);
 
-    // Delete confirmation: one shared dialog; the tapped row parks its round
-    // here and opens it. Confirm calls the token-scoped DELETE and the
-    // service prunes the row out of the loaded lists — no reload.
+    private loggedIn = new Computed(() => this.auth.currentUser.get() !== null);
+
+    // The unified row list (both states normalise to `LandingRow`), then the
+    // pure partition. `now` is read once per (re)compute from the wall clock —
+    // the ONLY Date use here, kept out of the pure `partition`/`rows` modules.
+    private rows = new Computed<LandingRow[]>(() =>
+        this.loggedIn.get()
+            ? landingRows.fromMyRounds(this.svc.myRounds.get())
+            : landingRows.fromDeviceRounds(this.svc.deviceRounds.get()),
+    );
+    private parts = new Computed<Partitioned<LandingRow>>(() =>
+        partitionRounds(this.rows.get(), Date.now(), (r) => r),
+    );
+    private ongoing = new Computed(() => this.parts.get().ongoing);
+    private finished = new Computed(() => this.parts.get().finished);
+
+    // Delete confirmation: one shared dialog; the tapped row parks its target
+    // here and opens it.
     private deleteOpen = new Signal(false);
     private deleteTarget = new Signal<{ token: string; roundId: string; name: string } | null>(
         null,
@@ -289,134 +313,61 @@ export class LandingComponent extends Component {
     }
 
     render(): DocumentFragment {
-        void this.svc.load();
-        // Logged in: enrich with the dashboard halves. Logged out: never asked,
-        // so the landing stays byte-identical to the no-login experience.
-        const loggedIn = () => this.auth.currentUser.get() !== null;
-        if (loggedIn()) void this.svc.loadMine();
+        // Logged in: fetch the dashboard halves. Logged out: read the device
+        // recent list from localStorage. Either way the partition is reactive.
+        if (this.loggedIn.get()) void this.svc.loadMine();
+        else this.svc.loadDevice();
+
+        const anyRows = () => this.rows.get().length > 0;
 
         const frag = this.wire(tpl, {
             createBtn: { onclick: () => this.router.navigate('/create') },
-            // Logged in, the bottom nav owns Profile — the footer link would be
-            // redundant, so it only renders for the logged-out landing.
             signin: {
-                className: () => (loggedIn() ? 'landing__signin hidden' : 'landing__signin'),
+                className: () => (this.loggedIn.get() ? 'landing__signin hidden' : 'landing__signin'),
                 onclick: () => this.router.navigate('/login'),
             },
-            mySection: {
-                className: () => (loggedIn() ? 'landing__mine' : 'landing__mine hidden'),
+            history: {
+                className: () => (anyRows() ? 'landing__history' : 'landing__history hidden'),
+                onclick: () => this.router.navigate('/history'),
             },
-            myCount: () => {
-                const n = this.svc.myRounds.get().length;
-                return n === 0 ? '' : `${n} on the card`;
-            },
-            myEmpty: {
+            ongoingSection: {
                 className: () =>
-                    loggedIn() && this.svc.myRounds.get().length === 0 && !this.svc.mineLoading.get()
-                        ? 'landing__empty'
-                        : 'landing__empty hidden',
+                    this.ongoing.get().length > 0
+                        ? 'landing__section-block'
+                        : 'landing__section-block hidden',
             },
-            count: () => {
-                const n = this.svc.rounds.get().length;
-                return n === 0 ? '' : `${n} on the card`;
+            ongoingCount: () => {
+                const n = this.ongoing.get().length;
+                return n === 0 ? '' : String(n);
+            },
+            finishedSection: {
+                className: () =>
+                    this.finished.get().length > 0
+                        ? 'landing__section-block'
+                        : 'landing__section-block hidden',
+            },
+            finishedCount: () => {
+                const n = this.finished.get().length;
+                return n === 0 ? '' : String(n);
             },
             empty: {
-                className: () =>
-                    this.svc.rounds.get().length === 0
-                        ? 'landing__empty'
-                        : 'landing__empty hidden',
+                className: () => (anyRows() ? 'landing__empty hidden' : 'landing__empty'),
             },
         });
 
         this.$each(
-            this.ref(frag, 'list'),
-            this.svc.rounds,
-            (item, _i, track) =>
-                this.wireEl(
-                    rowTpl,
-                    {
-                        row: {
-                            onclick: () =>
-                                this.router.navigate('/round', {
-                                    query: { token: item.friendlyRound.shareToken },
-                                }),
-                        },
-                        course: () => item.round.courseNameSnapshot ?? 'Round',
-                        status: {
-                            textContent: () =>
-                                statusText[item.round.status] ?? item.round.status,
-                            className: () => `round-row__status s-${item.round.status}`,
-                        },
-                        date: () => item.round.date,
-                        formats: () =>
-                            item.round.formatSlots.map(formatLabelFromSlot).join(' · '),
-                        del: {
-                            onclick: () =>
-                                this.askDelete(
-                                    item.friendlyRound.shareToken,
-                                    item.round.id,
-                                    item.round.courseNameSnapshot ?? 'this round',
-                                ),
-                        },
-                    },
-                    track,
-                ),
-            (item) => item.friendlyRound.id,
+            this.ref(frag, 'ongoingList'),
+            this.ongoing,
+            (row, _i, track) => this.roundRow(row, track),
+            (row) => row.key,
         );
-
-        // "My rounds" — the merged produced+created list. A row without a
-        // reachable share token renders but can't navigate (no friendly
-        // wrapper to open); everything else taps through like the public list.
         this.$each(
-            this.ref(frag, 'myList'),
-            this.svc.myRounds,
-            (item, _i, track) =>
-                this.wireEl(
-                    myRowTpl,
-                    {
-                        row: {
-                            disabled: () => item.token === null,
-                            onclick: () => {
-                                if (item.token === null) return;
-                                this.router.navigate('/round', {
-                                    query: { token: item.token },
-                                });
-                            },
-                        },
-                        course: () => item.round.courseNameSnapshot ?? 'Round',
-                        role: () => roleLabel(item),
-                        status: {
-                            textContent: () =>
-                                statusText[item.round.status] ?? item.round.status,
-                            className: () => `round-row__status s-${item.round.status}`,
-                        },
-                        date: () => item.round.date,
-                        formats: () =>
-                            item.round.formatSlots.map(formatLabelFromSlot).join(' · '),
-                        // No share token → no wrapper to address the DELETE
-                        // at; hide the control (the row can't navigate either).
-                        del: {
-                            className: () =>
-                                item.token === null
-                                    ? 'round-row__del hidden'
-                                    : 'round-row__del',
-                            onclick: () => {
-                                if (item.token === null) return;
-                                this.askDelete(
-                                    item.token,
-                                    item.round.id,
-                                    item.round.courseNameSnapshot ?? 'this round',
-                                );
-                            },
-                        },
-                    },
-                    track,
-                ),
-            (item) => item.round.id,
+            this.ref(frag, 'finishedList'),
+            this.finished,
+            (row, _i, track) => this.roundRow(row, track),
+            (row) => row.key,
         );
 
-        // Shared delete-confirmation dialog (framework primitive: backdrop
-        // click cancels via the overlay; Escape is wired below).
         this.spawn(ConfirmComponent, this.ref(frag, 'confirmHost'), {
             open: this.deleteOpen,
             title: 'Delete round?',
@@ -434,7 +385,6 @@ export class LandingComponent extends Component {
             },
         });
 
-        // Escape cancels the confirm dialog.
         const onKeydown = (e: KeyboardEvent) => {
             if (e.key === 'Escape' && this.deleteOpen.get()) this.deleteOpen.set(false);
         };
@@ -442,5 +392,44 @@ export class LandingComponent extends Component {
         this.track(() => window.removeEventListener('keydown', onKeydown));
 
         return frag;
+    }
+
+    /** One round row (shared by both sections + both auth states). A row with
+     *  no token can't navigate or be deleted (logged-in produced round without
+     *  a friendly wrapper); everything else taps through. */
+    private roundRow(row: LandingRow, track: (d: () => void) => void): HTMLElement {
+        return this.wireEl(
+            rowTpl,
+            {
+                row: {
+                    disabled: () => row.token === null,
+                    onclick: () => {
+                        if (row.token === null) return;
+                        this.router.navigate('/round', { query: { token: row.token } });
+                    },
+                },
+                course: () => row.courseName || 'Round',
+                role: {
+                    textContent: () => row.roleLabel ?? '',
+                    className: () =>
+                        row.roleLabel ? 'round-row__role' : 'round-row__role hidden',
+                },
+                status: {
+                    textContent: () => STATUS_TEXT[row.status] ?? row.status,
+                    className: () => `round-row__status s-${row.status}`,
+                },
+                date: () => row.date ?? '',
+                formats: () => row.formats ?? '',
+                del: {
+                    className: () =>
+                        row.token === null ? 'round-row__del hidden' : 'round-row__del',
+                    onclick: () => {
+                        if (row.token === null) return;
+                        this.askDelete(row.token, row.roundId ?? '', row.courseName || 'this round');
+                    },
+                },
+            },
+            track,
+        );
     }
 }

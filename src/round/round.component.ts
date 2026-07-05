@@ -70,8 +70,10 @@ const tpl = template(`
                     <div bind="claim"></div>
                     <div bind="join"></div>
 
+                    <button bind="finishBtn" class="round-view__finish" type="button"></button>
                     <button bind="deleteBtn" class="round-view__delete" type="button">Delete round</button>
                     <div bind="confirmHost"></div>
+                    <div bind="finishConfirmHost"></div>
                 </div>
 
                 <div bind="lbPanel" class="round-view__panel hidden">
@@ -276,11 +278,34 @@ export class RoundComponent extends Component {
                 }
             }
 
+            /* Finish / reopen: a secondary action above the danger zone. A
+               bordered ghost button in the neutral text tone — clearly an
+               action, but never competing with the primary Score/Board flow. */
+            & .round-view__finish {
+                width: 100%;
+                margin-top: ${s('2xl')};
+                padding: ${s('md')};
+                background: none;
+                border: 1px solid ${t('border')};
+                border-radius: ${t('radius')};
+                font-family: inherit;
+                font-size: 0.9rem;
+                font-weight: 700;
+                color: ${t('text')};
+                cursor: pointer;
+
+                &:hover, &:active { border-color: ${t('text-muted')}; }
+                &:focus-visible { outline: 2px solid ${t('accent')}; outline-offset: 2px; }
+                &:disabled { opacity: 0.5; cursor: default; }
+            }
+
             /* Danger zone: last thing on the score panel, visually quiet —
                a bordered ghost button in the error tone, never a filled CTA. */
             & .round-view__delete {
                 width: 100%;
-                margin-top: ${s('2xl')};
+                /* Sits right under Finish, so a tighter gap than the 2xl that
+                   used to separate it from the share card. */
+                margin-top: ${s('md')};
                 padding: ${s('md')};
                 background: none;
                 border: 1px solid ${t('border')};
@@ -398,6 +423,10 @@ export class RoundComponent extends Component {
     private hasScoring = new Computed(() => this.svc.balls.get().length > 0);
     /** Delete-round confirmation dialog visibility. */
     private deleteOpen = new Signal(false);
+    /** Finish/reopen confirmation dialog visibility. */
+    private finishOpen = new Signal(false);
+    /** True when the loaded round is finished (drives Finish ⇄ Reopen). */
+    private isComplete = new Computed(() => this.svc.round.get()?.status === 'complete');
 
     private shareUrl = new Computed(() => {
         const token = this.tokenQ.get();
@@ -490,7 +519,7 @@ export class RoundComponent extends Component {
         const statusText: Record<string, string> = {
             not_started: 'Not started',
             active: 'Live',
-            complete: 'Done',
+            complete: 'Finished',
         };
 
         const frag = this.wire(tpl, {
@@ -530,6 +559,11 @@ export class RoundComponent extends Component {
             shareUrl: { value: () => this.shareUrl.get() },
             copy: {
                 onclick: () => void navigator.clipboard?.writeText(this.shareUrl.get()),
+            },
+            finishBtn: {
+                textContent: () => (this.isComplete.get() ? 'Reopen round' : 'Finish round'),
+                onclick: () => this.finishOpen.set(true),
+                disabled: () => this.svc.finishing.get(),
             },
             deleteBtn: {
                 onclick: () => this.deleteOpen.set(true),
@@ -639,10 +673,33 @@ export class RoundComponent extends Component {
             },
         });
 
-        // Escape cancels the confirm dialog (backdrop click already cancels
+        // Finish / reopen confirmation. Finish is PURELY ORGANIZATIONAL — the
+        // round stays editable + scorable; it just moves to "Recently finished".
+        // On a complete round the same control offers Reopen instead.
+        // One dialog serves both actions. `title`/`confirmLabel` are static
+        // (the framework reads them once), so they stay neutral; the reactive
+        // `message` carries the finish-vs-reopen wording, and the button that
+        // opened it already reads "Finish round" / "Reopen round".
+        this.spawn(ConfirmComponent, this.ref(frag, 'finishConfirmHost'), {
+            open: this.finishOpen,
+            title: 'Finish or reopen round',
+            message: () =>
+                this.isComplete.get()
+                    ? "Reopen this round? It'll move back to your ongoing rounds."
+                    : "Finish this round? It'll move to your finished rounds. You can still edit or reopen it any time.",
+            cancelLabel: 'Cancel',
+            onconfirm: () => {
+                // Snapshot which action before the round's status flips.
+                if (this.isComplete.get()) void this.svc.reopenRound();
+                else void this.svc.finishRound();
+            },
+        });
+
+        // Escape cancels either confirm dialog (backdrop click already cancels
         // via the framework overlay).
         const onKeydown = (e: KeyboardEvent) => {
             if (e.key === 'Escape' && this.deleteOpen.get()) this.deleteOpen.set(false);
+            if (e.key === 'Escape' && this.finishOpen.get()) this.finishOpen.set(false);
         };
         window.addEventListener('keydown', onKeydown);
         this.track(() => window.removeEventListener('keydown', onKeydown));

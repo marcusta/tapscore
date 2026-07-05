@@ -22,6 +22,7 @@ export interface Round {
     status: 'not_started' | 'active' | 'complete';
     latestEventId: null | string;
     courseNameSnapshot: null | string;
+    completedAt: null | string;
     formatSlots: FormatSlot[];
     playHoles: RoundPlayHole[];
     routeSi: RoundRouteSi;
@@ -292,6 +293,8 @@ export interface FriendlyRoundsApi {
     setup(input: { token: string }): Promise<{ editable: true; status: 'not_started' | 'active' | 'complete'; hasScores: boolean; draft: { route?: { playHoles?: { id?: string; parOverride?: number; baseStrokeIndexOverride?: number; teeOverrides?: { lengthM?: number; strokeIndexOverride?: number; teeId: string }[]; courseHoleNumber: number }[]; routeSi?: { sourceLabel?: string; sourceVersion?: string; allocationCycleSize?: number; mode: 'official' | 'difficulty' | 'custom' }; routeHandicapPolicy?: { postingIneligibleReason?: string; type: 'official_route' | 'full_course_casual' | 'prorated_casual' | 'explicit'; postingEligible: boolean }; routeSections?: { id: string; label: string; fromCanonicalOrdinal: number; toCanonicalOrdinal: number }[]; templateId?: string; playingGroups?: { id?: string; startPlayHoleDefId?: string; startOrdinal?: number; hittingBay?: string; startTime: string; capacity: number; producerDefIds: string[] }[] }; roundType?: 'full_18' | 'front_9' | 'back_9' | 'custom_holes'; venueType?: 'outdoor' | 'indoor'; playingGroups?: { startTime?: string; startHole?: number; members: string[] }[]; teams?: ({ label?: string; kind?: 'single_ball' | 'multi_ball'; formation?: string; id: string; members: ({ producerDefId: string; allowancePct: number } | { teamId: string })[] })[]; courseId: string; playedAt: string; producers: ({ gender?: 'M' | 'F'; category?: string; teeId: string; handicapIndex: number; producerDefId: string; playerRef: { id: string; kind: 'player' | 'guest' } })[]; formats: ({ id?: string; producerDefIds?: string[]; teams?: { label: string; producerDefIds: string[] }[]; allowanceConfig?: { type: 'flat'; pct: number } | { type: 'split'; bands: ({ pct: number; upToCh: null | number })[] }; formatConfig?: unknown; ballsFrom?: { ref: string }; subjects?: ({ producerDefId: string; kind: 'player' } | { kind: 'team'; teamId: string })[]; formatId: string })[] }; draftVersion: number } | { editable: false; status: 'not_started' | 'active' | 'complete'; reason: 'round_complete' | 'no_stored_draft' }>;
     editSetup(input: { clientEventId?: string; draft: { route?: { playHoles?: { id?: string; parOverride?: number; baseStrokeIndexOverride?: number; teeOverrides?: { lengthM?: number; strokeIndexOverride?: number; teeId: string }[]; courseHoleNumber: number }[]; routeSi?: { sourceLabel?: string; sourceVersion?: string; allocationCycleSize?: number; mode: 'official' | 'difficulty' | 'custom' }; routeHandicapPolicy?: { postingIneligibleReason?: string; type: 'official_route' | 'full_course_casual' | 'prorated_casual' | 'explicit'; postingEligible: boolean }; routeSections?: { id: string; label: string; fromCanonicalOrdinal: number; toCanonicalOrdinal: number }[]; templateId?: string; playingGroups?: { id?: string; startPlayHoleDefId?: string; startOrdinal?: number; hittingBay?: string; startTime: string; capacity: number; producerDefIds: string[] }[] }; roundType?: 'full_18' | 'front_9' | 'back_9' | 'custom_holes'; venueType?: 'outdoor' | 'indoor'; playingGroups?: { startTime?: string; startHole?: number; members: string[] }[]; teams?: ({ label?: string; kind?: 'single_ball' | 'multi_ball'; formation?: string; id: string; members: ({ producerDefId: string; allowancePct: number } | { teamId: string })[] })[]; courseId: string; playedAt: string; producers: ({ gender?: 'M' | 'F'; category?: string; teeId: string; handicapIndex: number; producerDefId: string; playerRef: { id: string; kind: 'player' | 'guest' } })[]; formats: ({ id?: string; producerDefIds?: string[]; teams?: { label: string; producerDefIds: string[] }[]; allowanceConfig?: { type: 'flat'; pct: number } | { type: 'split'; bands: ({ pct: number; upToCh: null | number })[] }; formatConfig?: unknown; ballsFrom?: { ref: string }; subjects?: ({ producerDefId: string; kind: 'player' } | { kind: 'team'; teamId: string })[]; formatId: string })[] }; token: string }): Promise<{ ok: true; round: Round } | { ok: false; diagnostics: CompilerDiagnostic[] }>;
     remove(input: { token: string }): Promise<{ ok: boolean }>;
+    finish(input: { token: string }): Promise<{ status: 'not_started' | 'active' | 'complete'; completedAt: string }>;
+    reopen(input: { token: string }): Promise<{ status: 'not_started' | 'active' | 'complete' }>;
     join(input: { groupChoice?: string; teeId: string; token: string }): Promise<{ ok: true; round: Round } | { ok: false; diagnostics: CompilerDiagnostic[] }>;
     claimGuest(input: { token: string; guestPlayerId: string }): Promise<ClaimGuestResult>;
 }
@@ -354,6 +357,12 @@ export function createFriendlyRoundsClient(baseUrl: string): FriendlyRoundsApi {
         },
         async remove(input) {
             return apiFetch({ method: 'DELETE', url: `${baseUrl}/friendly-rounds/${input.token}` });
+        },
+        async finish(input) {
+            return apiFetch({ method: 'POST', url: `${baseUrl}/friendly-rounds/finish`, body: input });
+        },
+        async reopen(input) {
+            return apiFetch({ method: 'POST', url: `${baseUrl}/friendly-rounds/reopen`, body: input });
         },
         async join(input) {
             return apiFetch({ method: 'POST', url: `${baseUrl}/friendly-rounds/join`, body: input });

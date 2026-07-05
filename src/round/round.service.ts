@@ -15,6 +15,7 @@ import type { MetadataApplies, MetadataInput } from '../api/setup.gen';
 import { FormatCatalogService } from '../create/format-catalog.service';
 import { clampIndex } from './hole-carousel';
 import { PendingScoreQueue } from './pending-queue';
+import { recordDeviceRound, removeDeviceRound } from '../landing/device-rounds';
 
 const ORD_WORDS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
 
@@ -157,6 +158,15 @@ export class RoundViewService {
         if (seq !== this.loadSeq || token !== this.token) return;
         this.friendlyRound.set(data.friendlyRound);
         this.round.set(data.round);
+        // Remember this round on THIS device so the logged-out landing/history
+        // can list it (no identity ⇒ no server dashboard). Deduped by token.
+        recordDeviceRound({
+            token,
+            courseName: data.round.courseNameSnapshot ?? '',
+            status: data.round.status,
+            completedAt: data.round.completedAt,
+            lastSeenAt: new Date().toISOString(),
+        });
         // A legacy numeric `?slot=` index can only be translated to a
         // slotDefId once the round's formatSlots are known. Consume it once —
         // an unresolvable index (out of range) is simply dropped, falling
@@ -210,11 +220,76 @@ export class RoundViewService {
         this.deleting.set(true);
         try {
             await api.friendlyRounds.remove({ token });
+            // Drop it from this device's recent list too, so a deleted round
+            // never lingers on the logged-out landing/history.
+            removeDeviceRound(token);
             return true;
         } catch {
             return false;
         } finally {
             this.deleting.set(false);
+        }
+    }
+
+    /** True while a finish/reopen request is in flight (disables the control). */
+    readonly finishing = new Signal(false);
+
+    /**
+     * Finish the loaded round (status → complete). PURELY ORGANIZATIONAL — it
+     * moves the round into the landing's "Recently finished" section and seals
+     * nothing (the round stays editable + scorable). Mirrors the returned
+     * status/completedAt onto the loaded round so the badge flips without a
+     * refetch, and refreshes this device's recent entry. Resolves the resulting
+     * status so the caller can warn (e.g. finishing an empty not_started round).
+     */
+    async finishRound(): Promise<{ status: Round['status'] } | null> {
+        const token = this.token;
+        if (!token || this.finishing.get()) return null;
+        this.finishing.set(true);
+        try {
+            const res = await api.friendlyRounds.finish({ token });
+            const r = this.round.get();
+            if (token === this.token && r) {
+                this.round.set({ ...r, status: res.status, completedAt: res.completedAt });
+                recordDeviceRound({
+                    token,
+                    courseName: r.courseNameSnapshot ?? '',
+                    status: res.status,
+                    completedAt: res.completedAt,
+                    lastSeenAt: new Date().toISOString(),
+                });
+            }
+            return { status: res.status };
+        } catch {
+            return null;
+        } finally {
+            this.finishing.set(false);
+        }
+    }
+
+    /** Reopen a finished round (complete → active); undoes a mistaken finish. */
+    async reopenRound(): Promise<{ status: Round['status'] } | null> {
+        const token = this.token;
+        if (!token || this.finishing.get()) return null;
+        this.finishing.set(true);
+        try {
+            const res = await api.friendlyRounds.reopen({ token });
+            const r = this.round.get();
+            if (token === this.token && r) {
+                this.round.set({ ...r, status: res.status, completedAt: null });
+                recordDeviceRound({
+                    token,
+                    courseName: r.courseNameSnapshot ?? '',
+                    status: res.status,
+                    completedAt: null,
+                    lastSeenAt: new Date().toISOString(),
+                });
+            }
+            return { status: res.status };
+        } catch {
+            return null;
+        } finally {
+            this.finishing.set(false);
         }
     }
 

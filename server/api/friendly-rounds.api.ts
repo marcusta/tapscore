@@ -144,6 +144,20 @@ async function removeOr404(svc: FriendlyRoundService, token: string) {
     return { ok: true };
 }
 
+async function finishOr404(svc: FriendlyRoundService, token: string) {
+    // `now` is stamped HERE (production server clock), not inside the service —
+    // the service takes it as a param so scripts/tests stay deterministic.
+    const res = await svc.finishByToken(token, new Date().toISOString());
+    if (res === null) throw new NotFoundError('friendly round not found');
+    return res;
+}
+
+async function reopenOr404(svc: FriendlyRoundService, token: string) {
+    const res = await svc.reopenByToken(token);
+    if (res === null) throw new NotFoundError('friendly round not found');
+    return res;
+}
+
 async function setupOr404(edits: RoundEditService, token: string) {
     const res = await edits.setupByToken(token);
     if (res === null) throw new NotFoundError('friendly round not found');
@@ -190,6 +204,14 @@ export function createFriendlyRoundsApi(
         // no-login model. Creator-gating is deferred to the auth/roles phase;
         // the trust boundary is documented on FriendlyRoundService.
         remove:    { method: 'DELETE' as const, path: '/friendly-rounds/:token', fn: (input: Static<typeof ByTokenInput>) => removeOr404(svc, input.token), schema: ByTokenInput },
+        // Finish / reopen (token-scoped, NO auth — same credential + trust
+        // boundary as scoring/delete). Finish is PURELY ORGANIZATIONAL: it only
+        // moves the round into the landing's "Recently finished" section and
+        // seals nothing (a complete friendly round stays editable + scorable).
+        // Reopen undoes a mistaken finish (complete → active). The server stamps
+        // `completed_at`; the client never supplies it.
+        finish:    { method: 'POST' as const, path: '/friendly-rounds/finish', fn: (input: Static<typeof ByTokenInput>) => finishOr404(svc, input.token), schema: ByTokenInput },
+        reopen:    { method: 'POST' as const, path: '/friendly-rounds/reopen', fn: (input: Static<typeof ByTokenInput>) => reopenOr404(svc, input.token), schema: ByTokenInput },
         // Auth REQUIRED: the caller's profile IS the join payload (identity,
         // name, index, gender). 409s (already started / already in) surface via
         // ConflictError; profile/tee/slot refusals are structured diagnostics.

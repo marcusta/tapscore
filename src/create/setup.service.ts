@@ -11,6 +11,7 @@ import {
     humanizeDiagnostic,
 } from './diagnostics';
 import { draftToForms, type StoredDraft } from './draft-to-forms';
+import { recordDeviceRound } from '../landing/device-rounds';
 
 export type Gender = 'M' | 'F';
 export type RoutePreset = 'full_18' | 'front_9' | 'back_9';
@@ -1260,6 +1261,15 @@ export class SetupService {
                 this.diagnostics.set(result.diagnostics);
                 return { ok: false };
             }
+            // Remember the freshly-created round on THIS device so the
+            // logged-out landing/history lists it (no identity ⇒ no dashboard).
+            recordDeviceRound({
+                token: result.friendlyRound.shareToken,
+                courseName: result.round.courseNameSnapshot ?? '',
+                status: result.round.status,
+                completedAt: result.round.completedAt,
+                lastSeenAt: new Date().toISOString(),
+            });
             return { ok: true, token: result.friendlyRound.shareToken };
         } catch (e) {
             this.submitError.set(

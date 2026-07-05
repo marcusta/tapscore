@@ -113,7 +113,11 @@ function addPlayer(svc: Setup, name: string, index: string): number {
 beforeEach(() => {
     nextGuestId = 0;
     lastDraft = null;
-    createResult = { ok: true, friendlyRound: { id: 'fr-1', shareToken: 'tok-1' } };
+    createResult = {
+        ok: true,
+        friendlyRound: { id: 'fr-1', shareToken: 'tok-1' },
+        round: { courseNameSnapshot: 'Test GC', status: 'not_started', completedAt: null },
+    };
     apiMock.guestPlayers.create.mockClear();
     apiMock.friendlyRounds.create.mockClear();
 });

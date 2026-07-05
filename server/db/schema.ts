@@ -55,6 +55,9 @@ export interface RoundsTable {
     status: RoundStatus;
     latest_event_id: string | null;
     course_name_snapshot: string | null;
+    /** Wall-clock time the round was FINISHED (status→complete); null until then.
+     *  Set/cleared together with `status` by RoundService.finish/reopenByToken. */
+    completed_at: string | null;
     created_at: Generated<string>;
 }
 

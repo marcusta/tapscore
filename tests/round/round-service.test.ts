@@ -64,6 +64,7 @@ function roundPayload(
         round: {
             id: roundId,
             courseNameSnapshot: courseName,
+            completedAt: null,
             date: '2026-06-28',
             status: 'active',
             playHoles: [],

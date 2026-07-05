@@ -448,3 +448,43 @@ test('DELETE /friendly-rounds/:token returns 404 for an unknown token and delete
     expect(res.status).toBe(404);
     expect(await (await req(ctx.app, 'GET', '/api/friendly-rounds')).json()).toHaveLength(1);
 });
+
+// --- Finish / reopen over HTTP (token-scoped, no auth) --------------------------
+
+test('POST /friendly-rounds/finish marks the round complete and by-token reflects it', async () => {
+    const { ctx, draft } = await setup();
+    const created = await (await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })).json();
+    const token = created.friendlyRound.shareToken;
+
+    const res = await req(ctx.app, 'POST', '/api/friendly-rounds/finish', { token });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe('complete');
+    expect(body.completedAt).toBeString();
+
+    // The round now reads as complete WITH a completedAt (drives the landing).
+    const round = (await (await req(ctx.app, 'GET', `/api/friendly-rounds/by-token?token=${token}`)).json()).round;
+    expect(round.status).toBe('complete');
+    expect(round.completedAt).toBe(body.completedAt);
+});
+
+test('POST /friendly-rounds/finish is 404 for an unknown token', async () => {
+    const { ctx } = await setup();
+    const res = await req(ctx.app, 'POST', '/api/friendly-rounds/finish', { token: 'nope' });
+    expect(res.status).toBe(404);
+});
+
+test('POST /friendly-rounds/reopen flips a finished round back to active and clears completedAt', async () => {
+    const { ctx, draft } = await setup();
+    const created = await (await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })).json();
+    const token = created.friendlyRound.shareToken;
+
+    await req(ctx.app, 'POST', '/api/friendly-rounds/finish', { token });
+    const res = await req(ctx.app, 'POST', '/api/friendly-rounds/reopen', { token });
+    expect(res.status).toBe(200);
+    expect((await res.json()).status).toBe('active');
+
+    const round = (await (await req(ctx.app, 'GET', `/api/friendly-rounds/by-token?token=${token}`)).json()).round;
+    expect(round.status).toBe('active');
+    expect(round.completedAt).toBeNull();
+});

@@ -1,5 +1,5 @@
 import { sql, type Kysely, type Selectable } from 'kysely';
-import type { Database, FriendlyRoundsTable } from '../db/schema';
+import type { Database, FriendlyRoundsTable, RoundStatus } from '../db/schema';
 import type { CompilerDiagnostic } from '../domain/compiler/types';
 import type { RoundSetupDraft } from '../domain/round-setup/draft';
 import type { Round, RoundBall, RoundService } from './round.service';
@@ -317,5 +317,73 @@ export class FriendlyRoundService {
         if (roundId === null) return { ok: false, reason: 'not_found' };
         await this.rounds.remove(roundId);
         return { ok: true };
+    }
+
+    /**
+     * Finish the token's round: set `status='complete'` + `completed_at=now`.
+     *
+     * Purely ORGANIZATIONAL — this only moves the round into the landing's
+     * "Recently finished" section. It seals NOTHING: a finished friendly round
+     * stays fully editable and scorable (edit/score locks belong to competition
+     * rounds, a future phase). No demotion of a late score either — the round
+     * stays complete until an explicit reopen.
+     *
+     * Trust boundary: SAME as scoring/delete — the share token is the only
+     * credential and already controls every score, so finishing grants no new
+     * privilege; it is deliberately NOT creator-gated.
+     *
+     * `now` is caller-supplied (ISO string) rather than read from the clock, so
+     * scripts/tests stay deterministic and match the `friendly_rounds.created_at`
+     * convention. Idempotent: finishing an already-complete round keeps the
+     * original `completed_at` (a no-op success). Returns the resulting status so
+     * the client can warn about e.g. finishing an empty not_started round.
+     * Unknown token → `null` (the API turns it into a 404).
+     */
+    async finishByToken(
+        token: string,
+        now: string,
+    ): Promise<{ status: RoundStatus; completedAt: string } | null> {
+        const roundId = await this.roundIdForToken(token);
+        if (roundId === null) return null;
+        // Only transition a not-yet-complete round; a re-finish preserves the
+        // original completed_at (the WHERE guard makes it a true no-op).
+        await this.db
+            .updateTable('rounds')
+            .set({ status: 'complete', completed_at: now })
+            .where('id', '=', roundId)
+            .where('status', '!=', 'complete')
+            .execute();
+        const row = await this.db
+            .selectFrom('rounds')
+            .select(['status', 'completed_at'])
+            .where('id', '=', roundId)
+            .executeTakeFirst();
+        // `row` is guaranteed here (the token resolved to it); complete rounds
+        // always carry a completed_at (set on the transition above or a prior one).
+        return { status: row!.status, completedAt: row!.completed_at ?? now };
+    }
+
+    /**
+     * Reopen a finished round: `complete`→`active`, clear `completed_at`. The
+     * recovery for a mistaken finish — it moves the round back to the landing's
+     * "Ongoing" section. Reopening a round that isn't complete is a no-op
+     * success (returns its current status). Same token trust boundary as finish.
+     * Unknown token → `null` (API 404).
+     */
+    async reopenByToken(token: string): Promise<{ status: RoundStatus } | null> {
+        const roundId = await this.roundIdForToken(token);
+        if (roundId === null) return null;
+        await this.db
+            .updateTable('rounds')
+            .set({ status: 'active', completed_at: null })
+            .where('id', '=', roundId)
+            .where('status', '=', 'complete')
+            .execute();
+        const row = await this.db
+            .selectFrom('rounds')
+            .select('status')
+            .where('id', '=', roundId)
+            .executeTakeFirst();
+        return { status: row!.status };
     }
 }
