@@ -32,6 +32,8 @@ async function setup() {
             ctx.competitionService,
             ctx.competitionRoundService,
             ctx.competitionLeaderboardService,
+            ctx.competitionCutService,
+            ctx.competitionFinalizeService,
             ctx.roleService,
             new CompetitionAuthz(ctx.roleService, ctx.competitionService),
         ),

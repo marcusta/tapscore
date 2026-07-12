@@ -24,6 +24,8 @@ import { FriendService } from './friend.service';
 import { CompetitionService } from './competition.service';
 import { CompetitionRoundService } from './competition-round.service';
 import { CompetitionLeaderboardService } from './competition-leaderboard.service';
+import { CompetitionCutService } from './competition-cut.service';
+import { CompetitionFinalizeService } from './competition-finalize.service';
 import type { CompilerTeeContext, Gender } from '../domain/compiler/types';
 
 /**
@@ -161,6 +163,19 @@ export function createServices(db: Kysely<Database>) {
         competitionRoundService,
         leaderboardService,
     );
+    // Cut + finalize (Slice 4) evaluate the SAME fold inputs the live board
+    // assembles (leaderboard.prepare) — cut windows them, finalize snapshots.
+    const competitionCutService = new CompetitionCutService(
+        db,
+        competitionLeaderboardService,
+        competitionRoundService,
+    );
+    const competitionFinalizeService = new CompetitionFinalizeService(
+        db,
+        competitionService,
+        competitionLeaderboardService,
+        competitionRoundService,
+    );
     return {
         db,
         playerService,
@@ -187,5 +202,7 @@ export function createServices(db: Kysely<Database>) {
         competitionService,
         competitionRoundService,
         competitionLeaderboardService,
+        competitionCutService,
+        competitionFinalizeService,
     };
 }

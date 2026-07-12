@@ -11,6 +11,8 @@ import type {
     CompetitionRoundSummary,
 } from '../services/competition-round.service';
 import type { CompetitionLeaderboardService } from '../services/competition-leaderboard.service';
+import type { CompetitionCutService } from '../services/competition-cut.service';
+import type { CompetitionFinalizeService } from '../services/competition-finalize.service';
 import type { RoleService } from '../services/role.service';
 import type { CompetitionAuthz } from './competition-authz';
 
@@ -129,6 +131,8 @@ export function createCompetitionsApi(
     svc: CompetitionService,
     rounds: CompetitionRoundService,
     leaderboards: CompetitionLeaderboardService,
+    cuts: CompetitionCutService,
+    finalizes: CompetitionFinalizeService,
     roles: RoleService,
     authz: CompetitionAuthz,
 ) {
@@ -180,6 +184,19 @@ export function createCompetitionsApi(
             method: 'GET' as const,
             path: '/competitions/:id/leaderboard',
             fn: (input: Static<typeof ByIdInput>) => leaderboards.forCompetition(input.id),
+            schema: ByIdInput,
+        },
+        // The FROZEN Results view (Slice 4; spec §10 — a distinct query path
+        // from the live leaderboard). Open read; refuses `not_finalized` at
+        // 200 before finalization so a live board is never mistaken for
+        // official results. After finalization the leaderboard endpoint above
+        // keeps computing but carries `finalized: true` — clients should
+        // present THIS endpoint as the official numbers.
+        results: {
+            method: 'GET' as const,
+            path: '/competitions/:id/results',
+            fn: (input: Static<typeof ByIdInput>) =>
+                finalizes.resultsForCompetition(input.id),
             schema: ByIdInput,
         },
 
@@ -253,6 +270,43 @@ export function createCompetitionsApi(
                 });
             },
             schema: CreateRoundInput,
+            middleware: [requireAuth()],
+        },
+        // Apply the competition's STORED cut rule (Slice 4). The rule
+        // (afterRound/cutType/cutValue) is configuration set in draft/setup —
+        // this action only APPLIES it, so the §12 audit reads "who applied the
+        // configured cut, when", never apply-time parameters. Refusals
+        // (lifecycle, missing/invalid rule, already applied, unfinished
+        // rounds, invalid aggregation) come back humanized at 200.
+        applyCut: {
+            method: 'POST' as const,
+            path: '/competitions/:id/cut',
+            fn: async (input: Static<typeof ByIdInput>, c: Context) => {
+                const playerId = requireUser(c).id;
+                await authz.assertAdmin(input.id, playerId);
+                return cuts.applyCut({
+                    competitionId: input.id,
+                    appliedByPlayerId: playerId,
+                });
+            },
+            schema: ByIdInput,
+            middleware: [requireAuth()],
+        },
+        // Finalize (Slice 4): snapshot the aggregate into immutable
+        // competition_results + flip the lifecycle, atomically. The ONLY door
+        // to `finalized` (the generic transition refuses `finalize_reserved`).
+        finalize: {
+            method: 'POST' as const,
+            path: '/competitions/:id/finalize',
+            fn: async (input: Static<typeof ByIdInput>, c: Context) => {
+                const playerId = requireUser(c).id;
+                await authz.assertAdmin(input.id, playerId);
+                return finalizes.finalize({
+                    competitionId: input.id,
+                    finalizedByPlayerId: playerId,
+                });
+            },
+            schema: ByIdInput,
             middleware: [requireAuth()],
         },
         addParticipant: {

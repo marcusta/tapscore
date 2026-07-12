@@ -39,6 +39,7 @@ export interface Database {
     competition_rounds: CompetitionRoundsTable;
     competition_participants: CompetitionParticipantsTable;
     competition_results: CompetitionResultsTable;
+    competition_audit_events: CompetitionAuditEventsTable;
 }
 
 export type RoundType = 'full_18' | 'front_9' | 'back_9' | 'custom_holes';
@@ -576,7 +577,13 @@ export interface FriendlyRoundsTable {
 // real FKs in later phases (FK-target rule) — plain nullable TEXT for now.
 
 export type CompetitionLifecycle = 'draft' | 'setup' | 'active' | 'finalized';
-export type CompetitionScoringType = 'gross' | 'net';
+/**
+ * The folded ranked-metric id a `competition_results` row publishes ('gross',
+ * 'net', 'points', …). OPEN namespace since migration 038: format plugins are
+ * a pluggable axis and bring their own ranked-metric ids — a closed union here
+ * would make every new points-metric format a schema change.
+ */
+export type CompetitionScoringType = string;
 
 export interface CompetitionsTable {
     id: string;
@@ -644,6 +651,26 @@ export interface CompetitionResultsTable {
     /** §12 audit — nulls out if the admin is later deleted; snapshot stands. */
     finalized_by_player_id: string | null;
     finalized_at: string;
+}
+
+/** Which competition-level admin action an audit event records (spec §12).
+ *  Open by design (no DB CHECK) — Phase 10 surfacing may add actions. */
+export type CompetitionAuditAction = 'cut_applied' | 'finalized';
+
+// Append-only §12 event log for competition-level admin actions (migration
+// 038): who applied the cut / finalized, when, with what values. Payload is
+// service-boundary JSON, shaped per action; NEVER updated or deleted (rows
+// cascade only with their competition).
+export interface CompetitionAuditEventsTable {
+    id: string;
+    competition_id: string;
+    action: CompetitionAuditAction;
+    /** JSON: rule + per-participant cut list (`cut_applied`), or row count +
+     *  strategy provenance (`finalized`). */
+    payload_json: string;
+    /** SET NULL if the admin is later deleted; the event stands. */
+    recorded_by_player_id: string | null;
+    recorded_at: Generated<string>;
 }
 
 export interface PlayersTable {

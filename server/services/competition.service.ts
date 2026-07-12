@@ -12,6 +12,7 @@ import {
     defaultConfigProblems,
     type CompetitionDefaultConfig,
 } from './competition-config';
+import { cutRuleProblems } from './competition-cut-rules';
 import {
     aggregationCatalog,
     findAggregationStrategy,
@@ -91,6 +92,15 @@ export type CompetitionRefusalCode =
     | 'lifecycle_forbids_rounds'
     | 'missing_default_config'
     | 'empty_roster'
+    // Cut (Slice 4)
+    | 'lifecycle_forbids_cut'
+    | 'missing_cut_rules'
+    | 'invalid_cut_rules'
+    | 'cut_already_applied'
+    // Finalization (Slice 4)
+    | 'lifecycle_forbids_finalize'
+    | 'rounds_incomplete'
+    | 'not_finalized'
     // Roster integrity
     | 'already_participant'
     | 'unknown_player'
@@ -355,6 +365,20 @@ export class CompetitionService {
                 return refuse(
                     'invalid_aggregation',
                     `The aggregation configuration is not valid — ${problems}.`,
+                );
+            }
+        }
+
+        // Slice 4 — a provided (non-null) cut rule must be structurally valid
+        // (afterRound / cutType / cutValue — see competition-cut-rules.ts)
+        // BEFORE it persists, so `applyCut` always evaluates a well-formed
+        // rule. `null` still clears the field (no cut).
+        if (input.cutRules !== undefined && input.cutRules !== null) {
+            const problems = cutRuleProblems(input.cutRules);
+            if (problems.length > 0) {
+                return refuse(
+                    'invalid_cut_rules',
+                    `The cut rule is not valid — ${problems.join('; ')}.`,
                 );
             }
         }

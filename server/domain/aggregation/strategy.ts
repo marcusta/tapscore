@@ -167,6 +167,16 @@ export interface AggregationStrategy {
     validateConfig(config: unknown): ConfigDiagnostic[];
     /** PURE fold: per-round results + roster + config → the competition view. */
     aggregate(input: AggregateInput): CompetitionResultView;
+    /**
+     * The config variants to fold at FINALIZATION — one immutable result set
+     * per variant, keyed by the folded view's `metricId` (spec §5: gross and
+     * net rows publish independently, so stroke-metric strategies return a
+     * gross variant AND a net variant regardless of the configured metric;
+     * points-metric folds return just `[config]`). PURE, like `aggregate`.
+     * Lives on the strategy so no service branches on strategy ids (the
+     * architecture ratchet forbids them outside this module).
+     */
+    finalizationConfigs(config: unknown): unknown[];
 }
 
 // --- Descriptor validation (fail loud at registration) ------------------------

@@ -263,6 +263,21 @@ function asObject(config: unknown): Record<string, unknown> | null {
     return null;
 }
 
+/**
+ * Finalization variants for a stroke-metric config: the SAME config folded
+ * once with `metric: 'gross'` and once with `metric: 'net'` (spec §5 —
+ * "separate rows for gross and net allows publishing both leaderboards
+ * independently"). Used by `stroke_total` always, and by `best_n_of_m` when
+ * its metric is a stroke metric.
+ */
+function grossAndNetVariants(config: unknown): unknown[] {
+    const obj = asObject(config) ?? {};
+    return [
+        { ...obj, metric: 'gross' },
+        { ...obj, metric: 'net' },
+    ];
+}
+
 function notObjectDiagnostic(): ConfigDiagnostic {
     return {
         code: 'aggregation_config_not_object',
@@ -312,6 +327,8 @@ const strokeTotal: AggregationStrategy = {
             demotePartial: true,
         });
     },
+    // Stroke totals ALWAYS publish gross + net result sets at finalization.
+    finalizationConfigs: grossAndNetVariants,
 };
 
 // --- round_points_sum ------------------------------------------------------------------
@@ -353,6 +370,10 @@ const roundPointsSum: AggregationStrategy = {
             operator: { kind: 'sum' },
             demotePartial: false,
         });
+    },
+    // A points fold has no gross/net split — ONE result set, its metric's own.
+    finalizationConfigs(config): unknown[] {
+        return [config ?? {}];
     },
 };
 
@@ -413,6 +434,12 @@ const bestNOfM: AggregationStrategy = {
             operator: { kind: 'best_n', n },
             demotePartial: true,
         });
+    },
+    // Stroke-metric best-n publishes gross + net (spec §5, same n); a points
+    // best-n publishes one set.
+    finalizationConfigs(config): unknown[] {
+        const { metric } = readBestNConfig(config);
+        return metric === 'points' ? [config ?? {}] : grossAndNetVariants(config);
     },
 };
 

@@ -27,6 +27,7 @@ function stub(id: string): AggregationStrategy {
         aggregate: () => {
             throw new Error('stub');
         },
+        finalizationConfigs: (config) => [config ?? {}],
     };
 }
 

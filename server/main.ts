@@ -69,6 +69,8 @@ const {
     competitionService,
     competitionRoundService,
     competitionLeaderboardService,
+    competitionCutService,
+    competitionFinalizeService,
 } = services;
 
 // `sessions` is captured so self-serve registration can issue a session
@@ -103,6 +105,8 @@ mount(
         competitionService,
         competitionRoundService,
         competitionLeaderboardService,
+        competitionCutService,
+        competitionFinalizeService,
         roleService,
         new CompetitionAuthz(roleService, competitionService),
     ),

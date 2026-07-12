@@ -26,7 +26,7 @@ export interface Round {
     windowStart: null | string;
     windowEnd: null | string;
     selfOrganize: boolean;
-    status: 'not_started' | 'active' | 'complete';
+    status: 'active' | 'not_started' | 'complete';
     latestEventId: null | string;
     courseNameSnapshot: null | string;
     completedAt: null | string;

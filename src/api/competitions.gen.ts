@@ -29,7 +29,7 @@ export interface CompetitionParticipant {
 }
 
 export interface CompetitionRefusal {
-    code: 'illegal_transition' | 'finalize_reserved' | 'competition_finalized' | 'lifecycle_forbids_edit' | 'lifecycle_forbids_roster' | 'lifecycle_forbids_withdraw' | 'invalid_default_config' | 'invalid_aggregation' | 'lifecycle_forbids_rounds' | 'missing_default_config' | 'empty_roster' | 'already_participant' | 'unknown_player' | 'unknown_guest' | 'participant_not_found';
+    code: 'illegal_transition' | 'finalize_reserved' | 'competition_finalized' | 'lifecycle_forbids_edit' | 'lifecycle_forbids_roster' | 'lifecycle_forbids_withdraw' | 'invalid_default_config' | 'invalid_aggregation' | 'lifecycle_forbids_rounds' | 'missing_default_config' | 'empty_roster' | 'lifecycle_forbids_cut' | 'missing_cut_rules' | 'invalid_cut_rules' | 'cut_already_applied' | 'lifecycle_forbids_finalize' | 'rounds_incomplete' | 'not_finalized' | 'already_participant' | 'unknown_player' | 'unknown_guest' | 'participant_not_found';
     message: string;
 }
 
@@ -37,7 +37,15 @@ export interface CompetitionLeaderboard {
     competitionId: string;
     aggregation: CompetitionAggregation;
     defaulted: boolean;
+    finalized: boolean;
+    resultsFinalizedAt: null | string;
     view: CompetitionResultView;
+}
+
+export interface CompetitionResults {
+    competitionId: string;
+    finalizedAt: string;
+    resultSets: { scoringType: string; entries: CompetitionResultEntry[] }[];
 }
 
 export interface Competition {
@@ -97,6 +105,20 @@ export interface CompilerDiagnostic {
     allowedMax?: number;
 }
 
+export interface CutOutcome {
+    competitionId: string;
+    rule: { afterRound: number; cutType: 'top_n' | 'top_percent' | 'within_strokes'; cutValue: number };
+    metricId: string;
+    advanced: CutDecisionEntry[];
+    cut: CutDecisionEntry[];
+}
+
+export interface FinalizeOutcome {
+    competition: Competition;
+    scoringTypes: string[];
+    rowCount: number;
+}
+
 export interface CompetitionRoundListItem {
     id: string;
     competitionId: string;
@@ -126,6 +148,14 @@ export interface CompetitionResultView {
     operator: { kind: 'sum' } | { kind: 'best_n'; n: number };
     rounds: { roundNumber: number; postCut: boolean }[];
     entries: CompetitionRankedEntry[];
+}
+
+export interface CompetitionResultEntry {
+    participantId: string;
+    position: number;
+    points: number;
+    entry: CompetitionRankedEntry;
+    tiebreak: unknown;
 }
 
 export interface FormatSlot {
@@ -183,6 +213,14 @@ export interface RoundPlayingGroup {
     playedOrder: RoundGroupPlayedHole[];
 }
 
+export interface CutDecisionEntry {
+    participantId: string;
+    displayName: string;
+    position: number;
+    total: null | number;
+    reason?: 'rank' | 'withdrawn';
+}
+
 export interface CompetitionRankedEntry {
     participantId: string;
     displayName: string;
@@ -227,11 +265,14 @@ export interface CompetitionsApi {
     get(input: { id: string }): Promise<CompetitionDetail>;
     participants(input: { competitionId: string }): Promise<CompetitionParticipant[]>;
     leaderboard(input: { id: string }): Promise<{ ok: false; refusal: CompetitionRefusal } | { ok: true; value: CompetitionLeaderboard }>;
+    results(input: { id: string }): Promise<{ ok: false; refusal: CompetitionRefusal } | { ok: true; value: CompetitionResults }>;
     list(): Promise<Competition[]>;
     create(input: { name: string }): Promise<Competition>;
     update(input: { name?: string; defaultConfig?: unknown; aggregation?: null | { strategyId: string; config: unknown }; cutRules?: unknown; id: string }): Promise<{ ok: false; refusal: CompetitionRefusal } | { ok: true; value: Competition }>;
     transition(input: { id: string; to: 'draft' | 'setup' | 'active' | 'finalized' }): Promise<{ ok: false; refusal: CompetitionRefusal } | { ok: true; value: Competition }>;
     createRound(input: { roundType?: 'full_18' | 'front_9' | 'back_9' | 'custom_holes'; venueType?: 'outdoor' | 'indoor'; id: string; courseId: string; playedAt: string }): Promise<{ ok: true; competitionRound: CompetitionRound; round: Round; shareToken: string; draft: { route?: { playHoles?: { id?: string; parOverride?: number; baseStrokeIndexOverride?: number; teeOverrides?: { lengthM?: number; strokeIndexOverride?: number; teeId: string }[]; courseHoleNumber: number }[]; routeSi?: { sourceLabel?: string; sourceVersion?: string; allocationCycleSize?: number; mode: 'official' | 'difficulty' | 'custom' }; routeHandicapPolicy?: { postingIneligibleReason?: string; type: 'official_route' | 'full_course_casual' | 'prorated_casual' | 'explicit'; postingEligible: boolean }; routeSections?: { id: string; label: string; fromCanonicalOrdinal: number; toCanonicalOrdinal: number }[]; templateId?: string; playingGroups?: { id?: string; startPlayHoleDefId?: string; startOrdinal?: number; hittingBay?: string; startTime: string; capacity: number; producerDefIds: string[] }[] }; roundType?: 'full_18' | 'front_9' | 'back_9' | 'custom_holes'; venueType?: 'outdoor' | 'indoor'; playingGroups?: { startTime?: string; startHole?: number; members: string[] }[]; teams?: ({ label?: string; kind?: 'single_ball' | 'multi_ball'; formation?: string; id: string; members: ({ producerDefId: string; allowancePct: number } | { teamId: string })[] })[]; courseId: string; playedAt: string; producers: ({ gender?: 'M' | 'F'; category?: string; teeId: string; handicapIndex: number; producerDefId: string; playerRef: { id: string; kind: 'player' | 'guest' } })[]; formats: ({ id?: string; producerDefIds?: string[]; teams?: { label: string; producerDefIds: string[] }[]; allowanceConfig?: { type: 'flat'; pct: number } | { type: 'split'; bands: ({ pct: number; upToCh: null | number })[] }; formatConfig?: unknown; ballsFrom?: { ref: string }; subjects?: ({ producerDefId: string; kind: 'player' } | { kind: 'team'; teamId: string })[]; formatId: string })[] } } | { ok: false; refusal: CompetitionRefusal } | { ok: false; diagnostics: CompilerDiagnostic[] }>;
+    applyCut(input: { id: string }): Promise<{ ok: false; refusal: CompetitionRefusal } | { ok: true; value: CutOutcome }>;
+    finalize(input: { id: string }): Promise<{ ok: false; refusal: CompetitionRefusal } | { ok: true; value: FinalizeOutcome }>;
     addParticipant(input: { category?: null | string; playerId?: string; guestPlayerId?: string; competitionId: string }): Promise<{ ok: true; value: CompetitionParticipant } | { ok: false; refusal: { code: string; message: string } }>;
     removeParticipant(input: { participantId: string }): Promise<{ ok: false; refusal: CompetitionRefusal } | { ok: true; value: { removed: true } }>;
     withdrawParticipant(input: { participantId: string }): Promise<{ ok: false; refusal: CompetitionRefusal } | { ok: true; value: CompetitionParticipant }>;
@@ -261,6 +302,14 @@ export function createCompetitionsClient(baseUrl: string): CompetitionsApi {
             const qs = params.toString();
             return apiFetch({ method: 'GET', url: `${baseUrl}/competitions/${input.id}/leaderboard${qs ? '?' + qs : ''}` });
         },
+        async results(input) {
+            const pathParams = new Set(['id']);
+            const params = new URLSearchParams();
+            for (const [k, v] of Object.entries(input as any))
+                if (!pathParams.has(k) && v !== undefined) params.set(k, String(v));
+            const qs = params.toString();
+            return apiFetch({ method: 'GET', url: `${baseUrl}/competitions/${input.id}/results${qs ? '?' + qs : ''}` });
+        },
         async list() {
             return apiFetch({ method: 'GET', url: `${baseUrl}/competitions` });
         },
@@ -279,6 +328,20 @@ export function createCompetitionsClient(baseUrl: string): CompetitionsApi {
             for (const [k, v] of Object.entries(input as any))
                 if (!pathParams.has(k)) body[k] = v;
             return apiFetch({ method: 'POST', url: `${baseUrl}/competitions/${input.id}/rounds`, body });
+        },
+        async applyCut(input) {
+            const pathParams = new Set(['id']);
+            const body: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(input as any))
+                if (!pathParams.has(k)) body[k] = v;
+            return apiFetch({ method: 'POST', url: `${baseUrl}/competitions/${input.id}/cut`, body });
+        },
+        async finalize(input) {
+            const pathParams = new Set(['id']);
+            const body: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(input as any))
+                if (!pathParams.has(k)) body[k] = v;
+            return apiFetch({ method: 'POST', url: `${baseUrl}/competitions/${input.id}/finalize`, body });
         },
         async addParticipant(input) {
             return apiFetch({ method: 'POST', url: `${baseUrl}/competitions/participants/add`, body: input });

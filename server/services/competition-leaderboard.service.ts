@@ -21,8 +21,10 @@ import {
     type CompetitionResultView,
     type IdentityRef,
 } from '../domain/aggregation/strategy';
+import type { AggregationStrategy } from '../domain/aggregation/strategy';
 import type { CompetitionRoundService } from './competition-round.service';
 import type {
+    Competition,
     CompetitionAggregation,
     CompetitionRefusal,
     CompetitionResult,
@@ -37,7 +39,34 @@ export interface CompetitionLeaderboard {
     /** True when `aggregation_json` was null and the documented default
      * (total gross strokes, lowest wins) applied. */
     defaulted: boolean;
+    /**
+     * Slice 4 — true once the competition is finalized. The live board KEEPS
+     * computing after finalization (this endpoint's shape never changes under
+     * a client's feet); this flag tells clients the OFFICIAL numbers now live
+     * at `/competitions/:id/results` and this view is informational only.
+     */
+    finalized: boolean;
+    resultsFinalizedAt: string | null;
     view: CompetitionResultView;
+}
+
+/**
+ * Everything the pure `aggregate()` fold needs, assembled and validated once —
+ * shared by the live board (`forCompetition`), the cut (Slice 4 windows the
+ * `roundResults` to rounds ≤ afterRound), and finalization (folds per
+ * publication variant). Refusals: unknown competition, or a stored aggregation
+ * that no longer validates (`invalid_aggregation` — the documented blocker for
+ * cut + finalize).
+ */
+export interface PreparedAggregation {
+    competition: Competition;
+    aggregation: CompetitionAggregation;
+    /** True when the documented module default applied (no stored aggregation). */
+    defaulted: boolean;
+    strategy: AggregationStrategy;
+    roster: AggregationParticipant[];
+    /** ALL materialised rounds, in round-number order. */
+    roundResults: AggregationRoundInput[];
 }
 
 function refuse(
@@ -66,6 +95,39 @@ export class CompetitionLeaderboardService {
     async forCompetition(
         competitionId: string,
     ): Promise<CompetitionResult<CompetitionLeaderboard>> {
+        const prepared = await this.prepare(competitionId);
+        if (!prepared.ok) return prepared;
+        const { competition, aggregation, defaulted, strategy, roster, roundResults } =
+            prepared.value;
+
+        // --- The pure fold ----------------------------------------------------
+        const view = strategy.aggregate({
+            roundResults,
+            roster,
+            config: aggregation.config,
+        });
+        return {
+            ok: true,
+            value: {
+                competitionId,
+                aggregation,
+                defaulted,
+                finalized: competition.isResultsFinal,
+                resultsFinalizedAt: competition.resultsFinalizedAt,
+                view,
+            },
+        };
+    }
+
+    /**
+     * Assemble + validate everything a fold needs (see PreparedAggregation).
+     * The ONE producer of fold inputs — cut and finalize (Slice 4) consume this
+     * so the aggregation validation, roster join, and per-round result loading
+     * exist exactly once.
+     */
+    async prepare(
+        competitionId: string,
+    ): Promise<CompetitionResult<PreparedAggregation>> {
         const competition = await this.competitions.get(competitionId);
         if (!competition) return refuse('participant_not_found', 'Competition not found.');
 
@@ -117,19 +179,15 @@ export class CompetitionLeaderboardService {
             });
         }
 
-        // --- The pure fold ----------------------------------------------------
-        const view = strategy.aggregate({
-            roundResults,
-            roster,
-            config: aggregation.config,
-        });
         return {
             ok: true,
             value: {
-                competitionId,
+                competition,
                 aggregation,
                 defaulted: stored === null,
-                view,
+                strategy,
+                roster,
+                roundResults,
             },
         };
     }
