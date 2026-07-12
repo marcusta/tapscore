@@ -1066,7 +1066,7 @@ The compiler already accepts explicit `playingGroups[]` (start time, start play-
 
 **Gate:** create a 3-group round through the draft; switch groups on the score tab; leaderboard shows correct thru-N per group; polling updates a second client without reload. Mandatory stop + focused visual review. Commit `phase 3.5 complete: multi-group + live board`.
 
-**Status: AWAITING VISUAL VERIFY (2026-07-04).** Implemented: server `f7dc9bd` (result `?cursor=` riding `latest_event_id`, bumped by scores AND corrections/allowance/rulings/format-actions via `bumpResultCursor`; `POST /friendly-rounds/join` composing a new definition version through the shared correction tail, audit target `playing_group`, idempotent `client_event_id`), groups `f1e630f` (draft `playingGroups[]` + builder mapping w/ 5 diagnostics + create-flow section + round-view group pills + shotgun rotation browser-verified), round-view `e7d3be2` (visibility-gated 20s leaderboard polling w/ `shouldPoll` pure gate, join card w/ tee select + profile-gap diagnostics, group labels on ranked rows), joinability `67c817b` (whole-roster subjects emit the open selector — UI-created rounds joinable; semantic equivalence proven in-test), verification `cc54e41` (seeds `multi-group-tee-times`/`multi-group-shotgun`/`self-join-proof` + `scripts/render-phase3.5-verify.ts` → `tmp/formats/phase35-verify.html`). Gates: **629 server + 154 client tests**, fixture oracle 14 rounds identical.
+**Status: COMPLETE (2026-07-12).** Visual gate closed via a week of live on-course dogfood on top of the implemented surface (2026-07-04→07-12, no engine gaps surfaced) + regenerated `tmp/formats/phase35-verify.html`. Close-out gates: 3 typechecks clean, **725 server + 243 client tests, 0 fail**, fixture oracle 15 rounds identical. (Note: bare `bun test` also sweeps `vendor/basics-core` DOM-dependent framework tests that fail without a DOM — they are not part of this project's gate; run `bun test server/` and `bun test tests/ src/`.) Implemented: server `f7dc9bd` (result `?cursor=` riding `latest_event_id`, bumped by scores AND corrections/allowance/rulings/format-actions via `bumpResultCursor`; `POST /friendly-rounds/join` composing a new definition version through the shared correction tail, audit target `playing_group`, idempotent `client_event_id`), groups `f1e630f` (draft `playingGroups[]` + builder mapping w/ 5 diagnostics + create-flow section + round-view group pills + shotgun rotation browser-verified), round-view `e7d3be2` (visibility-gated 20s leaderboard polling w/ `shouldPoll` pure gate, join card w/ tee select + profile-gap diagnostics, group labels on ranked rows), joinability `67c817b` (whole-roster subjects emit the open selector — UI-created rounds joinable; semantic equivalence proven in-test), verification `cc54e41` (seeds `multi-group-tee-times`/`multi-group-shotgun`/`self-join-proof` + `scripts/render-phase3.5-verify.ts` → `tmp/formats/phase35-verify.html`). Gates: **629 server + 154 client tests**, fixture oracle 14 rounds identical.
 
 **Post-3.5 dogfood batch (2026-07-04/05, user-testing findings, all landed):**
 - `9fc2430` better-ball teams 2–10 (match-play better-ball generalized from pairwise to best-of-N) + humanized compiler diagnostics (structured fields on `CompilerDiagnostic`, client presenter re-buckets `slots[slot-N]` → format card N, plain-language messages).
@@ -1077,6 +1077,13 @@ The compiler already accepts explicit `playingGroups[]` (start time, start play-
 - `a4eab64` leaderboard group tags no longer truncate (name ellipsizes instead).
 
 Post-batch gates: **678 server + 184 client tests, 0 fail**, fixture oracle 15 rounds. Test-plan artifact updated (T6 group picker, new T10 edit-round).
+
+**Second dogfood batch (2026-07-05→07-12, user-testing findings, all landed):**
+- `6491a02` delete round from UI (transactional teardown, token-scoped) + stale-render test fix.
+- `f3623eb` landing my-rounds partitioned into ongoing/finished + finish/reopen actions + history + device-recent rounds.
+- `41132c3` remove-my-own-data from a round (auth self-scoped leave via the correction path; refuses when the player is in a shared ball).
+- `ae75c45` friends list: frecency default sort (played-with first) + subtitles + A-Z toggle.
+- `0a1dcc6` landing "you were added" new-round strip + Home-tab count badge (device seen-state).
 
 ---
 
