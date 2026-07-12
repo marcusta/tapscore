@@ -65,6 +65,7 @@ const {
     formatActionService,
     roleService,
     competitionService,
+    competitionRoundService,
 } = services;
 
 // `sessions` is captured so self-serve registration can issue a session
@@ -97,6 +98,7 @@ mount(
     '/api',
     createCompetitionsApi(
         competitionService,
+        competitionRoundService,
         roleService,
         new CompetitionAuthz(roleService, competitionService),
     ),

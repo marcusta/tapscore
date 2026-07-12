@@ -8,6 +8,10 @@ import type {
 } from '../db/schema';
 import type { PlayerService } from './player.service';
 import type { GuestPlayerService } from './guest-player.service';
+import {
+    defaultConfigProblems,
+    type CompetitionDefaultConfig,
+} from './competition-config';
 
 // --- Output types ---
 
@@ -22,8 +26,12 @@ export interface Competition {
     id: string;
     name: string;
     lifecycle: CompetitionLifecycle;
-    /** Parsed `default_config_json` (opaque until Slice 2 gives it a shape). */
-    defaultConfig: unknown | null;
+    /**
+     * Parsed `default_config_json` (Slice 2 shape — see competition-config.ts).
+     * The update path validates before persisting, so a stored config is
+     * structurally valid; materialisation still re-checks defensively.
+     */
+    defaultConfig: CompetitionDefaultConfig | null;
     aggregation: CompetitionAggregation | null;
     pointTemplateId: string | null;
     /** Parsed `cut_rules_json` (opaque until Slice 4). */
@@ -69,6 +77,12 @@ export type CompetitionRefusalCode =
     | 'lifecycle_forbids_edit'
     | 'lifecycle_forbids_roster'
     | 'lifecycle_forbids_withdraw'
+    // Config validation (Slice 2)
+    | 'invalid_default_config'
+    // Round materialisation gates (Slice 2)
+    | 'lifecycle_forbids_rounds'
+    | 'missing_default_config'
+    | 'empty_roster'
     // Roster integrity
     | 'already_participant'
     | 'unknown_player'
@@ -127,7 +141,9 @@ function toCompetition(row: CompetitionRow): Competition {
         id: row.id,
         name: row.name,
         lifecycle: row.lifecycle,
-        defaultConfig: parseJson(row.default_config_json),
+        defaultConfig: parseJson(
+            row.default_config_json,
+        ) as CompetitionDefaultConfig | null,
         aggregation: row.aggregation_json
             ? (JSON.parse(row.aggregation_json) as CompetitionAggregation)
             : null,
@@ -293,6 +309,19 @@ export class CompetitionService {
         if (!current) return refuse('participant_not_found', 'Competition not found.');
         const gate = this.gateConfigEdit(current.lifecycle);
         if (gate) return gate;
+
+        // Slice 2 — a provided (non-null) default config must be structurally
+        // valid BEFORE it persists, so round materialisation always copies from
+        // a well-formed document. `null` still clears the field.
+        if (input.defaultConfig !== undefined && input.defaultConfig !== null) {
+            const problems = defaultConfigProblems(input.defaultConfig);
+            if (problems.length > 0) {
+                return refuse(
+                    'invalid_default_config',
+                    `The default round configuration is not valid — ${problems.join('; ')}.`,
+                );
+            }
+        }
 
         const patch: Partial<{
             name: string;

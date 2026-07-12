@@ -6,6 +6,10 @@ import type {
     CompetitionService,
     PlayerRef,
 } from '../services/competition.service';
+import type {
+    CompetitionRoundService,
+    CompetitionRoundSummary,
+} from '../services/competition-round.service';
 import type { RoleService } from '../services/role.service';
 import type { CompetitionAuthz } from './competition-authz';
 
@@ -30,6 +34,26 @@ const UpdateInput = Type.Object({
         ]),
     ),
     cutRules: Type.Optional(Type.Union([Type.Unknown(), Type.Null()])),
+});
+
+// Materialise round N (Slice 2). `id` rides the path (`/competitions/:id/rounds`);
+// mount merges params into the body input. Course + date are PER ROUND — the
+// defaults carry slots/tees/start-list, not where or when.
+const CreateRoundInput = Type.Object({
+    id: Type.String(),
+    courseId: Type.String({ minLength: 1 }),
+    playedAt: Type.String({ minLength: 1 }),
+    roundType: Type.Optional(
+        Type.Union([
+            Type.Literal('full_18'),
+            Type.Literal('front_9'),
+            Type.Literal('back_9'),
+            Type.Literal('custom_holes'),
+        ]),
+    ),
+    venueType: Type.Optional(
+        Type.Union([Type.Literal('outdoor'), Type.Literal('indoor')]),
+    ),
 });
 
 const LIFECYCLE = Type.Union([
@@ -62,6 +86,34 @@ async function getOr404(svc: CompetitionService, id: string): Promise<Competitio
     return found;
 }
 
+/** Session identity when one accompanied the request; null otherwise. Same
+ *  opportunistic-read convention as the friendly-rounds front door. */
+function optionalUserId(c: Context): string | null {
+    return c.get('user')?.id ?? null;
+}
+
+/** One round in the detail read. `shareToken` — the round's token front door —
+ *  is included ONLY for admin readers (the read itself stays open). */
+export interface CompetitionRoundListItem {
+    id: string;
+    competitionId: string;
+    roundId: string;
+    roundNumber: number;
+    cutEligible: boolean;
+    postCut: boolean;
+    createdAt: string;
+    status: CompetitionRoundSummary['status'];
+    completedAt: string | null;
+    date: string;
+    courseNameSnapshot: string | null;
+    shareToken?: string;
+}
+
+/** The detail read: competition + its rounds — the client page's ONE fetch. */
+export interface CompetitionDetail extends Competition {
+    rounds: CompetitionRoundListItem[];
+}
+
 function toPlayerRef(input: Static<typeof AddParticipantInput>): PlayerRef | null {
     const hasPlayer = input.playerId !== undefined;
     const hasGuest = input.guestPlayerId !== undefined;
@@ -74,15 +126,39 @@ function toPlayerRef(input: Static<typeof AddParticipantInput>): PlayerRef | nul
 
 export function createCompetitionsApi(
     svc: CompetitionService,
+    rounds: CompetitionRoundService,
     roles: RoleService,
     authz: CompetitionAuthz,
 ) {
+    /** Non-throwing admin check for the open detail read (assertAdmin is the
+     *  mutation gate and throws; a read must not 403 — it just omits tokens). */
+    async function isAdmin(competition: Competition, c: Context): Promise<boolean> {
+        const playerId = optionalUserId(c);
+        if (playerId === null) return false;
+        if (competition.ownerPlayerId === playerId) return true;
+        return roles.hasRole(playerId, 'competition_admin', 'competition', competition.id);
+    }
+
     return {
         // --- Reads (open) ---
         get: {
             method: 'GET' as const,
             path: '/competitions/get',
-            fn: (input: Static<typeof ByIdInput>) => getOr404(svc, input.id),
+            fn: async (
+                input: Static<typeof ByIdInput>,
+                c: Context,
+            ): Promise<CompetitionDetail> => {
+                const competition = await getOr404(svc, input.id);
+                const admin = await isAdmin(competition, c);
+                const roundRows = await rounds.listForCompetition(input.id);
+                return {
+                    ...competition,
+                    rounds: roundRows.map(({ shareToken, ...rest }) => ({
+                        ...rest,
+                        ...(admin && shareToken !== null ? { shareToken } : {}),
+                    })),
+                };
+            },
             schema: ByIdInput,
         },
         participants: {
@@ -141,6 +217,28 @@ export function createCompetitionsApi(
                 return svc.transition(input.id, input.to);
             },
             schema: TransitionInput,
+            middleware: [requireAuth()],
+        },
+        // Materialise round N from the competition defaults (Slice 2): copies
+        // slots/category-tees/start-list into a fresh RoundSetupDraft, mints
+        // the round through the existing create machinery, and wraps it 1:1 in
+        // `competition_rounds`. Allowed in setup + active (see service doc).
+        createRound: {
+            method: 'POST' as const,
+            path: '/competitions/:id/rounds',
+            fn: async (input: Static<typeof CreateRoundInput>, c: Context) => {
+                const playerId = requireUser(c).id;
+                await authz.assertAdmin(input.id, playerId);
+                return rounds.materialise({
+                    competitionId: input.id,
+                    courseId: input.courseId,
+                    playedAt: input.playedAt,
+                    ...(input.roundType ? { roundType: input.roundType } : {}),
+                    ...(input.venueType ? { venueType: input.venueType } : {}),
+                    createdByPlayerId: playerId,
+                });
+            },
+            schema: CreateRoundInput,
             middleware: [requireAuth()],
         },
         addParticipant: {

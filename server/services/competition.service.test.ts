@@ -93,7 +93,8 @@ test('update patches only provided config fields and round-trips JSON', async ()
     const res = await ctx.competitionService.update({
         id: comp.id,
         name: 'Renamed Cup',
-        defaultConfig: { slots: ['stableford'], startListMode: 'open_window' },
+        // Slice 2: no longer opaque — must be a valid CompetitionDefaultConfig.
+        defaultConfig: { slots: [{ formatId: 'stableford_individual' }], startList: 'single_group' },
         aggregation: { strategyId: 'stroke_total', config: {} },
         cutRules: { cutType: 'top_n', afterRound: 1, cutValue: 10 },
     });
@@ -101,8 +102,8 @@ test('update patches only provided config fields and round-trips JSON', async ()
     if (!res.ok) return;
     expect(res.value.name).toBe('Renamed Cup');
     expect(res.value.defaultConfig).toEqual({
-        slots: ['stableford'],
-        startListMode: 'open_window',
+        slots: [{ formatId: 'stableford_individual' }],
+        startList: 'single_group',
     });
     expect(res.value.aggregation).toEqual({ strategyId: 'stroke_total', config: {} });
     expect(res.value.cutRules).toEqual({ cutType: 'top_n', afterRound: 1, cutValue: 10 });

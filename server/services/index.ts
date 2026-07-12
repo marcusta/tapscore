@@ -22,6 +22,7 @@ import { RoundEditService } from './round-edit.service';
 import { GuestClaimService } from './guest-claim.service';
 import { FriendService } from './friend.service';
 import { CompetitionService } from './competition.service';
+import { CompetitionRoundService } from './competition-round.service';
 import type { CompilerTeeContext, Gender } from '../domain/compiler/types';
 
 /**
@@ -142,6 +143,15 @@ export function createServices(db: Kysely<Database>) {
         playerService,
         guestPlayerService,
     );
+    // Materialises competition rounds THROUGH the friendly create machinery
+    // (same compile-or-diagnose path + token front door); see the service doc.
+    const competitionRoundService = new CompetitionRoundService(
+        db,
+        competitionService,
+        friendlyRoundService,
+        playerService,
+        guestPlayerService,
+    );
     return {
         db,
         playerService,
@@ -166,5 +176,6 @@ export function createServices(db: Kysely<Database>) {
         roundEditService,
         guestClaimService,
         competitionService,
+        competitionRoundService,
     };
 }

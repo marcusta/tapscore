@@ -154,11 +154,30 @@ export class FriendlyRoundService {
      * for a summary view. No auth — the landing page is the no-login front door.
      * Ordered by insertion (`rowid`) rather than `created_at`, which is only
      * second-resolution and would tie for rounds minted in the same second.
+     *
+     * Competition rounds are EXCLUDED (Phase 4 Slice 2): they ride the same
+     * friendly wrapper for their token front door (so the existing round
+     * UI/endpoints open them unchanged), but this open list returns share
+     * tokens — a competition round's token must only travel via the
+     * admin-gated competition detail read, not the public landing.
      */
     async list(): Promise<Array<{ friendlyRound: FriendlyRound; round: Round }>> {
         const rows = await this.db
             .selectFrom('friendly_rounds')
             .selectAll()
+            .where(({ not, exists, selectFrom }) =>
+                not(
+                    exists(
+                        selectFrom('competition_rounds')
+                            .select('competition_rounds.id')
+                            .whereRef(
+                                'competition_rounds.round_id',
+                                '=',
+                                'friendly_rounds.round_id',
+                            ),
+                    ),
+                ),
+            )
             .orderBy(sql`rowid`, 'desc')
             .execute();
         const out: Array<{ friendlyRound: FriendlyRound; round: Round }> = [];

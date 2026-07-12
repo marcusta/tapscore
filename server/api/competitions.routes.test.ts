@@ -15,6 +15,7 @@ async function setup(): Promise<RouteTestContext> {
         '/api',
         createCompetitionsApi(
             ctx.competitionService,
+            ctx.competitionRoundService,
             ctx.roleService,
             new CompetitionAuthz(ctx.roleService, ctx.competitionService),
         ),
