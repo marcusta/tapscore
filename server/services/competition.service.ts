@@ -12,11 +12,17 @@ import {
     defaultConfigProblems,
     type CompetitionDefaultConfig,
 } from './competition-config';
+import {
+    aggregationCatalog,
+    findAggregationStrategy,
+    hasAggregationStrategy,
+} from '../domain/aggregation/strategy';
 
 // --- Output types ---
 
-/** `{ strategyId, config }` — the leaderboard fold descriptor (Slice 3 registry
- *  validates it; here it is opaque, round-tripped as-is). */
+/** `{ strategyId, config }` — the leaderboard fold descriptor. Slice 3: the
+ *  update path validates it against the aggregation registry before it
+ *  persists (unknown strategy / bad config refuse `invalid_aggregation`). */
 export interface CompetitionAggregation {
     strategyId: string;
     config: unknown;
@@ -79,6 +85,8 @@ export type CompetitionRefusalCode =
     | 'lifecycle_forbids_withdraw'
     // Config validation (Slice 2)
     | 'invalid_default_config'
+    // Aggregation validation (Slice 3)
+    | 'invalid_aggregation'
     // Round materialisation gates (Slice 2)
     | 'lifecycle_forbids_rounds'
     | 'missing_default_config'
@@ -319,6 +327,34 @@ export class CompetitionService {
                 return refuse(
                     'invalid_default_config',
                     `The default round configuration is not valid — ${problems.join('; ')}.`,
+                );
+            }
+        }
+
+        // Slice 3 — a provided (non-null) aggregation must name a registered
+        // strategy and pass that strategy's own `validateConfig` BEFORE it
+        // persists, so the leaderboard always folds through a valid config.
+        // `null` still clears the field (the leaderboard then applies the
+        // documented default). Diagnostics are humanized compiler-style.
+        if (input.aggregation !== undefined && input.aggregation !== null) {
+            const { strategyId, config } = input.aggregation;
+            if (!hasAggregationStrategy(strategyId)) {
+                const known = aggregationCatalog()
+                    .map((d) => d.id)
+                    .join(', ');
+                return refuse(
+                    'invalid_aggregation',
+                    `Unknown aggregation strategy '${strategyId}' — available: ${known}.`,
+                );
+            }
+            const diagnostics = findAggregationStrategy(strategyId).validateConfig(config);
+            if (diagnostics.length > 0) {
+                const problems = diagnostics
+                    .map((d) => (d.path ? `${d.path}: ${d.message}` : d.message))
+                    .join('; ');
+                return refuse(
+                    'invalid_aggregation',
+                    `The aggregation configuration is not valid — ${problems}.`,
                 );
             }
         }

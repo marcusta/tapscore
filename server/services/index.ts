@@ -23,6 +23,7 @@ import { GuestClaimService } from './guest-claim.service';
 import { FriendService } from './friend.service';
 import { CompetitionService } from './competition.service';
 import { CompetitionRoundService } from './competition-round.service';
+import { CompetitionLeaderboardService } from './competition-leaderboard.service';
 import type { CompilerTeeContext, Gender } from '../domain/compiler/types';
 
 /**
@@ -152,6 +153,14 @@ export function createServices(db: Kysely<Database>) {
         playerService,
         guestPlayerService,
     );
+    // The live aggregated competition board: loads rounds + roster + per-round
+    // RoundResults and folds through the registered AggregationStrategy.
+    const competitionLeaderboardService = new CompetitionLeaderboardService(
+        db,
+        competitionService,
+        competitionRoundService,
+        leaderboardService,
+    );
     return {
         db,
         playerService,
@@ -177,5 +186,6 @@ export function createServices(db: Kysely<Database>) {
         guestClaimService,
         competitionService,
         competitionRoundService,
+        competitionLeaderboardService,
     };
 }

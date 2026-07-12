@@ -31,11 +31,13 @@ import { CompetitionAuthz } from './api/competition-authz';
 import { seedDev } from './db/seeds/dev';
 import { registerBuiltInBallCreationStrategies } from './domain/strategies/ball-creation';
 import { registerBuiltInFormats } from './domain/formats';
+import { registerBuiltInAggregationStrategies } from './domain/aggregation';
 
 // --- Composition root ---
 
 registerBuiltInBallCreationStrategies();
 registerBuiltInFormats();
+registerBuiltInAggregationStrategies();
 
 const { app, db, bootstrapAuth } = await createApp<Database>(
     path.join(import.meta.dir, 'db/migrations'),
@@ -66,6 +68,7 @@ const {
     roleService,
     competitionService,
     competitionRoundService,
+    competitionLeaderboardService,
 } = services;
 
 // `sessions` is captured so self-serve registration can issue a session
@@ -99,6 +102,7 @@ mount(
     createCompetitionsApi(
         competitionService,
         competitionRoundService,
+        competitionLeaderboardService,
         roleService,
         new CompetitionAuthz(roleService, competitionService),
     ),

@@ -12,6 +12,7 @@ import { mount } from '@basics/core/server/mount';
 import { setupRoutes, req, loginAs, type RouteTestContext } from '../testing/routes';
 import { registerBuiltInBallCreationStrategies } from '../domain/strategies/ball-creation';
 import { registerBuiltInFormats } from '../domain/formats';
+import { registerBuiltInAggregationStrategies } from '../domain/aggregation';
 import { createCompetitionsApi } from './competitions.api';
 import { createFriendlyRoundsApi } from './friendly-rounds.api';
 import { CompetitionAuthz } from './competition-authz';
@@ -19,6 +20,7 @@ import { CompetitionAuthz } from './competition-authz';
 beforeEach(() => {
     registerBuiltInBallCreationStrategies();
     registerBuiltInFormats();
+    registerBuiltInAggregationStrategies();
 });
 
 async function setup() {
@@ -29,6 +31,7 @@ async function setup() {
         createCompetitionsApi(
             ctx.competitionService,
             ctx.competitionRoundService,
+            ctx.competitionLeaderboardService,
             ctx.roleService,
             new CompetitionAuthz(ctx.roleService, ctx.competitionService),
         ),
@@ -215,4 +218,70 @@ test('a materialised round is scored + setup-edited through the EXISTING friendl
     // The competition round stays off the public friendly landing list.
     const landing = await (await req(ctx.app, 'GET', '/api/friendly-rounds')).json();
     expect(landing.map((e: { round: { id: string } }) => e.round.id)).not.toContain(created.round.id);
+});
+
+// --- Slice 3: GET /competitions/:id/leaderboard ---------------------------------
+
+test('GET /competitions/:id/leaderboard is an open read returning the aggregated view', async () => {
+    const ctx = await setup();
+    const { comp, course } = await seedCompetition(ctx);
+    // Points fold over the stableford defaults.
+    const agg = await ctx.competitionService.update({
+        id: comp.id,
+        aggregation: { strategyId: 'round_points_sum', config: {} },
+    });
+    expect(agg.ok).toBe(true);
+    await ctx.competitionService.transition(comp.id, 'setup');
+    const cookie = await loginAs(ctx.app, 'owner', 'password123');
+    const created = await (
+        await req(ctx.app, 'POST', `/api/competitions/${comp.id}/rounds`, materialiseBody(course.id), cookie)
+    ).json();
+    expect(created.ok).toBe(true);
+    const token = created.shareToken as string;
+
+    // One score through the existing token-scoped path.
+    const balls = await (await req(ctx.app, 'GET', `/api/friendly-rounds/balls?token=${token}`)).json();
+    const scored = await req(ctx.app, 'POST', '/api/friendly-rounds/score', {
+        token,
+        ballId: balls[0].id,
+        playHoleId: created.round.playingGroups[0].playedOrder[0].playHoleId,
+        strokes: 4,
+        eventType: 'score_entered',
+        clientEventId: 'route-comp-lb-score-1',
+    });
+    expect(scored.status).toBe(200);
+
+    // The competition cell must echo the ROUND result's ranked points total —
+    // the fold reads the engine's output verbatim, it never re-derives.
+    const roundResult = await ctx.leaderboardService.resultForRound(created.round.id);
+    const pointsSection = roundResult.slots[0]!.leaderboard.find(
+        (s) => s.kind === 'ranked' && s.metricId === 'points',
+    );
+    if (!pointsSection || pointsSection.kind !== 'ranked') throw new Error('no points section');
+    const scoredEntry = pointsSection.entries.find((e) => e.ballIds.includes(balls[0].id));
+    expect(scoredEntry).toBeDefined();
+
+    // ANONYMOUS read — the leaderboard is open like the other competition reads.
+    const res = await req(ctx.app, 'GET', `/api/competitions/${comp.id}/leaderboard`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.value.defaulted).toBe(false);
+    expect(body.value.view.kind).toBe('competition_ranked');
+    expect(body.value.view.strategyId).toBe('round_points_sum');
+    expect(body.value.view.metricId).toBe('points');
+    expect(body.value.view.rounds).toEqual([{ roundNumber: 1, postCut: false }]);
+    expect(body.value.view.entries).toHaveLength(2);
+    const counted = body.value.view.entries.find(
+        (e: { rounds: { status: string }[] }) => e.rounds[0]!.status === 'counted',
+    );
+    expect(counted).toBeDefined();
+    expect(counted.rounds[0].value).toBe(scoredEntry!.total);
+    expect(counted.total).toBe(scoredEntry!.total);
+    expect(counted.position).toBe(1);
+
+    // Unknown competition → humanized refusal at 200, same as sibling reads.
+    const missing = await (await req(ctx.app, 'GET', '/api/competitions/nope/leaderboard')).json();
+    expect(missing.ok).toBe(false);
+    expect(missing.refusal.code).toBe('participant_not_found');
 });

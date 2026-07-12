@@ -3,9 +3,15 @@
 // guest, display-name snapshot, lifecycle-gated). Authorization lives at the
 // API layer (competitions.routes.test.ts), not here.
 
-import { test, expect } from 'bun:test';
+import { test, expect, beforeEach } from 'bun:test';
 import { createTestDb, type TestContext } from '../testing/db';
+import { registerBuiltInAggregationStrategies } from '../domain/aggregation';
 import type { CompetitionLifecycle } from '../db/schema';
+
+// Slice 3: `update()` validates a provided aggregation against the registry.
+beforeEach(() => {
+    registerBuiltInAggregationStrategies();
+});
 
 async function owner(ctx: TestContext, username = 'owner'): Promise<string> {
     const p = await ctx.playerService.register({
@@ -107,6 +113,55 @@ test('update patches only provided config fields and round-trips JSON', async ()
     });
     expect(res.value.aggregation).toEqual({ strategyId: 'stroke_total', config: {} });
     expect(res.value.cutRules).toEqual({ cutType: 'top_n', afterRound: 1, cutValue: 10 });
+});
+
+// --- Aggregation validation on the write path (Slice 3) ---
+
+test('update refuses an unknown aggregation strategy, humanized', async () => {
+    const ctx = await createTestDb();
+    const { comp } = await draftCompetition(ctx);
+    const res = await ctx.competitionService.update({
+        id: comp.id,
+        aggregation: { strategyId: 'nope', config: {} },
+    });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.refusal.code).toBe('invalid_aggregation');
+    expect(res.refusal.message).toContain("Unknown aggregation strategy 'nope'");
+    expect(res.refusal.message).toContain('stroke_total');
+});
+
+test('update refuses an aggregation config the strategy rejects, humanized diagnostics', async () => {
+    const ctx = await createTestDb();
+    const { comp } = await draftCompetition(ctx);
+    // best_n_of_m requires n.
+    const res = await ctx.competitionService.update({
+        id: comp.id,
+        aggregation: { strategyId: 'best_n_of_m', config: {} },
+    });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.refusal.code).toBe('invalid_aggregation');
+    expect(res.refusal.message).toContain('n: n is required');
+});
+
+test('update accepts a valid aggregation and null still clears it', async () => {
+    const ctx = await createTestDb();
+    const { comp } = await draftCompetition(ctx);
+    const set = await ctx.competitionService.update({
+        id: comp.id,
+        aggregation: { strategyId: 'best_n_of_m', config: { n: 2, metric: 'points' } },
+    });
+    expect(set.ok).toBe(true);
+    if (!set.ok) return;
+    expect(set.value.aggregation).toEqual({
+        strategyId: 'best_n_of_m',
+        config: { n: 2, metric: 'points' },
+    });
+    const cleared = await ctx.competitionService.update({ id: comp.id, aggregation: null });
+    expect(cleared.ok).toBe(true);
+    if (!cleared.ok) return;
+    expect(cleared.value.aggregation).toBeNull();
 });
 
 test('update is allowed in setup but refused once active or finalized', async () => {

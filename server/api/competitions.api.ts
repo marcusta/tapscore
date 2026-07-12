@@ -10,6 +10,7 @@ import type {
     CompetitionRoundService,
     CompetitionRoundSummary,
 } from '../services/competition-round.service';
+import type { CompetitionLeaderboardService } from '../services/competition-leaderboard.service';
 import type { RoleService } from '../services/role.service';
 import type { CompetitionAuthz } from './competition-authz';
 
@@ -127,6 +128,7 @@ function toPlayerRef(input: Static<typeof AddParticipantInput>): PlayerRef | nul
 export function createCompetitionsApi(
     svc: CompetitionService,
     rounds: CompetitionRoundService,
+    leaderboards: CompetitionLeaderboardService,
     roles: RoleService,
     authz: CompetitionAuthz,
 ) {
@@ -167,6 +169,18 @@ export function createCompetitionsApi(
             fn: (input: Static<typeof ByCompetitionInput>) =>
                 svc.listParticipants(input.competitionId),
             schema: ByCompetitionInput,
+        },
+        // The LIVE aggregated board (Slice 3): per-round RoundResults folded
+        // through the competition's registered AggregationStrategy (or the
+        // documented stroke-total-gross default when none is configured).
+        // Open read, like the other competition reads; domain problems (unknown
+        // competition, stale stored aggregation) come back as humanized
+        // refusals at 200, same as every other competition outcome.
+        leaderboard: {
+            method: 'GET' as const,
+            path: '/competitions/:id/leaderboard',
+            fn: (input: Static<typeof ByIdInput>) => leaderboards.forCompetition(input.id),
+            schema: ByIdInput,
         },
 
         // --- Caller-scoped list (auth) ---

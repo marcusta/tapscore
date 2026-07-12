@@ -28,6 +28,18 @@ export interface CompetitionParticipant {
     createdAt: string;
 }
 
+export interface CompetitionRefusal {
+    code: 'illegal_transition' | 'finalize_reserved' | 'competition_finalized' | 'lifecycle_forbids_edit' | 'lifecycle_forbids_roster' | 'lifecycle_forbids_withdraw' | 'invalid_default_config' | 'invalid_aggregation' | 'lifecycle_forbids_rounds' | 'missing_default_config' | 'empty_roster' | 'already_participant' | 'unknown_player' | 'unknown_guest' | 'participant_not_found';
+    message: string;
+}
+
+export interface CompetitionLeaderboard {
+    competitionId: string;
+    aggregation: CompetitionAggregation;
+    defaulted: boolean;
+    view: CompetitionResultView;
+}
+
 export interface Competition {
     id: string;
     name: string;
@@ -40,11 +52,6 @@ export interface Competition {
     resultsFinalizedAt: null | string;
     ownerPlayerId: string;
     createdAt: string;
-}
-
-export interface CompetitionRefusal {
-    code: 'illegal_transition' | 'finalize_reserved' | 'competition_finalized' | 'lifecycle_forbids_edit' | 'lifecycle_forbids_roster' | 'lifecycle_forbids_withdraw' | 'invalid_default_config' | 'lifecycle_forbids_rounds' | 'missing_default_config' | 'empty_roster' | 'already_participant' | 'unknown_player' | 'unknown_guest' | 'participant_not_found';
-    message: string;
 }
 
 export interface CompetitionRound {
@@ -110,6 +117,17 @@ export interface CompetitionAggregation {
     config: unknown;
 }
 
+export interface CompetitionResultView {
+    kind: 'competition_ranked';
+    strategyId: string;
+    metricId: string;
+    metricLabel: string;
+    direction: 'high' | 'low';
+    operator: { kind: 'sum' } | { kind: 'best_n'; n: number };
+    rounds: { roundNumber: number; postCut: boolean }[];
+    entries: CompetitionRankedEntry[];
+}
+
 export interface FormatSlot {
     slotIndex: number;
     slotDefId: string;
@@ -165,6 +183,20 @@ export interface RoundPlayingGroup {
     playedOrder: RoundGroupPlayedHole[];
 }
 
+export interface CompetitionRankedEntry {
+    participantId: string;
+    displayName: string;
+    category: null | string;
+    playerRef: IdentityRef;
+    rounds: CompetitionRoundCell[];
+    total: null | number;
+    roundsCounted: number;
+    position: number;
+    withdrawn: boolean;
+    cutAfterRound: null | number;
+    incomplete: boolean;
+}
+
 export interface RoundPlayHoleTee {
     teeRef: string;
     teeName: string;
@@ -179,9 +211,22 @@ export interface RoundGroupPlayedHole {
     groupRelativeOrder: number;
 }
 
+export interface IdentityRef {
+    kind: 'player' | 'guest';
+    id: string;
+}
+
+export interface CompetitionRoundCell {
+    roundNumber: number;
+    value: null | number;
+    included: boolean;
+    status: 'counted' | 'dropped' | 'missing' | 'cut';
+}
+
 export interface CompetitionsApi {
     get(input: { id: string }): Promise<CompetitionDetail>;
     participants(input: { competitionId: string }): Promise<CompetitionParticipant[]>;
+    leaderboard(input: { id: string }): Promise<{ ok: false; refusal: CompetitionRefusal } | { ok: true; value: CompetitionLeaderboard }>;
     list(): Promise<Competition[]>;
     create(input: { name: string }): Promise<Competition>;
     update(input: { name?: string; defaultConfig?: unknown; aggregation?: null | { strategyId: string; config: unknown }; cutRules?: unknown; id: string }): Promise<{ ok: false; refusal: CompetitionRefusal } | { ok: true; value: Competition }>;
@@ -207,6 +252,14 @@ export function createCompetitionsClient(baseUrl: string): CompetitionsApi {
                 if (v !== undefined) params.set(k, String(v));
             const qs = params.toString();
             return apiFetch({ method: 'GET', url: `${baseUrl}/competitions/participants${qs ? '?' + qs : ''}` });
+        },
+        async leaderboard(input) {
+            const pathParams = new Set(['id']);
+            const params = new URLSearchParams();
+            for (const [k, v] of Object.entries(input as any))
+                if (!pathParams.has(k) && v !== undefined) params.set(k, String(v));
+            const qs = params.toString();
+            return apiFetch({ method: 'GET', url: `${baseUrl}/competitions/${input.id}/leaderboard${qs ? '?' + qs : ''}` });
         },
         async list() {
             return apiFetch({ method: 'GET', url: `${baseUrl}/competitions` });
