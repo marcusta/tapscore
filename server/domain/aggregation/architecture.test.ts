@@ -38,10 +38,16 @@ const REGISTRY_DIR = 'server/domain/aggregation/';
 
 /**
  * Files OUTSIDE the registry module permitted to carry a built-in aggregation
- * id as pure config DATA (seeds). Terminal state today: EMPTY. Additions must
- * be data-only — id branching stays forbidden everywhere.
+ * id as pure config DATA (seeds). Additions must be data-only — id branching
+ * stays forbidden everywhere.
  */
-const ALLOWED_AGGREGATION_ID_DATA = new Set<string>([]);
+const ALLOWED_AGGREGATION_ID_DATA = new Set<string>([
+    // Phase 4 Slice 6 verify-seed: writes `{ strategyId: 'round_points_sum' }`
+    // as the competition's aggregation config (pure data passed to update()),
+    // never branches on it. The stroke seeds rely on the null-config default,
+    // so they carry no id literal and need no entry here.
+    'scripts/seeds/competition-round-points.ts',
+]);
 
 interface SourceFile {
     rel: string;
