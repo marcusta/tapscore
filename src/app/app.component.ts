@@ -8,6 +8,8 @@ import { CreateComponent } from '../create/create.component';
 import { LoginComponent } from '../auth/login.component';
 import { FriendsComponent } from '../friends/friends.component';
 import { ProfileComponent } from '../profile/profile.component';
+import { CompetitionsComponent } from '../competition/competitions.component';
+import { CompetitionDetailComponent } from '../competition/competition-detail.component';
 
 const tpl = template(`
     <div class="app-shell">
@@ -48,6 +50,8 @@ export class AppComponent extends Component {
             '/login': LoginComponent,
             '/friends': FriendsComponent,
             '/profile': ProfileComponent,
+            '/competitions': CompetitionsComponent,
+            '/competition': CompetitionDetailComponent,
         }, LandingComponent);
 
         return frag;

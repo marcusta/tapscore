@@ -147,6 +147,24 @@ export interface AggregationLabels {
 }
 
 /**
+ * One admin-config field, declared as pure DATA so the client renders the
+ * aggregation config editor generically — WITHOUT branching on a strategy id
+ * (the architecture ratchet forbids id literals outside this module, so the
+ * editor cannot special-case `stroke_total` etc.; it reads these fields
+ * instead). A `select` field yields `config[key] = <option value>`; an
+ * `integer` field yields `config[key] = <number>`.
+ */
+export type AggregationConfigField =
+    | {
+          kind: 'select';
+          key: string;
+          label: string;
+          options: { value: string; label: string }[];
+          default: string;
+      }
+    | { kind: 'integer'; key: string; label: string; default: number; min?: number };
+
+/**
  * Serializable aggregation metadata. Drives the catalog + admin config UI.
  * Carries NO functions — `JSON.parse(JSON.stringify(descriptor))` must
  * round-trip identically.
@@ -157,6 +175,9 @@ export interface AggregationDescriptor {
     label: string;
     labels: AggregationLabels;
     description: string;
+    /** Config-editor field declarations (absent/empty ⇒ the strategy takes no
+     * config beyond its defaults). Pure data — see {@link AggregationConfigField}. */
+    configFields?: AggregationConfigField[];
 }
 
 // --- The strategy -------------------------------------------------------------

@@ -12,6 +12,7 @@ import { createLeaderboardsClient } from './api/leaderboards.gen';
 import { createFriendlyRoundsClient } from './api/friendly-rounds.gen';
 import { createDashboardClient } from './api/dashboard.gen';
 import { createSetupClient } from './api/setup.gen';
+import { createCompetitionsClient } from './api/competitions.gen';
 
 export { ApiError } from '@basics/core/client/api-error';
 
@@ -34,4 +35,5 @@ export const api = {
     friendlyRounds: createFriendlyRoundsClient(API_BASE),
     dashboard: createDashboardClient(API_BASE),
     setup: createSetupClient(API_BASE),
+    competitions: createCompetitionsClient(API_BASE),
 };

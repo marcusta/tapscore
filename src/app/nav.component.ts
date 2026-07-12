@@ -21,6 +21,12 @@ const tpl = template(`
             </svg>
             <span>Friends</span>
         </a>
+        <a bind="compsLink" href="/competitions">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8 4h8v3a4 4 0 0 1-8 0V4Z"/><path d="M8 5H5v2a3 3 0 0 0 3 3"/><path d="M16 5h3v2a3 3 0 0 1-3 3"/><path d="M10 12.5V15h4v-2.5"/><path d="M9 20h6"/><path d="M12 15v5"/>
+            </svg>
+            <span>Comps</span>
+        </a>
         <a bind="profileLink" href="/profile">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="8" r="4"/><path d="M5 20c.7-4 3.3-6 7-6s6.3 2 7 6"/>
@@ -122,6 +128,7 @@ export class NavComponent extends Component {
                 },
             },
             friendsLink: this.router.link('/friends'),
+            compsLink: this.router.link('/competitions'),
             profileLink: this.router.link('/profile'),
         });
     }

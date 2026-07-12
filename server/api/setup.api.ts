@@ -2,6 +2,7 @@ import { Type, type Static } from '@sinclair/typebox';
 import type { CourseService } from '../services/course.service';
 import type { TeeService } from '../services/tee.service';
 import { formatCatalog, type FormatDescriptor } from '../domain/formats/plugin';
+import { aggregationCatalog, type AggregationDescriptor } from '../domain/aggregation/strategy';
 
 // --- Input schemas ---
 
@@ -24,5 +25,6 @@ export function createSetupApi(courses: CourseService, tees: TeeService) {
         courses:     { method: 'GET' as const, path: '/setup/courses',        fn: ()                                       => courses.listForSetup() },
         teesByCourse:{ method: 'GET' as const, path: '/setup/tees/by-course',  fn: (input: Static<typeof ByCourseInput>)    => tees.listByCourse(input.courseId), schema: ByCourseInput },
         formats:     { method: 'GET' as const, path: '/setup/formats',         fn: (): FormatDescriptor[]                   => formatCatalog() },
+        aggregations:{ method: 'GET' as const, path: '/setup/aggregations',    fn: (): AggregationDescriptor[]              => aggregationCatalog() },
     };
 }

@@ -302,6 +302,18 @@ const strokeTotal: AggregationStrategy = {
         labels: { en: 'Stroke total', sv: 'Slagsumma' },
         description:
             'Sums each participant’s strokes (gross or net) across all rounds; lowest total wins. Partial totals rank below complete ones.',
+        configFields: [
+            {
+                kind: 'select',
+                key: 'metric',
+                label: 'Metric',
+                options: [
+                    { value: 'gross', label: 'Gross strokes' },
+                    { value: 'net', label: 'Net strokes' },
+                ],
+                default: 'gross',
+            },
+        ],
     },
     validateConfig(config): ConfigDiagnostic[] {
         const obj = asObject(config);
@@ -346,6 +358,7 @@ const roundPointsSum: AggregationStrategy = {
         labels: { en: 'Round points sum', sv: 'Poängsumma' },
         description:
             'Sums a per-round points metric (stableford points by default) across all rounds; highest total wins. A missed round simply scores nothing.',
+        configFields: [],
     },
     validateConfig(config): ConfigDiagnostic[] {
         const obj = asObject(config);
@@ -397,6 +410,20 @@ const bestNOfM: AggregationStrategy = {
         labels: { en: 'Best N of M rounds', sv: 'Bästa N av M ronder' },
         description:
             'Counts each participant’s best N rounds of those played (points by default: highest N; gross/net: lowest N). Dropped rounds stay visible, struck through.',
+        configFields: [
+            { kind: 'integer', key: 'n', label: 'Rounds counted (N)', default: 2, min: 1 },
+            {
+                kind: 'select',
+                key: 'metric',
+                label: 'Metric',
+                options: [
+                    { value: 'points', label: 'Stableford points' },
+                    { value: 'gross', label: 'Gross strokes' },
+                    { value: 'net', label: 'Net strokes' },
+                ],
+                default: 'points',
+            },
+        ],
     },
     validateConfig(config): ConfigDiagnostic[] {
         const obj = asObject(config);
