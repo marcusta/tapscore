@@ -1119,6 +1119,17 @@ API/client:
 
 **Gate:** two-round competition created from defaults; round 2 overrides its slot list; cut applies between rounds; aggregate arithmetic verifiable by eye; finalize freezes results (mutation rejected after). Mandatory stop + visual review. Commit `phase 4 complete: competition wrapper + aggregation`.
 
+**Slice plan (recorded 2026-07-12; commit gate at each slice):**
+
+1. **Schema + wrapper + lifecycle (server only).** Migration 037: `competitions`, `competition_rounds`, `competition_participants`, `competition_results`. `CompetitionService` CRUD + lifecycle machine (`draft → setup → active → finalized`) with typed refusals. First real `role_grants` enforcement: mutation gated on `owner_player_id` or `competition_admin` grant (role.service stub → middleware). Play/score paths stay token-scoped, untouched.
+2. **Round materialisation from defaults.** `POST /competitions/:id/rounds` copies `default_config_json` (slots, category→tee map, start-list mode) into a pre-filled draft riding `round_setup_drafts` + the existing create machinery; assigns `round_number`; roster = participants minus cut/withdrawn. Gate test: two rounds with different slot lists (Friday better-ball / Saturday singles); corrections still flow per-round through the existing recompile path.
+3. **`AggregationStrategy` registry + competition leaderboard.** Fourth pluggable axis, same registry discipline as formats: serializable descriptor, `validateConfig` diagnostics, ratchet test forbidding aggregation-id branching outside the registry. Built-ins `stroke_total`, `round_points_sum`, `best_n_of_m`. Pure fold `aggregate({roundResults, roster, config})` joining balls→roster via PlayerRef; output carries per-round arithmetic (`R1 74 + R2 70 = 144`).
+4. **Cut + finalization + audit.** `applyCut(afterRound)` (`top_n | top_percent | within_strokes`), stamps `cut_after_round`, cut audit event, cut participants excluded from later drafts. Finalize: all rounds complete → immutable `competition_results` → lifecycle flip → all mutation refused after (first lock semantics — friendly rounds keep never locking).
+5. **Client.** Competition list + detail: rounds list (opens the existing round UI unchanged), aggregated board via the generic `ranked` renderer, admin actions (add round, cut, finalize) gated on the grant.
+6. **Seeds + verify page + mandatory stop.** Seeds `competition-36-stroke`, `competition-cut-after-r1`, `competition-round-points` (overridden Saturday format); `scripts/render-phase4-verify.ts` → `tmp/formats/phase4-verify.html` (cut line visualised, finalized vs live visually distinct). User visual review closes the phase.
+
+Deliberately out of scope: FriendlyRound→Competition promotion (defer until a dogfood need appears); PointTemplate position→points tables (Phase 5 — `round_points_sum` uses a round metric such as stableford points).
+
 ---
 
 ## Phase 5 — PointTemplate + Category + tie behaviours
