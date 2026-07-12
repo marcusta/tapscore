@@ -26,6 +26,8 @@ import { createCourseRouteTemplatesApi } from './api/course-route-templates.api'
 import { createFriendlyRoundsApi } from './api/friendly-rounds.api';
 import { createDashboardApi } from './api/dashboard.api';
 import { createSetupApi } from './api/setup.api';
+import { createCompetitionsApi } from './api/competitions.api';
+import { CompetitionAuthz } from './api/competition-authz';
 import { seedDev } from './db/seeds/dev';
 import { registerBuiltInBallCreationStrategies } from './domain/strategies/ball-creation';
 import { registerBuiltInFormats } from './domain/formats';
@@ -61,6 +63,8 @@ const {
     dashboardService,
     correctionService,
     formatActionService,
+    roleService,
+    competitionService,
 } = services;
 
 // `sessions` is captured so self-serve registration can issue a session
@@ -88,6 +92,15 @@ mount(app, '/api', createDashboardApi(dashboardService, friendlyRoundService));
 mount(app, '/api', createSetupApi(courseService, teeService));
 mount(app, '/api', createCorrectionsApi(correctionService));
 mount(app, '/api', createFormatActionsApi(formatActionService));
+mount(
+    app,
+    '/api',
+    createCompetitionsApi(
+        competitionService,
+        roleService,
+        new CompetitionAuthz(roleService, competitionService),
+    ),
+);
 
 // --- Static client ---
 

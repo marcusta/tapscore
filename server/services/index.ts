@@ -21,6 +21,7 @@ import { RoundLeaveService } from './round-leave.service';
 import { RoundEditService } from './round-edit.service';
 import { GuestClaimService } from './guest-claim.service';
 import { FriendService } from './friend.service';
+import { CompetitionService } from './competition.service';
 import type { CompilerTeeContext, Gender } from '../domain/compiler/types';
 
 /**
@@ -136,6 +137,11 @@ export function createServices(db: Kysely<Database>) {
     const roundLeaveService = new RoundLeaveService(db, roundService, correctionService);
     const roundEditService = new RoundEditService(db, roundService, correctionService);
     const guestClaimService = new GuestClaimService(db);
+    const competitionService = new CompetitionService(
+        db,
+        playerService,
+        guestPlayerService,
+    );
     return {
         db,
         playerService,
@@ -159,5 +165,6 @@ export function createServices(db: Kysely<Database>) {
         roundLeaveService,
         roundEditService,
         guestClaimService,
+        competitionService,
     };
 }

@@ -35,6 +35,10 @@ export interface Database {
     format_action_events: FormatActionEventsTable;
     friendly_rounds: FriendlyRoundsTable;
     friendships: FriendshipsTable;
+    competitions: CompetitionsTable;
+    competition_rounds: CompetitionRoundsTable;
+    competition_participants: CompetitionParticipantsTable;
+    competition_results: CompetitionResultsTable;
 }
 
 export type RoundType = 'full_18' | 'front_9' | 'back_9' | 'custom_holes';
@@ -562,6 +566,84 @@ export interface FriendlyRoundsTable {
     share_token: string;
     creator_player_id: string | null;
     created_at: Generated<string>;
+}
+
+// --- Phase 4 Slice 1 — Competition wrapper (migration 037). ---
+//
+// Four additive tables per REWRITE_DOMAIN_SPEC.md §4/§5/§9/§12. Booleans are
+// INTEGER 0/1 (matching `rounds.self_organize`); JSON columns are TEXT parsed
+// at the service boundary. `point_template_id` and the Tour/Series FKs land as
+// real FKs in later phases (FK-target rule) — plain nullable TEXT for now.
+
+export type CompetitionLifecycle = 'draft' | 'setup' | 'active' | 'finalized';
+export type CompetitionScoringType = 'gross' | 'net';
+
+export interface CompetitionsTable {
+    id: string;
+    name: string;
+    lifecycle: Generated<CompetitionLifecycle>;
+    /** Serialized default slots + category→tee map + start-list mode (Slice 2). */
+    default_config_json: string | null;
+    /** Serialized `{ strategyId, config }` for the leaderboard fold (Slice 3). */
+    aggregation_json: string | null;
+    /** Phase 5 FK arrives via add-column migration; plain nullable TEXT for now. */
+    point_template_id: string | null;
+    /** Serialized cut rules (`top_n | top_percent | within_strokes`); Slice 4. */
+    cut_rules_json: string | null;
+    /** 0/1 — flipped by Slice 4's finalize service only. */
+    is_results_final: Generated<number>;
+    results_finalized_at: string | null;
+    owner_player_id: string;
+    created_at: Generated<string>;
+}
+
+// 1:1 extension of `rounds`, structural mirror of `friendly_rounds`. Populated
+// by Slice 2 (round materialisation from competition defaults).
+export interface CompetitionRoundsTable {
+    id: string;
+    competition_id: string;
+    /** UNIQUE — a round belongs to at most one competition. */
+    round_id: string;
+    /** 1..N within the competition. */
+    round_number: number;
+    /** 0/1 — does this round count toward the cut? (Slice 4) */
+    cut_eligible: Generated<number>;
+    /** 0/1 — played only by participants who made the cut? (Slice 4) */
+    post_cut: Generated<number>;
+    created_at: Generated<string>;
+}
+
+// Explicit roster. `player_id` XOR `guest_player_id` (see check constraint);
+// RESTRICT identity FKs preserve the XOR invariant, same as `ball_players`.
+export interface CompetitionParticipantsTable {
+    id: string;
+    competition_id: string;
+    player_id: string | null;
+    guest_player_id: string | null;
+    /** "Played as" name captured at add time (spec §9 audit-grade rendering). */
+    display_name_snapshot: string;
+    category: string | null;
+    /** Stamped by Slice 4's `applyCut`; null = still in the field. */
+    cut_after_round: number | null;
+    /** Stamped on withdrawal; null = active. Row kept for audit + aggregation. */
+    withdrawn_at: string | null;
+    created_at: Generated<string>;
+}
+
+// Immutable finalization snapshot, keyed (competition_id, participant_id,
+// scoring_type). Written on finalize (Slice 4); gross/net publish independently.
+export interface CompetitionResultsTable {
+    competition_id: string;
+    participant_id: string;
+    scoring_type: CompetitionScoringType;
+    position: number;
+    /** REAL — tie behaviours (Phase 5) can split points fractionally. */
+    points: number;
+    totals_json: string;
+    tiebreak_json: string | null;
+    /** §12 audit — nulls out if the admin is later deleted; snapshot stands. */
+    finalized_by_player_id: string | null;
+    finalized_at: string;
 }
 
 export interface PlayersTable {
