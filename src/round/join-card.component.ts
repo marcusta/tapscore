@@ -33,7 +33,10 @@ const tpl = template(`
             <div bind="teeHost" class="join-card__tee"></div>
             <button bind="join" class="join-card__btn" type="button">Add me</button>
         </div>
-        <p bind="diag" class="join-card__diag"></p>
+        <p bind="diag" class="join-card__diag">
+            <span bind="diagText"></span>
+            <button bind="profileLink" class="join-card__profile-link hidden" type="button">Update your profile.</button>
+        </p>
         <p bind="err" class="join-card__err"></p>
     </div>
 `);
@@ -93,8 +96,17 @@ export class JoinCardComponent extends Component {
                 margin: ${s('sm')} 0 0;
                 font-size: 0.85rem;
                 color: ${t('text-muted')};
-                &:empty { display: none; }
-                & a { color: ${t('accent')}; font-weight: 600; }
+                &.hidden { display: none; }
+            }
+            & .join-card__profile-link {
+                border: 0;
+                padding: 0;
+                background: transparent;
+                color: ${t('accent')};
+                font: inherit;
+                font-weight: 600;
+                cursor: pointer;
+                &.hidden { display: none; }
             }
             & .join-card__err {
                 margin: ${s('sm')} 0 0;
@@ -149,11 +161,10 @@ export class JoinCardComponent extends Component {
             });
     }
 
-    private diagnosticMessage(d: CompilerDiagnostic): string {
-        if (d.code === 'missing_gender' || d.code === 'missing_handicap_index') {
-            return `${d.message} — <a data-nav="/profile">update your profile</a>.`;
-        }
-        return d.message;
+    private needsProfileUpdate(): boolean {
+        return this.diagnostics
+            .get()
+            .some((d) => d.code === 'missing_gender' || d.code === 'missing_handicap_index');
     }
 
     private async join(): Promise<void> {
@@ -231,19 +242,20 @@ export class JoinCardComponent extends Component {
                 onclick: () => void this.join(),
             },
             diag: {
-                innerHTML: () =>
-                    this.diagnostics
-                        .get()
-                        .map((d) => this.diagnosticMessage(d))
-                        .join(' · '),
-                onclick: (e: Event) => {
-                    const a = (e.target as HTMLElement).closest('[data-nav]');
-                    const href = a?.getAttribute('data-nav');
-                    if (href) {
-                        e.preventDefault();
-                        this.router.navigate(href);
-                    }
-                },
+                className: () =>
+                    this.diagnostics.get().length > 0
+                        ? 'join-card__diag'
+                        : 'join-card__diag hidden',
+            },
+            diagText: {
+                textContent: () => this.diagnostics.get().map((d) => d.message).join(' · '),
+            },
+            profileLink: {
+                className: () =>
+                    this.needsProfileUpdate()
+                        ? 'join-card__profile-link'
+                        : 'join-card__profile-link hidden',
+                onclick: () => this.router.navigate('/profile'),
             },
             err: { textContent: () => this.error.get() },
         });

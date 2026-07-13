@@ -217,9 +217,8 @@ test('a materialised round is scored + setup-edited through the EXISTING friendl
         'stroke_play_individual',
     ]);
 
-    // The competition round stays off the public friendly landing list.
-    const landing = await (await req(ctx.app, 'GET', '/api/friendly-rounds')).json();
-    expect(landing.map((e: { round: { id: string } }) => e.round.id)).not.toContain(created.round.id);
+    // There is no global friendly-round listing to disclose this round's token.
+    expect((await req(ctx.app, 'GET', '/api/friendly-rounds')).status).toBe(404);
 });
 
 // --- Slice 3: GET /competitions/:id/leaderboard ---------------------------------

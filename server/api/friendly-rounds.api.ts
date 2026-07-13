@@ -13,7 +13,6 @@ import { EventType } from './score-events.api';
 
 const CreateInput = Type.Object({ draft: RoundSetupDraft });
 const ByTokenInput = Type.Object({ token: Type.String() });
-const ByRoundInput = Type.Object({ roundId: Type.String() });
 
 // Result read with the OPTIONAL Phase 3.5 polling cursor. Omitted cursor =
 // the pre-cursor client — it always gets the full result envelope.
@@ -91,12 +90,6 @@ function optionalUserId(c: Context): string | null {
 // from a hit. A 404 on a share link means "bad/expired link" to the client.
 async function byTokenOr404(svc: FriendlyRoundService, token: string) {
     const found = await svc.findByToken(token);
-    if (!found) throw new NotFoundError('friendly round not found');
-    return found;
-}
-
-async function byRoundOr404(svc: FriendlyRoundService, roundId: string) {
-    const found = await svc.findByRoundId(roundId);
     if (!found) throw new NotFoundError('friendly round not found');
     return found;
 }
@@ -189,10 +182,8 @@ export function createFriendlyRoundsApi(
     leaves: RoundLeaveService,
 ) {
     return {
-        list:      { method: 'GET'  as const, path: '/friendly-rounds',           fn: ()                                    => svc.list() },
         create:    { method: 'POST' as const, path: '/friendly-rounds',           fn: (input: Static<typeof CreateInput>, c: Context) => svc.create(input.draft, optionalUserId(c)), schema: CreateInput },
         byToken:   { method: 'GET'  as const, path: '/friendly-rounds/by-token',   fn: (input: Static<typeof ByTokenInput>)  => byTokenOr404(svc, input.token),         schema: ByTokenInput },
-        get:       { method: 'GET'  as const, path: '/friendly-rounds/get',        fn: (input: Static<typeof ByRoundInput>)  => byRoundOr404(svc, input.roundId),       schema: ByRoundInput },
         balls:     { method: 'GET'  as const, path: '/friendly-rounds/balls',      fn: (input: Static<typeof ByTokenInput>)  => ballsOr404(svc, input.token),           schema: ByTokenInput },
         scorecard: { method: 'GET'  as const, path: '/friendly-rounds/scorecard',  fn: (input: Static<typeof ByTokenInput>)  => scorecardOr404(svc, input.token),       schema: ByTokenInput },
         result:    { method: 'GET'  as const, path: '/friendly-rounds/result',     fn: (input: Static<typeof ResultInput>)   => resultOr404(svc, input.token, input.cursor), schema: ResultInput },

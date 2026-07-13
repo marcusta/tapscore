@@ -1,16 +1,20 @@
 // Re-vendor @basics/core from the local mackans-client-fw sibling repo.
 //
 // tapscore deploys to a server that has no access to the framework repo
-// (it's local-only, no git remote), so the framework is vendored into
-// vendor/basics-core and committed. Run this whenever the framework
-// changes, then `bun install` + commit the result.
+// (it's local-only, no git remote), so the framework runtime AND developer
+// adapters (generate-api / affected-tests) are vendored into vendor/basics-core
+// and committed. Run this whenever the framework changes, then `bun install` +
+// project/framework verification + commit the result.
 //
 //   bun run vendor:basics
 //   bun install        # refresh node_modules/@basics/core + lockfile
+//   bun run test
+//   bun run test:framework
 //   git add vendor/basics-core bun.lock && git commit -m "Re-vendor @basics/core"
 //
 // Pairs with the pinned-deps rule: vendoring is the explicit point where
-// framework changes land in tapscore.
+// framework changes land in tapscore. Normal runtime, generation, and affected
+// test commands never execute code from SRC directly.
 import { $ } from 'bun';
 
 const SRC = '../mackans-client-fw/core/';

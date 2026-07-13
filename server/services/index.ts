@@ -154,6 +154,7 @@ export function createServices(db: Kysely<Database>) {
         friendlyRoundService,
         playerService,
         guestPlayerService,
+        teeService,
     );
     // The live aggregated competition board: loads rounds + roster + per-round
     // RoundResults and folds through the registered AggregationStrategy.

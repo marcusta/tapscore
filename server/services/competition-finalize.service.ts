@@ -36,9 +36,9 @@
 // `/competitions/:id/results` as the official numbers (documented on
 // CompetitionLeaderboard.finalized).
 
-import type { Kysely } from 'kysely';
+import type { Insertable, Kysely } from 'kysely';
 import { sql } from 'kysely';
-import type { Database } from '../db/schema';
+import type { CompetitionResultsTable, Database } from '../db/schema';
 import type { CompetitionRankedEntry } from '../domain/aggregation/strategy';
 import { recordCompetitionAuditEvent } from './competition-audit';
 import type { CompetitionLeaderboardService } from './competition-leaderboard.service';
@@ -100,6 +100,50 @@ export class CompetitionFinalizeService {
         private competitionRounds: CompetitionRoundService,
     ) {}
 
+    // --- Queries ------------------------------------------------------------
+
+    private insertCompetitionResult(
+        values: Insertable<CompetitionResultsTable>,
+        db: Kysely<Database> = this.db,
+    ) {
+        return db.insertInto('competition_results').values(values);
+    }
+
+    private competitionLifecycle(id: string, db: Kysely<Database> = this.db) {
+        return db
+            .selectFrom('competitions')
+            .select('lifecycle')
+            .where('id', '=', id);
+    }
+
+    private finalizeCompetition(
+        id: string,
+        finalizedAt: string,
+        db: Kysely<Database> = this.db,
+    ) {
+        return db
+            .updateTable('competitions')
+            .set({
+                lifecycle: 'finalized',
+                is_results_final: 1,
+                results_finalized_at: finalizedAt,
+            })
+            .where('id', '=', id)
+            .where('lifecycle', '=', 'active');
+    }
+
+    private competitionResultRows(
+        competitionId: string,
+        db: Kysely<Database> = this.db,
+    ) {
+        return db
+            .selectFrom('competition_results')
+            .selectAll()
+            .where('competition_id', '=', competitionId);
+    }
+
+    // --- Methods ------------------------------------------------------------
+
     async finalize(input: FinalizeInput): Promise<CompetitionResult<FinalizeOutcome>> {
         // --- Fold inputs + aggregation validation (`invalid_aggregation` is the
         // --- documented blocker — fix the config, then finalize) --------------
@@ -155,9 +199,8 @@ export class CompetitionFinalizeService {
         await this.db.transaction().execute(async (trx) => {
             for (const view of views.values()) {
                 for (const entry of view.entries) {
-                    await trx
-                        .insertInto('competition_results')
-                        .values({
+                    await this.insertCompetitionResult(
+                        {
                             competition_id: competition.id,
                             participant_id: entry.participantId,
                             scoring_type: view.metricId,
@@ -167,8 +210,9 @@ export class CompetitionFinalizeService {
                             tiebreak_json: null,
                             finalized_by_player_id: input.finalizedByPlayerId,
                             finalized_at: now,
-                        })
-                        .execute();
+                        },
+                        trx,
+                    ).execute();
                     rowCount++;
                 }
             }
@@ -177,26 +221,16 @@ export class CompetitionFinalizeService {
             // dialect does not report numUpdatedRows reliably — same reasoning
             // as guest-claim) and throw if a concurrent finalize/lifecycle race
             // got here first, so the whole snapshot rolls back.
-            const current = await trx
-                .selectFrom('competitions')
-                .select('lifecycle')
-                .where('id', '=', competition.id)
-                .executeTakeFirst();
+            const current = await this.competitionLifecycle(
+                competition.id,
+                trx,
+            ).executeTakeFirst();
             if (current?.lifecycle !== 'active') {
                 throw new Error(
                     `competition ${competition.id} left 'active' during finalize — rolled back`,
                 );
             }
-            await trx
-                .updateTable('competitions')
-                .set({
-                    lifecycle: 'finalized',
-                    is_results_final: 1,
-                    results_finalized_at: now,
-                })
-                .where('id', '=', competition.id)
-                .where('lifecycle', '=', 'active')
-                .execute();
+            await this.finalizeCompetition(competition.id, now, trx).execute();
 
             await recordCompetitionAuditEvent(trx, {
                 competitionId: competition.id,
@@ -244,10 +278,7 @@ export class CompetitionFinalizeService {
             );
         }
 
-        const rows = await this.db
-            .selectFrom('competition_results')
-            .selectAll()
-            .where('competition_id', '=', competitionId)
+        const rows = await this.competitionResultRows(competitionId)
             .orderBy('scoring_type', 'asc')
             .orderBy('position', 'asc')
             .orderBy(sql`rowid`, 'asc')

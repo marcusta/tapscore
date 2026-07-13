@@ -660,7 +660,7 @@ export class RoundService {
 
         const teamByBallSlot = new Map<string, string>();
         for (const r of teamRows) {
-            teamByBallSlot.set(`${r.ball_id} ${r.slot_def_id}`, r.team_label);
+            teamByBallSlot.set(`${r.ball_id}\u0000${r.slot_def_id}`, r.team_label);
         }
 
         const playersByBall = new Map<string, RoundBallPlayer[]>();
@@ -686,7 +686,7 @@ export class RoundService {
                 // Persisted ordinal — slot_def_id stays opaque, never parsed (E3).
                 slotIndex: r.ordinal,
                 playingHandicap: r.playing_handicap_snapshot,
-                teamLabel: teamByBallSlot.get(`${r.ball_id} ${r.slot_def_id}`) ?? null,
+                teamLabel: teamByBallSlot.get(`${r.ball_id}\u0000${r.slot_def_id}`) ?? null,
             });
             slotsByBall.set(r.ball_id, list);
         }

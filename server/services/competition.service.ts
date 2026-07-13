@@ -1,4 +1,4 @@
-import type { Kysely, Selectable } from 'kysely';
+import type { Insertable, Kysely, Selectable, Updateable } from 'kysely';
 import { sql } from 'kysely';
 import type {
     CompetitionLifecycle,
@@ -149,6 +149,10 @@ export interface AddParticipantInput {
 
 type CompetitionRow = Selectable<CompetitionsTable>;
 type ParticipantRow = Selectable<CompetitionParticipantsTable>;
+type CompetitionInsert = Insertable<CompetitionsTable>;
+type CompetitionPatch = Updateable<CompetitionsTable>;
+type ParticipantInsert = Insertable<CompetitionParticipantsTable>;
+type ParticipantPatch = Updateable<CompetitionParticipantsTable>;
 
 function parseJson(value: string | null): unknown | null {
     return value === null ? null : JSON.parse(value);
@@ -243,12 +247,73 @@ export class CompetitionService {
 
     // --- Queries ---
 
+    private competitionRows(db: Kysely<Database> = this.db) {
+        return db.selectFrom('competitions').selectAll();
+    }
+
+    private competitionById(id: string, db: Kysely<Database> = this.db) {
+        return this.competitionRows(db).where('id', '=', id);
+    }
+
+    private participantRows(db: Kysely<Database> = this.db) {
+        return db.selectFrom('competition_participants').selectAll();
+    }
+
+    private participantById(id: string, db: Kysely<Database> = this.db) {
+        return this.participantRows(db).where('id', '=', id);
+    }
+
+    private participantByIdentity(
+        competitionId: string,
+        playerRef: PlayerRef,
+        db: Kysely<Database> = this.db,
+    ) {
+        return db
+            .selectFrom('competition_participants')
+            .select('id')
+            .where('competition_id', '=', competitionId)
+            .where(
+                playerRef.kind === 'player' ? 'player_id' : 'guest_player_id',
+                '=',
+                playerRef.id,
+            );
+    }
+
+    private insertCompetition(values: CompetitionInsert, db: Kysely<Database> = this.db) {
+        return db.insertInto('competitions').values(values);
+    }
+
+    private updateCompetition(
+        id: string,
+        patch: CompetitionPatch,
+        db: Kysely<Database> = this.db,
+    ) {
+        return db.updateTable('competitions').set(patch).where('id', '=', id);
+    }
+
+    private insertParticipant(
+        values: ParticipantInsert,
+        db: Kysely<Database> = this.db,
+    ) {
+        return db.insertInto('competition_participants').values(values);
+    }
+
+    private updateParticipant(
+        id: string,
+        patch: ParticipantPatch,
+        db: Kysely<Database> = this.db,
+    ) {
+        return db.updateTable('competition_participants').set(patch).where('id', '=', id);
+    }
+
+    private deleteParticipant(id: string, db: Kysely<Database> = this.db) {
+        return db.deleteFrom('competition_participants').where('id', '=', id);
+    }
+
+    // --- Methods ---
+
     async get(id: string): Promise<Competition | null> {
-        const row = await this.db
-            .selectFrom('competitions')
-            .selectAll()
-            .where('id', '=', id)
-            .executeTakeFirst();
+        const row = await this.competitionById(id).executeTakeFirst();
         return row ? toCompetition(row) : null;
     }
 
@@ -261,7 +326,7 @@ export class CompetitionService {
         playerId: string,
         alsoIncludeIds: string[] = [],
     ): Promise<Competition[]> {
-        let q = this.db.selectFrom('competitions').selectAll();
+        let q = this.competitionRows();
         if (alsoIncludeIds.length > 0) {
             q = q.where((eb) =>
                 eb.or([
@@ -277,9 +342,7 @@ export class CompetitionService {
     }
 
     async listParticipants(competitionId: string): Promise<CompetitionParticipant[]> {
-        const rows = await this.db
-            .selectFrom('competition_participants')
-            .selectAll()
+        const rows = await this.participantRows()
             .where('competition_id', '=', competitionId)
             .orderBy(sql`rowid`, 'asc')
             .execute();
@@ -287,11 +350,7 @@ export class CompetitionService {
     }
 
     async findParticipant(participantId: string): Promise<CompetitionParticipant | null> {
-        const row = await this.db
-            .selectFrom('competition_participants')
-            .selectAll()
-            .where('id', '=', participantId)
-            .executeTakeFirst();
+        const row = await this.participantById(participantId).executeTakeFirst();
         return row ? toParticipant(row) : null;
     }
 
@@ -300,21 +359,14 @@ export class CompetitionService {
     /** The creator becomes `owner_player_id`; initial lifecycle is `draft`. */
     async create(input: CreateCompetitionInput): Promise<Competition> {
         const id = crypto.randomUUID();
-        await this.db
-            .insertInto('competitions')
-            .values({
-                id,
-                name: input.name,
-                lifecycle: 'draft',
-                owner_player_id: input.ownerPlayerId,
-                // JSON/config columns default to NULL; is_results_final defaults 0.
-            })
-            .execute();
-        const row = await this.db
-            .selectFrom('competitions')
-            .selectAll()
-            .where('id', '=', id)
-            .executeTakeFirstOrThrow();
+        await this.insertCompetition({
+            id,
+            name: input.name,
+            lifecycle: 'draft',
+            owner_player_id: input.ownerPlayerId,
+            // JSON/config columns default to NULL; is_results_final defaults 0.
+        }).execute();
+        const row = await this.competitionById(id).executeTakeFirstOrThrow();
         return toCompetition(row);
     }
 
@@ -401,17 +453,9 @@ export class CompetitionService {
                 input.cutRules === null ? null : JSON.stringify(input.cutRules);
 
         if (Object.keys(patch).length > 0) {
-            await this.db
-                .updateTable('competitions')
-                .set(patch)
-                .where('id', '=', input.id)
-                .execute();
+            await this.updateCompetition(input.id, patch).execute();
         }
-        const row = await this.db
-            .selectFrom('competitions')
-            .selectAll()
-            .where('id', '=', input.id)
-            .executeTakeFirstOrThrow();
+        const row = await this.competitionById(input.id).executeTakeFirstOrThrow();
         return { ok: true, value: toCompetition(row) };
     }
 
@@ -444,18 +488,11 @@ export class CompetitionService {
             );
         }
 
-        await this.db
-            .updateTable('competitions')
-            .set({ lifecycle: to })
-            .where('id', '=', id)
+        await this.updateCompetition(id, { lifecycle: to })
             // Guard against a concurrent transition racing past `from`.
             .where('lifecycle', '=', from)
             .execute();
-        const row = await this.db
-            .selectFrom('competitions')
-            .selectAll()
-            .where('id', '=', id)
-            .executeTakeFirstOrThrow();
+        const row = await this.competitionById(id).executeTakeFirstOrThrow();
         return { ok: true, value: toCompetition(row) };
     }
 
@@ -486,16 +523,10 @@ export class CompetitionService {
 
         // Refuse a duplicate up-front with a humanized message (the DB unique
         // constraint is the backstop for a race).
-        const existing = await this.db
-            .selectFrom('competition_participants')
-            .select('id')
-            .where('competition_id', '=', input.competitionId)
-            .where(
-                input.playerRef.kind === 'player' ? 'player_id' : 'guest_player_id',
-                '=',
-                input.playerRef.id,
-            )
-            .executeTakeFirst();
+        const existing = await this.participantByIdentity(
+            input.competitionId,
+            input.playerRef,
+        ).executeTakeFirst();
         if (existing)
             return refuse(
                 'already_participant',
@@ -503,23 +534,16 @@ export class CompetitionService {
             );
 
         const id = crypto.randomUUID();
-        await this.db
-            .insertInto('competition_participants')
-            .values({
-                id,
-                competition_id: input.competitionId,
-                player_id: input.playerRef.kind === 'player' ? input.playerRef.id : null,
-                guest_player_id:
-                    input.playerRef.kind === 'guest' ? input.playerRef.id : null,
-                display_name_snapshot: displayName,
-                category: input.category ?? null,
-            })
-            .execute();
-        const row = await this.db
-            .selectFrom('competition_participants')
-            .selectAll()
-            .where('id', '=', id)
-            .executeTakeFirstOrThrow();
+        await this.insertParticipant({
+            id,
+            competition_id: input.competitionId,
+            player_id: input.playerRef.kind === 'player' ? input.playerRef.id : null,
+            guest_player_id:
+                input.playerRef.kind === 'guest' ? input.playerRef.id : null,
+            display_name_snapshot: displayName,
+            category: input.category ?? null,
+        }).execute();
+        const row = await this.participantById(id).executeTakeFirstOrThrow();
         return { ok: true, value: toParticipant(row) };
     }
 
@@ -535,10 +559,7 @@ export class CompetitionService {
         const gate = this.gateRosterEdit(competition!.lifecycle);
         if (gate) return gate;
 
-        await this.db
-            .deleteFrom('competition_participants')
-            .where('id', '=', participantId)
-            .execute();
+        await this.deleteParticipant(participantId).execute();
         return { ok: true, value: { removed: true } };
     }
 
@@ -562,17 +583,10 @@ export class CompetitionService {
             );
         }
 
-        await this.db
-            .updateTable('competition_participants')
-            .set({ withdrawn_at: now })
-            .where('id', '=', participantId)
+        await this.updateParticipant(participantId, { withdrawn_at: now })
             .where('withdrawn_at', 'is', null)
             .execute();
-        const row = await this.db
-            .selectFrom('competition_participants')
-            .selectAll()
-            .where('id', '=', participantId)
-            .executeTakeFirstOrThrow();
+        const row = await this.participantById(participantId).executeTakeFirstOrThrow();
         return { ok: true, value: toParticipant(row) };
     }
 

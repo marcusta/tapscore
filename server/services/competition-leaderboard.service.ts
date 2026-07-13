@@ -84,6 +84,18 @@ export class CompetitionLeaderboardService {
         private leaderboards: LeaderboardService,
     ) {}
 
+    // --- Queries ------------------------------------------------------------
+
+    private ballPlayerIdentityRows(roundId: string) {
+        return this.db
+            .selectFrom('ball_players as bp')
+            .innerJoin('balls as b', 'b.id', 'bp.ball_id')
+            .where('b.round_id', '=', roundId)
+            .select(['bp.ball_id', 'bp.player_id', 'bp.guest_player_id']);
+    }
+
+    // --- Methods ------------------------------------------------------------
+
     /**
      * The live aggregated board. Open-read semantics match the rest of the
      * competition reads. Refusals (not exceptions) for domain outcomes:
@@ -196,12 +208,7 @@ export class CompetitionLeaderboardService {
      * columns on `ball_players` match `competition_participants` exactly —
      * this is the roster join (never producer def-ids). */
     private async ballRefs(roundId: string): Promise<Record<string, IdentityRef[]>> {
-        const rows = await this.db
-            .selectFrom('ball_players as bp')
-            .innerJoin('balls as b', 'b.id', 'bp.ball_id')
-            .where('b.round_id', '=', roundId)
-            .select(['bp.ball_id', 'bp.player_id', 'bp.guest_player_id'])
-            .execute();
+        const rows = await this.ballPlayerIdentityRows(roundId).execute();
         const out: Record<string, IdentityRef[]> = {};
         for (const row of rows) {
             const ref: IdentityRef | null =

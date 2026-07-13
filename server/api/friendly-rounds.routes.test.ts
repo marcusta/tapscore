@@ -56,17 +56,21 @@ test('POST /friendly-rounds creates a round with NO login and returns a share to
     expect(body.round.formatSlots).toHaveLength(1);
 });
 
-test('GET /friendly-rounds lists rounds with NO login, newest first', async () => {
+test('global friendly-round reads are not exposed — anonymous callers cannot enumerate share tokens', async () => {
     const { ctx, draft } = await setup();
-    await req(ctx.app, 'POST', '/api/friendly-rounds', { draft });
-    const second = await (await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })).json();
+    const created = await (await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })).json();
 
-    const res = await req(ctx.app, 'GET', '/api/friendly-rounds');
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body).toHaveLength(2);
-    expect(body[0].friendlyRound.shareToken).toBe(second.friendlyRound.shareToken);
-    expect(body[0].round.formatSlots).toHaveLength(1);
+    const list = await req(ctx.app, 'GET', '/api/friendly-rounds');
+    expect(list.status).toBe(404);
+    expect(await list.text()).not.toContain(created.friendlyRound.shareToken);
+
+    const get = await req(
+        ctx.app,
+        'GET',
+        `/api/friendly-rounds/get?roundId=${created.round.id}`,
+    );
+    expect(get.status).toBe(404);
+    expect(await get.text()).not.toContain(created.friendlyRound.shareToken);
 });
 
 test('GET /friendly-rounds/by-token reaches the round in a fresh session, no cookie', async () => {
@@ -435,18 +439,25 @@ test('DELETE /friendly-rounds/:token deletes the round with NO login; the token 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
 
-    // Gone for everyone: the share link 404s and the landing list is empty.
+    // Gone for everyone: the former share capability no longer resolves.
     expect((await req(ctx.app, 'GET', `/api/friendly-rounds/by-token?token=${token}`)).status).toBe(404);
-    expect(await (await req(ctx.app, 'GET', '/api/friendly-rounds')).json()).toEqual([]);
 });
 
 test('DELETE /friendly-rounds/:token returns 404 for an unknown token and deletes nothing', async () => {
     const { ctx, draft } = await setup();
-    await req(ctx.app, 'POST', '/api/friendly-rounds', { draft });
+    const created = await (await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })).json();
 
     const res = await req(ctx.app, 'DELETE', '/api/friendly-rounds/no-such-token');
     expect(res.status).toBe(404);
-    expect(await (await req(ctx.app, 'GET', '/api/friendly-rounds')).json()).toHaveLength(1);
+    expect(
+        (
+            await req(
+                ctx.app,
+                'GET',
+                `/api/friendly-rounds/by-token?token=${created.friendlyRound.shareToken}`,
+            )
+        ).status,
+    ).toBe(200);
 });
 
 // --- Finish / reopen over HTTP (token-scoped, no auth) --------------------------

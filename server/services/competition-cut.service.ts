@@ -92,6 +92,24 @@ export class CompetitionCutService {
         private competitionRounds: CompetitionRoundService,
     ) {}
 
+    // --- Queries ------------------------------------------------------------
+
+    private stampCutParticipants(
+        competitionId: string,
+        participantIds: string[],
+        afterRound: number,
+        db: Kysely<Database> = this.db,
+    ) {
+        return db
+            .updateTable('competition_participants')
+            .set({ cut_after_round: afterRound })
+            .where('competition_id', '=', competitionId)
+            .where('id', 'in', participantIds)
+            .where('cut_after_round', 'is', null);
+    }
+
+    // --- Methods ------------------------------------------------------------
+
     async applyCut(input: ApplyCutInput): Promise<CompetitionResult<CutOutcome>> {
         // --- Fold inputs + aggregation validation (shared with the live board;
         // --- `invalid_aggregation` here is the documented blocker) -----------
@@ -172,13 +190,12 @@ export class CompetitionCutService {
         const cutIds = cut.map((e) => e.participantId);
         await this.db.transaction().execute(async (trx) => {
             if (cutIds.length > 0) {
-                await trx
-                    .updateTable('competition_participants')
-                    .set({ cut_after_round: rule.afterRound })
-                    .where('competition_id', '=', competition.id)
-                    .where('id', 'in', cutIds)
-                    .where('cut_after_round', 'is', null)
-                    .execute();
+                await this.stampCutParticipants(
+                    competition.id,
+                    cutIds,
+                    rule.afterRound,
+                    trx,
+                ).execute();
             }
             await recordCompetitionAuditEvent(trx, {
                 competitionId: competition.id,

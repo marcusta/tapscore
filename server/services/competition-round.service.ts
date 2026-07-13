@@ -1,4 +1,4 @@
-import { sql, type Kysely, type Selectable } from 'kysely';
+import { sql, type Insertable, type Kysely, type Selectable } from 'kysely';
 import type { CompetitionRoundsTable, Database, RoundStatus } from '../db/schema';
 import type { CompilerDiagnostic } from '../domain/compiler/types';
 import type {
@@ -20,6 +20,7 @@ import type { FriendlyRoundService } from './friendly-round.service';
 import type { GuestPlayerService } from './guest-player.service';
 import type { PlayerService } from './player.service';
 import type { Round } from './round.service';
+import type { TeeService } from './tee.service';
 
 // --- Output types ---
 
@@ -89,6 +90,7 @@ export interface MaterialiseRoundInput {
 // --- Row mapping ---
 
 type CompetitionRoundRow = Selectable<CompetitionRoundsTable>;
+type CompetitionRoundInsert = Insertable<CompetitionRoundsTable>;
 
 function toCompetitionRound(row: CompetitionRoundRow): CompetitionRound {
     return {
@@ -159,12 +161,13 @@ export class CompetitionRoundService {
         private friendlyRounds: FriendlyRoundService,
         private players: PlayerService,
         private guests: GuestPlayerService,
+        private tees: TeeService,
     ) {}
 
     // --- Queries ---
 
-    async listForCompetition(competitionId: string): Promise<CompetitionRoundSummary[]> {
-        const rows = await this.db
+    private competitionRoundSummaries(competitionId: string) {
+        return this.db
             .selectFrom('competition_rounds as cr')
             .innerJoin('rounds as r', 'r.id', 'cr.round_id')
             .leftJoin('friendly_rounds as fr', 'fr.round_id', 'cr.round_id')
@@ -182,7 +185,45 @@ export class CompetitionRoundService {
                 'r.date',
                 'r.course_name_snapshot',
                 'fr.share_token',
-            ])
+            ]);
+    }
+
+    private competitionRoundRows() {
+        return this.db.selectFrom('competition_rounds').selectAll();
+    }
+
+    private competitionRoundById(id: string) {
+        return this.competitionRoundRows().where('id', '=', id);
+    }
+
+    private competitionRoundByRoundId(roundId: string) {
+        return this.competitionRoundRows().where('round_id', '=', roundId);
+    }
+
+    private insertCompetitionRound(values: CompetitionRoundInsert) {
+        return this.db.insertInto('competition_rounds').values(values);
+    }
+
+    private maxRoundNumber(competitionId: string) {
+        return this.db
+            .selectFrom('competition_rounds')
+            .select(sql<number | null>`max(round_number)`.as('max'))
+            .where('competition_id', '=', competitionId);
+    }
+
+    private cutParticipant(competitionId: string) {
+        return this.db
+            .selectFrom('competition_participants')
+            .select('id')
+            .where('competition_id', '=', competitionId)
+            .where('cut_after_round', 'is not', null)
+            .limit(1);
+    }
+
+    // --- Methods ---
+
+    async listForCompetition(competitionId: string): Promise<CompetitionRoundSummary[]> {
+        const rows = await this.competitionRoundSummaries(competitionId)
             .orderBy('cr.round_number', 'asc')
             .execute();
         return rows.map((row) => ({
@@ -196,11 +237,7 @@ export class CompetitionRoundService {
     }
 
     async findByRoundId(roundId: string): Promise<CompetitionRound | null> {
-        const row = await this.db
-            .selectFrom('competition_rounds')
-            .selectAll()
-            .where('round_id', '=', roundId)
-            .executeTakeFirst();
+        const row = await this.competitionRoundByRoundId(roundId).executeTakeFirst();
         return row ? toCompetitionRound(row) : null;
     }
 
@@ -286,22 +323,15 @@ export class CompetitionRoundService {
         const nextNumber = await this.nextRoundNumber(input.competitionId);
         const postCut = await this.cutHasBeenApplied(input.competitionId);
         const id = crypto.randomUUID();
-        await this.db
-            .insertInto('competition_rounds')
-            .values({
-                id,
-                competition_id: input.competitionId,
-                round_id: created.round.id,
-                round_number: nextNumber,
-                post_cut: postCut ? 1 : 0,
-                // cut_eligible defaults to 1 (counts toward the cut) per spec §4.
-            })
-            .execute();
-        const row = await this.db
-            .selectFrom('competition_rounds')
-            .selectAll()
-            .where('id', '=', id)
-            .executeTakeFirstOrThrow();
+        await this.insertCompetitionRound({
+            id,
+            competition_id: input.competitionId,
+            round_id: created.round.id,
+            round_number: nextNumber,
+            post_cut: postCut ? 1 : 0,
+            // cut_eligible defaults to 1 (counts toward the cut) per spec §4.
+        }).execute();
+        const row = await this.competitionRoundById(id).executeTakeFirstOrThrow();
 
         return {
             ok: true,
@@ -412,12 +442,8 @@ export class CompetitionRoundService {
     ): Promise<CompilerDiagnostic[]> {
         const teeIds = [...new Set(producers.map((p) => p.teeId))];
         if (teeIds.length === 0) return [];
-        const rows = await this.db
-            .selectFrom('tees')
-            .select(['id', 'course_id'])
-            .where('id', 'in', teeIds)
-            .execute();
-        const byId = new Map(rows.map((t) => [t.id, t]));
+        const rows = await Promise.all(teeIds.map((teeId) => this.tees.getById(teeId)));
+        const byId = new Map(rows.filter((tee) => tee !== null).map((tee) => [tee.id, tee]));
         const diags: CompilerDiagnostic[] = [];
         for (const teeId of teeIds) {
             const tee = byId.get(teeId);
@@ -427,7 +453,7 @@ export class CompetitionRoundService {
                     message: `tee '${teeId}' (from the competition's tee mapping) not found`,
                     path: 'defaultConfig.categoryTees',
                 });
-            } else if (tee.course_id !== courseId) {
+            } else if (tee.courseId !== courseId) {
                 diags.push({
                     code: 'tee_wrong_course',
                     message: `tee '${teeId}' (from the competition's tee mapping) belongs to a different course than this round`,
@@ -439,24 +465,14 @@ export class CompetitionRoundService {
     }
 
     private async nextRoundNumber(competitionId: string): Promise<number> {
-        const row = await this.db
-            .selectFrom('competition_rounds')
-            .select(sql<number | null>`max(round_number)`.as('max'))
-            .where('competition_id', '=', competitionId)
-            .executeTakeFirst();
+        const row = await this.maxRoundNumber(competitionId).executeTakeFirst();
         return (row?.max ?? 0) + 1;
     }
 
     /** Has a cut already been applied on this competition? (Any participant —
      *  including withdrawn ones — carrying `cut_after_round`.) */
     private async cutHasBeenApplied(competitionId: string): Promise<boolean> {
-        const row = await this.db
-            .selectFrom('competition_participants')
-            .select('id')
-            .where('competition_id', '=', competitionId)
-            .where('cut_after_round', 'is not', null)
-            .limit(1)
-            .executeTakeFirst();
+        const row = await this.cutParticipant(competitionId).executeTakeFirst();
         return row !== undefined;
     }
 }
