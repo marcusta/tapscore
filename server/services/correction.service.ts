@@ -10,8 +10,10 @@ import type { CompilerDiagnostic } from '../domain/compiler/types';
 import { persistCompiledRound } from '../domain/compiler/persist';
 import {
     definitionInputFromResolved,
+    isPlaceholderProducerDef,
     type BallStrategyDefinition,
     type FormatAllowanceConfig,
+    type IdentityProducerDefinition,
     type PlayHoleInput,
     type PlayingGroupInput,
     type ProducerDefinition,
@@ -341,11 +343,16 @@ export class CorrectionService {
             .select(['sb.ball_id', 'b.course_handicap_snapshot'])
             .execute();
 
+        // Placeholder balls (Phase 5.5) have a NULL CH — no PH can derive, so
+        // they are excluded here and their slot_balls PH row simply stays NULL
+        // (the claim recompiles real snapshots in later).
         const derived = plugin.deriveSlotBalls({
-            balls: slotBalls.map((r) => ({
-                ballId: r.ball_id,
-                courseHandicapSnapshot: r.course_handicap_snapshot,
-            })),
+            balls: slotBalls
+                .filter((r) => r.course_handicap_snapshot !== null)
+                .map((r) => ({
+                    ballId: r.ball_id,
+                    courseHandicapSnapshot: r.course_handicap_snapshot!,
+                })),
             allowanceConfig: input.newConfig,
         });
 
@@ -510,13 +517,16 @@ function applySetupMutation(
 ): unknown {
     switch (target) {
         case 'producer_tee': {
-            const p = findProducer(def, ref.producerDefId);
+            const p = requireIdentityProducer(findProducer(def, ref.producerDefId), 'producer_tee');
             const old = p.teeId;
             p.teeId = asString(newValue, 'producer_tee newValue');
             return old;
         }
         case 'producer_handicap_index': {
-            const p = findProducer(def, ref.producerDefId);
+            const p = requireIdentityProducer(
+                findProducer(def, ref.producerDefId),
+                'producer_handicap_index',
+            );
             const old = p.handicapIndex;
             p.handicapIndex = asNumber(newValue, 'producer_handicap_index newValue');
             return old;
@@ -618,6 +628,25 @@ function applySetupMutation(
 function findProducer(def: RoundDefinitionInput, producerDefId: string | undefined): ProducerDefinition {
     const p = def.producers.find((x) => x.id === producerDefId);
     if (!p) throw new CorrectionInputError('unknown_producer', `no producer with def-id '${producerDefId}'`, 'targetRef.producerDefId');
+    return p;
+}
+
+/**
+ * Tee/handicap corrections only make sense on an identity-bound producer — a
+ * placeholder seat (Phase 5.5) has no chain until it is claimed, and the claim
+ * op (Slice 3) is the ONLY path that binds one.
+ */
+function requireIdentityProducer(
+    p: ProducerDefinition,
+    target: string,
+): IdentityProducerDefinition {
+    if (isPlaceholderProducerDef(p)) {
+        throw new CorrectionInputError(
+            'producer_is_placeholder',
+            `'${target}' cannot apply to placeholder seat '${p.id}' — claim the seat first`,
+            'targetRef.producerDefId',
+        );
+    }
     return p;
 }
 

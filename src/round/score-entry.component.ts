@@ -238,6 +238,9 @@ export class ScoreEntryComponent extends Component {
                 &:active { background: ${t('accent')}; }
                 &.empty { color: ${t('text-muted')}; background: ${t('surface-sunken')}; }
             }
+            /* Phase 5.5 — unclaimed placeholder seat: muted label, inert circle. */
+            & .se-row__name--pending { color: ${t('text-muted')}; font-style: italic; }
+            & .se-row__circle--pending { cursor: default; opacity: 0.55; &:active { background: ${t('surface-sunken')}; } }
         }
         .se-row__topar.under { color: ${t('under-par')}; }
         .se-row__topar.over { color: ${t('over-par')}; }
@@ -685,6 +688,25 @@ export class ScoreEntryComponent extends Component {
         prevPlayHoleId: string | null,
         track: (d: () => void) => void,
     ): HTMLElement {
+        // Phase 5.5: a pending ball (unclaimed placeholder seat) renders its
+        // seat label muted and refuses score entry — the server would 409 the
+        // write anyway (`seat_unclaimed`); the claim card (Slice 3) unlocks it.
+        if (ball.pending) {
+            return this.wireEl(
+                rowTpl,
+                {
+                    name: {
+                        textContent: this.ballName(ball),
+                        className: 'se-row__name se-row__name--pending',
+                    },
+                    topar: { textContent: 'open seat', className: 'se-row__topar' },
+                    prev: { textContent: '' },
+                    cval: { textContent: '–' },
+                    circle: { className: 'se-row__circle empty se-row__circle--pending' },
+                },
+                track,
+            );
+        }
         return this.wireEl(
             rowTpl,
             {
@@ -711,10 +733,13 @@ export class ScoreEntryComponent extends Component {
     }
 
     private modalRow(ball: RoundBall, index: number, track: (d: () => void) => void): HTMLElement {
-        const hcp =
-            ball.players.length > 1
-                ? `Team · CH ${ball.courseHandicap}`
-                : `CH ${ball.players[0]?.courseHandicap ?? ball.courseHandicap}`;
+        // Phase 5.5: a pending ball has no handicap chain until its seat is
+        // claimed — say so instead of showing an invented CH.
+        const hcp = ball.pending
+            ? 'Open seat — claim to score'
+            : ball.players.length > 1
+              ? `Team · CH ${ball.courseHandicap}`
+              : `CH ${ball.players[0]?.courseHandicap ?? ball.courseHandicap}`;
         return this.wireEl(
             mrowTpl,
             {
@@ -782,6 +807,13 @@ export class ScoreEntryComponent extends Component {
         const ph = this.currentHole();
         const ball = balls[this.currentBallIdx.get()];
         if (!ph || !ball) return;
+        // Phase 5.5: an unclaimed seat's ball refuses scoring (server 409s the
+        // write with `seat_unclaimed`); skip past it instead of queueing a
+        // write that can never land.
+        if (ball.pending) {
+            this.advance();
+            return;
+        }
         // Clearing a hole carries no metadata; a real/pickup score carries the
         // COMPLETE toggle snapshot so the latest event's blob is authoritative.
         const meta = value === null ? undefined : this.metaSnapshot();

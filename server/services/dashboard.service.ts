@@ -28,7 +28,8 @@ export interface DashboardSlotEntry {
     teamShape: string;
     /** The player's ball in this slot. */
     ballId: string;
-    playingHandicap: number;
+    /** Null when the ball covers an unclaimed placeholder seat (Phase 5.5). */
+    playingHandicap: number | null;
     teamLabel: string | null;
     /** Finishing position (1-based) in the slot's primary ranked metric; null
      *  for pair/state-only formats (match-play) that rank nothing scalar. */

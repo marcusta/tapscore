@@ -4,6 +4,7 @@ import type { Database } from '../db/schema';
 import type { CompilerDiagnostic } from '../domain/compiler/types';
 import {
     definitionInputFromResolved,
+    isIdentityProducerDef,
     type PlayingGroupInput,
     type ResolvedRoundDefinition,
 } from '../domain/round-definition';
@@ -110,7 +111,12 @@ export class RoundLeaveService {
         // the definition keeps the guest ref).
         const callerIds = new Set(
             definition.producers
-                .filter((p) => p.playerRef.kind === 'player' && p.playerRef.id === input.playerId)
+                .filter(
+                    (p) =>
+                        isIdentityProducerDef(p) &&
+                        p.playerRef.kind === 'player' &&
+                        p.playerRef.id === input.playerId,
+                )
                 .map((p) => p.id),
         );
         const claimedRows = await this.db

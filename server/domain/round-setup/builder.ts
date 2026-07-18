@@ -34,7 +34,15 @@ import type {
     SlotDefinition,
 } from '../round-definition';
 import type { CompilerDiagnostic } from '../compiler/types';
-import { type DraftRoundTeam, type RoundSetupDraft, isPlayerMember, isNestedTeamMember, teamKind } from './draft';
+import {
+    type DraftRoundTeam,
+    type RoundSetupDraft,
+    isIdentityProducer,
+    isPlaceholderProducer,
+    isPlayerMember,
+    isNestedTeamMember,
+    teamKind,
+} from './draft';
 import { effectiveStartListPolicy, maxGroupSizeOf } from './start-list-policy';
 
 export type BuildResult =
@@ -71,14 +79,43 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
 
     const rosterIds = new Set(draft.producers.map((p) => p.producerDefId));
 
-    const producers: ProducerDefinition[] = draft.producers.map((p) => ({
-        id: p.producerDefId,
-        playerRef: p.playerRef,
-        handicapIndex: p.handicapIndex,
-        ...(p.gender ? { gender: p.gender } : {}),
-        teeId: p.teeId,
-        ...(p.category !== undefined ? { category: p.category } : {}),
-    }));
+    const producers: ProducerDefinition[] = draft.producers.map((p) =>
+        isPlaceholderProducer(p)
+            ? {
+                  id: p.producerDefId,
+                  placeholder: {
+                      label: p.placeholder.label,
+                      ...(p.placeholder.teamRef !== undefined
+                          ? { teamRef: p.placeholder.teamRef }
+                          : {}),
+                  },
+                  ...(p.category !== undefined ? { category: p.category } : {}),
+              }
+            : {
+                  id: p.producerDefId,
+                  playerRef: p.playerRef,
+                  handicapIndex: p.handicapIndex,
+                  ...(p.gender ? { gender: p.gender } : {}),
+                  teeId: p.teeId,
+                  ...(p.category !== undefined ? { category: p.category } : {}),
+              },
+    );
+
+    // --- Placeholder coherence (Phase 5.5 Slice 2) --------------------------
+    // A placeholder seat only makes sense on a round whose policy makes seats
+    // CLAIMABLE. Under `seats:'assigned'` (including the friendly default) a
+    // seat could never be filled — an incoherent setup, so it REFUSES to
+    // compile rather than minting permanently-dead seats. A draft that wants
+    // placeholders must carry a claimable start-list policy explicitly.
+    const placeholderCount = draft.producers.filter(isPlaceholderProducer).length;
+    const policy = effectiveStartListPolicy(draft);
+    if (placeholderCount > 0 && policy.seats !== 'claimable') {
+        diags.push({
+            code: 'placeholders_need_claimable',
+            message: `the roster has ${placeholderCount} placeholder seat${placeholderCount > 1 ? 's' : ''} but the start-list policy pre-assigns every seat — choose a start list with claimable seats (e.g. "Organized with open slots"), or fill in the players`,
+            path: 'startList',
+        });
+    }
 
     // Coalesced ball strategies, in first-seen order, keyed for dedupe.
     const ballStrategies: BallStrategyDefinition[] = [];
@@ -92,6 +129,21 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
 
     // Round-level teams (ADR-0003) + lazily-materialised ball strategies.
     const teamsById = new Map((draft.teams ?? []).map((t) => [t.id, t]));
+
+    // A placeholder's optional teamRef must name a round-level team — it is
+    // claim-audience DATA (who may claim under claimBy:'team'), so a dangling
+    // ref would silently disable the seat's claim path.
+    draft.producers.forEach((p, i) => {
+        if (!isPlaceholderProducer(p)) return;
+        const ref = p.placeholder.teamRef;
+        if (ref !== undefined && !teamsById.has(ref)) {
+            diags.push({
+                code: 'unknown_placeholder_team_ref',
+                message: `placeholder seat '${p.placeholder.label}' references team '${ref}', which is not a round team`,
+                path: `producers[${i}].placeholder.teamRef`,
+            });
+        }
+    });
     const teamStratIdByTeamId = new Map<string, string>();
     const ownBallKey = `own_ball_per_player::${JSON.stringify({ type: 'single' })}`;
     const ensureOwnBallStrat = (): string => {
@@ -170,7 +222,12 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
         );
 
         const plan = plugin.planSetup({
-            producers: scopedProducers.map((p) => ({
+            // planSetup's producer input is identity-shaped (playerRef, HCP,
+            // tee); placeholder seats have none of it and no plugin reads the
+            // list for anything but shape, so they are simply not passed. Team
+            // references (producer def-ids) still cover them, and the compiler
+            // materialises their balls off the shared strategies.
+            producers: scopedProducers.filter(isIdentityProducer).map((p) => ({
                 producerDefId: p.producerDefId,
                 playerRef: p.playerRef,
                 handicapIndex: p.handicapIndex,

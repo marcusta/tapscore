@@ -5,8 +5,9 @@ import type { Database } from '../db/schema';
 import type { CompilerDiagnostic } from '../domain/compiler/types';
 import {
     definitionInputFromResolved,
+    isIdentityProducerDef,
+    type IdentityProducerDefinition,
     type PlayingGroupInput,
-    type ProducerDefinition,
     type ResolvedRoundDefinition,
     type SlotDefinition,
 } from '../domain/round-definition';
@@ -129,7 +130,10 @@ export class RoundJoinService {
         // definition keeps the guest ref). Unclaimed-guest ambiguity is fine —
         // the claim flow handles that path.
         const isDefProducer = latest.definition.producers.some(
-            (p) => p.playerRef.kind === 'player' && p.playerRef.id === input.playerId,
+            (p) =>
+                isIdentityProducerDef(p) &&
+                p.playerRef.kind === 'player' &&
+                p.playerRef.id === input.playerId,
         );
         const claimedRow = isDefProducer
             ? undefined
@@ -258,7 +262,7 @@ export class RoundJoinService {
 
         // --- Compose the new definition --------------------------------------
         const def = definitionInputFromResolved(latest.definition);
-        const producer: ProducerDefinition = {
+        const producer: IdentityProducerDefinition = {
             id: `join-${input.playerId}`,
             playerRef: { kind: 'player', id: input.playerId },
             handicapIndex,
@@ -354,7 +358,7 @@ export class RoundJoinService {
  */
 function draftWithJoin(
     stored: RoundSetupDraft,
-    producer: ProducerDefinition,
+    producer: IdentityProducerDefinition,
     defGroups: PlayingGroupInput[],
     definition: ResolvedRoundDefinition,
     createdNewGroup: boolean,

@@ -180,9 +180,15 @@ function buildRoundContext(input: RoundLeaderboardInput): RoundContext {
         };
         producers.set(bp.producerDefId, {
             producerDefId: bp.producerDefId,
+            // Both identity ids null = an unclaimed placeholder seat (Phase
+            // 5.5); its ref keys on the stable producer def-id. No format
+            // strategy reads playerRef, and the seat's ball is scoreless by
+            // the claim-before-score rule.
             playerRef: bp.playerId
                 ? { kind: 'player', id: bp.playerId }
-                : { kind: 'guest', id: bp.guestPlayerId! },
+                : bp.guestPlayerId
+                  ? { kind: 'guest', id: bp.guestPlayerId }
+                  : { kind: 'placeholder', id: bp.producerDefId },
             displayName: bp.displayName,
             handicapIndex: bp.handicapIndex,
             category: bp.category ?? undefined,
@@ -219,8 +225,16 @@ function buildRoundContext(input: RoundLeaderboardInput): RoundContext {
 
 function producersForBall(ball: MaterializeBall, fallback: PerProducerCh[]): PerProducerCh[] {
     if (ball.perProducerChJson) {
-        const parsed = JSON.parse(ball.perProducerChJson) as PerProducerCh[];
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        const parsed = JSON.parse(ball.perProducerChJson) as {
+            producerDefId: string;
+            ch: number | null;
+        }[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+            // A placeholder member's audit ch is NULL (unclaimed seat) —
+            // coalesce to the engine's neutral 0; the seat's ball is
+            // scoreless, so the 0 never reaches a rendered value.
+            return parsed.map((p) => ({ producerDefId: p.producerDefId, ch: p.ch ?? 0 }));
+        }
     }
     if (fallback.length === 0) {
         throw new Error(`ball ${ball.id} has no per-producer CH (neither audit JSON nor ball_players)`);

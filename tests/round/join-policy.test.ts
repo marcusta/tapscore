@@ -15,6 +15,7 @@ const view = (
     policy: { groups: 'open', seats: 'assigned', claimBy: 'anyone' },
     presetId: null,
     viewer: { join, createGroup, claimSeat: { allowed: true }, maxGroupSize: 4 },
+    seats: [],
 });
 
 test('joinCardPolicyState: allowed → active card; null view (still loading) → hidden', () => {

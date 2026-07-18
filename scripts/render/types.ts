@@ -51,8 +51,9 @@ export interface BallInfo {
     label: string | null;
     /** `round_ball_strategies.strategy_id` — own_ball_per_player, alt_shot_pair, … */
     strategyId: string | null;
-    /** `balls.course_handicap_snapshot` — derived ball CH. */
-    courseHandicapSnapshot: number;
+    /** `balls.course_handicap_snapshot` — derived ball CH. Null when the
+     *  ball covers an unclaimed placeholder seat (Phase 5.5). */
+    courseHandicapSnapshot: number | null;
     producers: BallProducerInfo[];
     /** slotId → `slot_ball_teams.team_label` (if any). */
     teamLabelBySlot: Map<string, string>;

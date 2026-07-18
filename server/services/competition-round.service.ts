@@ -1,11 +1,12 @@
 import { sql, type Insertable, type Kysely, type Selectable } from 'kysely';
 import type { CompetitionRoundsTable, Database, RoundStatus } from '../db/schema';
 import type { CompilerDiagnostic } from '../domain/compiler/types';
-import type {
-    DraftFormatSelection,
-    DraftPlayingGroup,
-    DraftProducer,
-    RoundSetupDraft,
+import {
+    isIdentityProducer,
+    type DraftFormatSelection,
+    type DraftPlayingGroup,
+    type DraftProducer,
+    type RoundSetupDraft,
 } from '../domain/round-setup/draft';
 import { START_LIST_PRESETS } from '../domain/round-setup/start-list-policy';
 import {
@@ -448,7 +449,7 @@ export class CompetitionRoundService {
         producers: DraftProducer[],
         courseId: string,
     ): Promise<CompilerDiagnostic[]> {
-        const teeIds = [...new Set(producers.map((p) => p.teeId))];
+        const teeIds = [...new Set(producers.filter(isIdentityProducer).map((p) => p.teeId))];
         if (teeIds.length === 0) return [];
         const rows = await Promise.all(teeIds.map((teeId) => this.tees.getById(teeId)));
         const byId = new Map(rows.filter((tee) => tee !== null).map((tee) => [tee.id, tee]));

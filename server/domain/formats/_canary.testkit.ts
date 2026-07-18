@@ -16,7 +16,7 @@
 // consumes, so the canary can exercise the full plan→compile→score→rank
 // chain here without rewiring the production leaderboard.
 
-import type { RoundDefinition } from '../round-definition';
+import { isPlaceholderProducerDef, type RoundDefinition } from '../round-definition';
 import { deriveFlat, latestScoresByPlayHole } from '../strategies/formats/_shared';
 import { defaultGridPresenter } from '../strategies/formats/default-grid.presenter';
 import { createRoundContext } from '../strategies/round-context';
@@ -212,6 +212,7 @@ export function makeCanaryCompilerInput(roundId: string, definition: RoundDefini
     const playerProfiles = new Map<string, { displayName: string; gender?: Gender; category?: string }>();
     const guestProfiles = new Map<string, { displayName: string; gender?: Gender; category?: string }>();
     for (const p of definition.producers) {
+        if (isPlaceholderProducerDef(p)) continue; // canary fixtures never carry seats
         const profile = { displayName: `Player ${p.id}`, gender: p.gender, category: p.category };
         if (p.playerRef.kind === 'player') playerProfiles.set(p.playerRef.id, profile);
         else guestProfiles.set(p.playerRef.id, profile);
@@ -234,12 +235,15 @@ export function materializeSlot(
     const producers = new Map<string, ProducerSnapshot>();
     for (const bp of compiled.ballPlayers) {
         if (producers.has(bp.producerDefId)) continue;
+        // Test-only materialiser: canary fixtures never carry placeholder
+        // seats, so identity + the full snapshot chain are always present.
+        if (bp.playerId === null && bp.guestPlayerId === null) continue;
         const tee: TeeSnapshot = {
-            teeId: bp.teeId,
-            teeName: bp.teeNameSnapshot,
-            courseRating: bp.courseRatingSnapshot,
-            slope: bp.slopeSnapshot,
-            teePar: bp.teeParSnapshot,
+            teeId: bp.teeId!,
+            teeName: bp.teeNameSnapshot!,
+            courseRating: bp.courseRatingSnapshot!,
+            slope: bp.slopeSnapshot!,
+            teePar: bp.teeParSnapshot!,
         };
         producers.set(bp.producerDefId, {
             producerDefId: bp.producerDefId,
@@ -247,10 +251,10 @@ export function materializeSlot(
                 ? { kind: 'player', id: bp.playerId }
                 : { kind: 'guest', id: bp.guestPlayerId! },
             displayName: bp.displayNameSnapshot,
-            handicapIndex: bp.handicapIndexSnapshot,
+            handicapIndex: bp.handicapIndexSnapshot!,
             gender: bp.genderSnapshot ?? undefined,
             tee,
-            courseHandicap: bp.courseHandicapSnapshot,
+            courseHandicap: bp.courseHandicapSnapshot!,
         });
     }
 
@@ -286,8 +290,9 @@ export function materializeSlot(
             return {
                 ballId: ball.id,
                 label: ball.label ?? undefined,
-                courseHandicapSnapshot: ball.courseHandicapSnapshot,
-                playingHandicapSnapshot: sb.playingHandicapSnapshot,
+                // Canary fixtures never carry placeholder seats → non-null.
+                courseHandicapSnapshot: ball.courseHandicapSnapshot!,
+                playingHandicapSnapshot: sb.playingHandicapSnapshot!,
                 producers: perProducer,
             };
         });

@@ -11,13 +11,14 @@ import type {
     ScoringMode,
     TeamShape,
 } from '../db/schema';
-import type {
-    FormatAllowanceConfig,
-    ResolvedRoundDefinition,
-    RoundDefinition,
-    RouteHandicapPolicy,
-    RouteSection,
-    RouteSiResolved,
+import {
+    isIdentityProducerDef,
+    type FormatAllowanceConfig,
+    type ResolvedRoundDefinition,
+    type RoundDefinition,
+    type RouteHandicapPolicy,
+    type RouteSection,
+    type RouteSiResolved,
 } from '../domain/round-definition';
 import type { CompileResult, CompilerDiagnostic, CompilerInput, CompilerTeeContext, Gender } from '../domain/compiler/types';
 import { compile } from '../domain/compiler/compile';
@@ -193,25 +194,37 @@ export interface RoundBallPlayer {
     producerDefId: string;
     playerId: string | null;
     guestPlayerId: string | null;
+    /** The frozen person name — or, for a pending placeholder seat, its LABEL. */
     displayName: string;
-    handicapIndex: number;
-    teeName: string;
-    courseHandicap: number;
+    /** Null on a pending placeholder seat (no chain until claim). */
+    handicapIndex: number | null;
+    teeName: string | null;
+    courseHandicap: number | null;
+    /**
+     * Machine flag (Phase 5.5): true iff this producer is an UNCLAIMED
+     * placeholder seat (both identity FKs null). Clients style pending seats
+     * off this — never by sniffing name strings or null handicaps.
+     */
+    pending: boolean;
 }
 
 export interface RoundBallSlot {
     slotDefId: string;
     slotIndex: number | null;
-    playingHandicap: number;
+    /** Null when the ball covers a pending placeholder seat (no CH → no PH). */
+    playingHandicap: number | null;
     teamLabel: string | null;
 }
 
 export interface RoundBall {
     id: string;
     label: string | null;
-    courseHandicap: number;
+    /** Null when the ball covers a pending placeholder seat. */
+    courseHandicap: number | null;
     players: RoundBallPlayer[];
     slots: RoundBallSlot[];
+    /** True iff any producer on this ball is an unclaimed placeholder seat. */
+    pending: boolean;
 }
 
 export interface UpdateRoundInput {
@@ -674,6 +687,8 @@ export class RoundService {
                 handicapIndex: r.handicap_index_snapshot,
                 teeName: r.tee_name_snapshot,
                 courseHandicap: r.course_handicap_snapshot,
+                // Both identity FKs null = an unclaimed placeholder seat.
+                pending: r.player_id === null && r.guest_player_id === null,
             });
             playersByBall.set(r.ball_id, list);
         }
@@ -691,13 +706,17 @@ export class RoundService {
             slotsByBall.set(r.ball_id, list);
         }
 
-        return ballRows.map((b) => ({
-            id: b.id,
-            label: b.label,
-            courseHandicap: b.course_handicap_snapshot,
-            players: playersByBall.get(b.id) ?? [],
-            slots: slotsByBall.get(b.id) ?? [],
-        }));
+        return ballRows.map((b) => {
+            const players = playersByBall.get(b.id) ?? [];
+            return {
+                id: b.id,
+                label: b.label,
+                courseHandicap: b.course_handicap_snapshot,
+                players,
+                slots: slotsByBall.get(b.id) ?? [],
+                pending: players.some((p) => p.pending),
+            };
+        });
     }
 
     /**
@@ -780,7 +799,10 @@ export class RoundService {
             throw new Error(`course ${def.courseId} has no holes`);
         }
 
-        const teeIds = new Set(def.producers.map((p) => p.teeId));
+        // Placeholder seats (Phase 5.5) carry no tee and no profile — the
+        // compiler resolves them from their label alone.
+        const identityProducers = def.producers.filter(isIdentityProducerDef);
+        const teeIds = new Set(identityProducers.map((p) => p.teeId));
         const tees = new Map<string, CompilerTeeContext>();
         for (const teeId of teeIds) {
             const ctx = await deps.getTeeContext(teeId);
@@ -796,7 +818,7 @@ export class RoundService {
             string,
             { displayName: string; gender?: Gender; category?: string }
         >();
-        for (const p of def.producers) {
+        for (const p of identityProducers) {
             if (p.playerRef.kind === 'player') {
                 if (playerProfiles.has(p.playerRef.id)) continue;
                 const profile = await deps.getPlayerProfile(p.playerRef.id);

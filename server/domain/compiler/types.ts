@@ -127,25 +127,36 @@ export interface CompiledBall {
     id: string;
     roundBallStrategyId: string;
     label: string | null;
-    courseHandicapSnapshot: number;
+    /**
+     * Derived ball CH. NULL iff the ball covers ≥1 unclaimed placeholder seat
+     * (Phase 5.5): the chain cannot derive without every member's identity,
+     * and is never invented — the claim (Slice 3) recompiles it in.
+     */
+    courseHandicapSnapshot: number | null;
     perProducerChJson: string;
 }
 
 export interface CompiledBallPlayer {
     ballId: string;
     producerDefId: string;
+    /**
+     * Identity FKs. XOR for a bound identity; BOTH NULL is the placeholder
+     * seat representation (Phase 5.5) — pending is derived from the nulls,
+     * never from a discriminator string. A placeholder row carries the seat
+     * LABEL as `displayNameSnapshot` and a NULL handicap/tee chain.
+     */
     playerId: string | null;
     guestPlayerId: string | null;
     displayNameSnapshot: string;
-    handicapIndexSnapshot: number;
+    handicapIndexSnapshot: number | null;
     categorySnapshot: string | null;
     genderSnapshot: Gender | null;
-    teeId: string;
-    teeNameSnapshot: string;
-    courseRatingSnapshot: number;
-    slopeSnapshot: number;
-    teeParSnapshot: number;
-    courseHandicapSnapshot: number;
+    teeId: string | null;
+    teeNameSnapshot: string | null;
+    courseRatingSnapshot: number | null;
+    slopeSnapshot: number | null;
+    teeParSnapshot: number | null;
+    courseHandicapSnapshot: number | null;
 }
 
 export interface CompiledSlot {
@@ -166,7 +177,8 @@ export interface CompiledSlot {
 export interface CompiledSlotBall {
     slotId: string;
     ballId: string;
-    playingHandicapSnapshot: number;
+    /** NULL iff the ball covers an unclaimed placeholder seat (no CH → no PH). */
+    playingHandicapSnapshot: number | null;
 }
 
 export interface CompiledSlotBallTeam {

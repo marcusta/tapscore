@@ -342,7 +342,14 @@ export class LeaderboardComponent extends Component {
         if (!result) return '';
         const slot = this.currentSlot();
         if (!slot) return '<div class="lb-empty">No formats in this round.</div>';
-        const nameOf = (id: string) => this.svc.nameOf(id);
+        // Phase 5.5: a pending ball (unclaimed placeholder seat) renders its
+        // seat LABEL wherever a name would appear, suffixed so a board reader
+        // sees the seat is still open. Machine flag comes from ball metadata
+        // (`RoundBall.pending`), never from sniffing the label text.
+        const nameOf = (id: string) => {
+            const name = this.svc.nameOf(id);
+            return this.svc.isPending(id) ? `${name} (open seat)` : name;
+        };
         const groupOf = (id: string) => this.svc.groupLabelOf(id);
         const leaderboard = renderSlotLeaderboard(slot, nameOf, groupOf);
         const cards = renderSlotCards(slot, result.routeSections, nameOf);

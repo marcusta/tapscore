@@ -25,12 +25,14 @@
 import { hashId, sortProducerSet, type ProducerRef } from '../deterministic-id';
 import { courseHandicap } from '../handicap';
 import { normalize } from './normalize';
-import type {
-    BallStrategyDefinition,
-    ProducerDefinition,
-    ResolvedRoundDefinition,
-    RoundDefinition,
-    SlotDefinition,
+import {
+    isPlaceholderProducerDef,
+    type BallStrategyDefinition,
+    type IdentityProducerDefinition,
+    type ProducerDefinition,
+    type ResolvedRoundDefinition,
+    type RoundDefinition,
+    type SlotDefinition,
 } from '../round-definition';
 import {
     findBallCreationStrategy,
@@ -66,13 +68,18 @@ import type {
 
 interface ResolvedProducer {
     def: ProducerDefinition;
-    tee: TeeSnapshot;
+    /** True for a placeholder seat (Phase 5.5): no identity, no tee, no CH. */
+    placeholder: boolean;
+    /** Null for a placeholder seat. */
+    tee: TeeSnapshot | null;
     teeHoles: RoundTeeHoleSnapshot[];
-    teeId: string;
+    teeId: string | null;
+    /** The seat LABEL for a placeholder; the profile display name otherwise. */
     displayName: string;
     gender: Gender | null;
     category: string | null;
-    courseHandicap: number;
+    /** Null for a placeholder seat — captured at claim time, never invented. */
+    courseHandicap: number | null;
 }
 
 interface StrategyResolved {
@@ -85,7 +92,10 @@ interface StrategyResolved {
 interface ResolvedBall {
     row: CompiledBall;
     producerDefIds: string[];
-    perProducerCh: { producerDefId: string; ch: number }[];
+    /** `ch` is null for a placeholder member (no chain until claim). */
+    perProducerCh: { producerDefId: string; ch: number | null }[];
+    /** True iff any covering producer is an unclaimed placeholder seat. */
+    pending: boolean;
 }
 
 export function compile(input: CompilerInput): CompileResult {
@@ -337,6 +347,24 @@ function resolveProducers(
         }
         seenIds.add(def.id);
 
+        // Placeholder seat (Phase 5.5): no profile, no tee, no handicap chain.
+        // The seat LABEL stands in for the display name; every snapshot that
+        // would come from identity/tee stays null until the claim recompiles.
+        if (isPlaceholderProducerDef(def)) {
+            out.set(def.id, {
+                def,
+                placeholder: true,
+                tee: null,
+                teeHoles: [],
+                teeId: null,
+                displayName: def.placeholder.label,
+                gender: null,
+                category: def.category ?? null,
+                courseHandicap: null,
+            });
+            continue;
+        }
+
         const teeCtx = input.tees.get(def.teeId);
         if (!teeCtx) {
             diags.push({
@@ -386,6 +414,7 @@ function resolveProducers(
 
         out.set(def.id, {
             def,
+            placeholder: false,
             tee: {
                 teeId: def.teeId,
                 teeName: teeCtx.teeName,
@@ -405,7 +434,7 @@ function resolveProducers(
 }
 
 function resolveProfile(
-    def: ProducerDefinition,
+    def: IdentityProducerDefinition,
     input: CompilerInput,
 ): { displayName: string; gender?: Gender; category?: string } | null {
     if (def.playerRef.kind === 'player') {
@@ -468,15 +497,7 @@ function resolveStrategies(
                 });
                 continue;
             }
-            producerInputs.push({
-                playerRef: rp.def.playerRef,
-                producerDefId: rp.def.id,
-                handicapIndex: rp.def.handicapIndex,
-                gender: rp.gender ?? undefined,
-                tee: rp.tee,
-                teeHoles: rp.teeHoles,
-                courseHandicap: rp.courseHandicap,
-            });
+            producerInputs.push(toBallCreationInput(rp));
         }
         if (diags.some((d) => d.path?.startsWith(`ballStrategies[${i}]`))) continue;
 
@@ -516,6 +537,50 @@ function resolveStrategies(
     return out;
 }
 
+/**
+ * The producer ref that keys a ball's content-addressed id. A placeholder seat
+ * keys on its stable producer def-id under the 'placeholder' kind — see the
+ * `ProducerRef` note in deterministic-id.ts for the claim-time id-change rule.
+ */
+function producerRefOf(rp: ResolvedProducer): ProducerRef {
+    if (rp.placeholder) return { kind: 'placeholder', id: rp.def.id };
+    const identity = rp.def as IdentityProducerDefinition;
+    return { kind: identity.playerRef.kind, id: identity.playerRef.id };
+}
+
+/**
+ * Ball-creation input for one resolved producer. A placeholder seat feeds the
+ * strategy a POISONED input — NaN handicap values and a hollow tee — so the
+ * strategy's grouping logic (own balls, team balls, hybrid passes) runs
+ * unchanged while any CH arithmetic that touches the seat degrades to NaN.
+ * `sanitizePlaceholderBalls` then replaces every NaN-tainted derived CH with
+ * an honest NULL before anything persists; the strategies never learn about
+ * placeholders and no invented handicap survives.
+ */
+function toBallCreationInput(rp: ResolvedProducer): BallCreationProducerInput {
+    if (rp.placeholder) {
+        return {
+            playerRef: { kind: 'placeholder', id: rp.def.id },
+            producerDefId: rp.def.id,
+            handicapIndex: Number.NaN,
+            gender: undefined,
+            tee: { teeId: '', teeName: '', courseRating: Number.NaN, slope: Number.NaN, teePar: Number.NaN },
+            teeHoles: [],
+            courseHandicap: Number.NaN,
+        };
+    }
+    const identity = rp.def as IdentityProducerDefinition;
+    return {
+        playerRef: identity.playerRef,
+        producerDefId: rp.def.id,
+        handicapIndex: identity.handicapIndex,
+        gender: rp.gender ?? undefined,
+        tee: rp.tee!,
+        teeHoles: rp.teeHoles,
+        courseHandicap: rp.courseHandicap!,
+    };
+}
+
 /** Producers a strategy references — composition.teams if present, else all. */
 function collectStrategyProducers(
     def: BallStrategyDefinition,
@@ -534,17 +599,19 @@ function createdBallToResolved(
     strategyDefId: string,
     producers: Map<string, ResolvedProducer>,
 ): ResolvedBall {
-    const refs: ProducerRef[] = cb.producerDefIds.map((pid) => {
+    const resolvedMembers = cb.producerDefIds.map((pid) => {
         const rp = producers.get(pid);
         if (!rp) throw new Error(`compile: producer '${pid}' missing after validation`);
-        return { kind: rp.def.playerRef.kind, id: rp.def.playerRef.id };
+        return rp;
     });
+    const refs: ProducerRef[] = resolvedMembers.map(producerRefOf);
     const sortedKeys = sortProducerSet(refs);
     const ballId = hashId('tapscore:ball:v1', roundId, strategyDefId, ...sortedKeys);
     // Populate `balls.label` (§17 option 3a): fall back to a display-name
     // join when the strategy didn't already set one (own-ball doesn't; pair
     // strategies like alt-shot do). Single producer → their display name;
-    // multi-producer → "Name1 & Name2 & ...".
+    // multi-producer → "Name1 & Name2 & ...". A placeholder seat's
+    // displayName IS its label, so seats surface it here automatically.
     let derivedLabel: string | null = cb.label ?? null;
     if (derivedLabel === null) {
         const names = cb.producerDefIds
@@ -552,16 +619,26 @@ function createdBallToResolved(
             .filter((n): n is string => typeof n === 'string');
         derivedLabel = names.length > 0 ? names.join(' & ') : null;
     }
+    // Placeholder sanitation (Phase 5.5): a ball covering an unclaimed seat has
+    // no derivable handicap chain. The strategy ran with a NaN-poisoned CH for
+    // the seat; replace the tainted derived CH with an honest NULL and rebuild
+    // the per-producer audit from the resolved producers (identity members keep
+    // their real CH, seats carry null). No NaN and no invented number persists.
+    const pending = resolvedMembers.some((rp) => rp.placeholder);
+    const perProducerCh: { producerDefId: string; ch: number | null }[] = pending
+        ? resolvedMembers.map((rp) => ({ producerDefId: rp.def.id, ch: rp.courseHandicap }))
+        : cb.perProducerCh;
     return {
         row: {
             id: ballId,
             roundBallStrategyId: strategyRow.id,
             label: derivedLabel,
-            courseHandicapSnapshot: cb.courseHandicapSnapshot,
-            perProducerChJson: JSON.stringify(cb.perProducerCh),
+            courseHandicapSnapshot: pending ? null : cb.courseHandicapSnapshot,
+            perProducerChJson: JSON.stringify(perProducerCh),
         },
         producerDefIds: [...cb.producerDefIds],
-        perProducerCh: cb.perProducerCh,
+        perProducerCh,
+        pending,
     };
 }
 
@@ -575,20 +652,43 @@ function buildBallPlayers(
         for (const ppc of b.perProducerCh) {
             const rp = producers.get(ppc.producerDefId);
             if (!rp) throw new Error(`compile: producer '${ppc.producerDefId}' missing for ball ${b.row.id}`);
+            if (rp.placeholder) {
+                // Unclaimed seat: BOTH identity FKs null (the pending signal),
+                // the seat label as the display-name snapshot, and a NULL
+                // handicap/tee chain — captured at claim time, never invented.
+                out.push({
+                    ballId: b.row.id,
+                    producerDefId: ppc.producerDefId,
+                    playerId: null,
+                    guestPlayerId: null,
+                    displayNameSnapshot: rp.displayName,
+                    handicapIndexSnapshot: null,
+                    categorySnapshot: rp.category,
+                    genderSnapshot: null,
+                    teeId: null,
+                    teeNameSnapshot: null,
+                    courseRatingSnapshot: null,
+                    slopeSnapshot: null,
+                    teeParSnapshot: null,
+                    courseHandicapSnapshot: null,
+                });
+                continue;
+            }
+            const identity = rp.def as IdentityProducerDefinition;
             out.push({
                 ballId: b.row.id,
                 producerDefId: ppc.producerDefId,
-                playerId: rp.def.playerRef.kind === 'player' ? rp.def.playerRef.id : null,
-                guestPlayerId: rp.def.playerRef.kind === 'guest' ? rp.def.playerRef.id : null,
+                playerId: identity.playerRef.kind === 'player' ? identity.playerRef.id : null,
+                guestPlayerId: identity.playerRef.kind === 'guest' ? identity.playerRef.id : null,
                 displayNameSnapshot: rp.displayName,
-                handicapIndexSnapshot: rp.def.handicapIndex,
+                handicapIndexSnapshot: identity.handicapIndex,
                 categorySnapshot: rp.category,
                 genderSnapshot: rp.gender,
                 teeId: rp.teeId,
-                teeNameSnapshot: rp.tee.teeName,
-                courseRatingSnapshot: rp.tee.courseRating,
-                slopeSnapshot: rp.tee.slope,
-                teeParSnapshot: rp.tee.teePar,
+                teeNameSnapshot: rp.tee!.teeName,
+                courseRatingSnapshot: rp.tee!.courseRating,
+                slopeSnapshot: rp.tee!.slope,
+                teeParSnapshot: rp.tee!.teePar,
                 courseHandicapSnapshot: ppc.ch,
             });
         }
@@ -836,14 +936,19 @@ function compileSlot(
     if (hasSlotDiag()) return;
 
     // --- deriveSlotBalls one-for-one with the selected balls ---------------
+    // Placeholder balls (Phase 5.5) carry no CH, so no PH can derive: they
+    // skip the format's allowance derivation and land with a NULL PH (the
+    // claim recompiles real snapshots in). The format never sees them, so
+    // formats needing handicaps still compile with seats present.
+    const derivable = selected.filter((b) => !b.pending);
     const derived = format.deriveSlotBalls({
-        balls: selected.map((b) => ({
+        balls: derivable.map((b) => ({
             ballId: b.row.id,
-            courseHandicapSnapshot: b.row.courseHandicapSnapshot,
+            courseHandicapSnapshot: b.row.courseHandicapSnapshot!,
         })),
         allowanceConfig: slotDef.allowanceConfig,
     });
-    const selectedIds = new Set(selected.map((b) => b.row.id));
+    const selectedIds = new Set(derivable.map((b) => b.row.id));
     const seenDerived = new Set<string>();
     for (const d of derived) {
         if (!selectedIds.has(d.ballId)) {
@@ -862,7 +967,7 @@ function compileSlot(
             seenDerived.add(d.ballId);
         }
     }
-    for (const b of selected) {
+    for (const b of derivable) {
         if (!seenDerived.has(b.row.id)) {
             diags.push({
                 code: 'derived_ball_missing',
@@ -889,11 +994,14 @@ function compileSlot(
         allowanceConfigJson: JSON.stringify(slotDef.allowanceConfig),
         ballMode,
     });
-    for (const d of derived) {
+    // Emit in SELECTED order (the ball-order contract — match-play pairs in
+    // order), merging the derived PHs back in; pending balls carry a NULL PH.
+    const phByBall = new Map(derived.map((d) => [d.ballId, d.playingHandicapSnapshot] as const));
+    for (const b of selected) {
         slotBalls.push({
             slotId: slotRowId,
-            ballId: d.ballId,
-            playingHandicapSnapshot: d.playingHandicapSnapshot,
+            ballId: b.row.id,
+            playingHandicapSnapshot: b.pending ? null : phByBall.get(b.row.id)!,
         });
     }
     for (const tr of teamResolutions) {

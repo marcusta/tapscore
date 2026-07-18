@@ -172,10 +172,11 @@ test('ballDisplayName joins producers, falls back to label, then to a generic na
         label: 'Team A',
         courseHandicap: 12,
         players: [
-            { producerDefId: 'p1', playerId: null, guestPlayerId: 'g1', displayName: 'Anna', handicapIndex: 10, teeName: 'Yellow', courseHandicap: 10 },
-            { producerDefId: 'p2', playerId: null, guestPlayerId: 'g2', displayName: 'Bert', handicapIndex: 20, teeName: 'Yellow', courseHandicap: 20 },
+            { producerDefId: 'p1', playerId: null, guestPlayerId: 'g1', displayName: 'Anna', handicapIndex: 10, teeName: 'Yellow', courseHandicap: 10, pending: false },
+            { producerDefId: 'p2', playerId: null, guestPlayerId: 'g2', displayName: 'Bert', handicapIndex: 20, teeName: 'Yellow', courseHandicap: 20, pending: false },
         ],
         slots: [],
+        pending: false,
     };
     expect(ballDisplayName(team)).toBe('Anna & Bert');
     expect(ballDisplayName({ ...team, players: [] })).toBe('Team A');

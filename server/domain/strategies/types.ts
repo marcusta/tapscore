@@ -78,7 +78,8 @@ export interface PlayHoleSnapshot {
  */
 export interface ProducerSnapshot {
     producerDefId: string;
-    playerRef: PlayerRef;
+    /** 'placeholder' = an unclaimed seat (Phase 5.5); id is the producer def-id. */
+    playerRef: PlayerRef | { kind: 'placeholder'; id: string };
     displayName: string;
     handicapIndex: number;
     category?: string;
@@ -407,9 +408,18 @@ export interface StrategyResult {
 
 // --- BallCreationStrategy inputs -------------------------------------------
 
-/** One producer's tee-aware input to ball creation. */
+/**
+ * One producer's tee-aware input to ball creation.
+ *
+ * Placeholder seats (Phase 5.5): the compiler feeds a placeholder producer in
+ * with `playerRef {kind:'placeholder', id: producerDefId}`, a hollow tee, and
+ * `NaN` handicap values, then NULLs the CH of every created ball that covers a
+ * placeholder before anything persists. Strategies stay ignorant — none reads
+ * `playerRef`/`tee`, and any CH arithmetic that touches the NaN is discarded
+ * by the compiler's post-pass (never persisted, never rendered).
+ */
 export interface BallCreationProducerInput {
-    playerRef: PlayerRef;
+    playerRef: PlayerRef | { kind: 'placeholder'; id: string };
     producerDefId: string;
     handicapIndex: number;
     gender?: 'M' | 'F';

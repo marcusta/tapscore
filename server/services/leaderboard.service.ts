@@ -163,6 +163,12 @@ export class LeaderboardService {
         const events = await this.strategyEvents(roundId);
         const formatActions = await this.formatActions(roundId);
 
+        // Placeholder seats (Phase 5.5): the DB honestly stores a NULL
+        // handicap/tee chain for an unclaimed seat, but the pure scoring
+        // engine is numeric. Coalesce the chain to NEUTRAL ZEROS at this
+        // boundary only — a placeholder ball refuses scoring, so it has no
+        // events, every gross stays null, and no number derived from the 0
+        // can ever surface in a result (labels render; values stay '—').
         const ballPlayers: MaterializeBallPlayer[] = ballPlayerRows
             .filter((r) => usedBallIds.has(r.ball_id))
             .map((r) => ({
@@ -171,15 +177,15 @@ export class LeaderboardService {
             playerId: r.player_id,
             guestPlayerId: r.guest_player_id,
             displayName: r.display_name_snapshot,
-            handicapIndex: r.handicap_index_snapshot,
+            handicapIndex: r.handicap_index_snapshot ?? 0,
             category: r.category_snapshot,
             gender: r.gender_snapshot,
             teeId: r.tee_id,
-            teeName: r.tee_name_snapshot,
-            courseRating: r.course_rating_snapshot,
-            slope: r.slope_snapshot,
-            teePar: r.tee_par_snapshot,
-            courseHandicap: r.course_handicap_snapshot,
+            teeName: r.tee_name_snapshot ?? '',
+            courseRating: r.course_rating_snapshot ?? 0,
+            slope: r.slope_snapshot ?? 0,
+            teePar: r.tee_par_snapshot ?? 0,
+            courseHandicap: r.course_handicap_snapshot ?? 0,
         }));
 
         const input: RoundLeaderboardInput = {
@@ -214,17 +220,20 @@ export class LeaderboardService {
                 ballIds: g.ballIds.filter((id) => usedBallIds.has(id)),
             })),
             ballPlayers,
+            // Same placeholder coalescing as ballPlayers above: NULL CH/PH
+            // (unclaimed seats) become neutral zeros for the numeric engine;
+            // scoreless balls can never surface a value derived from them.
             balls: usedBallRows.map((b) => ({
                 id: b.id,
                 label: b.label,
-                courseHandicapSnapshot: b.course_handicap_snapshot,
+                courseHandicapSnapshot: b.course_handicap_snapshot ?? 0,
                 perProducerChJson: b.per_producer_ch,
             })),
             slots,
             slotBalls: slotBallRows.map((r) => ({
                 slotId: r.slot_id,
                 ballId: r.ball_id,
-                playingHandicapSnapshot: r.playing_handicap_snapshot,
+                playingHandicapSnapshot: r.playing_handicap_snapshot ?? 0,
             })),
             slotBallTeams: slotBallTeamRows.map((r) => ({
                 slotId: r.slot_id,

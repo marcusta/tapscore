@@ -119,7 +119,7 @@ export type PlayerRef = Static<typeof PlayerRef>;
 
 // --- RoundDefinition --------------------------------------------------------
 
-const ProducerDefinition = Type.Object({
+const IdentityProducerDefinition = Type.Object({
     /** Stable def-id → `ball_players.producer_def_id`. Survives recompile. */
     id: Type.String({ minLength: 1 }),
     playerRef: PlayerRef,
@@ -129,6 +129,46 @@ const ProducerDefinition = Type.Object({
     teeId: Type.String({ minLength: 1 }),
     category: Type.Optional(Type.String()),
 });
+
+/**
+ * A placeholder SEAT (Phase 5.5 Slice 2): a producer with no identity, no
+ * handicap index, and no tee. `placeholder.label` is a seat label (shown
+ * wherever a name would appear — never a person name used as identity);
+ * `placeholder.teamRef` optionally names the draft composition team whose
+ * members may claim it. The full snapshot chain (identity, HCP index, tee,
+ * CH, PH) is bound at CLAIM time (Slice 3) via a setup correction — the
+ * compiler never invents any of it.
+ */
+const PlaceholderProducerDefinition = Type.Object({
+    id: Type.String({ minLength: 1 }),
+    placeholder: Type.Object({
+        label: Type.String({ minLength: 1 }),
+        teamRef: Type.Optional(Type.String({ minLength: 1 })),
+    }),
+    category: Type.Optional(Type.String()),
+});
+
+const ProducerDefinition = Type.Union([
+    IdentityProducerDefinition,
+    PlaceholderProducerDefinition,
+]);
+
+export type IdentityProducerDefinition = Static<typeof IdentityProducerDefinition>;
+export type PlaceholderProducerDefinition = Static<typeof PlaceholderProducerDefinition>;
+
+/** Definition-level guard: producer is a placeholder seat. */
+export function isPlaceholderProducerDef(
+    p: Static<typeof ProducerDefinition>,
+): p is PlaceholderProducerDefinition {
+    return 'placeholder' in p;
+}
+
+/** Definition-level guard: producer carries a bound identity. */
+export function isIdentityProducerDef(
+    p: Static<typeof ProducerDefinition>,
+): p is IdentityProducerDefinition {
+    return !('placeholder' in p);
+}
 
 const BallStrategyComposition = Type.Object({
     teams: Type.Array(

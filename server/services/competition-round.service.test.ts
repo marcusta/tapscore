@@ -14,7 +14,8 @@ import { test, expect, beforeEach } from 'bun:test';
 import { createTestDb, type TestContext } from '../testing/db';
 import { registerBuiltInBallCreationStrategies } from '../domain/strategies/ball-creation';
 import { registerBuiltInFormats } from '../domain/formats';
-import type { RoundSetupDraft } from '../domain/round-setup/draft';
+import type { DraftIdentityProducer, RoundSetupDraft } from '../domain/round-setup/draft';
+import type { IdentityProducerDefinition } from '../domain/round-definition';
 import type { CompetitionDefaultConfig } from './competition-config';
 import type { MaterialiseRoundResult } from './competition-round.service';
 
@@ -190,7 +191,7 @@ test('materialise copies the defaults into a fresh round-owned draft', async () 
     // Producers = roster, in roster order: guests via guest refs, the player
     // via a player ref; category→tee resolved; missing category → fallback.
     expect(res.draft.producers).toHaveLength(4);
-    const [p1, p2, p3, p4] = res.draft.producers;
+    const [p1, p2, p3, p4] = res.draft.producers as DraftIdentityProducer[];
     expect(p1!.playerRef).toEqual({ kind: 'guest', id: s.guests.g1.id });
     expect(p1!.teeId).toBe(s.yellow.id); // Herr → Yellow
     expect(p1!.category).toBe('Herr');
@@ -330,7 +331,9 @@ test('a score + setup correction on round 1 recompiles it; round 2 result untouc
     const latest = await s.ctx.roundService.latestDefinition(r1.round.id);
     expect(latest!.version).toBeGreaterThan(1);
     expect(
-        latest!.definition.producers.find((p) => p.id === 'p1')!.handicapIndex,
+        (latest!.definition.producers as IdentityProducerDefinition[]).find(
+            (p) => p.id === 'p1',
+        )!.handicapIndex,
     ).toBe(18);
 
     // …and round 2's result is byte-identical: corrections are per round.
@@ -351,7 +354,7 @@ test('a withdrawn participant is excluded from a newly materialised round', asyn
 
     const res = mustOk(await materialise(s));
     expect(res.draft.producers).toHaveLength(3);
-    const refs = res.draft.producers.map((p) => p.playerRef.id);
+    const refs = (res.draft.producers as DraftIdentityProducer[]).map((p) => p.playerRef.id);
     expect(refs).not.toContain(s.guests.g2.id);
 });
 
@@ -367,7 +370,7 @@ test('an applied cut stamps post_cut and excludes cut participants', async () =>
     const res = mustOk(await materialise(s));
     expect(res.competitionRound.postCut).toBe(true);
     expect(res.competitionRound.cutEligible).toBe(true);
-    expect(res.draft.producers.map((p) => p.playerRef.id)).not.toContain(s.guests.g3.id);
+    expect((res.draft.producers as DraftIdentityProducer[]).map((p) => p.playerRef.id)).not.toContain(s.guests.g3.id);
 });
 
 // --- Lifecycle + config gates ------------------------------------------------------

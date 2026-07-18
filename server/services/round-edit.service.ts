@@ -3,7 +3,11 @@ import type { Kysely } from 'kysely';
 import type { Database, RoundStatus } from '../db/schema';
 import type { CompilerDiagnostic } from '../domain/compiler/types';
 import { buildRoundDefinition } from '../domain/round-setup/builder';
-import type { RoundSetupDraft } from '../domain/round-setup/draft';
+import {
+    isIdentityProducer,
+    type DraftIdentityProducer,
+    type RoundSetupDraft,
+} from '../domain/round-setup/draft';
 import type { CorrectionService } from './correction.service';
 import type { Round, RoundService } from './round.service';
 
@@ -270,7 +274,14 @@ export class RoundEditService {
             return [{ code: 'unknown_course', message: `course '${draft.courseId}' not found`, path: 'courseId' }];
         }
 
-        const teeIds = [...new Set(draft.producers.map((p) => p.teeId))];
+        // Placeholder seats (Phase 5.5) carry no tee and no identity ref, so
+        // reference checks only apply to identity-bound producers.
+        const identityProducers = draft.producers
+            .map((p, i) => [p, i] as const)
+            .filter((entry): entry is [DraftIdentityProducer, number] =>
+                isIdentityProducer(entry[0]),
+            );
+        const teeIds = [...new Set(identityProducers.map(([p]) => p.teeId))];
         const teeRows = teeIds.length
             ? await this.db
                   .selectFrom('tees')
@@ -279,7 +290,7 @@ export class RoundEditService {
                   .execute()
             : [];
         const teeById = new Map(teeRows.map((t) => [t.id, t]));
-        draft.producers.forEach((p, i) => {
+        identityProducers.forEach(([p, i]) => {
             const tee = teeById.get(p.teeId);
             if (!tee) {
                 diags.push({ code: 'unknown_tee', message: `tee '${p.teeId}' not found`, path: `producers[${i}].teeId` });
@@ -292,7 +303,7 @@ export class RoundEditService {
             }
         });
 
-        for (const [i, p] of draft.producers.entries()) {
+        for (const [p, i] of identityProducers) {
             const table = p.playerRef.kind === 'player' ? 'players' : 'guest_players';
             const row = await this.db
                 .selectFrom(table)

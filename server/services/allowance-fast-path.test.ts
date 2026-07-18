@@ -39,10 +39,10 @@ async function setup() {
     return { ctx, round };
 }
 
-type Ball = { slots: { slotDefId: string; playingHandicap: number }[] };
+type Ball = { slots: { slotDefId: string; playingHandicap: number | null }[] };
 function phBySlot0(balls: Ball[]): number[] {
     return balls
-        .map((b) => b.slots.find((s) => s.slotDefId === 'slot-0')!.playingHandicap)
+        .map((b) => b.slots.find((s) => s.slotDefId === 'slot-0')!.playingHandicap!)
         .sort((a, b) => a - b);
 }
 
@@ -52,7 +52,7 @@ test('allowance override re-derives PH without re-running ball creation (E4 fast
     const before = await ctx.roundService.ballsForRound(round.id);
     // 100% allowance: PH == CH == index (10, 20).
     expect(phBySlot0(before)).toEqual([10, 20]);
-    const chBefore = before.map((b) => b.courseHandicap).sort((a, b) => a - b);
+    const chBefore = before.map((b) => b.courseHandicap!).sort((a, b) => a - b);
     expect(chBefore).toEqual([10, 20]);
 
     // Spy AFTER the initial compile so we only measure the override path.
@@ -73,7 +73,7 @@ test('allowance override re-derives PH without re-running ball creation (E4 fast
 
     const after = await ctx.roundService.ballsForRound(round.id);
     // Ball CH untouched.
-    expect(after.map((b) => b.courseHandicap).sort((a, b) => a - b)).toEqual([10, 20]);
+    expect(after.map((b) => b.courseHandicap!).sort((a, b) => a - b)).toEqual([10, 20]);
     // PH re-derived at 50%: round(10*.5)=5, round(20*.5)=10.
     expect(phBySlot0(after)).toEqual([5, 10]);
 
@@ -110,7 +110,7 @@ test('allowance override survives a later setup-correction full recompile (E4)',
     // full recompile → PH round(30*.5)=15. p2 unchanged → CH 20, PH 10.
     const bySlot = after
         .map((b) => ({ ch: b.courseHandicap, ph: b.slots.find((s) => s.slotDefId === 'slot-0')!.playingHandicap }))
-        .sort((a, b) => a.ch - b.ch);
+        .sort((a, b) => a.ch! - b.ch!);
     expect(bySlot).toEqual([
         { ch: 20, ph: 10 },
         { ch: 30, ph: 15 },

@@ -50,7 +50,15 @@ export function hashId(namespace: IdNamespace, ...parts: string[]): string {
     return createHash('sha256').update(segments.join('')).digest('hex').slice(0, HASH_LENGTH);
 }
 
-export type ProducerRef = { kind: 'player' | 'guest'; id: string };
+/**
+ * Producer identity fed into the ball-id recipe. A placeholder seat (Phase
+ * 5.5) has no person identity yet, so its ref keys on the STABLE producer
+ * def-id under the 'placeholder' kind. Claiming the seat (Slice 3) rebinds it
+ * to a player/guest ref, which — by design — mints a NEW ball id on recompile;
+ * that is safe because an unclaimed seat's ball refuses scoring, so no
+ * append-only event can reference the pre-claim id.
+ */
+export type ProducerRef = { kind: 'player' | 'guest' | 'placeholder'; id: string };
 
 /**
  * Producer-set sort rule for the ball-id recipe.

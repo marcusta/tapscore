@@ -374,6 +374,16 @@ export class RoundViewService {
     }
 
     /**
+     * Phase 5.5 — true when the ball covers an UNCLAIMED placeholder seat
+     * (server-derived machine flag; never inferred from name strings). Pending
+     * balls render their seat label, muted, and refuse score entry until the
+     * seat is claimed (Slice 3's claim card).
+     */
+    isPending(ballId: string): boolean {
+        return this.balls.get().find((b) => b.id === ballId)?.pending === true;
+    }
+
+    /**
      * Ball id → "Group N" label (Phase 3.5), built straight off
      * `RoundPlayingGroup.ballIds` — no join, no server change: the round
      * payload already carries the membership the leaderboard needs. `null`

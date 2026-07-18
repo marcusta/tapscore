@@ -541,7 +541,9 @@ export class CreateComponent extends Component {
                         ? 'This round is complete — its setup can no longer be edited.'
                         : this.svc.editBlockedReason.get() === 'no_stored_draft'
                           ? "This round didn't come from the setup wizard, so it can't be edited here."
-                          : '',
+                          : this.svc.editBlockedReason.get() === 'has_open_seats'
+                            ? 'This round has open seats waiting to be claimed — the wizard cannot edit it yet.'
+                            : '',
             },
             lockNote: {
                 className: () => (courseLocked() ? 'setup__locknote' : 'setup__locknote hidden'),

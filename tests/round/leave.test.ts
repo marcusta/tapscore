@@ -21,13 +21,14 @@ function producer(p: Partial<RoundBallPlayer> = {}): RoundBallPlayer {
         handicapIndex: 10,
         teeName: 'Yellow',
         courseHandicap: 10,
+        pending: false,
         ...p,
     };
 }
 
 function ball(players: RoundBallPlayer[]): RoundBall {
     n++;
-    return { id: `b${n}`, label: null, courseHandicap: 10, players, slots: [] };
+    return { id: `b${n}`, label: null, courseHandicap: 10, players, slots: [], pending: players.some((pl) => pl.pending) };
 }
 
 test('logged out: never shown', () => {

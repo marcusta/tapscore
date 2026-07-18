@@ -153,7 +153,7 @@ describe('compile — team ball (per-producer allowance)', () => {
         expect(res.compiled.balls).toHaveLength(2);
         expect(res.compiled.ballPlayers).toHaveLength(4);
         expect(res.compiled.slotBalls).toHaveLength(2);
-        const ch = res.compiled.balls[0].courseHandicapSnapshot;
+        const ch = res.compiled.balls[0].courseHandicapSnapshot!;
         expect(res.compiled.slotBalls[0].playingHandicapSnapshot).toBe(Math.round(ch * 0.5));
     });
 });

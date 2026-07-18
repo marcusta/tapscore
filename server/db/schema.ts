@@ -390,8 +390,9 @@ export interface BallsTable {
     round_id: string;
     round_ball_strategy_id: string;
     label: string | null;
-    /** Derived ball CH (output of ball-creation strategy). */
-    course_handicap_snapshot: number;
+    /** Derived ball CH (output of ball-creation strategy). NULL iff the ball
+     *  covers an unclaimed placeholder seat (Phase 5.5, migration 039). */
+    course_handicap_snapshot: number | null;
     /** Audit JSON: `[{ producerDefId, ch }]`. Null for own-ball where it's redundant. */
     per_producer_ch: string | null;
 }
@@ -401,26 +402,30 @@ export interface BallPlayersTable {
     /** Stable id from `RoundDefinition.producers[].id`. */
     producer_def_id: string;
     /**
-     * XOR with `guest_player_id` — see check constraint. Both FKs are
-     * `ON DELETE RESTRICT` so the XOR invariant cannot be violated by a
-     * delete cascade. Players soft-delete (`deleted_at`) or hard-delete to
-     * a tombstone row; guests are never deleted while history references
-     * them.
+     * At most one of `player_id`/`guest_player_id` is set (check constraint,
+     * migration 039). BOTH NULL = an unclaimed placeholder seat (Phase 5.5):
+     * `display_name_snapshot` then holds the seat LABEL and the whole
+     * handicap/tee chain below is NULL until the claim (Slice 3) binds an
+     * identity and recompiles real snapshots in. Both FKs are
+     * `ON DELETE RESTRICT` so the invariant cannot be violated by a delete
+     * cascade. Players soft-delete (`deleted_at`) or hard-delete to a
+     * tombstone row; guests are never deleted while history references them.
      */
     player_id: string | null;
     guest_player_id: string | null;
     display_name_snapshot: string;
-    handicap_index_snapshot: number;
+    /** NULL only on a placeholder row (chain check, migration 039). */
+    handicap_index_snapshot: number | null;
     category_snapshot: string | null;
     gender_snapshot: 'M' | 'F' | null;
     /** Live FK; nulls on tee deletion. Frozen identity stays in `tee_name_snapshot`. */
     tee_id: string | null;
-    tee_name_snapshot: string;
-    course_rating_snapshot: number;
-    slope_snapshot: number;
-    tee_par_snapshot: number;
-    /** Per-producer CH (pre-derivation, before any team-ball combination). */
-    course_handicap_snapshot: number;
+    tee_name_snapshot: string | null;
+    course_rating_snapshot: number | null;
+    slope_snapshot: number | null;
+    tee_par_snapshot: number | null;
+    /** Per-producer CH (pre-derivation). NULL only on a placeholder row. */
+    course_handicap_snapshot: number | null;
 }
 
 export type SlotBallMode = 'own' | 'team';
@@ -454,8 +459,9 @@ export interface SlotsTable {
 export interface SlotBallsTable {
     slot_id: string;
     ball_id: string;
-    /** ball_PH = round(ball_CH × allowance / 100). Only slot-specific value. */
-    playing_handicap_snapshot: number;
+    /** ball_PH = round(ball_CH × allowance / 100). Only slot-specific value.
+     *  NULL iff the ball covers an unclaimed placeholder seat (no CH → no PH). */
+    playing_handicap_snapshot: number | null;
 }
 
 export interface SlotBallTeamsTable {

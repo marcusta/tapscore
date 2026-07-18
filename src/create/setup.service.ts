@@ -206,7 +206,9 @@ export class SetupService {
     /** The stored round status while editing (`not_started` | `active`). */
     readonly editStatus = new Signal<'not_started' | 'active' | 'complete' | null>(null);
     /** A non-editable reason from `setup()` (complete / no stored draft). */
-    readonly editBlockedReason = new Signal<'round_complete' | 'no_stored_draft' | null>(null);
+    readonly editBlockedReason = new Signal<
+        'round_complete' | 'no_stored_draft' | 'has_open_seats' | null
+    >(null);
     /** The stored draft's `playedAt`, preserved verbatim on an edit re-submit so
      * an edit never silently re-dates the round to today. Null ⇒ create mode
      * (submit stamps today). */
@@ -288,6 +290,14 @@ export class SetupService {
         this.editStatus.set(setup.status);
         if (!setup.editable) {
             this.editBlockedReason.set(setup.reason);
+            return;
+        }
+        // Phase 5.5: the wizard has no placeholder-seat controls yet. Editing
+        // a seat round through forms would silently DROP its open seats on the
+        // full-draft resubmit, so wizard editing is blocked; the server edit
+        // API (full-draft POST) remains the placeholder-round edit path.
+        if (setup.draft.producers.some((p) => 'placeholder' in p)) {
+            this.editBlockedReason.set('has_open_seats');
             return;
         }
         this.hasScores.set(setup.hasScores);

@@ -1,4 +1,5 @@
 import { sql, type Kysely } from 'kysely';
+import { ConflictError } from '@basics/core/server/auth';
 import type { Database, ScoreEventType } from '../db/schema';
 import type { RoundService } from './round.service';
 import { toIsoUtc } from '../domain/time';
@@ -170,6 +171,33 @@ export class ScoreEventService {
             .executeTakeFirst();
         if (existing) {
             return { event: toEvent(existing as ScoreEventRow), inserted: false };
+        }
+
+        // --- Claim-before-score (Phase 5.5 hard rule #1) -------------------
+        // A ball whose producers include an UNCLAIMED placeholder seat (both
+        // identity FKs null) refuses scoring until every seat is claimed.
+        // This includes the SHARED-ball case (one real player + one open seat
+        // on a team ball): with a member unknown, the ball's score can neither
+        // be attributed nor handicapped honestly, so the whole ball waits.
+        // Snapshots are captured at CLAIM time by the Slice 3 correction op —
+        // never conjured here at first score entry (the legacy trap).
+        const unclaimedSeats = await this.db
+            .selectFrom('ball_players')
+            .where('ball_id', '=', input.ballId)
+            .where('player_id', 'is', null)
+            .where('guest_player_id', 'is', null)
+            .select('display_name_snapshot')
+            .execute();
+        if (unclaimedSeats.length > 0) {
+            const labels = unclaimedSeats.map((s) => `"${s.display_name_snapshot}"`).join(', ');
+            const err = new ConflictError(
+                `Fill in who is playing first — ${labels} ${unclaimedSeats.length > 1 ? 'are open seats' : 'is an open seat'} on this ball, and scores can only be entered once every seat is claimed.`,
+            );
+            (err as ConflictError & { detail?: unknown }).detail = {
+                code: 'seat_unclaimed',
+                seatLabels: unclaimedSeats.map((s) => s.display_name_snapshot),
+            };
+            throw err;
         }
 
         // Same-round ownership: ball_id and play_hole_id must belong to round_id.

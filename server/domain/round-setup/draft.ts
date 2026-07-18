@@ -30,8 +30,9 @@ import {
 } from '../round-definition';
 import { StartListPolicy } from './start-list-policy';
 
-/** A producer in the round roster. Def-ids are assigned by the wizard. */
-export const DraftProducer = Type.Object({
+/** An identity-bound producer in the round roster (registered player or guest).
+ * Def-ids are assigned by the wizard. */
+export const DraftIdentityProducer = Type.Object({
     producerDefId: Type.String({ minLength: 1 }),
     playerRef: PlayerRef,
     handicapIndex: Type.Number(),
@@ -39,6 +40,31 @@ export const DraftProducer = Type.Object({
     teeId: Type.String({ minLength: 1 }),
     category: Type.Optional(Type.String()),
 });
+
+/**
+ * A placeholder SEAT in the roster (Phase 5.5 Slice 2) — a producer with NO
+ * identity yet. It carries a `label` (a seat label like "Seat 3" or
+ * "Team Red — spot 2", shown everywhere a name would appear — NEVER a person
+ * name used as identity), an optional `teamRef` naming the round-level
+ * composition team (`DraftRoundTeam.id`) whose members may claim it under
+ * `claimBy:'team'`, and an optional category. It deliberately carries NO
+ * handicap index and NO tee: the snapshot chain (HCP index → CH → PH) is
+ * captured at CLAIM time (Slice 3) through the normal correction machinery,
+ * never invented at compile or first-score time. Claim constraints live on the
+ * round's start-list POLICY, not here.
+ */
+export const DraftPlaceholderProducer = Type.Object({
+    producerDefId: Type.String({ minLength: 1 }),
+    placeholder: Type.Object({
+        label: Type.String({ minLength: 1 }),
+        /** Optional binding to a `DraftRoundTeam.id` (claim-audience data). */
+        teamRef: Type.Optional(Type.String({ minLength: 1 })),
+    }),
+    category: Type.Optional(Type.String()),
+});
+
+/** A producer in the round roster: identity-bound, or a claimable placeholder. */
+export const DraftProducer = Type.Union([DraftIdentityProducer, DraftPlaceholderProducer]);
 
 /** A team grouping the wizard supplies for a team format. */
 export const DraftTeam = Type.Object({
@@ -188,6 +214,8 @@ export const RoundSetupDraft = Type.Object({
 });
 
 export type DraftProducer = Static<typeof DraftProducer>;
+export type DraftIdentityProducer = Static<typeof DraftIdentityProducer>;
+export type DraftPlaceholderProducer = Static<typeof DraftPlaceholderProducer>;
 export type DraftTeam = Static<typeof DraftTeam>;
 export type DraftRoundTeam = Static<typeof DraftRoundTeam>;
 export type DraftTeamMember = Static<typeof DraftTeamMember>;
@@ -195,6 +223,16 @@ export type DraftTeamMemberPlayer = Static<typeof DraftTeamMemberPlayer>;
 export type DraftTeamMemberTeam = Static<typeof DraftTeamMemberTeam>;
 export type BallSubject = Static<typeof BallSubject>;
 export type DraftPlayingGroup = Static<typeof DraftPlayingGroup>;
+
+/** Producer is a placeholder seat (no identity bound yet). */
+export function isPlaceholderProducer(p: DraftProducer): p is DraftPlaceholderProducer {
+    return 'placeholder' in p;
+}
+
+/** Producer carries a bound identity (registered player or guest). */
+export function isIdentityProducer(p: DraftProducer): p is DraftIdentityProducer {
+    return !('placeholder' in p);
+}
 
 /** A team's kind, defaulting to single-ball (merge) for back-compat. */
 export function teamKind(team: DraftRoundTeam): 'single_ball' | 'multi_ball' {

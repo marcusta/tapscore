@@ -14,7 +14,7 @@ import { createTestDb, type TestContext } from '../testing/db';
 import { registerBuiltInBallCreationStrategies } from '../domain/strategies/ball-creation';
 import { registerBuiltInFormats } from '../domain/formats';
 import { buildRoundDefinition } from '../domain/round-setup/builder';
-import type { RoundSetupDraft } from '../domain/round-setup/draft';
+import type { DraftIdentityProducer, RoundSetupDraft } from '../domain/round-setup/draft';
 
 beforeEach(() => {
     registerBuiltInBallCreationStrategies();
@@ -563,7 +563,7 @@ test('self-join updates the stored draft; a later edit keeps the joiner', async 
     // The stored draft advanced to v2 (self_join) and carries the joiner.
     const stored = await ctx.roundService.latestSetupDraft(round.id);
     expect(stored!.version).toBe(2);
-    const joinerRow = stored!.draft.producers.find(
+    const joinerRow = (stored!.draft.producers as DraftIdentityProducer[]).find(
         (p) => p.playerRef.kind === 'player' && p.playerRef.id === joiner.id,
     );
     expect(joinerRow).toBeTruthy();

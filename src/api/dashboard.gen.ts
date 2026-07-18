@@ -46,7 +46,7 @@ export interface DashboardSlotEntry {
     scoringMode: string;
     teamShape: string;
     ballId: string;
-    playingHandicap: number;
+    playingHandicap: null | number;
     teamLabel: null | string;
     position: null | number;
     total: null | number;

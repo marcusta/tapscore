@@ -9,6 +9,7 @@ import {
     type StartListPolicy,
     type StartListPresetId,
 } from '../domain/round-setup/start-list-policy';
+import { isPlaceholderProducer, type RoundSetupDraft } from '../domain/round-setup/draft';
 import type { RoundService } from './round.service';
 
 /**
@@ -33,12 +34,34 @@ import type { RoundService } from './round.service';
  * enrollment, series teams) plug in here without touching any gate.
  */
 
+/**
+ * One UNCLAIMED placeholder seat (Phase 5.5 Slice 2) — everything the Slice 3
+ * claim card needs to list open seats. `seatId` is the stable producer def-id
+ * (the claim op's address); `ballId`/`groupId` locate the seat's compiled ball
+ * and playing group; `teamRef`/`category` come from the draft placeholder.
+ */
+export interface StartListSeat {
+    /** Producer def-id — the stable claim address. */
+    seatId: string;
+    /** The seat's label, shown wherever a name would appear. */
+    label: string;
+    /** The compiled ball carrying this seat. */
+    ballId: string;
+    /** Runtime playing-group id (RoundPlayingGroup.id); null if unassigned. */
+    groupId: string | null;
+    /** Draft composition-team binding (DraftRoundTeam.id); null when unbound. */
+    teamRef: string | null;
+    category: string | null;
+}
+
 export interface StartListView {
     policy: StartListPolicy;
     /** The named preset the policy corresponds to; null for a custom shape. */
     presetId: StartListPresetId | null;
     /** The requesting actor's allowed self-service ops (humanized refusals). */
     viewer: StartListOps;
+    /** Every unclaimed placeholder seat in the round (empty when none). */
+    seats: StartListSeat[];
 }
 
 export class StartListService {
@@ -63,13 +86,68 @@ export class StartListService {
         viewerPlayerId: string | null,
         nowIso: string = new Date().toISOString(),
     ): Promise<StartListView> {
-        const policy = await this.policyForRound(roundId);
+        const stored = await this.rounds.latestSetupDraft(roundId);
+        const policy = effectiveStartListPolicy(stored?.draft);
         const actor = await this.actorContext(roundId, viewerPlayerId);
         return {
             policy,
             presetId: matchingPresetId(policy),
             viewer: evaluateStartListOps(policy, actor, nowIso),
+            seats: await this.unclaimedSeats(roundId, stored?.draft ?? null),
         };
+    }
+
+    /**
+     * Every unclaimed placeholder seat: `ball_players` rows with BOTH identity
+     * FKs null (the canonical pending signal), joined to the seat's ball +
+     * playing group, enriched with the draft placeholder's teamRef/category.
+     * Zero-row on every pre-5.5 round — the query is a cheap indexed miss.
+     */
+    private async unclaimedSeats(
+        roundId: string,
+        draft: RoundSetupDraft | null,
+    ): Promise<StartListSeat[]> {
+        const rows = await this.db
+            .selectFrom('ball_players as bp')
+            .innerJoin('balls as b', 'b.id', 'bp.ball_id')
+            .leftJoin('playing_group_balls as pgb', 'pgb.ball_id', 'bp.ball_id')
+            .where('b.round_id', '=', roundId)
+            .where('bp.player_id', 'is', null)
+            .where('bp.guest_player_id', 'is', null)
+            .select([
+                'bp.producer_def_id',
+                'bp.display_name_snapshot',
+                'bp.category_snapshot',
+                'bp.ball_id',
+                'pgb.playing_group_id',
+            ])
+            .execute();
+        if (rows.length === 0) return [];
+
+        const placeholderByDefId = new Map(
+            (draft?.producers ?? [])
+                .filter(isPlaceholderProducer)
+                .map((p) => [p.producerDefId, p] as const),
+        );
+        // One seat per producer def-id: a seat's producer can appear on more
+        // than one ball row only via multiple strategies for the same ball id
+        // (dedupe keeps one), so first-seen wins deterministically.
+        const seen = new Set<string>();
+        const seats: StartListSeat[] = [];
+        for (const r of rows) {
+            if (seen.has(r.producer_def_id)) continue;
+            seen.add(r.producer_def_id);
+            const ph = placeholderByDefId.get(r.producer_def_id);
+            seats.push({
+                seatId: r.producer_def_id,
+                label: r.display_name_snapshot,
+                ballId: r.ball_id,
+                groupId: r.playing_group_id ?? null,
+                teamRef: ph?.placeholder.teamRef ?? null,
+                category: r.category_snapshot,
+            });
+        }
+        return seats;
     }
 
     /**
