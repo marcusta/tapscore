@@ -1163,6 +1163,42 @@ service-layer validation alone is not schema integrity.
 
 ---
 
+## Phase 5.5 — Start-list policies + placeholder seats (added 2026-07-13)
+
+**Origin:** legacy golf-serie ground truth (researched 2026-07-13). The legacy system had three start-list mechanisms welded to context: series team slots (`participants` rows with `position_name` + `team_id` but `player_names = NULL`, filled by typing a name at the tee, unauthenticated), tour self-organization (`tour_competition_registrations` where group = shared `tee_time_id`; modes solo/looking_for_group/create_group; group edits locked once anyone has recorded scores), and mode flags `start_mode scheduled|open` + `self_organize`. Its traps are our anti-goals: identity joined by trimmed-lowercase name-string comparison, handicap resolved by 4-way COALESCE at first score entry, phantom `"Tour N Players"` teams, format semantics by substring on `position_name`, name edits bypassing scorecard locks.
+
+**Design decision (user, 2026-07-13): all behaviors in all parts.** The start-list policy is an **orthogonal axis on the Round itself** — never derived from what wraps it. A friendly round can run an organized start list with placeholder seats; a series session can be fully self-organized; a tour competition can be fully pre-assigned. No context-conditional UI (legacy's "Who's Playing tab only for open-start tour competitions"). Wrappers only supply *defaults*: competition `defaultConfig` copies the policy in at materialisation (setup-time copy, per-round override like everything else); friendly rounds default to fully open; the policy is editable per round through the normal edit path regardless of context.
+
+**Core insight:** everything on the spectrum is already one tapscore operation — a setup edit riding the correction tail (self-join 3.5, guest-claim, leave, edit-round all compose a definition version + recompile). The spectrum is not four features; it is **one policy object deciding who may perform which setup edit on a round**.
+
+Policy shape (data on the draft/definition; presets are UI sugar):
+
+```
+startList: {
+  groups:  'organized' | 'roster' | 'open',   // who may create/modify playing groups
+  seats:   'assigned'  | 'claimable',         // producers pre-bound vs placeholder seats
+  claimBy: 'roster' | 'team' | 'anyone',      // who may bind identity to a placeholder
+  window?: { opensAt?, closesAt? },           // self-service window
+  maxGroupSize?: number                       // default 4
+}
+```
+
+Presets: **Organized** (organized/assigned), **Organized with open slots** (organized/claimable/team-or-roster — legacy series shape), **Pick your tee time** (organized/claimable/roster — admin-created tee times, players slot in), **Self-organized** (roster-or-open/claimable — legacy tour open start). All presets available in every create/edit flow.
+
+**Placeholder seats:** a draft producer with no identity yet + optional constraints (team binding — optional, requires no Series; category; display label). Compiler plans it normally (balls, slots, leaderboard show the label). Two hard rules: (1) a placeholder's ball **refuses scoring until claimed** — snapshots (HCP index → CH → PH) captured at claim time through existing machinery, never conjured at first score entry; (2) claim = a setup correction binding `player_id` XOR `guest_player_id` — audited, identity-refs only, never a name string. Rebind allowed until the seat's ball has scores (legacy's effective lock made explicit, server-enforced).
+
+**Slices:**
+1. Policy shape + per-round copy + enforcement middleware on the existing join/group/edit paths. Friendly rounds default `groups:'open', claimBy:'anyone'` (behavior unchanged); competition rounds' open join card becomes policy-gated (today it leaks the open selector).
+2. Placeholder producers through draft → compiler → leaderboard label rendering + the claim-before-score refusal.
+3. Claim/rebind correction op + client claim card ("Who's playing this slot?" — roster/team picker, guest fallback when policy allows). Optional deferred: a soft "looking for a game" flag.
+4. Seeds + verify page: one seed per preset; required checks include claim-before-score refusal, rebind-after-score refusal, and a policy-gated join card (roster member sees it, stranger does not).
+
+**Gate:** all four presets exercisable on BOTH a friendly round and a competition round (the orthogonality proof); placeholder claim captures a correct snapshot chain; policy edits ride the normal edit path. Mandatory stop + visual review. Commit `phase 5.5 complete: start-list policies + placeholder seats`.
+
+**Consumers:** Phase 6 `slot_lineups` becomes a thin planned layer over the same seat-binding op (captain's lineup edit ≡ player's at-the-tee claim, different actor); Phase 7 open start = enrollment-gated roster admission + the self-organized preset, with NO parallel registrations state machine (round state stays the single truth — legacy reconciled two state machines heuristically). Sequencing note: 5.5 has zero dependency on Phase 5 and is more dogfoodable — may run before it.
+
+---
+
 ## Phase 6 — Series + teams (Ryder-Cup shape) — pulled ahead of Tour
 
 **Spec:** §6 (Series, Free-form Event), §19 (team scoring — added 2026-07-03, resolves former open question 7).
@@ -1173,7 +1209,7 @@ Tables:
 - `series_teams` — M:N junction (spec: team-to-series is many-to-many).
 - `team_members` — team_id, `player_id` XOR `guest_player_id`. Guests allowed for friendly dogfood; registered players expected for durable standings.
 - `competitions.series_id` — add-column migration.
-- `slot_lineups` — competition_round_id, `slot_def_id`, team_id, ordered producer refs (player XOR guest). **The editable "who plays this slot for this team" data** (spec §6 free-form goal). Materialising a round's draft reads lineups → producers + teams + format subjects; captains edit per slot per round up to round start; a lineup edit regenerates the round draft (compiler recompile machinery unchanged).
+- `slot_lineups` — competition_round_id, `slot_def_id`, team_id, ordered producer refs (player XOR guest). **The editable "who plays this slot for this team" data** (spec §6 free-form goal). Materialising a round's draft reads lineups → producers + teams + format subjects; captains edit per slot per round up to round start; a lineup edit regenerates the round draft (compiler recompile machinery unchanged). **Phase 5.5 note:** lineups are a thin planned layer over the Phase 5.5 seat-binding correction op — a captain's lineup edit and a player's at-the-tee placeholder claim are the same operation with a different actor; unfilled lineup positions ARE placeholder seats (`claimBy:'team'`).
 
 Domain — **`TeamPointsRule`** (new registry, same discipline as formats):
 
@@ -1222,6 +1258,7 @@ Client: series page (teams, competitions, running team score), captain lineup ed
 - `enrollments` — tour_id, optional `player_id` (email+name invites are valid; account linked later — reuse the guest-claim flip pattern from Phase 3), lifecycle `pending → requested → active | rejected`, category assignment, handicap snapshot at enrollment.
 - Categories lift: tour-level categories inherited by competitions (`competition_category_tees` keeps per-competition tee mapping).
 - Fixed partnerships: a 2-player partnership as the cross-competition participant — modelled on the Phase 6 `teams`/`team_members` tables; the standings key is the pair.
+- **Phase 5.5 note:** tour "open start" = enrollment-gated roster admission + the self-organized start-list preset (Phase 5.5). Solo / create-group / add-to-group map onto the existing group ops; NO parallel registrations state machine — round state stays the single truth (legacy reconciled `registrations.status` vs scorecard state heuristically).
 
 **HTML render expectations:**
 - Tour page: enrollments with lifecycle states, categories, competitions list, a simple official-results table (the full standings engine is Phase 8).
