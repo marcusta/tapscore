@@ -7,6 +7,7 @@ import type {
     DraftProducer,
     RoundSetupDraft,
 } from '../domain/round-setup/draft';
+import { START_LIST_PRESETS } from '../domain/round-setup/start-list-policy';
 import {
     defaultConfigProblems,
     type CompetitionDefaultConfig,
@@ -305,6 +306,13 @@ export class CompetitionRoundService {
             // round's formats later never touches the competition document.
             formats: config.slots as DraftFormatSelection[],
             ...buildStartList(config, producers),
+            // Setup-time COPY of the start-list POLICY (Phase 5.5), defaulting
+            // to the `organized` preset: a competition round's start list is
+            // admin-built unless the competition opts into self-service. From
+            // here on the policy is ROUND data — editable per round through
+            // the normal setup-edit path, enforced purely from the draft
+            // (never by asking "is this a competition").
+            startList: config.startListPolicy ?? START_LIST_PRESETS.organized,
         };
 
         // --- Mint through the EXISTING create machinery ------------------------

@@ -18,6 +18,7 @@
 import { Type, type Static } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 import { DraftFormatSelection } from '../domain/round-setup/draft';
+import { StartListPolicy } from '../domain/round-setup/start-list-policy';
 
 /**
  * How a category resolves to a tee. An object (not a bare tee id) so a later
@@ -31,12 +32,19 @@ export const CompetitionTeeSelector = Type.Object({
 });
 
 /**
- * Default start-list mode for a materialised round's draft:
+ * Default GROUP PARTITIONING for a materialised round's draft:
  *   - `single_group` (default): no draft `playingGroups` — the compiler's
  *     conventional default puts the whole roster in one group; the admin
  *     partitions afterwards in the wizard.
  *   - `foursomes`: pre-partition the roster (in roster order) into playing
  *     groups of at most four.
+ *
+ * Phase 5.5 note: this pre-5.5 stub was named `startList`, but it only ever
+ * decided the INITIAL GROUP LAYOUT the roster is copied into. The real
+ * start-list POLICY (who may self-join / build groups / claim seats) is the
+ * separate `startListPolicy` object below — the two are orthogonal (an
+ * organized round can still default to foursomes) so the stub keeps its field
+ * name and exact behaviour; stored configs stay valid unchanged.
  */
 export const CompetitionStartListMode = Type.Union([
     Type.Literal('single_group'),
@@ -50,7 +58,17 @@ export const CompetitionDefaultConfig = Type.Object({
     categoryTees: Type.Optional(Type.Record(Type.String(), CompetitionTeeSelector)),
     /** Fallback for a participant with no category (or an unmapped one). */
     fallbackTee: Type.Optional(CompetitionTeeSelector),
+    /** Initial group layout for a materialised round (see the mode's doc). */
     startList: Type.Optional(CompetitionStartListMode),
+    /**
+     * Default start-list POLICY copied into each materialised round's draft
+     * (`draft.startList`) — setup-time copy, per-round override through the
+     * normal edit path, like every other default here. Absent ⇒ the
+     * `organized` preset: a competition round's start list is built by the
+     * admin unless the competition explicitly opts into self-service — this
+     * is what closes the pre-5.5 open-join-card leak on competition rounds.
+     */
+    startListPolicy: Type.Optional(StartListPolicy),
 });
 
 export type CompetitionTeeSelector = Static<typeof CompetitionTeeSelector>;

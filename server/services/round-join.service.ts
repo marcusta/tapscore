@@ -12,9 +12,11 @@ import {
 } from '../domain/round-definition';
 import { hashId } from '../domain/deterministic-id';
 import type { RoundSetupDraft } from '../domain/round-setup/draft';
+import type { StartListOps } from '../domain/round-setup/start-list-policy';
 import type { ComposedSetupCorrectionInput, CorrectionService } from './correction.service';
 import type { PlayerService } from './player.service';
 import type { Round, RoundService } from './round.service';
+import type { StartListService } from './start-list.service';
 
 /**
  * Phase 3.5 — self-join via share link.
@@ -44,9 +46,11 @@ import type { Round, RoundService } from './round.service';
  *   - unknown token → `null` (API turns it into a 404);
  *   - round already active/complete, or caller already a producer → thrown
  *     `ConflictError` (409);
- *   - caller profile lacking gender / handicap index, bad tee, no joinable
- *     slot, a chosen group that is full / unknown, or compile diagnostics →
- *     `{ ok: false, diagnostics }` (200).
+ *   - start-list policy refusal (Phase 5.5: 'organized' start list, not on
+ *     the governing roster under 'roster', or outside the self-service
+ *     window), caller profile lacking gender / handicap index, bad tee, no
+ *     joinable slot, a chosen group that is full / unknown, or compile
+ *     diagnostics → `{ ok: false, diagnostics }` (200).
  *   Never a 500 for an ordinary refusal.
  */
 
@@ -74,19 +78,13 @@ export interface JoinByTokenInput {
     groupChoice?: GroupChoice;
 }
 
-/**
- * Capacity of a playing group the join path creates when every existing group
- * is full. Four = a standard flight, so subsequent joiners fill it before yet
- * another group is added.
- */
-const JOIN_GROUP_CAPACITY = 4;
-
 export class RoundJoinService {
     constructor(
         private db: Kysely<Database>,
         private rounds: RoundService,
         private corrections: CorrectionService,
         private players: PlayerService,
+        private startLists: StartListService,
     ) {}
 
     async joinByToken(input: JoinByTokenInput): Promise<JoinRoundResult | null> {
@@ -144,6 +142,29 @@ export class RoundJoinService {
                   .executeTakeFirst();
         if (isDefProducer || claimedRow) {
             throw new ConflictError('you are already a player in this round');
+        }
+
+        // --- Start-list policy gate (Phase 5.5) -------------------------------
+        // ONE policy evaluator decides self-service: 'open' → any logged-in
+        // token holder (the friendly default — unchanged behaviour), 'roster'
+        // → the round's governing roster only, 'organized' → refused (the
+        // organizer builds the start list), plus the self-service window. The
+        // refusal is a structured, humanized diagnostic the client renders
+        // verbatim — never a 500.
+        const startList = await this.startLists.viewForRound(roundId, input.playerId);
+        if (!startList.viewer.join.allowed) {
+            return {
+                ok: false,
+                diagnostics: [
+                    {
+                        code: startList.viewer.join.code ?? 'join_not_allowed',
+                        message:
+                            startList.viewer.join.message ??
+                            'joining this round is not allowed under its start-list policy',
+                        path: 'startList',
+                    },
+                ],
+            };
         }
 
         // --- Caller profile supplies identity, name, index, gender -----------
@@ -247,7 +268,14 @@ export class RoundJoinService {
         def.producers = [...def.producers, producer];
 
         const groups = (def.playingGroups ?? []) as PlayingGroupInput[];
-        const placement = placeInGroups(groups, producer.id, def, roundId, input.groupChoice);
+        const placement = placeInGroups(
+            groups,
+            producer.id,
+            def,
+            roundId,
+            startList.viewer,
+            input.groupChoice,
+        );
         if (!placement.ok) return { ok: false, diagnostics: placement.diagnostics };
         const { groupDefId, oldGroup, newGroup } = placement;
         def.playingGroups = groups;
@@ -413,12 +441,21 @@ type PlaceResult =
  *   - any other string → the existing group whose RUNTIME id (`hashId` of its
  *     def id under `roundId` — the id the round payload exposes) matches. A
  *     miss is `unknown_group`; a full match is `group_full`.
+ *
+ * Policy interplay (Phase 5.5): `selfService.maxGroupSize` is the policy's
+ * flight size — it sets a FRESH group's capacity (replacing the old hardcoded
+ * 4) and, because the builder derives every draft group's capacity as
+ * `max(maxGroupSize, members)`, the existing per-group `capacity` check below
+ * already reflects the policy for draft-built groups. `selfService.createGroup`
+ * gates the fresh-group branch — a policy that allows joining but not group
+ * creation refuses `new_group_not_allowed` instead of spawning one.
  */
 function placeInGroups(
     groups: PlayingGroupInput[],
     producerDefId: string,
     def: { playedAt: string },
     roundId: string,
+    selfService: StartListOps,
     choice?: GroupChoice,
 ): PlaceResult {
     if (choice !== undefined && choice !== 'new') {
@@ -463,6 +500,20 @@ function placeInGroups(
         }
     }
 
+    if (!selfService.createGroup.allowed) {
+        return {
+            ok: false,
+            diagnostics: [
+                {
+                    code: selfService.createGroup.code ?? 'new_group_not_allowed',
+                    message:
+                        selfService.createGroup.message ??
+                        'starting a new group is not allowed under this round’s start-list policy',
+                    path: 'groupChoice',
+                },
+            ],
+        };
+    }
     const last = groups[groups.length - 1];
     const existingIds = new Set(groups.map((g) => g.id));
     let n = groups.length + 1;
@@ -477,7 +528,9 @@ function placeInGroups(
         ...(last?.startOrdinal !== undefined && last?.startPlayHoleDefId === undefined
             ? { startOrdinal: last.startOrdinal }
             : {}),
-        capacity: JOIN_GROUP_CAPACITY,
+        // The policy's flight size (default 4 = the pre-5.5 behaviour), so
+        // subsequent joiners fill this group before yet another is added.
+        capacity: selfService.maxGroupSize,
         producerDefIds: [producerDefId],
     };
     groups.push(created);

@@ -88,8 +88,12 @@ function optionalUserId(c: Context): string | null {
 // The framework collapses a null return into `{ ok: true }` over HTTP
 // (mount.ts), so a miss must throw `NotFoundError` (→ 404) to be distinguishable
 // from a hit. A 404 on a share link means "bad/expired link" to the client.
-async function byTokenOr404(svc: FriendlyRoundService, token: string) {
-    const found = await svc.findByToken(token);
+async function byTokenOr404(
+    svc: FriendlyRoundService,
+    token: string,
+    viewerPlayerId: string | null,
+) {
+    const found = await svc.findByToken(token, viewerPlayerId);
     if (!found) throw new NotFoundError('friendly round not found');
     return found;
 }
@@ -183,7 +187,9 @@ export function createFriendlyRoundsApi(
 ) {
     return {
         create:    { method: 'POST' as const, path: '/friendly-rounds',           fn: (input: Static<typeof CreateInput>, c: Context) => svc.create(input.draft, optionalUserId(c)), schema: CreateInput },
-        byToken:   { method: 'GET'  as const, path: '/friendly-rounds/by-token',   fn: (input: Static<typeof ByTokenInput>)  => byTokenOr404(svc, input.token),         schema: ByTokenInput },
+        // The OPTIONAL session feeds only `startList.viewer` (Phase 5.5 policy
+        // affordances); the read itself stays token-scoped + identity-free.
+        byToken:   { method: 'GET'  as const, path: '/friendly-rounds/by-token',   fn: (input: Static<typeof ByTokenInput>, c: Context) => byTokenOr404(svc, input.token, optionalUserId(c)), schema: ByTokenInput },
         balls:     { method: 'GET'  as const, path: '/friendly-rounds/balls',      fn: (input: Static<typeof ByTokenInput>)  => ballsOr404(svc, input.token),           schema: ByTokenInput },
         scorecard: { method: 'GET'  as const, path: '/friendly-rounds/scorecard',  fn: (input: Static<typeof ByTokenInput>)  => scorecardOr404(svc, input.token),       schema: ByTokenInput },
         result:    { method: 'GET'  as const, path: '/friendly-rounds/result',     fn: (input: Static<typeof ResultInput>)   => resultOr404(svc, input.token, input.cursor), schema: ResultInput },

@@ -16,6 +16,7 @@ import { CorrectionService } from './correction.service';
 import { FormatActionService } from './format-action.service';
 import { DashboardService } from './dashboard.service';
 import { FriendlyRoundService } from './friendly-round.service';
+import { StartListService } from './start-list.service';
 import { RoundJoinService } from './round-join.service';
 import { RoundLeaveService } from './round-leave.service';
 import { RoundEditService } from './round-edit.service';
@@ -125,18 +126,25 @@ export function createServices(db: Kysely<Database>) {
         leaderboardService,
         playerService,
     );
+    // Start-list policy resolution (Phase 5.5): reads the policy off the
+    // round's draft and resolves the actor's roster membership — the ONE seam
+    // every self-service gate (join, group creation, the round read's
+    // affordance payload) evaluates through.
+    const startListService = new StartListService(db, roundService);
     const friendlyRoundService = new FriendlyRoundService(
         db,
         roundService,
         scoreEventService,
         scorecardService,
         leaderboardService,
+        startListService,
     );
     const roundJoinService = new RoundJoinService(
         db,
         roundService,
         correctionService,
         playerService,
+        startListService,
     );
     const roundLeaveService = new RoundLeaveService(db, roundService, correctionService);
     const roundEditService = new RoundEditService(db, roundService, correctionService);
@@ -196,6 +204,7 @@ export function createServices(db: Kysely<Database>) {
         formatActionService,
         dashboardService,
         friendlyRoundService,
+        startListService,
         roundJoinService,
         roundLeaveService,
         roundEditService,

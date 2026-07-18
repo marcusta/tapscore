@@ -1,4 +1,4 @@
-import type { RoundBall, RoundPlayingGroup } from '../api/friendly-rounds.gen';
+import type { RoundBall, RoundPlayingGroup, StartListView } from '../api/friendly-rounds.gen';
 
 // Phase 3.5 self-join — pure derivation of WHETHER the join card should show
 // on a round view. The server (`RoundJoinService.joinByToken`) owns the real
@@ -47,6 +47,45 @@ export function canShowJoinCard(
     return true;
 }
 
+// --- Start-list policy affordance (Phase 5.5) ---------------------------------
+//
+// The byToken read carries the round's start-list policy plus THIS viewer's
+// allowed self-service ops (`StartListView.viewer`), computed server-side from
+// the optional session. The card renders strictly from that decision — the
+// server re-enforces on the actual join call, so this is presentation, not
+// authorization.
+
+export interface JoinCardPolicyState {
+    /** Render the card at all? False = no affordance (organized/roster-refused). */
+    visible: boolean;
+    /**
+     * A humanized, render-verbatim refusal shown INSTEAD of an active form —
+     * only for window refusals, where "you could join, just not right now" is
+     * information the viewer should see. Null when the form is active.
+     */
+    blockedMessage: string | null;
+}
+
+/**
+ * How the join card should treat the viewer's policy decision:
+ *   - policy allows joining → normal active card;
+ *   - outside the self-service window → card visible, form replaced by the
+ *     server's humanized message (`window_not_open` / `window_closed`);
+ *   - anything else (`self_service_closed`, `not_on_roster`,
+ *     `login_required`, …) → NO card. This is what closes the pre-5.5 leak:
+ *     an organized competition round shows no self-join affordance at all.
+ *   - `view` null (round still loading) → hidden until the read lands.
+ */
+export function joinCardPolicyState(view: StartListView | null): JoinCardPolicyState {
+    if (!view) return { visible: false, blockedMessage: null };
+    const join = view.viewer.join;
+    if (join.allowed) return { visible: true, blockedMessage: null };
+    if (join.code === 'window_not_open' || join.code === 'window_closed') {
+        return { visible: true, blockedMessage: join.message ?? 'Sign-up is closed right now.' };
+    }
+    return { visible: false, blockedMessage: null };
+}
+
 // --- Group picker derivation --------------------------------------------------
 //
 // When a round already has ≥1 playing group, the join card lets the viewer
@@ -88,8 +127,15 @@ export interface GroupPicker {
  * With no groups at all (`groups` empty), returns just the "new group" option,
  * default-selected — the caller decides whether to render the picker (a round
  * with zero groups has nothing to choose between).
+ *
+ * `allowNewGroup` (Phase 5.5) mirrors the viewer's `createGroup` policy op:
+ * when false, the "Start a new group" option is omitted — the viewer may only
+ * slot into an existing group with space. Defaults to true (the open policy).
  */
-export function deriveGroupPicker(groups: readonly RoundPlayingGroup[]): GroupPicker {
+export function deriveGroupPicker(
+    groups: readonly RoundPlayingGroup[],
+    allowNewGroup = true,
+): GroupPicker {
     const options: GroupPickerOption[] = groups.map((g, i) => {
         const occupancy = g.ballIds.length;
         const parts = [`Group ${i + 1}`];
@@ -102,7 +148,12 @@ export function deriveGroupPicker(groups: readonly RoundPlayingGroup[]): GroupPi
     });
 
     const firstOpen = options.find((o) => !o.disabled);
-    options.push({ value: NEW_GROUP_CHOICE, label: 'Start a new group', disabled: false });
+    if (allowNewGroup) {
+        options.push({ value: NEW_GROUP_CHOICE, label: 'Start a new group', disabled: false });
+    }
 
-    return { options, defaultValue: firstOpen?.value ?? NEW_GROUP_CHOICE };
+    return {
+        options,
+        defaultValue: firstOpen?.value ?? (allowNewGroup ? NEW_GROUP_CHOICE : ''),
+    };
 }

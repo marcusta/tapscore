@@ -28,6 +28,7 @@ import {
     RouteSection,
     RouteSiInput,
 } from '../round-definition';
+import { StartListPolicy } from './start-list-policy';
 
 /** A producer in the round roster. Def-ids are assigned by the wizard. */
 export const DraftProducer = Type.Object({
@@ -175,6 +176,15 @@ export const RoundSetupDraft = Type.Object({
      * friendlier diagnostics).
      */
     playingGroups: Type.Optional(Type.Array(DraftPlayingGroup, { minItems: 1 })),
+    /**
+     * Start-list policy (Phase 5.5): who may self-join, create/modify playing
+     * groups, and (Slices 2–3) claim placeholder seats. An ORTHOGONAL axis on
+     * the round — wrappers only supply defaults. Absent ⇒ fully open
+     * (`groups:'open', seats:'assigned', claimBy:'anyone'`), the exact pre-5.5
+     * friendly behaviour. Stored as a policy OBJECT (never a preset name);
+     * versions with the draft chain like every other setup field.
+     */
+    startList: Type.Optional(StartListPolicy),
 });
 
 export type DraftProducer = Static<typeof DraftProducer>;

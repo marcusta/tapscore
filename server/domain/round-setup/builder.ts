@@ -35,6 +35,7 @@ import type {
 } from '../round-definition';
 import type { CompilerDiagnostic } from '../compiler/types';
 import { type DraftRoundTeam, type RoundSetupDraft, isPlayerMember, isNestedTeamMember, teamKind } from './draft';
+import { effectiveStartListPolicy, maxGroupSizeOf } from './start-list-policy';
 
 export type BuildResult =
     | { ok: true; definition: RoundDefinitionInput }
@@ -659,11 +660,15 @@ function buildPlayingGroups(
             id: `pg-${i + 1}`,
             startTime: g.startTime ?? draft.playedAt,
             startOrdinal,
-            // Sane default: a standard flight (4) or the group's own size if it
-            // already exceeds four. A group is NOT born full, so a self-joiner
-            // (RoundJoinService) can land in an existing group with space rather
-            // than always spawning a fresh one — the user's expected choice.
-            capacity: Math.max(4, g.members.length),
+            // Sane default: the policy's standard flight size (4 unless the
+            // draft's start-list policy says otherwise — Phase 5.5) or the
+            // group's own size if it already exceeds that. A group is NOT born
+            // full, so a self-joiner (RoundJoinService) can land in an existing
+            // group with space rather than always spawning a fresh one — the
+            // user's expected choice. An organizer-authored group larger than
+            // the flight size keeps its size (capacity never truncates
+            // members); it is simply born full to self-service.
+            capacity: Math.max(maxGroupSizeOf(effectiveStartListPolicy(draft)), g.members.length),
             producerDefIds: [...g.members],
         });
     });

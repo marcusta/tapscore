@@ -5,12 +5,17 @@ import { api, ApiError } from '../api';
 import { t } from '../theme';
 import { s, btn, card } from '../css';
 import { RoundViewService } from './round.service';
-import { canShowJoinCard, deriveGroupPicker } from './join';
+import { canShowJoinCard, deriveGroupPicker, joinCardPolicyState } from './join';
 import type { CompilerDiagnostic } from '../api/friendly-rounds.gen';
 import type { Tee } from '../api/setup.gen';
 
 // Phase 3.5 self-join affordance. Renders only for a logged-in viewer on a
-// `not_started` round they don't already play in (see `canShowJoinCard`).
+// `not_started` round they don't already play in (see `canShowJoinCard`) AND
+// only when the round's start-list policy allows this viewer to self-join
+// (Phase 5.5, `joinCardPolicyState`): an organized round shows no card at
+// all, a roster-gated round shows it to roster members only, and a round
+// outside its sign-up window shows the server's humanized message instead of
+// the form.
 // Distinct from the claim card above it: claiming flips an EXISTING guest
 // row to this viewer's identity ("I was pre-entered"); joining mints a BRAND
 // NEW producer from the viewer's own profile ("add me fresh"). Both can show
@@ -25,11 +30,12 @@ const tpl = template(`
     <div bind="root" class="join-card hidden">
         <span class="join-card__label">Playing this round?</span>
         <p class="join-card__hint">Add yourself with your own tee — this creates your own scorecard.</p>
+        <p bind="blocked" class="join-card__blocked hidden"></p>
         <div bind="groupRow" class="join-card__group hidden">
             <label class="join-card__group-label">Group</label>
             <div bind="groupHost" class="join-card__group-select"></div>
         </div>
-        <div class="join-card__row">
+        <div bind="row" class="join-card__row">
             <div bind="teeHost" class="join-card__tee"></div>
             <button bind="join" class="join-card__btn" type="button">Add me</button>
         </div>
@@ -63,6 +69,12 @@ export class JoinCardComponent extends Component {
                 font-size: 0.8rem;
                 color: ${t('text-muted')};
             }
+            & .join-card__blocked {
+                margin: ${s('md')} 0 0;
+                font-size: 0.85rem;
+                color: ${t('text-muted')};
+                &.hidden { display: none; }
+            }
             & .join-card__group {
                 margin-top: ${s('md')};
                 &.hidden { display: none; }
@@ -78,6 +90,7 @@ export class JoinCardComponent extends Component {
                 align-items: center;
                 gap: ${s('md')};
                 margin-top: ${s('md')};
+                &.hidden { display: none; }
             }
             & .join-card__tee { flex: 1; }
             & .join-card__btn {
@@ -131,11 +144,19 @@ export class JoinCardComponent extends Component {
     // before the picker has defaulted. Sent as `groupChoice` on join.
     private groupChoice = new Signal('');
 
+    /** The server-computed start-list policy affordance for this viewer. */
+    private policyState() {
+        return joinCardPolicyState(this.svc.startList.get());
+    }
+
     private eligible(): boolean {
-        return canShowJoinCard(
-            this.svc.balls.get(),
-            this.auth.currentUser.get()?.id ?? null,
-            this.svc.round.get()?.status ?? null,
+        return (
+            this.policyState().visible &&
+            canShowJoinCard(
+                this.svc.balls.get(),
+                this.auth.currentUser.get()?.id ?? null,
+                this.svc.round.get()?.status ?? null,
+            )
         );
     }
 
@@ -209,8 +230,14 @@ export class JoinCardComponent extends Component {
 
         // Group picker options, derived from the round's playing groups. When
         // the round has ≥1 group the viewer SEES where they'll land (even a
-        // single group with space) and can pick another or start a fresh one.
-        const picker = new Computed(() => deriveGroupPicker(this.svc.groups()));
+        // single group with space) and can pick another or — when the policy's
+        // `createGroup` op allows it — start a fresh one.
+        const picker = new Computed(() =>
+            deriveGroupPicker(
+                this.svc.groups(),
+                this.svc.startList.get()?.viewer.createGroup.allowed ?? true,
+            ),
+        );
         // Default-select the first group with space (or "new group") whenever
         // the derived default changes and the viewer hasn't chosen otherwise —
         // and reset a stale choice that no longer names a real option (e.g. the
@@ -229,13 +256,29 @@ export class JoinCardComponent extends Component {
             root: {
                 className: () => (this.eligible() ? 'join-card' : 'join-card hidden'),
             },
-            groupRow: {
-                // Show only when there's a real group to choose between; a round
-                // with no groups yet has nothing to pick.
+            // Outside the sign-up window the card stays visible but the form is
+            // replaced by the server's humanized refusal, rendered verbatim.
+            blocked: {
                 className: () =>
-                    this.svc.groups().length > 0
+                    this.policyState().blockedMessage !== null
+                        ? 'join-card__blocked'
+                        : 'join-card__blocked hidden',
+                textContent: () => this.policyState().blockedMessage ?? '',
+            },
+            groupRow: {
+                // Show only when there's a real group to choose between (a round
+                // with no groups yet has nothing to pick) and the form is active.
+                className: () =>
+                    this.svc.groups().length > 0 &&
+                    this.policyState().blockedMessage === null
                         ? 'join-card__group'
                         : 'join-card__group hidden',
+            },
+            row: {
+                className: () =>
+                    this.policyState().blockedMessage === null
+                        ? 'join-card__row'
+                        : 'join-card__row hidden',
             },
             join: {
                 disabled: () => this.joining.get() || !this.teeId.get(),

@@ -11,6 +11,7 @@ import type {
 import type { Scorecard, ScorecardService } from './scorecard.service';
 import type { LeaderboardService } from './leaderboard.service';
 import type { RoundResult } from '../domain/strategies/result-sections';
+import type { StartListService, StartListView } from './start-list.service';
 
 // --- Output types ---
 
@@ -98,6 +99,7 @@ export class FriendlyRoundService {
         private scoreEvents: ScoreEventService,
         private scorecards: ScorecardService,
         private leaderboards: LeaderboardService,
+        private startLists: StartListService,
     ) {}
 
     /**
@@ -135,9 +137,18 @@ export class FriendlyRoundService {
         return { ok: true, round: created.round, friendlyRound };
     }
 
+    /**
+     * The token's round for the round view. `viewerPlayerId` is the
+     * SERVER-resolved optional session identity (never body-supplied); it only
+     * feeds `startList.viewer` — the Phase 5.5 policy + allowed-ops payload the
+     * client uses to render (or hide) the self-join card and group picker, so
+     * an organized round never leaks an open join affordance. The read itself
+     * stays token-scoped and identity-free.
+     */
     async findByToken(
         token: string,
-    ): Promise<{ friendlyRound: FriendlyRound; round: Round } | null> {
+        viewerPlayerId: string | null = null,
+    ): Promise<{ friendlyRound: FriendlyRound; round: Round; startList: StartListView } | null> {
         const row = await this.db
             .selectFrom('friendly_rounds')
             .selectAll()
@@ -146,7 +157,8 @@ export class FriendlyRoundService {
         if (!row) return null;
         const round = await this.rounds.getById(row.round_id);
         if (!round) return null;
-        return { friendlyRound: toFriendlyRound(row), round };
+        const startList = await this.startLists.viewForRound(round.id, viewerPlayerId);
+        return { friendlyRound: toFriendlyRound(row), round, startList };
     }
 
     /**

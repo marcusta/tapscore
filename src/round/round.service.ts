@@ -11,6 +11,7 @@ import type {
     RoundPlayingGroup,
     RoundResult,
     Scorecard,
+    StartListView,
 } from '../api/friendly-rounds.gen';
 import type { MetadataApplies, MetadataInput } from '../api/setup.gen';
 import { FormatCatalogService } from '../create/format-catalog.service';
@@ -88,6 +89,13 @@ export class RoundViewService {
     readonly error = new Signal<RequestError | null>(null);
     readonly friendlyRound = new Signal<FriendlyRound | null>(null);
     readonly round = new Signal<Round | null>(null);
+    /**
+     * Start-list policy + THIS viewer's allowed self-service ops (Phase 5.5),
+     * computed server-side from the optional session on the byToken read. The
+     * join card and group picker render strictly from this — an organized
+     * round never shows a join affordance, whatever wraps it.
+     */
+    readonly startList = new Signal<StartListView | null>(null);
     readonly balls = new Signal<RoundBall[]>([]);
     readonly scorecards = new Signal<Scorecard[]>([]);
     /** Optimistic per-cell overlay over the loaded scorecards. */
@@ -160,6 +168,7 @@ export class RoundViewService {
         if (seq !== this.loadSeq || token !== this.token) return;
         this.friendlyRound.set(data.friendlyRound);
         this.round.set(data.round);
+        this.startList.set(data.startList);
         // Remember this round on THIS device so the logged-out landing/history
         // can list it (no identity ⇒ no server dashboard). Deduped by token.
         recordDeviceRound({
@@ -667,6 +676,7 @@ export class RoundViewService {
         this.resultCursor = null;
         this.friendlyRound.set(null);
         this.round.set(null);
+        this.startList.set(null);
         this.balls.set([]);
         this.scorecards.set([]);
         this.cells.set(new Map());

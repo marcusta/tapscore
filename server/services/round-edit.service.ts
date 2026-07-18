@@ -152,7 +152,21 @@ export class RoundEditService {
 
         // Freeze a named route template exactly like the create path — the
         // stored draft is always the resolved form.
-        const resolved = await this.rounds.resolveDraftRoute(input.draft);
+        let resolved = await this.rounds.resolveDraftRoute(input.draft);
+
+        // --- Start-list policy carry-forward (Phase 5.5) ----------------------
+        // The policy is just another draft field riding this full-document
+        // replace, so a submitted `startList` object replaces the stored one —
+        // that IS the policy-edit path (token holders per the existing edit
+        // rules; competition admins hold the token via the admin-gated detail
+        // read). But a body that OMITS the field means "no policy change", not
+        // "reset to open": the wizard reconstructs drafts from form state and
+        // has no policy controls yet, and silently dropping an organized
+        // policy on an unrelated edit would reopen the self-join leak. To
+        // deliberately reopen a round, submit the open policy explicitly.
+        if (resolved.startList === undefined && stored.draft.startList !== undefined) {
+            resolved = { ...resolved, startList: stored.draft.startList };
+        }
 
         // --- Reference pre-checks -------------------------------------------
         // `buildCompilerInput` THROWS on a missing course/tee/player (setup-
