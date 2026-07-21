@@ -89,3 +89,9 @@ bun run check:format-fixtures # compare the canonical fixture oracle
 ## Runtime state
 
 `data/*.sqlite` holds app data, sessions, and observability. Generated on boot by `createApp()`; gitignored; keep on disk.
+
+## Production
+
+Deployed at `https://app.swedenindoorgolf.se/tapscore/` — the app is served
+under the `/tapscore/` base path, so client routes and the API both sit beneath
+it (for example `https://app.swedenindoorgolf.se/tapscore/api/health`).
