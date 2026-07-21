@@ -38,14 +38,6 @@ import { type Kysely, sql } from 'kysely';
 export async function up(db: Kysely<any>): Promise<void> {
     await sql`PRAGMA foreign_keys = OFF`.execute(db);
 
-    // The 030 ownership backstop reads `balls`, and `ALTER TABLE ... RENAME`
-    // re-parses every trigger unless `legacy_alter_table` is ON. Bun's SQLite
-    // defaults that pragma ON, plain SQLite defaults it OFF — so leaving the
-    // trigger in place makes this migration pass or fail depending on which
-    // build runs it ("no such table: main.balls" in the window between
-    // DROP balls and the rename). Drop it here, recreate it verbatim below.
-    await sql`DROP TRIGGER IF EXISTS score_events_same_round_ownership`.execute(db);
-
     // --- balls: course_handicap_snapshot → nullable -------------------------
     await sql`
         CREATE TABLE balls_new (
@@ -141,20 +133,6 @@ export async function up(db: Kysely<any>): Promise<void> {
     await sql`DROP TABLE slot_balls`.execute(db);
     await sql`ALTER TABLE slot_balls_new RENAME TO slot_balls`.execute(db);
     await sql`CREATE INDEX slot_balls_ball_id_index ON slot_balls (ball_id)`.execute(db);
-
-    // --- restore the ownership backstop (verbatim from 030) -----------------
-    await sql`
-        CREATE TRIGGER score_events_same_round_ownership
-        BEFORE INSERT ON score_events
-        BEGIN
-            SELECT CASE
-                WHEN (SELECT round_id FROM balls WHERE id = NEW.ball_id) IS NOT NEW.round_id
-                THEN RAISE(ABORT, 'score_event ball belongs to a different round')
-                WHEN (SELECT round_id FROM round_play_holes WHERE id = NEW.play_hole_id) IS NOT NEW.round_id
-                THEN RAISE(ABORT, 'score_event play_hole belongs to a different round')
-            END;
-        END
-    `.execute(db);
 
     // --- verify + re-arm FK enforcement -------------------------------------
     const violations = await sql<{ table: string }>`PRAGMA foreign_key_check`.execute(db);

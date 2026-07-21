@@ -1,17 +1,17 @@
-// Migrations must not depend on `PRAGMA legacy_alter_table` being ON.
+// The migration chain must replay on any SQLite build, not just Bun's.
 //
-// Bun's bundled SQLite defaults `legacy_alter_table` to 1, which makes
-// `ALTER TABLE ... RENAME TO` skip re-parsing the schema. With the pragma OFF
-// (plain SQLite's default, and what other Bun builds may ship) the rename
-// re-parses every trigger, so a 12-step table rebuild fails outright if any
-// trigger still references the table that was just dropped:
+// `legacy_alter_table` decides whether `ALTER TABLE ... RENAME TO` re-parses
+// the schema. Bun's bundled SQLite defaults it ON, plain SQLite defaults it
+// OFF. With it OFF, the rename in the middle of a 12-step table rebuild fails
+// if a trigger still references the table the migration just dropped:
 //
 //   error in trigger score_events_same_round_ownership: no such table: main.balls
 //
-// That is a production deploy failure, not a test detail: it took down a
-// tapscore deploy on a server whose Bun shipped the opposite default. This
-// test runs the whole migration chain with the pragma explicitly OFF so the
-// migrations stay version-independent.
+// That took down a production deploy: it passed on every local run (Bun 1.3.11)
+// and failed on the server (Bun 1.3.6). The fix belongs in the runner —
+// `runMigrations` pins the pragma ON for the run — because the alternative,
+// editing migration 039, would rewrite history other databases already
+// replayed. These tests hold that line.
 
 import { test, expect } from 'bun:test';
 import * as path from 'node:path';
@@ -22,33 +22,45 @@ import { runMigrations } from '@basics/core/server/migrate';
 
 const migrationFolder = path.join(import.meta.dir, 'migrations');
 
-test('migrations run clean with legacy_alter_table OFF', async () => {
+// A connection that mimics a non-Bun SQLite default.
+function legacyOffDb() {
     const sqlite = new BunDatabase(':memory:');
     sqlite.run('PRAGMA legacy_alter_table = OFF');
     sqlite.run('PRAGMA foreign_keys = ON');
-    const db = new Kysely<any>({ dialect: new BunSqliteDialect({ database: sqlite }) });
+    return { sqlite, db: new Kysely<any>({ dialect: new BunSqliteDialect({ database: sqlite }) }) };
+}
 
+test('the whole chain replays on a connection that defaults legacy_alter_table OFF', async () => {
+    const { sqlite, db } = legacyOffDb();
     try {
         await runMigrations(db, migrationFolder);
+
+        // Spot-check the rebuild that exposed this: 039 drops `balls` and
+        // renames `balls_new` into place while 030's trigger still reads it.
+        const trigger = sqlite
+            .query(`SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?`)
+            .get('score_events_same_round_ownership') as { sql: string } | null;
+        expect(trigger).not.toBeNull();
+        expect(trigger!.sql).toContain('FROM balls WHERE id = NEW.ball_id');
+
+        const balls = sqlite
+            .query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'balls'`)
+            .get();
+        expect(balls).not.toBeNull();
     } finally {
         await db.destroy();
     }
 });
 
-test('the same-round ownership trigger survives the 039 rebuild', async () => {
-    const sqlite = new BunDatabase(':memory:');
-    sqlite.run('PRAGMA legacy_alter_table = OFF');
-    const db = new Kysely<any>({ dialect: new BunSqliteDialect({ database: sqlite }) });
-
+test('runMigrations restores the connection pragma it found', async () => {
+    const { sqlite, db } = legacyOffDb();
     try {
         await runMigrations(db, migrationFolder);
-        const trigger = sqlite
-            .query(`SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?`)
-            .get('score_events_same_round_ownership') as { sql: string } | null;
-
-        expect(trigger).not.toBeNull();
-        // Still the backstop from 030 — pointed at `balls`, not `balls_new`.
-        expect(trigger!.sql).toContain('FROM balls WHERE id = NEW.ball_id');
+        const after = sqlite.query('PRAGMA legacy_alter_table').get() as {
+            legacy_alter_table: number;
+        };
+        // Pinned only for the run — runtime keeps its own semantics.
+        expect(after.legacy_alter_table).toBe(0);
     } finally {
         await db.destroy();
     }
