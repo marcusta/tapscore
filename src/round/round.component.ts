@@ -434,7 +434,10 @@ export class RoundComponent extends Component {
 
     private shareUrl = new Computed(() => {
         const token = this.tokenQ.get();
-        return token ? `${location.origin}/round?token=${token}` : '';
+        // Include the deploy base path (Vite BASE_URL) so the shared link works
+        // under the production sub-path ('/tapscore/round'), not just at the root.
+        const base = (import.meta.env?.BASE_URL ?? '/').replace(/\/+$/, '');
+        return token ? `${location.origin}${base}/round?token=${token}` : '';
     });
 
     render(): DocumentFragment {
