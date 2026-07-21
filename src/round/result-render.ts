@@ -253,22 +253,30 @@ function entryGroupLabel(ballIds: readonly string[], groupOf: GroupOf): string |
 }
 
 /**
- * Compact chip showing a ranked entry's live-board pace delta — the metric
- * relative to its playing-to-pace baseline over that entry's own thru-N, which
- * is WHY the server ordered the board this way (a team ahead of pace ranks
- * above one behind it even on fewer holes). `E` when even (0), a signed number
- * otherwise (real minus sign). Absent when the section carries no `paceDelta`
- * (metrics whose descriptor declares no pace render exactly as before).
- * Presentation only: the server owns the ordering.
+ * A ranked entry's live-board pace delta — the metric relative to its
+ * playing-to-pace baseline over that entry's own thru-N, which is WHY the
+ * server ordered the board this way (a team ahead of pace ranks above one
+ * behind it even on fewer holes). `E` when even (0), a signed number otherwise
+ * (real minus sign).
+ *
+ * It gets its OWN column rather than trailing the total: run together in one
+ * cell, "33 −3" reads as a single mangled number ("33-3"). Two columns with
+ * their own headers is how every golf board (and Golf GameBook) does it.
  */
-function paceChip(paceDelta: number | undefined): string {
-    if (paceDelta === undefined) return '';
-    const text = paceDelta === 0 ? 'E' : paceDelta > 0 ? `+${paceDelta}` : `−${Math.abs(paceDelta)}`;
+function paceText(paceDelta: number): string {
+    return paceDelta === 0 ? 'E' : paceDelta > 0 ? `+${paceDelta}` : `−${Math.abs(paceDelta)}`;
+}
+
+function paceCell(paceDelta: number | undefined): string {
+    if (paceDelta === undefined) return '<td class="lb-rank__pace"></td>';
     const tone = paceDelta === 0 ? 'even' : paceDelta > 0 ? 'over' : 'under';
-    return ` <span class="lb-rank__pace lb-rank__pace--${tone}">${esc(text)}</span>`;
+    return `<td class="lb-rank__pace lb-rank__pace--${tone}">${esc(paceText(paceDelta))}</td>`;
 }
 
 function renderRanked(section: RankedSection, nameOf: NameOf, groupOf: GroupOf = noGroup): string {
+    // The pace column exists only for metrics whose descriptor declares a pace
+    // baseline — a non-pace board (gross strokes, say) keeps its old 4 columns.
+    const hasPace = section.entries.some((e) => e.paceDelta !== undefined);
     const rows = section.entries
         .map((e) => {
             const group = entryGroupLabel(e.ballIds, groupOf);
@@ -276,21 +284,23 @@ function renderRanked(section: RankedSection, nameOf: NameOf, groupOf: GroupOf =
             return `<tr class="${e.position === 1 ? 'lb-rank__lead' : ''}">
   <td class="lb-rank__pos">${e.position}</td>
   <td class="lb-rank__who"><span class="lb-rank__name">${esc(e.ballIds.map(nameOf).join(' & '))}</span>${groupTag}</td>
-  <td class="lb-rank__total">${e.total ?? '—'}${paceChip(e.paceDelta)}</td>
+  <td class="lb-rank__total">${e.total ?? '—'}</td>${hasPace ? `\n  ${paceCell(e.paceDelta)}` : ''}
   <td class="lb-rank__thru">${e.holesPlayed}</td>
 </tr>`;
         })
         .join('');
+    const paceCol = hasPace ? '\n      <col class="lb-rank__col-pace">' : '';
+    const paceHead = hasPace ? '<th class="lb-rank__pace">Pace</th>' : '';
     return `<div class="lb-section">
   <h4 class="lb-section__title">${esc(section.metricLabel)}</h4>
   <table class="lb-rank">
     <colgroup>
       <col class="lb-rank__col-pos">
       <col class="lb-rank__col-who">
-      <col class="lb-rank__col-total">
+      <col class="lb-rank__col-total">${paceCol}
       <col class="lb-rank__col-thru">
     </colgroup>
-    <thead><tr><th class="lb-rank__pos">#</th><th class="lb-rank__who">Player</th><th class="lb-rank__total">Total</th><th class="lb-rank__thru">Thru</th></tr></thead>
+    <thead><tr><th class="lb-rank__pos">#</th><th class="lb-rank__who">Player</th><th class="lb-rank__total">Total</th>${paceHead}<th class="lb-rank__thru">Thru</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
 </div>`;

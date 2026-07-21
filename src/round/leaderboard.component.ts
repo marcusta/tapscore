@@ -63,8 +63,9 @@ export class LeaderboardComponent extends Component {
                 table-layout: fixed;
             }
             & .lb-rank__col-pos { width: 2.25rem; }
-            & .lb-rank__col-total { width: 4.5rem; }
-            & .lb-rank__col-thru { width: 3.25rem; }
+            & .lb-rank__col-total { width: 3.25rem; }
+            & .lb-rank__col-pace { width: 3.25rem; }
+            & .lb-rank__col-thru { width: 3rem; }
             & .lb-rank th,
             & .lb-rank td {
                 vertical-align: middle;
@@ -105,7 +106,20 @@ export class LeaderboardComponent extends Component {
                 white-space: nowrap;
                 min-width: 0;
             }
-            & .lb-rank__total { text-align: right; font-weight: 700; }
+            & .lb-rank__total { text-align: right; font-weight: 800; font-size: 1.05rem; }
+            /* Pace delta lives in its own column: adjacent to the total but
+               visually separate (lighter weight, muted) so "33" and "−3" can
+               never read as one number. */
+            & .lb-rank__pace {
+                text-align: right;
+                font-weight: 700;
+                font-size: 0.9rem;
+                color: ${t('text-muted')};
+                padding-left: 0;
+            }
+            & .lb-rank thead th.lb-rank__pace { font-weight: 700; }
+            & .lb-rank__pace--over { color: ${t('under-par')}; }
+            & .lb-rank__pace--under { color: ${t('over-par')}; }
             /* Phase 3.5: group tag next to a player's name — only rendered when
                the round has 2+ playing groups (single-group rounds get nothing,
                same look as before this phase). */

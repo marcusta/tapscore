@@ -356,18 +356,18 @@ test('result renderers do not branch on format ids', async () => {
     }
 });
 
-// --- pace chip (live-board ranking) -----------------------------------------
+// --- pace column (live-board ranking) ---------------------------------------
 //
-// A ranked entry carrying `paceDelta` shows a compact chip next to the total so
-// the server's pace ordering explains itself: `+4` (over), `−5` (under), `E`
-// (even). Entries without `paceDelta` (non-pace metrics) render exactly as
-// before — no chip.
+// A ranked entry carrying `paceDelta` gets its OWN column next to the total so
+// the server's pace ordering explains itself without "33 −3" reading as one
+// mangled number: `+4` (over), `−5` (under), `E` (even). A section where no
+// entry carries `paceDelta` (non-pace metrics) renders the old 4 columns.
 
 function rankedWith(entries: RankedSection['entries']): RankedSection {
     return { kind: 'ranked', metricId: 'points', metricLabel: 'Points', entries };
 }
 
-test('pace chip renders +N / −N / E next to the total, tone-classed', () => {
+test('pace renders +N / −N / E in its own tone-classed column', () => {
     const ranked = rankedWith([
         { ballIds: ['a'], total: 8, holesPlayed: 2, paceDelta: 4, position: 1 },
         { ballIds: ['b'], total: 9, holesPlayed: 7, paceDelta: -5, position: 2 },
@@ -376,16 +376,19 @@ test('pace chip renders +N / −N / E next to the total, tone-classed', () => {
     const html = renderSlotLeaderboard(slot({ leaderboard: [ranked] }), nameOf);
 
     // over-pace: signed positive
-    expect(html).toContain('<span class="lb-rank__pace lb-rank__pace--over">+4</span>');
+    expect(html).toContain('<td class="lb-rank__pace lb-rank__pace--over">+4</td>');
     // under-pace: real minus sign (U+2212), not ASCII hyphen
-    expect(html).toContain('<span class="lb-rank__pace lb-rank__pace--under">−5</span>');
+    expect(html).toContain('<td class="lb-rank__pace lb-rank__pace--under">−5</td>');
     // even: E
-    expect(html).toContain('<span class="lb-rank__pace lb-rank__pace--even">E</span>');
-    // the chip sits inside the total cell, after the total value
-    expect(html).toContain('<td class="lb-rank__total">8 <span class="lb-rank__pace lb-rank__pace--over">+4</span></td>');
+    expect(html).toContain('<td class="lb-rank__pace lb-rank__pace--even">E</td>');
+    // the total cell holds the total ALONE — no trailing delta inside it
+    expect(html).toContain('<td class="lb-rank__total">8</td>');
+    // and the column is declared in the header + colgroup
+    expect(html).toContain('<col class="lb-rank__col-pace">');
+    expect(html).toContain('<th class="lb-rank__pace">Pace</th>');
 });
 
-test('no pace chip when the entry carries no paceDelta (non-pace metric)', () => {
+test('no pace column when no entry carries paceDelta (non-pace metric)', () => {
     const ranked = rankedWith([
         { ballIds: ['a'], total: 70, holesPlayed: 18, position: 1 },
         { ballIds: ['b'], total: 72, holesPlayed: 18, position: 2 },
@@ -393,14 +396,14 @@ test('no pace chip when the entry carries no paceDelta (non-pace metric)', () =>
     const html = renderSlotLeaderboard(slot({ leaderboard: [ranked] }), nameOf);
 
     expect(html).not.toContain('lb-rank__pace');
-    // total cell is exactly the value, no trailing chip span
     expect(html).toContain('<td class="lb-rank__total">70</td>');
 });
 
-test('pace chip still shown when total is present but zero', () => {
+test('pace still shown when total is present but zero', () => {
     const ranked = rankedWith([{ ballIds: ['a'], total: 0, holesPlayed: 4, paceDelta: -8, position: 1 }]);
     const html = renderSlotLeaderboard(slot({ leaderboard: [ranked] }), nameOf);
-    expect(html).toContain('<td class="lb-rank__total">0 <span class="lb-rank__pace lb-rank__pace--under">−8</span></td>');
+    expect(html).toContain('<td class="lb-rank__total">0</td>');
+    expect(html).toContain('<td class="lb-rank__pace lb-rank__pace--under">−8</td>');
 });
 
 test('unknown leaderboard section kind yields a visible diagnostic, not dropped content', () => {
