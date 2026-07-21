@@ -86,6 +86,17 @@ bun run render:formats   # render canonical manual-format fixtures from that DB
 bun run check:format-fixtures # compare the canonical fixture oracle
 ```
 
+## Git workflow
+
+Commit to `main`. Do not create a feature branch unless asked for one.
+
+Before committing, say so plainly when the change is high risk or is one a
+branch would suit better, and let the owner decide — then follow the answer.
+Worth flagging: schema migrations and anything that rewrites existing rows,
+changes to auth/session handling, work that cannot be verified locally (the
+production base path, deploy config), large or speculative refactors, and any
+change still unverified when the commit is requested.
+
 ## Runtime state
 
 `data/*.sqlite` holds app data, sessions, and observability. Generated on boot by `createApp()`; gitignored; keep on disk.
