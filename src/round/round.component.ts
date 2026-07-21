@@ -13,6 +13,7 @@ import { RoundViewService, type InitialPosition } from './round.service';
 import { ScoreEntryComponent } from './score-entry.component';
 import { LeaderboardComponent } from './leaderboard.component';
 import { ClaimCardComponent } from './claim-card.component';
+import { SeatCardComponent } from './seat-card.component';
 import { JoinCardComponent } from './join-card.component';
 import { EditCardComponent } from './edit-card.component';
 import { LeaveCardComponent } from './leave-card.component';
@@ -67,6 +68,7 @@ const tpl = template(`
                         <p class="round-view__share-hint">Anyone with this link can open and score — no sign-in.</p>
                     </div>
 
+                    <div bind="seats"></div>
                     <div bind="edit"></div>
                     <div bind="claim"></div>
                     <div bind="join"></div>
@@ -645,6 +647,11 @@ export class RoundComponent extends Component {
         // carousel/keypad state survives a tab switch).
         this.spawn(ScoreEntryComponent, this.ref(frag, 'scoring'));
         this.spawn(LeaderboardComponent, this.ref(frag, 'leaderboard'));
+        // Phase 5.5: the "Who's playing?" seat card — self-hiding unless the
+        // round has unclaimed placeholder seats (or a claimed seat this viewer
+        // may release). Affordances render strictly from the server's policy
+        // decision (`startList.viewer.claimSeat` / `.claimSeatAsGuest`).
+        this.spawn(SeatCardComponent, this.ref(frag, 'seats'));
         // Phase 3.5: the edit-round affordance — self-hiding unless the server's
         // setup() says this round is editable (not-started/active, from a draft).
         this.spawn(EditCardComponent, this.ref(frag, 'edit'));

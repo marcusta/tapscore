@@ -142,6 +142,18 @@ export class FormatActionService {
             }
         }
 
+        // 4a-bis) Claim-before-act (Phase 5.5 hard rule #1, closed in Slice 3):
+        // a format action whose SUBJECT covers an unclaimed placeholder seat is
+        // refused exactly like a score write (`seat_unclaimed`) — with a member
+        // unknown, no in-round decision (captain, partner, call) can honestly
+        // bind to that ball/producer. Subject-less (slot-level) actions proceed.
+        const seatDiag = await this.unclaimedSeatDiagnostic(
+            input.roundId,
+            input.subjectBallId ?? null,
+            input.subjectProducerDefId ?? null,
+        );
+        if (seatDiag) diags.push(seatDiag);
+
         // 4b) Supersession target must exist in the same slot.
         if (input.supersedesActionId) {
             const prior = await this.db
@@ -203,4 +215,52 @@ export class FormatActionService {
         });
         return { ok: true, id };
     }
+
+    /**
+     * The Phase 5.5 pending-subject probe: a `seat_unclaimed` diagnostic when
+     * the addressed ball (or the ball carrying the addressed producer) covers
+     * an UNCLAIMED placeholder seat — both identity FKs NULL, the canonical
+     * pending signal (never inferred from name strings). Mirrors the score
+     * append's refusal, diagnostic-shaped because this service's refusal
+     * contract is `{ ok:false, diagnostics }`.
+     */
+    private async unclaimedSeatDiagnostic(
+        roundId: string,
+        subjectBallId: string | null,
+        subjectProducerDefId: string | null,
+    ): Promise<ConfigDiagnostic | null> {
+        if (subjectBallId === null && subjectProducerDefId === null) return null;
+        const pending = this.db
+            .selectFrom('ball_players as bp')
+            .innerJoin('balls as b', 'b.id', 'bp.ball_id')
+            .where('b.round_id', '=', roundId)
+            .where('bp.player_id', 'is', null)
+            .where('bp.guest_player_id', 'is', null)
+            .select('bp.display_name_snapshot');
+        if (subjectBallId !== null) {
+            const seats = await pending.where('bp.ball_id', '=', subjectBallId).execute();
+            if (seats.length > 0) return seatUnclaimed(seats, 'subjectBallId');
+        }
+        if (subjectProducerDefId !== null) {
+            // Producer subject: the seat itself, wherever its ball is.
+            const seats = await pending
+                .where('bp.producer_def_id', '=', subjectProducerDefId)
+                .execute();
+            if (seats.length > 0) return seatUnclaimed(seats, 'subjectProducerDefId');
+        }
+        return null;
+    }
+}
+
+/** The shared `seat_unclaimed` diagnostic, mirroring the score append's wording. */
+function seatUnclaimed(
+    seats: { display_name_snapshot: string }[],
+    path: 'subjectBallId' | 'subjectProducerDefId',
+): ConfigDiagnostic {
+    const labels = seats.map((s) => `"${s.display_name_snapshot}"`).join(', ');
+    return {
+        code: 'seat_unclaimed',
+        message: `Fill in who is playing first — ${labels} ${seats.length > 1 ? 'are open seats' : 'is an open seat'} on this ball, and format actions can only target it once every seat is claimed.`,
+        path,
+    };
 }

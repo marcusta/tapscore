@@ -1154,7 +1154,7 @@ export class RoundService {
         trx: Kysely<Database>,
         roundId: string,
         draft: RoundSetupDraft,
-        sourceKind: 'setup_edit' | 'self_join' | 'self_leave',
+        sourceKind: 'setup_edit' | 'self_join' | 'self_leave' | 'seat_claim' | 'seat_release',
         sourceEventId: string,
     ): Promise<number> {
         const prior = await trx

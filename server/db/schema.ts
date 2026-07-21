@@ -357,7 +357,13 @@ export interface RoundDefinitionsTable {
 // definition versions with no draft counterpart. Latest = MAX(version).
 // Rounds without rows here are not editable via the setup wizard.
 
-export type RoundSetupDraftSourceKind = 'initial' | 'setup_edit' | 'self_join' | 'self_leave';
+export type RoundSetupDraftSourceKind =
+    | 'initial'
+    | 'setup_edit'
+    | 'self_join'
+    | 'self_leave'
+    | 'seat_claim'
+    | 'seat_release';
 
 export interface RoundSetupDraftsTable {
     round_id: string;
@@ -490,7 +496,12 @@ export type SetupCorrectionTarget =
     | 'playing_group'
     // Phase 3.5 edit-after-create: a whole-document wizard edit. `target_ref`
     // carries the produced draft version; old/new values are the full drafts.
-    | 'setup_draft';
+    | 'setup_draft'
+    // Phase 5.5 Slice 3 — seat claim/rebind/release: the identity bound to one
+    // producer def-id changes (placeholder → identity, identity → identity, or
+    // identity → placeholder). `target_ref` is `{ producerDefId }` (the seat's
+    // stable claim address); old/new values are the full draft producer entries.
+    | 'producer_identity';
 
 export interface SetupCorrectionEventsTable {
     id: string;

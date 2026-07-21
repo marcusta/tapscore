@@ -154,18 +154,44 @@ test('window: half-open windows work; membership refusals outrank window refusal
     expect(member.join.code).toBe('window_closed');
 });
 
-// --- claimBy (advisory until Slice 3) -----------------------------------------
+// --- claimBy (enforced by the Slice 3 claim op) --------------------------------
 
-test('claimSeat seam: anyone allows, roster gates on membership, team refuses until lineups', () => {
-    const anyone = evaluateStartListOps(OPEN_START_LIST_POLICY, loggedIn(), NOW);
-    expect(anyone.claimSeat.allowed).toBe(true);
+const CLAIMABLE_ANYONE: StartListPolicy = {
+    groups: 'organized',
+    seats: 'claimable',
+    claimBy: 'anyone',
+};
 
+test("claimSeat: seats 'assigned' refuses whoever asks — including the open default", () => {
+    for (const policy of [OPEN_START_LIST_POLICY, START_LIST_PRESETS.organized]) {
+        const ops = evaluateStartListOps(policy, loggedIn({ onRoster: true }), NOW);
+        expect(ops.claimSeat).toMatchObject({ allowed: false, code: 'seats_assigned' });
+        expect(ops.claimSeatAsGuest).toMatchObject({ allowed: false, code: 'seats_assigned' });
+    }
+});
+
+test("claimSeat: 'anyone' allows a session self-claim; anonymous self-claim needs login; guest claim works anonymously", () => {
+    const session = evaluateStartListOps(CLAIMABLE_ANYONE, loggedIn(), NOW);
+    expect(session.claimSeat.allowed).toBe(true);
+    expect(session.claimSeatAsGuest.allowed).toBe(true);
+
+    const anon = evaluateStartListOps(CLAIMABLE_ANYONE, anonymous, NOW);
+    expect(anon.claimSeat).toMatchObject({ allowed: false, code: 'login_required' });
+    // Trust-based like guest add: the token holder may seat a guest.
+    expect(anon.claimSeatAsGuest.allowed).toBe(true);
+});
+
+test("claimSeat: 'roster' gates on membership; guests cannot claim rostered seats; anonymous must log in", () => {
     const roster = evaluateStartListOps(
         START_LIST_PRESETS.pick_your_tee_time,
         loggedIn({ onRoster: false }),
         NOW,
     );
     expect(roster.claimSeat).toMatchObject({ allowed: false, code: 'not_on_roster' });
+    expect(roster.claimSeatAsGuest).toMatchObject({
+        allowed: false,
+        code: 'guest_claim_not_allowed',
+    });
     expect(
         evaluateStartListOps(
             START_LIST_PRESETS.pick_your_tee_time,
@@ -173,9 +199,35 @@ test('claimSeat seam: anyone allows, roster gates on membership, team refuses un
             NOW,
         ).claimSeat.allowed,
     ).toBe(true);
+    expect(
+        evaluateStartListOps(START_LIST_PRESETS.pick_your_tee_time, anonymous, NOW).claimSeat,
+    ).toMatchObject({ allowed: false, code: 'login_required' });
 
     const team = evaluateStartListOps(START_LIST_PRESETS.organized_open_slots, loggedIn(), NOW);
     expect(team.claimSeat).toMatchObject({ allowed: false, code: 'team_claim_unavailable' });
+    expect(team.claimSeatAsGuest).toMatchObject({
+        allowed: false,
+        code: 'team_claim_unavailable',
+    });
+});
+
+test('claimSeat: the self-service window applies, but durable refusals outrank it', () => {
+    const windowed: StartListPolicy = {
+        ...CLAIMABLE_ANYONE,
+        window: { closesAt: '2026-07-01T00:00:00Z' },
+    };
+    const closed = evaluateStartListOps(windowed, loggedIn(), NOW);
+    expect(closed.claimSeat).toMatchObject({ allowed: false, code: 'window_closed' });
+    expect(closed.claimSeatAsGuest).toMatchObject({ allowed: false, code: 'window_closed' });
+
+    // Wrong audience is the durable fact — reported before the window.
+    const rosterWindowed: StartListPolicy = {
+        ...START_LIST_PRESETS.pick_your_tee_time,
+        window: { closesAt: '2026-07-01T00:00:00Z' },
+    };
+    const refused = evaluateStartListOps(rosterWindowed, loggedIn({ onRoster: false }), NOW);
+    expect(refused.claimSeat.code).toBe('not_on_roster');
+    expect(refused.claimSeatAsGuest.code).toBe('guest_claim_not_allowed');
 });
 
 // --- Presets ------------------------------------------------------------------

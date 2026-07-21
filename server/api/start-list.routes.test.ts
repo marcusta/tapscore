@@ -34,6 +34,7 @@ async function setup() {
             ctx.roundJoinService,
             ctx.roundEditService,
             ctx.roundLeaveService,
+            ctx.seatClaimService,
         ),
     );
     const club = await ctx.clubService.create({ name: 'HTTP Policy GC' });

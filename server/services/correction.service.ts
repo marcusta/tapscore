@@ -608,13 +608,16 @@ function applySetupMutation(
             if (nv.producerDefIds !== undefined) g.producerDefIds = nv.producerDefIds;
             return old;
         }
-        case 'setup_draft': {
-            // Whole-document wizard edits are composed by RoundEditService and
-            // persisted via `applyComposedSetupCorrection` — there is no
+        case 'setup_draft':
+        case 'producer_identity': {
+            // Composed-only targets: whole-document wizard edits come from
+            // RoundEditService; seat claim/rebind/release (Phase 5.5) from
+            // SeatClaimService. Both compose the full definition themselves
+            // and persist via `applyComposedSetupCorrection` — there is no
             // per-field mutation to apply here.
             throw new CorrectionInputError(
                 'unsupported_target',
-                `target 'setup_draft' is written by the setup-edit path, not the field-level correction API`,
+                `target '${target}' is written by its composing service, not the field-level correction API`,
                 'target',
             );
         }

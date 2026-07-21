@@ -9,7 +9,12 @@ import {
     type StartListPolicy,
     type StartListPresetId,
 } from '../domain/round-setup/start-list-policy';
-import { isPlaceholderProducer, type RoundSetupDraft } from '../domain/round-setup/draft';
+import {
+    isIdentityProducer,
+    isPlaceholderProducer,
+    type DraftIdentityProducer,
+    type RoundSetupDraft,
+} from '../domain/round-setup/draft';
 import type { RoundService } from './round.service';
 
 /**
@@ -54,6 +59,34 @@ export interface StartListSeat {
     category: string | null;
 }
 
+/**
+ * A CLAIMED seat (Phase 5.5 Slice 3) — a producer that originated as a
+ * placeholder (its draft entry carries the seat-origin marker) and is now
+ * identity-bound. Feeds the minimal rebind/release UI: the occupant sees
+ * "not me — release" on their own claimed seat while it is unscored.
+ */
+export interface ClaimedSeat {
+    /** Producer def-id — the same stable claim address the seat always had. */
+    seatId: string;
+    /** The ORIGINAL seat label (retained on the seat-origin marker). */
+    seatLabel: string;
+    /** The current occupant's display name (snapshot). */
+    displayName: string;
+    /** One ball carrying this producer (the own ball where one exists). */
+    ballId: string | null;
+    /** True when the viewer's session identity occupies this seat. */
+    occupiedByViewer: boolean;
+    /** True once any of the seat's balls has recorded scores. */
+    hasScores: boolean;
+    /**
+     * May THIS viewer release the seat back to an open placeholder? Mirrors
+     * the claim service's occupancy rule: unscored AND (the viewer is the
+     * registered occupant, or the binding is a guest — guest bindings are
+     * trust-based like every guest row, any token holder manages them).
+     */
+    viewerMayRelease: boolean;
+}
+
 export interface StartListView {
     policy: StartListPolicy;
     /** The named preset the policy corresponds to; null for a custom shape. */
@@ -62,6 +95,8 @@ export interface StartListView {
     viewer: StartListOps;
     /** Every unclaimed placeholder seat in the round (empty when none). */
     seats: StartListSeat[];
+    /** Every claimed seat-origin producer (empty when none) — rebind/release UI. */
+    claimedSeats: ClaimedSeat[];
 }
 
 export class StartListService {
@@ -94,6 +129,11 @@ export class StartListService {
             presetId: matchingPresetId(policy),
             viewer: evaluateStartListOps(policy, actor, nowIso),
             seats: await this.unclaimedSeats(roundId, stored?.draft ?? null),
+            claimedSeats: await this.claimedSeats(
+                roundId,
+                stored?.draft ?? null,
+                viewerPlayerId,
+            ),
         };
     }
 
@@ -148,6 +188,78 @@ export class StartListService {
             });
         }
         return seats;
+    }
+
+    /**
+     * Every CLAIMED seat-origin producer: identity producers in the latest
+     * draft carrying the `seat` marker (set only by the claim op). Enriched
+     * with the occupant's snapshot name, one carrying ball, and the viewer's
+     * release affordance. Zero-cost on rounds without seat history — the
+     * draft filter short-circuits before any query.
+     */
+    private async claimedSeats(
+        roundId: string,
+        draft: RoundSetupDraft | null,
+        viewerPlayerId: string | null,
+    ): Promise<ClaimedSeat[]> {
+        const seatOrigin = (draft?.producers ?? []).filter(
+            (p): p is DraftIdentityProducer & { seat: { label: string } } =>
+                isIdentityProducer(p) && p.seat !== undefined,
+        );
+        if (seatOrigin.length === 0) return [];
+
+        const defIds = seatOrigin.map((p) => p.producerDefId);
+        const rows = await this.db
+            .selectFrom('ball_players as bp')
+            .innerJoin('balls as b', 'b.id', 'bp.ball_id')
+            .where('b.round_id', '=', roundId)
+            .where('bp.producer_def_id', 'in', defIds)
+            .select(['bp.producer_def_id', 'bp.ball_id', 'bp.display_name_snapshot'])
+            .execute();
+        const ballIdsByDefId = new Map<string, string[]>();
+        const nameByDefId = new Map<string, string>();
+        for (const r of rows) {
+            const list = ballIdsByDefId.get(r.producer_def_id) ?? [];
+            list.push(r.ball_id);
+            ballIdsByDefId.set(r.producer_def_id, list);
+            if (!nameByDefId.has(r.producer_def_id)) {
+                nameByDefId.set(r.producer_def_id, r.display_name_snapshot);
+            }
+        }
+
+        const allBallIds = [...new Set(rows.map((r) => r.ball_id))];
+        const scoredBallIds = new Set(
+            allBallIds.length === 0
+                ? []
+                : (
+                      await this.db
+                          .selectFrom('score_events')
+                          .select('ball_id')
+                          .where('round_id', '=', roundId)
+                          .where('ball_id', 'in', allBallIds)
+                          .groupBy('ball_id')
+                          .execute()
+                  ).map((r) => r.ball_id),
+        );
+
+        return seatOrigin.map((p) => {
+            const ballIds = ballIdsByDefId.get(p.producerDefId) ?? [];
+            const hasScores = ballIds.some((id) => scoredBallIds.has(id));
+            const occupiedByViewer =
+                viewerPlayerId !== null &&
+                p.playerRef.kind === 'player' &&
+                p.playerRef.id === viewerPlayerId;
+            return {
+                seatId: p.producerDefId,
+                seatLabel: p.seat.label,
+                displayName: nameByDefId.get(p.producerDefId) ?? p.seat.label,
+                ballId: ballIds[0] ?? null,
+                occupiedByViewer,
+                hasScores,
+                viewerMayRelease:
+                    !hasScores && (occupiedByViewer || p.playerRef.kind === 'guest'),
+            };
+        });
     }
 
     /**

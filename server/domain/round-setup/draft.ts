@@ -39,6 +39,24 @@ export const DraftIdentityProducer = Type.Object({
     gender: Type.Optional(Type.Union([Type.Literal('M'), Type.Literal('F')])),
     teeId: Type.String({ minLength: 1 }),
     category: Type.Optional(Type.String()),
+    /**
+     * Seat-origin marker (Phase 5.5 Slice 3) — set ONLY by the claim op when
+     * it binds an identity to a `DraftPlaceholderProducer`. It RETAINS the
+     * placeholder's `label` (+ optional `teamRef`) so:
+     *   - release can restore the exact original seat, and
+     *   - rebind can tell a seat-origin producer from the organizer's fixed
+     *     lineup (only seat-origin producers may change hands via the claim
+     *     op; everything else goes through the round-edit path).
+     * A wizard full-draft edit that omits this field simply demotes the
+     * producer to an ordinary lineup member (the organizer took manual
+     * control) — accepted behaviour, documented on the claim service.
+     */
+    seat: Type.Optional(
+        Type.Object({
+            label: Type.String({ minLength: 1 }),
+            teamRef: Type.Optional(Type.String({ minLength: 1 })),
+        }),
+    ),
 });
 
 /**

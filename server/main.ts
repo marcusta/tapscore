@@ -59,6 +59,7 @@ const {
     leaderboardService,
     friendlyRoundService,
     roundJoinService,
+    seatClaimService,
     roundLeaveService,
     roundEditService,
     guestClaimService,
@@ -93,7 +94,7 @@ mount(app, '/api', createScorecardsApi(scorecardService));
 mount(app, '/api', createLeaderboardsApi(leaderboardService));
 mount(app, '/api', createFormatsApi());
 mount(app, '/api', createCourseRouteTemplatesApi(courseRouteTemplateService));
-mount(app, '/api', createFriendlyRoundsApi(friendlyRoundService, guestClaimService, roundJoinService, roundEditService, roundLeaveService));
+mount(app, '/api', createFriendlyRoundsApi(friendlyRoundService, guestClaimService, roundJoinService, roundEditService, roundLeaveService, seatClaimService));
 mount(app, '/api', createDashboardApi(dashboardService, friendlyRoundService));
 mount(app, '/api', createSetupApi(courseService, teeService));
 mount(app, '/api', createCorrectionsApi(correctionService));

@@ -18,6 +18,7 @@ import { DashboardService } from './dashboard.service';
 import { FriendlyRoundService } from './friendly-round.service';
 import { StartListService } from './start-list.service';
 import { RoundJoinService } from './round-join.service';
+import { SeatClaimService } from './seat-claim.service';
 import { RoundLeaveService } from './round-leave.service';
 import { RoundEditService } from './round-edit.service';
 import { GuestClaimService } from './guest-claim.service';
@@ -146,6 +147,18 @@ export function createServices(db: Kysely<Database>) {
         playerService,
         startListService,
     );
+    // Seat claim/rebind/release (Phase 5.5 Slice 3): binds identity to a
+    // placeholder seat as a setup correction through the same composed-
+    // correction recompile tail as join — the compiler captures the snapshot
+    // chain; the start-list policy is the sole gate authority.
+    const seatClaimService = new SeatClaimService(
+        db,
+        roundService,
+        correctionService,
+        playerService,
+        guestPlayerService,
+        startListService,
+    );
     const roundLeaveService = new RoundLeaveService(db, roundService, correctionService);
     const roundEditService = new RoundEditService(db, roundService, correctionService);
     const guestClaimService = new GuestClaimService(db);
@@ -206,6 +219,7 @@ export function createServices(db: Kysely<Database>) {
         friendlyRoundService,
         startListService,
         roundJoinService,
+        seatClaimService,
         roundLeaveService,
         roundEditService,
         guestClaimService,

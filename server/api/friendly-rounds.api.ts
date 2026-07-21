@@ -6,6 +6,7 @@ import type { RoundJoinService } from '../services/round-join.service';
 import type { RoundLeaveService } from '../services/round-leave.service';
 import type { RoundEditService } from '../services/round-edit.service';
 import type { GuestClaimService } from '../services/guest-claim.service';
+import type { SeatClaimService } from '../services/seat-claim.service';
 import { RoundSetupDraft } from '../domain/round-setup/draft';
 import { EventType } from './score-events.api';
 
@@ -39,6 +40,37 @@ const JoinInput = Type.Object({
 const ClaimGuestInput = Type.Object({
     token: Type.String(),
     guestPlayerId: Type.String(),
+});
+
+// Seat claim (Phase 5.5 Slice 3): bind an identity to a placeholder seat (or
+// rebind an unscored seat-origin producer). `identity` is a tagged union:
+// 'self' pulls everything from the SESSION player's profile (never the body);
+// 'guest' mints a guest from typed fields — trust-based like guest add, so it
+// works anonymously when the policy's `claimBy` is 'anyone'. `teeId` is the
+// claimer's tee choice (seats carry none). `clientEventId` dedupes retries.
+const ClaimSeatIdentityInput = Type.Union([
+    Type.Object({ kind: Type.Literal('self') }),
+    Type.Object({
+        kind: Type.Literal('guest'),
+        name: Type.String({ minLength: 1 }),
+        handicapIndex: Type.Number(),
+        gender: Type.Union([Type.Literal('M'), Type.Literal('F')]),
+    }),
+]);
+const ClaimSeatInput = Type.Object({
+    token: Type.String(),
+    seatId: Type.String({ minLength: 1 }),
+    identity: ClaimSeatIdentityInput,
+    teeId: Type.Optional(Type.String({ minLength: 1 })),
+    clientEventId: Type.String({ minLength: 1 }),
+});
+
+// Seat release ("I clicked the wrong seat"): identity → back to the original
+// open placeholder. Occupant/trust + unscored rules live in the service.
+const ReleaseSeatInput = Type.Object({
+    token: Type.String(),
+    seatId: Type.String({ minLength: 1 }),
+    clientEventId: Type.String({ minLength: 1 }),
 });
 
 // Edit-after-create (Phase 3.5): the wizard re-submits the FULL replacement
@@ -126,6 +158,26 @@ async function joinOr404(
     return res;
 }
 
+async function claimSeatOr404(
+    seats: SeatClaimService,
+    input: Static<typeof ClaimSeatInput>,
+    playerId: string | null,
+) {
+    const res = await seats.claimByToken({ ...input, playerId });
+    if (res === null) throw new NotFoundError('friendly round not found');
+    return res;
+}
+
+async function releaseSeatOr404(
+    seats: SeatClaimService,
+    input: Static<typeof ReleaseSeatInput>,
+    playerId: string | null,
+) {
+    const res = await seats.releaseByToken({ ...input, playerId });
+    if (res === null) throw new NotFoundError('friendly round not found');
+    return res;
+}
+
 async function leaveOr404(leaves: RoundLeaveService, token: string, playerId: string) {
     const res = await leaves.leaveByToken({ token, playerId });
     if (res === null) throw new NotFoundError('friendly round not found');
@@ -184,6 +236,7 @@ export function createFriendlyRoundsApi(
     joins: RoundJoinService,
     edits: RoundEditService,
     leaves: RoundLeaveService,
+    seatClaims: SeatClaimService,
 ) {
     return {
         create:    { method: 'POST' as const, path: '/friendly-rounds',           fn: (input: Static<typeof CreateInput>, c: Context) => svc.create(input.draft, optionalUserId(c)), schema: CreateInput },
@@ -248,6 +301,26 @@ export function createFriendlyRoundsApi(
                 claims.claimGuest({ ...input, playerId: requireUser(c).id }),
             schema: ClaimGuestInput,
             middleware: [requireAuth()],
+        },
+        // Seat claim/release (Phase 5.5 Slice 3). NO requireAuth, like the
+        // token front door: a GUEST claim under `claimBy:'anyone'` is
+        // trust-based (the token is the credential, exactly like guest add and
+        // trust-based scoring), while a SELF claim reads the OPTIONAL session
+        // — the policy evaluator refuses `login_required` when it is absent.
+        // Identity always comes from the session, never the body.
+        claimSeat: {
+            method: 'POST' as const,
+            path: '/friendly-rounds/claim-seat',
+            fn: (input: Static<typeof ClaimSeatInput>, c: Context) =>
+                claimSeatOr404(seatClaims, input, optionalUserId(c)),
+            schema: ClaimSeatInput,
+        },
+        releaseSeat: {
+            method: 'POST' as const,
+            path: '/friendly-rounds/release-seat',
+            fn: (input: Static<typeof ReleaseSeatInput>, c: Context) =>
+                releaseSeatOr404(seatClaims, input, optionalUserId(c)),
+            schema: ReleaseSeatInput,
         },
     };
 }

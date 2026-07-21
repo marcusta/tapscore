@@ -47,6 +47,7 @@ async function setup() {
             ctx.roundJoinService,
             ctx.roundEditService,
             ctx.roundLeaveService,
+            ctx.seatClaimService,
         ),
     );
     return ctx;

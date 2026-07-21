@@ -20,9 +20,10 @@
 //   - `seats`   — producers pre-bound ('assigned') vs placeholder seats
 //        ('claimable'). Slice 1 CARRIES this axis; placeholder seats and the
 //        claim op land in Slices 2–3.
-//   - `claimBy` — who may bind identity to a placeholder seat. Enforced from
-//        Slice 3; the evaluator already computes an advisory decision so the
-//        claim gate plugs into the same seam.
+//   - `claimBy` — who may bind identity to a placeholder seat. Enforced by
+//        the Slice 3 claim op (`SeatClaimService`) through the same evaluator
+//        seam: `claimSeat` (bind yourself) and `claimSeatAsGuest` (seat a
+//        guest — trust-based, anonymous-capable, only under `'anyone'`).
 //   - `window`  — the self-service window; outside it, self-service ops are
 //        refused with a humanized message naming the window.
 //   - `maxGroupSize` — the standard flight size self-service may fill a group
@@ -174,12 +175,23 @@ export interface StartListOps {
     /** May the actor create a new playing group via self-service? */
     createGroup: StartListOpDecision;
     /**
-     * May the actor bind identity to a placeholder seat? ADVISORY until the
-     * claim op exists (Slice 3) — computed from `claimBy` so the future gate
-     * reuses this seam. `'team'` refuses here: team-bound claims need the
-     * actor's team context, which arrives with Phase 6 lineups.
+     * May the actor bind THEMSELVES (their session identity) to a placeholder
+     * seat? Enforced by the Slice 3 claim op and rendered by the claim card.
+     * Refuses under `seats:'assigned'` (nothing is claimable), for anonymous
+     * actors (`login_required` — a self claim needs a session identity), off
+     * the roster under `claimBy:'roster'`, under `claimBy:'team'` (team-bound
+     * claims need the actor's team context, which arrives with Phase 6
+     * lineups), and outside the self-service window.
      */
     claimSeat: StartListOpDecision;
+    /**
+     * May the actor bind a GUEST identity to a placeholder seat? Allowed —
+     * even anonymously — only under `claimBy:'anyone'` (the trust-based
+     * friendly boundary: the share token is the credential, exactly like
+     * guest add at create time). `'roster'` refuses (seats are reserved for
+     * roster members' own identities); `'team'` refuses until Phase 6.
+     */
+    claimSeatAsGuest: StartListOpDecision;
     /** The effective self-service flight size (new groups + group fill). */
     maxGroupSize: number;
 }
@@ -264,29 +276,74 @@ function groupsDecision(
     }
 }
 
-/** The `claimBy` gate — advisory until the Slice 3 claim op consumes it. */
-function claimDecision(
+/**
+ * The seats-axis gate shared by both claim ops: under `'assigned'` nothing is
+ * claimable, whoever asks. Returns null when seats are claimable.
+ */
+function seatsDecision(policy: StartListPolicy): StartListOpDecision | null {
+    if (policy.seats === 'assigned') {
+        return refuse(
+            'seats_assigned',
+            'This round has no claimable seats — every spot is pre-assigned by the organizer.',
+        );
+    }
+    return null;
+}
+
+/** The `claimBy` gate for a SELF claim (the actor binds their own session
+ * identity). Returns null when the audience allows the actor. */
+function claimSelfDecision(
     policy: StartListPolicy,
     actor: StartListActor,
-): StartListOpDecision {
+): StartListOpDecision | null {
     switch (policy.claimBy) {
         case 'anyone':
-            return allow;
+            if (actor.playerId === null) {
+                return refuse('login_required', 'Log in to claim a seat as yourself.');
+            }
+            return null;
         case 'roster':
+            if (actor.playerId === null) {
+                return refuse('login_required', 'Log in to claim a seat as yourself.');
+            }
+            // No roster source: the round's own producers count as their own
+            // de-facto roster (mirrors the groups axis); newcomers are closed
+            // out. (In practice a producer's fresh claim is then refused as
+            // `already_in_round` by the claim op — only rebinds pass through.)
             if (actor.onRoster === null) {
                 return actor.isProducer
-                    ? allow
+                    ? null
                     : refuse(
                           'not_on_roster',
                           'Seats in this round can only be claimed by roster members.',
                       );
             }
             return actor.onRoster
-                ? allow
+                ? null
                 : refuse(
                       'not_on_roster',
                       'Seats in this round can only be claimed by roster members.',
                   );
+        case 'team':
+            return refuse(
+                'team_claim_unavailable',
+                'Seats in this round are claimed per team — team claims arrive with team lineups.',
+            );
+    }
+}
+
+/** The `claimBy` gate for a GUEST claim. Returns null when allowed. */
+function claimGuestDecision(policy: StartListPolicy): StartListOpDecision | null {
+    switch (policy.claimBy) {
+        case 'anyone':
+            // Trust-based, like guest add at create time: the share token is
+            // the credential, so an anonymous holder may seat a guest.
+            return null;
+        case 'roster':
+            return refuse(
+                'guest_claim_not_allowed',
+                'Seats in this round are reserved for roster members — a guest cannot claim one.',
+            );
         case 'team':
             return refuse(
                 'team_claim_unavailable',
@@ -309,10 +366,14 @@ export function evaluateStartListOps(
     // Refusal precedence: a closed/rostered start list is the durable fact —
     // report it before a (transient) window refusal.
     const selfService = membership ?? outsideWindow ?? allow;
+    // Claims share the precedence rule: durable facts (assigned seats, wrong
+    // audience) outrank the transient window refusal.
+    const seats = seatsDecision(policy);
     return {
         join: selfService,
         createGroup: selfService,
-        claimSeat: claimDecision(policy, actor),
+        claimSeat: seats ?? claimSelfDecision(policy, actor) ?? outsideWindow ?? allow,
+        claimSeatAsGuest: seats ?? claimGuestDecision(policy) ?? outsideWindow ?? allow,
         maxGroupSize: maxGroupSizeOf(policy),
     };
 }
