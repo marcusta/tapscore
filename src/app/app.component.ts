@@ -10,6 +10,7 @@ import { FriendsComponent } from '../friends/friends.component';
 import { ProfileComponent } from '../profile/profile.component';
 import { CompetitionsComponent } from '../competition/competitions.component';
 import { CompetitionDetailComponent } from '../competition/competition-detail.component';
+import { features } from '../features';
 
 const tpl = template(`
     <div class="app-shell">
@@ -50,8 +51,14 @@ export class AppComponent extends Component {
             '/login': LoginComponent,
             '/friends': FriendsComponent,
             '/profile': ProfileComponent,
-            '/competitions': CompetitionsComponent,
-            '/competition': CompetitionDetailComponent,
+            // Toggled off in prod: the routes go away too, so a stale
+            // /competitions link falls through to the landing fallback.
+            ...(features.competitions
+                ? {
+                      '/competitions': CompetitionsComponent,
+                      '/competition': CompetitionDetailComponent,
+                  }
+                : {}),
         }, LandingComponent);
 
         return frag;

@@ -3,6 +3,7 @@ import { AuthService } from '@basics/core/client/auth';
 import { t } from '../theme';
 import { s } from '../css';
 import { LandingService } from '../landing/landing.service';
+import { features } from '../features';
 
 const tpl = template(`
     <nav class="tabbar" bind="root">
@@ -103,7 +104,7 @@ export class NavComponent extends Component {
     );
 
     render(): DocumentFragment {
-        return this.wire(tpl, {
+        const frag = this.wire(tpl, {
             root: {
                 className: () => {
                     const route = this.router.route.get();
@@ -131,5 +132,11 @@ export class NavComponent extends Component {
             compsLink: this.router.link('/competitions'),
             profileLink: this.router.link('/profile'),
         });
+
+        // Feature-toggled off: drop the tab from the DOM so the remaining
+        // three share the bar evenly (each `a` is flex: 1).
+        if (!features.competitions) this.ref(frag, 'compsLink').remove();
+
+        return frag;
     }
 }
