@@ -161,6 +161,14 @@ export interface RankedSection {
     kind: 'ranked';
     metricId: string;
     metricLabel: string;
+    /**
+     * Which way the metric is good — `high` (stableford points) or `low` (gross
+     * strokes). The consumer needs it to display `paceDelta` in golf's ONE sign
+     * convention: `+4` always means "4 worse than playing to expectation",
+     * whichever direction the raw metric runs. Absent on sections built before
+     * this field existed ⇒ the consumer shows the raw delta.
+     */
+    direction?: 'high' | 'low';
     entries: RankedEntry[];
 }
 

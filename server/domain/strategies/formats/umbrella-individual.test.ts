@@ -97,6 +97,7 @@ describe('umbrellaIndividual (new contract)', () => {
                 kind: 'ranked',
                 metricId: 'points',
                 metricLabel: 'Points',
+                direction: 'high',
                 entries: [
                     { ballIds: [b1.ballId], total: 8, holesPlayed: 1, position: 1 },
                     { ballIds: [b2.ballId], total: 0, holesPlayed: 1, position: 2 },

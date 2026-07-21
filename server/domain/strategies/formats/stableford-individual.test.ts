@@ -73,6 +73,7 @@ describe('stablefordIndividual (new contract)', () => {
                 kind: 'ranked',
                 metricId: 'points',
                 metricLabel: 'Points',
+                direction: 'high',
                 entries: [{ ballIds: [ball.ballId], total: 3, holesPlayed: 1, position: 1 }],
             },
         ]);

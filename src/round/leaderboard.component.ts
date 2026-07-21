@@ -93,9 +93,13 @@ export class LeaderboardComponent extends Component {
                 text-align: left;
                 font-weight: 600;
                 font-family: ${t('font-display')};
-                /* Flex so a long NAME ellipsizes while the group tag stays
-                   whole — before this, the cell-level ellipsis cut the tag
-                   ("Gr…") on narrow screens. */
+            }
+            /* Flex INSIDE the cell, not on the <td> itself: a display:flex td
+               drops out of table layout and stops centring vertically, which
+               left names riding above the numbers on their own row. The inner
+               box keeps the ellipsis behaviour — a long NAME truncates while
+               the group tag stays whole ("Gr…" bug). */
+            & .lb-rank__whobox {
                 display: flex;
                 align-items: baseline;
                 min-width: 0;
@@ -118,8 +122,10 @@ export class LeaderboardComponent extends Component {
                 padding-left: 0;
             }
             & .lb-rank thead th.lb-rank__pace { font-weight: 700; }
-            & .lb-rank__pace--over { color: ${t('under-par')}; }
-            & .lb-rank__pace--under { color: ${t('over-par')}; }
+            /* Worse than pace (+N) reads like over par; better (−N) like under
+               par — same two colours the scorecard already uses. */
+            & .lb-rank__pace--over { color: ${t('over-par')}; }
+            & .lb-rank__pace--under { color: ${t('under-par')}; }
             /* Phase 3.5: group tag next to a player's name — only rendered when
                the round has 2+ playing groups (single-group rounds get nothing,
                same look as before this phase). */

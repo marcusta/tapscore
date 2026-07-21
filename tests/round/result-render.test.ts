@@ -64,12 +64,12 @@ test('ranked section renders exactly as before through the registry', () => {
     <thead><tr><th class="lb-rank__pos">#</th><th class="lb-rank__who">Player</th><th class="lb-rank__total">Total</th><th class="lb-rank__thru">Thru</th></tr></thead>
     <tbody><tr class="lb-rank__lead">
   <td class="lb-rank__pos">1</td>
-  <td class="lb-rank__who"><span class="lb-rank__name">name:a</span></td>
+  <td class="lb-rank__who"><span class="lb-rank__whobox"><span class="lb-rank__name">name:a</span></span></td>
   <td class="lb-rank__total">70</td>
   <td class="lb-rank__thru">18</td>
 </tr><tr class="">
   <td class="lb-rank__pos">2</td>
-  <td class="lb-rank__who"><span class="lb-rank__name">name:b</span></td>
+  <td class="lb-rank__who"><span class="lb-rank__whobox"><span class="lb-rank__name">name:b</span></span></td>
   <td class="lb-rank__total">72</td>
   <td class="lb-rank__thru">18</td>
 </tr></tbody>
@@ -363,11 +363,16 @@ test('result renderers do not branch on format ids', async () => {
 // mangled number: `+4` (over), `−5` (under), `E` (even). A section where no
 // entry carries `paceDelta` (non-pace metrics) renders the old 4 columns.
 
-function rankedWith(entries: RankedSection['entries']): RankedSection {
-    return { kind: 'ranked', metricId: 'points', metricLabel: 'Points', entries };
+function rankedWith(
+    entries: RankedSection['entries'],
+    direction: RankedSection['direction'] = 'high',
+): RankedSection {
+    return { kind: 'ranked', metricId: 'points', metricLabel: 'Points', direction, entries };
 }
 
 test('pace renders +N / −N / E in its own tone-classed column', () => {
+    // A `high` metric (points) is negated for display: golf's one sign
+    // convention is "+N = N worse than playing to expectation".
     const ranked = rankedWith([
         { ballIds: ['a'], total: 8, holesPlayed: 2, paceDelta: 4, position: 1 },
         { ballIds: ['b'], total: 9, holesPlayed: 7, paceDelta: -5, position: 2 },
@@ -375,10 +380,10 @@ test('pace renders +N / −N / E in its own tone-classed column', () => {
     ]);
     const html = renderSlotLeaderboard(slot({ leaderboard: [ranked] }), nameOf);
 
-    // over-pace: signed positive
-    expect(html).toContain('<td class="lb-rank__pace lb-rank__pace--over">+4</td>');
-    // under-pace: real minus sign (U+2212), not ASCII hyphen
-    expect(html).toContain('<td class="lb-rank__pace lb-rank__pace--under">−5</td>');
+    // 4 points ABOVE pace = 4 better: real minus sign (U+2212), not ASCII hyphen
+    expect(html).toContain('<td class="lb-rank__pace lb-rank__pace--under">−4</td>');
+    // 5 points below pace = 5 worse
+    expect(html).toContain('<td class="lb-rank__pace lb-rank__pace--over">+5</td>');
     // even: E
     expect(html).toContain('<td class="lb-rank__pace lb-rank__pace--even">E</td>');
     // the total cell holds the total ALONE — no trailing delta inside it
@@ -403,7 +408,20 @@ test('pace still shown when total is present but zero', () => {
     const ranked = rankedWith([{ ballIds: ['a'], total: 0, holesPlayed: 4, paceDelta: -8, position: 1 }]);
     const html = renderSlotLeaderboard(slot({ leaderboard: [ranked] }), nameOf);
     expect(html).toContain('<td class="lb-rank__total">0</td>');
-    expect(html).toContain('<td class="lb-rank__pace lb-rank__pace--under">−8</td>');
+    expect(html).toContain('<td class="lb-rank__pace lb-rank__pace--over">+8</td>');
+});
+
+test('a low metric (strokes) displays its raw delta — over par is already +N', () => {
+    const ranked = rankedWith(
+        [
+            { ballIds: ['a'], total: 68, holesPlayed: 18, paceDelta: -4, position: 1 },
+            { ballIds: ['b'], total: 76, holesPlayed: 18, paceDelta: 4, position: 2 },
+        ],
+        'low',
+    );
+    const html = renderSlotLeaderboard(slot({ leaderboard: [ranked] }), nameOf);
+    expect(html).toContain('<td class="lb-rank__pace lb-rank__pace--under">−4</td>');
+    expect(html).toContain('<td class="lb-rank__pace lb-rank__pace--over">+4</td>');
 });
 
 test('unknown leaderboard section kind yields a visible diagnostic, not dropped content', () => {

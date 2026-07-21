@@ -234,9 +234,13 @@ function renderScoreGridSection(
  * baseline over the entry's own thru-N, so the server's ordering explains
  * itself. `E` at pace, signed otherwise (real minus sign). Absent when the
  * metric declares no pace. */
-function paceChip(paceDelta: number | undefined): string {
+function paceChip(paceDelta: number | undefined, direction: RankedSection['direction']): string {
     if (paceDelta === undefined) return '';
-    const text = paceDelta === 0 ? 'E' : paceDelta > 0 ? `+${paceDelta}` : `−${Math.abs(paceDelta)}`;
+    // Golf's one sign convention: +N = N worse than expectation. The raw delta
+    // is `total − target`, so a `high` metric (points) is negated for display —
+    // same rule the product renderer applies.
+    const shown = direction === 'high' ? -paceDelta : paceDelta;
+    const text = shown === 0 ? 'E' : shown > 0 ? `+${shown}` : `−${Math.abs(shown)}`;
     return ` <span class="lb-pace">${esc(text)}</span>`;
 }
 
@@ -247,7 +251,7 @@ function renderRanked(section: RankedSection, nameOf: (id: string) => string): s
 <tr>
   <td class="num">${e.position}</td>
   <td>${esc(e.ballIds.map(nameOf).join(' & '))}</td>
-  <td class="num">${e.total ?? '—'}${paceChip(e.paceDelta)}</td>
+  <td class="num">${e.total ?? '—'}${paceChip(e.paceDelta, section.direction)}</td>
   <td class="num muted">${e.holesPlayed}</td>
 </tr>`,
         )

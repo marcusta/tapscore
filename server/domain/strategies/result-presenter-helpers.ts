@@ -468,6 +468,7 @@ export function rankedSections(
             kind: 'ranked',
             metricId: metric.id,
             metricLabel: metric.label,
+            direction: metric.direction,
             entries: rankEntries(entries, metric.direction),
         });
     }

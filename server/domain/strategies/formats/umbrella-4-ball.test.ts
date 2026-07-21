@@ -120,6 +120,7 @@ describe('umbrella4Ball (new contract)', () => {
                 kind: 'ranked',
                 metricId: 'points',
                 metricLabel: 'Points',
+                direction: 'high',
                 entries: [
                     { ballIds: [bA1.ballId, bA2.ballId], total: 10, holesPlayed: 1, position: 1 },
                     { ballIds: [bB1.ballId, bB2.ballId], total: 0, holesPlayed: 0, position: 2 },

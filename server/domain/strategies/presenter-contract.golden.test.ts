@@ -244,6 +244,7 @@ describe('presenter contract golden output', () => {
                 kind: 'ranked',
                 metricId: 'points',
                 metricLabel: 'Points',
+                direction: 'high',
                 entries: [
                     { ballIds: [bA1.ballId, bA2.ballId], total: 10, holesPlayed: 2, position: 1 },
                     { ballIds: [bB1.ballId, bB2.ballId], total: 0, holesPlayed: 1, position: 2 },
@@ -557,6 +558,7 @@ describe('presenter contract golden output', () => {
                 kind: 'ranked',
                 metricId: 'points',
                 metricLabel: 'Points',
+                direction: 'high',
                 entries: [{ ballIds: [bA.ballId, bB.ballId], total: 5, holesPlayed: 2, position: 1 }],
             },
         ]);

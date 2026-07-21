@@ -269,6 +269,7 @@ export interface RankedSection {
     kind: 'ranked';
     metricId: string;
     metricLabel: string;
+    direction?: 'high' | 'low';
     entries: RankedEntry[];
 }
 

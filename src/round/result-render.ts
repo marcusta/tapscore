@@ -262,15 +262,28 @@ function entryGroupLabel(ballIds: readonly string[], groupOf: GroupOf): string |
  * It gets its OWN column rather than trailing the total: run together in one
  * cell, "33 −3" reads as a single mangled number ("33-3"). Two columns with
  * their own headers is how every golf board (and Golf GameBook) does it.
+ *
+ * ONE sign convention, golf's: `+N` always means N WORSE than playing to
+ * expectation, `−N` better. The raw `paceDelta` is `total − target`, so a
+ * `high` metric (stableford points: more is better) is negated for display —
+ * 33 points off a 36 pace shows `+3`, matching how every board (and a
+ * scorecard's to-par) reads. `low` metrics (gross strokes) already run that
+ * way and display raw.
  */
 function paceText(paceDelta: number): string {
     return paceDelta === 0 ? 'E' : paceDelta > 0 ? `+${paceDelta}` : `−${Math.abs(paceDelta)}`;
 }
 
-function paceCell(paceDelta: number | undefined): string {
+/** Raw delta → the displayed, worse-is-positive value. */
+function displayPace(paceDelta: number, direction: RankedSection['direction']): number {
+    return direction === 'high' ? -paceDelta : paceDelta;
+}
+
+function paceCell(paceDelta: number | undefined, direction: RankedSection['direction']): string {
     if (paceDelta === undefined) return '<td class="lb-rank__pace"></td>';
-    const tone = paceDelta === 0 ? 'even' : paceDelta > 0 ? 'over' : 'under';
-    return `<td class="lb-rank__pace lb-rank__pace--${tone}">${esc(paceText(paceDelta))}</td>`;
+    const shown = displayPace(paceDelta, direction);
+    const tone = shown === 0 ? 'even' : shown > 0 ? 'over' : 'under';
+    return `<td class="lb-rank__pace lb-rank__pace--${tone}">${esc(paceText(shown))}</td>`;
 }
 
 function renderRanked(section: RankedSection, nameOf: NameOf, groupOf: GroupOf = noGroup): string {
@@ -283,8 +296,8 @@ function renderRanked(section: RankedSection, nameOf: NameOf, groupOf: GroupOf =
             const groupTag = group ? ` <span class="lb-rank__group">${esc(group)}</span>` : '';
             return `<tr class="${e.position === 1 ? 'lb-rank__lead' : ''}">
   <td class="lb-rank__pos">${e.position}</td>
-  <td class="lb-rank__who"><span class="lb-rank__name">${esc(e.ballIds.map(nameOf).join(' & '))}</span>${groupTag}</td>
-  <td class="lb-rank__total">${e.total ?? '—'}</td>${hasPace ? `\n  ${paceCell(e.paceDelta)}` : ''}
+  <td class="lb-rank__who"><span class="lb-rank__whobox"><span class="lb-rank__name">${esc(e.ballIds.map(nameOf).join(' & '))}</span>${groupTag}</span></td>
+  <td class="lb-rank__total">${e.total ?? '—'}</td>${hasPace ? `\n  ${paceCell(e.paceDelta, section.direction)}` : ''}
   <td class="lb-rank__thru">${e.holesPlayed}</td>
 </tr>`;
         })

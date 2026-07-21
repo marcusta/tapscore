@@ -2876,6 +2876,7 @@
         "kind": "ranked",
         "metricId": "points",
         "metricLabel": "Points",
+        "direction": "high",
         "entries": [
           {
             "ballIds": [

@@ -94,6 +94,7 @@ describe('stablefordBetterBallPresenter — team of 3', () => {
                 kind: 'ranked',
                 metricId: 'points',
                 metricLabel: 'Points',
+                direction: 'high',
                 entries: [
                     {
                         ballIds: [bA.ballId, bB.ballId, bC.ballId],
