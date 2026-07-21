@@ -23,3 +23,13 @@ export function loginRequest(username: string, password: string): Promise<AuthUs
         body: { username, password },
     });
 }
+
+/** Session probe on boot. Same base-path reasoning as `loginRequest`. */
+export function meRequest(): Promise<AuthUser> {
+    return apiFetch({ method: 'GET', url: `${API_BASE}/auth/me` });
+}
+
+/** Sign out. Same base-path reasoning as `loginRequest`. */
+export function logoutRequest(): Promise<{ ok: boolean }> {
+    return apiFetch({ method: 'POST', url: `${API_BASE}/auth/logout`, body: {} });
+}
