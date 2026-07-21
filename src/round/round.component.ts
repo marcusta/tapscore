@@ -514,7 +514,14 @@ export class RoundComponent extends Component {
                 // query (e.g. clobbering /login?next=/friends).
                 if (this.router.route.get() !== '/round') return;
                 if (!this.hasRound.get()) return;
-                const query: Record<string, QueryValue> = { token: this.tokenQ.get() };
+                // Never write a /round URL without the token. A torn-down view's
+                // copy of this effect can still be queued in the scheduler when we
+                // navigate back in; it runs with a stale (undefined) `tokenQ` and
+                // would otherwise replace '/round?token=X' with a bare '/round',
+                // emptying the share field.
+                const token = this.tokenQ.get();
+                if (!token) return;
+                const query: Record<string, QueryValue> = { token };
                 if (tab === 'leaderboard') query.tab = 'board';
                 const firstSlotId = this.svc.round.get()?.formatSlots[0]?.slotDefId ?? null;
                 if (slotDefId && slotDefId !== firstSlotId) query.slot = slotDefId;
