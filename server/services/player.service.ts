@@ -36,6 +36,13 @@ export interface PlayerProfile {
     displayName: string;
     gender: Gender | null;
     handicapIndex: number | null;
+    /**
+     * `clubs.name` for `players.home_club_id`, resolved by a LEFT JOIN — null
+     * when the player set no home club. Carried on the profile (not just the
+     * id) so a search result can disambiguate same-named players without the
+     * client doing a second lookup per row.
+     */
+    homeClubName: string | null;
 }
 
 export interface PlayerSearchResult extends PlayerProfile {
@@ -162,6 +169,9 @@ export class PlayerService {
      * be traceable to a manual history entry.
      */
     async selfRegister(input: RegisterInput): Promise<Player> {
+        // Checked before the insert so an unknown club is a 404, not a raw FK
+        // violation — same treatment as `updateProfile`.
+        await this.assertClubExists(input.homeClubId);
         const player = await this.register(input);
         if (player.handicapIndex !== null) {
             await this.handicaps.record({
@@ -202,14 +212,20 @@ export class PlayerService {
     }
 
     /**
-     * Profile self-update (Phase 3 friends-list feature): currently only
-     * `gender`. POST (not PATCH) to match this codebase's existing partial-
-     * update convention — `updateHandicapIndex` is exposed as `POST
+     * Profile self-update (Phase 3 friends-list feature): `gender` and
+     * `homeClubId`. POST (not PATCH) to match this codebase's existing
+     * partial-update convention — `updateHandicapIndex` is exposed as `POST
      * /players/me/handicap`, not PATCH; no PATCH endpoint exists anywhere in
      * server/api/*.api.ts, so introducing one here would be a one-off rather
      * than a followed convention.
+     *
+     * An unknown `homeClubId` is a 404, not a raw FK violation — the club is
+     * picked from `GET /clubs`, so a miss means a stale client list.
      */
-    async updateProfile(playerId: string, input: { gender?: Gender | null }): Promise<Player> {
+    async updateProfile(
+        playerId: string,
+        input: { gender?: Gender | null; homeClubId?: string | null },
+    ): Promise<Player> {
         const row = await this.byId(playerId).executeTakeFirst();
         if (!row || row.deleted_at !== null) throw new NotFoundError('player not found');
 
@@ -217,8 +233,26 @@ export class PlayerService {
             await this.updatePlayerById(playerId).set({ gender: input.gender }).execute();
         }
 
+        if (input.homeClubId !== undefined) {
+            await this.assertClubExists(input.homeClubId);
+            await this.updatePlayerById(playerId)
+                .set({ home_club_id: input.homeClubId })
+                .execute();
+        }
+
         const updated = await this.byId(playerId).executeTakeFirstOrThrow();
         return toPlayer(updated);
+    }
+
+    /** 404 on an unknown home club id; null/undefined (clear / not given) passes. */
+    private async assertClubExists(clubId: string | null | undefined): Promise<void> {
+        if (clubId == null) return;
+        const club = await this.db
+            .selectFrom('clubs')
+            .select('id')
+            .where('id', '=', clubId)
+            .executeTakeFirst();
+        if (!club) throw new NotFoundError('club not found');
     }
 
     async verify(username: string, password: string): Promise<AuthUser | null> {
@@ -273,25 +307,34 @@ export class PlayerService {
         // matches itself instead of acting as a wildcard.
         const escaped = query.toLowerCase().replace(/[\\%_]/g, '\\$&');
         const needle = `%${escaped}%`;
-        const rows = await this.players()
-            .where('deleted_at', 'is', null)
-            .where('id', '!=', callerId)
+        // Spelled out rather than going through `this.players()` (selectAll):
+        // the clubs LEFT JOIN would collide on `id`/`name`.
+        const rows = await this.db
+            .selectFrom('players')
+            .leftJoin('clubs', 'clubs.id', 'players.home_club_id')
+            .select([
+                'players.id as id',
+                'players.username as username',
+                'players.display_name as displayName',
+                'players.gender as gender',
+                'players.handicap_index as handicapIndex',
+                'clubs.name as homeClubName',
+            ])
+            .where('players.deleted_at', 'is', null)
+            .where('players.id', '!=', callerId)
             .where((eb) =>
                 eb.or([
-                    sql<boolean>`lower(username) LIKE ${needle} ESCAPE '\\'`,
-                    sql<boolean>`lower(display_name) LIKE ${needle} ESCAPE '\\'`,
+                    sql<boolean>`lower(players.username) LIKE ${needle} ESCAPE '\\'`,
+                    sql<boolean>`lower(players.display_name) LIKE ${needle} ESCAPE '\\'`,
                 ]),
             )
-            .orderBy('display_name')
+            .orderBy('players.display_name')
             .limit(20)
             .execute();
 
         return rows.map((row) => ({
-            id: row.id,
-            username: row.username,
-            displayName: row.display_name,
-            gender: row.gender,
-            handicapIndex: row.handicap_index,
+            ...row,
+            homeClubName: row.homeClubName ?? null,
             isFriend: friendIds?.has(row.id) ?? false,
         }));
     }

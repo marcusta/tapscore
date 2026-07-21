@@ -26,7 +26,7 @@ async function addPlayer(
     ctx: Awaited<ReturnType<typeof setup>>,
     username: string,
     displayName: string,
-    opts: { gender?: 'M' | 'F'; handicapIndex?: number } = {},
+    opts: { gender?: 'M' | 'F'; handicapIndex?: number; homeClubId?: string } = {},
 ) {
     return ctx.playerService.register({
         username,
@@ -34,6 +34,7 @@ async function addPlayer(
         displayName,
         gender: opts.gender ?? null,
         handicapIndex: opts.handicapIndex ?? null,
+        homeClubId: opts.homeClubId ?? null,
     });
 }
 
@@ -66,6 +67,7 @@ test('POST /api/friends adds a friend; GET /api/friends returns the profile shap
             displayName: 'Bob Bengtsson',
             gender: 'M',
             handicapIndex: 12.4,
+            homeClubName: null,
             // Frecency signals — present on every friend; a friend with no
             // shared rounds carries the never-played defaults.
             sharedRoundCount: 0,
@@ -197,6 +199,7 @@ test('search matches username and display name substrings case-insensitively', a
             displayName: 'Bob Bengtsson',
             gender: 'M',
             handicapIndex: 12.4,
+            homeClubName: null,
             isFriend: false,
         },
     ]);
@@ -207,6 +210,30 @@ test('search matches username and display name substrings case-insensitively', a
     ).json();
     expect(byDisplayName).toHaveLength(1);
     expect(byDisplayName[0].username).toBe('carin');
+});
+
+test('search carries homeClubName so same-named players are distinguishable', async () => {
+    const ctx = await setup();
+    const linkoping = await ctx.clubService.create({ name: 'Linköpings GK' });
+    const vadstena = await ctx.clubService.create({ name: 'Vadstena GK' });
+    await addPlayer(ctx, 'john1', 'John Smith', { homeClubId: linkoping.id });
+    await addPlayer(ctx, 'john2', 'John Smith', { homeClubId: vadstena.id });
+    await addPlayer(ctx, 'john3', 'John Smith'); // no home club
+    const cookie = await loginAs(ctx.app, 'alice', 'password123');
+
+    const res = await (
+        await req(ctx.app, 'GET', '/api/players/search?q=john smith', undefined, cookie)
+    ).json();
+    // Sorted here, not relied on from the query — all three share a display
+    // name, so the server's `ORDER BY display_name` leaves them tied.
+    const pairs = res
+        .map((r: { username: string; homeClubName: string | null }) => [r.username, r.homeClubName])
+        .sort();
+    expect(pairs).toEqual([
+        ['john1', 'Linköpings GK'],
+        ['john2', 'Vadstena GK'],
+        ['john3', null],
+    ]);
 });
 
 test('search excludes the caller and soft-deleted players', async () => {

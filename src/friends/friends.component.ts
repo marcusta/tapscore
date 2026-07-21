@@ -303,7 +303,10 @@ export class FriendsComponent extends Component {
                     {
                         initials: () => initialsOf(r.displayName),
                         name: () => r.displayName,
-                        username: () => `@${r.username}`,
+                        // Home club disambiguates same-named players — the
+                        // whole point of showing it on a search hit.
+                        username: () =>
+                            r.homeClubName ? `@${r.username} · ${r.homeClubName}` : `@${r.username}`,
                         hcp: () => (r.handicapIndex === null ? '–' : r.handicapIndex.toFixed(1)),
                         add: {
                             // Read the LIVE result row (the closed-over `r` goes

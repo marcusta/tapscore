@@ -96,7 +96,7 @@ mount(app, '/api', createFormatsApi());
 mount(app, '/api', createCourseRouteTemplatesApi(courseRouteTemplateService));
 mount(app, '/api', createFriendlyRoundsApi(friendlyRoundService, guestClaimService, roundJoinService, roundEditService, roundLeaveService, seatClaimService));
 mount(app, '/api', createDashboardApi(dashboardService, friendlyRoundService));
-mount(app, '/api', createSetupApi(courseService, teeService));
+mount(app, '/api', createSetupApi(courseService, teeService, clubService));
 mount(app, '/api', createCorrectionsApi(correctionService));
 mount(app, '/api', createFormatActionsApi(formatActionService));
 mount(

@@ -32,16 +32,22 @@ export async function seedDev(ctx: TestContext): Promise<void> {
     await ensureHandicap(ctx, alice.id, 10.0);
     await ensureHandicap(ctx, bob.id, 18.0);
 
+    const club = await ensureClub(ctx, 'Halmstad GK');
+    const linkopings = await ensureClub(ctx, 'Linköpings Golfklubb');
+
     // Friend pool for testing the friends/search flow — all password123.
     // Varied gender + index; one without gender (roster row stays editable)
-    // and one without index (roster row asks for it).
+    // and one without index (roster row asks for it). Home clubs vary, with
+    // one clubless player and one same-display-name PAIR ("Johan Johansson")
+    // so the search list's club line has something to disambiguate.
     const FRIEND_POOL = [
-        { username: 'erik', displayName: 'Erik Ekström', gender: 'M', index: 5.4 },
-        { username: 'sara', displayName: 'Sara Sjöberg', gender: 'F', index: 12.7 },
-        { username: 'johan', displayName: 'Johan Johansson', gender: 'M', index: 22.1 },
-        { username: 'karin', displayName: 'Karin Karlsson', gender: 'F', index: 30.5 },
-        { username: 'pelle', displayName: 'Pelle Persson', gender: null, index: 15.0 },
-        { username: 'mia', displayName: 'Mia Månsson', gender: 'F', index: null },
+        { username: 'erik', displayName: 'Erik Ekström', gender: 'M', index: 5.4, club: club.id },
+        { username: 'sara', displayName: 'Sara Sjöberg', gender: 'F', index: 12.7, club: linkopings.id },
+        { username: 'johan', displayName: 'Johan Johansson', gender: 'M', index: 22.1, club: linkopings.id },
+        { username: 'johan2', displayName: 'Johan Johansson', gender: 'M', index: 8.3, club: club.id },
+        { username: 'karin', displayName: 'Karin Karlsson', gender: 'F', index: 30.5, club: club.id },
+        { username: 'pelle', displayName: 'Pelle Persson', gender: null, index: 15.0, club: null },
+        { username: 'mia', displayName: 'Mia Månsson', gender: 'F', index: null, club: linkopings.id },
     ] as const;
     for (const f of FRIEND_POOL) {
         const p = await ensurePlayer(ctx, {
@@ -50,11 +56,11 @@ export async function seedDev(ctx: TestContext): Promise<void> {
             displayName: f.displayName,
             gender: f.gender,
             handicapIndex: f.index,
+            homeClubId: f.club,
         });
         if (f.index !== null) await ensureHandicap(ctx, p.id, f.index);
     }
 
-    const club = await ensureClub(ctx, 'Halmstad GK');
     const course = await ensureCourse(ctx, club.id, 'North', 18);
     const tee = await ensureTee(ctx, course.id, 'Yellow', '#ffd400', [
         { gender: 'M', courseRating: 71.2, slope: 132, par: 72, totalLengthM: 6200 },
@@ -167,6 +173,7 @@ async function ensurePlayer(
         displayName: string;
         gender?: 'M' | 'F' | null;
         handicapIndex?: number | null;
+        homeClubId?: string | null;
     },
 ) {
     const existing = (await ctx.playerService.list()).find(
@@ -181,6 +188,15 @@ async function ensurePlayer(
         }
         if (existing.handicapIndex === null && input.handicapIndex != null) {
             await ctx.playerService.updateHandicapIndex(existing.id, input.handicapIndex);
+        }
+        // Written straight to the column: `updateProfile` only covers gender,
+        // and home club is not a self-service field anywhere yet.
+        if (existing.homeClubId === null && input.homeClubId != null) {
+            await ctx.db
+                .updateTable('players')
+                .set({ home_club_id: input.homeClubId })
+                .where('id', '=', existing.id)
+                .execute();
         }
         return existing;
     }

@@ -177,12 +177,14 @@ export class FriendService {
         const rows = await this.db
             .selectFrom('friendships')
             .innerJoin('players', 'players.id', 'friendships.friend_player_id')
+            .leftJoin('clubs', 'clubs.id', 'players.home_club_id')
             .select([
                 'players.id as id',
                 'players.username as username',
                 'players.display_name as displayName',
                 'players.gender as gender',
                 'players.handicap_index as handicapIndex',
+                'clubs.name as homeClubName',
             ])
             .where('friendships.player_id', '=', playerId)
             .where('players.deleted_at', 'is', null)
@@ -202,7 +204,13 @@ export class FriendService {
                 byFriend.get(row.id) ?? [],
                 now,
             );
-            return { ...row, sharedRoundCount, lastPlayedAt, frecency };
+            return {
+                ...row,
+                homeClubName: row.homeClubName ?? null,
+                sharedRoundCount,
+                lastPlayedAt,
+                frecency,
+            };
         });
     }
 }

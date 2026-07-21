@@ -20,6 +20,7 @@ function friend(over: Partial<FriendProfile> & { id: string; displayName: string
         username: over.id,
         gender: null,
         handicapIndex: null,
+        homeClubName: null,
         sharedRoundCount: 0,
         lastPlayedAt: null,
         frecency: 0,

@@ -20,6 +20,7 @@ const RegisterInput = Type.Object({
     displayName: Type.String({ minLength: 1 }),
     handicapIndex: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
     gender: Type.Optional(Type.Union([Gender, Type.Null()])),
+    homeClubId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 });
 
 const UpdateHandicapInput = Type.Object({
@@ -30,6 +31,7 @@ const UpdateHandicapInput = Type.Object({
 
 const UpdateProfileInput = Type.Object({
     gender: Type.Optional(Type.Union([Gender, Type.Null()])),
+    homeClubId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 });
 
 // `q` is optional: a missing/empty query is a legal "no results yet" state

@@ -1,4 +1,5 @@
 import { Type, type Static } from '@sinclair/typebox';
+import type { ClubService } from '../services/club.service';
 import type { CourseService } from '../services/course.service';
 import type { TeeService } from '../services/tee.service';
 import { formatCatalog, type FormatDescriptor } from '../domain/formats/plugin';
@@ -19,9 +20,15 @@ const ByCourseInput = Type.Object({ courseId: Type.String() });
 // mirroring the share-token trust boundary on the friendly-rounds front door.
 // `setup/formats` serves the exact same `formatCatalog()` as the auth-gated
 // `GET /formats`; all writes (course/tee admin) stay behind `requireAuth()`.
+//
+// `setup/clubs` is the same read-side deal for the SIGNUP form's home-club
+// picker: account creation is itself unauthenticated, so the auth-gated `GET
+// /clubs` can't feed it. Club names are already public through
+// `setup/courses` (each course carries its club name).
 
-export function createSetupApi(courses: CourseService, tees: TeeService) {
+export function createSetupApi(courses: CourseService, tees: TeeService, clubs: ClubService) {
     return {
+        clubs:       { method: 'GET' as const, path: '/setup/clubs',          fn: ()                                       => clubs.list() },
         courses:     { method: 'GET' as const, path: '/setup/courses',        fn: ()                                       => courses.listForSetup() },
         teesByCourse:{ method: 'GET' as const, path: '/setup/tees/by-course',  fn: (input: Static<typeof ByCourseInput>)    => tees.listByCourse(input.courseId), schema: ByCourseInput },
         formats:     { method: 'GET' as const, path: '/setup/formats',         fn: (): FormatDescriptor[]                   => formatCatalog() },

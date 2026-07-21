@@ -30,14 +30,15 @@ export interface PlayerSearchResult {
     displayName: string;
     gender: null | 'M' | 'F';
     handicapIndex: null | number;
+    homeClubName: null | string;
 }
 
 export interface PlayersApi {
     me(): Promise<null | Player>;
-    register(input: { gender?: null | 'M' | 'F'; handicapIndex?: null | number; displayName: string; username: string; password: string }): Promise<Player>;
+    register(input: { gender?: null | 'M' | 'F'; handicapIndex?: null | number; homeClubId?: null | string; displayName: string; username: string; password: string }): Promise<Player>;
     updateHandicap(input: { effectiveDate?: string; handicapIndex: number }): Promise<HandicapEntry>;
     myHandicapHistory(): Promise<HandicapEntry[]>;
-    updateProfile(input: { gender?: null | 'M' | 'F' }): Promise<Player>;
+    updateProfile(input: { gender?: null | 'M' | 'F'; homeClubId?: null | string }): Promise<Player>;
     search(input: { q?: string }): Promise<PlayerSearchResult[]>;
 }
 

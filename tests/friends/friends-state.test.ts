@@ -20,6 +20,7 @@ function profile(id: string, displayName: string): FriendProfile {
         displayName,
         gender: null,
         handicapIndex: null,
+        homeClubName: null,
         sharedRoundCount: 0,
         lastPlayedAt: null,
         frecency: 0,
@@ -27,7 +28,15 @@ function profile(id: string, displayName: string): FriendProfile {
 }
 
 function result(id: string, isFriend = false): PlayerSearchResult {
-    return { id, username: id, displayName: id, gender: null, handicapIndex: null, isFriend };
+    return {
+        id,
+        username: id,
+        displayName: id,
+        gender: null,
+        handicapIndex: null,
+        homeClubName: null,
+        isFriend,
+    };
 }
 
 // --- Query gating ----------------------------------------------------------

@@ -1,5 +1,6 @@
-import { Component, Router, Signal, template } from '@basics/core/client/core';
+import { Component, Router, Signal, effect, template } from '@basics/core/client/core';
 import { AuthService } from '@basics/core/client/auth';
+import { SelectComponent, type SelectOption } from '@basics/core/client/ui/select';
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { ProfileService } from './profile.service';
@@ -28,6 +29,13 @@ const tpl = template(`
                 </div>
                 <p class="profile__hint">Used for tee ratings — set once and it locks in "Add me" during round setup.</p>
                 <p bind="genderErr" class="profile__err"></p>
+            </section>
+
+            <section class="profile__card">
+                <span class="profile__label">Home club</span>
+                <div bind="club" class="profile__club"></div>
+                <p class="profile__hint">Shown next to your name when someone searches for you — how they tell you from the other John Smith.</p>
+                <p bind="clubErr" class="profile__err"></p>
             </section>
 
             <section class="profile__card">
@@ -131,6 +139,11 @@ export class ProfileComponent extends Component {
                 & .profile__err {
                     margin: ${s('sm')} 0 0; font-size: 0.85rem; color: ${t('error')};
                     &:empty { display: none; }
+                }
+
+                & .profile__club {
+                    margin-top: ${s('sm')};
+                    & .ui-select { display: block; width: 100%; }
                 }
 
                 & .profile__gender-row { margin-top: ${s('sm')}; }
@@ -256,6 +269,9 @@ export class ProfileComponent extends Component {
             genderErr: {
                 textContent: () => this.svc.saveError.get()?.message || '',
             },
+            clubErr: {
+                textContent: () => this.svc.saveError.get()?.message || '',
+            },
             historyEmpty: {
                 className: () =>
                     this.svc.history.get().length === 0
@@ -309,6 +325,37 @@ export class ProfileComponent extends Component {
                 ),
             (opt) => opt.label,
         );
+
+        // Home club picker. Like gender, it saves on pick — no separate Save.
+        // `''` is the cleared state (SelectComponent values are strings), and
+        // the signal is two-way: server→signal keeps it honest after a load or
+        // a failed save, signal→server fires only on a real change. The write
+        // is deferred to a microtask so the save's own signal reads aren't
+        // tracked by this effect (same reason as create.component's `bound`).
+        const clubValue = new Signal(this.svc.player.get()?.homeClubId ?? '');
+        this.track(effect(() => clubValue.set(this.svc.player.get()?.homeClubId ?? '')));
+        this.track(
+            effect(() => {
+                const v = clubValue.get();
+                queueMicrotask(() => {
+                    if (v === (this.svc.player.get()?.homeClubId ?? '')) return;
+                    void this.svc.saveHomeClub(v === '' ? null : v);
+                });
+            }),
+        );
+        const select = new SelectComponent({
+            value: clubValue,
+            options: {
+                get: (): SelectOption[] => [
+                    { value: '', label: 'No home club' },
+                    ...this.svc.clubs.get().map((c) => ({ value: c.id, label: c.name })),
+                ],
+            },
+            placeholder: 'No home club',
+            disabled: { get: () => this.svc.saving.get() },
+        });
+        select.mount(this.ref(frag, 'club'));
+        this.track(() => select.destroy());
 
         return frag;
     }

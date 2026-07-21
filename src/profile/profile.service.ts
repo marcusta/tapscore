@@ -2,6 +2,7 @@ import { Signal } from '@basics/core/client/core';
 import { request, type RequestError } from '@basics/core/client/request';
 import { api } from '../api';
 import type { HandicapEntry, Player } from '../api/players.gen';
+import type { Club } from '../api/clubs.gen';
 
 /**
  * The logged-in player's own profile: identity + manual handicap maintenance
@@ -17,6 +18,8 @@ export class ProfileService {
     readonly error = new Signal<RequestError | null>(null);
     readonly player = new Signal<Player | null>(null);
     readonly history = new Signal<HandicapEntry[]>([]);
+    /** Home-club picker options; loaded lazily alongside the profile. */
+    readonly clubs = new Signal<Club[]>([]);
 
     readonly saving = new Signal(false);
     readonly saveError = new Signal<RequestError | null>(null);
@@ -30,12 +33,13 @@ export class ProfileService {
     async load(force = false): Promise<void> {
         if (!force && (this.player.get() !== null || this.loading.get())) return;
         const data = await request(this.loading, this.error, () =>
-            Promise.all([api.players.me(), api.players.myHandicapHistory()]),
+            Promise.all([api.players.me(), api.players.myHandicapHistory(), api.clubs.list()]),
         );
         if (!data) return;
-        const [me, history] = data;
+        const [me, history, clubs] = data;
         this.player.set(me);
         this.history.set(history);
+        this.clubs.set(clubs);
     }
 
     /** Forget the loaded profile (sign-out). */
@@ -73,5 +77,26 @@ export class ProfileService {
         if (!saved) return false;
         this.player.set(saved);
         return true;
+    }
+
+    /**
+     * Save the home club (club id, or null to clear). The club NAME rides
+     * along on friend/search rows so people can tell two same-named players
+     * apart — that's the reason this field is self-service at all.
+     */
+    async saveHomeClub(homeClubId: string | null): Promise<boolean> {
+        const saved = await request(this.saving, this.saveError, () =>
+            api.players.updateProfile({ homeClubId }),
+        );
+        if (!saved) return false;
+        this.player.set(saved);
+        return true;
+    }
+
+    /** The loaded club's name for the current `homeClubId`, or null. */
+    homeClubName(): string | null {
+        const id = this.player.get()?.homeClubId;
+        if (!id) return null;
+        return this.clubs.get().find((c) => c.id === id)?.name ?? null;
     }
 }

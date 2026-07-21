@@ -10,6 +10,7 @@ export interface FriendProfile {
     displayName: string;
     gender: null | 'M' | 'F';
     handicapIndex: null | number;
+    homeClubName: null | string;
 }
 
 export interface Friendship {

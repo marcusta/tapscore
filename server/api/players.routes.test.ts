@@ -195,6 +195,66 @@ test('POST /api/players/me/profile sets gender; omitting it leaves it untouched'
     expect((await me.json()).gender).toBe('F');
 });
 
+test('POST /api/players/register accepts a home club; an unknown one is 404', async () => {
+    const ctx = await setup();
+    const club = await ctx.clubService.create({ name: 'Linköpings Golfklubb' });
+
+    const ok = await req(ctx.app, 'POST', '/api/players/register', {
+        username: 'frank',
+        password: 'password123',
+        displayName: 'Frank F.',
+        homeClubId: club.id,
+    });
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).homeClubId).toBe(club.id);
+
+    const bad = await req(ctx.app, 'POST', '/api/players/register', {
+        username: 'gustav',
+        password: 'password123',
+        displayName: 'Gustav G.',
+        homeClubId: 'no-such-club',
+    });
+    expect(bad.status).toBe(404);
+});
+
+test('POST /api/players/me/profile sets and clears the home club; unknown club is 404', async () => {
+    const ctx = await setup();
+    const club = await ctx.clubService.create({ name: 'Linköpings Golfklubb' });
+    const cookie = await loginAs(ctx.app, 'alice', 'password123');
+
+    const set = await req(
+        ctx.app,
+        'POST',
+        '/api/players/me/profile',
+        { homeClubId: club.id },
+        cookie,
+    );
+    expect(set.status).toBe(200);
+    expect((await set.json()).homeClubId).toBe(club.id);
+
+    // Omitting the key is a no-op; explicit null clears it.
+    const noop = await req(ctx.app, 'POST', '/api/players/me/profile', { gender: 'F' }, cookie);
+    expect((await noop.json()).homeClubId).toBe(club.id);
+
+    const cleared = await req(
+        ctx.app,
+        'POST',
+        '/api/players/me/profile',
+        { homeClubId: null },
+        cookie,
+    );
+    expect((await cleared.json()).homeClubId).toBe(null);
+
+    const unknown = await req(
+        ctx.app,
+        'POST',
+        '/api/players/me/profile',
+        { homeClubId: 'no-such-club' },
+        cookie,
+    );
+    expect(unknown.status).toBe(404);
+});
+
 test('POST /api/players/me/profile without session returns 401', async () => {
     const { app } = await setup();
     const res = await req(app, 'POST', '/api/players/me/profile', { gender: 'M' });

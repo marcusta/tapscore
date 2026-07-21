@@ -15,7 +15,7 @@ import { registerBuiltInFormats } from '../domain/formats';
 async function setup() {
     registerBuiltInFormats();
     const ctx: RouteTestContext = await setupRoutes([seedPlayer]);
-    mount(ctx.app, '/api', createSetupApi(ctx.courseService, ctx.teeService));
+    mount(ctx.app, '/api', createSetupApi(ctx.courseService, ctx.teeService, ctx.clubService));
 
     const club = await ctx.clubService.create({ name: 'Setup GC' });
     const course = await ctx.courseService.create({
@@ -36,6 +36,14 @@ async function setup() {
     });
     return { ctx, course, tee };
 }
+
+test('GET /setup/clubs lists clubs with NO login (feeds the signup home-club picker)', async () => {
+    const { ctx } = await setup();
+    const res = await req(ctx.app, 'GET', '/api/setup/clubs');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.some((c: { name: string }) => c.name === 'Setup GC')).toBe(true);
+});
 
 test('GET /setup/courses lists courses with holes and NO login', async () => {
     const { ctx } = await setup();

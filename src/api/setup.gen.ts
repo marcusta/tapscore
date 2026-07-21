@@ -1,6 +1,13 @@
 // GENERATED — DO NOT EDIT
 import { apiFetch } from '@basics/core/client/fetch';
 
+export interface Club {
+    id: string;
+    name: string;
+    location: null | string;
+    logoUrl: null | string;
+}
+
 export interface SetupCourse {
     clubName: string;
     id: string;
@@ -115,6 +122,7 @@ export interface MetadataApplies {
 }
 
 export interface SetupApi {
+    clubs(): Promise<Club[]>;
     courses(): Promise<SetupCourse[]>;
     teesByCourse(input: { courseId: string }): Promise<Tee[]>;
     formats(): Promise<FormatDescriptor[]>;
@@ -123,6 +131,9 @@ export interface SetupApi {
 
 export function createSetupClient(baseUrl: string): SetupApi {
     return {
+        async clubs() {
+            return apiFetch({ method: 'GET', url: `${baseUrl}/setup/clubs` });
+        },
         async courses() {
             return apiFetch({ method: 'GET', url: `${baseUrl}/setup/courses` });
         },

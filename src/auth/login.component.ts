@@ -1,6 +1,10 @@
 import { Component, Router, Signal, template } from '@basics/core/client/core';
 import { AuthService } from '@basics/core/client/auth';
-import { api, ApiError } from '../api';
+import { SelectComponent, type SelectOption } from '@basics/core/client/ui/select';
+import type { Club } from '../api/clubs.gen';
+import { api } from '../api';
+import { loginRequest } from './auth-client';
+import { authErrorMessage } from './auth-errors';
 import { t } from '../theme';
 import { s, btn, input } from '../css';
 
@@ -23,6 +27,10 @@ const tpl = template(`
             <div bind="registerFields" class="login__register">
                 <input bind="displayName" type="text" placeholder="Display name" autocomplete="name" />
                 <input bind="hcp" inputmode="decimal" placeholder="Handicap index (optional)" />
+                <div class="login__clubrow">
+                    <span>Home club (optional)</span>
+                    <div bind="club" class="login__club"></div>
+                </div>
                 <div class="login__genderrow">
                     <span>Gender (optional)</span>
                     <div bind="gender" class="login__genderseg"></div>
@@ -93,13 +101,33 @@ export class LoginComponent extends Component {
                     &.hidden { display: none; }
                 }
 
-                & .login__genderrow {
+                & .login__genderrow,
+                & .login__clubrow {
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
                     gap: ${s('md')};
                     font-size: 0.85rem;
                     color: ${t('text-muted')};
+                }
+
+                /* Club names are long ("Linköpings Golfklubb") and naming the
+                   club IS the point of the field, so it gets its own line
+                   rather than sharing one with the label and ellipsing. */
+                & .login__clubrow {
+                    flex-direction: column;
+                    align-items: stretch;
+                    gap: ${s('xs')};
+                }
+
+                /* min-width:0 lets the flex child shrink instead of forcing the
+                   trigger's own min-width, so long club names get the row's
+                   full remaining space rather than ellipsing early. */
+                & .login__club {
+                    flex: 1;
+                    min-width: 0;
+                    & .ui-select { display: block; width: 100%; }
+                    & .ui-select__trigger { min-width: 0; }
                 }
 
                 & .login__genderseg {
@@ -115,7 +143,10 @@ export class LoginComponent extends Component {
                     }
                 }
 
-                & button {
+                /* Direct child only: the submit button. The gender segment and
+                   the home-club select bring their own button styling, and a
+                   descendant selector here would paint both solid primary. */
+                & > button {
                     padding: ${s('md')} ${s('lg')};
                     font-size: 1rem;
                     font-weight: 700;
@@ -148,12 +179,29 @@ export class LoginComponent extends Component {
     private nextQ = this.router.query('next');
     private mode = new Signal<'login' | 'register'>('login');
     private busy = new Signal(false);
-    private registerError = new Signal('');
+    private formError = new Signal('');
     private username = '';
     private password = '';
     private displayName = '';
     private hcp = '';
     private gender = new Signal<'M' | 'F' | null>(null);
+    /** Home-club picker. `''` = not set; the list is public (`setup/clubs`)
+     * because registration itself is unauthenticated. Fetched on the first
+     * switch into register mode — a plain sign-in never pays for it. */
+    private clubs = new Signal<Club[]>([]);
+    private homeClubId = new Signal('');
+    private clubsRequested = false;
+
+    private async loadClubs(): Promise<void> {
+        if (this.clubsRequested) return;
+        this.clubsRequested = true;
+        try {
+            this.clubs.set(await api.setup.clubs());
+        } catch {
+            // Non-fatal: the picker just stays at "No home club", which is a
+            // legal registration. It's settable later from the profile.
+        }
+    }
 
     /** Where a successful sign-in/registration lands: `?next=`, else home —
      * the logged-in app IS the no-login app, enriched (Phase 3 nav rework). */
@@ -163,10 +211,25 @@ export class LoginComponent extends Component {
     }
 
     private async submit(): Promise<void> {
-        this.registerError.set('');
+        this.formError.set('');
         if (this.mode.get() === 'login') {
-            const ok = await this.auth.login(this.username, this.password);
-            if (ok) this.router.navigate(this.destination('/'), true);
+            // Client-side first, so an empty box never costs a round trip (and
+            // never burns one of the five attempts the server counts).
+            if (!this.username.trim() || this.password === '') {
+                this.formError.set('Enter your username and password.');
+                return;
+            }
+            this.busy.set(true);
+            try {
+                const user = await loginRequest(this.username.trim(), this.password);
+                this.auth.currentUser.set(user);
+                this.auth.error.set(null);
+                this.router.navigate(this.destination('/'), true);
+            } catch (e) {
+                this.formError.set(authErrorMessage(e, 'login'));
+            } finally {
+                this.busy.set(false);
+            }
             return;
         }
         // Register mode. The endpoint issues the session cookie itself; mirror
@@ -175,15 +238,15 @@ export class LoginComponent extends Component {
         const raw = this.hcp.trim().replace(',', '.');
         const handicapIndex = raw === '' ? null : Number.parseFloat(raw);
         if (handicapIndex !== null && !Number.isFinite(handicapIndex)) {
-            this.registerError.set('Handicap index must be a number (or leave it empty).');
+            this.formError.set('Handicap index must be a number (or leave it empty).');
             return;
         }
         if (this.password.length < 8) {
-            this.registerError.set('Password must be at least 8 characters.');
+            this.formError.set('Password must be at least 8 characters.');
             return;
         }
         if (!this.username.trim() || !this.displayName.trim()) {
-            this.registerError.set('Username and display name are required.');
+            this.formError.set('Username and display name are required.');
             return;
         }
         this.busy.set(true);
@@ -194,17 +257,12 @@ export class LoginComponent extends Component {
                 displayName: this.displayName.trim(),
                 handicapIndex,
                 gender: this.gender.get(),
+                homeClubId: this.homeClubId.get() || null,
             });
             this.auth.currentUser.set({ id: player.id, username: player.username });
             this.router.navigate(this.destination('/'), true);
         } catch (e) {
-            this.registerError.set(
-                e instanceof ApiError && e.status === 409
-                    ? 'That username is taken.'
-                    : e instanceof ApiError
-                        ? e.message
-                        : 'Could not create the account. Try again.',
-            );
+            this.formError.set(authErrorMessage(e, 'register'));
         } finally {
             this.busy.set(false);
         }
@@ -216,13 +274,14 @@ export class LoginComponent extends Component {
 
         const frag = this.wire(tpl, {
             root: { inert: () => loading() },
+            // `formError` only. `AuthService.error` carries the framework's
+            // flattened copy ("Server error", "Network error", "Unauthorized"),
+            // which is what made a wrong password or a rate limit read as an
+            // outage; both submit paths now set `formError` from
+            // `authErrorMessage` instead.
             error: {
-                className: () =>
-                    this.registerError.get() || this.auth.error.get()
-                        ? 'error show'
-                        : 'error',
-                textContent: () =>
-                    this.registerError.get() || this.auth.error.get()?.message || '',
+                className: () => (this.formError.get() ? 'error show' : 'error'),
+                textContent: () => this.formError.get(),
             },
             form: {
                 onsubmit: async (e: Event) => {
@@ -266,9 +325,11 @@ export class LoginComponent extends Component {
                         ? 'Have an account? Sign in'
                         : 'New here? Create an account',
                 onclick: () => {
-                    this.registerError.set('');
+                    this.formError.set('');
                     this.auth.error.set(null);
-                    this.mode.set(isRegister() ? 'login' : 'register');
+                    const toRegister = !isRegister();
+                    this.mode.set(toRegister ? 'register' : 'login');
+                    if (toRegister) void this.loadClubs();
                 },
             },
         });
@@ -297,6 +358,21 @@ export class LoginComponent extends Component {
                 ),
             (opt) => opt.label,
         );
+
+        // Home club picker — optional, like gender. Held locally and sent with
+        // the register payload; the account is created with it already set.
+        const select = new SelectComponent({
+            value: this.homeClubId,
+            options: {
+                get: (): SelectOption[] => [
+                    { value: '', label: 'No home club' },
+                    ...this.clubs.get().map((c) => ({ value: c.id, label: c.name })),
+                ],
+            },
+            placeholder: 'No home club',
+        });
+        select.mount(this.ref(frag, 'club'));
+        this.track(() => select.destroy());
 
         return frag;
     }

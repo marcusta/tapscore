@@ -95,6 +95,7 @@ export class FriendsService {
                 displayName: p.displayName,
                 gender: p.gender,
                 handicapIndex: p.handicapIndex,
+                homeClubName: p.homeClubName,
                 // No shared history yet — sorts as never-played until the next
                 // server load recomputes the signals.
                 sharedRoundCount: 0,
