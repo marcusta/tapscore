@@ -239,9 +239,11 @@ export class LeaderboardComponent extends Component {
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-            /* Status cells ("AS") are 1px wider than the tightest mobile column —
-               let them spill instead of ellipsizing into "A…". */
-            & .lb-grid .lb-r-status td { overflow: visible; text-overflow: clip; }
+            /* Data cells hold a digit, a shape, or "AS" — all centred and at most
+               a couple of px wider than the tightest mobile column. Let them
+               spill symmetrically instead of clipping shapes / ellipsizing "AS".
+               (Row labels keep the th ellipsis above.) */
+            & .lb-grid td { overflow: visible; text-overflow: clip; }
             & .lb-grid thead th {
                 font-size: 0.7rem;
                 color: ${t('text-muted')};
@@ -271,11 +273,6 @@ export class LeaderboardComponent extends Component {
             }
             & .lb-pill--a { background: #c2452f; }
             & .lb-pill--b { background: #2c6cae; }
-            /* A score marker inside a team pill (deciding ball that also birdied):
-               white shape on the filled team colour, and the pill hugs the mark
-               so the composed cell stays as compact as a bare mark. */
-            & .lb-pill .lb-mark { color: #fff; }
-            & .lb-pill:has(.lb-mark) { padding: 1px; min-width: 0; line-height: 0; }
             /* Deciding-ball marker shapes (presentation vocabulary): ring (base
                ○), double_ring (◎), diamond (◇). The marker's label carries the
                golf meaning; these class names stay presentation-only. */
@@ -318,6 +315,11 @@ export class LeaderboardComponent extends Component {
             & .lb-mark-tone--success { color: #267348; }
             & .lb-mark-tone--warning { color: #946200; }
             & .lb-mark-tone--danger { color: #9b332a; }
+            /* Deciding ball whose score is decorated: the marker's own shape gets
+               the team fill — white number and white outline on the team colour.
+               Declared AFTER the tone rules so the fill's white wins. */
+            & .lb-mark-fill--a { background: #c2452f; color: #fff; }
+            & .lb-mark-fill--b { background: #2c6cae; color: #fff; }
             & .lb-card__caption { margin: ${s('sm')} 0 0; font-size: 0.72rem; font-style: italic; color: ${t('text-muted')}; }
             & .lb-card__notes { margin: ${s('sm')} 0 0; font-size: 0.72rem; color: ${t('text-muted')}; }
             & .lb-card__notes-label {

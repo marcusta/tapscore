@@ -47,7 +47,8 @@ export const ROUND_CSS = `
   .pill { display: inline-block; min-width: 1.4em; padding: .05em .45em; border-radius: 999px; color: #fff; font-weight: 700; }
   .pill--a { background: #c2452f; }
   .pill--b { background: #2c6cae; }
-  .pill .mark { color: #fff; }
+  .mark-fill--a { background: #c2452f; color: #fff; }
+  .mark-fill--b { background: #2c6cae; color: #fff; }
   .totals { list-style: none; padding: 0; margin: .5rem 0 0 0; display: flex; gap: 1rem; }
   .lb-row { display: flex; gap: 2rem; flex-wrap: wrap; }
   .lb-col { min-width: 320px; }

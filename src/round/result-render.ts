@@ -150,21 +150,27 @@ function renderScoreGridBase(
                         const title = c?.title ? ` title="${esc(c.title)}"` : '';
                         const text = emph(esc(c?.display ?? ''));
                         // A score marker draws a shape (ring / double_ring / square …)
-                        // around the score; a per-cell team (standing row, deciding
-                        // ball) draws a filled colour pill. Both can coexist — a
-                        // deciding score that is also a net birdie renders its ring
-                        // INSIDE the team pill. The marker's `label` carries the golf
-                        // meaning ("Birdie (-1)") — surfaced as tooltip + aria-label.
+                        // around the score. A per-cell team (standing row, deciding
+                        // ball) fills the cell in team colour: on an UNDECORATED score
+                        // it's the round pill; on a decorated one the marker's own
+                        // shape gets the team fill (white number/outline) — never a
+                        // shape nested in a pill. The marker's `label` carries the
+                        // golf meaning ("Birdie (-1)") — surfaced as tooltip + aria.
                         const markTemplate = cellMarkerTemplate(c);
                         const markTone = cellMarkerToneClass(c);
                         const markLabel = c?.marker?.label;
                         const markAttrs = markLabel
                             ? ` title="${esc(markLabel)}" aria-label="${esc(markLabel)}"`
                             : '';
-                        let inner = markTemplate
-                            ? `<span class="lb-mark lb-mark--${markTemplate}${markTone}"${markAttrs}>${text}</span>`
-                            : text;
-                        if (c?.team) inner = `<span class="lb-pill lb-pill--${c.team}">${inner}</span>`;
+                        let inner: string;
+                        if (markTemplate) {
+                            const fill = c?.team ? ` lb-mark-fill--${c.team}` : '';
+                            inner = `<span class="lb-mark lb-mark--${markTemplate}${markTone}${fill}"${markAttrs}>${text}</span>`;
+                        } else if (c?.team) {
+                            inner = `<span class="lb-pill lb-pill--${c.team}">${text}</span>`;
+                        } else {
+                            inner = text;
+                        }
                         return `<td class="${cellClass(row)}"${title}>${inner}</td>`;
                     })
                     .join('');

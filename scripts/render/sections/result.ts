@@ -149,13 +149,19 @@ function renderScoreGrid(
                         const markerAttrs = marker?.label
                             ? ` title="${esc(marker.label)}" aria-label="${esc(marker.label)}"`
                             : '';
-                        let inner = marker
-                            ? `<span class="mark mark--${esc(marker.template)}${markerToneClass(marker.tone)}"${markerAttrs}>${text}</span>`
-                            : text;
-                        // Per-cell team (standing row, deciding ball): filled
-                        // colour pill, marker (if any) drawn inside — mirrors
+                        // Per-cell team (standing row, deciding ball): an
+                        // undecorated score gets the filled pill; a decorated one
+                        // gets the team fill on the marker's own shape — mirrors
                         // the client renderer's composition.
-                        if (c?.team) inner = `<span class="pill pill--${c.team}">${inner}</span>`;
+                        let inner: string;
+                        if (marker) {
+                            const fill = c?.team ? ` mark-fill--${c.team}` : '';
+                            inner = `<span class="mark mark--${esc(marker.template)}${markerToneClass(marker.tone)}${fill}"${markerAttrs}>${text}</span>`;
+                        } else if (c?.team) {
+                            inner = `<span class="pill pill--${c.team}">${text}</span>`;
+                        } else {
+                            inner = text;
+                        }
                         return `<td class="${cellClass(row)}"${title}>${inner}</td>`;
                     })
                     .join('');
