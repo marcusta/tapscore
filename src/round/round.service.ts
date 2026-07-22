@@ -121,6 +121,13 @@ export class RoundViewService {
     readonly holeIdx = new Signal(0);
     readonly groupIdx = new Signal(0);
     /**
+     * True while the fullscreen score keypad is up. Owned here (not in the
+     * score-entry component) because RoundComponent's bottom dock must hide
+     * while the keypad is open — the dock otherwise overlaps the keypad's
+     * bottom rows on phones.
+     */
+    readonly keypadOpen = new Signal(false);
+    /**
      * Which format slot the shared pill row points at, keyed by the slot's
      * stable `slotDefId` — NOT a positional index. Competition rounds
      * (inherit-then-override) can reorder or skip slots relative to a base
@@ -694,6 +701,7 @@ export class RoundViewService {
         this.resultError.set(null);
         this.holeIdx.set(initial?.holeIdx ?? 0);
         this.groupIdx.set(initial?.groupIdx ?? 0);
+        this.keypadOpen.set(false);
         // A string is already a slotDefId (current URL form); a number is a
         // legacy positional index that can only be resolved once formatSlots
         // are loaded, so it's parked until loadByToken applies it.

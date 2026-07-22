@@ -31,7 +31,10 @@ const tpl = template(`
             <div class="se-modal__head">
                 <button bind="close" class="se-modal__close" type="button">✕</button>
                 <span bind="modalTitle" class="se-modal__title"></span>
-                <span class="se-modal__spacer"></span>
+                <span class="se-modal__nav">
+                    <button bind="modalPrev" class="se-modal__navbtn" type="button" aria-label="Previous hole">‹</button>
+                    <button bind="modalNext" class="se-modal__navbtn" type="button" aria-label="Next hole">›</button>
+                </span>
             </div>
             <div bind="modalList" class="se-modal__list"></div>
             <div class="se-pad">
@@ -264,7 +267,13 @@ export class ScoreEntryComponent extends Component {
                 &:active { background: rgba(255,255,255,0.1); }
             }
             & .se-modal__title { font-family: ${t('font-display')}; font-weight: 700; font-size: 1.1rem; }
-            & .se-modal__spacer { width: 40px; }
+            & .se-modal__nav { display: flex; gap: 4px; }
+            & .se-modal__navbtn {
+                background: none; border: none; color: #fff; font-size: 1.6rem; line-height: 1;
+                width: 40px; height: 40px; border-radius: 999px; cursor: pointer;
+                &:active { background: rgba(255,255,255,0.1); }
+                &:disabled { opacity: 0.35; cursor: default; }
+            }
         }
         .se-modal__list { flex: 1; overflow-y: auto; }
         .se-mrow {
@@ -432,8 +441,19 @@ export class ScoreEntryComponent extends Component {
     // Hole/group navigation lives in RoundViewService so the orange hole-info
     // bar (rendered by RoundComponent) and this carousel stay in lock-step.
     private holeIdx = this.svc.holeIdx;
-    private modalOpen = new Signal(false);
+    // Shared with RoundComponent, which hides its bottom dock while the
+    // fullscreen keypad is open (the dock would overlap the keypad rows).
+    private modalOpen = this.svc.keypadOpen;
     private currentBallIdx = new Signal(0);
+    /**
+     * True when every (non-pending) ball on the hole was already scored at the
+     * moment the keypad arrived on it — i.e. the player came back to correct,
+     * not to enter. In that mode `commit()` saves but never auto-advances
+     * (no ball hop, no hole jump), so several corrections on one hole don't
+     * fight the advance logic. Re-evaluated on every keypad hole arrival:
+     * open, header chevrons, and the post-completion auto-advance.
+     */
+    private holeCompleteOnEntry = false;
     private extendedOpen = new Signal(false);
     private extendedScore = new Signal(10);
     // After a real score on a hole that collects stats, the keypad is replaced by
@@ -524,6 +544,10 @@ export class ScoreEntryComponent extends Component {
             if (this.advanceTimer) clearTimeout(this.advanceTimer);
             if (this.flashTimer) clearTimeout(this.flashTimer);
             if (this.settleTimer) clearTimeout(this.settleTimer);
+            // keypadOpen lives in the shared service; leaving the round view
+            // with the keypad up must not resurrect it (or keep the dock
+            // hidden) when this same round is opened again.
+            this.modalOpen.set(false);
         });
         // Keep the selected ball in range as the group (and its ball count) changes.
         this.track(
@@ -540,6 +564,14 @@ export class ScoreEntryComponent extends Component {
             modalTitle: () => {
                 const ph = this.currentHole();
                 return ph ? `Hole ${this.occLabel(ph.playHoleId)} · Par ${this.parFor(ph.playHoleId)}` : '';
+            },
+            modalPrev: {
+                onclick: () => this.stepHole(-1),
+                disabled: () => !this.svc.canPrevHole(),
+            },
+            modalNext: {
+                onclick: () => this.stepHole(1),
+                disabled: () => !this.svc.canNextHole(),
             },
             extended: { className: () => (this.extendedOpen.get() ? 'se-pad__ext' : 'se-pad__ext hidden') },
             extVal: () => String(this.extendedScore.get()),
@@ -578,7 +610,7 @@ export class ScoreEntryComponent extends Component {
                 textContent: () => (this.hasMoreUnscored() ? 'Next ›' : 'Done ›'),
                 onclick: () => {
                     this.statsOpen.set(false);
-                    this.advance();
+                    if (!this.holeCompleteOnEntry) this.advance();
                 },
             },
         });
@@ -793,7 +825,39 @@ export class ScoreEntryComponent extends Component {
         this.currentBallIdx.set(idx < 0 ? 0 : idx);
         this.extendedOpen.set(false);
         this.statsOpen.set(false);
+        this.noteHoleEntered();
         this.modalOpen.set(true);
+    }
+
+    /**
+     * Snapshot whether the hole the keypad just arrived on was already fully
+     * scored (pending seats excluded — they can't be scored at all). Decides
+     * entry mode vs correction mode for this visit; a clear+re-enter during
+     * the visit deliberately keeps correction mode.
+     */
+    private noteHoleEntered(): void {
+        const ph = this.currentHole();
+        const balls = this.ballsInGroup().filter((b) => !b.pending);
+        this.holeCompleteOnEntry =
+            !!ph &&
+            balls.length > 0 &&
+            balls.every((b) => this.svc.strokesFor(b.id, ph.playHoleId) !== null);
+    }
+
+    /** Header-chevron hole navigation inside the keypad modal. */
+    private stepHole(dir: -1 | 1): void {
+        // A pending post-completion hole jump must not fire on top of a manual
+        // navigation (its stale-hole guard would pass again after we move).
+        if (this.advanceTimer) {
+            clearTimeout(this.advanceTimer);
+            this.advanceTimer = null;
+        }
+        this.extendedOpen.set(false);
+        this.statsOpen.set(false);
+        if (dir < 0) this.svc.prevHole();
+        else this.svc.nextHole();
+        this.currentBallIdx.set(0);
+        this.noteHoleEntered();
     }
 
     private openExtended(): void {
@@ -811,7 +875,7 @@ export class ScoreEntryComponent extends Component {
         // write with `seat_unclaimed`); skip past it instead of queueing a
         // write that can never land.
         if (ball.pending) {
-            this.advance();
+            if (!this.holeCompleteOnEntry) this.advance();
             return;
         }
         // Clearing a hole carries no metadata; a real/pickup score carries the
@@ -821,9 +885,11 @@ export class ScoreEntryComponent extends Component {
         // A real score (>0) on a hole that collects stats opens the stats screen,
         // where the player marks GIR/fairway and taps Next to advance. Clear,
         // pickup, and strokes-only holes auto-advance immediately for fast entry.
+        // Correction mode (hole was already complete on arrival) never advances:
+        // the player stays put to fix as many scores as needed.
         if (value !== null && value > 0 && this.metaInputs().length > 0) {
             this.statsOpen.set(true);
-        } else {
+        } else if (!this.holeCompleteOnEntry) {
             this.advance();
         }
     }
@@ -911,6 +977,10 @@ export class ScoreEntryComponent extends Component {
             if (this.currentHole()?.playHoleId !== fromPh) return;
             this.holeIdx.set(clampIndex(this.holeIndex() + 1, this.playedOrder().length));
             this.currentBallIdx.set(0);
+            // Arriving on the next hole is a fresh visit: normally unscored
+            // (entry mode), but a hole scored ahead of time flips to
+            // correction mode so the advance chain stops there.
+            this.noteHoleEntered();
         }, 700);
     }
 

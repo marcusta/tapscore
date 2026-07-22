@@ -584,10 +584,14 @@ export class RoundComponent extends Component {
                 disabled: () => this.svc.deleting.get(),
             },
 
-            // Bottom dock — only meaningful once a round has loaded.
+            // Bottom dock — only meaningful once a round has loaded. Hidden
+            // while the fullscreen keypad is up: the dock would overlap the
+            // keypad's bottom rows, and the keypad header has its own hole nav.
             dock: {
                 className: () =>
-                    this.hasRound.get() ? 'round-view__dock' : 'round-view__dock hidden',
+                    this.hasRound.get() && !this.svc.keypadOpen.get()
+                        ? 'round-view__dock'
+                        : 'round-view__dock hidden',
             },
             holebar: {
                 className: () =>
