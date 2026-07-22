@@ -36,6 +36,11 @@ export interface FormatSlotForm {
     subjectPlayers: Record<number, boolean>;
     /** Team `key` → in this format's subjects? Missing key ⇒ excluded. */
     subjectTeams: Record<number, boolean>;
+    /**
+     * Taliban only: which score the comeback-bonus feats are measured on
+     * (`formatConfig.bonusRule`). Missing ⇒ 'gross' (the format's default).
+     */
+    bonusRule?: 'gross' | 'net';
 }
 
 /**
@@ -466,6 +471,19 @@ export class SetupService {
 
     setSlotAllowance(key: number, pct: string): void {
         this.patchFormatSlot(key, { allowancePct: pct });
+    }
+
+    /**
+     * Formats whose `formatConfig.bonusRule` picks the score the comeback-bonus
+     * feats (birdie/eagle) are measured on. Taliban only today; the setup UI
+     * shows a Gross/Net toggle exactly for these.
+     */
+    formatTakesBonusRule(formatId: string): boolean {
+        return formatId === 'taliban_better_ball';
+    }
+
+    setSlotBonusRule(key: number, bonusRule: 'gross' | 'net'): void {
+        this.patchFormatSlot(key, { bonusRule });
     }
 
     removeFormatSlot(key: number): void {
@@ -1121,6 +1139,11 @@ export class SetupService {
                 formatId: slot.formatId,
                 allowanceConfig: { type: 'flat', pct: this.parsePct(slot.allowancePct) },
                 subjects,
+                // Emit the bonus basis only for formats that read it; explicit
+                // even at the 'gross' default so the draft states the rule.
+                ...(this.formatTakesBonusRule(slot.formatId)
+                    ? { formatConfig: { bonusRule: slot.bonusRule ?? 'gross' } }
+                    : {}),
             };
         });
     }

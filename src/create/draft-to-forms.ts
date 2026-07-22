@@ -76,6 +76,7 @@ export interface StoredFormat {
     allowanceConfig?: AllowanceConfig;
     producerDefIds?: string[];
     subjects?: StoredBallSubject[];
+    formatConfig?: unknown;
 }
 
 export interface StoredPlayingGroup {
@@ -277,12 +278,20 @@ export function draftToForms(
                 subjectPlayers[p.key] = included.has(p.key);
             }
         }
+        // Taliban's bonus basis rides formatConfig.bonusRule; restore it so the
+        // edit flow's Gross/Net toggle reflects the saved draft.
+        const cfg = f.formatConfig;
+        const bonusRule =
+            cfg && typeof cfg === 'object' && 'bonusRule' in cfg
+                ? (cfg as { bonusRule?: unknown }).bonusRule
+                : undefined;
         return {
             key: slotKey++,
             formatId: f.formatId,
             allowancePct: allowancePctText(f.allowanceConfig),
             subjectPlayers,
             subjectTeams,
+            ...(bonusRule === 'gross' || bonusRule === 'net' ? { bonusRule } : {}),
         };
     });
 

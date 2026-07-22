@@ -373,6 +373,14 @@ export interface PairBallHoleResult extends HoleIdentity {
     /** Signed A-perspective points this hole. null when undecided; 0 on halved. */
     pointsDelta: number | null;
     note?: string;
+    /**
+     * The ball whose score decided a won hole (winner's counting ball; the
+     * worse ball on a worse-ball tiebreak). Presenters highlight this cell —
+     * score-quality markers stay standard (scoreToParMarker), so the win
+     * indication rides here instead of on the ball's own hole marker.
+     * null/absent on halved, pending, and no-ball holes.
+     */
+    decidingBallId?: string | null;
 }
 
 /**

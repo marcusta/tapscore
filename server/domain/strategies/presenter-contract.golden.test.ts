@@ -299,6 +299,8 @@ describe('presenter contract golden output', () => {
             totals: [],
         });
         expect(view.cards[0]?.rows.map((row) => row.label)).toEqual(['Par', '', '', 'Standing']);
+        // Winner's deciding cell: team pill + the pair note as tooltip; the
+        // par-4 itself earns no score marker (markers now mean score quality).
         expect(view.cards[0]?.rows[1]).toMatchObject({
             subjectBallId: bA.ballId,
             kind: 'net',
@@ -309,7 +311,24 @@ describe('presenter contract golden output', () => {
                     holeNumber: 1,
                     value: 4,
                     display: '4',
-                    marker: { template: 'ring', tone: 'side_a', label: 'Hole won' },
+                    team: 'a',
+                    title: 'W (dormie)',
+                },
+                { playHoleId: 'ph-2', holeNumber: 2, value: 4, display: '4' },
+            ],
+        });
+        // Loser's bogey gets the STANDARD score marker (square, danger).
+        expect(view.cards[0]?.rows[2]).toMatchObject({
+            subjectBallId: bB.ballId,
+            kind: 'net',
+            team: 'b',
+            cells: [
+                {
+                    playHoleId: 'ph-1',
+                    holeNumber: 1,
+                    value: 5,
+                    display: '5',
+                    marker: { template: 'square', tone: 'danger', label: 'Bogey (+1)' },
                 },
                 { playHoleId: 'ph-2', holeNumber: 2, value: 4, display: '4' },
             ],

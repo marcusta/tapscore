@@ -9,6 +9,7 @@ import type {
     RankedEntry,
     RankedSection,
 } from './result-sections';
+import { scoreToParMarker } from './result-vocabulary';
 
 /**
  * One scorecard column = one itinerary occurrence, ordered by canonical
@@ -297,10 +298,18 @@ export function runningRow(cols: ResultColumn[], running: Map<string, number>): 
 
 // --- match rows ------------------------------------------------------------
 
-/** One player's net row on the compact match card: just the net per hole, team-
- * tinted, with the deciding-hole marker (ring / double_ring / diamond) where
- * this ball won it. The marker is presentation vocabulary built by the format. */
-export function matchNetRow(cols: ResultColumn[], r: BallResult, team: 'a' | 'b'): GridRow {
+/** One player's net row on the compact match card: the net per hole, team-
+ * tinted, decorated with the STANDARD score-to-par marker on the displayed
+ * (net) value — ring = birdie, double ring = eagle, square = bogey. Where this
+ * ball DECIDED a won hole (`deciding` maps playHoleId → pair-hole note), the
+ * cell gets the team pill + the note as its tooltip; the win indication rides
+ * there, never on the score marker. */
+export function matchNetRow(
+    cols: ResultColumn[],
+    r: BallResult,
+    team: 'a' | 'b',
+    deciding?: Map<string, string | undefined>,
+): GridRow {
     const byId = byPlayHole(r);
     return {
         label: '',
@@ -311,8 +320,15 @@ export function matchNetRow(cols: ResultColumn[], r: BallResult, team: 'a' | 'b'
         cells: cols.map((c) => {
             const hr = byId.get(c.playHoleId);
             const n = hr?.net ?? null;
-            const gc = cell(c, n, n === null ? '–' : String(n));
-            return hr?.marker ? { ...gc, marker: hr.marker } : gc;
+            let gc = cell(c, n, n === null ? '–' : String(n));
+            const m = scoreToParMarker({ strokes: n, par: c.par });
+            if (m) gc = { ...gc, marker: m };
+            if (deciding?.has(c.playHoleId)) {
+                gc = { ...gc, team };
+                const note = deciding.get(c.playHoleId);
+                if (note) gc = { ...gc, title: note };
+            }
+            return gc;
         }),
     };
 }

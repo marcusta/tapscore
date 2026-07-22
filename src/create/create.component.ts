@@ -118,6 +118,14 @@ const fslotTpl = template(`
             <span bind="allowanceHint" class="fslot__teammeta"></span>
         </div>
 
+        <div bind="bonusGroup" class="fslot__group">
+            <span class="fslot__label">Birdie/eagle bonus on</span>
+            <div class="fslot__seg">
+                <button bind="bonusGross" type="button">Gross</button>
+                <button bind="bonusNet" type="button">Net</button>
+            </div>
+        </div>
+
         <div class="fslot__group">
             <span class="fslot__label">Scores</span>
             <div bind="subjectRows" class="fslot__teamrows"></div>
@@ -904,6 +912,17 @@ export class CreateComponent extends Component {
                         this.svc.isSideFormat(formatId())
                             ? 'applied to each side member’s ball'
                             : 'of each player’s course handicap',
+                },
+                // Taliban's comeback-bonus basis (formatConfig.bonusRule).
+                // Hidden for every other format; missing rule reads as gross.
+                bonusGroup: { hidden: () => !this.svc.formatTakesBonusRule(formatId()) },
+                bonusGross: {
+                    className: () => ((slot()?.bonusRule ?? 'gross') === 'gross' ? 'on' : ''),
+                    onclick: () => this.svc.setSlotBonusRule(key, 'gross'),
+                },
+                bonusNet: {
+                    className: () => (slot()?.bonusRule === 'net' ? 'on' : ''),
+                    onclick: () => this.svc.setSlotBonusRule(key, 'net'),
                 },
                 err: {
                     textContent: () => this.svc.humanizedForFormat(index).join(' · '),

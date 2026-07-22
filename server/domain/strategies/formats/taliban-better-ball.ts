@@ -1,11 +1,18 @@
 // Phase 2.6b/2 — taliban × better-ball.
 //
 // 2v2 better-ball match-play with a COMEBACK bonus. A hole win is worth 1 point;
-// a winner who was BEHIND entering the hole earns a bonus for a gross birdie/
-// eagle (the catch-up mechanic). Level or ahead → 1, regardless of birdie/eagle:
+// a winner who was BEHIND entering the hole earns a bonus for a birdie/eagle
+// (the catch-up mechanic) — but only when the feat is SOLO at its own level:
+// the bonus dies if the OPPOSING side matched it (a teammate matching it does
+// not). Level or ahead → 1, regardless of birdie/eagle:
 //   1 = hole win while level or ahead
-//   2 = hole win while BEHIND with a gross birdie (≤ par−1) by either member
-//   5 = hole win while BEHIND with a gross eagle (≤ par−2) by either member
+//   2 = hole win while BEHIND with a birdie (≤ par−1) by either member,
+//       unless an opposing ball also made ≤ par−1
+//   5 = hole win while BEHIND with an eagle (≤ par−2) by either member,
+//       unless an opposing ball also made ≤ par−2 (an opposing birdie does
+//       NOT void the eagle bonus)
+// Feats are measured on gross by default; `formatConfig.bonusRule: 'net'`
+// switches both the feat and the solo check to net.
 // Better-ball tie broken by worse-ball; both tied = halved.
 // Missing-ball: if only one team has a contributing ball, that team wins (the
 // same down-team bonus applies).
@@ -29,6 +36,7 @@ import type {
     StrategyEvent,
     StrategyResult,
 } from '../types';
+import type { ConfigDiagnostic } from '../types';
 import {
     deriveAllowance,
     groupBallsByTeam,
@@ -37,10 +45,21 @@ import {
     resolveSingleProducer,
     strokesGivenMapForProducer,
 } from './_shared';
-import { marker } from '../result-vocabulary';
-import type { CellMarker } from '../result-vocabulary';
 
 export const TALIBAN_BETTER_BALL_ID = 'taliban_better_ball';
+
+/** Which score the comeback-bonus feats (birdie/eagle) are measured on. */
+type BonusRule = 'gross' | 'net';
+
+function readBonusRule(cfg: unknown): BonusRule {
+    if (cfg && typeof cfg === 'object' && 'bonusRule' in cfg) {
+        const raw = (cfg as { bonusRule: unknown }).bonusRule;
+        if (raw === 'gross' || raw === 'net') return raw;
+        if (raw === undefined) return 'gross';
+        throw new Error(`taliban_better_ball: unknown bonusRule ${JSON.stringify(raw)}`);
+    }
+    return 'gross';
+}
 
 interface BallCtx {
     ball: SlotBall;
@@ -57,11 +76,11 @@ interface PlayerHole {
 interface TeamBall {
     better: number | null;
     worse: number | null;
-    /** The ball ids behind the better / worse net (the deciding-ball marker). */
+    /** The ball ids behind the better / worse net (the deciding-ball highlight). */
     betterBallId: string | null;
     worseBallId: string | null;
-    birdieBy: string | null;
-    eagleBy: string | null;
+    /** Lowest contributing score on the bonus basis (gross by default). */
+    bestBonus: number | null;
 }
 
 function buildCtx(
@@ -94,7 +113,7 @@ function teamBall(
     c1: BallCtx,
     s2: PlayerHole,
     c2: BallCtx,
-    par: number,
+    bonusRule: BonusRule,
 ): TeamBall {
     const contribs: { net: number; gross: number; ballId: string }[] = [];
     if (s1.contributed && s1.gross !== null && s1.net !== null) {
@@ -104,7 +123,7 @@ function teamBall(
         contribs.push({ net: s2.net, gross: s2.gross, ballId: c2.ball.ballId });
     }
     if (contribs.length === 0) {
-        return { better: null, worse: null, betterBallId: null, worseBallId: null, birdieBy: null, eagleBy: null };
+        return { better: null, worse: null, betterBallId: null, worseBallId: null, bestBonus: null };
     }
     const byNet = [...contribs].sort((a, b) => a.net - b.net);
     const betterBallId = byNet[0]!.ballId;
@@ -112,13 +131,8 @@ function teamBall(
     const nets = contribs.map((c) => c.net);
     const better = Math.min(...nets);
     const worse = Math.max(...nets);
-    let birdieBy: string | null = null;
-    let eagleBy: string | null = null;
-    for (const c of contribs) {
-        if (c.gross <= par - 2) eagleBy = eagleBy ?? c.ballId;
-        else if (c.gross <= par - 1) birdieBy = birdieBy ?? c.ballId;
-    }
-    return { better, worse, betterBallId, worseBallId, birdieBy, eagleBy };
+    const bestBonus = Math.min(...contribs.map((c) => (bonusRule === 'net' ? c.net : c.gross)));
+    return { better, worse, betterBallId, worseBallId, bestBonus };
 }
 
 function pairSummary(
@@ -154,10 +168,27 @@ export const talibanBetterBall: FormatStrategy = {
 
     deriveSlotBalls: deriveAllowance,
 
-    score({ roundContext, slotBalls, slotTeamGroupings, events }): StrategyResult {
+    validateConfig(config: unknown): ConfigDiagnostic[] {
+        if (config && typeof config === 'object' && 'bonusRule' in config) {
+            const raw = (config as { bonusRule: unknown }).bonusRule;
+            if (raw !== undefined && raw !== 'gross' && raw !== 'net') {
+                return [
+                    {
+                        code: 'taliban_bonus_rule_invalid',
+                        message: `${TALIBAN_BETTER_BALL_ID}: unknown bonusRule ${JSON.stringify(raw)} — expected 'gross' or 'net'`,
+                        path: 'bonusRule',
+                    },
+                ];
+            }
+        }
+        return [];
+    },
+
+    score({ roundContext, slotBalls, slotTeamGroupings, events, formatConfig }): StrategyResult {
         if (!slotTeamGroupings || slotTeamGroupings.length !== 2) {
             throw new Error(`taliban_better_ball: requires exactly 2 slotTeamGroupings`);
         }
+        const bonusRule = readBonusRule(formatConfig);
         const teams = groupBallsByTeam(slotBalls, slotTeamGroupings);
         if (teams.length !== 2) throw new Error('taliban_better_ball: need 2 teams');
         for (const t of teams) {
@@ -204,8 +235,8 @@ export const talibanBetterBall: FormatStrategy = {
                 }
             });
 
-            const ballA = teamBall(a1, ctxA1, a2, ctxA2, par);
-            const ballB = teamBall(b1, ctxB1, b2, ctxB2, par);
+            const ballA = teamBall(a1, ctxA1, a2, ctxA2, bonusRule);
+            const ballB = teamBall(b1, ctxB1, b2, ctxB2, bonusRule);
 
             const leadBefore = totalA - totalB;
             const aDown = leadBefore < 0;
@@ -259,18 +290,28 @@ export const talibanBetterBall: FormatStrategy = {
             }
 
             // A win is 1 point. The COMEBACK bonus applies ONLY when the winner
-            // was BEHIND entering the hole: a gross birdie scores 2, a gross eagle
-            // 5. Level or ahead → 1, regardless of birdie/eagle.
+            // was BEHIND entering the hole, and only for a SOLO feat: a birdie
+            // scores 2 unless the opposing side also made birdie-or-better, an
+            // eagle 5 unless the opposing side also made eagle-or-better (an
+            // opposing birdie does not void an eagle). Feats are on the bonus
+            // basis (gross by default, net via formatConfig). Level or ahead →
+            // 1, regardless of birdie/eagle.
             if (awardTo !== null) {
                 points = 1;
                 const winnerBall = awardTo === 'A' ? ballA : ballB;
+                const loserBall = awardTo === 'A' ? ballB : ballA;
                 const winnerIsDown = (awardTo === 'A' && aDown) || (awardTo === 'B' && bDown);
-                if (winnerIsDown && winnerBall.eagleBy !== null) {
+                const feat = (tb: TeamBall, underPar: number): boolean =>
+                    tb.bestBonus !== null && tb.bestBonus <= par - underPar;
+                if (winnerIsDown && feat(winnerBall, 2) && !feat(loserBall, 2)) {
                     points = 5;
                     detail = detail ? `${detail}, down-team eagle` : 'down-team eagle';
-                } else if (winnerIsDown && winnerBall.birdieBy !== null) {
+                } else if (winnerIsDown && feat(winnerBall, 1) && !feat(loserBall, 1)) {
                     points = 2;
                     detail = detail ? `${detail}, down-team birdie` : 'down-team birdie';
+                } else if (winnerIsDown && feat(winnerBall, 1)) {
+                    const matched = 'bonus void — matched by opposition';
+                    detail = detail ? `${detail}, ${matched}` : matched;
                 }
             }
 
@@ -297,6 +338,16 @@ export const talibanBetterBall: FormatStrategy = {
                         : `B +${points}`;
             const pairNote = detail ? `${pairStatusStr} (${detail})` : pairStatusStr;
 
+            // The deciding ball: the winner's better ball, or its worse ball
+            // when the hole was decided on worse-ball. The presenter highlights
+            // that cell (team tint + the pair note as tooltip); score-quality
+            // markers stay standard, so no win marker rides on the ball holes.
+            let decidingBallId: string | null = null;
+            if (awardTo !== null && status !== 'halved') {
+                const winnerBall = awardTo === 'A' ? ballA : ballB;
+                decidingBallId = decidedByWorse ? winnerBall.worseBallId : winnerBall.betterBallId;
+            }
+
             pairHoles.push({
                 ...holeIdentity(roundContext, refBallId, occ),
                 status,
@@ -304,6 +355,7 @@ export const talibanBetterBall: FormatStrategy = {
                 fromB: ballB.better,
                 pointsDelta,
                 note: pairNote,
+                decidingBallId,
             });
 
             const note = (won: boolean): string => {
@@ -317,24 +369,6 @@ export const talibanBetterBall: FormatStrategy = {
             const aNote = note(awardTo === 'A');
             const bNote = note(awardTo === 'B');
 
-            // The deciding ball gets the shape: the winner's better ball, or its
-            // worse ball when the hole was decided on worse-ball. The marker is
-            // pure presentation vocabulary — the +1/+2/+5 golf meaning lives in
-            // its human `label`, never in a token name.
-            let decidingBallId: string | null = null;
-            let decidingMarker: CellMarker | null = null;
-            if (awardTo !== null && status !== 'halved') {
-                const winnerBall = awardTo === 'A' ? ballA : ballB;
-                decidingBallId = decidedByWorse ? winnerBall.worseBallId : winnerBall.betterBallId;
-                const tone = awardTo === 'A' ? 'side_a' : 'side_b';
-                decidingMarker =
-                    points === 5
-                        ? marker.diamond({ tone, label: 'Down-team eagle, +5' })
-                        : points === 2
-                          ? marker.doubleRing({ tone, label: 'Down-team birdie, +2' })
-                          : marker.ring({ tone, label: 'Hole won, +1' });
-            }
-
             const pushBall = (idx: number, score: PlayerHole, n: string) => {
                 const hole: BallHoleResult = {
                     ...holeIdentity(roundContext, ballResults[idx].ballId, occ),
@@ -343,9 +377,6 @@ export const talibanBetterBall: FormatStrategy = {
                     points: null,
                     note: n,
                 };
-                if (decidingMarker !== null && ballResults[idx].ballId === decidingBallId) {
-                    hole.marker = decidingMarker;
-                }
                 ballResults[idx].holes.push(hole);
             };
             pushBall(0, a1, aNote);

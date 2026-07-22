@@ -149,11 +149,12 @@ function renderScoreGridBase(
                         const c = cells.get(h.playHoleId);
                         const title = c?.title ? ` title="${esc(c.title)}"` : '';
                         const text = emph(esc(c?.display ?? ''));
-                        // A deciding-ball marker draws a shape (ring / double_ring /
-                        // diamond) around the score; a per-cell team (the standing row)
-                        // draws a filled colour pill. The marker's `label` carries the
-                        // golf meaning ("Down-team eagle, +5") — surface it as the
-                        // marker's tooltip + aria-label so the shape isn't opaque.
+                        // A score marker draws a shape (ring / double_ring / square …)
+                        // around the score; a per-cell team (standing row, deciding
+                        // ball) draws a filled colour pill. Both can coexist — a
+                        // deciding score that is also a net birdie renders its ring
+                        // INSIDE the team pill. The marker's `label` carries the golf
+                        // meaning ("Birdie (-1)") — surfaced as tooltip + aria-label.
                         const markTemplate = cellMarkerTemplate(c);
                         const markTone = cellMarkerToneClass(c);
                         const markLabel = c?.marker?.label;
@@ -163,7 +164,7 @@ function renderScoreGridBase(
                         let inner = markTemplate
                             ? `<span class="lb-mark lb-mark--${markTemplate}${markTone}"${markAttrs}>${text}</span>`
                             : text;
-                        if (c?.team) inner = `<span class="lb-pill lb-pill--${c.team}">${text}</span>`;
+                        if (c?.team) inner = `<span class="lb-pill lb-pill--${c.team}">${inner}</span>`;
                         return `<td class="${cellClass(row)}"${title}>${inner}</td>`;
                     })
                     .join('');

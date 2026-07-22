@@ -12,6 +12,12 @@
       "runtimeExecutable": "bunx",
       "runtimeArgs": ["vite", "--port", "5183", "--strictPort"],
       "port": 5183
+    },
+    {
+      "name": "tapscore-fixtures",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "5190", "-d", "tmp/formats"],
+      "port": 5190
     }
   ]
 }

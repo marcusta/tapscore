@@ -27,7 +27,6 @@ import {
     strokesGivenForBallPH,
 } from './_shared';
 import type { RoundContext, StrategyEvent } from '../types';
-import { marker } from '../result-vocabulary';
 
 export const MATCH_PLAY_INDIVIDUAL_ID = 'match_play_individual';
 
@@ -173,8 +172,6 @@ function computePair(
             net: sA.net,
             points: null,
             note: holeNoteA,
-            // The hole winner's ball gets the ring marker on the match card.
-            ...(status === 'won' ? { marker: marker.ring({ tone: 'side_a', label: 'Hole won' }) } : {}),
         });
         holesB.push({
             ...idB,
@@ -182,7 +179,6 @@ function computePair(
             net: sB.net,
             points: null,
             note: holeNoteB,
-            ...(status === 'lost' ? { marker: marker.ring({ tone: 'side_b', label: 'Hole won' }) } : {}),
         });
 
         let pairNote: string | undefined;
@@ -201,6 +197,9 @@ function computePair(
             fromB: sB.net,
             pointsDelta,
             note: pairNote,
+            // The hole winner's ball — the presenter highlights that cell.
+            decidingBallId:
+                status === 'won' ? ballA.ballId : status === 'lost' ? ballB.ballId : null,
         });
     }
 

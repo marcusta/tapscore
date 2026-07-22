@@ -28,7 +28,6 @@ import {
     resolveSingleProducer,
     strokesGivenMapForProducer,
 } from './_shared';
-import { marker } from '../result-vocabulary';
 
 export const MATCH_PLAY_BETTER_BALL_ID = 'match_play_better_ball';
 
@@ -242,8 +241,9 @@ export const matchPlayBetterBall: FormatStrategy = {
             const aNote = status === null ? noteA : `${statusShort(status)}${noteDetail ? ` (${noteDetail})` : ''} · ${noteA}`;
             const bNote = status === null ? noteB : `${statusShort(invert(status))}${noteDetail ? ` (${noteDetail})` : ''} · ${noteB}`;
 
-            // The winning side's BEST ball (lowest net) gets the ○ mark. Resolve
-            // it within the side's slice, then offset back to the global index.
+            // The winning side's BEST ball (lowest net) decided the hole. Resolve
+            // it within the side's slice, then offset back to the global index —
+            // the presenter highlights that cell (no win marker on the ball hole).
             let decidingIdx: number | null = null;
             if (status === 'won') {
                 const idx = bestBallIndex(holesA);
@@ -261,9 +261,6 @@ export const matchPlayBetterBall: FormatStrategy = {
                     net: h.net,
                     points: null,
                     note: isSideA ? aNote : bNote,
-                    ...(j === decidingIdx
-                        ? { marker: marker.ring({ tone: isSideA ? 'side_a' : 'side_b', label: 'Hole won' }) }
-                        : {}),
                 });
             });
 
@@ -282,6 +279,7 @@ export const matchPlayBetterBall: FormatStrategy = {
                 pointsDelta:
                     status === null ? null : status === 'won' ? 1 : status === 'lost' ? -1 : 0,
                 note: pairNote,
+                decidingBallId: decidingIdx === null ? null : allBalls[decidingIdx].ballId,
             });
         }
 

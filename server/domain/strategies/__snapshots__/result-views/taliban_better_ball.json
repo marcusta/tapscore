@@ -280,11 +280,8 @@
                 "holeNumber": 1,
                 "value": 4,
                 "display": "4",
-                "marker": {
-                  "template": "ring",
-                  "tone": "side_a",
-                  "label": "Hole won, +1"
-                }
+                "team": "a",
+                "title": "A +1"
               },
               {
                 "playHoleId": "<id:5>",
@@ -304,16 +301,23 @@
                 "value": 3,
                 "display": "3",
                 "marker": {
-                  "template": "diamond",
-                  "tone": "side_a",
-                  "label": "Down-team eagle, +5"
-                }
+                  "template": "double_ring",
+                  "tone": "success",
+                  "label": "Eagle (-2)"
+                },
+                "team": "a",
+                "title": "A +5 (down-team eagle)"
               },
               {
                 "playHoleId": "<id:8>",
                 "holeNumber": 5,
                 "value": 4,
-                "display": "4"
+                "display": "4",
+                "marker": {
+                  "template": "square",
+                  "tone": "danger",
+                  "label": "Bogey (+1)"
+                }
               },
               {
                 "playHoleId": "<id:9>",
@@ -374,11 +378,8 @@
                 "holeNumber": 15,
                 "value": 4,
                 "display": "4",
-                "marker": {
-                  "template": "ring",
-                  "tone": "side_a",
-                  "label": "Hole won, +1"
-                }
+                "team": "a",
+                "title": "A +1"
               },
               {
                 "playHoleId": "<id:19>",
@@ -411,7 +412,12 @@
                 "playHoleId": "<id:4>",
                 "holeNumber": 1,
                 "value": 5,
-                "display": "5"
+                "display": "5",
+                "marker": {
+                  "template": "square",
+                  "tone": "danger",
+                  "label": "Bogey (+1)"
+                }
               },
               {
                 "playHoleId": "<id:5>",
@@ -423,7 +429,12 @@
                 "playHoleId": "<id:6>",
                 "holeNumber": 3,
                 "value": 4,
-                "display": "4"
+                "display": "4",
+                "marker": {
+                  "template": "square",
+                  "tone": "danger",
+                  "label": "Bogey (+1)"
+                }
               },
               {
                 "playHoleId": "<id:7>",
@@ -443,10 +454,12 @@
                 "value": 6,
                 "display": "6",
                 "marker": {
-                  "template": "ring",
-                  "tone": "side_a",
-                  "label": "Hole won, +1"
-                }
+                  "template": "square",
+                  "tone": "danger",
+                  "label": "Bogey (+1)"
+                },
+                "team": "a",
+                "title": "A +1 (decided on worse-ball)"
               },
               {
                 "playHoleId": "<id:10>",
@@ -500,7 +513,12 @@
                 "playHoleId": "<id:18>",
                 "holeNumber": 15,
                 "value": 5,
-                "display": "5"
+                "display": "5",
+                "marker": {
+                  "template": "square",
+                  "tone": "danger",
+                  "label": "Bogey (+1)"
+                }
               },
               {
                 "playHoleId": "<id:19>",
@@ -533,7 +551,12 @@
                 "playHoleId": "<id:4>",
                 "holeNumber": 1,
                 "value": 5,
-                "display": "5"
+                "display": "5",
+                "marker": {
+                  "template": "square",
+                  "tone": "danger",
+                  "label": "Bogey (+1)"
+                }
               },
               {
                 "playHoleId": "<id:5>",
@@ -541,16 +564,23 @@
                 "value": 3,
                 "display": "3",
                 "marker": {
-                  "template": "double_ring",
-                  "tone": "side_b",
-                  "label": "Down-team birdie, +2"
-                }
+                  "template": "ring",
+                  "tone": "success",
+                  "label": "Birdie (-1)"
+                },
+                "team": "b",
+                "title": "B +2 (down-team birdie)"
               },
               {
                 "playHoleId": "<id:6>",
                 "holeNumber": 3,
                 "value": 4,
-                "display": "4"
+                "display": "4",
+                "marker": {
+                  "template": "square",
+                  "tone": "danger",
+                  "label": "Bogey (+1)"
+                }
               },
               {
                 "playHoleId": "<id:7>",
@@ -562,7 +592,12 @@
                 "playHoleId": "<id:8>",
                 "holeNumber": 5,
                 "value": 4,
-                "display": "4"
+                "display": "4",
+                "marker": {
+                  "template": "square",
+                  "tone": "danger",
+                  "label": "Bogey (+1)"
+                }
               },
               {
                 "playHoleId": "<id:9>",
@@ -622,7 +657,12 @@
                 "playHoleId": "<id:18>",
                 "holeNumber": 15,
                 "value": 5,
-                "display": "5"
+                "display": "5",
+                "marker": {
+                  "template": "square",
+                  "tone": "danger",
+                  "label": "Bogey (+1)"
+                }
               },
               {
                 "playHoleId": "<id:19>",
@@ -655,13 +695,23 @@
                 "playHoleId": "<id:4>",
                 "holeNumber": 1,
                 "value": 5,
-                "display": "5"
+                "display": "5",
+                "marker": {
+                  "template": "square",
+                  "tone": "danger",
+                  "label": "Bogey (+1)"
+                }
               },
               {
                 "playHoleId": "<id:5>",
                 "holeNumber": 2,
                 "value": 5,
-                "display": "5"
+                "display": "5",
+                "marker": {
+                  "template": "square",
+                  "tone": "danger",
+                  "label": "Bogey (+1)"
+                }
               },
               {
                 "playHoleId": "<id:6>",
@@ -679,13 +729,23 @@
                 "playHoleId": "<id:8>",
                 "holeNumber": 5,
                 "value": 4,
-                "display": "4"
+                "display": "4",
+                "marker": {
+                  "template": "square",
+                  "tone": "danger",
+                  "label": "Bogey (+1)"
+                }
               },
               {
                 "playHoleId": "<id:9>",
                 "holeNumber": 6,
                 "value": 7,
-                "display": "7"
+                "display": "7",
+                "marker": {
+                  "template": "double_square",
+                  "tone": "danger",
+                  "label": "Double bogey (+2)"
+                }
               },
               {
                 "playHoleId": "<id:10>",
@@ -739,7 +799,12 @@
                 "playHoleId": "<id:18>",
                 "holeNumber": 15,
                 "value": 5,
-                "display": "5"
+                "display": "5",
+                "marker": {
+                  "template": "square",
+                  "tone": "danger",
+                  "label": "Bogey (+1)"
+                }
               },
               {
                 "playHoleId": "<id:19>",

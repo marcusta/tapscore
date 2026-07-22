@@ -128,6 +128,8 @@ describe('talibanBetterBall (new contract)', () => {
         expect(h1.status).toBe('won');
         expect(h1.note).toContain('worse-ball');
         expect(h1.pointsDelta).toBe(1);
+        // The worse ball decided it — the presenter highlights that cell.
+        expect(h1.decidingBallId).toBe(bA2.ballId);
     });
 
     test('down-team eagle: team B down 1 makes eagle → +5', () => {
@@ -203,6 +205,177 @@ describe('talibanBetterBall (new contract)', () => {
         expect(h2.status).toBe('lost'); // B won the hole → A's perspective is "lost"
         expect(h2.pointsDelta).toBe(-2);
         expect(h2.note).toContain('down-team birdie');
+    });
+
+    test('matched birdie voids the down-team bonus → +1', () => {
+        const { ctx, balls, groupings } = setup();
+        const [bA1, bA2, bB1, bB2] = balls;
+        // Hole 1: A wins (4 vs 5) → B down 1.
+        // Hole 2: B1 birdies 3, but A1 ALSO birdies 3 — better balls tie, B wins
+        // on worse-ball (B2 4 vs A2 5). The birdie is not solo → no bonus.
+        const events = [
+            makeScoreEvent(bA1.ballId, 1, 4),
+            makeScoreEvent(bA2.ballId, 1, 4),
+            makeScoreEvent(bB1.ballId, 1, 5),
+            makeScoreEvent(bB2.ballId, 1, 5),
+            makeScoreEvent(bA1.ballId, 2, 3),
+            makeScoreEvent(bA2.ballId, 2, 5),
+            makeScoreEvent(bB1.ballId, 2, 3),
+            makeScoreEvent(bB2.ballId, 2, 4),
+        ];
+        const { pairResults } = talibanBetterBall.score({
+            roundContext: ctx,
+            slotBalls: balls,
+            slotTeamGroupings: groupings,
+            events,
+        });
+        const h2 = pairResults![0].holes.find((h) => h.holeNumber === 2)!;
+        expect(h2.status).toBe('lost'); // B won the hole
+        expect(h2.pointsDelta).toBe(-1);
+        expect(h2.note).toContain('bonus void');
+    });
+
+    test('down-team eagle stands over an opposing birdie → +5 (solo at its own level)', () => {
+        const { ctx, balls, groupings } = setup();
+        const [bA1, bA2, bB1, bB2] = balls;
+        // Hole 1: A wins → B down 1.
+        // Hole 2: B1 eagles 2; A1 birdies 3. No opposing eagle → the eagle is
+        // solo at its own level, the opposing birdie does not void it.
+        const events = [
+            makeScoreEvent(bA1.ballId, 1, 4),
+            makeScoreEvent(bA2.ballId, 1, 4),
+            makeScoreEvent(bB1.ballId, 1, 5),
+            makeScoreEvent(bB2.ballId, 1, 5),
+            makeScoreEvent(bA1.ballId, 2, 3),
+            makeScoreEvent(bA2.ballId, 2, 4),
+            makeScoreEvent(bB1.ballId, 2, 2),
+            makeScoreEvent(bB2.ballId, 2, 4),
+        ];
+        const { pairResults } = talibanBetterBall.score({
+            roundContext: ctx,
+            slotBalls: balls,
+            slotTeamGroupings: groupings,
+            events,
+        });
+        const h2 = pairResults![0].holes.find((h) => h.holeNumber === 2)!;
+        expect(h2.status).toBe('lost');
+        expect(h2.pointsDelta).toBe(-5);
+        expect(h2.note).toContain('down-team eagle');
+    });
+
+    test('matched eagle voids the eagle bonus (and the birdie tier) → +1', () => {
+        const { ctx, balls, groupings } = setup();
+        const [bA1, bA2, bB1, bB2] = balls;
+        // Hole 1: A wins → B down 1.
+        // Hole 2: both sides eagle 2; B wins on worse-ball. Nothing is solo at
+        // any level (an eagle is also birdie-or-better) → plain +1.
+        const events = [
+            makeScoreEvent(bA1.ballId, 1, 4),
+            makeScoreEvent(bA2.ballId, 1, 4),
+            makeScoreEvent(bB1.ballId, 1, 5),
+            makeScoreEvent(bB2.ballId, 1, 5),
+            makeScoreEvent(bA1.ballId, 2, 2),
+            makeScoreEvent(bA2.ballId, 2, 5),
+            makeScoreEvent(bB1.ballId, 2, 2),
+            makeScoreEvent(bB2.ballId, 2, 4),
+        ];
+        const { pairResults } = talibanBetterBall.score({
+            roundContext: ctx,
+            slotBalls: balls,
+            slotTeamGroupings: groupings,
+            events,
+        });
+        const h2 = pairResults![0].holes.find((h) => h.holeNumber === 2)!;
+        expect(h2.status).toBe('lost');
+        expect(h2.pointsDelta).toBe(-1);
+        expect(h2.note).toContain('bonus void');
+    });
+
+    test("teammate's matching birdie does NOT void the bonus → +2", () => {
+        const { ctx, balls, groupings } = setup();
+        const [bA1, bA2, bB1, bB2] = balls;
+        // Hole 1: A wins → B down 1.
+        // Hole 2: BOTH B members birdie 3; A makes 4/4. The feat is unmatched
+        // by the opposition — two teammate birdies still earn the bonus.
+        const events = [
+            makeScoreEvent(bA1.ballId, 1, 4),
+            makeScoreEvent(bA2.ballId, 1, 4),
+            makeScoreEvent(bB1.ballId, 1, 5),
+            makeScoreEvent(bB2.ballId, 1, 5),
+            makeScoreEvent(bA1.ballId, 2, 4),
+            makeScoreEvent(bA2.ballId, 2, 4),
+            makeScoreEvent(bB1.ballId, 2, 3),
+            makeScoreEvent(bB2.ballId, 2, 3),
+        ];
+        const { pairResults } = talibanBetterBall.score({
+            roundContext: ctx,
+            slotBalls: balls,
+            slotTeamGroupings: groupings,
+            events,
+        });
+        const h2 = pairResults![0].holes.find((h) => h.holeNumber === 2)!;
+        expect(h2.pointsDelta).toBe(-2);
+        expect(h2.note).toContain('down-team birdie');
+    });
+
+    test("bonusRule 'net': a net birdie (gross par, with a stroke) earns the bonus", () => {
+        const courseHoles = make18Holes();
+        const ctx = makeRoundContext(courseHoles, [
+            makeProducer('P1', { courseHandicap: 0 }),
+            makeProducer('P2', { courseHandicap: 0 }),
+            makeProducer('P3', { courseHandicap: 18 }),
+            makeProducer('P4', { courseHandicap: 0 }),
+        ]);
+        // P3 plays with 18 strokes → one per hole; net = gross − 1 everywhere.
+        const bA1 = makeOwnBall('P1', 0, 0);
+        const bA2 = makeOwnBall('P2', 0, 0);
+        const bB1 = makeOwnBall('P3', 18, 18);
+        const bB2 = makeOwnBall('P4', 0, 0);
+        const balls = [bA1, bA2, bB1, bB2];
+        const groupings = [
+            { teamLabel: 'A', ballIds: [bA1.ballId, bA2.ballId] },
+            { teamLabel: 'B', ballIds: [bB1.ballId, bB2.ballId] },
+        ];
+        // Hole 1: A 3/3 (net 3) vs B1 gross 5 net 4, B2 5 → A wins, B down 1.
+        // Hole 2: A 4/4; B1 gross 4 net 3 wins — a NET birdie, gross par.
+        const events = [
+            makeScoreEvent(bA1.ballId, 1, 3),
+            makeScoreEvent(bA2.ballId, 1, 3),
+            makeScoreEvent(bB1.ballId, 1, 5),
+            makeScoreEvent(bB2.ballId, 1, 5),
+            makeScoreEvent(bA1.ballId, 2, 4),
+            makeScoreEvent(bA2.ballId, 2, 4),
+            makeScoreEvent(bB1.ballId, 2, 4),
+            makeScoreEvent(bB2.ballId, 2, 5),
+        ];
+        const score = (formatConfig?: unknown) =>
+            talibanBetterBall.score({
+                roundContext: ctx,
+                slotBalls: balls,
+                slotTeamGroupings: groupings,
+                events,
+                ...(formatConfig !== undefined ? { formatConfig } : {}),
+            });
+
+        // Default (gross): gross par is no feat → plain +1.
+        const gross = score().pairResults![0].holes.find((h) => h.holeNumber === 2)!;
+        expect(gross.pointsDelta).toBe(-1);
+        expect(gross.note).not.toContain('down-team birdie');
+
+        // Net rule: net 3 on par 4 is a solo net birdie → +2.
+        const net = score({ bonusRule: 'net' }).pairResults![0].holes.find((h) => h.holeNumber === 2)!;
+        expect(net.pointsDelta).toBe(-2);
+        expect(net.note).toContain('down-team birdie');
+    });
+
+    test('validateConfig: rejects an unknown bonusRule, accepts gross/net/absent', () => {
+        expect(talibanBetterBall.validateConfig!({ bonusRule: 'both' })).toMatchObject([
+            { code: 'taliban_bonus_rule_invalid', path: 'bonusRule' },
+        ]);
+        expect(talibanBetterBall.validateConfig!({ bonusRule: 'gross' })).toEqual([]);
+        expect(talibanBetterBall.validateConfig!({ bonusRule: 'net' })).toEqual([]);
+        expect(talibanBetterBall.validateConfig!(undefined)).toEqual([]);
+        expect(talibanBetterBall.validateConfig!({})).toEqual([]);
     });
 
     test('ballRequirement: 4 balls, 2 teams of 2', () => {

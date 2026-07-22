@@ -217,12 +217,13 @@ describe('matchPlayBetterBall (new contract)', () => {
         expect(h1.fromA).toBe(4);
         expect(h1.fromB).toBe(5);
 
-        // The deciding-ball ○ marker sits on A's third member (the par), not the
-        // two bogey balls.
+        // A's third member (the par) decided the hole — carried on the pair
+        // hole for the presenter's highlight, never as a ball-hole marker.
+        expect(h1.decidingBallId).toBe(a[2].ballId);
         const markedH1 = ballResults
             .filter((r) => r.holes.find((h) => h.holeNumber === 1 && h.marker))
             .map((r) => r.ballId);
-        expect(markedH1).toEqual([a[2].ballId]);
+        expect(markedH1).toEqual([]);
     });
 
     test('no-ball forfeit: B both pick up, A has ball → A wins hole', () => {

@@ -328,6 +328,25 @@ test('draftToForms recovers preset + start hole from a rotated custom route', ()
     expect(forms.startHole).toBe(7);
 });
 
+test("draftToForms restores taliban's bonusRule from formatConfig", () => {
+    const input: StoredDraft = {
+        courseId: 'c1',
+        producers: [{ producerDefId: 'p1', playerRef: { kind: 'guest', id: 'g' }, handicapIndex: 10, teeId: 't1' }],
+        formats: [
+            {
+                formatId: 'taliban_better_ball',
+                subjects: [],
+                formatConfig: { bonusRule: 'net' },
+            },
+            // No config → the form leaves bonusRule unset (reads as gross).
+            { formatId: 'stableford_individual', subjects: [{ kind: 'player', producerDefId: 'p1' }] },
+        ],
+    };
+    const forms = draftToForms(input);
+    expect(forms.formatSlots[0]!.bonusRule).toBe('net');
+    expect(forms.formatSlots[1]!.bonusRule).toBeUndefined();
+});
+
 test('draftToForms marks an unticked player subject as explicitly excluded', () => {
     const input = makeStoredDraft();
     const forms = draftToForms(input);

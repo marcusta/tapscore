@@ -32,15 +32,26 @@ function buildPairCard(
     const pairById = new Map<string, PairBallResult['holes'][number]>();
     for (const ph of pair.holes) if (ph.playHoleId !== undefined) pairById.set(ph.playHoleId, ph);
 
-    // Compact match card: Par, then every player's net (team-tinted, with the
-    // deciding-ball shape per hole), then ONE running standing row. The verbose
-    // per-side points/run/status rows are gone — the shapes + standing carry it.
+    // Compact match card: Par, then every player's net (team-tinted, standard
+    // score-to-par markers, the deciding ball's cell pilled in team colour),
+    // then ONE running standing row. The win story lives in the pill + the
+    // standing row; score shapes always mean score quality.
     const rows: GridRow[] = [parRow(cols)];
+
+    // Per ball: the holes it decided (playHoleId → the pair note, e.g.
+    // "A +2 (down-team birdie)"), straight from the strategy's decidingBallId.
+    const decidingByBall = new Map<string, Map<string, string | undefined>>();
+    for (const ph of pair.holes) {
+        if (!ph.decidingBallId || ph.playHoleId === undefined) continue;
+        let m = decidingByBall.get(ph.decidingBallId);
+        if (!m) decidingByBall.set(ph.decidingBallId, (m = new Map()));
+        m.set(ph.playHoleId, ph.note);
+    }
 
     const sideNetRows = (side: { ballIds: string[] }, team: 'a' | 'b'): void => {
         for (const ballId of side.ballIds) {
             const r = byBall.get(ballId);
-            if (r) rows.push(matchNetRow(cols, r, team));
+            if (r) rows.push(matchNetRow(cols, r, team, decidingByBall.get(ballId)));
         }
     };
     sideNetRows(pair.sideA, 'a');

@@ -149,9 +149,13 @@ function renderScoreGrid(
                         const markerAttrs = marker?.label
                             ? ` title="${esc(marker.label)}" aria-label="${esc(marker.label)}"`
                             : '';
-                        const inner = marker
+                        let inner = marker
                             ? `<span class="mark mark--${esc(marker.template)}${markerToneClass(marker.tone)}"${markerAttrs}>${text}</span>`
                             : text;
+                        // Per-cell team (standing row, deciding ball): filled
+                        // colour pill, marker (if any) drawn inside — mirrors
+                        // the client renderer's composition.
+                        if (c?.team) inner = `<span class="pill pill--${c.team}">${inner}</span>`;
                         return `<td class="${cellClass(row)}"${title}>${inner}</td>`;
                     })
                     .join('');
