@@ -24,7 +24,10 @@ const tpl = template(`
 export class LeaderboardComponent extends Component {
     static styles = `
         .lb {
-            padding: ${s('lg')} ${s('lg')} ${s('2xl')};
+            /* Horizontal gutters come from the host panel (.round-view__main
+               already pads lg) — padding here would double-indent every
+               section relative to the page header and waste table width. */
+            padding: ${s('lg')} 0 ${s('2xl')};
 
             & .lb__status {
                 color: ${t('text-muted')};
