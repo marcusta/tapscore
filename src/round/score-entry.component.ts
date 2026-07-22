@@ -240,6 +240,9 @@ export class ScoreEntryComponent extends Component {
                 transition: background 0.15s;
                 &:active { background: ${t('accent')}; }
                 &.empty { color: ${t('text-muted')}; background: ${t('surface-sunken')}; }
+                /* Handicap hint in an unscored circle ("-1"/"0"/"+1") — smaller
+                   and quieter than a real score, so it reads as a preview. */
+                &.hint { font-size: 0.95rem; opacity: 0.8; }
             }
             /* Phase 5.5 — unclaimed placeholder seat: muted label, inert circle. */
             & .se-row__name--pending { color: ${t('text-muted')}; font-style: italic; }
@@ -298,6 +301,8 @@ export class ScoreEntryComponent extends Component {
                 font-variant-numeric: tabular-nums;
             }
             &.sel .se-mrow__circle { background: #fff; color: ${t('primary')}; }
+            /* Handicap hint in an unscored circle — faint, Gamebook-style. */
+            & .se-mrow__val--hint { opacity: 0.55; font-size: 1rem; }
         }
 
         .se-pad { position: relative; padding: ${s('sm')} ${s('sm')} ${s('xl')}; background: #1c1c1e; }
@@ -503,6 +508,18 @@ export class ScoreEntryComponent extends Component {
     /** Strokes display: no-result → "–", pickup(0) → "0", else the count. */
     private displayScore = (strokes: number | null): string =>
         strokes === null ? '–' : String(strokes);
+
+    /**
+     * Gamebook-style hint shown in an UNSCORED circle: how handicap will
+     * modify the gross on this hole ("-1" = one stroke received, "+1" = a
+     * plus-handicap giveback, "0" = plays off scratch here). `null` (→ the
+     * plain "–" placeholder) when the round carries no playing handicap.
+     */
+    private hintText = (ballId: string, playHoleId: string): string | null => {
+        const n = this.svc.strokesHintFor(ballId, playHoleId);
+        if (n === null) return null;
+        return n === 0 ? '0' : n > 0 ? `-${n}` : `+${-n}`;
+    };
 
     /** Running to-par over scored holes (>0 strokes; pickup/no-result excluded). */
     private toParValue = (ball: RoundBall): number | null => {
@@ -751,12 +768,19 @@ export class ScoreEntryComponent extends Component {
                     textContent: () =>
                         prevPlayHoleId ? this.displayScore(this.svc.strokesFor(ball.id, prevPlayHoleId)) : '',
                 },
-                cval: { textContent: () => this.displayScore(this.svc.strokesFor(ball.id, playHoleId)) },
+                cval: {
+                    textContent: () => {
+                        const st = this.svc.strokesFor(ball.id, playHoleId);
+                        if (st !== null) return this.displayScore(st);
+                        return this.hintText(ball.id, playHoleId) ?? '–';
+                    },
+                },
                 circle: {
-                    className: () =>
-                        this.svc.strokesFor(ball.id, playHoleId) === null
-                            ? 'se-row__circle empty'
-                            : 'se-row__circle',
+                    className: () => {
+                        if (this.svc.strokesFor(ball.id, playHoleId) !== null) return 'se-row__circle';
+                        const hinted = this.hintText(ball.id, playHoleId) !== null;
+                        return hinted ? 'se-row__circle empty hint' : 'se-row__circle empty';
+                    },
                     onclick: () => this.openModalForBall(ball.id),
                 },
             },
@@ -784,7 +808,18 @@ export class ScoreEntryComponent extends Component {
                 mval: {
                     textContent: () => {
                         const ph = this.currentHole();
-                        return ph ? this.displayScore(this.svc.strokesFor(ball.id, ph.playHoleId)) : '–';
+                        if (!ph) return '–';
+                        const st = this.svc.strokesFor(ball.id, ph.playHoleId);
+                        if (st !== null) return this.displayScore(st);
+                        return this.hintText(ball.id, ph.playHoleId) ?? '–';
+                    },
+                    className: () => {
+                        const ph = this.currentHole();
+                        const unscored =
+                            !!ph && this.svc.strokesFor(ball.id, ph.playHoleId) === null;
+                        const hinted =
+                            unscored && !!ph && this.hintText(ball.id, ph.playHoleId) !== null;
+                        return hinted ? 'se-mrow__val se-mrow__val--hint' : 'se-mrow__val';
                     },
                 },
             },

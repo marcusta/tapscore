@@ -14,6 +14,7 @@ import type {
     StartListView,
 } from '../api/friendly-rounds.gen';
 import type { MetadataApplies, MetadataInput } from '../api/setup.gen';
+import { strokesReceivedForStrokeIndex } from '../create/handicap';
 import { FormatCatalogService } from '../create/format-catalog.service';
 import { clampIndex } from './hole-carousel';
 import { PendingScoreQueue } from './pending-queue';
@@ -502,6 +503,39 @@ export class RoundViewService {
 
     statusFor(ballId: string, playHoleId: string): CellState['status'] | null {
         return this.cells.get().get(cellKey(ballId, playHoleId))?.status ?? null;
+    }
+
+    /**
+     * Gamebook-style per-hole handicap hint: how many strokes this ball's
+     * playing handicap gives it on one occurrence, under the SELECTED format
+     * slot (falls back to the ball's first slot). Positive = strokes received
+     * (net = gross − n); negative = a plus-handicap giveback. `null` when no
+     * hint applies: pending seat, no PH on the slot, or unknown hole.
+     *
+     * DISPLAY ONLY — mirrors the server's allocation (`strokesGivenMapForBall`:
+     * first-producer tee resolves the effective SI, tee override → base) via
+     * the client mirror of `strokesReceivedForStrokeIndex`. The server's net
+     * stays authoritative; format-level PH tweaks (match-play normalization
+     * off the low ball) are deliberately not reproduced here.
+     */
+    strokesHintFor(ballId: string, playHoleId: string): number | null {
+        const r = this.round.get();
+        if (!r) return null;
+        const ball = this.balls.get().find((b) => b.id === ballId);
+        if (!ball || ball.pending) return null;
+        const slotDefId = this.selectedSlotDefId();
+        const slot = ball.slots.find((s) => s.slotDefId === slotDefId) ?? ball.slots[0];
+        const ph = slot?.playingHandicap;
+        if (ph == null) return null;
+        const hole = this.playHoleById(playHoleId);
+        if (!hole) return null;
+        // First-producer convention, as on the server: a team ball's SI
+        // reference is its first producer's tee. The payload's per-tee
+        // `strokeIndex` is already the effective value (override → base).
+        const teeName = ball.players[0]?.teeName ?? null;
+        const si =
+            hole.tees.find((tee) => tee.teeName === teeName)?.strokeIndex ?? hole.baseStrokeIndex;
+        return strokesReceivedForStrokeIndex(ph, si, r.routeSi.allocationCycleSize);
     }
 
     // --- Per-hole metadata (umbrella GIR/fairway) ---
