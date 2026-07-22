@@ -311,13 +311,8 @@
               {
                 "playHoleId": "<id:8>",
                 "holeNumber": 5,
-                "value": 4,
-                "display": "4",
-                "marker": {
-                  "template": "square",
-                  "tone": "danger",
-                  "label": "Bogey (+1)"
-                }
+                "value": 3,
+                "display": "3"
               },
               {
                 "playHoleId": "<id:9>",
@@ -591,13 +586,8 @@
               {
                 "playHoleId": "<id:8>",
                 "holeNumber": 5,
-                "value": 4,
-                "display": "4",
-                "marker": {
-                  "template": "square",
-                  "tone": "danger",
-                  "label": "Bogey (+1)"
-                }
+                "value": 3,
+                "display": "3"
               },
               {
                 "playHoleId": "<id:9>",
@@ -728,13 +718,8 @@
               {
                 "playHoleId": "<id:8>",
                 "holeNumber": 5,
-                "value": 4,
-                "display": "4",
-                "marker": {
-                  "template": "square",
-                  "tone": "danger",
-                  "label": "Bogey (+1)"
-                }
+                "value": 3,
+                "display": "3"
               },
               {
                 "playHoleId": "<id:9>",

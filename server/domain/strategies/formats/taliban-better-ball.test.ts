@@ -368,6 +368,53 @@ describe('talibanBetterBall (new contract)', () => {
         expect(net.note).toContain('down-team birdie');
     });
 
+    test('match play normalization: low PH plays 0, others the delta — plus player gives nothing back', () => {
+        const courseHoles = make18Holes();
+        const ctx = makeRoundContext(courseHoles, [
+            makeProducer('P1', { courseHandicap: -1 }),
+            makeProducer('P2', { courseHandicap: 0 }),
+            makeProducer('P3', { courseHandicap: 3 }),
+            makeProducer('P4', { courseHandicap: 3 }),
+        ]);
+        // Raw PHs −1/0/3/3 → effective 0/1/4/4. Without normalization the plus
+        // player would give a stroke back on SI 18 (net = gross + 1 there).
+        const bA1 = makeOwnBall('P1', -1, -1);
+        const bA2 = makeOwnBall('P2', 0, 0);
+        const bB1 = makeOwnBall('P3', 3, 3);
+        const bB2 = makeOwnBall('P4', 3, 3);
+        const balls = [bA1, bA2, bB1, bB2];
+        const groupings = [
+            { teamLabel: 'A', ballIds: [bA1.ballId, bA2.ballId] },
+            { teamLabel: 'B', ballIds: [bB1.ballId, bB2.ballId] },
+        ];
+        const events = [1, 4, 18].flatMap((h) => [
+            makeScoreEvent(bA1.ballId, h, 4),
+            makeScoreEvent(bA2.ballId, h, 4),
+            makeScoreEvent(bB1.ballId, h, 5),
+            makeScoreEvent(bB2.ballId, h, 5),
+        ]);
+        const { ballResults } = talibanBetterBall.score({
+            roundContext: ctx,
+            slotBalls: balls,
+            slotTeamGroupings: groupings,
+            events,
+        });
+        const net = (idx: number, hole: number): number | null =>
+            ballResults[idx].holes.find((h) => h.holeNumber === hole)!.net;
+
+        // P1 (eff 0): no strokes anywhere — gross 4 on SI 18 stays net 4.
+        expect(net(0, 18)).toBe(4);
+        expect(net(0, 1)).toBe(4);
+        // P2 (eff 1): one stroke, on SI 1 only.
+        expect(net(1, 1)).toBe(3);
+        expect(net(1, 4)).toBe(4);
+        // P3/P4 (eff 4): strokes on SI 1–4, nothing on SI 18.
+        expect(net(2, 1)).toBe(4);
+        expect(net(2, 4)).toBe(4);
+        expect(net(2, 18)).toBe(5);
+        expect(net(3, 4)).toBe(4);
+    });
+
     test('validateConfig: rejects an unknown bonusRule, accepts gross/net/absent', () => {
         expect(talibanBetterBall.validateConfig!({ bonusRule: 'both' })).toMatchObject([
             { code: 'taliban_bonus_rule_invalid', path: 'bonusRule' },

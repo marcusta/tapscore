@@ -3,9 +3,10 @@
   "configurations": [
     {
       "name": "tapscore-server",
-      "runtimeExecutable": "env",
-      "runtimeArgs": ["PORT=3030", "bun", "--watch", "server/main.ts"],
-      "port": 3030
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["--watch", "server/main.ts"],
+      "port": 3030,
+      "autoPort": true
     },
     {
       "name": "tapscore-client",

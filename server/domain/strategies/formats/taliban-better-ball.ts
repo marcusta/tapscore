@@ -42,6 +42,7 @@ import {
     groupBallsByTeam,
     holeIdentity,
     latestScoresByPlayHole,
+    normalizeMatchPlayPHs,
     resolveSingleProducer,
     strokesGivenMapForProducer,
 } from './_shared';
@@ -85,17 +86,14 @@ interface TeamBall {
 
 function buildCtx(
     ball: SlotBall,
+    effectivePH: number,
     ctx: RoundContext,
     events: StrategyEvent[],
 ): BallCtx {
     const p = resolveSingleProducer(ball);
     return {
         ball,
-        strokesByPlayHole: strokesGivenMapForProducer(
-            p.producerDefId,
-            ball.playingHandicapSnapshot,
-            ctx,
-        ),
+        strokesByPlayHole: strokesGivenMapForProducer(p.producerDefId, effectivePH, ctx),
         scores: latestScoresByPlayHole(events, ball.ballId),
     };
 }
@@ -200,10 +198,14 @@ export const talibanBetterBall: FormatStrategy = {
         const refBallId = teamA.balls[0].ballId;
         const ordered = roundContext.playedOrderForBall(refBallId);
 
-        const ctxA1 = buildCtx(teamA.balls[0], roundContext, events);
-        const ctxA2 = buildCtx(teamA.balls[1], roundContext, events);
-        const ctxB1 = buildCtx(teamB.balls[0], roundContext, events);
-        const ctxB2 = buildCtx(teamB.balls[1], roundContext, events);
+        // Match play: strokes are taken relative to the low ball — the lowest
+        // PH plays off 0 and everyone else off the difference. A plus-handicap
+        // player therefore never gives strokes back to the course in taliban.
+        const allBalls = [teamA.balls[0], teamA.balls[1], teamB.balls[0], teamB.balls[1]];
+        const effPHs = normalizeMatchPlayPHs(allBalls.map((b) => b.playingHandicapSnapshot));
+        const [ctxA1, ctxA2, ctxB1, ctxB2] = allBalls.map((b, i) =>
+            buildCtx(b, effPHs[i], roundContext, events),
+        );
 
         const ballResults: BallResult[] = [
             { ballId: ctxA1.ball.ballId, holes: [], totals: [], holesPlayed: 0 },
