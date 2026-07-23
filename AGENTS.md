@@ -23,6 +23,12 @@ must not silently follow the sibling checkout's HEAD.
 
 See ./game-rules.md for specfic instructions around how golf game works in Tapscore.
 
+Changing scorecard rendering, cell decorations (birdie/bogey markers), or how
+a format presents its results/leaderboard? Read
+[docs/scorecard-presentation.md](docs/scorecard-presentation.md) first — it
+maps the server-presenter → client-renderer pipeline and the closed
+presentation vocabulary.
+
 ## Dependencies
 
 `@basics/core` is installed via `file:./vendor/basics-core`. Behaviour:

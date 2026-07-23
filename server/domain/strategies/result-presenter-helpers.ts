@@ -137,7 +137,10 @@ export function ballScoreRows(
             const hr = byId.get(c.playHoleId);
             const g = hr?.gross ?? null;
             const gc = cell(c, g, grossText(g));
-            return hr?.marker ? { ...gc, marker: hr.marker } : gc;
+            // House score-to-par decoration on every gross score; a hole
+            // result's own marker (set by a format's score()) wins over it.
+            const m = hr?.marker ?? scoreToParMarker({ strokes: g, par: c.par });
+            return m ? { ...gc, marker: m } : gc;
         }),
     });
     if (opts.net !== false) {
@@ -148,7 +151,9 @@ export function ballScoreRows(
             aggregate: 'sum',
             cells: cols.map((c) => {
                 const n = byId.get(c.playHoleId)?.net ?? null;
-                return cell(c, n, netText(n));
+                const nc = cell(c, n, netText(n));
+                const m = scoreToParMarker({ strokes: n, par: c.par, holeInOne: false });
+                return m ? { ...nc, marker: m } : nc;
             }),
         });
     }
@@ -338,7 +343,7 @@ export function matchNetRow(
             const n = hr?.net ?? null;
             let gc = cell(c, n, n === null ? '–' : String(n));
             if (markers === 'standard') {
-                const m = scoreToParMarker({ strokes: n, par: c.par });
+                const m = scoreToParMarker({ strokes: n, par: c.par, holeInOne: false });
                 if (m) gc = { ...gc, marker: m };
             }
             const dh = deciding?.get(c.playHoleId);

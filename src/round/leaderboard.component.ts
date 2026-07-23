@@ -276,54 +276,47 @@ export class LeaderboardComponent extends Component {
             }
             & .lb-pill--a { background: #c2452f; }
             & .lb-pill--b { background: #2c6cae; }
-            /* Deciding-ball marker shapes (presentation vocabulary): ring (base
-               ○), double_ring (◎), diamond (◇). The marker's label carries the
-               golf meaning; these class names stay presentation-only. */
+            /* Score marker shapes (presentation vocabulary), Golf Gamebook
+               idiom: FILLED circles for under-par scores, FILLED squares for
+               over-par, white number, colour encodes magnitude (red −1,
+               orange −2, yellow −3+/HIO; light blue +1, dark blue +2 or
+               worse). The marker's label carries the golf meaning; these
+               class names stay presentation-only. */
             & .lb-mark {
                 display: inline-flex; align-items: center; justify-content: center;
                 box-sizing: border-box; width: 1.7em; height: 1.7em; line-height: 1;
                 /* Digits sit high in their line box, so nudge down to optically centre. */
                 padding-top: 0.12em; vertical-align: middle;
-                border: 2px solid currentColor; border-radius: 999px;
+                border-radius: 999px; font-weight: 700;
             }
-            & .lb-mark--double_ring { border-width: 3px; border-style: double; }
-            & .lb-mark--diamond { border: none; position: relative; }
-            & .lb-mark--diamond::before {
-                content: ''; position: absolute; left: 50%; top: 50%;
-                width: 1.2em; height: 1.2em; transform: translate(-50%, -50%) rotate(45deg);
+            /* Outline pill forms (badge/dot) keep currentColor + tone tints. */
+            & .lb-mark--badge {
+                width: auto; min-width: 1.8em;
+                padding-left: 0.45em; padding-right: 0.45em;
                 border: 2px solid currentColor;
             }
-            & .lb-mark--square {
-                border-radius: 3px;
-            }
-            & .lb-mark--double_square {
-                border-radius: 3px;
-                border-width: 3px;
-                border-style: double;
-            }
-            & .lb-mark--badge {
-                width: auto;
-                min-width: 1.8em;
-                padding-left: 0.45em;
-                padding-right: 0.45em;
-                border-radius: 999px;
-            }
-            & .lb-mark--box_badge {
-                width: auto;
-                min-width: 1.8em;
-                padding-left: 0.45em;
-                padding-right: 0.45em;
-                border-radius: 3px;
-            }
-            & .lb-mark-tone--success { color: #267348; }
-            & .lb-mark-tone--warning { color: #946200; }
-            & .lb-mark-tone--danger { color: #9b332a; }
+            & .lb-mark--badge.lb-mark-tone--success { color: #267348; }
+            & .lb-mark--badge.lb-mark-tone--warning { color: #946200; }
+            & .lb-mark--badge.lb-mark-tone--danger { color: #9b332a; }
+            /* Filled forms — declared after the tone rules so white text wins. */
+            & .lb-mark--ring { background: #d63b2f; color: #fff; }
+            & .lb-mark--double_ring { background: #e0862c; color: #fff; }
+            & .lb-mark--diamond { background: #e0b41f; color: #fff; }
+            & .lb-mark--square,
+            & .lb-mark--double_square,
+            & .lb-mark--box_badge { border-radius: 3px; }
+            & .lb-mark--square { background: #5b9bd5; color: #fff; }
+            & .lb-mark--double_square,
+            & .lb-mark--box_badge { background: #1f4e79; color: #fff; }
             /* Deciding ball whose score is decorated: the marker's own shape gets
                the team fill — white number and white outline on the team colour.
-               Declared AFTER the tone rules so the fill's white wins. The outer
-               box-shadow halo in the team colour is load-bearing: without it the
-               white outline vanishes against the page background and a filled
-               ring is indistinguishable from the plain standing pill. */
+               Declared AFTER the shape fills so the team colour wins. The white
+               border + outer box-shadow halo are load-bearing: without them a
+               filled bonus ring is indistinguishable from the plain standing
+               pill (the score-to-par shapes above carry no outline). */
+            & .lb-mark-fill--a, & .lb-mark-fill--b { border: 2px solid #fff; }
+            & .lb-mark--double_ring.lb-mark-fill--a,
+            & .lb-mark--double_ring.lb-mark-fill--b { border-width: 3px; border-style: double; }
             & .lb-mark-fill--a { background: #c2452f; color: #fff; box-shadow: 0 0 0 2.5px #c2452f; }
             & .lb-mark-fill--b { background: #2c6cae; color: #fff; box-shadow: 0 0 0 2.5px #2c6cae; }
             & .lb-card__caption { margin: ${s('sm')} 0 0; font-size: 0.72rem; font-style: italic; color: ${t('text-muted')}; }

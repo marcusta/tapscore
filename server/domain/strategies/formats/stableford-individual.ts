@@ -5,7 +5,6 @@
 
 import type { FormatStrategy } from '../format-strategy';
 import type { BallHoleResult, BallResult, StrategyResult } from '../types';
-import { scoreToParMarker } from '../result-vocabulary';
 import { deriveAllowance, holeIdentity, latestScoresByPlayHole, strokesGivenMapForBall } from './_shared';
 
 export const STABLEFORD_INDIVIDUAL_ID = 'stableford_individual';
@@ -63,7 +62,6 @@ export const stablefordIndividual: FormatStrategy = {
                     gross: strokes,
                     net,
                     points,
-                    marker: scoreToParMarker({ strokes, par: occ.par }),
                     note: `${points} pts (netPar ${netPar} − ${strokes} = ${diffStr})`,
                 });
             }

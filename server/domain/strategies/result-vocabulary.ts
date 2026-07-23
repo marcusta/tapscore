@@ -21,9 +21,9 @@
 //      *visual form* no existing shape expresses. Each new template is one edit
 //      here, guarded by the exhaustive `assertNever` switch.
 //
-// Phase 0 status: this vocabulary is defined and unit-tested but NOT yet wired
-// into the live `result-sections.ts` / format presenter output. Nothing emits
-// it; no pixels move. Wiring happens in later phases.
+// Status: LIVE. `scoreToParMarker` markers ride on gross/net cells via
+// `ballScoreRows` / `matchNetRow` (result-presenter-helpers.ts) and render as
+// the filled Gamebook-style shapes in `src/round/leaderboard.component.ts`.
 
 // --- closed presentation unions -------------------------------------------
 
@@ -265,12 +265,19 @@ export const marker = {
  * the human-readable label. Formats opt in when they want house-consistent score
  * embellishments without inventing their own visual vocabulary.
  */
-export function scoreToParMarker(input: { strokes: number | null; par: number | null }): CellMarker | undefined {
+export function scoreToParMarker(input: {
+    strokes: number | null;
+    par: number | null;
+    /** False when `strokes` is a NET score — a net 1 is not a hole-in-one, so
+     * it classifies by its diff-to-par like any other value. Default true. */
+    holeInOne?: boolean;
+}): CellMarker | undefined {
     const { strokes, par } = input;
     if (strokes === null || par === null || strokes <= 0) return undefined;
     const diff = strokes - par;
     if (diff === 0) return undefined;
-    if (strokes === 1) return marker.diamond({ tone: 'success', label: 'Hole in one' });
+    if (strokes === 1 && input.holeInOne !== false)
+        return marker.diamond({ tone: 'success', label: 'Hole in one' });
     if (diff <= -3) return marker.diamond({ tone: 'success', label: `Albatross (${diff})` });
     if (diff === -2) return marker.doubleRing({ tone: 'success', label: 'Eagle (-2)' });
     if (diff === -1) return marker.ring({ tone: 'success', label: 'Birdie (-1)' });
