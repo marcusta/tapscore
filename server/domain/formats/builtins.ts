@@ -61,9 +61,11 @@ import { defaultGridPresenter } from '../strategies/formats/default-grid.present
 import { kopenhamnareIndividualPresenter } from '../strategies/formats/kopenhamnare-individual.presenter';
 import { stablefordBetterBallPresenter } from '../strategies/formats/stableford-better-ball.presenter';
 
-// One shared presenter instance for the three match-like formats — they render
-// the same compact match view (the constructor takes no config today).
+// One shared presenter instance for the plain match-play formats. Taliban gets
+// its own: same compact match view, but score shapes only where a win paid a
+// bonus (solo birdie/eagle rings) — no per-score quality clutter.
 const matchPlayResultPresenter = matchPlayPresenter();
+const talibanResultPresenter = matchPlayPresenter({ scoreMarkers: 'bonus-only' });
 
 // One shared zero-config instance for the default individual grids
 // (stroke play + Split sixes) — every decision is derived from `input`.
@@ -230,7 +232,7 @@ const BUILTINS: BuiltinMeta[] = [
         teamShape: 'better_ball',
         metrics: MATCH,
         resultDisplay: COMPACT_MATCH_GRID,
-        renderResult: matchPlayResultPresenter,
+        renderResult: talibanResultPresenter,
         scoresAnyBall: true,
     },
     {

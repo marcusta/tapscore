@@ -298,6 +298,7 @@ export const talibanBetterBall: FormatStrategy = {
             // opposing birdie does not void an eagle). Feats are on the bonus
             // basis (gross by default, net via formatConfig). Level or ahead →
             // 1, regardless of birdie/eagle.
+            let bonusFeat: 'birdie' | 'eagle' | null = null;
             if (awardTo !== null) {
                 points = 1;
                 const winnerBall = awardTo === 'A' ? ballA : ballB;
@@ -307,9 +308,11 @@ export const talibanBetterBall: FormatStrategy = {
                     tb.bestBonus !== null && tb.bestBonus <= par - underPar;
                 if (winnerIsDown && feat(winnerBall, 2) && !feat(loserBall, 2)) {
                     points = 5;
+                    bonusFeat = 'eagle';
                     detail = detail ? `${detail}, down-team eagle` : 'down-team eagle';
                 } else if (winnerIsDown && feat(winnerBall, 1) && !feat(loserBall, 1)) {
                     points = 2;
+                    bonusFeat = 'birdie';
                     detail = detail ? `${detail}, down-team birdie` : 'down-team birdie';
                 } else if (winnerIsDown && feat(winnerBall, 1)) {
                     const matched = 'bonus void — matched by opposition';
@@ -358,6 +361,7 @@ export const talibanBetterBall: FormatStrategy = {
                 pointsDelta,
                 note: pairNote,
                 decidingBallId,
+                ...(bonusFeat ? { bonusFeat } : {}),
             });
 
             const note = (won: boolean): string => {

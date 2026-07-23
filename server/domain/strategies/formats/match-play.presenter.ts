@@ -22,36 +22,50 @@ import {
     matchSummarySection,
     parRow,
 } from '../result-presenter-helpers';
+import type { DecidingHole, MatchScoreMarkers } from '../result-presenter-helpers';
+
+/** Per-format knobs on the shared match view. */
+export interface MatchPresenterOptions {
+    /** Score decorations on the net rows — 'standard' score-to-par shapes
+     * (default), or 'bonus-only': shapes appear only where a win actually paid
+     * a bonus (taliban's uncluttered card). */
+    scoreMarkers?: MatchScoreMarkers;
+}
 
 function buildPairCard(
     input: FormatResultInput,
     pair: PairBallResult,
     byBall: Map<string, BallResult>,
+    scoreMarkers: MatchScoreMarkers,
 ): ScoreGridSection {
     const cols = input.columns;
     const pairById = new Map<string, PairBallResult['holes'][number]>();
     for (const ph of pair.holes) if (ph.playHoleId !== undefined) pairById.set(ph.playHoleId, ph);
 
-    // Compact match card: Par, then every player's net (team-tinted, standard
-    // score-to-par markers, the deciding ball's cell pilled in team colour),
-    // then ONE running standing row. The win story lives in the pill + the
-    // standing row; score shapes always mean score quality.
+    // Compact match card: Par, then every player's net (team-tinted, the
+    // deciding ball's cell pilled in team colour), then ONE running standing
+    // row. Score shapes follow `scoreMarkers`: standard score-to-par quality
+    // marks, or bonus-only rings on bonus-paying wins (taliban).
     const rows: GridRow[] = [parRow(cols)];
 
-    // Per ball: the holes it decided (playHoleId → the pair note, e.g.
-    // "A +2 (down-team birdie)"), straight from the strategy's decidingBallId.
-    const decidingByBall = new Map<string, Map<string, string | undefined>>();
+    // Per ball: the holes it decided (playHoleId → note + awarded bonus feat,
+    // e.g. "A +2 (down-team birdie)"), straight from the strategy's
+    // decidingBallId / bonusFeat.
+    const decidingByBall = new Map<string, Map<string, DecidingHole>>();
     for (const ph of pair.holes) {
         if (!ph.decidingBallId || ph.playHoleId === undefined) continue;
         let m = decidingByBall.get(ph.decidingBallId);
         if (!m) decidingByBall.set(ph.decidingBallId, (m = new Map()));
-        m.set(ph.playHoleId, ph.note);
+        const dh: DecidingHole = {};
+        if (ph.note) dh.note = ph.note;
+        if (ph.bonusFeat) dh.bonusFeat = ph.bonusFeat;
+        m.set(ph.playHoleId, dh);
     }
 
     const sideNetRows = (side: { ballIds: string[] }, team: 'a' | 'b'): void => {
         for (const ballId of side.ballIds) {
             const r = byBall.get(ballId);
-            if (r) rows.push(matchNetRow(cols, r, team, decidingByBall.get(ballId)));
+            if (r) rows.push(matchNetRow(cols, r, team, decidingByBall.get(ballId), scoreMarkers));
         }
     };
     sideNetRows(pair.sideA, 'a');
@@ -97,11 +111,12 @@ function buildPairCard(
 }
 
 /**
- * Build the shared match presenter. No config today — all three match-like
- * formats render identically — but kept as a constructor so the family can
- * diverge format-side without reaching back into a central builder.
+ * Build the shared match presenter. The constructor is where the match family
+ * diverges format-side (never a format-id branch): plain match play keeps the
+ * standard score-to-par shapes, taliban opts into 'bonus-only'.
  */
-export function matchPlayPresenter(): FormatResultPresenter {
+export function matchPlayPresenter(options: MatchPresenterOptions = {}): FormatResultPresenter {
+    const scoreMarkers = options.scoreMarkers ?? 'standard';
     return (input) => {
         const byBall = new Map(input.result.ballResults.map((r) => [r.ballId, r] as const));
         const pairs = input.result.pairResults ?? [];
@@ -113,7 +128,7 @@ export function matchPlayPresenter(): FormatResultPresenter {
             scoringMode: input.scoringMode,
             teamShape: input.teamShape,
             allowanceLabel: input.allowanceLabel,
-            cards: pairs.map((pair) => buildPairCard(input, pair, byBall)),
+            cards: pairs.map((pair) => buildPairCard(input, pair, byBall, scoreMarkers)),
             leaderboard: pairs.length > 0 ? [matchSummarySection(pairs)] : [],
         };
     };

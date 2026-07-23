@@ -381,6 +381,13 @@ export interface PairBallHoleResult extends HoleIdentity {
      * null/absent on halved, pending, and no-ball holes.
      */
     decidingBallId?: string | null;
+    /**
+     * The solo feat a comeback BONUS was actually awarded for on this won hole
+     * (taliban): set only when the winner was behind AND the feat was unmatched
+     * by the opposition, i.e. exactly when the hole paid more than 1 point.
+     * Presenters may decorate the deciding cell with it. Absent everywhere else.
+     */
+    bonusFeat?: 'birdie' | 'eagle';
 }
 
 /**

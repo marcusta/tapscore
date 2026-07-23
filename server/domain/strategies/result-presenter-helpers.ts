@@ -9,7 +9,7 @@ import type {
     RankedEntry,
     RankedSection,
 } from './result-sections';
-import { scoreToParMarker } from './result-vocabulary';
+import { marker, scoreToParMarker } from './result-vocabulary';
 
 /**
  * One scorecard column = one itinerary occurrence, ordered by canonical
@@ -298,17 +298,33 @@ export function runningRow(cols: ResultColumn[], running: Map<string, number>): 
 
 // --- match rows ------------------------------------------------------------
 
+/** What a deciding ball's cell knows about the hole it decided: the pair-hole
+ * note (tooltip) and, when a comeback bonus was actually awarded, the solo
+ * feat it was awarded for. */
+export interface DecidingHole {
+    note?: string;
+    bonusFeat?: 'birdie' | 'eagle';
+}
+
+/** Which score decorations a match net row draws:
+ *  - 'standard'   — the house score-to-par marker on every net (ring = birdie,
+ *                   double ring = eagle, square = bogey, …);
+ *  - 'bonus-only' — no score-quality markers at all; the only shapes are a
+ *                   ring / double ring on the deciding cell of a hole whose
+ *                   win PAID a bonus (taliban's solo birdie / eagle). */
+export type MatchScoreMarkers = 'standard' | 'bonus-only';
+
 /** One player's net row on the compact match card: the net per hole, team-
- * tinted, decorated with the STANDARD score-to-par marker on the displayed
- * (net) value — ring = birdie, double ring = eagle, square = bogey. Where this
- * ball DECIDED a won hole (`deciding` maps playHoleId → pair-hole note), the
- * cell gets the team pill + the note as its tooltip; the win indication rides
- * there, never on the score marker. */
+ * tinted. Where this ball DECIDED a won hole (`deciding` maps playHoleId →
+ * {@link DecidingHole}), the cell gets the team pill + the note as its
+ * tooltip; the win indication rides there, never on the score marker. Score
+ * decorations follow `markers` ('standard' unless told otherwise). */
 export function matchNetRow(
     cols: ResultColumn[],
     r: BallResult,
     team: 'a' | 'b',
-    deciding?: Map<string, string | undefined>,
+    deciding?: Map<string, DecidingHole>,
+    markers: MatchScoreMarkers = 'standard',
 ): GridRow {
     const byId = byPlayHole(r);
     return {
@@ -321,12 +337,23 @@ export function matchNetRow(
             const hr = byId.get(c.playHoleId);
             const n = hr?.net ?? null;
             let gc = cell(c, n, n === null ? '–' : String(n));
-            const m = scoreToParMarker({ strokes: n, par: c.par });
-            if (m) gc = { ...gc, marker: m };
-            if (deciding?.has(c.playHoleId)) {
+            if (markers === 'standard') {
+                const m = scoreToParMarker({ strokes: n, par: c.par });
+                if (m) gc = { ...gc, marker: m };
+            }
+            const dh = deciding?.get(c.playHoleId);
+            if (dh) {
                 gc = { ...gc, team };
-                const note = deciding.get(c.playHoleId);
-                if (note) gc = { ...gc, title: note };
+                if (dh.note) gc = { ...gc, title: dh.note };
+                if (markers === 'bonus-only' && dh.bonusFeat) {
+                    gc = {
+                        ...gc,
+                        marker:
+                            dh.bonusFeat === 'eagle'
+                                ? marker.doubleRing({ label: 'Solo eagle — bonus awarded' })
+                                : marker.ring({ label: 'Solo birdie — bonus awarded' }),
+                    };
+                }
             }
             return gc;
         }),
