@@ -320,9 +320,12 @@ export class LeaderboardComponent extends Component {
             & .lb-mark-tone--danger { color: #9b332a; }
             /* Deciding ball whose score is decorated: the marker's own shape gets
                the team fill — white number and white outline on the team colour.
-               Declared AFTER the tone rules so the fill's white wins. */
-            & .lb-mark-fill--a { background: #c2452f; color: #fff; }
-            & .lb-mark-fill--b { background: #2c6cae; color: #fff; }
+               Declared AFTER the tone rules so the fill's white wins. The outer
+               box-shadow halo in the team colour is load-bearing: without it the
+               white outline vanishes against the page background and a filled
+               ring is indistinguishable from the plain standing pill. */
+            & .lb-mark-fill--a { background: #c2452f; color: #fff; box-shadow: 0 0 0 2.5px #c2452f; }
+            & .lb-mark-fill--b { background: #2c6cae; color: #fff; box-shadow: 0 0 0 2.5px #2c6cae; }
             & .lb-card__caption { margin: ${s('sm')} 0 0; font-size: 0.72rem; font-style: italic; color: ${t('text-muted')}; }
             & .lb-card__notes { margin: ${s('sm')} 0 0; font-size: 0.72rem; color: ${t('text-muted')}; }
             & .lb-card__notes-label {
