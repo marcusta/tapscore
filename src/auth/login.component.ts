@@ -5,6 +5,7 @@ import type { Club } from '../api/clubs.gen';
 import { api } from '../api';
 import { loginRequest } from './auth-client';
 import { authErrorMessage } from './auth-errors';
+import { parseHandicapIndex } from '../create/hcp-input';
 import { t } from '../theme';
 import { s, btn, input } from '../css';
 
@@ -235,9 +236,9 @@ export class LoginComponent extends Component {
         // Register mode. The endpoint issues the session cookie itself; mirror
         // the identity into AuthService so the whole app flips to logged-in
         // without a second /auth/me round trip.
-        const raw = this.hcp.trim().replace(',', '.');
-        const handicapIndex = raw === '' ? null : Number.parseFloat(raw);
-        if (handicapIndex !== null && !Number.isFinite(handicapIndex)) {
+        const raw = this.hcp.trim();
+        const handicapIndex = raw === '' ? null : parseHandicapIndex(raw);
+        if (raw !== '' && handicapIndex === null) {
             this.formError.set('Handicap index must be a number (or leave it empty).');
             return;
         }

@@ -4,6 +4,8 @@ import { SelectComponent, type SelectOption } from '@basics/core/client/ui/selec
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { SetupService, type RoutePreset } from './setup.service';
+import { parseHandicapIndex } from './hcp-input';
+import { currentLocale } from '../locale';
 import { ProfileService } from '../profile/profile.service';
 import { FriendsService } from '../friends/friends.service';
 import { sortFriends } from '../friends/friend-sort';
@@ -15,6 +17,9 @@ import { sortFriends } from '../friends/friend-sort';
 // a single default `stableford_individual` so the round is valid and openable.
 
 const PRESETS: RoutePreset[] = ['full_18', 'front_9', 'back_9'];
+
+/** The decimal-separator glyph the handicap keypad shows (Swedish writes ","). */
+const hcpSep = () => (currentLocale() === 'sv' ? ',' : '.');
 
 const tpl = template(`
     <div bind="root" class="setup">
@@ -85,7 +90,36 @@ const tpl = template(`
         <div bind="banner" class="setup__banner"></div>
         <button bind="create" class="setup__create" type="button">Create round</button>
         <button bind="cancel" class="setup__cancel hidden" type="button">Cancel</button>
+
+        <div bind="hcpPad" class="hcp hidden">
+            <div bind="hcpBackdrop" class="hcp__backdrop"></div>
+            <div class="hcp__sheet">
+                <div class="hcp__head">
+                    <div class="hcp__who">
+                        <span bind="hcpName" class="hcp__name"></span>
+                        <span bind="hcpCh" class="hcp__chline"></span>
+                    </div>
+                    <span bind="hcpVal" class="hcp__val"></span>
+                    <button bind="hcpBack" class="hcp__bs" type="button" aria-label="Delete">⌫</button>
+                </div>
+                <div bind="hcpKeys" class="hcp__grid"></div>
+                <div class="hcp__actions">
+                    <button bind="hcpCancel" class="hcp__cancel" type="button">Cancel</button>
+                    <button bind="hcpOk" class="hcp__ok" type="button">Done</button>
+                </div>
+            </div>
+        </div>
     </div>
+`);
+
+// One key of the handicap keypad — a big glyph plus an optional caption
+// (the "+" key explains itself as "plus hcp"). Mirrors the score-entry
+// keypad's keyTpl shape.
+const hcpKeyTpl = template(`
+    <button bind="key" class="hcp-key" type="button">
+        <span bind="num" class="hcp-key__num"></span>
+        <span bind="lbl" class="hcp-key__lbl"></span>
+    </button>
 `);
 
 const playerTpl = template(`
@@ -95,7 +129,7 @@ const playerTpl = template(`
             <button bind="remove" class="player__remove" type="button" aria-label="Remove">✕</button>
         </div>
         <div class="player__fields">
-            <input bind="index" class="player__index" inputmode="decimal" placeholder="HCP index" />
+            <input bind="index" class="player__index" readonly placeholder="HCP index" />
             <div bind="gender" class="player__gender"></div>
             <div bind="tee" class="player__tee"></div>
         </div>
@@ -472,6 +506,58 @@ export class CreateComponent extends Component {
                 &.hidden { display: none; }
             }
         }
+
+        /* --- Handicap keypad: bottom sheet replacing the system keyboard.
+           A phone's numeric keyboard can't type golf's "+" (plus handicap)
+           and Swedish keyboards produce a decimal comma — so the field is
+           readonly and this pad owns entry (hardware keys still work). */
+        .hcp {
+            position: fixed; inset: 0; z-index: 70;
+            &.hidden { display: none; }
+
+            & .hcp__backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.35); }
+            & .hcp__sheet {
+                position: absolute; left: 0; right: 0; bottom: 0;
+                background: ${t('surface')};
+                border-top-left-radius: 16px; border-top-right-radius: 16px;
+                padding: ${s('sm')} ${s('md')} ${s('xl')};
+                box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.18);
+            }
+            & .hcp__head { display: flex; align-items: center; gap: ${s('md')}; padding: ${s('sm')} ${s('xs')} ${s('md')}; }
+            & .hcp__who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+            & .hcp__name {
+                font-family: ${t('font-display')}; font-weight: 600; color: ${t('text')};
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            & .hcp__chline { font-size: 0.78rem; color: ${t('text-muted')}; font-variant-numeric: tabular-nums; }
+            & .hcp__val {
+                min-width: 72px; text-align: right; color: ${t('text')};
+                font-family: ${t('font-display')}; font-weight: 700; font-size: 1.6rem;
+                font-variant-numeric: tabular-nums;
+                &.empty { color: ${t('text-muted')}; font-weight: 400; font-size: 1rem; }
+            }
+            & .hcp__bs { width: 44px; height: 44px; flex-shrink: 0; ${btn()} font-size: 1.1rem; }
+            & .hcp__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+            & .hcp-key {
+                height: 52px; ${btn()}
+                display: flex; flex-direction: column; align-items: center; justify-content: center;
+                font-family: ${t('font-display')}; font-weight: 700; font-size: 1.2rem;
+
+                & .hcp-key__lbl { font-size: 0.62rem; font-weight: 600; color: ${t('text-muted')}; &:empty { display: none; } }
+                &.on {
+                    background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')};
+                    & .hcp-key__lbl { color: ${t('primary-text')}; }
+                }
+            }
+            & .hcp__actions { display: flex; gap: ${s('sm')}; margin-top: ${s('md')}; }
+            & .hcp__cancel { flex: 1; padding: ${s('md')}; ${btn()} font-family: inherit; font-weight: 700; font-size: 0.95rem; }
+            & .hcp__ok {
+                flex: 2; padding: ${s('md')}; ${btn()} font-family: inherit; font-weight: 700; font-size: 0.95rem;
+                background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')};
+                &:hover { background: ${t('primary')}; }
+                &:disabled { opacity: 0.5; cursor: default; }
+            }
+        }
     `;
 
     private svc = this.inject(SetupService);
@@ -481,6 +567,11 @@ export class CreateComponent extends Component {
     private friends = this.inject(FriendsService);
     /** The compact "From friends" picker is a disclosure under its button. */
     private pickerOpen = new Signal(false);
+    /** Player key whose HCP index the keypad edits; null = pad closed. The
+     * field is readonly (no system keyboard) — this pad owns handicap entry. */
+    private hcpPadFor = new Signal<number | null>(null);
+    /** The pad's uncommitted text, in golf notation ("18,4", "+2.4"). */
+    private hcpDraft = new Signal('');
 
     render(): DocumentFragment {
         // A `?token=` in the URL puts the flow in EDIT MODE — load the stored
@@ -491,6 +582,7 @@ export class CreateComponent extends Component {
         const editToken = this.router.query('token').get();
         const isEdit = !!editToken;
         this.pickerOpen.set(false);
+        this.hcpPadFor.set(null);
         if (isEdit) {
             void this.svc.loadForEdit(editToken);
         } else {
@@ -655,7 +747,71 @@ export class CreateComponent extends Component {
                     }
                 },
             },
+            // --- Handicap keypad (bottom sheet) ---
+            hcpPad: { className: () => (this.hcpPadFor.get() !== null ? 'hcp' : 'hcp hidden') },
+            hcpBackdrop: { onclick: () => this.hcpPadFor.set(null) },
+            hcpName: { textContent: () => this.hcpPlayer()?.name?.trim() || 'Player' },
+            hcpCh: {
+                textContent: () => {
+                    const p = this.hcpPlayer();
+                    if (!p) return '';
+                    const d = this.svc.derivedCH({ ...p, handicapIndex: this.hcpDraft.get() });
+                    return d
+                        ? `Course handicap ${d.ch} · ${d.teeName}`
+                        : 'WHS index — “+” means a plus handicap.';
+                },
+            },
+            hcpVal: {
+                className: () => (this.hcpDraft.get() ? 'hcp__val' : 'hcp__val empty'),
+                textContent: () => this.hcpDraft.get() || 'HCP index',
+            },
+            hcpBack: { onclick: () => this.hcpDraft.set(this.hcpDraft.get().slice(0, -1)) },
+            hcpCancel: { onclick: () => this.hcpPadFor.set(null) },
+            hcpOk: {
+                // Empty commits (clears the field); guarded partial input (a
+                // lone "+") can't commit.
+                disabled: () =>
+                    this.hcpDraft.get() !== '' && parseHandicapIndex(this.hcpDraft.get()) === null,
+                onclick: () => this.hcpCommit(),
+            },
         });
+
+        // Keypad grid: 1–9, then [+ plus hcp] [0] [decimal separator]. The
+        // separator glyph follows the locale (Swedish writes "18,4") — the
+        // parser accepts both "," and ".".
+        const hcpKeys = this.ref(frag, 'hcpKeys');
+        for (const n of ['1', '2', '3', '4', '5', '6', '7', '8', '9']) {
+            hcpKeys.appendChild(this.hcpKey(n, '', () => this.hcpAppendDigit(n)));
+        }
+        hcpKeys.appendChild(
+            this.wireEl(hcpKeyTpl, {
+                key: {
+                    className: () => (this.hcpDraft.get().startsWith('+') ? 'hcp-key on' : 'hcp-key'),
+                    onclick: () => this.hcpTogglePlus(),
+                },
+                num: { textContent: '+' },
+                lbl: { textContent: 'plus hcp' },
+            }),
+        );
+        hcpKeys.appendChild(this.hcpKey('0', '', () => this.hcpAppendDigit('0')));
+        hcpKeys.appendChild(this.hcpKey(hcpSep(), '', () => this.hcpAppendSep()));
+
+        // Hardware keyboards keep working while the pad is up (desktop, or a
+        // phone with an external keyboard): digits, both decimal separators,
+        // +/- for a plus handicap, Backspace, Enter commits, Escape closes.
+        const onHcpKey = (e: KeyboardEvent) => {
+            if (this.hcpPadFor.get() === null) return;
+            if (e.key >= '0' && e.key <= '9') this.hcpAppendDigit(e.key);
+            else if (e.key === ',' || e.key === '.') this.hcpAppendSep();
+            else if (e.key === '+' || e.key === '-') this.hcpTogglePlus();
+            else if (e.key === 'Backspace') this.hcpDraft.set(this.hcpDraft.get().slice(0, -1));
+            else if (e.key === 'Enter') this.hcpCommit();
+            else if (e.key === 'Escape') this.hcpPadFor.set(null);
+            else return;
+            e.preventDefault();
+        };
+        document.addEventListener('keydown', onHcpKey);
+        this.track(() => document.removeEventListener('keydown', onHcpKey));
 
         // Route preset segmented control.
         this.$each(
@@ -1227,6 +1383,58 @@ export class CreateComponent extends Component {
         );
     }
 
+    // --- Handicap keypad -------------------------------------------------
+
+    private hcpPlayer() {
+        const key = this.hcpPadFor.get();
+        return key === null ? null : this.svc.players.get().find((p) => p.key === key) ?? null;
+    }
+
+    private openHcpPad(key: number): void {
+        this.hcpDraft.set(this.svc.players.get().find((p) => p.key === key)?.handicapIndex ?? '');
+        this.hcpPadFor.set(key);
+    }
+
+    private hcpAppendDigit(d: string): void {
+        const cur = this.hcpDraft.get();
+        const [int, dec] = cur.replace('+', '').split(/[.,]/);
+        // A WHS index is at most two integer digits and one decimal (54.0).
+        if (dec !== undefined) {
+            if (dec.length >= 1) return;
+        } else if (int!.length >= 2) return;
+        this.hcpDraft.set(cur + d);
+    }
+
+    private hcpAppendSep(): void {
+        const cur = this.hcpDraft.get();
+        if (/[.,]/.test(cur)) return;
+        // A separator with nothing before it gets a zero to sit on ("0,4").
+        this.hcpDraft.set(cur.replace('+', '') === '' ? `${cur}0${hcpSep()}` : cur + hcpSep());
+    }
+
+    /** Golf's plus-handicap prefix, as a toggle. A raw "-" (the stored
+     * notation) flips to the "+" spelling rather than stacking. */
+    private hcpTogglePlus(): void {
+        const cur = this.hcpDraft.get();
+        this.hcpDraft.set(cur.startsWith('+') ? cur.slice(1) : `+${cur.replace('-', '')}`);
+    }
+
+    private hcpCommit(): void {
+        const key = this.hcpPadFor.get();
+        if (key === null) return;
+        if (this.hcpDraft.get() !== '' && parseHandicapIndex(this.hcpDraft.get()) === null) return;
+        this.svc.patchPlayer(key, { handicapIndex: this.hcpDraft.get() });
+        this.hcpPadFor.set(null);
+    }
+
+    private hcpKey(glyph: string, caption: string, onclick: () => void): HTMLElement {
+        return this.wireEl(hcpKeyTpl, {
+            key: { onclick },
+            num: { textContent: glyph },
+            lbl: { textContent: caption },
+        });
+    }
+
     private playerRow(key: number, track: (d: () => void) => void): HTMLElement {
         const current = () => this.svc.players.get().find((p) => p.key === key) ?? null;
         const currentIndex = () => this.svc.players.get().findIndex((p) => p.key === key);
@@ -1234,7 +1442,7 @@ export class CreateComponent extends Component {
         const el = this.wireEl(
             playerTpl,
             {
-                // Uncontrolled text inputs: no reactive `value` binding (would
+                // Uncontrolled text input: no reactive `value` binding (would
                 // reset the caret on every keystroke). Initial value comes from
                 // the row (empty for a fresh guest, prefilled for "Add me").
                 // A registered row's name is read-only — the server resolves
@@ -1244,9 +1452,17 @@ export class CreateComponent extends Component {
                     readOnly: () => !!current()?.playerId,
                     oninput: (e: Event) => this.svc.patchPlayer(key, { name: (e.target as HTMLInputElement).value }),
                 },
+                // The index field is readonly (template) — tapping it opens the
+                // handicap keypad instead of the system keyboard, so "+2,4" is
+                // typeable on a phone. Readonly ⇒ no caret, so the reactive
+                // value binding is safe here.
                 index: {
-                    value: current()?.handicapIndex ?? '',
-                    oninput: (e: Event) => this.svc.patchPlayer(key, { handicapIndex: (e.target as HTMLInputElement).value }),
+                    value: () => current()?.handicapIndex ?? '',
+                    onclick: () => this.openHcpPad(key),
+                    onfocus: (e: Event) => {
+                        (e.target as HTMLInputElement).blur();
+                        this.openHcpPad(key);
+                    },
                 },
                 remove: { onclick: () => this.svc.removePlayer(key) },
                 ch: {

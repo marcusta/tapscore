@@ -460,10 +460,73 @@ test('a dead nested pair does not keep a side alive: the side is dropped everywh
     svc.setTeamMemberTeam(side, lonePair, true);
     svc.setSubjectTeam(slot, side, true);
 
-    await svc.submit();
-    // Neither the 1-member pair nor the side it fails to prop up is emitted.
-    expect(lastDraft.teams).toBeUndefined();
-    expect(lastDraft.formats[0].subjects).toEqual([]);
+    // Neither the pair nor the side is live, so the slot would emit ZERO
+    // subjects — a draft the server's schema rejects as a bare 400. The
+    // pre-check refuses locally with an actionable diagnostic instead.
+    const result = await svc.submit();
+    expect(result.ok).toBe(false);
+    expect(lastDraft).toBeNull();
+    const diag = svc.diagnosticsForFormat(0)[0]!;
+    expect(diag.code).toBe('no_subjects');
+    expect(diag.message).toContain('Separate balls');
+});
+
+test('a side format with NO teams refuses locally, naming the exact team shape to build', async () => {
+    const svc = makeService();
+    addPlayer(svc, 'Anna', '10');
+    addPlayer(svc, 'Bert', '20');
+    addSlot(svc, 'better_ball');
+
+    const result = await svc.submit();
+    expect(result.ok).toBe(false);
+    expect(lastDraft).toBeNull(); // never POSTs the schema-invalid draft
+    const diag = svc.diagnosticsForFormat(0)[0]!;
+    expect(diag.code).toBe('no_subjects');
+    // Bounds come from the descriptor: teamCount {min:2}, teamSize {2..2}.
+    expect(diag.message).toBe(
+        'better_ball is a team game — under Teams, create at least 2 teams of 2 players with kind “Separate balls (a side)”, add the players, then tick the teams under “Scores”.',
+    );
+});
+
+test('a side format with only a combined-ball team says to switch the team kind', async () => {
+    const svc = makeService();
+    const k1 = addPlayer(svc, 'Anna', '10');
+    const k2 = addPlayer(svc, 'Bert', '20');
+    addSlot(svc, 'better_ball');
+
+    // A LIVE single-ball pair — the wrong kind for a side format, and never
+    // even listed in its subject checklist, so the user is stuck without help.
+    svc.addTeam();
+    const pair = svc.teams.get().at(-1)!.key;
+    svc.setTeamMember(pair, k1, true);
+    svc.setTeamMember(pair, k2, true);
+
+    const result = await svc.submit();
+    expect(result.ok).toBe(false);
+    expect(lastDraft).toBeNull();
+    const diag = svc.diagnosticsForFormat(0)[0]!;
+    expect(diag.code).toBe('no_subjects');
+    expect(diag.message).toContain('switch the team to');
+});
+
+test('a side format with a live side merely unticked says to tick it', async () => {
+    const svc = makeService();
+    const k1 = addPlayer(svc, 'Anna', '10');
+    const k2 = addPlayer(svc, 'Bert', '20');
+    addSlot(svc, 'better_ball');
+
+    svc.addTeam();
+    const side = svc.teams.get().at(-1)!.key;
+    svc.setTeamKind(side, 'multi_ball');
+    svc.setTeamMember(side, k1, true);
+    svc.setTeamMember(side, k2, true);
+    // Deliberately NOT ticked in the slot.
+
+    const result = await svc.submit();
+    expect(result.ok).toBe(false);
+    const diag = svc.diagnosticsForFormat(0)[0]!;
+    expect(diag.code).toBe('no_subjects');
+    expect(diag.message).toContain('tick the teams it plays');
 });
 
 test('team size bounds: below-minimum teams are hinted and dropped; the 11th member is refused', async () => {

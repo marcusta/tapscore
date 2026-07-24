@@ -154,7 +154,63 @@ describe('humanizeDiagnostic', () => {
             path: 'slots[slot-0].teamGrouping',
         };
         expect(humanizeDiagnostic(d, label)).toBe(
-            'Better-ball Stableford needs its players grouped into teams — tick the teams it scores.',
+            'Better-ball Stableford compares teams — under Teams, group the players into “Separate balls (a side)” teams, then tick them under “Scores”.',
+        );
+    });
+
+    test('ball_mode_violation says which team kind to use instead', () => {
+        // A combined team ball fed to an own-ball format (actual > 1).
+        const own: CompilerDiagnostic = {
+            code: 'ball_mode_violation',
+            message: 'raw',
+            formatId: 'stableford_better_ball',
+            path: 'slots[slot-0]',
+            actual: 2,
+        };
+        expect(humanizeDiagnostic(own, label)).toBe(
+            'Better-ball Stableford is played with everyone on their own ball — a “One combined ball” team can’t play it. Use a “Separate balls (a side)” team instead.',
+        );
+        // A lone player fed to a team-ball format (actual === 1).
+        const team: CompilerDiagnostic = {
+            code: 'ball_mode_violation',
+            message: 'raw',
+            formatId: 'stableford_better_ball',
+            path: 'slots[slot-0]',
+            actual: 1,
+        };
+        expect(humanizeDiagnostic(team, label)).toBe(
+            'Better-ball Stableford is played on one shared team ball — under Teams, group the players into a “One combined ball” team, then tick that team instead of the individual players.',
+        );
+        // Without the structured field, the raw message survives.
+        expect(
+            humanizeDiagnostic({ code: 'ball_mode_violation', message: 'raw technical' }, label),
+        ).toBe('raw technical');
+    });
+
+    test('producer_count_violation phrases the per-ball bound', () => {
+        const ownish: CompilerDiagnostic = {
+            code: 'producer_count_violation',
+            message: 'raw',
+            formatId: 'stableford_better_ball',
+            path: 'slots[slot-0]',
+            actual: 2,
+            allowedMin: 1,
+            allowedMax: 1,
+        };
+        expect(humanizeDiagnostic(ownish, label)).toBe(
+            'Better-ball Stableford is played with everyone on their own ball — a “One combined ball” team can’t play it. Use a “Separate balls (a side)” team instead.',
+        );
+        const bounded: CompilerDiagnostic = {
+            code: 'producer_count_violation',
+            message: 'raw',
+            formatId: 'stableford_better_ball',
+            path: 'slots[slot-0]',
+            actual: 5,
+            allowedMin: 2,
+            allowedMax: 4,
+        };
+        expect(humanizeDiagnostic(bounded, label)).toBe(
+            'A ball in Better-ball Stableford has 5 players — it needs 2–4 players per ball.',
         );
     });
 

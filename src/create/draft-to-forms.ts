@@ -36,6 +36,7 @@ import type {
     RoutePreset,
     TeamForm,
 } from './setup.service';
+import { formatHandicapIndex } from './hcp-input';
 
 // --- The stored-draft shape we consume (a structural subset of the server's
 //     `RoundSetupDraft`; mirrors `friendlyRounds.setup().draft`). Kept local so
@@ -199,7 +200,7 @@ export function draftToForms(
         return {
             key: k,
             name: nameFor(p.producerDefId),
-            handicapIndex: String(p.handicapIndex),
+            handicapIndex: formatHandicapIndex(p.handicapIndex),
             gender: p.gender ?? 'M',
             teeId: p.teeId,
             // Preserve the ORIGINAL def-id so an unchanged row keeps its ball.

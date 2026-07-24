@@ -13,6 +13,15 @@
 //
 // It is PURE — no signals, no DOM. `humanizeDiagnostic` takes a label resolver
 // (the catalog's locale-aware `labelOf`) so it stays testable in isolation.
+//
+// CONTRACT (see game-rules.md "Setup refusals must be actionable"): every
+// diagnostic code the wizard can trigger needs a case in the switch below,
+// built from the diagnostic's STRUCTURED fields — the compiler must send them
+// (see CompilerDiagnostic in server/domain/compiler/types.ts). The raw-message
+// fallback at the bottom is a safety net for codes this client predates, not a
+// presentation path. Messages say what to DO, in the setup UI's own vocabulary
+// ("One combined ball", "Separate balls (a side)", "Scores") — never engine
+// jargon (slot, ball mode, producer).
 
 import type { CompilerDiagnostic } from '../api/friendly-rounds.gen';
 
@@ -121,7 +130,29 @@ export function humanizeDiagnostic(
             break;
         case 'missing_team_grouping':
             if (fmt) {
-                return `${fmt} needs its players grouped into teams — tick the teams it scores.`;
+                return `${fmt} compares teams — under Teams, group the players into “Separate balls (a side)” teams, then tick them under “Scores”.`;
+            }
+            break;
+        // The format's own/team ball contract was violated: `actual` is the
+        // offending ball's producer count (>1 ⇒ a combined team ball fed to an
+        // own-ball format; 1 ⇒ a lone player fed to a team-ball format).
+        case 'ball_mode_violation':
+            if (fmt && d.actual !== undefined) {
+                return d.actual > 1
+                    ? `${fmt} is played with everyone on their own ball — a “One combined ball” team can’t play it. Use a “Separate balls (a side)” team instead.`
+                    : `${fmt} is played on one shared team ball — under Teams, group the players into a “One combined ball” team, then tick that team instead of the individual players.`;
+            }
+            break;
+        case 'producer_count_violation':
+            if (fmt && d.actual !== undefined && d.allowedMin !== undefined && d.allowedMax !== undefined) {
+                if (d.allowedMax === 1 && d.actual > 1) {
+                    return `${fmt} is played with everyone on their own ball — a “One combined ball” team can’t play it. Use a “Separate balls (a side)” team instead.`;
+                }
+                const bound =
+                    d.allowedMin === d.allowedMax
+                        ? `exactly ${players(d.allowedMin)}`
+                        : `${d.allowedMin}–${d.allowedMax} players`;
+                return `A ball in ${fmt} has ${players(d.actual)} — it needs ${bound} per ball.`;
             }
             break;
         // --- Edit-mode locks (Phase 3.5) ---

@@ -828,6 +828,10 @@ function compileSlot(
                     code: 'producer_count_violation',
                     message: `slot '${slotDef.id}' ball ${b.row.id} has ${pc} producers; format '${format.id}' requires ${req.producerCount.min}..${req.producerCount.max}`,
                     path: slotPath,
+                    formatId: format.id,
+                    actual: pc,
+                    allowedMin: req.producerCount.min,
+                    allowedMax: req.producerCount.max,
                 });
             }
         }
@@ -845,12 +849,17 @@ function compileSlot(
                     code: 'ball_mode_violation',
                     message: `slot '${slotDef.id}' format '${format.id}' is own-ball but ball ${b.row.id} has ${b.producerDefIds.length} producers`,
                     path: slotPath,
+                    formatId: format.id,
+                    // actual > 1 tells the client this is the own-ball direction.
+                    actual: b.producerDefIds.length,
                 });
             } else if (req.ballMode === 'team' && !isTeamBall) {
                 diags.push({
                     code: 'ball_mode_violation',
                     message: `slot '${slotDef.id}' format '${format.id}' is a team format but ball ${b.row.id} is a single-producer ball`,
                     path: slotPath,
+                    formatId: format.id,
+                    actual: 1,
                 });
             }
         }

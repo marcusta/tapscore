@@ -4,6 +4,7 @@ import { api, ApiError } from '../api';
 import type { SetupCourse, Tee, TeeRating } from '../api/setup.gen';
 import type { CompilerDiagnostic } from '../api/friendly-rounds.gen';
 import { courseHandicap, courseHandicapRaw } from './handicap';
+import { parseHandicapIndex, formatHandicapIndex } from './hcp-input';
 import { FormatCatalogService } from './format-catalog.service';
 import {
     diagnosticsForFormatCard,
@@ -410,7 +411,7 @@ export class SetupService {
             {
                 key: this.nextKey++,
                 name: friend.displayName,
-                handicapIndex: friend.handicapIndex === null ? '' : String(friend.handicapIndex),
+                handicapIndex: friend.handicapIndex === null ? '' : formatHandicapIndex(friend.handicapIndex),
                 gender: friend.gender ?? 'M',
                 genderKnown: friend.gender != null,
                 teeId,
@@ -960,8 +961,8 @@ export class SetupService {
 
     /** Live CH breakdown for a player, or null when inputs are incomplete. */
     derivedCH(p: PlayerForm): DerivedCH | null {
-        const index = Number.parseFloat(p.handicapIndex);
-        if (!Number.isFinite(index)) return null;
+        const index = parseHandicapIndex(p.handicapIndex);
+        if (index === null) return null;
         const tee = this.teeById(p.teeId);
         if (!tee) return null;
         const rating = tee.ratings.find((r) => r.gender === p.gender);
@@ -1177,6 +1178,70 @@ export class SetupService {
     }
 
     /**
+     * How many subjects `buildFormats` would emit for a slot — the SAME
+     * filters (side formats score no individuals; only live, kind-fitting
+     * teams count), so the pre-check and the draft can never disagree.
+     */
+    private slotSubjectCount(slot: FormatSlotForm): number {
+        const liveTeamKeys = this.liveTeamKeySet();
+        const side = this.isSideFormat(slot.formatId);
+        let n = 0;
+        if (!side) {
+            for (const p of this.players.get()) if (slot.subjectPlayers[p.key] !== false) n++;
+        }
+        for (const team of this.teams.get()) {
+            if (
+                slot.subjectTeams[team.key] === true &&
+                liveTeamKeys.has(team.key) &&
+                this.teamKindFitsFormat(slot.formatId, team.kind)
+            ) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /**
+     * Why a slot has nothing to score, phrased as what to DO about it. A side
+     * format (Taliban, better-ball) is the interesting case: it needs
+     * "Separate balls (a side)" teams — the exact kind and counts come from
+     * the catalog descriptor, and the message adapts to whether the user has
+     * no teams, the wrong kind of team, or just forgot to tick one.
+     */
+    private noSubjectsMessage(slot: FormatSlotForm): string {
+        const label = this.catalog.labelOf(slot.formatId) ?? slot.formatId;
+        if (!this.isSideFormat(slot.formatId)) {
+            return `${label} has nothing to score — tick at least one player or team under “Scores”.`;
+        }
+        const teams = this.teams.get();
+        if (teams.some((t) => t.kind === 'multi_ball' && this.isTeamLive(t))) {
+            return `${label} has no teams ticked — tick the teams it plays under “Scores”.`;
+        }
+        if (teams.some((t) => t.kind === 'single_ball' && this.isTeamLive(t))) {
+            return (
+                `${label} is played between teams whose players play their own balls — ` +
+                `a “One combined ball” team doesn’t fit. Under Teams, switch the team to ` +
+                `“Separate balls (a side)”, then tick it under “Scores”.`
+            );
+        }
+        const cls = this.catalog.classifyId(slot.formatId);
+        const count =
+            cls?.teamCount?.min !== undefined && cls.teamCount.min === cls.teamCount.max
+                ? `${cls.teamCount.min} teams`
+                : cls?.teamCount?.min !== undefined
+                  ? `at least ${cls.teamCount.min} teams`
+                  : 'teams';
+        const size =
+            cls && cls.teamSize.min === cls.teamSize.max
+                ? ` of ${cls.teamSize.min} players`
+                : '';
+        return (
+            `${label} is a team game — under Teams, create ${count}${size} with kind ` +
+            `“Separate balls (a side)”, add the players, then tick the teams under “Scores”.`
+        );
+    }
+
+    /**
      * Create guests, assemble the draft, and POST it. Returns the share token on
      * success; on a compiler/planner failure the diagnostics land on
      * `diagnostics` (and never a 500). Local pre-checks catch the few things the
@@ -1204,11 +1269,25 @@ export class SetupService {
             if (!p.name.trim()) {
                 localDiags.push({ code: 'missing_name', message: 'Name required', path: `producers[${i}].name` });
             }
-            if (!Number.isFinite(Number.parseFloat(p.handicapIndex))) {
+            if (parseHandicapIndex(p.handicapIndex) === null) {
                 localDiags.push({ code: 'missing_index', message: 'Handicap index required', path: `producers[${i}].handicapIndex` });
             }
             if (!p.teeId) {
                 localDiags.push({ code: 'missing_tee', message: 'Pick a tee', path: `producers[${i}].teeId` });
+            }
+        });
+        // A format whose subject list would come out EMPTY (a side format with
+        // no — or only wrong-kind — teams ticked) would fail the server's
+        // schema (`subjects minItems 1`) as a bare 400 before the compiler's
+        // friendly diagnostics ever run. Catch it here with a message that says
+        // what to build instead.
+        this.formatSlots.get().forEach((slot, i) => {
+            if (this.slotSubjectCount(slot) === 0) {
+                localDiags.push({
+                    code: 'no_subjects',
+                    message: this.noSubjectsMessage(slot),
+                    path: `formats[${i}]`,
+                });
             }
         });
         if (localDiags.length > 0) {
@@ -1237,7 +1316,7 @@ export class SetupService {
             //    other (fresh) guest row mints a new guest_player, capturing its id.
             const producers = [];
             for (const p of roster) {
-                const index = Number.parseFloat(p.handicapIndex);
+                const index = parseHandicapIndex(p.handicapIndex)!;
                 const playerRef = p.playerId
                     ? { kind: 'player' as const, id: p.playerId }
                     : p.guestPlayerId
@@ -1305,9 +1384,18 @@ export class SetupService {
             });
             return { ok: true, token: result.friendlyRound.shareToken };
         } catch (e) {
+            // A schema-level 400 carries a bare "Validation failed" — with the
+            // pre-checks above this should no longer happen for known shapes,
+            // so surface the field details and flag it as unexpected instead
+            // of echoing the unhelpful bare message.
             this.submitError.set(
                 e instanceof ApiError
-                    ? e.message
+                    ? e.message === 'Validation failed'
+                        ? [
+                              'The server could not read this setup — this should not happen, please report it.',
+                              ...(e.details ?? []).slice(0, 3).map((d) => `${d.path}: ${d.message}`),
+                          ].join('\n')
+                        : e.message
                     : editToken
                       ? 'Could not save the round. Try again.'
                       : 'Could not create the round. Try again.',

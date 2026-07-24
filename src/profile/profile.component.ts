@@ -5,6 +5,7 @@ import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { ProfileService } from './profile.service';
 import { FriendsService } from '../friends/friends.service';
+import { parseHandicapIndex, formatHandicapIndex } from '../create/hcp-input';
 
 // Phase 3 profile — the logged-in side door's home: display name, the
 // manually maintained handicap index (edit → `players/me/handicap`), and the
@@ -238,7 +239,8 @@ export class ProfileComponent extends Component {
             },
             hcp: () => {
                 const idx = this.svc.player.get()?.handicapIndex;
-                return idx == null ? '–' : idx.toFixed(1);
+                // Golf notation: a stored negative index is a plus handicap.
+                return idx == null ? '–' : idx < 0 ? `+${(-idx).toFixed(1)}` : idx.toFixed(1);
             },
             index: {
                 value: () => this.indexDraft.get(),
@@ -253,10 +255,9 @@ export class ProfileComponent extends Component {
                 onsubmit: async (e: Event) => {
                     e.preventDefault();
                     this.localErr.set('');
-                    const raw = this.indexDraft.get().trim().replace(',', '.');
-                    const idx = Number.parseFloat(raw);
-                    if (!Number.isFinite(idx) || idx < -10 || idx > 54) {
-                        this.localErr.set('Enter an index between -10 and 54.');
+                    const idx = parseHandicapIndex(this.indexDraft.get());
+                    if (idx === null || idx < -10 || idx > 54) {
+                        this.localErr.set('Enter an index between +10 and 54 (use “+” for a plus handicap).');
                         return;
                     }
                     if (await this.svc.saveIndex(idx)) this.indexDraft.set('');

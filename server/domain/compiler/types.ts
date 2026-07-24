@@ -39,9 +39,13 @@ export interface CompilerDiagnostic {
     path?: string;
     /**
      * Additive structured fields for the client to humanize a refusal without
-     * re-parsing `message` prose. Populated on the team-size / team-count /
-     * ball-count / missing-grouping refusals (the ones a setup UI shows inline).
-     * All optional — a diagnostic without them still renders via its `message`.
+     * re-parsing `message` prose. REQUIRED on any refusal a setup UI can
+     * trigger (team-size / team-count / ball-count / ball-mode /
+     * producer-count / missing-grouping …): a new user-reachable code must
+     * populate these AND get a humanizer case in `src/create/diagnostics.ts`
+     * (see game-rules.md "Setup refusals must be actionable"). The bare
+     * `message` fallback exists for codes older clients don't know — it is
+     * technical prose, not a user experience.
      */
     formatId?: string;
     /** The offending team's authoring label (team-size refusals). */

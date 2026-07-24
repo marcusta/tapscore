@@ -6,6 +6,7 @@ import type { CutOutcome } from '../api/competitions.gen';
 import type { Tee } from '../api/tees.gen';
 import { FormatCatalogService } from '../create/format-catalog.service';
 import { FriendsService } from '../friends/friends.service';
+import { parseHandicapIndex } from '../create/hcp-input';
 import { ProfileService } from '../profile/profile.service';
 import {
     AggregationCatalogService,
@@ -236,14 +237,13 @@ export class CompetitionDetailService {
     async addGuest(): Promise<void> {
         const name = this.guestNameDraft.get().trim();
         if (!name) return;
-        const raw = this.guestHcpDraft.get().trim().replace(',', '.');
-        const handicap = raw === '' ? null : Number.parseFloat(raw);
+        const handicap = parseHandicapIndex(this.guestHcpDraft.get());
         const refusal = await this.competitions.addGuest(
             this.id.get() ?? '',
             {
                 displayName: name,
                 gender: this.guestGenderDraft.get(),
-                handicapIndex: Number.isFinite(handicap as number) ? (handicap as number) : null,
+                handicapIndex: handicap,
             },
             null,
         );
