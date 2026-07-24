@@ -520,7 +520,8 @@ export class CreateComponent extends Component {
                 position: absolute; left: 0; right: 0; bottom: 0;
                 background: ${t('surface')};
                 border-top-left-radius: 16px; border-top-right-radius: 16px;
-                padding: ${s('sm')} ${s('md')} ${s('xl')};
+                /* Clear the iOS home indicator; harmless zero elsewhere. */
+                padding: ${s('sm')} ${s('md')} calc(${s('xl')} + env(safe-area-inset-bottom));
                 box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.18);
             }
             & .hcp__head { display: flex; align-items: center; gap: ${s('md')}; padding: ${s('sm')} ${s('xs')} ${s('md')}; }
@@ -812,6 +813,17 @@ export class CreateComponent extends Component {
         };
         document.addEventListener('keydown', onHcpKey);
         this.track(() => document.removeEventListener('keydown', onHcpKey));
+
+        // The keypad overlay lives on <body>, not inside the app shell: iOS
+        // composites the shell's touch scroller (.app-shell__content), which
+        // breaks position:fixed + z-index for descendants — the tabbar painted
+        // over the pad's Done row. A direct body child stacks above everything
+        // unconditionally. Moved only AFTER its keys are built (ref() searches
+        // the frag); bindings survive the move, and unmount removes it
+        // explicitly since it no longer tears down with the fragment's DOM.
+        const hcpPadEl = this.ref(frag, 'hcpPad');
+        document.body.appendChild(hcpPadEl);
+        this.track(() => hcpPadEl.remove());
 
         // Route preset segmented control.
         this.$each(
