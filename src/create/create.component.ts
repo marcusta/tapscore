@@ -63,13 +63,6 @@ const tpl = template(`
         </section>
 
         <section class="setup__section">
-            <h2>Teams</h2>
-            <p class="setup__hint">Optional. Group players into a team ball with a handicap allowance per member.</p>
-            <div bind="teams" class="setup__fslots"></div>
-            <button bind="addTeam" class="setup__add" type="button">+ Create team</button>
-        </section>
-
-        <section class="setup__section">
             <h2>Playing groups</h2>
             <p class="setup__hint">Optional. Split the field into groups with their own tee times or start holes (shotgun).</p>
             <div bind="groups" class="setup__fslots"></div>
@@ -81,10 +74,24 @@ const tpl = template(`
         </section>
 
         <section class="setup__section">
+            <h2>What are we playing?</h2>
+            <p class="setup__hint">Pick every game the group is playing — each one picks its own players.</p>
+            <div bind="cards" class="setup__cards"></div>
+            <div bind="games" class="setup__fslots"></div>
+            <p bind="formatNote" class="setup__note"></p>
+        </section>
+
+        <section bind="teamsSection" class="setup__section">
+            <h2>Teams</h2>
+            <p class="setup__hint">Optional. Group players into a team ball with a handicap allowance per member.</p>
+            <div bind="teams" class="setup__fslots"></div>
+            <button bind="addTeam" class="setup__add" type="button">+ Create team</button>
+        </section>
+
+        <section bind="formatsSection" class="setup__section">
             <h2>Formats</h2>
             <p class="setup__hint">Each format scores a set of balls — tick the players and teams it ranks.</p>
             <div bind="formats" class="setup__fslots"></div>
-            <p bind="formatNote" class="setup__note"></p>
             <button bind="addFormat" class="setup__add" type="button">+ Add format</button>
         </section>
 
@@ -239,6 +246,57 @@ const friendRowTpl = template(`
     </button>
 `);
 
+// One game card (format-templates §4). A card the roster is too small for is
+// offered DISABLED with the requirement as its subtitle, so the player count
+// reads as discovery ("with one more we could play Taliban") rather than a
+// hidden option. Multi-select: tapping toggles that game on or off.
+const gameCardTpl = template(`
+    <button bind="card" class="gcard" type="button">
+        <span bind="name" class="gcard__name"></span>
+        <span bind="tag" class="gcard__tag"></span>
+        <span bind="shape" class="gcard__shape"></span>
+    </button>
+`);
+
+// One picked game. Games are ADDITIVE (§5), so a round shows one panel per
+// picked game, each carrying its own participants, allowance and knobs. Rooted
+// on `.fslot` so it inherits the card chrome the flexible form already uses.
+const gamePanelTpl = template(`
+    <div class="fslot">
+        <div class="fslot__top">
+            <span bind="title" class="fslot__teamname"></span>
+            <button bind="remove" class="fslot__remove" type="button" aria-label="Remove">✕</button>
+        </div>
+        <p bind="desc" class="fslot__desc"></p>
+
+        <div class="fslot__group">
+            <span class="fslot__label">Handicap allowance</span>
+            <span class="mrow__pct"><input bind="allowance" inputmode="numeric" /><span>%</span></span>
+        </div>
+
+        <div bind="configFields" class="fslot__configs"></div>
+
+        <div bind="ballGroup" class="fslot__group">
+            <span class="fslot__label">Who plays which ball</span>
+            <div bind="ballRows" class="fslot__teamrows"></div>
+            <button bind="addBall" class="gaddball hidden" type="button">+ Add a ball</button>
+        </div>
+
+        <div bind="err" class="fslot__err"></div>
+        <p bind="summary" class="gsummary"></p>
+        <button bind="adjust" class="gadjust" type="button">Adjust details</button>
+    </div>
+`);
+
+// The only residual decision a game leaves: which ball a player is on, or
+// whether they sit THIS game out (they may still be playing the others).
+const ballRowTpl = template(`
+    <div class="grow">
+        <span bind="name" class="grow__name"></span>
+        <div bind="seg" class="fslot__seg"></div>
+    </div>
+`);
+
 const memberRowTpl = template(`
     <div class="mrow">
         <label class="mrow__pick">
@@ -278,9 +336,36 @@ export class CreateComponent extends Component {
 
             & .setup__section {
                 margin-bottom: ${s('xl')};
+                &.hidden { display: none; }
                 & h2 {
                     margin: 0 0 ${s('sm')}; font-family: ${t('font-display')};
                     font-weight: 600; font-size: 1.2rem;
+                }
+            }
+
+            /* The game cards (format-templates §4). Two per row on a phone; the
+               "+ Custom game" card spans the full width as the last one. */
+            & .setup__cards {
+                display: grid; grid-template-columns: 1fr 1fr; gap: ${s('sm')};
+                margin-bottom: ${s('md')};
+            }
+            & .gcard {
+                display: flex; flex-direction: column; gap: 2px; text-align: left;
+                padding: ${s('md')}; ${btn()} font-family: inherit; cursor: pointer;
+                /* The inset ring doubles the hairline so a picked card still
+                   reads as picked next to a hovered one. */
+                &.on {
+                    border-color: ${t('primary')}; background: ${t('accent-soft')};
+                    box-shadow: inset 0 0 0 1px ${t('primary')};
+                }
+                &:disabled { opacity: 0.5; cursor: default; }
+                &.gcard--custom { grid-column: 1 / -1; }
+
+                & .gcard__name { font-weight: 700; font-size: 0.95rem; }
+                & .gcard__tag { font-size: 0.78rem; color: ${t('text-muted')}; line-height: 1.3; }
+                & .gcard__shape {
+                    font-size: 0.72rem; color: ${t('text-muted')}; line-height: 1.3;
+                    &:empty { display: none; }
                 }
             }
 
@@ -460,6 +545,29 @@ export class CreateComponent extends Component {
                 & .fslot__err {
                     font-size: 0.82rem; color: ${t('error')};
                     &:empty { display: none; }
+                }
+
+                /* Game-panel extras. Scoped INSIDE .fslot: the panel roots on
+                   .fslot so it inherits the card chrome, and these classes are
+                   only meaningful there. */
+                & .grow {
+                    display: flex; align-items: center; gap: ${s('sm')};
+                    & .grow__name { flex: 1; min-width: 0; font-size: 0.9rem; }
+                    & .fslot__seg { flex: 0 0 auto; & button { min-width: 44px; flex: 0 0 auto; padding: ${s('sm')}; } }
+                }
+                & .gaddball {
+                    align-self: flex-start; margin-top: ${s('xs')};
+                    padding: ${s('xs')} ${s('sm')}; ${btn()}
+                    font-family: inherit; font-weight: 600; font-size: 0.8rem;
+                    &.hidden { display: none; }
+                }
+                & .gsummary {
+                    margin: 0; padding-top: ${s('xs')}; border-top: 1px solid ${t('border')};
+                    font-size: 0.82rem; color: ${t('text-muted')};
+                }
+                & .gadjust {
+                    align-self: flex-start; padding: ${s('xs')} ${s('sm')}; ${btn()}
+                    font-family: inherit; font-weight: 600; font-size: 0.8rem;
                 }
 
                 & .grp__start {
@@ -674,6 +782,15 @@ export class CreateComponent extends Component {
                     this.friends.friends.get().length > 0
                         ? 'setup__friends'
                         : 'setup__friends hidden',
+            },
+            // The flexible sections hold whatever no card owns, so they appear
+            // once a custom game exists or a game's details were adjusted
+            // (format-templates §5) — never while the round is only cards.
+            teamsSection: {
+                className: () => (this.svc.showFlexible() ? 'setup__section' : 'setup__section hidden'),
+            },
+            formatsSection: {
+                className: () => (this.svc.showFlexible() ? 'setup__section' : 'setup__section hidden'),
             },
             addTeam: { onclick: () => this.svc.addTeam() },
             splitGroups: {
@@ -929,10 +1046,47 @@ export class CreateComponent extends Component {
             (p) => p.key,
         );
 
-        // Round-level team cards (ADR-0003).
+        // The game cards. MULTI-SELECT: a card toggles that game on or off, so
+        // a round can be several games at once. The list is the descriptors'
+        // own `preset` declarations — no client-side template registry
+        // (format-templates §6). "+ Custom game" is the last card and is
+        // additive too: it reveals the flexible sections without unpicking
+        // anything.
+        this.$each(
+            this.ref(frag, 'cards'),
+            () => [...this.svc.presetGames().map((d) => d.id), '__custom'],
+            (id, _i, track) =>
+                id === '__custom'
+                    ? this.wireEl(
+                          gameCardTpl,
+                          {
+                              card: {
+                                  className: () => 'gcard gcard--custom',
+                                  onclick: () => this.svc.addCustomGame(),
+                              },
+                              name: { textContent: '+ Custom game' },
+                              tag: { textContent: "Anything the cards don't cover — teams and formats by hand." },
+                              shape: { textContent: '' },
+                          },
+                          track,
+                      )
+                    : this.gameCard(id, track),
+            (id) => id,
+        );
+
+        // One panel per picked game, holding its participants and its knobs.
+        this.$each(
+            this.ref(frag, 'games'),
+            this.svc.picked,
+            (pick, _i, track) => this.gamePanel(pick.key, track),
+            (pick) => pick.key,
+        );
+
+        // Round-level team cards (ADR-0003) — only the ones no picked game
+        // owns; a game's balls are edited on its own panel.
         this.$each(
             this.ref(frag, 'teams'),
-            this.svc.teams,
+            () => this.svc.customTeams(),
             (team, _i, track) => this.teamCard(team.key, track),
             (team) => team.key,
         );
@@ -947,10 +1101,11 @@ export class CreateComponent extends Component {
 
         // Format slots. Keyed by stable slot key; each card reads its slot by
         // key so reorder/edit never recreates the card (focus + carets intact).
+        // Only the slots no picked game owns — a game's slot IS its panel.
         this.$each(
             this.ref(frag, 'formats'),
-            this.svc.formatSlots,
-            (slot, i, track) => this.formatCard(slot.key, i, track),
+            () => this.svc.customSlots(),
+            (slot, _i, track) => this.formatCard(slot.key, track),
             (slot) => slot.key,
         );
 
@@ -1052,7 +1207,152 @@ export class CreateComponent extends Component {
         );
     }
 
-    private formatCard(key: number, index: number, track: (d: () => void) => void): HTMLElement {
+    /**
+     * One game card. The title is the format's own catalog label (so it reads
+     * "Köpenhamnare" in Swedish, "Split sixes" in English) and the subtitle
+     * switches to the roster requirement when the card can't be played yet —
+     * eligibility is DISCOVERY, not a gate (format-templates §4).
+     */
+    private gameCard(formatId: string, track: (d: () => void) => void): HTMLElement {
+        const fits = () => this.svc.gameFits(formatId);
+        return this.wireEl(
+            gameCardTpl,
+            {
+                card: {
+                    className: () => (this.svc.isGamePicked(formatId) ? 'gcard on' : 'gcard'),
+                    disabled: () => !fits(),
+                    onclick: () => this.svc.toggleGame(formatId),
+                },
+                name: { textContent: () => this.svc.gameLabel(formatId) },
+                tag: {
+                    textContent: () =>
+                        fits()
+                            ? this.svc.catalog.taglineOf(formatId)
+                            : this.svc.gameNeedsText(formatId),
+                },
+                shape: { textContent: () => (fits() ? this.svc.gameShapeText(formatId) : '') },
+            },
+            track,
+        );
+    }
+
+    /**
+     * One picked game: its allowance, its declared knobs, and the only residual
+     * decision it leaves — which ball each player is on, or sitting this one
+     * out. An individual game (everyone their own ball) shows no ball rows.
+     */
+    private gamePanel(gameKey: number, track: (d: () => void) => void): HTMLElement {
+        const pick = () => this.svc.pickedByKey(gameKey);
+        const slot = () => this.svc.slotForGame(gameKey);
+        const formatId = () => pick()?.formatId ?? '';
+        const hasBalls = () => (pick()?.ballCount ?? 0) > 0;
+
+        const el = this.wireEl(
+            gamePanelTpl,
+            {
+                title: { textContent: () => this.svc.gameLabel(formatId()) },
+                remove: { onclick: () => this.svc.unpickGame(gameKey) },
+                desc: { textContent: () => this.svc.catalog.byId(formatId())?.description ?? '' },
+                // Uncontrolled: static initial value, oninput-only (no caret reset).
+                allowance: {
+                    value: slot()?.allowancePct ?? '100',
+                    oninput: (e: Event) => {
+                        const s = slot();
+                        if (s) this.svc.setSlotAllowance(s.key, (e.target as HTMLInputElement).value);
+                    },
+                },
+                ballGroup: { hidden: () => !hasBalls() },
+                addBall: {
+                    className: () => (this.svc.canAddBall(gameKey) ? 'gaddball' : 'gaddball hidden'),
+                    onclick: () => this.svc.addBall(gameKey),
+                },
+                err: {
+                    // The slot's draft position is read LAZILY — adding or
+                    // removing a game above this one shifts it.
+                    textContent: () => {
+                        const s = slot();
+                        return [
+                            ...this.svc.gameWarnings(gameKey),
+                            ...(s ? this.svc.humanizedForFormat(this.svc.slotIndex(s.key)) : []),
+                            // `.fslot__err` is a plain inline run — joining on
+                            // a newline would collapse two warnings into one
+                            // wrapped sentence. Same separator the flexible
+                            // format card uses.
+                        ].join(' · ');
+                    },
+                },
+                summary: { textContent: () => this.svc.gameSummary(gameKey) },
+                adjust: { onclick: () => this.svc.adjustGame(gameKey) },
+            },
+            track,
+        );
+
+        // The game's declared knobs, straight off the descriptor — the same
+        // rows the flexible format card renders (format-templates §2).
+        this.eachInto(
+            this.ref(el, 'configFields'),
+            track,
+            () => this.svc.catalog.byId(formatId())?.configFields ?? [],
+            (field, _i, fieldTrack) => {
+                const s = slot();
+                if (s) return this.configField(s.key, field, fieldTrack);
+                // Unreachable (a picked game always has a slot), but the host
+                // is `display: contents`, so an UNCLASSED placeholder would
+                // become a direct flex child of `.fslot` and eat one `gap`.
+                const empty = document.createElement('div');
+                empty.className = 'fslot__configs';
+                return empty;
+            },
+            (field) => `${formatId()}:${field.key}`,
+        );
+
+        this.eachInto(
+            this.ref(el, 'ballRows'),
+            track,
+            () => (hasBalls() ? this.svc.players.get() : []),
+            (p, _i, rowTrack) => this.ballRow(gameKey, p.key, rowTrack),
+            (p) => p.key,
+        );
+        return el;
+    }
+
+    /**
+     * One player's ball pick within one game: a button per ball plus "–" to sit
+     * THIS game out. Sitting one game out never touches any other game (§4).
+     */
+    private ballRow(gameKey: number, playerKey: number, track: (d: () => void) => void): HTMLElement {
+        const el = this.wireEl(
+            ballRowTpl,
+            {
+                name: {
+                    textContent: () =>
+                        this.svc.players.get().find((p) => p.key === playerKey)?.name?.trim() || 'Player',
+                },
+            },
+            track,
+        );
+        this.eachInto(
+            this.ref(el, 'seg'),
+            track,
+            () => [...this.svc.gameBalls(gameKey), null] as (number | null)[],
+            (ball, _i, btnTrack) =>
+                this.wireEl(
+                    template(`<button bind="b" type="button"></button>`),
+                    {
+                        b: {
+                            textContent: () => (ball === null ? '–' : this.svc.teamLetter(ball)),
+                            className: () => (this.svc.ballOf(gameKey, playerKey) === ball ? 'on' : ''),
+                            onclick: () => this.svc.assignBall(gameKey, playerKey, ball),
+                        },
+                    },
+                    btnTrack,
+                ),
+            (ball) => String(ball),
+        );
+        return el;
+    }
+
+    private formatCard(key: number, track: (d: () => void) => void): HTMLElement {
         const slot = () => this.svc.slotByKey(key);
         const formatId = () => slot()?.formatId ?? '';
 
@@ -1073,7 +1373,10 @@ export class CreateComponent extends Component {
                             : 'of each player’s course handicap',
                 },
                 err: {
-                    textContent: () => this.svc.humanizedForFormat(index).join(' · '),
+                    // Read the draft position LAZILY: a slot's index shifts
+                    // whenever a game above it is added or removed.
+                    textContent: () =>
+                        this.svc.humanizedForFormat(this.svc.slotIndex(key)).join(' · '),
                 },
             },
             track,
@@ -1121,7 +1424,13 @@ export class CreateComponent extends Component {
             if (!side) {
                 out.push(...this.svc.players.get().map((p) => ({ kind: 'player' as const, subKey: p.key })));
             }
-            for (const tm of this.svc.teams.get()) {
+            // `customTeams`, not every team: a picked game's generated sides
+            // are hidden from the Teams section, so offering them here would
+            // let the user score a team they cannot see, name, or edit — and
+            // whose membership silently re-derives from that game's balls
+            // (format-templates §5: the flexible sections list only what no
+            // card owns).
+            for (const tm of this.svc.customTeams()) {
                 if (this.svc.teamKindFitsFormat(formatId(), tm.kind)) {
                     out.push({ kind: 'team' as const, subKey: tm.key });
                 }

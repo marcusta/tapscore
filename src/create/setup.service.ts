@@ -5,7 +5,12 @@ import type { SetupCourse, Tee, TeeRating } from '../api/setup.gen';
 import type { CompilerDiagnostic } from '../api/friendly-rounds.gen';
 import { courseHandicap, courseHandicapRaw } from './handicap';
 import { parseHandicapIndex, formatHandicapIndex } from './hcp-input';
-import { FormatCatalogService, MAX_TEAM_SIZE } from './format-catalog.service';
+import {
+    FormatCatalogService,
+    MAX_TEAM_SIZE,
+    type FormatDescriptor,
+    type PlayableShape,
+} from './format-catalog.service';
 import {
     diagnosticsForFormatCard,
     generalDiagnostics as bucketGeneralDiagnostics,
@@ -45,6 +50,32 @@ export interface FormatSlotForm {
      * the formats that declare no fields — the client holds NO per-format table.
      */
     config: Record<string, string>;
+    /**
+     * PROVENANCE (format-templates §5) — the picked game that generated and
+     * owns this slot. Absent ⇒ the user's own slot, edited through the Formats
+     * section. CLIENT-SIDE SETUP STATE ONLY: `buildFormats` never reads it, so
+     * it can never reach the draft.
+     */
+    gameKey?: number;
+}
+
+/**
+ * One game picked from a card (format-templates §4). The card ships with the
+ * format; the only residual decision it leaves is `ballByPlayer` — which of the
+ * game's balls each player is on. A roster player with no entry sits THIS game
+ * out and may still play every other one.
+ *
+ * `ballCount` is seeded from the descriptor's derived {@link PlayableShape}
+ * (`count.min`) and can grow while the count is unbounded ("add a ball"). It is
+ * 0 for an individual game, which is contested between as many balls as there
+ * are players and therefore leaves no decision at all.
+ */
+export interface PickedGame {
+    key: number;
+    formatId: string;
+    ballCount: number;
+    /** Player `key` → ball index. Missing key ⇒ sitting this game out. */
+    ballByPlayer: Record<number, number>;
 }
 
 /**
@@ -62,6 +93,14 @@ export interface TeamForm {
     pctByPlayer: Record<number, string>;
     /** Nested single-ball team members (multi_ball/side only): team key → member. */
     memberTeams: Record<number, boolean>;
+    /**
+     * PROVENANCE (format-templates §5) — the picked game that generated and
+     * owns this team. Absent ⇒ the user's own team, edited through the Teams
+     * section. CLIENT-SIDE SETUP STATE ONLY: `buildTeams` never reads it, so it
+     * can never reach the draft. Phase D replaces game-owned teams with
+     * round-level reuse (§3).
+     */
+    gameKey?: number;
 }
 
 /**
@@ -202,6 +241,26 @@ export class SetupService {
     /** 1..N format instances (slots). M3 replaces M2's single hardcoded default. */
     readonly formatSlots = new Signal<FormatSlotForm[]>([]);
 
+    // --- Picked games (format-templates §4/§5) --------------------------------
+
+    /**
+     * The games picked from the cards, in pick order. Games are ADDITIVE: a
+     * round is a set of games, each with its own participants and knobs, each
+     * generating its own format slot (and its own `multi_ball` teams where a
+     * ball holds 2+ players). Everything a game generated is tagged with its
+     * `key`; everything untagged is the user's own and lives in the flexible
+     * Teams/Formats sections.
+     */
+    readonly picked = new Signal<PickedGame[]>([]);
+
+    /**
+     * Whether the flexible Teams + Formats sections are on screen. Opened by
+     * "+ Custom game" or by adjusting a game's details, and always open in edit
+     * mode. Picked games stay on their cards either way — a custom game sits
+     * ALONGSIDE them rather than replacing them (§5).
+     */
+    readonly customOpen = new Signal(false);
+
     readonly submitting = new Signal(false);
     /** Compiler/planner diagnostics from the last failed submit (path-tagged). */
     readonly diagnostics = new Signal<CompilerDiagnostic[]>([]);
@@ -231,6 +290,7 @@ export class SetupService {
     private nextSlotKey = 1;
     private nextTeamKey = 1;
     private nextGroupKey = 1;
+    private nextPickKey = 1;
 
     /**
      * Clear the in-progress draft back to empty. The service is a DI singleton
@@ -248,6 +308,8 @@ export class SetupService {
         this.teams.set([]);
         this.groups.set([]);
         this.formatSlots.set([]);
+        this.picked.set([]);
+        this.customOpen.set(false);
         this.diagnostics.set([]);
         this.submitError.set(null);
         this.submitting.set(false);
@@ -261,12 +323,14 @@ export class SetupService {
         this.nextSlotKey = 1;
         this.nextTeamKey = 1;
         this.nextGroupKey = 1;
+        this.nextPickKey = 1;
     }
 
     async load(): Promise<void> {
-        // Catalog loads in parallel; the format step renders once it arrives and
-        // seeds a default slot so a round is valid out of the box (M2 parity).
-        void this.catalog.load().then(() => this.ensureDefaultSlot());
+        // Catalog loads in parallel; the game cards render once it arrives and
+        // the everyone-for-themselves card is picked so a round is valid out of
+        // the box (M2 parity).
+        void this.catalog.load().then(() => this.ensureDefaultGame());
         const data = await request(this.loading, this.error, () => api.setup.courses());
         if (!data) return;
         this.courses.set(data);
@@ -340,6 +404,11 @@ export class SetupService {
         this.teams.set(forms.teams);
         this.groups.set(forms.groups);
         this.formatSlots.set(forms.formatSlots);
+        // A stored draft records COMPOSITION, not the cards that produced it
+        // (format-templates §6): editing opens the flexible form with no games
+        // picked, and nothing may stamp a default card on top of it.
+        this.picked.set([]);
+        this.customOpen.set(true);
         // Resume the key counters PAST every prefilled key so a freshly-added
         // row/team/group/slot never collides with a prefilled one.
         this.nextKey = forms.nextKey;
@@ -378,6 +447,7 @@ export class SetupService {
             ...this.players.get(),
             { key: this.nextKey++, name: '', handicapIndex: '', gender: 'M', teeId },
         ]);
+        this.syncGamesToRoster();
     }
 
     /**
@@ -422,6 +492,7 @@ export class SetupService {
                 playerId: friend.id,
             },
         ]);
+        this.syncGamesToRoster();
     }
 
     /** True when a registered player already holds a roster row. */
@@ -440,6 +511,8 @@ export class SetupService {
                 return { ...g, members };
             }),
         );
+        // A removed player leaves EVERY game's ball assignment (§4).
+        this.syncGamesToRoster();
     }
 
     patchPlayer(key: number, patch: Partial<Omit<PlayerForm, 'key'>>): void {
@@ -450,11 +523,25 @@ export class SetupService {
 
     // --- Format slots (the M3 format step) ---
 
-    /** Seed one default slot once the catalog is loaded, if the user has none. */
-    private ensureDefaultSlot(): void {
-        if (this.formatSlots.get().length > 0) return;
-        const first =
-            this.catalog.byId('stableford_individual') ?? this.catalog.descriptors.get()[0];
+    /**
+     * Seed the default game once the catalog is loaded, if the user has none.
+     *
+     * It is the everyone-for-themselves CARD, not a bare slot: an untagged slot
+     * would show up in the flexible Formats section and reveal Teams + Formats
+     * at load, which is exactly the state the cards exist to replace. Only the
+     * fallback for a catalog without `stableford_individual` (never the real
+     * server) mints an untagged slot, so the flow always has something valid.
+     *
+     * Never runs in edit mode — a stored draft carries its own composition (§6).
+     */
+    private ensureDefaultGame(): void {
+        if (this.editToken.get()) return;
+        if (this.formatSlots.get().length > 0 || this.picked.get().length > 0) return;
+        if (this.catalog.byId('stableford_individual')) {
+            this.pickGame('stableford_individual');
+            if (this.formatSlots.get().length > 0) return;
+        }
+        const first = this.catalog.descriptors.get()[0];
         if (first) this.addFormatSlot(first.id);
     }
 
@@ -533,6 +620,433 @@ export class SetupService {
 
     teamLetter(index: number): string {
         return TEAM_LETTERS[index] ?? `T${index + 1}`;
+    }
+
+    // --- Game cards (format-templates §4/§5) ---------------------------------
+    //
+    // Everything below is derived from the DESCRIPTOR: the curated card list is
+    // `catalog.presets()`, and what a game is contested between is
+    // `catalog.playableShape()`. There is no per-format table on the client —
+    // a correctly-declared new format gets a working card for free.
+
+    /** The curated cards, in the descriptor's own `preset.rank` order. */
+    presetGames(): FormatDescriptor[] {
+        return this.catalog.presets();
+    }
+
+    /** What a game is contested between; null for an unknown format id. */
+    shapeOfGame(formatId: string): PlayableShape | null {
+        const d = this.catalog.byId(formatId);
+        return d ? this.catalog.playableShape(d) : null;
+    }
+
+    /**
+     * An INDIVIDUAL game — every player is their own ball and there are as many
+     * balls as players (`size.max === 1` with an unbounded count). It leaves no
+     * residual decision, so its card renders no ball picker and its slot scores
+     * the whole roster. Distinct from a fixed-count one-player-per-ball game
+     * (umbrella individual: exactly 3 balls), which DOES leave a decision.
+     */
+    private isIndividualShape(shape: PlayableShape): boolean {
+        return shape.size.max === 1 && shape.count.max === undefined;
+    }
+
+    isIndividualGame(formatId: string): boolean {
+        const shape = this.shapeOfGame(formatId);
+        return shape ? this.isIndividualShape(shape) : false;
+    }
+
+    /**
+     * The smallest roster that can play this game at all: `count.min × size.min`
+     * (§4). An individual game has no minimum of its own — it is contested
+     * between however many players there are — so it stays playable at an empty
+     * roster (the round's own "add at least one player" rule covers that).
+     */
+    minPlayersFor(formatId: string): number {
+        const shape = this.shapeOfGame(formatId);
+        if (!shape || this.isIndividualShape(shape)) return 0;
+        return shape.count.min * shape.size.min;
+    }
+
+    /** True when the roster is big enough to play this game. Eligibility is
+     * DISCOVERY, not a gate: an ineligible card stays visible and disabled. */
+    gameFits(formatId: string): boolean {
+        return this.players.get().length >= this.minPlayersFor(formatId);
+    }
+
+    /** What is missing, phrased as what to DO about it (game-rules.md's
+     * actionable-refusal contract) — the ineligible card's subtitle. */
+    gameNeedsText(formatId: string): string {
+        const min = this.minPlayersFor(formatId);
+        const missing = Math.max(0, min - this.players.get().length);
+        return `Needs ${min} players — add ${missing} more.`;
+    }
+
+    /** One line saying what the game is contested between, derived from the
+     * descriptor's ball requirement (never a hand-written per-format string). */
+    gameShapeText(formatId: string): string {
+        const shape = this.shapeOfGame(formatId);
+        if (!shape) return '';
+        if (this.isIndividualShape(shape)) return 'Everyone plays their own ball';
+        const balls =
+            shape.count.max === shape.count.min ? `${shape.count.min} balls` : `${shape.count.min}+ balls`;
+        const size =
+            shape.size.max === 1
+                ? 'one player each'
+                : shape.size.min === shape.size.max
+                  ? `${shape.size.min} players each`
+                  : shape.size.min === 1
+                    ? 'each a player or a team'
+                    : `${shape.size.min}–${shape.size.max} players each`;
+        return `${balls} · ${size}`;
+    }
+
+    /** True when this game is already on the card list. A card is picked at most
+     * once; a second instance of the same format is a custom game. */
+    isGamePicked(formatId: string): boolean {
+        return this.picked.get().some((p) => p.formatId === formatId);
+    }
+
+    pickedByKey(key: number): PickedGame | null {
+        return this.picked.get().find((p) => p.key === key) ?? null;
+    }
+
+    /** The game's display name — the format's own catalog label. */
+    gameLabel(formatId: string): string {
+        return this.catalog.labelOf(formatId) ?? formatId;
+    }
+
+    /** Card tap: games are additive, so this adds or removes one of many. */
+    toggleGame(formatId: string): void {
+        const existing = this.picked.get().find((p) => p.formatId === formatId);
+        if (existing) this.unpickGame(existing.key);
+        else this.pickGame(formatId);
+    }
+
+    /**
+     * Add a game. Its participants are seeded from the roster — evenly across
+     * the balls when the roster divides, otherwise `size.min` per ball with the
+     * rest sitting out (four players, three balls ⇒ one sits out and the card
+     * says so). Everything it writes is ordinary setup state.
+     */
+    pickGame(formatId: string): void {
+        const shape = this.shapeOfGame(formatId);
+        if (!shape || this.isGamePicked(formatId) || !this.gameFits(formatId)) return;
+        const ballCount = this.isIndividualShape(shape) ? 0 : shape.count.min;
+        const pick: PickedGame = {
+            key: this.nextPickKey++,
+            formatId,
+            ballCount,
+            ballByPlayer: this.defaultAssignment(shape, ballCount),
+        };
+        this.picked.set([...this.picked.get(), pick]);
+        this.regenerateGame(pick);
+    }
+
+    /** Drop a game, taking the teams and format slot it owned with it. Other
+     * games — and anything custom — are untouched. */
+    unpickGame(gameKey: number): void {
+        this.picked.set(this.picked.get().filter((p) => p.key !== gameKey));
+        this.teams.set(this.teams.get().filter((t) => t.gameKey !== gameKey));
+        this.formatSlots.set(this.formatSlots.get().filter((s) => s.gameKey !== gameKey));
+    }
+
+    /** Seed `ballByPlayer`: an even split when the roster divides by the ball
+     * count, otherwise the per-ball minimum with the remainder sitting out.
+     * Never more than a ball takes (`size.max`). */
+    private defaultAssignment(shape: PlayableShape, ballCount: number): Record<number, number> {
+        const out: Record<number, number> = {};
+        if (ballCount <= 0) return out;
+        const roster = this.players.get();
+        const even = roster.length % ballCount === 0 ? roster.length / ballCount : shape.size.min;
+        const per = Math.max(1, Math.min(even, shape.size.max));
+        let i = 0;
+        for (let ball = 0; ball < ballCount && i < roster.length; ball++) {
+            for (let n = 0; n < per && i < roster.length; n++, i++) out[roster[i]!.key] = ball;
+        }
+        return out;
+    }
+
+    /** The ball indices of a picked game (empty for an individual game). */
+    gameBalls(gameKey: number): number[] {
+        const pick = this.pickedByKey(gameKey);
+        if (!pick) return [];
+        return Array.from({ length: pick.ballCount }, (_, i) => i);
+    }
+
+    /** Which ball a player is on in this game; null ⇒ sitting it out. */
+    ballOf(gameKey: number, playerKey: number): number | null {
+        const ball = this.pickedByKey(gameKey)?.ballByPlayer[playerKey];
+        return ball === undefined ? null : ball;
+    }
+
+    /** Put a player on a ball, or (null) sit them out of THIS game only —
+     * sitting one game out never affects any other (§4). */
+    assignBall(gameKey: number, playerKey: number, ball: number | null): void {
+        const pick = this.pickedByKey(gameKey);
+        if (!pick) return;
+        const ballByPlayer = { ...pick.ballByPlayer };
+        if (ball === null) delete ballByPlayer[playerKey];
+        else ballByPlayer[playerKey] = ball;
+        const next = { ...pick, ballByPlayer };
+        this.picked.set(this.picked.get().map((p) => (p.key === gameKey ? next : p)));
+        this.regenerateGame(next);
+    }
+
+    /** True while this game's ball count is open-ended (`count.max` absent) —
+     * the better-ball family, where the card offers "add a ball" (§1). */
+    canAddBall(gameKey: number): boolean {
+        const pick = this.pickedByKey(gameKey);
+        if (!pick || pick.ballCount === 0) return false;
+        const shape = this.shapeOfGame(pick.formatId);
+        return !!shape && (shape.count.max === undefined || pick.ballCount < shape.count.max);
+    }
+
+    addBall(gameKey: number): void {
+        const pick = this.pickedByKey(gameKey);
+        if (!pick || !this.canAddBall(gameKey)) return;
+        const next = { ...pick, ballCount: pick.ballCount + 1 };
+        this.picked.set(this.picked.get().map((p) => (p.key === gameKey ? next : p)));
+        this.regenerateGame(next);
+    }
+
+    /** The generated slot backing a picked game (its knobs live there). */
+    slotForGame(gameKey: number): FormatSlotForm | null {
+        return this.formatSlots.get().find((s) => s.gameKey === gameKey) ?? null;
+    }
+
+    /** The players on one ball of a picked game, in roster order. */
+    ballMembers(gameKey: number, ball: number): PlayerForm[] {
+        const pick = this.pickedByKey(gameKey);
+        if (!pick) return [];
+        return this.players.get().filter((p) => pick.ballByPlayer[p.key] === ball);
+    }
+
+    /** Roster players sitting this particular game out. */
+    sittingOut(gameKey: number): PlayerForm[] {
+        const pick = this.pickedByKey(gameKey);
+        if (!pick || pick.ballCount === 0) return [];
+        return this.players.get().filter((p) => pick.ballByPlayer[p.key] === undefined);
+    }
+
+    /**
+     * Turn one picked game into the composition the engine understands (§4):
+     * a ball with ONE player is scored as that player, a ball with two or more
+     * becomes a `multi_ball` team the format aggregates into a single subject
+     * (ADR-0004). Only this game's own teams and slot are touched.
+     *
+     * THE DOUBLE-SCORING TRAP: a ball format includes every UNTICKED player by
+     * default, so every player who is not an own-ball subject must be ticked
+     * OUT explicitly. Without it six players in three pairs would submit nine
+     * subjects (six players + three sides) where the format allows three.
+     */
+    private regenerateGame(pick: PickedGame): void {
+        const shape = this.shapeOfGame(pick.formatId);
+        if (!shape) return;
+        const roster = this.players.get();
+        const subjectPlayers: Record<number, boolean> = {};
+        const generated: TeamForm[] = [];
+        // Reuse this game's existing team keys ball-for-ball so a participant
+        // change doesn't renumber "Team A" under the user.
+        const existing = this.teams.get().filter((t) => t.gameKey === pick.key);
+        for (let ball = 0; ball < pick.ballCount; ball++) {
+            const members = roster.filter((p) => pick.ballByPlayer[p.key] === ball);
+            if (members.length === 0) continue;
+            // A game whose balls are always teams (Taliban's 2×2) keeps an
+            // under-filled ball as a team — dropped at build time and surfaced
+            // by `gameWarnings`, never silently rescored as a lone player.
+            if (members.length === 1 && shape.size.min === 1) {
+                subjectPlayers[members[0]!.key] = true;
+                continue;
+            }
+            generated.push({
+                key: existing[generated.length]?.key ?? this.nextTeamKey++,
+                kind: 'multi_ball',
+                formation: 'custom',
+                pctByPlayer: Object.fromEntries(members.map((m) => [m.key, '100'])),
+                memberTeams: {},
+                gameKey: pick.key,
+            });
+        }
+        if (pick.ballCount > 0) {
+            for (const p of roster) {
+                if (subjectPlayers[p.key] === undefined) subjectPlayers[p.key] = false;
+            }
+        }
+
+        // Splice this game's teams in place so the round's team ORDER (and
+        // therefore the Team A…H letters) stays stable across regenerations.
+        const nextTeams: TeamForm[] = [];
+        let gi = 0;
+        let entered = false;
+        for (const team of this.teams.get()) {
+            if (team.gameKey === pick.key) {
+                entered = true;
+                const replacement = generated[gi++];
+                if (replacement) nextTeams.push(replacement);
+                continue;
+            }
+            // Leaving this game's block. A game that GAINED a ball has surplus
+            // teams left: they belong here, not at the end of the round's list
+            // — otherwise the game's teams stop being contiguous and its
+            // letters interleave with another game's.
+            if (entered) for (; gi < generated.length; gi++) nextTeams.push(generated[gi]!);
+            nextTeams.push(team);
+        }
+        for (; gi < generated.length; gi++) nextTeams.push(generated[gi]!);
+        this.teams.set(nextTeams);
+
+        // Reuse the existing slot's identity so a knob the user changed on the
+        // card (allowance, config) survives a participant change.
+        const slots = this.formatSlots.get();
+        const slotBefore = slots.find((s) => s.gameKey === pick.key);
+        const slot: FormatSlotForm = {
+            key: slotBefore?.key ?? this.nextSlotKey++,
+            formatId: pick.formatId,
+            allowancePct: slotBefore?.allowancePct ?? '100',
+            subjectPlayers,
+            subjectTeams: Object.fromEntries(generated.map((t) => [t.key, true])),
+            config: slotBefore?.config ?? this.defaultConfigFor(pick.formatId),
+            gameKey: pick.key,
+        };
+        this.formatSlots.set(
+            slotBefore ? slots.map((s) => (s.key === slot.key ? slot : s)) : [...slots, slot],
+        );
+    }
+
+    /**
+     * Keep every picked game honest as the roster changes (§4): a removed
+     * player leaves the balls, and a new player fills a ball still below its
+     * minimum so a roster growing back into shape heals itself. Once every ball
+     * is satisfied a new player simply sits the game out — visible on the card
+     * rather than silently scored.
+     */
+    private syncGamesToRoster(): void {
+        const roster = this.players.get();
+        const rosterKeys = new Set(roster.map((p) => p.key));
+        const next = this.picked.get().map((pick) => {
+            if (pick.ballCount === 0) return pick;
+            const minSize = this.shapeOfGame(pick.formatId)?.size.min ?? 1;
+            const ballByPlayer: Record<number, number> = {};
+            for (const [k, ball] of Object.entries(pick.ballByPlayer)) {
+                if (rosterKeys.has(Number(k)) && ball < pick.ballCount) ballByPlayer[Number(k)] = ball;
+            }
+            for (const p of roster) {
+                if (ballByPlayer[p.key] !== undefined) continue;
+                for (let ball = 0; ball < pick.ballCount; ball++) {
+                    const filled = Object.values(ballByPlayer).filter((b) => b === ball).length;
+                    if (filled < minSize) {
+                        ballByPlayer[p.key] = ball;
+                        break;
+                    }
+                }
+            }
+            return { ...pick, ballByPlayer };
+        });
+        this.picked.set(next);
+        for (const pick of next) this.regenerateGame(pick);
+    }
+
+    /**
+     * Why a picked game can't be played as currently assigned, phrased as what
+     * to do — an under-filled ball, an over-filled one, or a roster that has
+     * shrunk below what the game needs at all.
+     */
+    gameWarnings(gameKey: number): string[] {
+        const pick = this.pickedByKey(gameKey);
+        const shape = pick ? this.shapeOfGame(pick.formatId) : null;
+        if (!pick || !shape) return [];
+        const label = this.gameLabel(pick.formatId);
+        if (!this.gameFits(pick.formatId)) return [`${label}: ${this.gameNeedsText(pick.formatId)}`];
+        const out: string[] = [];
+        for (let ball = 0; ball < pick.ballCount; ball++) {
+            const n = this.ballMembers(gameKey, ball).length;
+            const who = `${label} ball ${this.teamLetter(ball)}`;
+            if (n < shape.size.min) {
+                const need = shape.size.min - n;
+                out.push(`${who} needs ${need} more player${need === 1 ? '' : 's'}.`);
+            } else if (n > shape.size.max) {
+                out.push(`${who} takes at most ${shape.size.max}.`);
+            }
+        }
+        return out;
+    }
+
+    /** What a picked game was generated as, in one line. */
+    gameSummary(gameKey: number): string {
+        const pick = this.pickedByKey(gameKey);
+        if (!pick) return '';
+        const name = (p: PlayerForm) => p.name.trim() || 'Player';
+        const parts: string[] = [];
+        if (pick.ballCount === 0) {
+            parts.push('everyone');
+        } else {
+            const balls: string[] = [];
+            for (let ball = 0; ball < pick.ballCount; ball++) {
+                const members = this.ballMembers(gameKey, ball);
+                if (members.length > 0) balls.push(members.map(name).join(' & '));
+            }
+            parts.push(balls.join(' vs '));
+            const out = this.sittingOut(gameKey);
+            if (out.length > 0) parts.push(`${out.map(name).join(', ')} sitting out`);
+        }
+        parts.push(`${this.slotForGame(gameKey)?.allowancePct ?? '100'}% allowance`);
+        return parts.filter((p) => p !== '').join(' · ');
+    }
+
+    // --- Custom games alongside the picked ones (format-templates §5) --------
+
+    /**
+     * Hand ONE game's generated composition over to the flexible form, KEEPING
+     * what it built — customising starts from the stamp, not a blank slate.
+     * One-way for that game; every other picked game carries on tracking the
+     * roster.
+     */
+    adjustGame(gameKey: number): void {
+        this.teams.set(
+            this.teams.get().map((t) => (t.gameKey === gameKey ? { ...t, gameKey: undefined } : t)),
+        );
+        this.formatSlots.set(
+            this.formatSlots.get().map((s) => (s.gameKey === gameKey ? { ...s, gameKey: undefined } : s)),
+        );
+        this.picked.set(this.picked.get().filter((p) => p.key !== gameKey));
+        this.customOpen.set(true);
+    }
+
+    /** Add a game the cards don't cover, ALONGSIDE whatever is already picked
+     * — nothing is unpicked. */
+    addCustomGame(): void {
+        this.customOpen.set(true);
+        // Seed with a format nothing is playing yet. `addFormatSlot()`'s bare
+        // default is `stableford_individual`, which is also the default CARD —
+        // so "+ Custom game" on a fresh round would mint a second, identical
+        // slot and the round would ship two identical leaderboards.
+        const taken = new Set(this.formatSlots.get().map((s) => s.formatId));
+        const fresh = this.catalog.descriptors.get().find((d) => !taken.has(d.id));
+        this.addFormatSlot(fresh?.id);
+    }
+
+    /** True while the flexible Teams + Formats sections are on screen: they
+     * appear once something exists that no card owns. */
+    showFlexible(): boolean {
+        return this.customOpen.get() || this.customSlots().length > 0 || this.customTeams().length > 0;
+    }
+
+    /** Format slots no picked game owns — the ones the Formats section edits. */
+    customSlots(): FormatSlotForm[] {
+        return this.formatSlots.get().filter((s) => s.gameKey === undefined);
+    }
+
+    /** Teams no picked game owns — the ones the Teams section edits. */
+    customTeams(): TeamForm[] {
+        return this.teams.get().filter((t) => t.gameKey === undefined);
+    }
+
+    /** A slot's position in the draft's `formats[]`, for diagnostics that are
+     * position-tagged. Read LAZILY — games added or removed above a slot shift
+     * it. */
+    slotIndex(slotKey: number): number {
+        return this.formatSlots.get().findIndex((s) => s.key === slotKey);
     }
 
     // --- Round-level teams (ADR-0003) ---
@@ -1237,6 +1751,13 @@ export class SetupService {
      */
     private noSubjectsMessage(slot: FormatSlotForm): string {
         const label = this.catalog.labelOf(slot.formatId) ?? slot.formatId;
+        // A CARD-owned slot has no Teams or Scores UI on screen — those
+        // sections only appear once something exists that no card owns. Point
+        // at the game's own ball rows instead; `gameWarnings` renders into the
+        // same element and already says which ball is short.
+        if (slot.gameKey !== undefined) {
+            return `${label} has nobody playing — put players on a ball above.`;
+        }
         if (!this.isSideFormat(slot.formatId)) {
             return `${label} has nothing to score — tick at least one player or team under “Scores”.`;
         }

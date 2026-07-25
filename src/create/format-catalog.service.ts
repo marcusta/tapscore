@@ -142,6 +142,21 @@ export class FormatCatalogService {
     }
 
     /**
+     * The card's "what is this game" line — the descriptor's own
+     * `preset.tagline`, resolved with the same locale rule as {@link labelOf}
+     * (`tagline[locale] ?? tagline.en`). Empty string for a descriptor that
+     * declares no preset, so a caller never has to null-check for display.
+     */
+    taglineOf(
+        descriptorOrId: FormatDescriptor | string,
+        locale: Locale = currentLocale(),
+    ): string {
+        const d = typeof descriptorOrId === 'string' ? this.byId(descriptorOrId) : descriptorOrId;
+        const tagline = d?.preset?.tagline;
+        return tagline?.[locale] ?? tagline?.en ?? '';
+    }
+
+    /**
      * What a game is contested BETWEEN — derived from the descriptor's declared
      * ball requirement, never from a per-format client table (format-templates
      * §1 "The ball shape is derived, not declared"):
