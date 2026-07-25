@@ -166,6 +166,23 @@ export const talibanBetterBall: FormatStrategy = {
 
     deriveSlotBalls: deriveAllowance,
 
+    // The one knob this format takes, declared as data so the setup UI renders
+    // it without knowing what a taliban is. `validateConfig` below stays the
+    // validation authority — these values must be a subset of what it accepts,
+    // which `builtins.configFields.test.ts` pins.
+    configFields: [
+        {
+            kind: 'select',
+            key: 'bonusRule',
+            labels: { en: 'Bonus scores count as', sv: 'Bonuspoäng räknas på' },
+            options: [
+                { value: 'gross', labels: { en: 'Gross', sv: 'Brutto' } },
+                { value: 'net', labels: { en: 'Net', sv: 'Netto' } },
+            ],
+            default: 'gross',
+        },
+    ],
+
     validateConfig(config: unknown): ConfigDiagnostic[] {
         if (config && typeof config === 'object' && 'bonusRule' in config) {
             const raw = (config as { bonusRule: unknown }).bonusRule;

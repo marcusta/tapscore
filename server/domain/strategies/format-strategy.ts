@@ -27,6 +27,7 @@
 // resolve every format from that registry via `findFormatPlugin`. The
 // parallel strategy registry retired in Slice 6 (2.6b-final).
 
+import type { FormatConfigField } from '../formats/plugin';
 import type { FormatAllowanceConfig } from '../round-definition';
 import type {
     ConfigDiagnostic,
@@ -124,4 +125,18 @@ export interface FormatStrategy {
      * the config (ADR-0001).
      */
     validateConfig?(config: unknown): ConfigDiagnostic[];
+    /**
+     * The config knobs a setup UI may offer for this format, as pure data
+     * (`FormatConfigField`). Declared HERE — next to the `score()` that reads
+     * the config and the `validateConfig()` that guards it — so a format stays
+     * self-contained (ADR-0001) and no client ever branches on a format id to
+     * decide which knob exists. `builtins.ts` `toPlugin()` copies these onto
+     * the descriptor and derives `defaults.formatConfig` from their defaults.
+     *
+     * Presentation + defaults ONLY. `validateConfig` remains the single
+     * validation authority; a value offered here must be one it accepts (the
+     * anti-drift pin is asserted in `builtins.configFields.test.ts`). Omit for
+     * formats that take no config.
+     */
+    readonly configFields?: FormatConfigField[];
 }

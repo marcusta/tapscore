@@ -182,6 +182,63 @@ describe('descriptor validation', () => {
     });
 });
 
+describe('configFields / preset descriptor validation', () => {
+    const field = {
+        kind: 'select' as const,
+        key: 'bonusRule',
+        labels: { en: 'Bonus', sv: 'Bonus' },
+        options: [
+            { value: 'gross', labels: { en: 'Gross' } },
+            { value: 'net', labels: { en: 'Net' } },
+        ],
+        default: 'gross',
+    };
+
+    it('accepts a well-formed configField + preset', () => {
+        const d = makePlugin({
+            configFields: [field],
+            defaults: { allowanceConfig: { type: 'flat', pct: 100 }, formatConfig: { bonusRule: 'gross' } },
+            preset: { tagline: { en: 'A game.', sv: 'Ett spel.' }, rank: 1 },
+        }).descriptor;
+        expect(() => assertValidDescriptor(d)).not.toThrow();
+    });
+
+    it('rejects a default that is not one of the declared options', () => {
+        const d = makePlugin({ configFields: [{ ...field, default: 'sideways' }] }).descriptor;
+        expect(() => assertValidDescriptor(d)).toThrow(/is not one of its options/);
+    });
+
+    it('rejects a configField with no options', () => {
+        const d = makePlugin({ configFields: [{ ...field, options: [] }] }).descriptor;
+        expect(() => assertValidDescriptor(d)).toThrow(/at least one option/);
+    });
+
+    it('rejects duplicate configField keys', () => {
+        const d = makePlugin({ configFields: [field, field] }).descriptor;
+        expect(() => assertValidDescriptor(d)).toThrow(/duplicate configField key/);
+    });
+
+    it('rejects an option missing labels.en', () => {
+        const d = makePlugin({
+            configFields: [{ ...field, options: [{ value: 'gross', labels: { en: '' } }] }],
+        }).descriptor;
+        expect(() => assertValidDescriptor(d)).toThrow(/needs labels\.en/);
+    });
+
+    it('rejects an empty preset tagline', () => {
+        const d = makePlugin({ preset: { tagline: { en: '' } } }).descriptor;
+        expect(() => assertValidDescriptor(d)).toThrow(/preset\.tagline\.en/);
+    });
+
+    it('rejects a non-string defaults.formatConfig value', () => {
+        const d = makePlugin({
+            // @ts-expect-error — exercising the runtime guard on a bad value type
+            defaults: { allowanceConfig: { type: 'flat', pct: 100 }, formatConfig: { bonusRule: 2 } },
+        }).descriptor;
+        expect(() => assertValidDescriptor(d)).toThrow(/must be a string/);
+    });
+});
+
 describe('config validation', () => {
     it('canary accepts absent config', () => {
         expect(canaryPlugin.validateConfig(undefined)).toEqual([]);

@@ -34,7 +34,9 @@ export interface FormatDescriptor {
     scoringMode: string;
     teamShape: string;
     requirements: FormatRequirements;
-    defaults: { allowanceConfig: { type: 'flat'; pct: number } | { type: 'split'; bands: ({ pct: number; upToCh: null | number })[] } };
+    defaults: { allowanceConfig: { type: 'flat'; pct: number } | { type: 'split'; bands: ({ pct: number; upToCh: null | number })[] }; formatConfig?: Record<string, string> };
+    configFields?: FormatConfigField[];
+    preset?: FormatPreset;
     metrics: FormatMetric[];
     resultDisplay?: { runningTotals?: 'normalized'; scoreGridComponentId?: 'default-score-grid' | 'compact-match-grid' | 'category-matrix-grid' };
     scoresAnyBall?: boolean;
@@ -81,6 +83,19 @@ export interface FormatRequirements {
     allowSegmentOverlap?: boolean;
 }
 
+export interface FormatConfigField {
+    kind: 'select';
+    key: string;
+    labels: FormatLabels;
+    options: FormatConfigOption[];
+    default: string;
+}
+
+export interface FormatPreset {
+    tagline: FormatLabels;
+    rank?: number;
+}
+
 export interface FormatMetric {
     id: string;
     label: string;
@@ -105,6 +120,11 @@ export interface FormatBallRequirement {
 export interface ScoreEntryCapabilities {
     strokes: boolean;
     metadata?: MetadataInput[];
+}
+
+export interface FormatConfigOption {
+    value: string;
+    labels: FormatLabels;
 }
 
 export interface MetadataInput {

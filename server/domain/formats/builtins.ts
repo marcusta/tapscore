@@ -34,6 +34,7 @@ import type {
     FormatLabels,
     FormatMetric,
     FormatPlugin,
+    FormatPreset,
     FormatSetupInput,
     FormatSetupPlan,
     PlannedSlot,
@@ -117,6 +118,18 @@ interface BuiltinMeta {
     scoreEntry?: ScoreEntryCapabilities;
     /** Opt in to scoring any ball composition (own or team) — ADR-0002. */
     scoresAnyBall?: boolean;
+    /**
+     * Opt this format into the game-card picker. Curation lives HERE (next to
+     * the label/description prose it belongs with), not on the strategy: which
+     * games a friendly group is offered by name is a product decision about the
+     * catalog, whereas `configFields` is behaviour the strategy owns and is
+     * therefore declared on the strategy itself.
+     *
+     * Absent ⇒ deliberately not offered as a card; still reachable via the
+     * wizard's add-a-format path. `builtins.presets.test.ts` asserts the whole
+     * curated set, so a new format forces an explicit in/out decision.
+     */
+    preset?: FormatPreset;
 }
 
 const NORMALIZED_RUNNING = { runningTotals: 'normalized' as const };
@@ -134,6 +147,13 @@ const BUILTINS: BuiltinMeta[] = [
         metrics: GROSS_NET,
         renderResult: defaultGridResultPresenter,
         scoresAnyBall: true,
+        preset: {
+            tagline: {
+                en: 'Count every stroke — the lowest total wins.',
+                sv: 'Räkna varje slag – lägst antal vinner.',
+            },
+            rank: 4,
+        },
     },
     {
         strategy: stablefordIndividual,
@@ -146,6 +166,13 @@ const BUILTINS: BuiltinMeta[] = [
         resultDisplay: DEFAULT_SCORE_GRID,
         renderResult: stablefordIndividualPresenter,
         scoresAnyBall: true,
+        preset: {
+            tagline: {
+                en: 'Points per hole — one bad hole never ruins the round.',
+                sv: 'Poäng per hål – ett dåligt hål förstör aldrig ronden.',
+            },
+            rank: 1,
+        },
     },
     {
         strategy: matchPlayIndividual,
@@ -158,6 +185,10 @@ const BUILTINS: BuiltinMeta[] = [
         resultDisplay: COMPACT_MATCH_GRID,
         renderResult: matchPlayResultPresenter,
         scoresAnyBall: true,
+        preset: {
+            tagline: { en: 'One against one, hole by hole.', sv: 'Man mot man, hål för hål.' },
+            rank: 5,
+        },
     },
     {
         strategy: kopenhamnareIndividual,
@@ -172,6 +203,13 @@ const BUILTINS: BuiltinMeta[] = [
         resultDisplay: NORMALIZED_RUNNING,
         renderResult: kopenhamnareIndividualPresenter,
         scoresAnyBall: true,
+        preset: {
+            tagline: {
+                en: 'Three players share out six points on every hole.',
+                sv: 'Tre spelare delar sex poäng på varje hål.',
+            },
+            rank: 3,
+        },
     },
     {
         strategy: umbrellaIndividual,
@@ -183,6 +221,13 @@ const BUILTINS: BuiltinMeta[] = [
         metrics: POINTS_HIGH,
         resultDisplay: { ...NORMALIZED_RUNNING, scoreGridComponentId: 'category-matrix-grid' },
         renderResult: umbrellaIndividualPresenter,
+        preset: {
+            tagline: {
+                en: 'Points for length, fairway, green in regulation and birdie.',
+                sv: 'Poäng för längd, fairway, green i regulation och birdie.',
+            },
+            rank: 7,
+        },
         scoreEntry: {
             strokes: true,
             metadata: [
@@ -210,6 +255,13 @@ const BUILTINS: BuiltinMeta[] = [
         metrics: STABLEFORD_POINTS,
         renderResult: stablefordBetterBallPresenter,
         scoresAnyBall: true,
+        preset: {
+            tagline: {
+                en: 'Play in pairs — the best score on each hole counts.',
+                sv: 'Spela två och två – bästa poängen på varje hål räknas.',
+            },
+            rank: 6,
+        },
     },
     {
         strategy: matchPlayBetterBall,
@@ -234,6 +286,13 @@ const BUILTINS: BuiltinMeta[] = [
         resultDisplay: COMPACT_MATCH_GRID,
         renderResult: talibanResultPresenter,
         scoresAnyBall: true,
+        preset: {
+            tagline: {
+                en: 'Two against two — the pair that is behind can catch up fast.',
+                sv: 'Två mot två – laget som ligger under kan jaga ikapp snabbt.',
+            },
+            rank: 2,
+        },
     },
     {
         strategy: umbrella4Ball,
@@ -254,7 +313,19 @@ const BUILTINS: BuiltinMeta[] = [
 function toPlugin(meta: BuiltinMeta): FormatPlugin {
     const { strategy } = meta;
     const req = strategy.ballRequirement();
-    const defaults = { allowanceConfig: { type: 'flat', pct: 100 } as const };
+    // `defaults.formatConfig` is DERIVED from the strategy's declared config
+    // fields, never hand-authored: the seeded value and the field default are
+    // then one and the same fact and cannot drift. A format with no config
+    // fields seeds nothing (the strategy already defaults internally).
+    const configFields = strategy.configFields;
+    const formatConfig =
+        configFields && configFields.length > 0
+            ? Object.fromEntries(configFields.map((f) => [f.key, f.default]))
+            : undefined;
+    const defaults = {
+        allowanceConfig: { type: 'flat', pct: 100 } as const,
+        ...(formatConfig ? { formatConfig } : {}),
+    };
 
     function planSetup(input: FormatSetupInput): FormatSetupPlan {
         const allowanceConfig = input.allowanceConfig ?? defaults.allowanceConfig;
@@ -286,6 +357,11 @@ function toPlugin(meta: BuiltinMeta): FormatPlugin {
             requirements: { balls: req, ...(meta.scoreEntry ? { scoreEntry: meta.scoreEntry } : {}) },
             defaults,
             metrics: meta.metrics,
+            // Config knobs come from the STRATEGY (ADR-0001 co-location with
+            // the score()/validateConfig() that own them); the preset comes
+            // from the meta above (catalog curation).
+            ...(configFields && configFields.length > 0 ? { configFields } : {}),
+            ...(meta.preset ? { preset: meta.preset } : {}),
             ...(meta.resultDisplay ? { resultDisplay: meta.resultDisplay } : {}),
             ...(meta.scoresAnyBall ? { scoresAnyBall: true } : {}),
             clientAdapterId: null,

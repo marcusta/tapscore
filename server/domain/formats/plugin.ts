@@ -164,6 +164,65 @@ export interface FormatLabels {
     sv?: string;
 }
 
+/** One selectable value of a `FormatConfigField`. */
+export interface FormatConfigOption {
+    /** The literal written into `formatConfig[field.key]`. */
+    value: string;
+    /** Localized option label — see the locale note on {@link FormatConfigField}. */
+    labels: FormatLabels;
+}
+
+/**
+ * One per-slot format-config knob, declared as pure DATA so the setup UI
+ * renders a format's options generically — WITHOUT branching on a format id
+ * (the anti-pattern this replaces was the client's
+ * `formatTakesBonusRule(id) => id === 'taliban_better_ball'`, which also left
+ * köpenhamnare's `handicapMode` unreachable by any UI).
+ *
+ * A `select` field yields `formatConfig[key] = <option value>`. The declaration
+ * lives on the `FormatStrategy` (co-located with the `score()` that reads the
+ * config and the `validateConfig()` that guards it, ADR-0001) and is threaded
+ * into the descriptor by `builtins.ts` `toPlugin()`.
+ *
+ * The strategy's `validateConfig()` REMAINS the validation authority; these
+ * fields supply presentation + defaults only. Never re-implement validation
+ * here.
+ *
+ * DELIBERATE DEVIATION from the sibling precedent on the other pluggable axis
+ * (`AggregationConfigField` in `../aggregation/strategy.ts`, which carries a
+ * bare English `label: string`): formats are locale-aware — the descriptor
+ * already carries `FormatLabels`, and the client's `format-catalog.service.ts`
+ * `labelOf()` resolves them — and these are Swedish games. So the field label
+ * and every option label are `FormatLabels`, not bare strings. Everything else
+ * (the `kind` discriminator, `key`, `options`, `default`) mirrors the
+ * aggregation shape verbatim. Only `select` exists today; a future `integer`
+ * variant widens this into a union exactly as on the aggregation side.
+ */
+export interface FormatConfigField {
+    kind: 'select';
+    /** Key inside `formatConfig` this field writes. */
+    key: string;
+    /** Localized field label. */
+    labels: FormatLabels;
+    options: FormatConfigOption[];
+    /** Seed value; MUST be one of `options[].value`. */
+    default: string;
+}
+
+/**
+ * Opt-in curation: this format is offered as a named "game" card in the setup
+ * picker. ABSENT ⇒ the format is not offered as a card — it stays fully
+ * reachable through the wizard's add-a-format path, so this is a curation
+ * decision, not a capability gate. This is the ONLY hand-authored per-format
+ * preset data; the card's ball shape is derived from `requirements.balls`.
+ */
+export interface FormatPreset {
+    /** Short "what is this game" line for the card — not how it is scored. */
+    tagline: FormatLabels;
+    /** Curation order: lower sorts first; absent sorts last. */
+    rank?: number;
+}
+
 /**
  * Serializable format metadata. Drives the server `GET /formats` catalog
  * (Slice 5) and the generic mobile UI (Slice 6). Carries NO functions —
@@ -180,7 +239,21 @@ export interface FormatDescriptor {
     scoringMode: string;
     teamShape: string;
     requirements: FormatRequirements;
-    defaults: { allowanceConfig: FormatAllowanceConfig };
+    /**
+     * Seed values a setup UI starts from. `formatConfig` is DERIVED from
+     * `configFields` (see `builtins.ts` `toPlugin()`) so the seeded knob value
+     * and the declared field default cannot drift; absent when the format
+     * declares no config fields.
+     */
+    defaults: { allowanceConfig: FormatAllowanceConfig; formatConfig?: Record<string, string> };
+    /**
+     * Per-slot config knobs this format accepts, as pure data — see
+     * {@link FormatConfigField}. Absent/empty ⇒ the format takes no config
+     * beyond its defaults.
+     */
+    configFields?: FormatConfigField[];
+    /** Present ⇒ this format is offered as a game card. See {@link FormatPreset}. */
+    preset?: FormatPreset;
     /** Zero or more ranked metrics; ids unique. Empty for pair/state-only formats. */
     metrics: FormatMetric[];
     /**
@@ -403,6 +476,61 @@ export function assertValidDescriptor(d: FormatDescriptor): void {
                 if (seenKey.has(mi.key)) fail(id, `duplicate scoreEntry.metadata key '${mi.key}'`);
                 seenKey.add(mi.key);
             }
+        }
+    }
+
+    // Config fields are PRESENTATION + defaults only — the strategy's
+    // `validateConfig` stays the validation authority. What we assert here is
+    // that the declaration itself is renderable and self-consistent (a default
+    // that is not an offered option would seed a value the picker cannot show).
+    if (d.configFields !== undefined) {
+        if (!Array.isArray(d.configFields)) fail(id, 'configFields must be an array when present');
+        const seenKey = new Set<string>();
+        for (const f of d.configFields) {
+            if (!nonEmpty(f?.key)) fail(id, 'every configField needs a non-empty key');
+            if (f.kind !== 'select') fail(id, `configField '${f.key}' kind must be select (got ${String(f.kind)})`);
+            if (!nonEmpty(f.labels?.en)) fail(id, `configField '${f.key}' needs a non-empty labels.en`);
+            if (f.labels.sv !== undefined && !nonEmpty(f.labels.sv)) {
+                fail(id, `configField '${f.key}' labels.sv must be non-empty when present`);
+            }
+            if (!Array.isArray(f.options) || f.options.length === 0) {
+                fail(id, `configField '${f.key}' needs at least one option`);
+            }
+            const seenValue = new Set<string>();
+            for (const o of f.options) {
+                if (!nonEmpty(o?.value)) fail(id, `configField '${f.key}' option needs a non-empty value`);
+                if (!nonEmpty(o.labels?.en)) fail(id, `configField '${f.key}' option '${o.value}' needs labels.en`);
+                if (o.labels.sv !== undefined && !nonEmpty(o.labels.sv)) {
+                    fail(id, `configField '${f.key}' option '${o.value}' labels.sv must be non-empty when present`);
+                }
+                if (seenValue.has(o.value)) fail(id, `configField '${f.key}' duplicate option value '${o.value}'`);
+                seenValue.add(o.value);
+            }
+            if (!seenValue.has(f.default)) {
+                fail(id, `configField '${f.key}' default '${String(f.default)}' is not one of its options`);
+            }
+            if (seenKey.has(f.key)) fail(id, `duplicate configField key '${f.key}'`);
+            seenKey.add(f.key);
+        }
+    }
+
+    const formatConfig = d.defaults.formatConfig;
+    if (formatConfig !== undefined) {
+        if (typeof formatConfig !== 'object' || formatConfig === null || Array.isArray(formatConfig)) {
+            fail(id, 'defaults.formatConfig must be a plain object when present');
+        }
+        for (const [k, v] of Object.entries(formatConfig)) {
+            if (typeof v !== 'string') fail(id, `defaults.formatConfig['${k}'] must be a string`);
+        }
+    }
+
+    if (d.preset !== undefined) {
+        if (!nonEmpty(d.preset.tagline?.en)) fail(id, 'preset.tagline.en must be a non-empty string');
+        if (d.preset.tagline.sv !== undefined && !nonEmpty(d.preset.tagline.sv)) {
+            fail(id, 'preset.tagline.sv must be a non-empty string when present');
+        }
+        if (d.preset.rank !== undefined && !Number.isFinite(d.preset.rank)) {
+            fail(id, 'preset.rank must be a finite number when present');
         }
     }
 

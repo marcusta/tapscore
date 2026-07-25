@@ -210,6 +210,32 @@ export const kopenhamnareIndividual: FormatStrategy = {
 
     deriveSlotBalls: deriveAllowance,
 
+    // Declared as data so the setup UI can reach this knob at all — it has
+    // existed in `score()` since 2.6b with no surface able to set it. Labels
+    // describe what the mode DOES (see `effectivePHs` above), not the enum
+    // name. `validateConfig` below stays the validation authority.
+    configFields: [
+        {
+            kind: 'select',
+            key: 'handicapMode',
+            labels: { en: 'Handicap strokes', sv: 'Slagtilldelning' },
+            options: [
+                {
+                    value: 'standard',
+                    labels: { en: 'Full handicap for everyone', sv: 'Full slagtilldelning för alla' },
+                },
+                {
+                    value: 'delta_from_min',
+                    labels: {
+                        en: 'Lowest handicap plays off scratch',
+                        sv: 'Lägsta handicappet spelar utan slag',
+                    },
+                },
+            ],
+            default: 'standard',
+        },
+    ],
+
     validateConfig(config): ConfigDiagnostic[] {
         if (config && typeof config === 'object' && 'handicapMode' in config) {
             const raw = (config as { handicapMode: unknown }).handicapMode;
