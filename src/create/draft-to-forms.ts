@@ -134,6 +134,25 @@ function allowancePctText(cfg: AllowanceConfig | undefined): string {
 }
 
 /**
+ * Restore a slot's format-config knobs (`FormatSlotForm.config`) from the
+ * stored draft. This module is PURE — it has no catalog, so it cannot ask which
+ * keys the format declares; it copies every STRING-valued entry instead. That
+ * is both lossless (a knob the client can render round-trips) and safe (the
+ * strategy's `validateConfig` remains the authority, and re-emitting exactly
+ * what was stored cannot invalidate a draft that already compiled). Non-string
+ * values are dropped: the form's controls are string-valued selects, and a
+ * future non-string knob would need a form shape this can't invent.
+ */
+function configOf(raw: unknown): Record<string, string> {
+    const out: Record<string, string> = {};
+    if (!raw || typeof raw !== 'object') return out;
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+        if (typeof v === 'string') out[k] = v;
+    }
+    return out;
+}
+
+/**
  * Invert `SetupService.buildRoute`: a bare `roundType` preset starts at the head
  * of that preset's holes; a `custom_holes` route was a preset rotated so its
  * FIRST played hole is the chosen start hole. `presetHoles` (front/back/full)
@@ -279,20 +298,13 @@ export function draftToForms(
                 subjectPlayers[p.key] = included.has(p.key);
             }
         }
-        // Taliban's bonus basis rides formatConfig.bonusRule; restore it so the
-        // edit flow's Gross/Net toggle reflects the saved draft.
-        const cfg = f.formatConfig;
-        const bonusRule =
-            cfg && typeof cfg === 'object' && 'bonusRule' in cfg
-                ? (cfg as { bonusRule?: unknown }).bonusRule
-                : undefined;
         return {
             key: slotKey++,
             formatId: f.formatId,
             allowancePct: allowancePctText(f.allowanceConfig),
             subjectPlayers,
             subjectTeams,
-            ...(bonusRule === 'gross' || bonusRule === 'net' ? { bonusRule } : {}),
+            config: configOf(f.formatConfig),
         };
     });
 

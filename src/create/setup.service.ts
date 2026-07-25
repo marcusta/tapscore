@@ -5,7 +5,7 @@ import type { SetupCourse, Tee, TeeRating } from '../api/setup.gen';
 import type { CompilerDiagnostic } from '../api/friendly-rounds.gen';
 import { courseHandicap, courseHandicapRaw } from './handicap';
 import { parseHandicapIndex, formatHandicapIndex } from './hcp-input';
-import { FormatCatalogService } from './format-catalog.service';
+import { FormatCatalogService, MAX_TEAM_SIZE } from './format-catalog.service';
 import {
     diagnosticsForFormatCard,
     generalDiagnostics as bucketGeneralDiagnostics,
@@ -38,10 +38,13 @@ export interface FormatSlotForm {
     /** Team `key` → in this format's subjects? Missing key ⇒ excluded. */
     subjectTeams: Record<number, boolean>;
     /**
-     * Taliban only: which score the comeback-bonus feats are measured on
-     * (`formatConfig.bonusRule`). Missing ⇒ 'gross' (the format's default).
+     * This format's own config knobs (`formatConfig` on the draft), keyed by the
+     * descriptor's `configFields[].key`. Seeded from the descriptor's
+     * `defaults.formatConfig` and re-seeded when the slot's format changes, so a
+     * knob from a previously-picked format never leaks into the draft. Empty for
+     * the formats that declare no fields — the client holds NO per-format table.
      */
-    bonusRule?: 'gross' | 'net';
+    config: Record<string, string>;
 }
 
 /**
@@ -113,9 +116,10 @@ interface DraftFormat {
 // explicit per-player allowances. 'custom' is the escape hatch for any shape.
 const FORMATIONS = ['scramble', 'greensomes', 'foursomes', 'custom'] as const;
 
-/** A team ball is 2–10 players (the team_ball strategy's composition bound). */
+/** A team ball is 2–10 players (the team_ball strategy's composition bound).
+ * The upper bound lives on the catalog service — the derived playable shape
+ * needs it too. */
 const MIN_TEAM_SIZE = 2;
-const MAX_TEAM_SIZE = 10;
 
 const TEAM_LETTERS = 'ABCDEFGH';
 
@@ -466,6 +470,7 @@ export class SetupService {
             allowancePct: '100',
             subjectPlayers: {}, // empty ⇒ every player included by default
             subjectTeams: {},
+            config: this.defaultConfigFor(id),
         };
         this.formatSlots.set([...this.formatSlots.get(), slot]);
     }
@@ -475,16 +480,34 @@ export class SetupService {
     }
 
     /**
-     * Formats whose `formatConfig.bonusRule` picks the score the comeback-bonus
-     * feats (birdie/eagle) are measured on. Taliban only today; the setup UI
-     * shows a Gross/Net toggle exactly for these.
+     * The seed values a slot of `formatId` starts from — the STRATEGY's own
+     * defaults, carried on the descriptor (`defaults.formatConfig`, derived
+     * server-side from `configFields`), never a client literal. Absent (the
+     * knobless formats) ⇒ an empty config, and `buildFormats` then omits
+     * `formatConfig` from the draft entirely.
      */
-    formatTakesBonusRule(formatId: string): boolean {
-        return formatId === 'taliban_better_ball';
+    private defaultConfigFor(formatId: string): Record<string, string> {
+        return { ...(this.catalog.byId(formatId)?.defaults.formatConfig ?? {}) };
     }
 
-    setSlotBonusRule(key: number, bonusRule: 'gross' | 'net'): void {
-        this.patchFormatSlot(key, { bonusRule });
+    /**
+     * Set one declared config knob on a slot. Generic by construction: the key
+     * comes from the descriptor's `configFields[].key`, so a format that grows a
+     * knob needs no client change. Legality is NOT re-derived from the option
+     * list here — the strategy's `validateConfig` is the authority and the
+     * compiler returns diagnostics against the slot.
+     */
+    setSlotConfig(key: number, fieldKey: string, value: string): void {
+        const slot = this.slotByKey(key);
+        if (!slot) return;
+        this.patchFormatSlot(key, { config: { ...slot.config, [fieldKey]: value } });
+    }
+
+    /** A slot's current value for one declared field, falling back to the
+     * field's declared default (a slot whose config was never seeded still
+     * renders the value the server will apply). */
+    slotConfigValue(key: number, field: { key: string; default: string }): string {
+        return this.slotByKey(key)?.config[field.key] ?? field.default;
     }
 
     removeFormatSlot(key: number): void {
@@ -497,9 +520,11 @@ export class SetupService {
         );
     }
 
-    /** Change a slot's format. */
+    /** Change a slot's format. The config is RE-SEEDED from the new format's
+     * defaults — keeping the old format's keys would put a knob the new
+     * strategy never declared into the draft. */
     setSlotFormat(key: number, formatId: string): void {
-        this.patchFormatSlot(key, { formatId });
+        this.patchFormatSlot(key, { formatId, config: this.defaultConfigFor(formatId) });
     }
 
     slotByKey(key: number): FormatSlotForm | null {
@@ -1140,10 +1165,12 @@ export class SetupService {
                 formatId: slot.formatId,
                 allowanceConfig: { type: 'flat', pct: this.parsePct(slot.allowancePct) },
                 subjects,
-                // Emit the bonus basis only for formats that read it; explicit
-                // even at the 'gross' default so the draft states the rule.
-                ...(this.formatTakesBonusRule(slot.formatId)
-                    ? { formatConfig: { bonusRule: slot.bonusRule ?? 'gross' } }
+                // Whatever knobs this format declared, verbatim — explicit even
+                // at their defaults, so the draft states the rules it was
+                // created under. A format with no knobs emits no `formatConfig`
+                // key at all (an empty object would be a wire-shape change).
+                ...(Object.keys(slot.config).length > 0
+                    ? { formatConfig: { ...slot.config } }
                     : {}),
             };
         });

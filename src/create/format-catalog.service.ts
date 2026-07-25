@@ -1,7 +1,7 @@
 import { Signal } from '@basics/core/client/core';
 import { request, type RequestError } from '@basics/core/client/request';
 import { api } from '../api';
-import type { FormatDescriptor } from '../api/setup.gen';
+import type { FormatConfigField, FormatConfigOption, FormatDescriptor } from '../api/setup.gen';
 import { currentLocale, type Locale } from '../locale';
 
 // Phase 2.6e M3 — the catalog-driven format step's data source. Loads the
@@ -34,6 +34,24 @@ export interface FormatClass {
     /** Number-of-teams bounds, when the descriptor declares them. */
     teamCount?: { min?: number; max?: number };
 }
+
+/**
+ * How many balls a format is contested between, and how many players may share
+ * one of those balls. DERIVED from `requirements.balls` — see `playableShape`.
+ * `count.max` absent ⇒ unbounded (add as many balls as the roster allows).
+ */
+export interface PlayableShape {
+    count: { min: number; max?: number };
+    size: { min: number; max: number };
+}
+
+/**
+ * The largest team the setup UI will build — the `team_ball` strategy's
+ * composition bound (2–10 players). Lives here rather than in `setup.service`
+ * because the derived {@link PlayableShape} needs it too and the service
+ * already imports this module (the reverse would be a cycle).
+ */
+export const MAX_TEAM_SIZE = 10;
 
 export class FormatCatalogService {
     readonly loading = new Signal(false);
@@ -92,6 +110,100 @@ export class FormatCatalogService {
         return { kind: 'individual', teamSize: { min: 1, max: 1 } };
     }
 
+    /**
+     * Locale-appropriate label for a config field or one of its options
+     * (`FormatConfigField` / `FormatConfigOption`). These carry `labels` ONLY —
+     * there is no bare `label` fallback the way `FormatDescriptor` has one — so
+     * the resolution is `labels[locale] ?? labels.en`, mirroring `labelOf`.
+     * `locale` defaults to `currentLocale()`; pass it explicitly in tests.
+     */
+    configLabelOf(
+        item: FormatConfigField | FormatConfigOption,
+        locale: Locale = currentLocale(),
+    ): string {
+        return item.labels?.[locale] ?? item.labels?.en ?? '';
+    }
+
+    /**
+     * The curated game cards (format-templates §1): every descriptor declaring
+     * a `preset`, ordered by `rank` (lower first; an absent rank sorts last,
+     * then by label so the order is stable). Absent `preset` ⇒ the format is
+     * not offered as a card — it stays reachable through the flexible form.
+     * NOT a client-side registry: the list is whatever the server declares.
+     */
+    presets(locale: Locale = currentLocale()): FormatDescriptor[] {
+        const ranked = this.descriptors.get().filter((d) => d.preset);
+        return ranked.sort((a, b) => {
+            const ra = a.preset?.rank ?? Number.POSITIVE_INFINITY;
+            const rb = b.preset?.rank ?? Number.POSITIVE_INFINITY;
+            if (ra !== rb) return ra - rb;
+            return (this.labelOf(a, locale) ?? a.id).localeCompare(this.labelOf(b, locale) ?? b.id);
+        });
+    }
+
+    /**
+     * What a game is contested BETWEEN — derived from the descriptor's declared
+     * ball requirement, never from a per-format client table (format-templates
+     * §1 "The ball shape is derived, not declared"):
+     *
+     *   - `requiresSlotTeamGrouping` → the declared team count × team size
+     *     (taliban / umbrella 4-ball: 2 balls × 2 players). Checked FIRST: a
+     *     grouping format also declares `slotBallCount` (the total player
+     *     count), which is not the number of contesting balls.
+     *   - `slotBallCount`, no grouping → that many balls; a ball holds one
+     *     player, or up to MAX_TEAM_SIZE when the format accepts aggregated
+     *     side subjects (ADR-0004) — köpenhamnare: 3 balls × 1–N, umbrella
+     *     individual (per-ball metadata): 3 balls × 1.
+     *   - neither → individual play: every player is their own ball, so the
+     *     count is unbounded above.
+     *
+     * `ballMode: 'team'` (foursomes / greensomes / scramble) is checked first,
+     * as in `classify`: the ball IS the team, so a ball holds `producerCount`
+     * players and the balls are however many the slot declares. No builtin
+     * declares it today — it is handled so that registering one needs no client
+     * change, which is the whole point of deriving the shape.
+     */
+    playableShape(d: FormatDescriptor): PlayableShape {
+        const balls = d.requirements.balls;
+        if (balls.ballMode === 'team') {
+            return {
+                count: this.ballCountOf(balls.slotBallCount),
+                size: { ...balls.producerCount },
+            };
+        }
+        if (balls.requiresSlotTeamGrouping) {
+            const grouping = balls.slotTeamGrouping ?? {};
+            const teamCount = grouping.teamCount ?? {};
+            return {
+                count: {
+                    min: teamCount.min ?? 2,
+                    ...(teamCount.max !== undefined ? { max: teamCount.max } : {}),
+                },
+                size: { min: grouping.teamSize?.min ?? 2, max: grouping.teamSize?.max ?? 2 },
+            };
+        }
+        if (balls.slotBallCount) {
+            const multi = this.acceptsSideSubjects(d);
+            return {
+                count: this.ballCountOf(balls.slotBallCount),
+                size: { min: 1, max: multi ? MAX_TEAM_SIZE : 1 },
+            };
+        }
+        return { count: { min: 1 }, size: { min: 1, max: 1 } };
+    }
+
+    /** A declared `slotBallCount` as playable bounds: two balls minimum (one
+     * ball is not a contest) and an absent max stays unbounded. */
+    private ballCountOf(declared: { min?: number; max?: number } | undefined): {
+        min: number;
+        max?: number;
+    } {
+        return {
+            min: declared?.min ?? 2,
+            ...(declared?.max !== undefined ? { max: declared.max } : {}),
+        };
+    }
+
     classifyId(id: string): FormatClass | null {
         const d = this.byId(id);
         return d ? this.classify(d) : null;
@@ -118,11 +230,14 @@ export class FormatCatalogService {
      * subject. Two exclusions, both descriptor-driven: side formats (they
      * consume sides directly, not as aggregated subjects) and formats that
      * take per-ball metadata (umbrella's GIR — no defined side aggregation).
+     *
+     * Takes a descriptor OR an id (like `labelOf`), so a derivation holding a
+     * descriptor doesn't have to round-trip through the loaded catalog.
      */
-    acceptsSideSubjects(id: string): boolean {
-        const d = this.byId(id);
+    acceptsSideSubjects(descriptorOrId: FormatDescriptor | string): boolean {
+        const d = typeof descriptorOrId === 'string' ? this.byId(descriptorOrId) : descriptorOrId;
         if (!d) return false;
-        if (this.isSideFormat(id)) return false;
+        if (this.classify(d).kind === 'team_grouping') return false;
         return (d.requirements.scoreEntry?.metadata?.length ?? 0) === 0;
     }
 }

@@ -4,6 +4,7 @@ import { SelectComponent, type SelectOption } from '@basics/core/client/ui/selec
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { SetupService, type RoutePreset } from './setup.service';
+import type { FormatConfigField } from '../api/setup.gen';
 import { parseHandicapIndex } from './hcp-input';
 import { currentLocale } from '../locale';
 import { ProfileService } from '../profile/profile.service';
@@ -152,13 +153,7 @@ const fslotTpl = template(`
             <span bind="allowanceHint" class="fslot__teammeta"></span>
         </div>
 
-        <div bind="bonusGroup" class="fslot__group">
-            <span class="fslot__label">Birdie/eagle bonus on</span>
-            <div class="fslot__seg">
-                <button bind="bonusGross" type="button">Gross</button>
-                <button bind="bonusNet" type="button">Net</button>
-            </div>
-        </div>
+        <div bind="configFields" class="fslot__configs"></div>
 
         <div class="fslot__group">
             <span class="fslot__label">Scores</span>
@@ -167,6 +162,20 @@ const fslotTpl = template(`
 
         <div bind="err" class="fslot__err"></div>
     </div>
+`);
+
+// One declared format-config knob (`FormatDescriptor.configFields[]`), rendered
+// as a segmented control — one button per declared option. Nothing here knows
+// which format it belongs to; that is the point (format-templates §2).
+const configFieldTpl = template(`
+    <div class="fslot__group">
+        <span bind="label" class="fslot__label"></span>
+        <div bind="options" class="fslot__seg"></div>
+    </div>
+`);
+
+const configOptionTpl = template(`
+    <button bind="opt" type="button"></button>
 `);
 
 // A subject checkbox row (an individual player or a team), reused for both.
@@ -407,6 +416,10 @@ export class CreateComponent extends Component {
                     display: flex; flex-direction: column; gap: ${s('xs')};
                     &[hidden] { display: none; }
                 }
+                /* The knob host is a pass-through: its children must sit in the
+                   card's own column, or an empty host (the formats declaring no
+                   knobs — most of them) would still take a gap. */
+                & .fslot__configs { display: contents; }
                 & .fslot__label {
                     font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
                     text-transform: uppercase; color: ${t('text-muted')};
@@ -444,28 +457,6 @@ export class CreateComponent extends Component {
                         &.on { background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')}; }
                     }
                 }
-                & .fslot__flat {
-                    display: flex; align-items: center; gap: ${s('xs')}; font-size: 0.9rem;
-                    color: ${t('text-muted')};
-                    &[hidden] { display: none; }
-                    & .fslot__pct { width: 70px; padding: ${s('sm')}; font-size: 1rem; ${input()} }
-                }
-                & .fslot__bands {
-                    display: flex; flex-direction: column; gap: ${s('xs')};
-                    &[hidden] { display: none; }
-                }
-                & .fslot__bandrows { display: flex; flex-direction: column; gap: ${s('xs')}; }
-                & .brow {
-                    display: flex; align-items: center; gap: ${s('xs')};
-                    font-size: 0.82rem; color: ${t('text-muted')};
-                    & .brow__pct, & .brow__upto { width: 56px; padding: ${s('sm')}; font-size: 0.95rem; ${input()} }
-                    & .brow__del { margin-left: auto; width: 30px; height: 30px; ${btn()} font-size: 0.8rem; color: ${t('text-muted')}; }
-                }
-                & .fslot__addband {
-                    align-self: flex-start; padding: ${s('xs')} ${s('sm')}; ${btn()}
-                    font-family: inherit; font-weight: 600; font-size: 0.8rem;
-                }
-
                 & .fslot__err {
                     font-size: 0.82rem; color: ${t('error')};
                     &:empty { display: none; }
@@ -1081,17 +1072,6 @@ export class CreateComponent extends Component {
                             ? 'applied to each side member’s ball'
                             : 'of each player’s course handicap',
                 },
-                // Taliban's comeback-bonus basis (formatConfig.bonusRule).
-                // Hidden for every other format; missing rule reads as gross.
-                bonusGroup: { hidden: () => !this.svc.formatTakesBonusRule(formatId()) },
-                bonusGross: {
-                    className: () => ((slot()?.bonusRule ?? 'gross') === 'gross' ? 'on' : ''),
-                    onclick: () => this.svc.setSlotBonusRule(key, 'gross'),
-                },
-                bonusNet: {
-                    className: () => (slot()?.bonusRule === 'net' ? 'on' : ''),
-                    onclick: () => this.svc.setSlotBonusRule(key, 'net'),
-                },
                 err: {
                     textContent: () => this.svc.humanizedForFormat(index).join(' · '),
                 },
@@ -1114,6 +1094,19 @@ export class CreateComponent extends Component {
                         .map((d) => ({ value: d.id, label: this.svc.catalog.labelOf(d) ?? d.label })),
             },
         });
+
+        // Format-config knobs — whatever the DESCRIPTOR declares, nothing the
+        // client knows per format (format-templates §2). Re-reads the descriptor
+        // through `formatId()` so switching a slot's format swaps its knobs; the
+        // key carries the format id so a same-named field of a different format
+        // is a different row rather than a stale closure.
+        this.eachInto(
+            this.ref(el, 'configFields'),
+            track,
+            () => this.svc.catalog.byId(formatId())?.configFields ?? [],
+            (field, _i, fieldTrack) => this.configField(key, field, fieldTrack),
+            (field) => `${formatId()}:${field.key}`,
+        );
 
         // Subject checklist — what this format can score. A SIDE format
         // (better-ball) scores multi-ball (side) teams only; a BALL format
@@ -1143,6 +1136,44 @@ export class CreateComponent extends Component {
             (sj) => `${sj.kind}${sj.subKey}`,
         );
 
+        return el;
+    }
+
+    /**
+     * One declared config knob of one slot. The active option is the slot's
+     * stored value falling back to the field's declared default; picking one
+     * only records it — the strategy's `validateConfig` (server-side) stays the
+     * authority on what is legal, and its refusal arrives as a slot diagnostic.
+     */
+    private configField(
+        slotKey: number,
+        field: FormatConfigField,
+        track: (d: () => void) => void,
+    ): HTMLElement {
+        const el = this.wireEl(
+            configFieldTpl,
+            { label: { textContent: () => this.svc.catalog.configLabelOf(field) } },
+            track,
+        );
+        this.eachInto(
+            this.ref(el, 'options'),
+            track,
+            () => field.options,
+            (option, _i, optionTrack) =>
+                this.wireEl(
+                    configOptionTpl,
+                    {
+                        opt: {
+                            textContent: () => this.svc.catalog.configLabelOf(option),
+                            className: () =>
+                                this.svc.slotConfigValue(slotKey, field) === option.value ? 'on' : '',
+                            onclick: () => this.svc.setSlotConfig(slotKey, field.key, option.value),
+                        },
+                    },
+                    optionTrack,
+                ),
+            (option) => option.value,
+        );
         return el;
     }
 

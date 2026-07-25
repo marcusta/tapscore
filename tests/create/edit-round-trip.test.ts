@@ -328,6 +328,10 @@ test('draftToForms recovers preset + start hole from a rotated custom route', ()
     expect(forms.startHole).toBe(7);
 });
 
+// The knob restore is GENERIC now (format-templates §2): `draftToForms` is pure
+// and has no catalog, so it copies every string-valued `formatConfig` entry into
+// the slot's `config`. Taliban's bonusRule is still the pinned case — same
+// behaviour, no format-specific branch behind it.
 test("draftToForms restores taliban's bonusRule from formatConfig", () => {
     const input: StoredDraft = {
         courseId: 'c1',
@@ -338,13 +342,31 @@ test("draftToForms restores taliban's bonusRule from formatConfig", () => {
                 subjects: [],
                 formatConfig: { bonusRule: 'net' },
             },
-            // No config → the form leaves bonusRule unset (reads as gross).
+            // No config → the slot's config is empty (the format's own default
+            // applies, and submit emits no `formatConfig` at all).
             { formatId: 'stableford_individual', subjects: [{ kind: 'player', producerDefId: 'p1' }] },
         ],
     };
     const forms = draftToForms(input);
-    expect(forms.formatSlots[0]!.bonusRule).toBe('net');
-    expect(forms.formatSlots[1]!.bonusRule).toBeUndefined();
+    expect(forms.formatSlots[0]!.config).toEqual({ bonusRule: 'net' });
+    expect(forms.formatSlots[1]!.config).toEqual({});
+});
+
+test('draftToForms restores any declared knob, not just taliban’s', () => {
+    const input: StoredDraft = {
+        courseId: 'c1',
+        producers: [{ producerDefId: 'p1', playerRef: { kind: 'guest', id: 'g' }, handicapIndex: 10, teeId: 't1' }],
+        formats: [
+            {
+                formatId: 'kopenhamnare_individual',
+                subjects: [{ kind: 'player', producerDefId: 'p1' }],
+                // A non-string value is not a form control this can restore.
+                formatConfig: { handicapMode: 'delta_from_min', rounds: 3 },
+            },
+        ],
+    };
+    const forms = draftToForms(input);
+    expect(forms.formatSlots[0]!.config).toEqual({ handicapMode: 'delta_from_min' });
 });
 
 test('draftToForms marks an unticked player subject as explicitly excluded', () => {

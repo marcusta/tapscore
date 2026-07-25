@@ -76,7 +76,29 @@ const catalogDescriptors: FormatDescriptor[] = [
         { producerCount: { min: 1, max: 1 }, ballMode: 'own' },
         { strokes: true, metadata: [{ key: 'gir', label: 'GIR', kind: 'boolean' }] },
     ),
+    // Two formats WITH declared knobs, shaped exactly like the server's
+    // (`configFields` + the `defaults.formatConfig` it derives from them).
+    // Different field keys, so re-seeding on a format change is observable.
+    knobbed('taliban_better_ball', 'bonusRule', ['gross', 'net']),
+    knobbed('kopenhamnare_individual', 'handicapMode', ['standard', 'delta_from_min']),
 ];
+
+/** A descriptor declaring one select knob whose default is its first option. */
+function knobbed(id: string, key: string, values: [string, ...string[]]): FormatDescriptor {
+    return {
+        ...descriptor(id, { producerCount: { min: 1, max: 1 }, ballMode: 'own' }),
+        configFields: [
+            {
+                kind: 'select',
+                key,
+                labels: { en: key },
+                options: values.map((v) => ({ value: v, labels: { en: v } })),
+                default: values[0],
+            },
+        ],
+        defaults: { allowanceConfig: { type: 'flat', pct: 100 }, formatConfig: { [key]: values[0] } },
+    };
+}
 
 const course: SetupCourse = {
     id: 'c1',
@@ -710,6 +732,64 @@ test('a preset played from its head hole stays a plain conventional preset', asy
     await svc.submit();
     expect(lastDraft.roundType).toBe('back_9');
     expect(lastDraft.route).toBeUndefined();
+});
+
+// --- Format config knobs (format-templates Phase A) -------------------------
+//
+// The client holds NO per-format knob table: a slot seeds its config from the
+// DESCRIPTOR's `defaults.formatConfig` and emits whatever it holds. These pin
+// that a format growing a knob needs no client change, and that switching a
+// slot's format can never leak the previous format's keys into the draft.
+
+test('a new slot seeds its config from the descriptor defaults; a knobless format seeds nothing', () => {
+    const svc = makeService();
+    const knob = addSlot(svc, 'taliban_better_ball');
+    const plain = addSlot(svc, 'stableford_individual');
+    expect(svc.slotByKey(knob)!.config).toEqual({ bonusRule: 'gross' });
+    // `defaults.formatConfig` is UNDEFINED (not {}) for the knobless formats.
+    expect(svc.slotByKey(plain)!.config).toEqual({});
+});
+
+test('changing a slot’s format RE-SEEDS its config — no stale key from the old format', () => {
+    const svc = makeService();
+    const key = addSlot(svc, 'taliban_better_ball');
+    svc.setSlotConfig(key, 'bonusRule', 'net');
+    expect(svc.slotByKey(key)!.config).toEqual({ bonusRule: 'net' });
+
+    svc.setSlotFormat(key, 'kopenhamnare_individual');
+    expect(svc.slotByKey(key)!.config).toEqual({ handicapMode: 'standard' });
+
+    svc.setSlotFormat(key, 'stableford_individual');
+    expect(svc.slotByKey(key)!.config).toEqual({});
+});
+
+test('slotConfigValue falls back to the field default for an unseeded slot', () => {
+    const svc = makeService();
+    const key = addSlot(svc, 'stableford_individual');
+    const field = { key: 'bonusRule', default: 'gross' };
+    expect(svc.slotConfigValue(key, field)).toBe('gross');
+    svc.setSlotConfig(key, 'bonusRule', 'net');
+    expect(svc.slotConfigValue(key, field)).toBe('net');
+    expect(svc.slotConfigValue(999, field)).toBe('gross'); // unknown slot
+});
+
+test('submit emits the slot’s config as formatConfig, and omits it entirely when empty', async () => {
+    const svc = makeService();
+    addPlayer(svc, 'Anna', '10');
+    const taliban = addSlot(svc, 'taliban_better_ball');
+    addSlot(svc, 'kopenhamnare_individual');
+    addSlot(svc, 'stableford_individual');
+    svc.setSlotConfig(taliban, 'bonusRule', 'net');
+
+    expect((await svc.submit()).ok).toBe(true);
+    expect(lastDraft.formats.map((f: any) => f.formatConfig)).toEqual([
+        { bonusRule: 'net' },
+        // Seeded defaults are emitted explicitly, so the draft states the rule…
+        { handicapMode: 'standard' },
+        // …but a knobless format carries no `formatConfig` key at all.
+        undefined,
+    ]);
+    expect('formatConfig' in lastDraft.formats[2]).toBe(false);
 });
 
 // --- Pre-checks + diagnostics ----------------------------------------------
