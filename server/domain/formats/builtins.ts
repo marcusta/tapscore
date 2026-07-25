@@ -305,6 +305,13 @@ const BUILTINS: BuiltinMeta[] = [
         resultDisplay: { ...NORMALIZED_RUNNING, scoreGridComponentId: 'category-matrix-grid' },
         renderResult: umbrella4BallPresenter,
         scoresAnyBall: true,
+        preset: {
+            tagline: {
+                en: 'Umbrella in pairs — the best of each pair counts on every hole.',
+                sv: 'Umbrella två och två – bästa i paret räknas på varje hål.',
+            },
+            rank: 8,
+        },
         // 4-ball umbrella scores GIR only (no fairway category).
         scoreEntry: { strokes: true, metadata: [{ key: 'gir', label: 'GIR', kind: 'boolean' }] },
     },

@@ -283,6 +283,8 @@ const gamePanelTpl = template(`
         </div>
 
         <div bind="err" class="fslot__err"></div>
+        <p bind="sides" class="gsides"></p>
+        <button bind="fork" class="gadjust hidden" type="button">Use separate sides for this game</button>
         <p bind="summary" class="gsummary"></p>
         <button bind="adjust" class="gadjust" type="button">Adjust details</button>
     </div>
@@ -565,9 +567,18 @@ export class CreateComponent extends Component {
                     margin: 0; padding-top: ${s('xs')}; border-top: 1px solid ${t('border')};
                     font-size: 0.82rem; color: ${t('text-muted')};
                 }
+                /* Which round teams this game is contested between, and what
+                   else is playing them (format-templates §3). Empty for a game
+                   with no team-backed ball — and an empty <p> would otherwise
+                   still eat one of the card's gaps. */
+                & .gsides {
+                    margin: 0; font-size: 0.82rem; color: ${t('text-muted')};
+                    &:empty { display: none; }
+                }
                 & .gadjust {
                     align-self: flex-start; padding: ${s('xs')} ${s('sm')}; ${btn()}
                     font-family: inherit; font-weight: 600; font-size: 0.8rem;
+                    &.hidden { display: none; }
                 }
 
                 & .grp__start {
@@ -1281,6 +1292,14 @@ export class CreateComponent extends Component {
                         ].join(' · ');
                     },
                 },
+                // Teams are ROUND-level and reused (format-templates §3): say
+                // which sides this game plays and what else plays them, and
+                // offer the fork only while something else actually does.
+                sides: { textContent: () => this.svc.gameSidesText(gameKey) },
+                fork: {
+                    className: () => (this.svc.gameSharesSides(gameKey) ? 'gadjust' : 'gadjust hidden'),
+                    onclick: () => this.svc.forkGame(gameKey),
+                },
                 summary: { textContent: () => this.svc.gameSummary(gameKey) },
                 adjust: { onclick: () => this.svc.adjustGame(gameKey) },
             },
@@ -1318,7 +1337,9 @@ export class CreateComponent extends Component {
 
     /**
      * One player's ball pick within one game: a button per ball plus "–" to sit
-     * THIS game out. Sitting one game out never touches any other game (§4).
+     * THIS game out. The pick is per game (§4) — but a ball backed by a SHARED
+     * side edits that side, so the move follows the player into every game
+     * playing it (§3). "Use separate sides" is the escape hatch.
      */
     private ballRow(gameKey: number, playerKey: number, track: (d: () => void) => void): HTMLElement {
         const el = this.wireEl(

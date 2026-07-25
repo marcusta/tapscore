@@ -76,6 +76,17 @@ export interface PickedGame {
     ballCount: number;
     /** Player `key` → ball index. Missing key ⇒ sitting this game out. */
     ballByPlayer: Record<number, number>;
+    /**
+     * Ball index → the ROUND team (`TeamForm.key`) that ball is contested by
+     * (format-templates §3). A game REFERENCES round teams; it does not own
+     * them, so the same team can back a ball in several games and editing its
+     * membership on one card moves the player on every other. A ball holding a
+     * single player is a `player` subject and has no entry here.
+     *
+     * CLIENT-SIDE SETUP STATE ONLY — `buildTeams`/`buildFormats` build fresh
+     * literals, so it can never reach the draft.
+     */
+    ballTeams: Record<number, number>;
 }
 
 /**
@@ -94,13 +105,17 @@ export interface TeamForm {
     /** Nested single-ball team members (multi_ball/side only): team key → member. */
     memberTeams: Record<number, boolean>;
     /**
-     * PROVENANCE (format-templates §5) — the picked game that generated and
-     * owns this team. Absent ⇒ the user's own team, edited through the Teams
-     * section. CLIENT-SIDE SETUP STATE ONLY: `buildTeams` never reads it, so it
-     * can never reach the draft. Phase D replaces game-owned teams with
-     * round-level reuse (§3).
+     * LIFECYCLE (format-templates §3) — true for a team the card layer minted
+     * for a game that needed sides, false for one the user built in the Teams
+     * section. An auto-created team is garbage-collected once the LAST format
+     * referencing it goes away; a user-created team never is. Teams are
+     * round-level entities either way: a game references them, so a team is
+     * NOT owned by the game that happened to mint it.
+     *
+     * CLIENT-SIDE SETUP STATE ONLY: `buildTeams` never reads it, so it can
+     * never reach the draft.
      */
-    gameKey?: number;
+    autoCreated: boolean;
 }
 
 /**
@@ -724,31 +739,114 @@ export class SetupService {
     }
 
     /**
-     * Add a game. Its participants are seeded from the roster — evenly across
-     * the balls when the roster divides, otherwise `size.min` per ball with the
-     * rest sitting out (four players, three balls ⇒ one sits out and the card
-     * says so). Everything it writes is ordinary setup state.
+     * Add a game. Its sides come from the round's EXISTING teams whenever they
+     * fit (format-templates §3 — set your pairs up once for Taliban, pick
+     * Umbrella, and it is the same two pairs); otherwise its participants are
+     * seeded from the roster — evenly across the balls when the roster divides,
+     * otherwise `size.min` per ball with the rest sitting out (four players,
+     * three balls ⇒ one sits out and the card says so). Everything it writes is
+     * ordinary setup state.
      */
     pickGame(formatId: string): void {
         const shape = this.shapeOfGame(formatId);
         if (!shape || this.isGamePicked(formatId) || !this.gameFits(formatId)) return;
-        const ballCount = this.isIndividualShape(shape) ? 0 : shape.count.min;
-        const pick: PickedGame = {
-            key: this.nextPickKey++,
-            formatId,
-            ballCount,
-            ballByPlayer: this.defaultAssignment(shape, ballCount),
-        };
+        const adopted = this.isIndividualShape(shape) ? null : this.adoptableTeams(shape);
+        const pick: PickedGame = adopted
+            ? {
+                  key: this.nextPickKey++,
+                  formatId,
+                  ballCount: adopted.length,
+                  // The ball assignment is DERIVED from the adopted teams'
+                  // membership — an even split would contradict the very teams
+                  // the game just adopted.
+                  ballByPlayer: this.assignmentFromTeams(adopted),
+                  ballTeams: Object.fromEntries(adopted.map((t, i) => [i, t.key])),
+              }
+            : {
+                  key: this.nextPickKey++,
+                  formatId,
+                  ballCount: this.isIndividualShape(shape) ? 0 : shape.count.min,
+                  ballByPlayer: this.defaultAssignment(
+                      shape,
+                      this.isIndividualShape(shape) ? 0 : shape.count.min,
+                  ),
+                  ballTeams: {},
+              };
         this.picked.set([...this.picked.get(), pick]);
         this.regenerateGame(pick);
     }
 
-    /** Drop a game, taking the teams and format slot it owned with it. Other
-     * games — and anything custom — are untouched. */
+    /**
+     * The round's existing sides, when this game can be contested between
+     * exactly them (format-templates §3, step 2): their COUNT satisfies the
+     * game's `count` bounds and EVERY team's size satisfies its `size` bounds.
+     * Null ⇒ mint a fresh set from the participant defaults (step 3).
+     *
+     * Overlapping teams are refused: a player can only be on one ball of a
+     * game, so adopting two teams that share a member would silently rewrite
+     * one of them the first time the game regenerated.
+     */
+    private adoptableTeams(shape: PlayableShape): TeamForm[] | null {
+        const sides = this.teams.get().filter((t) => t.kind === 'multi_ball');
+        if (sides.length === 0) return null;
+        if (sides.length < shape.count.min) return null;
+        if (shape.count.max !== undefined && sides.length > shape.count.max) return null;
+        const seen = new Set<number>();
+        for (const t of sides) {
+            const size = this.teamMemberCount(t.key);
+            if (size < shape.size.min || size > shape.size.max) return null;
+            for (const k of Object.keys(t.pctByPlayer)) {
+                if (seen.has(Number(k))) return null;
+                seen.add(Number(k));
+            }
+        }
+        return sides;
+    }
+
+    /** Ball assignment derived from the adopted teams' membership: ball `i` is
+     * team `i`'s players. A roster player in none of them sits the game out. */
+    private assignmentFromTeams(teams: TeamForm[]): Record<number, number> {
+        const out: Record<number, number> = {};
+        for (const p of this.players.get()) {
+            const ball = teams.findIndex((t) => t.pctByPlayer[p.key] !== undefined);
+            if (ball >= 0) out[p.key] = ball;
+        }
+        return out;
+    }
+
+    /**
+     * Drop a game and the format slot it owned. Teams are ROUND-level (§3), so
+     * a team another format still scores stays; an auto-created team survives
+     * only while something references it, and a user-created one always does.
+     */
     unpickGame(gameKey: number): void {
         this.picked.set(this.picked.get().filter((p) => p.key !== gameKey));
-        this.teams.set(this.teams.get().filter((t) => t.gameKey !== gameKey));
         this.formatSlots.set(this.formatSlots.get().filter((s) => s.gameKey !== gameKey));
+        this.collectUnreferencedTeams();
+    }
+
+    /**
+     * LIFECYCLE (§3): an auto-created team lives exactly as long as something
+     * references it — any format slot (a picked game's or a custom one's)
+     * listing it as a subject, OR any picked game's ball still pointing at it.
+     * So removing one of two games sharing a side never takes the side with
+     * it, and the last one does.
+     *
+     * The ball references matter on their own: a ball the user has momentarily
+     * emptied keeps its pairing but stops being a subject, and collecting the
+     * team there would leave a dangling reference that mints a duplicate the
+     * moment the ball is refilled.
+     */
+    private collectUnreferencedTeams(): void {
+        const referenced = new Set<number>();
+        for (const slot of this.formatSlots.get()) {
+            for (const [k, on] of Object.entries(slot.subjectTeams)) if (on) referenced.add(Number(k));
+        }
+        for (const pick of this.picked.get()) {
+            for (const key of Object.values(pick.ballTeams)) referenced.add(key);
+        }
+        const survivors = this.teams.get().filter((t) => !t.autoCreated || referenced.has(t.key));
+        if (survivors.length !== this.teams.get().length) this.teams.set(survivors);
     }
 
     /** Seed `ballByPlayer`: an even split when the roster divides by the ball
@@ -780,17 +878,115 @@ export class SetupService {
         return ball === undefined ? null : ball;
     }
 
-    /** Put a player on a ball, or (null) sit them out of THIS game only —
-     * sitting one game out never affects any other (§4). */
+    /**
+     * Put a player on a ball, or (null) sit them out of THIS game.
+     *
+     * A ball backed by a round TEAM has no membership of its own — it IS the
+     * team's (§3) — so this edit follows the team into every other game
+     * referencing it ("edited in one place"); "use separate sides for this
+     * game" ({@link forkGame}) is the escape hatch. A lone-player ball is
+     * game-local: sitting one game out never affects any other (§4).
+     */
     assignBall(gameKey: number, playerKey: number, ball: number | null): void {
         const pick = this.pickedByKey(gameKey);
         if (!pick) return;
         const ballByPlayer = { ...pick.ballByPlayer };
         if (ball === null) delete ballByPlayer[playerKey];
         else ballByPlayer[playerKey] = ball;
-        const next = { ...pick, ballByPlayer };
-        this.picked.set(this.picked.get().map((p) => (p.key === gameKey ? next : p)));
-        this.regenerateGame(next);
+        this.applyGameEdit({ ...pick, ballByPlayer });
+    }
+
+    /**
+     * Re-derive one game's composition and carry the result of any SHARED team
+     * edit into the other games referencing it. Every card-driven edit goes
+     * through here; `regenerateGame` alone would leave the other game's ball
+     * rows disagreeing with the team they point at.
+     */
+    private applyGameEdit(pick: PickedGame): void {
+        this.picked.set(this.picked.get().map((p) => (p.key === pick.key ? pick : p)));
+        this.regenerateGame(pick);
+        this.syncGamesFromTeams(pick.key);
+    }
+
+    /**
+     * Pull every OTHER game's team-backed balls back into line with the teams
+     * they reference: the team's members are on that ball, and a player who
+     * left the team leaves the ball. Balls that are lone players are untouched
+     * — those stay game-local.
+     */
+    private syncGamesFromTeams(originKey: number): void {
+        const byKey = new Map(this.teams.get().map((t) => [t.key, t]));
+        const touched: PickedGame[] = [];
+        const next = this.picked.get().map((pick) => {
+            if (pick.key === originKey) return pick;
+            const ballByPlayer = { ...pick.ballByPlayer };
+            let changed = false;
+            for (const [ballStr, teamKey] of Object.entries(pick.ballTeams)) {
+                const team = byKey.get(teamKey);
+                if (!team) continue;
+                const ball = Number(ballStr);
+                for (const [playerStr, at] of Object.entries(ballByPlayer)) {
+                    const playerKey = Number(playerStr);
+                    if (at === ball && team.pctByPlayer[playerKey] === undefined) {
+                        delete ballByPlayer[playerKey];
+                        changed = true;
+                    }
+                }
+                for (const playerStr of Object.keys(team.pctByPlayer)) {
+                    const playerKey = Number(playerStr);
+                    if (ballByPlayer[playerKey] !== ball) {
+                        ballByPlayer[playerKey] = ball;
+                        changed = true;
+                    }
+                }
+            }
+            if (!changed) return pick;
+            const updated = { ...pick, ballByPlayer };
+            touched.push(updated);
+            return updated;
+        });
+        this.picked.set(next);
+        // Their subjects moved with the membership — refresh the slots, but do
+        // NOT propagate again: the teams already hold the agreed membership.
+        for (const pick of touched) this.regenerateGame(pick);
+    }
+
+    /**
+     * "Use separate sides for this game" (§3) — mint a private copy of every
+     * team this game references, so editing its balls stops moving players in
+     * the games it was sharing with. The copies keep the membership and the
+     * per-member allowances; the originals stay exactly as they were.
+     */
+    forkGame(gameKey: number): void {
+        const pick = this.pickedByKey(gameKey);
+        if (!pick) return;
+        const teams = this.teams.get();
+        const ballTeams: Record<number, number> = {};
+        const copies: TeamForm[] = [];
+        let at = -1;
+        for (const [ballStr, teamKey] of Object.entries(pick.ballTeams)) {
+            const i = teams.findIndex((t) => t.key === teamKey);
+            if (i < 0) continue;
+            const source = teams[i]!;
+            copies.push({
+                ...source,
+                key: this.nextTeamKey++,
+                pctByPlayer: { ...source.pctByPlayer },
+                memberTeams: { ...source.memberTeams },
+                autoCreated: true,
+            });
+            ballTeams[Number(ballStr)] = copies.at(-1)!.key;
+            if (i > at) at = i;
+        }
+        // The copies go in as one BLOCK after the last team forked from — not
+        // each one next to its own source. Interleaving them would split both
+        // games' letters (Team A vs Team C against Team B vs Team D) and move
+        // the letter of a side the other game is still playing. This way every
+        // existing letter is untouched and each game's block stays contiguous.
+        this.teams.set([...teams.slice(0, at + 1), ...copies, ...teams.slice(at + 1)]);
+        const forked = { ...pick, ballTeams };
+        this.picked.set(this.picked.get().map((p) => (p.key === gameKey ? forked : p)));
+        this.regenerateGame(forked);
     }
 
     /** True while this game's ball count is open-ended (`count.max` absent) —
@@ -805,9 +1001,7 @@ export class SetupService {
     addBall(gameKey: number): void {
         const pick = this.pickedByKey(gameKey);
         if (!pick || !this.canAddBall(gameKey)) return;
-        const next = { ...pick, ballCount: pick.ballCount + 1 };
-        this.picked.set(this.picked.get().map((p) => (p.key === gameKey ? next : p)));
-        this.regenerateGame(next);
+        this.applyGameEdit({ ...pick, ballCount: pick.ballCount + 1 });
     }
 
     /** The generated slot backing a picked game (its knobs live there). */
@@ -832,8 +1026,10 @@ export class SetupService {
     /**
      * Turn one picked game into the composition the engine understands (§4):
      * a ball with ONE player is scored as that player, a ball with two or more
-     * becomes a `multi_ball` team the format aggregates into a single subject
-     * (ADR-0004). Only this game's own teams and slot are touched.
+     * is contested by a ROUND team (§3) the format aggregates into a single
+     * subject (ADR-0004). A ball that already references a team WRITES its
+     * membership there — the team is shared, so the edit lands wherever else it
+     * is referenced; a ball with no reference yet mints one.
      *
      * THE DOUBLE-SCORING TRAP: a ball format includes every UNTICKED player by
      * default, so every player who is not an own-ball subject must be ticked
@@ -845,56 +1041,75 @@ export class SetupService {
         if (!shape) return;
         const roster = this.players.get();
         const subjectPlayers: Record<number, boolean> = {};
-        const generated: TeamForm[] = [];
-        // Reuse this game's existing team keys ball-for-ball so a participant
-        // change doesn't renumber "Team A" under the user.
-        const existing = this.teams.get().filter((t) => t.gameKey === pick.key);
+        // `ballTeams` is the persistent REFERENCE per ball; `subjectKeys` is the
+        // subset that is a team subject right now. They diverge whenever a ball
+        // is empty or holds a single player.
+        const ballTeams: Record<number, number> = {};
+        const subjectKeys: number[] = [];
+        let teams = this.teams.get();
+
         for (let ball = 0; ball < pick.ballCount; ball++) {
             const members = roster.filter((p) => pick.ballByPlayer[p.key] === ball);
-            if (members.length === 0) continue;
+            // A ball that is momentarily empty — or momentarily one player —
+            // KEEPS its team reference. The reference is the user's pairing,
+            // not a by-product of who happens to stand on the ball right now:
+            // dropping it would make refilling the ball mint a fresh private
+            // team, silently ending a share the other game is still playing.
+            // The ball is not a team SUBJECT while it is in that state, which
+            // is what `subjectKeys` (not this map) decides.
+            const carried = pick.ballTeams[ball];
+            if (members.length === 0) {
+                if (carried !== undefined) ballTeams[ball] = carried;
+                continue;
+            }
             // A game whose balls are always teams (Taliban's 2×2) keeps an
             // under-filled ball as a team — dropped at build time and surfaced
             // by `gameWarnings`, never silently rescored as a lone player.
             if (members.length === 1 && shape.size.min === 1) {
                 subjectPlayers[members[0]!.key] = true;
+                if (carried !== undefined) ballTeams[ball] = carried;
                 continue;
             }
-            generated.push({
-                key: existing[generated.length]?.key ?? this.nextTeamKey++,
+            const referenced = teams.find((t) => t.key === pick.ballTeams[ball]);
+            // A retained member keeps the allowance the user gave them.
+            const pctByPlayer = Object.fromEntries(
+                members.map((m) => [m.key, referenced?.pctByPlayer[m.key] ?? '100']),
+            );
+            if (referenced) {
+                teams = teams.map((t) =>
+                    t.key === referenced.key ? { ...t, kind: 'multi_ball', pctByPlayer } : t,
+                );
+                ballTeams[ball] = referenced.key;
+                subjectKeys.push(referenced.key);
+                continue;
+            }
+            const team: TeamForm = {
+                key: this.nextTeamKey++,
                 kind: 'multi_ball',
                 formation: 'custom',
-                pctByPlayer: Object.fromEntries(members.map((m) => [m.key, '100'])),
+                pctByPlayer,
                 memberTeams: {},
-                gameKey: pick.key,
-            });
+                autoCreated: true,
+            };
+            // Insert straight after this game's last team rather than at the
+            // end: the round's team ORDER is what gives the Team A…H letters,
+            // so a game that gains a ball must keep its own block contiguous
+            // instead of interleaving its letters with another game's. Nothing
+            // already in the list moves, so every existing letter is stable.
+            const at = this.lastTeamIndexOf(teams, ballTeams, pick);
+            teams = [...teams.slice(0, at + 1), team, ...teams.slice(at + 1)];
+            ballTeams[ball] = team.key;
+            subjectKeys.push(team.key);
         }
         if (pick.ballCount > 0) {
             for (const p of roster) {
                 if (subjectPlayers[p.key] === undefined) subjectPlayers[p.key] = false;
             }
         }
-
-        // Splice this game's teams in place so the round's team ORDER (and
-        // therefore the Team A…H letters) stays stable across regenerations.
-        const nextTeams: TeamForm[] = [];
-        let gi = 0;
-        let entered = false;
-        for (const team of this.teams.get()) {
-            if (team.gameKey === pick.key) {
-                entered = true;
-                const replacement = generated[gi++];
-                if (replacement) nextTeams.push(replacement);
-                continue;
-            }
-            // Leaving this game's block. A game that GAINED a ball has surplus
-            // teams left: they belong here, not at the end of the round's list
-            // — otherwise the game's teams stop being contiguous and its
-            // letters interleave with another game's.
-            if (entered) for (; gi < generated.length; gi++) nextTeams.push(generated[gi]!);
-            nextTeams.push(team);
-        }
-        for (; gi < generated.length; gi++) nextTeams.push(generated[gi]!);
-        this.teams.set(nextTeams);
+        this.teams.set(teams);
+        this.picked.set(
+            this.picked.get().map((p) => (p.key === pick.key ? { ...p, ballTeams } : p)),
+        );
 
         // Reuse the existing slot's identity so a knob the user changed on the
         // card (allowance, config) survives a participant change.
@@ -905,13 +1120,28 @@ export class SetupService {
             formatId: pick.formatId,
             allowancePct: slotBefore?.allowancePct ?? '100',
             subjectPlayers,
-            subjectTeams: Object.fromEntries(generated.map((t) => [t.key, true])),
+            subjectTeams: Object.fromEntries(subjectKeys.map((k) => [k, true])),
             config: slotBefore?.config ?? this.defaultConfigFor(pick.formatId),
             gameKey: pick.key,
         };
         this.formatSlots.set(
             slotBefore ? slots.map((s) => (s.key === slot.key ? slot : s)) : [...slots, slot],
         );
+        this.collectUnreferencedTeams();
+    }
+
+    /** Where a game's next team belongs: after the last team it references
+     * (the ones already placed this pass, else the ones it referenced before).
+     * -1 ⇒ it references none yet, and the team is appended. */
+    private lastTeamIndexOf(
+        teams: TeamForm[],
+        placed: Record<number, number>,
+        pick: PickedGame,
+    ): number {
+        const keys = new Set([...Object.values(placed), ...Object.values(pick.ballTeams)]);
+        let last = teams.length - 1;
+        for (const [i, team] of teams.entries()) if (keys.has(team.key)) last = i;
+        return last;
     }
 
     /**
@@ -945,6 +1175,10 @@ export class SetupService {
         });
         this.picked.set(next);
         for (const pick of next) this.regenerateGame(pick);
+        // Two games sharing a side each wrote their own view of it above; one
+        // pass back from the teams leaves every card agreeing with the team it
+        // references (§3).
+        this.syncGamesFromTeams(-1);
     }
 
     /**
@@ -994,6 +1228,85 @@ export class SetupService {
         return parts.filter((p) => p !== '').join(' · ');
     }
 
+    /** The round teams this game contests its balls with, in ball order. */
+    teamsOfGame(gameKey: number): TeamForm[] {
+        const pick = this.pickedByKey(gameKey);
+        if (!pick) return [];
+        // Only the balls that are a team SUBJECT right now. A ball keeps its
+        // reference while it is empty or down to one player (so refilling it
+        // rejoins the same side) — but the game is not playing that team in
+        // the meantime, and reporting it would make the card claim a side it
+        // is not contesting and a share it does not have.
+        const live = this.slotForGame(gameKey)?.subjectTeams ?? {};
+        const out: TeamForm[] = [];
+        for (let ball = 0; ball < pick.ballCount; ball++) {
+            const team = this.teamByKey(pick.ballTeams[ball] ?? -1);
+            if (team && live[team.key]) out.push(team);
+        }
+        return out;
+    }
+
+    /**
+     * The OTHER formats scoring one of this game's sides, by their catalog
+     * label — never a literal: a shared side is shared with whatever else
+     * happens to reference it (§3).
+     */
+    gameSharedWith(gameKey: number): string[] {
+        const keys = new Set(this.teamsOfGame(gameKey).map((t) => t.key));
+        if (keys.size === 0) return [];
+        const own = this.slotForGame(gameKey)?.key;
+        const out: string[] = [];
+        for (const slot of this.formatSlots.get()) {
+            if (slot.key === own) continue;
+            const hit = Object.entries(slot.subjectTeams).some(
+                ([k, on]) => on && keys.has(Number(k)),
+            );
+            if (hit) out.push(this.gameLabel(slot.formatId));
+        }
+        return out;
+    }
+
+    /** True while another format scores this game's sides — the card offers
+     * "use separate sides for this game" only then. */
+    gameSharesSides(gameKey: number): boolean {
+        return this.gameSharedWith(gameKey).length > 0;
+    }
+
+    /**
+     * The sides line on a card whose balls are round teams: which teams it is
+     * contested between, and what else is playing them (§3 — "Sides: Team A vs
+     * Team B — shared with Taliban."). Empty for a game with no team-backed
+     * ball, so the card renders nothing.
+     */
+    gameSidesText(gameKey: number): string {
+        const pick = this.pickedByKey(gameKey);
+        if (!pick || this.teamsOfGame(gameKey).length === 0) return '';
+        // Every ball in play gets named, not just the team-backed ones: a game
+        // of one pair against one lone player is contested BETWEEN THEM, and
+        // "Sides: Team A." reads as if the other ball weren't there.
+        const live = this.slotForGame(gameKey)?.subjectTeams ?? {};
+        const names: string[] = [];
+        for (let ball = 0; ball < pick.ballCount; ball++) {
+            const team = this.teamByKey(pick.ballTeams[ball] ?? -1);
+            if (team && live[team.key]) {
+                names.push(this.teamLabel(team));
+                continue;
+            }
+            const members = this.ballMembers(gameKey, ball);
+            if (members.length > 0) names.push(members.map((p) => p.name.trim() || 'Player').join(' & '));
+        }
+        const sides = names.join(' vs ');
+        const shared = this.gameSharedWith(gameKey);
+        return shared.length === 0
+            ? `Sides: ${sides}.`
+            : `Sides: ${sides} — shared with ${this.joinLabels(shared)}.`;
+    }
+
+    private joinLabels(list: string[]): string {
+        if (list.length <= 1) return list.join('');
+        return `${list.slice(0, -1).join(', ')} and ${list.at(-1)}`;
+    }
+
     // --- Custom games alongside the picked ones (format-templates §5) --------
 
     /**
@@ -1003,8 +1316,18 @@ export class SetupService {
      * roster.
      */
     adjustGame(gameKey: number): void {
+        // Sides another card is still playing can't come along: they stay
+        // referenced by that card, so `customTeams()` would keep hiding them
+        // and the handed-over slot would score two teams the user can neither
+        // see nor untick. Take a private copy first — customising one game was
+        // never meant to seize the other game's pairings.
+        if (this.gameSharesSides(gameKey)) this.forkGame(gameKey);
+        // The sides it referenced become the user's: they appear in the Teams
+        // section and must never be garbage-collected out from under an edit,
+        // even if the now-custom slot stops scoring them.
+        const referenced = new Set(Object.values(this.pickedByKey(gameKey)?.ballTeams ?? {}));
         this.teams.set(
-            this.teams.get().map((t) => (t.gameKey === gameKey ? { ...t, gameKey: undefined } : t)),
+            this.teams.get().map((t) => (referenced.has(t.key) ? { ...t, autoCreated: false } : t)),
         );
         this.formatSlots.set(
             this.formatSlots.get().map((s) => (s.gameKey === gameKey ? { ...s, gameKey: undefined } : s)),
@@ -1037,9 +1360,24 @@ export class SetupService {
         return this.formatSlots.get().filter((s) => s.gameKey === undefined);
     }
 
-    /** Teams no picked game owns — the ones the Teams section edits. */
+    /**
+     * Teams no picked game references — the ones the Teams section edits (§5:
+     * the flexible sections list only what no card owns, and with reuse "owned"
+     * means "referenced by a picked game"). A team a card references is edited
+     * on that card, so it is not offered twice.
+     */
     customTeams(): TeamForm[] {
-        return this.teams.get().filter((t) => t.gameKey === undefined);
+        const owned = this.cardOwnedTeamKeys();
+        return this.teams.get().filter((t) => !owned.has(t.key));
+    }
+
+    /** Team keys a picked game contests a ball with. */
+    private cardOwnedTeamKeys(): Set<number> {
+        const out = new Set<number>();
+        for (const pick of this.picked.get()) {
+            for (const key of Object.values(pick.ballTeams)) out.add(key);
+        }
+        return out;
     }
 
     /** A slot's position in the draft's `formats[]`, for diagnostics that are
@@ -1056,7 +1394,14 @@ export class SetupService {
     addTeam(): void {
         this.teams.set([
             ...this.teams.get(),
-            { key: this.nextTeamKey++, kind: 'single_ball', formation: 'scramble', pctByPlayer: {}, memberTeams: {} },
+            {
+                key: this.nextTeamKey++,
+                kind: 'single_ball',
+                formation: 'scramble',
+                pctByPlayer: {},
+                memberTeams: {},
+                autoCreated: false,
+            },
         ]);
     }
 

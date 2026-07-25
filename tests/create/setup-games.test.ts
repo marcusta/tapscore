@@ -118,6 +118,68 @@ function teamMembers(draft: any, teamId: string): string[] {
     return team.members.map((m: any) => m.producerDefId);
 }
 
+/** The team ids one format scores, in subject order. */
+function teamSubjectIds(draft: any, formatId: string): string[] {
+    return formatIn(draft, formatId)
+        .subjects.filter((s: any) => s.kind === 'team')
+        .map((s: any) => s.teamId);
+}
+
+/**
+ * Run a generated draft through the REAL builder + compiler. The card layer is
+ * only worth the composition it produces, so every gate ends here rather than
+ * at the draft's shape.
+ */
+function expectCompiles(draft: any): void {
+    registerBuiltInBallCreationStrategies();
+    const built = buildRoundDefinition(draft);
+    if (!built.ok) throw new Error(`builder refused: ${JSON.stringify(built.diagnostics)}`);
+
+    const guestProfiles = new Map(
+        draft.producers.map((p: any) => [p.playerRef.id, { displayName: p.playerRef.id, gender: 'M' as const }]),
+    );
+    const compiled = compile({
+        roundId: 'r1',
+        definition: built.definition,
+        courseHoles: Array.from({ length: 18 }, (_, i) => ({
+            holeNumber: i + 1,
+            par: 4,
+            baseStrokeIndex: i + 1,
+        })),
+        tees: new Map([
+            [
+                'tee-y',
+                {
+                    teeName: 'Yellow',
+                    holes: Array.from({ length: 18 }, (_, i) => ({
+                        holeNumber: i + 1,
+                        lengthM: 300,
+                        strokeIndexOverride: null,
+                    })),
+                    ratings: new Map([
+                        ['M', { courseRating: 71.2, slope: 130, teePar: 72 }],
+                        ['F', { courseRating: 73.4, slope: 135, teePar: 72 }],
+                    ]),
+                },
+            ],
+        ]),
+        playerProfiles: new Map(),
+        guestProfiles: guestProfiles as Map<string, { displayName: string; gender?: 'M' | 'F' }>,
+    });
+    if (!compiled.ok) throw new Error(`compile refused: ${JSON.stringify(compiled.diagnostics)}`);
+    expect(compiled.ok).toBe(true);
+}
+
+/** Build a side (multi_ball round team) by hand, the way the Teams section
+ * does — the user-created teams a card may adopt (§3). */
+function addSide(svc: Setup, ...playerKeys: number[]): number {
+    svc.addTeam();
+    const key = svc.teams.get().at(-1)!.key;
+    svc.setTeamKind(key, 'multi_ball');
+    for (const p of playerKeys) svc.setTeamMember(key, p, true);
+    return key;
+}
+
 beforeEach(() => {
     nextGuestId = 0;
     lastDraft = null;
@@ -367,7 +429,7 @@ test('"Adjust details" hands ONE game to the flexible form, keeping what it gene
 
 // --- Provenance never reaches the draft (§5) ------------------------------
 
-test('provenance is client-side only: no gameKey anywhere in the built draft', async () => {
+test('provenance is client-side only: no bookkeeping field reaches the built draft', async () => {
     const svc = makeService();
     addPlayers(svc, 'Anna', 'Bert', 'Cleo', 'Dan');
     svc.pickGame('taliban_better_ball');
@@ -375,11 +437,19 @@ test('provenance is client-side only: no gameKey anywhere in the built draft', a
 
     const res = await svc.submit();
     expect(res.ok).toBe(true);
-    expect(JSON.stringify(lastDraft)).not.toContain('gameKey');
-    // The slots and teams DO carry it on the client — the draft is what is
-    // stripped, not the setup state.
+    const json = JSON.stringify(lastDraft);
+    for (const field of ['gameKey', 'ballTeams', 'autoCreated', 'picked', 'ballByPlayer']) {
+        expect(json).not.toContain(field);
+    }
+    // The setup state DOES carry it — the draft is what is stripped. Slots are
+    // still owned by the game that generated them; teams are round-level and
+    // merely REFERENCED (format-templates §3), so the reference lives on the
+    // pick, not on the team.
     expect(svc.formatSlots.get().every((s) => s.gameKey !== undefined)).toBe(true);
-    expect(svc.teams.get().every((t) => t.gameKey !== undefined)).toBe(true);
+    expect(Object.values(svc.pickedByKey(gameKeyOf(svc, 'taliban_better_ball'))!.ballTeams)).toEqual(
+        svc.teams.get().map((t) => t.key),
+    );
+    expect(svc.teams.get().every((t) => t.autoCreated)).toBe(true);
 });
 
 // --- Edit mode (§6) -------------------------------------------------------
@@ -450,43 +520,7 @@ test('GATE: a four-player round plays Poängbogey + Taliban + Köpenhamnare at o
 
     // ...and the generated draft is what the COMPILER accepts — the card layer
     // is only worth the composition it produces.
-    registerBuiltInBallCreationStrategies();
-    const built = buildRoundDefinition(lastDraft);
-    if (!built.ok) throw new Error(`builder refused: ${JSON.stringify(built.diagnostics)}`);
-
-    const guestProfiles = new Map(
-        lastDraft.producers.map((p: any) => [p.playerRef.id, { displayName: p.playerRef.id, gender: 'M' as const }]),
-    );
-    const compiled = compile({
-        roundId: 'r1',
-        definition: built.definition,
-        courseHoles: Array.from({ length: 18 }, (_, i) => ({
-            holeNumber: i + 1,
-            par: 4,
-            baseStrokeIndex: i + 1,
-        })),
-        tees: new Map([
-            [
-                'tee-y',
-                {
-                    teeName: 'Yellow',
-                    holes: Array.from({ length: 18 }, (_, i) => ({
-                        holeNumber: i + 1,
-                        lengthM: 300,
-                        strokeIndexOverride: null,
-                    })),
-                    ratings: new Map([
-                        ['M', { courseRating: 71.2, slope: 130, teePar: 72 }],
-                        ['F', { courseRating: 73.4, slope: 135, teePar: 72 }],
-                    ]),
-                },
-            ],
-        ]),
-        playerProfiles: new Map(),
-        guestProfiles: guestProfiles as Map<string, { displayName: string; gender?: 'M' | 'F' }>,
-    });
-    if (!compiled.ok) throw new Error(`compile refused: ${JSON.stringify(compiled.diagnostics)}`);
-    expect(compiled.ok).toBe(true);
+    expectCompiles(lastDraft);
 });
 
 // --- Regressions from the Phase C review ---------------------------------
@@ -530,15 +564,390 @@ test('a game that gains a ball keeps its teams contiguous', () => {
     svc.pickGame('taliban_better_ball');
     const bb = gameKeyOf(svc, 'stableford_better_ball');
     const tal = gameKeyOf(svc, 'taliban_better_ball');
-    expect(svc.teams.get().map((t) => t.gameKey)).toEqual([bb, bb, tal, tal]);
+    // Better-ball's two 4-player balls don't fit taliban's 2×2, so taliban
+    // mints its own pair of sides rather than adopting them (§3, step 3).
+    const order = () => svc.teams.get().map((t) => t.key);
+    const bbTeams = () => svc.teamsOfGame(bb).map((t) => t.key);
+    const talTeams = () => svc.teamsOfGame(tal).map((t) => t.key);
+    expect(order()).toEqual([...bbTeams(), ...talTeams()]);
+    expect(bbTeams()).toHaveLength(2);
+    expect(talTeams()).toHaveLength(2);
 
     // Better-ball grows a third ball: its new team belongs after ITS block, not
     // at the end of the round's list — otherwise Team C/D/E interleave games.
+    // The letters of everything already there stay put.
+    const lettersBefore = svc.teams.get().map((t) => svc.teamLabel(t));
     svc.addBall(bb);
     const players = svc.players.get();
     svc.assignBall(bb, players[0]!.key, 2);
     svc.assignBall(bb, players[1]!.key, 2);
 
-    const owners = svc.teams.get().map((t) => t.gameKey);
-    expect(owners).toEqual([bb, bb, bb, tal, tal]);
+    expect(bbTeams()).toHaveLength(3);
+    expect(order()).toEqual([...bbTeams(), ...talTeams()]);
+    // Team A…D still name the same teams they did before the ball was added.
+    expect(svc.teams.get().slice(0, 2).map((t) => svc.teamLabel(t))).toEqual(
+        lettersBefore.slice(0, 2),
+    );
+});
+
+// --- Phase D: teams are round-level and reused (§3) -----------------------
+//
+// A game REFERENCES round teams; it does not own them. Everything below pins
+// one half of that sentence: adoption when the existing sides fit, membership
+// that is the TEAM's (so an edit lands on every card referencing it), the fork
+// that opts out, and the lifecycle that decides when a side may be collected.
+
+test('GATE: pick Taliban, then Umbrella — the same two pairs, scored by both games', async () => {
+    const svc = makeService();
+    addPlayers(svc, 'Anna', 'Bert', 'Cleo', 'Dan');
+    svc.pickGame('taliban_better_ball');
+    expect(svc.teams.get()).toHaveLength(2);
+
+    // Umbrella 4-ball is the SAME derived shape as taliban (2 balls × 2), so
+    // the round's existing sides fit and are adopted rather than duplicated.
+    svc.pickGame('umbrella_4_ball');
+    expect(svc.teams.get()).toHaveLength(2);
+
+    const tal = gameKeyOf(svc, 'taliban_better_ball');
+    const umb = gameKeyOf(svc, 'umbrella_4_ball');
+    expect(svc.teamsOfGame(umb).map((t) => t.key)).toEqual(svc.teamsOfGame(tal).map((t) => t.key));
+
+    const res = await svc.submit();
+    expect(res.ok).toBe(true);
+    // TWO teams in the draft, and both games score both of them — not four
+    // independent pairs edited in two places.
+    expect(lastDraft.teams).toHaveLength(2);
+    expect(lastDraft.teams.map((t: any) => teamMembers(lastDraft, t.id))).toEqual([
+        ['p1', 'p2'],
+        ['p3', 'p4'],
+    ]);
+    const ids = lastDraft.teams.map((t: any) => t.id);
+    expect(teamSubjectIds(lastDraft, 'taliban_better_ball')).toEqual(ids);
+    expect(teamSubjectIds(lastDraft, 'umbrella_4_ball')).toEqual(ids);
+    // Umbrella 4-ball declares per-hole `gir` metadata; sharing a side with
+    // taliban must still be a round the engine accepts.
+    expectCompiles(lastDraft);
+});
+
+test('a side edited on one card moves the player on the other', async () => {
+    const svc = makeService();
+    const [, bert, , dan] = addPlayers(svc, 'Anna', 'Bert', 'Cleo', 'Dan');
+    svc.pickGame('taliban_better_ball');
+    svc.pickGame('umbrella_4_ball');
+    const tal = gameKeyOf(svc, 'taliban_better_ball');
+    const umb = gameKeyOf(svc, 'umbrella_4_ball');
+
+    // Swap Bert and Dan's sides on TALIBAN's card only.
+    svc.assignBall(tal, dan!, 0);
+    svc.assignBall(tal, bert!, 1);
+
+    // Membership of a team-backed ball IS the team's, so umbrella followed.
+    expect(svc.ballOf(umb, dan!)).toBe(0);
+    expect(svc.ballOf(umb, bert!)).toBe(1);
+    expect(svc.ballMembers(umb, 0).map((p) => p.name)).toEqual(['Anna', 'Dan']);
+    expect(svc.ballMembers(umb, 1).map((p) => p.name)).toEqual(['Bert', 'Cleo']);
+    expect(svc.teams.get()).toHaveLength(2);
+
+    const res = await svc.submit();
+    expect(res.ok).toBe(true);
+    expect(lastDraft.teams.map((t: any) => teamMembers(lastDraft, t.id))).toEqual([
+        ['p1', 'p4'],
+        ['p2', 'p3'],
+    ]);
+});
+
+test('the sides line names the teams and what else is playing them', () => {
+    const svc = makeService();
+    addPlayers(svc, 'Anna', 'Bert', 'Cleo', 'Dan');
+    svc.pickGame('taliban_better_ball');
+    const tal = gameKeyOf(svc, 'taliban_better_ball');
+    // Alone, a game says what it is contested between and offers no fork.
+    expect(svc.gameSidesText(tal)).toBe('Sides: Team A vs Team B.');
+    expect(svc.gameSharesSides(tal)).toBe(false);
+
+    svc.pickGame('umbrella_4_ball');
+    const umb = gameKeyOf(svc, 'umbrella_4_ball');
+    // The other game's name is the CATALOG label, never a literal.
+    const talLabel = svc.gameLabel('taliban_better_ball');
+    expect(svc.gameSidesText(umb)).toBe(`Sides: Team A vs Team B — shared with ${talLabel}.`);
+    expect(svc.gameSharesSides(umb)).toBe(true);
+    expect(svc.gameSharesSides(tal)).toBe(true);
+});
+
+test('forking one game stops the propagation and leaves the other game alone', async () => {
+    const svc = makeService();
+    const [, bert, , dan] = addPlayers(svc, 'Anna', 'Bert', 'Cleo', 'Dan');
+    svc.pickGame('taliban_better_ball');
+    svc.pickGame('umbrella_4_ball');
+    const tal = gameKeyOf(svc, 'taliban_better_ball');
+    const umb = gameKeyOf(svc, 'umbrella_4_ball');
+
+    svc.forkGame(umb);
+    // A private copy per referenced side: four teams, none shared.
+    expect(svc.teams.get()).toHaveLength(4);
+    expect(svc.teamsOfGame(umb).map((t) => t.key)).not.toEqual(
+        svc.teamsOfGame(tal).map((t) => t.key),
+    );
+    expect(svc.gameSharesSides(umb)).toBe(false);
+    expect(svc.gameSidesText(umb)).not.toContain('shared with');
+
+    // The same edit that used to propagate now stays on taliban's card.
+    svc.assignBall(tal, dan!, 0);
+    svc.assignBall(tal, bert!, 1);
+    expect(svc.ballOf(umb, dan!)).toBe(1);
+    expect(svc.ballOf(umb, bert!)).toBe(0);
+
+    const res = await svc.submit();
+    expect(res.ok).toBe(true);
+    expect(lastDraft.teams).toHaveLength(4);
+    // Umbrella still plays the original pairs; taliban plays the swapped ones.
+    const umbTeams = teamSubjectIds(lastDraft, 'umbrella_4_ball').map((id: string) =>
+        teamMembers(lastDraft, id),
+    );
+    expect(umbTeams).toEqual([['p1', 'p2'], ['p3', 'p4']]);
+    const talTeams = teamSubjectIds(lastDraft, 'taliban_better_ball').map((id: string) =>
+        teamMembers(lastDraft, id),
+    );
+    expect(talTeams).toEqual([['p1', 'p4'], ['p2', 'p3']]);
+    expectCompiles(lastDraft);
+});
+
+// --- Lifecycle (§3) -------------------------------------------------------
+
+test('a shared side outlives the first game that drops it, and dies with the last', () => {
+    const svc = makeService();
+    addPlayers(svc, 'Anna', 'Bert', 'Cleo', 'Dan');
+    svc.pickGame('taliban_better_ball');
+    svc.pickGame('umbrella_4_ball');
+    const keys = svc.teams.get().map((t) => t.key);
+    expect(keys).toHaveLength(2);
+
+    // Removing a game must never delete a team another game still uses.
+    svc.unpickGame(gameKeyOf(svc, 'taliban_better_ball'));
+    expect(svc.teams.get().map((t) => t.key)).toEqual(keys);
+    expect(svc.formatSlots.get()).toHaveLength(1);
+
+    // ...and the LAST format referencing an auto-created side takes it away.
+    svc.unpickGame(gameKeyOf(svc, 'umbrella_4_ball'));
+    expect(svc.teams.get()).toHaveLength(0);
+});
+
+test('a user-created side is adopted, edited on the card, and never auto-removed', async () => {
+    const svc = makeService();
+    const [anna, bert, cleo, dan] = addPlayers(svc, 'Anna', 'Bert', 'Cleo', 'Dan');
+    // Deliberately NOT the even split the defaults would produce.
+    const sideA = addSide(svc, anna!, cleo!);
+    const sideB = addSide(svc, bert!, dan!);
+
+    svc.pickGame('taliban_better_ball');
+    const tal = gameKeyOf(svc, 'taliban_better_ball');
+    expect(svc.teams.get()).toHaveLength(2);
+    expect(svc.teamsOfGame(tal).map((t) => t.key)).toEqual([sideA, sideB]);
+    // The ball assignment is DERIVED from the adopted membership, not from the
+    // even split — Anna and Cleo are a side because the user said so.
+    expect(svc.ballMembers(tal, 0).map((p) => p.name)).toEqual(['Anna', 'Cleo']);
+    // A side a card references is edited on that card (§5), so the Teams
+    // section stops offering it.
+    expect(svc.customTeams()).toHaveLength(0);
+
+    svc.pickGame('umbrella_4_ball');
+    expect(svc.teams.get()).toHaveLength(2);
+
+    // Both games gone: a side the USER built is still theirs.
+    svc.unpickGame(gameKeyOf(svc, 'umbrella_4_ball'));
+    svc.unpickGame(tal);
+    expect(svc.teams.get().map((t) => t.key)).toEqual([sideA, sideB]);
+    expect(svc.customTeams()).toHaveLength(2);
+
+    // ...and they still submit as ordinary round teams once something scores
+    // them again.
+    svc.pickGame('taliban_better_ball');
+    const res = await svc.submit();
+    expect(res.ok).toBe(true);
+    expect(lastDraft.teams.map((t: any) => teamMembers(lastDraft, t.id))).toEqual([
+        ['p1', 'p3'],
+        ['p2', 'p4'],
+    ]);
+});
+
+// --- Adoption bounds ------------------------------------------------------
+
+test('a LOOSER game adopts the existing pairs: better-ball takes taliban’s two sides', async () => {
+    const svc = makeService();
+    addPlayers(svc, 'Anna', 'Bert', 'Cleo', 'Dan');
+    svc.pickGame('taliban_better_ball');
+    // stableford_better_ball is 2+ balls × 2–10: its bounds merely ACCEPT
+    // taliban's fixed 2×2 rather than matching it, and that is enough.
+    svc.pickGame('stableford_better_ball');
+    expect(svc.teams.get()).toHaveLength(2);
+
+    const res = await svc.submit();
+    expect(res.ok).toBe(true);
+    expect(lastDraft.teams).toHaveLength(2);
+    const ids = lastDraft.teams.map((t: any) => t.id);
+    expect(teamSubjectIds(lastDraft, 'taliban_better_ball')).toEqual(ids);
+    expect(teamSubjectIds(lastDraft, 'stableford_better_ball')).toEqual(ids);
+    expectCompiles(lastDraft);
+});
+
+test('sides that do not fit the second game are minted fresh, not adopted', () => {
+    const svc = makeService();
+    addPlayers(svc, 'A', 'B', 'C', 'D', 'E', 'F');
+    // Köpenhamnare's 6 players fill 3 balls as pairs.
+    svc.pickGame('kopenhamnare_individual');
+    expect(svc.teams.get()).toHaveLength(3);
+    // Taliban is exactly 2 sides — three teams fail its COUNT bounds.
+    svc.pickGame('taliban_better_ball');
+    expect(svc.teams.get()).toHaveLength(5);
+    const kop = gameKeyOf(svc, 'kopenhamnare_individual');
+    const tal = gameKeyOf(svc, 'taliban_better_ball');
+    expect(svc.gameSharesSides(tal)).toBe(false);
+    for (const t of svc.teamsOfGame(tal)) {
+        expect(svc.teamsOfGame(kop).map((x) => x.key)).not.toContain(t.key);
+    }
+});
+
+test('THE DOUBLE-SCORING TRAP survives reuse: 6 players in 3 shared pairs is 3 subjects', async () => {
+    const svc = makeService();
+    addPlayers(svc, 'Anna', 'Bert', 'Cleo', 'Dan', 'Eva', 'Finn');
+    svc.pickGame('kopenhamnare_individual');
+    // 3 pairs of 2 satisfy better-ball's 2+ balls × 2–10 ⇒ adopted.
+    svc.pickGame('stableford_better_ball');
+    expect(svc.teams.get()).toHaveLength(3);
+
+    const res = await svc.submit();
+    expect(res.ok).toBe(true);
+    expect(lastDraft.teams).toHaveLength(3);
+    // Three aggregated sides means THREE subjects per format — not nine (six
+    // players PLUS their three sides), which is what a ball format includes by
+    // default without the explicit `subjectPlayers[key] = false`.
+    for (const formatId of ['kopenhamnare_individual', 'stableford_better_ball']) {
+        const subjects = formatIn(lastDraft, formatId).subjects;
+        expect(subjects).toHaveLength(3);
+        expect(subjects.every((s: any) => s.kind === 'team')).toBe(true);
+    }
+    expectCompiles(lastDraft);
+});
+
+test('the roster keeps two games sharing a side in agreement', () => {
+    const svc = makeService();
+    const [, bert] = addPlayers(svc, 'Anna', 'Bert', 'Cleo', 'Dan');
+    svc.pickGame('taliban_better_ball');
+    svc.pickGame('umbrella_4_ball');
+    const tal = gameKeyOf(svc, 'taliban_better_ball');
+    const umb = gameKeyOf(svc, 'umbrella_4_ball');
+
+    svc.removePlayer(bert!);
+    expect(svc.teams.get()).toHaveLength(2);
+    expect(svc.ballOf(tal, bert!)).toBeNull();
+    expect(svc.ballOf(umb, bert!)).toBeNull();
+    // A new player heals the short side on BOTH cards, because it is one side.
+    const eva = addPlayer(svc, 'Eva');
+    expect(svc.ballOf(tal, eva!)).toBe(0);
+    expect(svc.ballOf(umb, eva!)).toBe(0);
+    expect(svc.gameWarnings(tal)).toEqual([]);
+    expect(svc.gameWarnings(umb)).toEqual([]);
+});
+
+// --- Regressions from the Phase D review ---------------------------------
+
+test('a ball emptied and refilled rejoins the SAME side, not a fresh copy', async () => {
+    const svc = makeService();
+    const [, , cleo, dan] = addPlayers(svc, 'Anna', 'Bert', 'Cleo', 'Dan');
+    svc.pickGame('taliban_better_ball');
+    svc.pickGame('umbrella_4_ball');
+    const tal = gameKeyOf(svc, 'taliban_better_ball');
+    const umb = gameKeyOf(svc, 'umbrella_4_ball');
+    const before = svc.teamsOfGame(tal).map((t) => t.key);
+
+    // Empty ball B on taliban's card, then put the same pair back. A ball that
+    // is momentarily empty is not a ball that has been given up: its REFERENCE
+    // survives, so refilling it lands on the side both games are playing.
+    svc.assignBall(tal, cleo!, null);
+    svc.assignBall(tal, dan!, null);
+    expect(svc.teams.get()).toHaveLength(2);
+    svc.assignBall(tal, cleo!, 1);
+    svc.assignBall(tal, dan!, 1);
+
+    expect(svc.teams.get()).toHaveLength(2);
+    expect(svc.teamsOfGame(tal).map((t) => t.key)).toEqual(before);
+    expect(svc.teamsOfGame(umb).map((t) => t.key)).toEqual(before);
+    expect(svc.gameSharesSides(umb)).toBe(true);
+    expect(svc.gameWarnings(tal)).toEqual([]);
+    expect(svc.gameWarnings(umb)).toEqual([]);
+
+    const res = await svc.submit();
+    expect(res.ok).toBe(true);
+    expect(lastDraft.teams).toHaveLength(2);
+    const ids = lastDraft.teams.map((t: any) => t.id);
+    expect(teamSubjectIds(lastDraft, 'taliban_better_ball')).toEqual(ids);
+    expect(teamSubjectIds(lastDraft, 'umbrella_4_ball')).toEqual(ids);
+    expectCompiles(lastDraft);
+});
+
+test('a pair down to one player keeps its side and regains it when refilled', async () => {
+    const svc = makeService();
+    const [, bert] = addPlayers(svc, 'Anna', 'Bert', 'Cleo', 'Dan', 'Eva', 'Finn');
+    svc.pickGame('kopenhamnare_individual');
+    const kop = gameKeyOf(svc, 'kopenhamnare_individual');
+    expect(svc.teams.get()).toHaveLength(3);
+    const before = svc.teamsOfGame(kop).map((t) => t.key);
+
+    // Köpenhamnare's balls take 1 OR 2, so a pair losing a player is still a
+    // legal ball — scored as that one player, with the side held in reserve.
+    svc.assignBall(kop, bert!, null);
+    expect(svc.teams.get()).toHaveLength(3);
+    expect(svc.teamsOfGame(kop)).toHaveLength(2);
+    expect(svc.gameWarnings(kop)).toEqual([]);
+
+    svc.assignBall(kop, bert!, 0);
+    expect(svc.teams.get()).toHaveLength(3);
+    expect(svc.teamsOfGame(kop).map((t) => t.key)).toEqual(before);
+
+    const res = await svc.submit();
+    expect(res.ok).toBe(true);
+    expect(lastDraft.teams).toHaveLength(3);
+    expectCompiles(lastDraft);
+});
+
+test('forking inserts the copies as one block, so the letters stay in game order', () => {
+    const svc = makeService();
+    addPlayers(svc, 'Anna', 'Bert', 'Cleo', 'Dan');
+    svc.pickGame('taliban_better_ball');
+    svc.pickGame('umbrella_4_ball');
+    const tal = gameKeyOf(svc, 'taliban_better_ball');
+    const umb = gameKeyOf(svc, 'umbrella_4_ball');
+
+    svc.forkGame(umb);
+    // Interleaving the copies with their sources would renumber the game that
+    // did NOT fork — "Team A vs Team C" for taliban, which changed nothing.
+    expect(svc.gameSidesText(tal)).toBe('Sides: Team A vs Team B.');
+    expect(svc.gameSidesText(umb)).toBe('Sides: Team C vs Team D.');
+});
+
+test('"Adjust details" on a shared game takes a private copy first', () => {
+    const svc = makeService();
+    addPlayers(svc, 'Anna', 'Bert', 'Cleo', 'Dan');
+    svc.pickGame('taliban_better_ball');
+    svc.pickGame('umbrella_4_ball');
+    const tal = gameKeyOf(svc, 'taliban_better_ball');
+    const umb = gameKeyOf(svc, 'umbrella_4_ball');
+    const talTeams = svc.teamsOfGame(tal).map((t) => t.key);
+
+    svc.adjustGame(umb);
+
+    // Taliban keeps the sides it was playing, and keeps hiding them from the
+    // Teams section — customising ONE game never seizes the other's pairings.
+    expect(svc.teamsOfGame(tal).map((t) => t.key)).toEqual(talTeams);
+    expect(svc.gameSharesSides(tal)).toBe(false);
+
+    // The handed-over slot scores teams the user can actually see and untick.
+    const slot = svc.formatSlots.get().find((s) => s.formatId === 'umbrella_4_ball')!;
+    expect(slot.gameKey).toBeUndefined();
+    const scored = Object.entries(slot.subjectTeams)
+        .filter(([, on]) => on)
+        .map(([k]) => Number(k));
+    expect(scored).toHaveLength(2);
+    const visible = new Set(svc.customTeams().map((t) => t.key));
+    for (const key of scored) expect(visible.has(key)).toBe(true);
 });

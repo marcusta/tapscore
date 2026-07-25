@@ -24,6 +24,7 @@ const PRESET_ORDER = [
     'match_play_individual', // 5 — Matchspel, 1v1
     'stableford_better_ball', // 6 — Bästboll poängbogey
     'umbrella_individual', // 7 — Umbrella
+    'umbrella_4_ball', // 8 — Umbrella in pairs
 ];
 
 /**
@@ -31,10 +32,8 @@ const PRESET_ORDER = [
  *   - `match_play_better_ball` — same 2v2 better-ball shape as Taliban, which
  *     is the game this group actually names; two near-identical cards is worse
  *     curation than one.
- *   - `umbrella_4_ball` — the team variant of a card already offered, and it
- *     needs per-player GIR entry; niche enough to leave to add-a-format.
  */
-const DELIBERATELY_EXCLUDED = ['match_play_better_ball', 'umbrella_4_ball'];
+const DELIBERATELY_EXCLUDED = ['match_play_better_ball'];
 
 describe('curated presets', () => {
     it('every builtin is either curated in or deliberately excluded', () => {

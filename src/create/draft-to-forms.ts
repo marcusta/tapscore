@@ -254,6 +254,10 @@ export function draftToForms(
             formation: tm.formation ?? 'scramble',
             pctByPlayer,
             memberTeams,
+            // A stored draft records COMPOSITION, not the cards that produced
+            // it (§6): every prefilled team is the user's from here on and is
+            // never garbage-collected.
+            autoCreated: false,
         };
     });
 
