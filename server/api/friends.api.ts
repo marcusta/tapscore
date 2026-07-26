@@ -23,7 +23,7 @@ const RemoveFriendInput = Type.Object({
  * "front door" unauthenticated endpoint).
  *
  * Removal is `DELETE /friends/:friendId` (path param), NOT a DELETE-with-
- * body. The framework's `mount()` (vendor/basics-core/server/mount.ts) reads
+ * body. The framework's `mount()` (@basics/core/server/mount.ts) reads
  * DELETE input from `c.req.param()` only — it never parses a DELETE body —
  * and every existing DELETE endpoint in this codebase (clubs, courses,
  * tees, rounds, course-route-templates) already uses `/resource/:id`. A

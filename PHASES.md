@@ -6,7 +6,7 @@ Authoritative rebuild plan. Each phase ends at a hand-test gate. New sessions pi
 
 1. Read `AGENTS.md`.
 2. Read `REWRITE_DOMAIN_SPEC.md` sections listed on the target phase.
-3. Run `bun run check:server && bun run check:client && bun run check:test && bun run test` — confirm prior phase still green. `bun run test` intentionally selects project tests; use `bun run test:framework` for the vendored framework suite with its DOM preload.
+3. Run `bun run check:server && bun run check:client && bun run check:test && bun run test` — confirm prior phase still green. `bun run test` intentionally selects project tests and asserts `@basics/core` is not bun-linked; the framework has its own suite in `../mackans-client-fw`.
 4. `git log --oneline -10` — confirm last commit matches the phase-complete marker.
 5. Start the phase. Stay inside its scope. Do not pull work forward from later phases.
 

@@ -4,20 +4,27 @@ Greenfield rebuild of `~/dev/github/golf-serie`. Domain model is in `REWRITE_DOM
 
 ## Framework
 
-Built on a committed, self-contained snapshot of `@basics/core` in
-`vendor/basics-core`. The sibling checkout at `~/dev/github/mackans-client-fw`
-is the upstream source used when deliberately refreshing that snapshot. Follow
-the framework conventions verbatim:
+Built on a **versioned release tarball** of `@basics/core`, committed at
+`vendor/basics-core-<X.Y.Z>.tgz` and installed as a real `node_modules`
+directory. The sibling checkout at `~/dev/github/mackans-client-fw` is the
+upstream source; it now cuts real releases (git tags, `CHANGELOG.md`, release
+tooling). Follow the framework conventions verbatim:
 
 - `~/dev/github/mackans-client-fw/CLAUDE.md` — framework overview and invariants
+- `~/dev/github/mackans-client-fw/CHANGELOG.md` — read on **every** upgrade
+- `~/dev/github/mackans-client-fw/docs/rollout.md` — migration lessons from the 1.x rollout
+- `~/dev/github/mackans-client-fw/docs/decisions.md` — framework ADRs (ADR-005 = CSS recipe functions)
 - `~/dev/github/mackans-client-fw/docs/server-guide.md` — server-side patterns (service shape, query inventory, migrations, auth)
 - `~/dev/github/mackans-client-fw/docs/agent-guide.md` — client-side canonical recipe
 - `~/dev/github/mackans-client-fw/docs/app-patterns.md` — app composition
 
 The starter app `~/dev/github/mackans-client-fw/apps/starter` is the reference
-layout. Mirror it. Runtime imports, API generation, affected-test selection, and
-normal verification must use the committed `vendor/basics-core` adapter; they
-must not silently follow the sibling checkout's HEAD.
+layout. Mirror it.
+
+**Never edit anything under `node_modules/@basics/core`, and never recreate
+`vendor/basics-core/` as a directory** — the old rsync mirror, `scripts/vendor-basics.ts`,
+`scripts/framework-test-preload.ts`, and the `test:framework` script are deleted
+and must not come back.
 
 ## Tapscore-specific rules
 
@@ -31,17 +38,64 @@ presentation vocabulary.
 
 ## Dependencies
 
-`@basics/core` is installed via `file:./vendor/basics-core`. Behaviour:
+`@basics/core` is installed via `file:./vendor/basics-core-<X.Y.Z>.tgz`. Behaviour:
 
-- Framework changes land only through `bun run vendor:basics`, which copies the
-  sibling framework into `vendor/basics-core`. Review and commit the vendored
-  diff, then run `bun install`; deploys and fresh clones need no sibling checkout.
-- `generate`, `test:affected`, runtime imports, and `test:framework` all consume
-  the vendored snapshot. The sibling checkout is required only to refresh the
-  snapshot and to read its reference documentation/starter app.
+- **Upgrading the framework.** Fix things upstream in `../mackans-client-fw`,
+  release there (`bun release.ts <bump>` — requires a matching `CHANGELOG`
+  heading), then land it here:
+
+  ```bash
+  bun run fw:update          # or: bun run fw:update 1.2.0
+  ```
+
+  Commit `vendor/*.tgz` + `package.json` + `bun.lock` **together**. Deploys and
+  fresh clones need no sibling checkout.
+- **Active framework development against this app.** `bun link @basics/core` in
+  this repo (`vite.config.ts` already has `optimizeDeps.exclude` for it).
+  **Never commit while linked** — `bun run test` starts with an
+  assert-not-linked guard (`bun run fw:check`) that fails loudly. Do not remove
+  or bypass it. Finish by releasing upstream and running `fw:update`.
+- **After any `fw:update` or link/unlink:** restart the vite dev server, and
+  `rm -rf node_modules/.vite` if modules look stale. `does not provide an export
+  named ...` is the signature of a stale vite cache, not a broken framework.
+- `generate` and `test:affected` run out of `node_modules/@basics/core/` (see
+  `package.json`). If they fail with module-not-found, run `bun install` — do
+  **not** repoint them at `vendor/`.
 - `hono`, `kysely`, `kysely-bun-sqlite`, `@sinclair/typebox` are pinned to exact
-  versions aligned with the vendored framework. When refreshing `@basics/core`,
-  also realign these pins, then reinstall and commit `bun.lock`.
+  versions aligned with the released framework. When upgrading `@basics/core`,
+  realign these pins, then reinstall and commit `bun.lock`.
+
+## Theme and CSS
+
+**Recipe-first ordering (ADR-005).** In `css` template literals, recipe
+interpolations come **first** in a block, app overrides **after**:
+
+```ts
+css`.save { ${btn('primary')} padding: 0.5rem 1rem; }`   // correct
+css`.save { padding: 0.5rem 1rem; ${btn('primary')} }`   // wrong — recipe wins
+```
+
+The 1.x recipes emit sizing (padding / font-size / line-height), so a recipe
+placed last silently overrides app sizing. All 37 `btn()` and 11 `input()` sites
+were reordered for this. The 23 `${card(` sites still have overrides-before-recipe;
+harmless today because `card()` emits no sizing — **re-check the framework
+CHANGELOG on every upgrade** and reorder them if `card()` ever starts emitting
+sizing.
+
+**Tokens.** `src/theme.ts` calls `bridgeLegacyControls(appTokens, neutralLight |
+neutralDark)` from `@basics/core/client/default-theme`, deriving the 1.x control
+tokens (`--field-*`, `--btn-*`) from our legacy tokens (radius / border /
+input-bg / btn-bg / …) so the clubhouse look survives framework upgrades. An
+explicit control token in the theme always beats the bridge.
+
+Keep the vocabulary split deliberate:
+
+- `accent` = decorative brass, used by app components.
+- Framework **action** tokens (`accent-strong`, `on-accent`) = fairway green.
+- The `danger` family = terracotta.
+
+New framework-facing tokens go through the bridge call in `src/theme.ts`, not
+scattered literals.
 
 ## Commands
 
@@ -53,10 +107,11 @@ bun run check:test       # tsgo on tests/
 bun run test:server      # server tests
 bun run test:client      # project client/pure UI tests
 bun run test:scripts     # render/scenario tooling tests
-bun run test             # canonical project suite (server + client + scripts)
-bun run test:framework   # vendored @basics/core suite with happy-dom
+bun run test             # canonical project suite (asserts not linked, then server + client + scripts)
 bun run test:affected    # only tests reachable from changed files (needs at least one commit)
-bun run generate         # regenerate typed clients using the vendored generator
+bun run generate         # regenerate typed clients using the installed framework generator
+bun run fw:update [X.Y.Z] # pull a released @basics/core tarball into vendor/ + package.json
+bun run fw:check         # assert @basics/core is not bun-linked (safe to commit)
 bun run seed:formats     # rebuild canonical manual-format fixture DB under tmp/
 bun run render:formats   # render canonical manual-format fixtures from that DB
 bun run check:format-fixtures # compare the canonical fixture oracle
@@ -81,3 +136,8 @@ production base path, deploy config).
 Deployed at `https://app.swedenindoorgolf.se/tapscore/` — the app is served
 under the `/tapscore/` base path, so client routes and the API both sit beneath
 it (for example `https://app.swedenindoorgolf.se/tapscore/api/health`).
+
+**The `@basics/core` 1.1.0 migration is not deployed yet.** Pre-deploy QA walk,
+in **both** light and dark themes: create round → score entry → leaderboard →
+settings, checking confirm dialogs and selects at each step (those surfaces
+depend most on the bridged control tokens).
