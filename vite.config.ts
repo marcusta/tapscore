@@ -8,6 +8,10 @@ export default defineConfig({
     // No separate static-assets dir; ./public is the build output, so disable
     // publicDir to avoid it colliding with outDir on rebuilds.
     publicDir: false,
+    // @basics/core ships TypeScript source, not a bundle. Excluding it from
+    // pre-bundling lets `bun link @basics/core` HMR framework source during
+    // active framework work; harmless when consuming the tarball.
+    optimizeDeps: { exclude: ['@basics/core'] },
     build: {
         // Built client is committed to git and served by the Hono server
         // (server/main.ts). The deploy has no build step, so this is the
