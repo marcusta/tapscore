@@ -104,8 +104,9 @@ export class CompetitionDetailComponent extends Component {
                 margin-bottom: ${s('lg')};
                 &.hidden { display: none; }
                 & button {
+                    ${btn()}
                     padding: ${s('md')} ${s('lg')}; font-family: inherit;
-                    font-size: 0.95rem; font-weight: 700; ${btn()}
+                    font-size: 0.95rem; font-weight: 700;
                     background: ${t('primary')}; color: ${t('primary-text')}; border: none;
                     &:disabled { opacity: 0.5; }
                 }
@@ -143,7 +144,7 @@ export class CompetitionDetailComponent extends Component {
                 & .cd__field { display: flex; flex-direction: column; gap: ${s('xs')};
                     & > span { font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
                         letter-spacing: 0.05em; color: ${t('text-muted')}; }
-                    & input, & select { padding: ${s('sm')} ${s('md')}; font-size: 0.95rem; ${input()} }
+                    & input, & select { ${input()} padding: ${s('sm')} ${s('md')}; font-size: 0.95rem; }
                 }
                 & .cd__aggdesc { margin: 0; font-size: 0.8rem; color: ${t('text-muted')}; &:empty { display: none; } }
                 & .cd__aggfields { display: flex; flex-direction: column; gap: ${s('md')}; &:empty { display: none; } }
@@ -153,8 +154,9 @@ export class CompetitionDetailComponent extends Component {
                 & .cd__slots { display: flex; flex-direction: column; gap: ${s('xs')}; }
                 & .cd__formactions { display: flex; align-items: center; gap: ${s('md')}; margin-top: ${s('sm')}; }
                 & button[bind="addSlot"], & button[bind="saveSetup"] {
+                    ${btn()}
                     padding: ${s('sm')} ${s('md')}; font-family: inherit; font-weight: 700;
-                    ${btn()} background: ${t('primary')}; color: ${t('primary-text')}; border: none;
+                    background: ${t('primary')}; color: ${t('primary-text')}; border: none;
                 }
             }
             & .cd__slot {
@@ -185,20 +187,23 @@ export class CompetitionDetailComponent extends Component {
                 margin: ${s('md')} 0 ${s('xs')}; }
             & .cd__friendpick { display: flex; flex-wrap: wrap; gap: ${s('xs')}; }
             & .cd__friendchip {
-                padding: ${s('xs')} ${s('md')}; ${btn()} font-family: inherit;
+                ${btn()}
+                padding: ${s('xs')} ${s('md')}; font-family: inherit;
                 font-size: 0.85rem; font-weight: 600; cursor: pointer;
                 &:disabled { opacity: 0.4; }
             }
             & .cd__guestrow, & .cd__addroundrow { display: flex; gap: ${s('sm')}; }
             & .cd__guestrow input, & .cd__addroundrow input, & .cd__addroundrow select {
-                padding: ${s('sm')} ${s('md')}; font-size: 0.9rem; ${input()} min-width: 0; }
+                ${input()}
+                padding: ${s('sm')} ${s('md')}; font-size: 0.9rem; min-width: 0; }
             & .cd__guestrow input[bind="guestName"] { flex: 1; }
             & .cd__guestrow input[bind="guestHcp"] { width: 4.5rem; }
             & .cd__guestrow select { width: 3.5rem; }
             & .cd__addroundrow select { flex: 1; }
             & .cd__guestrow button, & .cd__addroundrow button {
+                ${btn()}
                 padding: ${s('sm')} ${s('md')}; font-family: inherit; font-weight: 700;
-                ${btn()} background: ${t('primary')}; color: ${t('primary-text')}; border: none; }
+                background: ${t('primary')}; color: ${t('primary-text')}; border: none; }
 
             & .cd__rounds { display: flex; flex-direction: column; gap: ${s('xs')}; }
             & .cd__roundrow {
@@ -219,7 +224,8 @@ export class CompetitionDetailComponent extends Component {
             & .cd__admin.hidden { display: none; }
             & .cd__adminbtns { display: flex; gap: ${s('md')}; }
             & .cd__adminbtns button {
-                padding: ${s('md')} ${s('lg')}; font-family: inherit; font-weight: 700; ${btn()}
+                ${btn()}
+                padding: ${s('md')} ${s('lg')}; font-family: inherit; font-weight: 700;
             }
             & .cd__cutbtn { background: ${t('accent-soft')}; color: ${t('accent')}; border-color: ${t('accent')}; }
             & .cd__finalbtn { background: ${t('error')}; color: #fff; border: none; }
@@ -232,7 +238,8 @@ export class CompetitionDetailComponent extends Component {
             & .cd__setswitch { display: flex; gap: ${s('xs')}; margin-bottom: ${s('sm')};
                 &:empty { display: none; }
                 & button {
-                    padding: ${s('xs')} ${s('md')}; ${btn()} font-family: inherit;
+                    ${btn()}
+                    padding: ${s('xs')} ${s('md')}; font-family: inherit;
                     font-size: 0.85rem; font-weight: 700; cursor: pointer;
                     &.on { background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')}; }
                 }

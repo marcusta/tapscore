@@ -67,10 +67,10 @@ export class CompetitionsComponent extends Component {
                 color: ${t('text-muted')};
                 &.hidden { display: none; }
                 & button {
+                    ${btn()}
                     margin-top: ${s('md')};
                     padding: ${s('md')} ${s('xl')};
                     font-family: inherit; font-size: 1rem; font-weight: 700;
-                    ${btn()}
                     background: ${t('primary')}; color: ${t('primary-text')}; border: none;
                 }
             }
@@ -80,11 +80,11 @@ export class CompetitionsComponent extends Component {
                 display: flex;
                 gap: ${s('sm')};
                 margin-bottom: ${s('md')};
-                & input { flex: 1; padding: ${s('md')}; font-size: 1rem; ${input()} }
+                & input { ${input()} flex: 1; padding: ${s('md')}; font-size: 1rem; }
                 & button {
+                    ${btn()}
                     padding: ${s('md')} ${s('lg')};
                     font-family: inherit; font-size: 0.95rem; font-weight: 700;
-                    ${btn()}
                     background: ${t('primary')}; color: ${t('primary-text')}; border: none;
                     &:disabled { opacity: 0.5; cursor: default; }
                 }

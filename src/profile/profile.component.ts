@@ -84,10 +84,10 @@ export class ProfileComponent extends Component {
                 &.hidden { display: none; }
 
                 & button {
+                    ${btn()}
                     margin-top: ${s('md')};
                     padding: ${s('md')} ${s('xl')};
                     font-family: inherit; font-size: 1rem; font-weight: 700;
-                    ${btn()}
                     background: ${t('primary')}; color: ${t('primary-text')}; border: none;
                 }
             }
@@ -128,10 +128,11 @@ export class ProfileComponent extends Component {
                 }
                 & .profile__edit {
                     display: flex; gap: ${s('sm')}; flex: 1; justify-content: flex-end;
-                    & input { width: 90px; padding: ${s('md')}; font-size: 1rem; text-align: center; ${input()} }
+                    & input { ${input()} width: 90px; padding: ${s('md')}; font-size: 1rem; text-align: center; }
                     & button {
+                        ${btn()}
                         padding: ${s('md')} ${s('lg')}; font-family: inherit;
-                        font-size: 0.95rem; font-weight: 700; ${btn()}
+                        font-size: 0.95rem; font-weight: 700;
                         background: ${t('primary')}; color: ${t('primary-text')}; border: none;
                         &:disabled { opacity: 0.5; cursor: default; }
                     }
@@ -153,12 +154,12 @@ export class ProfileComponent extends Component {
                     gap: ${s('xs')};
 
                     & button {
+                        ${btn()}
                         flex: 1;
                         padding: ${s('sm')} 0;
                         font-family: inherit;
                         font-size: 0.9rem;
                         font-weight: 700;
-                        ${btn()}
                         &.on { background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')}; }
                         &:disabled { opacity: 0.5; cursor: default; }
                     }

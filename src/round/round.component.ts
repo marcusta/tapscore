@@ -262,8 +262,8 @@ export class RoundComponent extends Component {
                     margin-top: ${s('sm')};
                 }
                 & .round-view__share-url {
-                    flex: 1;
                     ${input()}
+                    flex: 1;
                     font-size: 0.8rem;
                     color: ${t('text-muted')};
                 }

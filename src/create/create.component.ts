@@ -352,8 +352,9 @@ export class CreateComponent extends Component {
                 margin-bottom: ${s('md')};
             }
             & .gcard {
+                ${btn()}
                 display: flex; flex-direction: column; gap: 2px; text-align: left;
-                padding: ${s('md')}; ${btn()} font-family: inherit; cursor: pointer;
+                padding: ${s('md')}; font-family: inherit; cursor: pointer;
                 /* The inset ring doubles the hairline so a picked card still
                    reads as picked next to a hovered one. */
                 &.on {
@@ -398,7 +399,8 @@ export class CreateComponent extends Component {
             & .setup__seg {
                 display: flex; gap: ${s('sm')}; margin-bottom: ${s('md')};
                 & button {
-                    flex: 1; padding: ${s('md')} 0; ${btn()}
+                    ${btn()}
+                    flex: 1; padding: ${s('md')} 0;
                     font-family: inherit; font-weight: 700; font-size: 0.9rem;
                     &.on { background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')}; }
                 }
@@ -416,13 +418,14 @@ export class CreateComponent extends Component {
                 display: flex; flex-direction: column; gap: ${s('sm')};
 
                 & .player__top { display: flex; gap: ${s('sm')}; align-items: center; }
-                & .player__name { flex: 1; padding: ${s('md')}; font-size: 1rem; ${input()} }
+                & .player__name { ${input()} flex: 1; padding: ${s('md')}; font-size: 1rem; }
                 & .player__remove {
-                    width: 38px; height: 38px; flex-shrink: 0; ${btn()}
+                    ${btn()}
+                    width: 38px; height: 38px; flex-shrink: 0;
                     font-size: 1rem; color: ${t('text-muted')};
                 }
                 & .player__fields { display: flex; gap: ${s('sm')}; align-items: stretch; }
-                & .player__index { flex: 1; min-width: 0; padding: ${s('md')}; font-size: 1rem; ${input()} }
+                & .player__index { ${input()} flex: 1; min-width: 0; padding: ${s('md')}; font-size: 1rem; }
                 & .player__gender { width: 72px; flex-shrink: 0; font-size: 1rem; }
                 & .player__tee { flex: 1; min-width: 0; font-size: 1rem; }
 
@@ -437,7 +440,8 @@ export class CreateComponent extends Component {
             }
 
             & .setup__add {
-                width: 100%; margin-top: ${s('md')}; padding: ${s('md')}; ${btn()}
+                ${btn()}
+                width: 100%; margin-top: ${s('md')}; padding: ${s('md')};
                 font-family: inherit; font-weight: 700; font-size: 0.95rem;
             }
             & .setup__add.hidden { display: none; }
@@ -491,7 +495,8 @@ export class CreateComponent extends Component {
                 }
                 & .fslot__format { flex: 1; min-width: 0; font-size: 1rem; }
                 & .fslot__remove {
-                    width: 38px; height: 38px; flex-shrink: 0; ${btn()}
+                    ${btn()}
+                    width: 38px; height: 38px; flex-shrink: 0;
                     font-size: 1rem; color: ${t('text-muted')};
                 }
                 & .fslot__desc {
@@ -532,14 +537,15 @@ export class CreateComponent extends Component {
                         display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
                         font-size: 0.85rem; color: ${t('text-muted')};
                         &[hidden] { display: none; }
-                        & input { width: 56px; padding: ${s('xs')} ${s('sm')}; ${input()} font-size: 0.95rem; }
+                        & input { ${input()} width: 56px; padding: ${s('xs')} ${s('sm')}; font-size: 0.95rem; }
                     }
                 }
 
                 & .fslot__seg {
                     display: flex; gap: ${s('xs')};
                     & button {
-                        flex: 1; padding: ${s('sm')} 0; ${btn()}
+                        ${btn()}
+                        flex: 1; padding: ${s('sm')} 0;
                         font-family: inherit; font-weight: 700; font-size: 0.82rem;
                         &.on { background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')}; }
                     }
@@ -558,8 +564,9 @@ export class CreateComponent extends Component {
                     & .fslot__seg { flex: 0 0 auto; & button { min-width: 44px; flex: 0 0 auto; padding: ${s('sm')}; } }
                 }
                 & .gaddball {
+                    ${btn()}
                     align-self: flex-start; margin-top: ${s('xs')};
-                    padding: ${s('xs')} ${s('sm')}; ${btn()}
+                    padding: ${s('xs')} ${s('sm')};
                     font-family: inherit; font-weight: 600; font-size: 0.8rem;
                     &.hidden { display: none; }
                 }
@@ -576,21 +583,23 @@ export class CreateComponent extends Component {
                     &:empty { display: none; }
                 }
                 & .gadjust {
-                    align-self: flex-start; padding: ${s('xs')} ${s('sm')}; ${btn()}
+                    ${btn()}
+                    align-self: flex-start; padding: ${s('xs')} ${s('sm')};
                     font-family: inherit; font-weight: 600; font-size: 0.8rem;
                     &.hidden { display: none; }
                 }
 
                 & .grp__start {
                     display: flex; gap: ${s('sm')}; align-items: stretch;
-                    & .grp__time { flex: 1; min-width: 0; padding: ${s('sm')} ${s('md')}; font-size: 1rem; font-family: inherit; ${input()} }
+                    & .grp__time { ${input()} flex: 1; min-width: 0; padding: ${s('sm')} ${s('md')}; font-size: 1rem; font-family: inherit; }
                     & .grp__hole { flex: 1; min-width: 0; font-size: 1rem; }
                 }
             }
 
             & .setup__create {
+                ${btn()}
                 width: 100%; padding: ${s('lg')}; font-size: 1.15rem; font-weight: 700;
-                font-family: inherit; ${btn()}
+                font-family: inherit;
                 background: ${t('primary')}; color: ${t('primary-text')}; border: none;
                 box-shadow: ${t('shadow-elevated')};
                 &:hover { background: ${t('primary')}; }
@@ -598,7 +607,8 @@ export class CreateComponent extends Component {
             }
 
             & .setup__cancel {
-                width: 100%; margin-top: ${s('md')}; padding: ${s('md')}; ${btn()}
+                ${btn()}
+                width: 100%; margin-top: ${s('md')}; padding: ${s('md')};
                 background: none; font-family: inherit; font-weight: 600; font-size: 0.95rem;
                 color: ${t('text-muted')};
                 &.hidden { display: none; }
@@ -647,10 +657,11 @@ export class CreateComponent extends Component {
                 font-variant-numeric: tabular-nums;
                 &.empty { color: ${t('text-muted')}; font-weight: 400; font-size: 1rem; }
             }
-            & .hcp__bs { width: 44px; height: 44px; flex-shrink: 0; ${btn()} font-size: 1.1rem; }
+            & .hcp__bs { ${btn()} width: 44px; height: 44px; flex-shrink: 0; font-size: 1.1rem; }
             & .hcp__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
             & .hcp-key {
-                height: 52px; ${btn()}
+                ${btn()}
+                height: 52px;
                 display: flex; flex-direction: column; align-items: center; justify-content: center;
                 font-family: ${t('font-display')}; font-weight: 700; font-size: 1.2rem;
 
@@ -661,9 +672,10 @@ export class CreateComponent extends Component {
                 }
             }
             & .hcp__actions { display: flex; gap: ${s('sm')}; margin-top: ${s('md')}; }
-            & .hcp__cancel { flex: 1; padding: ${s('md')}; ${btn()} font-family: inherit; font-weight: 700; font-size: 0.95rem; }
+            & .hcp__cancel { ${btn()} flex: 1; padding: ${s('md')}; font-family: inherit; font-weight: 700; font-size: 0.95rem; }
             & .hcp__ok {
-                flex: 2; padding: ${s('md')}; ${btn()} font-family: inherit; font-weight: 700; font-size: 0.95rem;
+                ${btn()}
+                flex: 2; padding: ${s('md')}; font-family: inherit; font-weight: 700; font-size: 0.95rem;
                 background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')};
                 &:hover { background: ${t('primary')}; }
                 &:disabled { opacity: 0.5; cursor: default; }

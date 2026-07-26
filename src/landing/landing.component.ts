@@ -103,6 +103,7 @@ export class LandingComponent extends Component {
             }
 
             & .landing__create {
+                ${btn()}
                 width: 100%;
                 display: flex;
                 align-items: center;
@@ -113,7 +114,6 @@ export class LandingComponent extends Component {
                 font-size: 1.1rem;
                 font-weight: 700;
                 font-family: inherit;
-                ${btn()}
                 background: ${t('primary')};
                 color: ${t('primary-text')};
                 border: none;

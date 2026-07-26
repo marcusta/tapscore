@@ -96,10 +96,10 @@ export class FriendsComponent extends Component {
                 &.hidden { display: none; }
 
                 & button {
+                    ${btn()}
                     margin-top: ${s('md')};
                     padding: ${s('md')} ${s('xl')};
                     font-family: inherit; font-size: 1rem; font-weight: 700;
-                    ${btn()}
                     background: ${t('primary')}; color: ${t('primary-text')}; border: none;
                 }
             }
@@ -153,10 +153,10 @@ export class FriendsComponent extends Component {
             }
 
             & .friends__search {
+                ${input()}
                 width: 100%;
                 padding: ${s('md')} ${s('lg')};
                 font-size: 1rem;
-                ${input()}
             }
 
             & .friends__hint {
@@ -212,9 +212,9 @@ export class FriendsComponent extends Component {
                     font-variant-numeric: tabular-nums;
                 }
                 & .friend-row__add {
+                    ${btn()}
                     flex-shrink: 0; padding: ${s('sm')} ${s('lg')};
                     font-family: inherit; font-size: 0.9rem; font-weight: 700;
-                    ${btn()}
                     background: ${t('primary')}; color: ${t('primary-text')}; border: none;
                     &.hidden { display: none; }
                     &:disabled { opacity: 0.5; cursor: default; }
@@ -225,7 +225,8 @@ export class FriendsComponent extends Component {
                     &.hidden { display: none; }
                 }
                 & .friend-row__remove {
-                    width: 34px; height: 34px; flex-shrink: 0; ${btn()}
+                    ${btn()}
+                    width: 34px; height: 34px; flex-shrink: 0;
                     font-size: 0.9rem; color: ${t('text-muted')};
                 }
             }

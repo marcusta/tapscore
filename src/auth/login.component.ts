@@ -90,9 +90,9 @@ export class LoginComponent extends Component {
                 gap: ${s('md')};
 
                 & input {
+                    ${input()}
                     padding: ${s('md')} ${s('lg')};
                     font-size: 1rem;
-                    ${input()}
                 }
 
                 & .login__register {
@@ -136,10 +136,10 @@ export class LoginComponent extends Component {
                     gap: ${s('xs')};
 
                     & button {
+                        ${btn()}
                         padding: ${s('sm')} ${s('lg')};
                         font-size: 0.9rem;
                         font-weight: 700;
-                        ${btn()}
                         &.on { background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')}; }
                     }
                 }
@@ -148,10 +148,10 @@ export class LoginComponent extends Component {
                    the home-club select bring their own button styling, and a
                    descendant selector here would paint both solid primary. */
                 & > button {
+                    ${btn()}
                     padding: ${s('md')} ${s('lg')};
                     font-size: 1rem;
                     font-weight: 700;
-                    ${btn()}
                     background: ${t('primary')};
                     color: ${t('primary-text')};
                     border: none;
