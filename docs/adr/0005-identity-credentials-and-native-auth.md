@@ -108,6 +108,27 @@ anonymous FriendlyRound path unchanged.
   `src/landing/device-rounds.ts` remains the web's logged-out affordance and is
   not ported.
 
+#### Linking in practice (added N5)
+
+Linking is only reachable by a caller who *already has a session*, so the
+native client needs a password door of its own — otherwise an existing web user
+installing the app can only reach `/auth/apple` session-less, and that mints a
+**second** `players` row for a human who already exists. `POST
+/auth/native/login` (bearer sibling of the framework's cookie `/auth/login`,
+which owns that path and cannot be replaced) exists for exactly this: log in
+with the password you already have, then post `/auth/apple` with that bearer
+token and the Apple credential attaches to the row you already are. Prevention
+is the design — row-merge stays deferred, so a fork is permanent.
+
+**Email cannot drive matching, ever.** `players` carries no email column at
+all; Apple's is read only from the identity token and, with private relay, is
+frequently a per-app alias. Even if it were stored, matching on it would be an
+account-takeover primitive: an attacker who controls an address that resembles
+a member's would inherit their rounds. Policy, not implementation detail: email
+similarity may only ever *suggest* — "is this you? sign in to link" — and must
+never merge, auto-link, or resolve an identity on its own. The only thing that
+joins two credentials is an authenticated session belonging to the human.
+
 ### Per-layer
 
 1. **Migration**: create `player_credentials`, backfill from

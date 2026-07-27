@@ -44,7 +44,7 @@ struct RootView: View {
             // landing only — a pushed round screen owns its own bottom
             // furniture (`RoundView`'s `BottomTabBar`) and must not get a
             // second one underneath it.
-            .safeAreaInset(edge: .bottom, spacing: 0) { signedOutInset }
+            .safeAreaInset(edge: .bottom, spacing: 0) { authInset }
             .toolbar { accountToolbar }
             .navigationDestination(for: ShellDestination.self) { destination in
                 switch destination {
@@ -102,13 +102,20 @@ struct RootView: View {
     // navigation. Bring it back the moment a *second* real destination lands;
     // `BottomTabBar` (used by `RoundView`) is the primitive to reach for.
 
-    /// The signed-out inset. `.unknown` (bootstrap in flight) and
-    /// `.unreachable` deliberately show nothing: offering Sign in with Apple
-    /// against a server we cannot reach fails at our own POST, after the user
-    /// has already been through Apple's sheet.
+    /// The auth inset, in both of its states.
+    ///
+    /// `.unknown` (bootstrap in flight) and `.unreachable` deliberately show
+    /// nothing: offering Sign in with Apple against a server we cannot reach
+    /// fails at our own POST, after the user has already been through Apple's
+    /// sheet.
+    ///
+    /// The signed-IN branch is usually empty too — `AccountInsetView` draws its
+    /// own chrome only when it has something to say (the fork notice, or the
+    /// offer to connect Apple), so a settled account costs the landing nothing.
     @ViewBuilder
-    private var signedOutInset: some View {
-        if case .anonymous = environment.authState, !signInDismissed {
+    private var authInset: some View {
+        switch environment.authState {
+        case .anonymous where !signInDismissed:
             VStack(spacing: TapSpacing.md) {
                 SignInView()
                 Button("Continue without an account") { signInDismissed = true }
@@ -124,6 +131,10 @@ struct RootView: View {
                     .fill(TapColors.border)
                     .frame(height: 1)
             }
+        case .signedIn:
+            AccountInsetView()
+        default:
+            EmptyView()
         }
     }
 

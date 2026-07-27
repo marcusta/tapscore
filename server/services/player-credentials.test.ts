@@ -330,7 +330,10 @@ test('verify ignores a credential belonging to a different player', async () => 
 
 test('findOrCreateByApple creates one player + one hash-less apple credential', async () => {
     const ctx = await createTestDb();
-    const player = await ctx.playerService.findOrCreateByApple('001.aaa', { name: 'Cid Carlsson' });
+    const { player, created } = await ctx.playerService.findOrCreateByApple('001.aaa', {
+        name: 'Cid Carlsson',
+    });
+    expect(created).toBe(true);
 
     const rows = await ctx.db
         .selectFrom('player_credentials')
@@ -351,9 +354,19 @@ test('findOrCreateByApple creates one player + one hash-less apple credential', 
 
 test('findOrCreateByApple is keyed on the sub alone — a second call returns the same player', async () => {
     const ctx = await createTestDb();
-    const first = await ctx.playerService.findOrCreateByApple('001.bbb', { name: 'Dana D.' });
-    const second = await ctx.playerService.findOrCreateByApple('001.bbb');
-    const third = await ctx.playerService.findOrCreateByApple('001.bbb', { name: 'Not Dana' });
+    const { player: first, created } = await ctx.playerService.findOrCreateByApple('001.bbb', {
+        name: 'Dana D.',
+    });
+    const { player: second, created: secondCreated } =
+        await ctx.playerService.findOrCreateByApple('001.bbb');
+    const { player: third, created: thirdCreated } =
+        await ctx.playerService.findOrCreateByApple('001.bbb', { name: 'Not Dana' });
+
+    // `created` is about THIS call, not about the human: only the first one
+    // minted a players row.
+    expect(created).toBe(true);
+    expect(secondCreated).toBe(false);
+    expect(thirdCreated).toBe(false);
 
     expect(second.id).toBe(first.id);
     expect(third.id).toBe(first.id);
@@ -368,15 +381,17 @@ test('findOrCreateByApple is keyed on the sub alone — a second call returns th
 
 test('two different subs are two different humans', async () => {
     const ctx = await createTestDb();
-    const a = await ctx.playerService.findOrCreateByApple('001.ccc');
-    const b = await ctx.playerService.findOrCreateByApple('001.ddd');
+    const { player: a } = await ctx.playerService.findOrCreateByApple('001.ccc');
+    const { player: b } = await ctx.playerService.findOrCreateByApple('001.ddd');
     expect(a.id).not.toBe(b.id);
     expect(a.username).not.toBe(b.username);
 });
 
 test('a generated username collision is retried, not surfaced', async () => {
     const ctx = await createTestDb();
-    const taken = await ctx.playerService.findOrCreateByApple('001.eee', { name: 'Eve E.' });
+    const { player: taken } = await ctx.playerService.findOrCreateByApple('001.eee', {
+        name: 'Eve E.',
+    });
 
     // Force the next candidate onto the taken handle exactly once by stubbing
     // the randomness source the suffix comes from.
@@ -396,7 +411,9 @@ test('a generated username collision is retried, not surfaced', async () => {
     }) as typeof crypto.getRandomValues;
 
     try {
-        const next = await ctx.playerService.findOrCreateByApple('001.fff', { name: 'Eve E.' });
+        const { player: next } = await ctx.playerService.findOrCreateByApple('001.fff', {
+            name: 'Eve E.',
+        });
         expect(next.id).not.toBe(taken.id);
         expect(next.username).not.toBe(taken.username);
         // Proof the retry path actually ran rather than the stub missing:
@@ -440,7 +457,7 @@ test('linkAppleCredential adds a second credential to an existing player, idempo
     // ...and both credentials answer for the SAME player (the ADR's
     // "one player, two credentials" obligation).
     expect((await ctx.playerService.verify('alice', 'password123'))!.id).toBe(alice.id);
-    expect((await ctx.playerService.findOrCreateByApple('001.ggg')).id).toBe(alice.id);
+    expect((await ctx.playerService.findOrCreateByApple('001.ggg')).player.id).toBe(alice.id);
 });
 
 test('linkAppleCredential refuses a sub owned by another player', async () => {
@@ -450,7 +467,7 @@ test('linkAppleCredential refuses a sub owned by another player', async () => {
         password: 'password123',
         displayName: 'Alice A.',
     });
-    const appleOnly = await ctx.playerService.findOrCreateByApple('001.hhh');
+    const { player: appleOnly } = await ctx.playerService.findOrCreateByApple('001.hhh');
 
     await expect(ctx.playerService.linkAppleCredential(alice.id, '001.hhh')).rejects.toThrow(
         AppleSubjectTakenError,
@@ -589,8 +606,10 @@ test('findOrCreateByApple loses the race gracefully — the concurrent winner is
     }
 
     // Resolved to the winner rather than throwing or minting a second human.
-    expect(resolved.id).toBe(winner.id);
-    expect(resolved.displayName).toBe('Winner W.');
+    expect(resolved!.player.id).toBe(winner.id);
+    expect(resolved!.player.displayName).toBe('Winner W.');
+    // The CONCURRENT request minted the row; this call did not.
+    expect(resolved!.created).toBe(false);
 
     // And the losing attempt left NOTHING behind — its player row and its
     // credential were one transaction, so both rolled back.
@@ -652,7 +671,7 @@ test('linkAppleCredential maps a lost race onto AppleSubjectTakenError, not a ra
 
 test('hardDelete erases the apple sub too — it is PII in its own right', async () => {
     const ctx = await createTestDb();
-    const player = await ctx.playerService.findOrCreateByApple('001.jjj', { name: 'Jo J.' });
+    const { player } = await ctx.playerService.findOrCreateByApple('001.jjj', { name: 'Jo J.' });
 
     await ctx.playerService.hardDelete(player.id);
 
@@ -660,5 +679,6 @@ test('hardDelete erases the apple sub too — it is PII in its own right', async
     // ...so the same Apple account signing in again is a NEW human, not a
     // resurrection of the erased one.
     const returning = await ctx.playerService.findOrCreateByApple('001.jjj');
-    expect(returning.id).not.toBe(player.id);
+    expect(returning.player.id).not.toBe(player.id);
+    expect(returning.created).toBe(true);
 });

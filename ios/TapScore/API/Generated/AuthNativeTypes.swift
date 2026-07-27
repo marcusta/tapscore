@@ -2,6 +2,33 @@
 
 import Foundation
 
+struct AuthUser: Codable, Sendable, Equatable {
+    var id: String
+    var username: String
+
+    enum CodingKeys: String, CodingKey {
+        case id = "id"
+        case username = "username"
+    }
+
+    init(id: String, username: String) {
+        self.id = id
+        self.username = username
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
+        self.username = try c.decode(String.self, forKey: .username)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(username, forKey: .username)
+    }
+}
+
 enum PlayerGender: String, Codable, Sendable, Equatable {
     case m = "M"
     case f = "F"
@@ -93,6 +120,60 @@ struct Player: Codable, Sendable, Equatable {
     }
 }
 
+struct AuthNativeNativeLoginInput: Codable, Sendable, Equatable {
+    var username: String
+    var password: String
+
+    enum CodingKeys: String, CodingKey {
+        case username = "username"
+        case password = "password"
+    }
+
+    init(username: String, password: String) {
+        self.username = username
+        self.password = password
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.username = try c.decode(String.self, forKey: .username)
+        self.password = try c.decode(String.self, forKey: .password)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(username, forKey: .username)
+        try c.encode(password, forKey: .password)
+    }
+}
+
+struct AuthNativeNativeLoginOutput: Codable, Sendable, Equatable {
+    var user: AuthUser
+    var token: String
+
+    enum CodingKeys: String, CodingKey {
+        case user = "user"
+        case token = "token"
+    }
+
+    init(user: AuthUser, token: String) {
+        self.user = user
+        self.token = token
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.user = try c.decode(AuthUser.self, forKey: .user)
+        self.token = try c.decode(String.self, forKey: .token)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(user, forKey: .user)
+        try c.encode(token, forKey: .token)
+    }
+}
+
 struct AuthNativeAppleSignInInput: Codable, Sendable, Equatable {
     var fullName: TriState<String>
     var nonce: String?
@@ -138,27 +219,32 @@ struct AuthNativeAppleSignInInput: Codable, Sendable, Equatable {
 struct AuthNativeAppleSignInOutput: Codable, Sendable, Equatable {
     var user: Player
     var token: String
+    var created: Bool
 
     enum CodingKeys: String, CodingKey {
         case user = "user"
         case token = "token"
+        case created = "created"
     }
 
-    init(user: Player, token: String) {
+    init(user: Player, token: String, created: Bool) {
         self.user = user
         self.token = token
+        self.created = created
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.user = try c.decode(Player.self, forKey: .user)
         self.token = try c.decode(String.self, forKey: .token)
+        self.created = try c.decode(Bool.self, forKey: .created)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(user, forKey: .user)
         try c.encode(token, forKey: .token)
+        try c.encode(created, forKey: .created)
     }
 }
 

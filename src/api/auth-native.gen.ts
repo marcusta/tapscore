@@ -1,6 +1,11 @@
 // GENERATED — DO NOT EDIT
 import { apiFetch } from '@basics/core/client/fetch';
 
+export interface AuthUser {
+    id: string;
+    username: string;
+}
+
 export interface Player {
     id: string;
     username: string;
@@ -14,12 +19,16 @@ export interface Player {
 }
 
 export interface AuthNativeApi {
-    appleSignIn(input: { fullName?: null | string; nonce?: string; identityToken: string }): Promise<{ user: Player; token: string }>;
+    nativeLogin(input: { username: string; password: string }): Promise<{ user: AuthUser; token: string }>;
+    appleSignIn(input: { fullName?: null | string; nonce?: string; identityToken: string }): Promise<{ user: Player; token: string; created: boolean }>;
     revoke(): Promise<{ ok: boolean; userId: string }>;
 }
 
 export function createAuthNativeClient(baseUrl: string): AuthNativeApi {
     return {
+        async nativeLogin(input) {
+            return apiFetch({ method: 'POST', url: `${baseUrl}/auth/native/login`, body: input });
+        },
         async appleSignIn(input) {
             return apiFetch({ method: 'POST', url: `${baseUrl}/auth/apple`, body: input });
         },

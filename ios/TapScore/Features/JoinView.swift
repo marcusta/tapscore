@@ -63,52 +63,25 @@ struct JoinView: View {
         }
     }
 
-    /// The paste target, skinned by the `--field-*` tokens (web `input()`).
-    ///
-    /// The placeholder goes through `Text(verbatim:)`. A `Text` built from a
-    /// string LITERAL is parsed as Markdown, and a bare URL in Markdown is an
-    /// autolink — so the plain-string form renders the example link in system
-    /// blue, off-palette and (since it is a placeholder) not tappable. Passing
-    /// it verbatim is what keeps `--text-muted`.
+    /// The paste target, skinned by the `--field-*` tokens (`.tapField()`,
+    /// which is the same skin the sign-in form's fields wear).
     private var linkField: some View {
         TextField(
             "",
             text: $input,
-            prompt: Text(verbatim: "https://app.swedenindoorgolf.se/tapscore/round?token=…")
-                .foregroundColor(TapColors.textMuted),
+            prompt: tapFieldPrompt("https://app.swedenindoorgolf.se/tapscore/round?token=…"),
             axis: .vertical
         )
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
         .textContentType(.URL)
-        .font(TapFont.ui(size: 13.6))
-        .foregroundStyle(TapColors.text)
-        .tint(TapColors.primary)
-        .padding(.vertical, TapMetrics.fieldPaddingY)
-        .padding(.horizontal, TapMetrics.fieldPaddingX)
         .onChange(of: input) { _, _ in
             // Editing invalidates whatever the last paste resolved to, so
             // "Open round" can never open a stale token.
             preview = nil
             problem = nil
         }
-        // `minHeight` is a TAP-TARGET floor, not a style: the token padding
-        // above puts a single line of 13.6pt text in ~38pt, under the 44pt
-        // minimum. The padding stays token-derived and untouched; the field
-        // simply never draws shorter than a finger. `contentShape` makes the
-        // whole of that rectangle hittable rather than the glyph run alone.
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .contentShape(Rectangle())
-        // Web `input()` — `--field-bg` fill, 1px `--field-border`,
-        // `--field-radius`. The tokens are the whole style.
-        .background(
-            RoundedRectangle(cornerRadius: TapRadius.fieldRadius, style: .continuous)
-                .fill(TapColors.fieldBg)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: TapRadius.fieldRadius, style: .continuous)
-                .strokeBorder(TapColors.fieldBorder, lineWidth: TapMetrics.fieldBorderWidth)
-        )
+        .tapField()
     }
 
     private var pasteCard: some View {

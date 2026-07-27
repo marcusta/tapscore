@@ -229,6 +229,13 @@ final class StubURLProtocol: URLProtocol {
     nonisolated(unsafe) private static var status = 200
     nonisolated(unsafe) private static var body = Data()
     nonisolated(unsafe) private static var recorded: [Recorded] = []
+    /// Path-suffix overrides in REGISTRATION ORDER, first match wins.
+    ///
+    /// An array rather than a dictionary because suffixes can overlap
+    /// (`/auth/me` and `/me`), and a dictionary's iteration order is
+    /// unspecified — two overlapping stubs would pick a different winner per
+    /// run and the test would fail on someone else's machine.
+    nonisolated(unsafe) private static var overrides: [(suffix: String, status: Int, body: Data)] = []
 
     /// Clears the log and arms the next response. Call from `setUp` and again
     /// in any test that needs a different status.
@@ -237,7 +244,21 @@ final class StubURLProtocol: URLProtocol {
         defer { lock.unlock() }
         Self.status = status
         Self.body = body
+        overrides = []
         recorded = []
+    }
+
+    /// Arms a DIFFERENT answer for one path suffix, leaving the catch-all in
+    /// place. Needed by any flow that makes two calls with different shapes —
+    /// the password door posts `/auth/native/login` and then reads `/auth/me`,
+    /// and one canned body cannot be both. Cleared by `reset`, so a test that
+    /// never calls it behaves exactly as before.
+    ///
+    /// Registration order decides: the FIRST stub whose suffix matches answers.
+    static func stub(path: String, status: Int, body: Data) {
+        lock.lock()
+        defer { lock.unlock() }
+        overrides.append((suffix: path, status: status, body: body))
     }
 
     /// Every request seen since the last `reset`, in order.
@@ -251,6 +272,10 @@ final class StubURLProtocol: URLProtocol {
         lock.lock()
         defer { lock.unlock() }
         recorded.append(request)
+        let path = request.url?.path ?? ""
+        if let override = overrides.first(where: { path.hasSuffix($0.suffix) }) {
+            return (override.status, override.body)
+        }
         return (status, body)
     }
 

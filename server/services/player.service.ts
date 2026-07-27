@@ -50,6 +50,24 @@ export interface PlayerSearchResult extends PlayerProfile {
     isFriend: boolean;
 }
 
+/**
+ * What `findOrCreateByApple` did, not just what it resolved to.
+ *
+ * The route needs the distinction because the native client's FIRST screen
+ * after Sign in with Apple differs: a brand-new human gets onboarding (name,
+ * home club, handicap), a returning one goes straight to their rounds. The
+ * player row alone cannot answer that — a returning player and a just-minted
+ * one are the same shape — so the fact is reported, never inferred.
+ *
+ * `created` is true ONLY when this call inserted a new `players` row. A known
+ * `sub`, and a race lost to a concurrent request for the same `sub`, are both
+ * false: no player was minted by *this* call.
+ */
+export interface AppleSignInResult {
+    player: Player;
+    created: boolean;
+}
+
 export interface RegisterInput {
     username: string;
     password: string;
@@ -445,12 +463,12 @@ export class PlayerService {
     async findOrCreateByApple(
         sub: string,
         profile?: { name?: string | null; email?: string | null },
-    ): Promise<Player> {
+    ): Promise<AppleSignInResult> {
         const existing = await this.credentialBySubject('apple', sub).executeTakeFirst();
         if (existing) {
             // FK + ON DELETE CASCADE guarantee the player is there.
             const row = await this.byId(existing.player_id).executeTakeFirstOrThrow();
-            return toPlayer(row);
+            return { player: toPlayer(row), created: false };
         }
 
         const displayName = profile?.name?.trim() || APPLE_PLACEHOLDER_DISPLAY_NAME;
@@ -491,22 +509,27 @@ export class PlayerService {
                 }
                 const raced = await this.credentialBySubject('apple', sub).executeTakeFirst();
                 if (raced) {
+                    // The concurrent request minted the row, not this one —
+                    // `created` belongs to exactly one of the two callers.
                     const row = await this.byId(raced.player_id).executeTakeFirstOrThrow();
-                    return toPlayer(row);
+                    return { player: toPlayer(row), created: false };
                 }
                 throw err;
             }
 
             return {
-                id,
-                username,
-                displayName,
-                nickname: null,
-                avatarUrl: null,
-                homeClubId: null,
-                handicapIndex: null,
-                gender: null,
-                deletedAt: null,
+                player: {
+                    id,
+                    username,
+                    displayName,
+                    nickname: null,
+                    avatarUrl: null,
+                    homeClubId: null,
+                    handicapIndex: null,
+                    gender: null,
+                    deletedAt: null,
+                },
+                created: true,
             };
         }
 

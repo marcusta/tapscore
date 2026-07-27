@@ -17,12 +17,33 @@ struct Keychain: Sendable {
     /// Keychain service string namespacing every item this app writes.
     let service: String
 
+    /// How a token is written. Exactly one implementation ships (`SecItemAdd`,
+    /// below) — the seam exists because the interesting branch is the FAILING
+    /// one: `AppEnvironment.adoptSession` revokes a just-issued server session
+    /// when the write fails, and a real Keychain cannot be asked to refuse a
+    /// write on demand. An untested revoke is a revoke that quietly stops
+    /// happening, and each miss leaks a live session nothing can ever kill.
+    typealias Writer = @Sendable (_ service: String, _ account: String, _ token: String) -> Bool
+
     /// The single account label under `service`. Fixed, because there is
     /// exactly one token slot.
     private let account = "session-token"
 
-    init(service: String = "com.marcusandersson.tapscore.session") {
+    private let writer: Writer
+
+    init(
+        service: String = "com.marcusandersson.tapscore.session",
+        writer: @escaping Writer = Keychain.secItemAddWriter
+    ) {
         self.service = service
+        self.writer = writer
+    }
+
+    /// A store whose writes always fail. Test-only in practice; it is spelled
+    /// as a named value rather than a closure at the call site so the intent
+    /// reads at a glance.
+    static func failingWrites(service: String) -> Keychain {
+        Keychain(service: service, writer: { _, _, _ in false })
     }
 
     /// Stores (or replaces) the bearer token. Any previously stored token is
@@ -34,6 +55,11 @@ struct Keychain: Sendable {
     @discardableResult
     func saveToken(_ token: String) -> Bool {
         clear()
+        return writer(service, account, token)
+    }
+
+    /// The real write. Add-only, after `clear()`, so at most one item exists.
+    static let secItemAddWriter: Writer = { service, account, token in
         guard let data = token.data(using: .utf8) else { return false }
         let attributes: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

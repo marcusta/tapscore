@@ -53,8 +53,21 @@ actor TapScoreAPI {
     /// server without any other endpoint existing yet. `Player` is the
     /// generated model (`API/Generated/AuthNativeTypes.swift`) — the
     /// hand-written stand-in this used to decode into is gone.
-    func me() async throws -> Player {
-        try await request(path: "auth/me")
+    ///
+    /// `bearer` overrides the Keychain-backed provider for this one call. It
+    /// exists for the password door (N5): `POST /auth/native/login` answers with
+    /// the framework's `AuthUser` — id and username, a CREDENTIAL answer — while
+    /// `AuthState.signedIn` carries a `Player`. The profile is therefore fetched
+    /// with the freshly issued token BEFORE that token is written to the
+    /// Keychain, which keeps the ordering the whole auth layer relies on: the
+    /// bearer is stored, and only then does `authState` flip.
+    func me(bearer: String? = nil) async throws -> Player {
+        let data = try await requestData(path: "auth/me", bearer: bearer)
+        do {
+            return try decoder.decode(Player.self, from: data)
+        } catch {
+            throw APIError.decoding("\(Player.self): \(error)")
+        }
     }
 
     /// Best-effort revoke of a token the Keychain refused to store.

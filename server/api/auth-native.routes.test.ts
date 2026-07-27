@@ -91,6 +91,128 @@ async function credentialsFor(ctx: Awaited<ReturnType<typeof setup>>, playerId: 
         .execute();
 }
 
+/** `POST /auth/native/login` — the bearer sibling of the cookie login. */
+function nativeLogin(app: Hono, username: string, password: string) {
+    return req(app, 'POST', '/api/auth/native/login', { username, password });
+}
+
+// --- Native password login (N5) -----------------------------------------
+//
+// Why this endpoint exists at all is the link-first journey pinned at the
+// bottom of this file: without a native password door, an existing web user
+// installing the app can only reach /auth/apple session-less, which FORKS a
+// second players row for a human who already exists — and ADR-0005 defers
+// merging two separate player rows indefinitely.
+
+test('POST /api/auth/native/login returns a bearer token and sets NO cookie', async () => {
+    const ctx = await setup();
+
+    const res = await nativeLogin(ctx.app, 'alice', 'password123');
+    expect(res.status).toBe(200);
+
+    const { user, token } = await res.json();
+    expect(user.username).toBe('alice');
+    expect(token).toBeString();
+    expect(token.length).toBeGreaterThan(0);
+
+    // NATIVE delivery: the body is the whole transport (contrast the
+    // framework's /auth/login, which answers with a Set-Cookie).
+    expect(extractSessionCookie(res)).toBeUndefined();
+
+    // The token resolves through the SAME middleware the cookie goes through.
+    const me = await bearer(ctx.app, 'GET', '/api/auth/me', token);
+    expect(me.status).toBe(200);
+    expect(await me.json()).toEqual({ id: user.id, username: 'alice' });
+
+    // ...and on an ordinary requireAuth() route too.
+    const profile = await bearer(ctx.app, 'GET', '/api/players/me', token);
+    expect(profile.status).toBe(200);
+    expect((await profile.json()).id).toBe(user.id);
+});
+
+test('the cookie login still owns /auth/login — the native route did not shadow it', async () => {
+    // The framework's createAuthApi is mounted FIRST, and Hono lets the first
+    // registered handler for a path win. Pinning this is why the native route
+    // is /auth/native/login: a second POST /auth/login here would have been
+    // silently dead code, and every native login would have quietly kept
+    // getting a cookie instead of a token.
+    const ctx = await setup();
+
+    const cookieRes = await req(ctx.app, 'POST', '/api/auth/login', {
+        username: 'alice',
+        password: 'password123',
+    });
+    expect(cookieRes.status).toBe(200);
+    expect(extractSessionCookie(cookieRes)).toBeDefined();
+    expect((await cookieRes.json()).token).toBeUndefined();
+});
+
+test('wrong password and unknown username answer IDENTICALLY — no existence oracle', async () => {
+    const ctx = await setup();
+
+    const wrongPassword = await nativeLogin(ctx.app, 'alice', 'not-her-password');
+    const unknownUser = await nativeLogin(ctx.app, 'nobody-at-all', 'not-her-password');
+
+    expect(wrongPassword.status).toBe(401);
+    expect(unknownUser.status).toBe(401);
+    // Byte-identical bodies. A difference here — a distinct code, a distinct
+    // message, even a distinct key order — is a username enumeration oracle.
+    const a = await wrongPassword.json();
+    const b = await unknownUser.json();
+    expect(a).toEqual({ error: 'Invalid credentials' });
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+});
+
+test('an apple-only player cannot log in with a password (zero credentials of that kind)', async () => {
+    const ctx = await setup();
+    const { user } = await (await signIn(ctx.app, { sub: 'apple-only' })).json();
+
+    const res = await nativeLogin(ctx.app, user.username, 'password123');
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'Invalid credentials' });
+});
+
+test('POST /api/auth/native/login with a missing field is a 400, not a 401', async () => {
+    const ctx = await setup();
+    expect((await req(ctx.app, 'POST', '/api/auth/native/login', { username: 'alice' })).status).toBe(
+        400,
+    );
+    expect((await req(ctx.app, 'POST', '/api/auth/native/login', {})).status).toBe(400);
+});
+
+test('native login is rate limited per USERNAME — the 6th attempt is a 429', async () => {
+    const ctx = await setup();
+
+    // Five wrong guesses are honest 401s...
+    for (let i = 0; i < 5; i++) {
+        expect((await nativeLogin(ctx.app, 'alice', `guess-${i}`)).status).toBe(401);
+    }
+    // ...the sixth is throttled.
+    const limited = await nativeLogin(ctx.app, 'alice', 'guess-5');
+    expect(limited.status).toBe(429);
+    expect(await limited.json()).toEqual({ error: 'Too many attempts' });
+
+    // Throttling is not a bypass: the CORRECT password is refused too while
+    // the window is open.
+    expect((await nativeLogin(ctx.app, 'alice', 'password123')).status).toBe(429);
+
+    // A different username is not collateral damage — including one that does
+    // not exist, since the bucket is keyed on what was submitted.
+    expect((await nativeLogin(ctx.app, 'someone-else', 'whatever')).status).toBe(401);
+});
+
+test('the login limiter and the apple limiter are separate keyspaces', async () => {
+    const ctx = await setup();
+
+    // Burn alice's login window.
+    for (let i = 0; i < 5; i++) await nativeLogin(ctx.app, 'alice', 'wrong');
+    expect((await nativeLogin(ctx.app, 'alice', 'wrong')).status).toBe(429);
+
+    // A shared map keyed by a bare string would let a username throttle an
+    // Apple sub of the same name (and vice versa). Apple sign-in is untouched.
+    expect((await signIn(ctx.app, { sub: 'alice' })).status).toBe(200);
+});
+
 // --- Happy path: sign-up through /auth/apple ----------------------------
 
 test('POST /api/auth/apple creates a player, its apple credential, and a working bearer session', async () => {
@@ -228,6 +350,36 @@ test('POST /api/auth/apple without an identityToken is a 400, not a 401', async 
     const ctx = await setup();
     const res = await req(ctx.app, 'POST', '/api/auth/apple', {});
     expect(res.status).toBe(400);
+});
+
+// --- `created`: sign-UP vs sign-IN, told apart on the wire ---------------
+//
+// The player body is the same shape either way, so the client cannot infer
+// which happened — and it must, to decide between onboarding and the rounds
+// list. Pinned in all three branches.
+
+test('created is true for a virgin sub and false for a known one', async () => {
+    const ctx = await setup();
+
+    const first = await signIn(ctx.app, { sub: 'created-flag' }, { fullName: 'Ines I.' });
+    const firstBody = await first.json();
+    expect(firstBody.created).toBe(true);
+
+    const second = await signIn(ctx.app, { sub: 'created-flag' });
+    const secondBody = await second.json();
+    expect(secondBody.created).toBe(false);
+    // Same human — `created` describes the CALL, not the player.
+    expect(secondBody.user.id).toBe(firstBody.user.id);
+});
+
+test('created is false on the LINKING branch — linking never mints a player', async () => {
+    const ctx = await setup();
+    const cookie = await loginAs(ctx.app, 'alice', 'password123');
+
+    const link = await signIn(ctx.app, { sub: 'alice-apple' }, { cookie });
+    expect(link.status).toBe(200);
+    expect((await link.json()).created).toBe(false);
+    expect(await ctx.playerService.list()).toHaveLength(1);
 });
 
 // --- One human, two credentials -----------------------------------------
@@ -533,4 +685,83 @@ test('a bad nonce never creates a player — the binding runs before findOrCreat
 
     const after = await ctx.db.selectFrom('players').select('id').execute();
     expect(after.length).toBe(before.length);
+});
+
+// --- The link-first journey (N5) ----------------------------------------
+//
+// ONE test on purpose. The value of native password login is not in any single
+// endpoint — each of these steps already passes in isolation — it is in the
+// SEQUENCE arriving at one `players.id` instead of two. Split into four tests,
+// the only thing that actually matters (no fork) would be asserted by none of
+// them.
+
+test('link-first journey: a web account survives the iOS install as ONE player row', async () => {
+    const ctx = await setup();
+
+    // 1. The human already exists, created months ago on the web with a
+    //    password (this is the /players/register front door, cookie and all).
+    const registered = await req(ctx.app, 'POST', '/api/players/register', {
+        username: 'ingrid',
+        password: 'correct horse battery',
+        displayName: 'Ingrid I.',
+    });
+    expect(registered.status).toBe(200);
+    const webPlayer = await registered.json();
+
+    // 2. She installs the app and signs in with the password she already has.
+    //    Native login, so a BEARER token — there is no cookie jar here.
+    const login = await nativeLogin(ctx.app, 'ingrid', 'correct horse battery');
+    expect(login.status).toBe(200);
+    const { user: loggedIn, token } = await login.json();
+    expect(loggedIn.id).toBe(webPlayer.id);
+    expect(extractSessionCookie(login)).toBeUndefined();
+
+    // 3. She then taps Sign in with Apple — WITH that bearer token. This is the
+    //    whole point: an authenticated /auth/apple is a LINK, not a sign-up.
+    const linked = await bearer(ctx.app, 'POST', '/api/auth/apple', token, {
+        identityToken: await key.sign(appleClaims({ sub: 'ingrid-apple-sub' })),
+        // Apple offers a name on first authorization; it must not rename her.
+        fullName: 'Apple Suggested Name',
+    });
+    expect(linked.status).toBe(200);
+    const linkedBody = await linked.json();
+
+    // Same human, no second row, no rename.
+    expect(linkedBody.user.id).toBe(webPlayer.id);
+    expect(linkedBody.user.username).toBe('ingrid');
+    expect(linkedBody.user.displayName).toBe('Ingrid I.');
+    // Nothing was created — this is the flag that tells the client to skip
+    // onboarding for a human who already has an account.
+    expect(linkedBody.created).toBe(false);
+
+    // The Apple credential is now hers, hash-less, alongside her password one.
+    const credentials = await credentialsFor(ctx, webPlayer.id);
+    expect(credentials.map((cr) => cr.provider).sort()).toEqual(['apple', 'password']);
+    expect(credentials.find((cr) => cr.provider === 'apple')).toMatchObject({
+        subject: 'ingrid-apple-sub',
+        password_hash: null,
+    });
+
+    // 4. The payoff. Later — app reinstalled, token gone — she taps Sign in
+    //    with Apple with NO session at all. Before the link this forked a
+    //    second human; now it resolves to the credential row.
+    const bare = await signIn(ctx.app, { sub: 'ingrid-apple-sub' });
+    expect(bare.status).toBe(200);
+    const bareBody = await bare.json();
+    expect(bareBody.user.id).toBe(webPlayer.id);
+    expect(bareBody.created).toBe(false);
+
+    // Her fresh bearer token is her, through the same middleware.
+    const me = await bearer(ctx.app, 'GET', '/api/auth/me', bareBody.token);
+    expect(await me.json()).toEqual({ id: webPlayer.id, username: 'ingrid' });
+
+    // And the password door still opens onto the same row: two credentials,
+    // one human, forever (ADR-0005 — merging two player rows stays deferred
+    // precisely because this path makes it unnecessary).
+    const again = await nativeLogin(ctx.app, 'ingrid', 'correct horse battery');
+    expect((await again.json()).user.id).toBe(webPlayer.id);
+
+    // alice (seed) + ingrid. No fork anywhere in the journey.
+    expect(await ctx.playerService.list()).toHaveLength(2);
+    expect(await credentialsFor(ctx, webPlayer.id)).toHaveLength(2);
 });

@@ -45,6 +45,27 @@ import {
  * `checkAppleNonceBinding` — including the row that does the actual work, a
  * nonce-bearing token posted WITHOUT its pre-image being rejected rather than
  * silently taking the legacy path.
+ *
+ * PASSWORD LOGIN, and why it lives here (N5): `/auth/native/login` is the
+ * bearer sibling of the framework's cookie `/auth/login`, exactly as
+ * `/auth/revoke` is the bearer sibling of its cookie `/auth/logout`. It exists
+ * for ONE job — link-first identity joining. An existing web user installs the
+ * app, signs in with the password they already have, and posts `/auth/apple`
+ * WITH that bearer token, which takes the linking branch and attaches Apple to
+ * the player row they already are. Without it the only native door is
+ * `/auth/apple` with no session, which forks a SECOND `players` row for a human
+ * who already exists — and ADR-0005 explicitly defers merging two separate
+ * player rows. Prevention is the whole feature.
+ *
+ * WHY NOT THE PATH `/auth/login`: the framework's `createAuthApi` already owns
+ * `POST /auth/login` and it is mounted first (`bootstrapAuth` in
+ * `server/main.ts`). Hono runs same-path handlers in registration order and the
+ * first one to return a Response wins, so a second `POST /auth/login` here
+ * would be silently DEAD code — every request would keep hitting the cookie
+ * login. A distinct path is not a naming preference, it is the only way this
+ * endpoint is reachable at all. `/auth/native/*` also keeps the two logins
+ * legible to a reader: same credentials, same `verify()`, same `SessionStore`,
+ * different delivery.
  */
 
 const AppleSignInInput = Type.Object({
@@ -64,23 +85,83 @@ const AppleSignInInput = Type.Object({
     nonce: Type.Optional(Type.String({ minLength: 1 })),
 });
 
+const NativeLoginInput = Type.Object({
+    username: Type.String({ minLength: 1 }),
+    password: Type.String({ minLength: 1 }),
+});
+
 // Mirrors `createAuthApi`'s login limiter (60s window, 5 attempts) — the same
-// shape and the same numbers, deliberately a SEPARATE map: the framework's is
+// shape and the same numbers, deliberately SEPARATE maps: the framework's is
 // private module state and reaching into it would couple us to its internals.
-const APPLE_WINDOW = 60_000;
-const APPLE_MAX = 5;
+const RATE_WINDOW = 60_000;
+const RATE_MAX = 5;
 
 /**
- * Hard ceiling on live buckets. The key is the token's CLAIMED `sub` — fully
- * attacker-chosen — so lazy per-window eviction alone bounds nothing: a
- * flood of distinct subs grows the Map without limit inside a single window.
- * At the ceiling, expired buckets go first and only then the oldest live one.
+ * Hard ceiling on live buckets. Both keys here are attacker-chosen — the
+ * token's CLAIMED `sub`, and a submitted username that need not exist — so
+ * lazy per-window eviction alone bounds nothing: a flood of distinct keys
+ * grows the Map without limit inside a single window. At the ceiling, expired
+ * buckets go first and only then the oldest live one.
  */
-const APPLE_MAX_BUCKETS = 10_000;
+const MAX_BUCKETS = 10_000;
 
 export interface AuthNativeOptions {
     /** Bucket ceiling; injectable so a test can pin the eviction behaviour. */
     maxBuckets?: number;
+}
+
+/**
+ * One fixed-window counter with a bounded bucket map.
+ *
+ * WHAT THIS GUARANTEES, precisely: at most `RATE_MAX` attempts per 60s for any
+ * ONE key that holds a bucket, and bounded memory (`maxBuckets`). What it does
+ * NOT guarantee: a global request ceiling. An attacker rotating the key gets a
+ * fresh bucket every time — and past the ceiling can even evict a legitimate
+ * bucket, costing that key its throttle for the rest of its window. That is
+ * the accepted trade: bounded memory beats a perfect counter, because the real
+ * brute-force target here (one subject / one username, many attempts) is still
+ * capped.
+ *
+ * Each caller gets its OWN instance — `/auth/apple` counts Apple subjects and
+ * `/auth/native/login` counts usernames, and one namespace must never let a
+ * noisy Apple `sub` lock a human out of password login.
+ */
+function createFixedWindowLimiter(maxBuckets: number): (key: string) => void {
+    const attempts = new Map<string, { count: number; resetAt: number }>();
+    let lastEviction = Date.now();
+
+    return function check(key: string): void {
+        const now = Date.now();
+
+        // Evict expired entries at most once per window to bound Map size.
+        if (now - lastEviction >= RATE_WINDOW) {
+            for (const [k, entry] of attempts) {
+                if (now >= entry.resetAt) attempts.delete(k);
+            }
+            lastEviction = now;
+        }
+
+        const entry = attempts.get(key);
+        if (!entry || now >= entry.resetAt) {
+            // A NEW bucket is about to be allocated: enforce the ceiling.
+            if (!entry && attempts.size >= maxBuckets) {
+                for (const [k, e] of attempts) {
+                    if (now >= e.resetAt) attempts.delete(k);
+                }
+                // Still full — every bucket is live. Drop the oldest, which a
+                // Map's insertion order gives us for free (`set` on an
+                // existing key does not reorder, so this is oldest-created).
+                if (attempts.size >= maxBuckets) {
+                    const oldest = attempts.keys().next();
+                    if (!oldest.done) attempts.delete(oldest.value);
+                }
+            }
+            attempts.set(key, { count: 1, resetAt: now + RATE_WINDOW });
+            return;
+        }
+        if (entry.count >= RATE_MAX) throw new RateLimitError();
+        entry.count++;
+    };
 }
 
 function optionalUserId(c: Context): string | null {
@@ -105,56 +186,44 @@ export function createAuthNativeApi(
     verifyAppleToken: AppleTokenVerifier,
     options: AuthNativeOptions = {},
 ) {
-    // Per-subject rate limiting, state scoped to this instance (same as the
-    // framework's per-username map).
-    //
-    // WHAT THIS GUARANTEES, precisely: at most APPLE_MAX verification attempts
-    // per 60s for any ONE Apple subject that holds a bucket, and bounded
-    // memory (APPLE_MAX_BUCKETS). What it does NOT guarantee: a global request
-    // ceiling. An attacker rotating the claimed `sub` gets a fresh bucket
-    // every time — and past the ceiling can even evict a legitimate bucket,
-    // costing that subject its throttle for the rest of its window. That is
-    // the accepted trade: bounded memory beats a perfect counter, because the
-    // real brute-force target here (one subject, many tokens) is still capped,
-    // and the tokens themselves are unforgeable without Apple's key.
-    const maxBuckets = options.maxBuckets ?? APPLE_MAX_BUCKETS;
-    const attempts = new Map<string, { count: number; resetAt: number }>();
-    let lastEviction = Date.now();
-
-    function checkAppleRate(subject: string): void {
-        const now = Date.now();
-
-        // Evict expired entries at most once per window to bound Map size.
-        if (now - lastEviction >= APPLE_WINDOW) {
-            for (const [key, entry] of attempts) {
-                if (now >= entry.resetAt) attempts.delete(key);
-            }
-            lastEviction = now;
-        }
-
-        const entry = attempts.get(subject);
-        if (!entry || now >= entry.resetAt) {
-            // A NEW bucket is about to be allocated: enforce the ceiling.
-            if (!entry && attempts.size >= maxBuckets) {
-                for (const [key, e] of attempts) {
-                    if (now >= e.resetAt) attempts.delete(key);
-                }
-                // Still full — every bucket is live. Drop the oldest, which a
-                // Map's insertion order gives us for free (`set` on an
-                // existing key does not reorder, so this is oldest-created).
-                if (attempts.size >= maxBuckets) {
-                    const oldest = attempts.keys().next();
-                    if (!oldest.done) attempts.delete(oldest.value);
-                }
-            }
-            attempts.set(subject, { count: 1, resetAt: now + APPLE_WINDOW });
-            return;
-        }
-        if (entry.count >= APPLE_MAX) throw new RateLimitError();
-        entry.count++;
-    }
+    // Per-subject and per-username rate limiting, state scoped to this
+    // instance (same as the framework's per-username map). Two independent
+    // limiters, never one shared keyspace — see `createFixedWindowLimiter`.
+    const maxBuckets = options.maxBuckets ?? MAX_BUCKETS;
+    const checkAppleRate = createFixedWindowLimiter(maxBuckets);
+    const checkLoginRate = createFixedWindowLimiter(maxBuckets);
 
     return {
+        /**
+         * Password login for native clients: identical credentials, identical
+         * `verify()`, identical `SessionStore` as the framework's cookie
+         * login — the token is returned in the BODY and NO cookie is set.
+         *
+         * Exists so an existing web user can LINK rather than fork; see the
+         * file header for why and for why the path is not `/auth/login`.
+         */
+        nativeLogin: {
+            method: 'POST' as const,
+            path: '/auth/native/login',
+            schema: NativeLoginInput,
+            fn: async (input: Static<typeof NativeLoginInput>) => {
+                // Keyed on the SUBMITTED username, before it is known to
+                // exist — mirroring the framework. Counting only real users
+                // would leave unknown-username guessing unthrottled, and
+                // whether a bucket exists is not observable anyway.
+                checkLoginRate(input.username);
+
+                const user = await svc.verify(input.username, input.password);
+                // No oracle: an unknown username and a wrong password are the
+                // SAME `null` from `verify`, so they are the same 401 with the
+                // framework's default 'Invalid credentials' message. Never
+                // branch these apart, and never add a "no such user" code.
+                if (!user) throw new AuthenticationError();
+
+                const token = await issueSessionToken(sessions, user.id);
+                return { user, token };
+            },
+        },
         appleSignIn: {
             method: 'POST' as const,
             path: '/auth/apple',
@@ -196,11 +265,20 @@ export function createAuthNativeApi(
                 if (nonceFailure) throw new AuthenticationError(nonceFailure);
 
                 const sessionPlayerId = optionalUserId(c);
-                const player = sessionPlayerId
+                const outcome = sessionPlayerId
                     ? // Authenticated caller: attach Apple to the player they
                       // ALREADY are. Never create a second human for them.
                       // A `sub` owned by someone else → 409 (ConflictError).
-                      await svc.linkAppleCredential(sessionPlayerId, verified.sub)
+                      //
+                      // `created: false` is not a guess here — linking is an
+                      // insert of a CREDENTIAL onto an existing identity row,
+                      // so by construction no player was minted. This is the
+                      // link-first branch the native password login exists to
+                      // reach (ADR-0005, "Linking in practice").
+                      {
+                          player: await svc.linkAppleCredential(sessionPlayerId, verified.sub),
+                          created: false,
+                      }
                     : await svc.findOrCreateByApple(verified.sub, {
                           name: input.fullName ?? null,
                           email: verified.email ?? null,
@@ -210,8 +288,11 @@ export function createAuthNativeApi(
                 // comes from a native client that needs a bearer token even
                 // when the link was authorised by a web cookie session. The
                 // cookie, if any, is left untouched.
-                const token = await issueSessionToken(sessions, player.id);
-                return { user: player, token };
+                const token = await issueSessionToken(sessions, outcome.player.id);
+                // `created` tells the client whether to onboard or go straight
+                // to the rounds list — a returning player and a just-minted
+                // one are otherwise indistinguishable from the body.
+                return { user: outcome.player, token, created: outcome.created };
             },
         },
         revoke: {
