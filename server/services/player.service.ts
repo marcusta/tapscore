@@ -1,6 +1,7 @@
 import { sql, type Kysely, type Selectable } from 'kysely';
-import type { Database, PlayersTable } from '../db/schema';
-import { NotFoundError, type AuthUser } from '@basics/core/server/auth';
+import type { CredentialProvider, Database, PlayersTable } from '../db/schema';
+import { ConflictError, NotFoundError, type AuthUser } from '@basics/core/server/auth';
+import { parseUniqueViolation } from '@basics/core/server/unique-violation';
 import type { HandicapEntry, HandicapService } from './handicap.service';
 import type { Gender } from '../domain/compiler/types';
 
@@ -78,10 +79,80 @@ function toPlayer(row: PlayerRow): Player {
     };
 }
 
+/**
+ * The Apple `sub` in this request already belongs to a DIFFERENT player
+ * (ADR-0005: `UNIQUE(provider, subject)` is the linking guard). Distinct from
+ * a plain unique violation because the API layer must answer 409 with a
+ * meaning — "that Apple account is someone else's" — and never merge two
+ * player rows: merging is explicitly deferred by the ADR.
+ */
+export class AppleSubjectTakenError extends ConflictError {
+    constructor(message = 'apple_subject_taken') {
+        super(message);
+        this.name = 'AppleSubjectTakenError';
+    }
+}
+
 /** Today as a plain `YYYY-MM-DD` — the `handicap_history.effective_date` grain. */
 function todayIsoDate(): string {
     return new Date().toISOString().slice(0, 10);
 }
+
+/**
+ * Handle generation for players created by Sign in with Apple (ADR-0005).
+ *
+ * `username` is a public handle, not a credential — friend search returns it
+ * (`PlayerSearchResult.username`) — but SIWA gives us no handle at all, and
+ * `players.username` is NOT NULL UNIQUE. So one is minted.
+ *
+ * Scheme: `<slug>-<6 hex>`, where `<slug>` is the human's name lowercased and
+ * reduced to `[a-z0-9-]` (max 20 chars), falling back to `golfer` when there
+ * is no name or nothing survives the reduction. Constraints mirror the ones
+ * `register()` actually enforces — the register schema requires only a
+ * non-empty string and the DB requires uniqueness — so a generated handle is
+ * always a legal hand-registered one.
+ *
+ * The random suffix is NOT a collision fallback, it is always present, for
+ * two reasons: a bare `anna` would hand a newcomer a handle that reads like a
+ * long-standing member's, and always-suffixed handles keep the whole scheme
+ * one shape instead of two. Uniqueness is still re-checked and retried, since
+ * 24 bits collide eventually and the column will happily reject it.
+ *
+ * The email is deliberately NOT used as a name or handle source: Apple's
+ * private relay hands out `a1b2c3d4e5@privaterelay.appleid.com`, which makes a
+ * hostile display name and a meaningless handle.
+ */
+export function appleUsernameCandidate(name?: string | null): string {
+    const slug = (name ?? '')
+        .toLowerCase()
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 20)
+        .replace(/-+$/g, '');
+    const base = slug.length > 0 ? slug : 'golfer';
+    const suffix = Array.from(crypto.getRandomValues(new Uint8Array(3)), (b) =>
+        b.toString(16).padStart(2, '0'),
+    ).join('');
+    return `${base}-${suffix}`;
+}
+
+/**
+ * True when `err` is SQLite's UNIQUE failure for exactly this key. Note the
+ * framework's parser keeps the FIRST column of a composite key, so
+ * `UNIQUE(provider, subject)` on `player_credentials` reports `provider`.
+ */
+function isUniqueViolation(err: unknown, table: string, column: string): boolean {
+    const uv = parseUniqueViolation(err);
+    return uv !== null && uv.table === table && uv.column === column;
+}
+
+/** Placeholder display name when Apple's first callback carried no name. */
+const APPLE_PLACEHOLDER_DISPLAY_NAME = 'New golfer';
+
+/** Attempts to find a free generated handle before giving up on the sign-in. */
+const USERNAME_ATTEMPTS = 5;
 
 export class PlayerService {
     constructor(
@@ -134,6 +205,35 @@ export class PlayerService {
             provider: 'password',
             ...values,
         });
+    }
+
+    /**
+     * A non-password credential (today: `provider='apple'`). `password_hash`
+     * stays NULL — migration 041's CHECK constraint enforces exactly that, so
+     * no fabricated hash can ever be written for an Apple user (the "AI trap"
+     * shape ADR-0005 exists to prevent).
+     */
+    private insertProviderCredential(
+        values: { player_id: string; provider: Exclude<CredentialProvider, 'password'>; subject: string },
+        trx: Kysely<Database> = this.db,
+    ) {
+        return trx.insertInto('player_credentials').values({
+            id: crypto.randomUUID(),
+            password_hash: null,
+            ...values,
+        });
+    }
+
+    private credentialBySubject(
+        provider: CredentialProvider,
+        subject: string,
+        trx: Kysely<Database> = this.db,
+    ) {
+        return trx
+            .selectFrom('player_credentials')
+            .select(['id', 'player_id'])
+            .where('provider', '=', provider)
+            .where('subject', '=', subject);
     }
 
     private updatePlayerById(id: string, trx: Kysely<Database> = this.db) {
@@ -286,6 +386,18 @@ export class PlayerService {
      *
      * The framework's `createAuthApi({ verify, sessions })` contract is
      * unchanged, as is the per-username rate limiting in front of it.
+     *
+     * SOFT-DELETE, the rule for every login path (stated here once; the Apple
+     * path cross-references it): `deleted_at` is NOT consulted. Soft-delete
+     * blocks DISCOVERY — `search`, `listActive`, `isActive` all filter on it —
+     * not AUTHENTICATION. Whether a soft-deleted player should also be locked
+     * out is a product decision, not a bug to fix in passing; it is tracked
+     * for the user and deliberately unchanged here. Hard-delete (GDPR) needs
+     * no such check: it DELETES the credential rows, so there is nothing left
+     * to authenticate with either way.
+     *
+     * Writes are stricter than logins: `linkAppleCredential`, `updateProfile`
+     * and `updateHandicapIndex` do 404 on a tombstoned player.
      */
     async verify(username: string, password: string): Promise<AuthUser | null> {
         const row = await this.byUsername(username).executeTakeFirst();
@@ -308,6 +420,137 @@ export class PlayerService {
         if (!valid) return null;
 
         return { id: row.id, username: row.username };
+    }
+
+    /**
+     * Sign in with Apple (ADR-0005 / N2). `sub` is Apple's stable, app-scoped
+     * subject and is the ONLY identity input — `profile` is advisory.
+     *
+     * Known `sub` → return that player, touching NOTHING. Apple sends the
+     * human's name and email only on the FIRST authorization, so a later
+     * callback carrying no name must not blank `display_name` — and a later
+     * callback carrying a name must not overwrite it either, because by then
+     * the name in the database may be one the player edited themself. First
+     * write wins, permanently. (Pinned by the replay tests.)
+     *
+     * Unknown `sub` → identity row + its Apple credential land in ONE
+     * transaction, for the same reason `register()` does it: a player created
+     * "with Apple" who ends up without the credential row could never sign in
+     * again, and would silently become a duplicate human on the next attempt.
+     *
+     * Soft-delete is not consulted, exactly as in `verify` — see the rule
+     * stated there. A tombstoned player signing in with Apple lands back on
+     * their own row rather than becoming a second human.
+     */
+    async findOrCreateByApple(
+        sub: string,
+        profile?: { name?: string | null; email?: string | null },
+    ): Promise<Player> {
+        const existing = await this.credentialBySubject('apple', sub).executeTakeFirst();
+        if (existing) {
+            // FK + ON DELETE CASCADE guarantee the player is there.
+            const row = await this.byId(existing.player_id).executeTakeFirstOrThrow();
+            return toPlayer(row);
+        }
+
+        const displayName = profile?.name?.trim() || APPLE_PLACEHOLDER_DISPLAY_NAME;
+
+        for (let attempt = 0; attempt < USERNAME_ATTEMPTS; attempt++) {
+            const id = crypto.randomUUID();
+            const username = appleUsernameCandidate(profile?.name);
+            try {
+                await this.db.transaction().execute(async (trx) => {
+                    await this.insertPlayer(
+                        {
+                            id,
+                            username,
+                            display_name: displayName,
+                            nickname: null,
+                            avatar_url: null,
+                            home_club_id: null,
+                            handicap_index: null,
+                            gender: null,
+                        },
+                        trx,
+                    ).execute();
+                    await this.insertProviderCredential(
+                        { player_id: id, provider: 'apple', subject: sub },
+                        trx,
+                    ).execute();
+                });
+            } catch (err) {
+                // A username collision is retryable (new random suffix); a
+                // collision on (apple, sub) means a concurrent request for the
+                // SAME human won the race — resolve to that player rather than
+                // creating a second one.
+                if (
+                    isUniqueViolation(err, 'players', 'username') &&
+                    attempt < USERNAME_ATTEMPTS - 1
+                ) {
+                    continue;
+                }
+                const raced = await this.credentialBySubject('apple', sub).executeTakeFirst();
+                if (raced) {
+                    const row = await this.byId(raced.player_id).executeTakeFirstOrThrow();
+                    return toPlayer(row);
+                }
+                throw err;
+            }
+
+            return {
+                id,
+                username,
+                displayName,
+                nickname: null,
+                avatarUrl: null,
+                homeClubId: null,
+                handicapIndex: null,
+                gender: null,
+                deletedAt: null,
+            };
+        }
+
+        throw new ConflictError('could not allocate a username for the new player');
+    }
+
+    /**
+     * Account linking (ADR-0005): an AUTHENTICATED player adds an Apple
+     * credential to their OWN identity row — one human, one `players` row, two
+     * `player_credentials` rows. It is an insert, never a merge: joining two
+     * already-separate player rows is explicitly deferred by the ADR.
+     *
+     * Idempotent when the `sub` is already this player's. Guarded by
+     * `UNIQUE(provider, subject)`: a `sub` owned by someone else raises
+     * `AppleSubjectTakenError` (→ 409) and changes nothing.
+     *
+     * Stricter about soft-delete than the login paths, deliberately: this is a
+     * WRITE onto a player's identity, so a tombstoned player 404s. The rule
+     * the login paths follow instead is stated at `verify`.
+     */
+    async linkAppleCredential(playerId: string, sub: string): Promise<Player> {
+        const row = await this.byId(playerId).executeTakeFirst();
+        if (!row || row.deleted_at !== null) throw new NotFoundError('player not found');
+
+        const existing = await this.credentialBySubject('apple', sub).executeTakeFirst();
+        if (existing) {
+            if (existing.player_id !== playerId) throw new AppleSubjectTakenError();
+            return toPlayer(row);
+        }
+
+        try {
+            await this.insertProviderCredential(
+                { player_id: playerId, provider: 'apple', subject: sub },
+                // Nothing else writes here, so the single insert IS the
+                // transaction; the UNIQUE index is the real guard against the
+                // concurrent case the check above cannot cover.
+            ).execute();
+        } catch (err) {
+            if (isUniqueViolation(err, 'player_credentials', 'provider')) {
+                throw new AppleSubjectTakenError();
+            }
+            throw err;
+        }
+        return toPlayer(row);
     }
 
     async findById(id: string): Promise<AuthUser | null> {

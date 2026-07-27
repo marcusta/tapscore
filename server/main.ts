@@ -7,6 +7,12 @@ import { log } from '@basics/core/server/logger';
 import { createServices } from './services/index';
 import { mount } from '@basics/core/server/mount';
 import { createPlayersApi } from './api/players.api';
+import { createAuthNativeApi } from './api/auth-native.api';
+import {
+    AppleJwksCache,
+    createAppleTokenVerifier,
+    resolveAppleAudience,
+} from './services/apple-identity';
 import { createFriendsApi } from './api/friends.api';
 import { createClubsApi } from './api/clubs.api';
 import { createCoursesApi } from './api/courses.api';
@@ -87,6 +93,25 @@ const { sessions } = await bootstrapAuth({
 });
 
 mount(app, '/api', createPlayersApi(playerService, handicapService, friendService, sessions, config.sessionCookie));
+
+// Native track N2 — Sign in with Apple + bearer sessions (ADR-0005).
+//
+// The audience is the iOS bundle id Apple stamps into `aud`, read straight
+// from the environment the same way `port` is below. `resolveAppleAudience`
+// owns the rule (and its unit tests): a dev fallback off production, a THROWN
+// boot failure on production when APPLE_AUDIENCE is unset — the audience is
+// the only thing confining an Apple token to this app, so it must never fail
+// open. Set APPLE_AUDIENCE in the systemd unit before the native client ships.
+const appleAudience = resolveAppleAudience(process.env);
+mount(
+    app,
+    '/api',
+    createAuthNativeApi(
+        playerService,
+        sessions,
+        createAppleTokenVerifier({ audience: appleAudience, keys: new AppleJwksCache() }),
+    ),
+);
 mount(app, '/api', createFriendsApi(friendService));
 mount(app, '/api', createClubsApi(clubService));
 mount(app, '/api', createCoursesApi(courseService));
