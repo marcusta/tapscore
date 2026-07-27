@@ -575,3 +575,52 @@ describe('compiler validation — allowance config', () => {
         expect(res.compiled.slotBalls.length).toBe(2);
     });
 });
+
+// --- Structured slot coordinate (N3) ----------------------------------------
+
+describe('compiler diagnostics — slotIndex', () => {
+    // `path` is display text; `slotIndex` is the machine-readable coordinate the
+    // setup UI buckets on (src/create/diagnostics.ts). It is the slot's POSITION
+    // in `slots[]` — never the digits scraped off a `slot-N` def-id, which is a
+    // naming convention the compiler does not own.
+    const twoSlotDef = (): RoundDefinition => ({
+        courseId: 'c1',
+        playedAt: '2026-01-01',
+        producers: producers(['p1', 'p2', 'p3']),
+        ballStrategies: [ownStrategy],
+        slots: [
+            {
+                id: 'first-slot',
+                formatId: 'stableford_individual',
+                allowanceConfig: { type: 'flat', pct: 100 },
+                ballSelector: { strategyDefIds: ['own'] },
+            },
+            {
+                id: 'second-slot',
+                formatId: 'stableford_individual',
+                allowanceConfig: { type: 'flat', pct: 100 },
+                ballSelector: { strategyDefIds: ['ghost'] },
+            },
+        ],
+    });
+
+    test('a slot refusal carries the slot POSITION, independent of the def-id', () => {
+        const res = compile(mkInput(twoSlotDef(), ['p1', 'p2', 'p3']));
+        if (res.ok) throw new Error('expected compile to fail but it succeeded');
+        const d = res.diagnostics.find((x) => x.code === 'unknown_selector_strategy');
+        expect(d).toBeDefined();
+        expect(d!.slotIndex).toBe(1);
+        // The display path still names the def-id — back-compat, not a parser input.
+        expect(d!.path).toBe('slots[second-slot].ballSelector');
+    });
+
+    test('every diagnostic a slot produces is stamped, including nested validators', () => {
+        const def = twoSlotDef();
+        def.slots[0]!.allowanceConfig = { type: 'flat', pct: 900 };
+        const res = compile(mkInput(def, ['p1', 'p2', 'p3']));
+        if (res.ok) throw new Error('expected compile to fail but it succeeded');
+        const allowance = res.diagnostics.find((x) => x.code === 'allowance_pct_out_of_range');
+        expect(allowance?.slotIndex).toBe(0);
+        for (const d of res.diagnostics) expect(typeof d.slotIndex).toBe('number');
+    });
+});

@@ -189,6 +189,10 @@ export class RoundLeaveService {
             if (!sel.producerDefIds.some((pid) => callerIds.has(pid))) continue;
             const kept = sel.producerDefIds.filter((pid) => !callerIds.has(pid));
             if (kept.length === 0) {
+                // A leave-dialog refusal, not a setup-wizard one: it renders in
+                // the leave flow, which has no format cards — hence no
+                // structured card coordinate (`formatIndex`/`slotIndex`),
+                // deliberately, only the display `path`.
                 return refuse(
                     'slot_would_be_empty',
                     `format slot '${slot.id}' scores no one but you — leaving would empty it. Edit the round (or delete it) instead.`,
@@ -313,6 +317,9 @@ function sharedBallDiagnostic(
     for (const slot of definition.slots) {
         for (const team of slot.teamGrouping?.teams ?? []) {
             if (team.producerDefIds.some((pid) => callerIds.has(pid))) {
+                // Leave-dialog refusal (as above): shown in the leave flow,
+                // which has no format cards, so it deliberately carries no
+                // structured card coordinate — only the display `path`.
                 return {
                     code: 'shared_ball',
                     message: `you are part of team '${team.label}' in this round — leaving would affect your teammates’ result. Remove the team in edit instead.`,

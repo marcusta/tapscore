@@ -257,6 +257,11 @@ test('unknown format id and off-roster team producer return structured diagnosti
     expect(codes).toContain('unknown_format');
     expect(codes).toContain('unknown_producer_in_team');
     expect(r.diagnostics.find((d) => d.code === 'unknown_format')?.path).toBe('formats[0].formatId');
+    // `path` is display text; `formatIndex` is the structured coordinate the
+    // setup UI buckets on (src/create/diagnostics.ts) — every format-scoped
+    // refusal carries it, and nothing downstream parses the path.
+    expect(r.diagnostics.find((d) => d.code === 'unknown_format')?.formatIndex).toBe(0);
+    expect(r.diagnostics.find((d) => d.code === 'unknown_producer_in_team')?.formatIndex).toBe(1);
 });
 
 test('no formats selected is a structured diagnostic', () => {

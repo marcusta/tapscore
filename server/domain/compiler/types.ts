@@ -35,8 +35,27 @@ export interface CompilerTeeContext {
 export interface CompilerDiagnostic {
     code: string;
     message: string;
-    /** Dotted path into the RoundDefinition where applicable. */
+    /**
+     * Dotted path into the RoundDefinition/draft where applicable. DISPLAY and
+     * debugging only — never parse it. The structured coordinates below are the
+     * machine-readable form (see `formatIndex` / `slotIndex`).
+     */
     path?: string;
+    /**
+     * The authoring position of the format this refusal belongs to — the index
+     * into the draft's `formats[]`, i.e. the setup UI's format card N. Set by
+     * the setup builder, which owns that coordinate space.
+     */
+    formatIndex?: number;
+    /**
+     * The compiled slot this refusal belongs to — the index into the
+     * definition's `slots[]`. Set by the compiler, which knows slots but not
+     * the draft that authored them. The setup builder emits one slot per draft
+     * format in draft order (a format that fails to produce a slot aborts the
+     * build before compile runs), so for a wizard-authored round
+     * `slotIndex === formatIndex`; the client folds them on that invariant.
+     */
+    slotIndex?: number;
     /**
      * Additive structured fields for the client to humanize a refusal without
      * re-parsing `message` prose. REQUIRED on any refusal a setup UI can

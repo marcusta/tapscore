@@ -1,8 +1,6 @@
 import { expect, test, describe } from 'bun:test';
 import type { CompilerDiagnostic } from '../../src/api/friendly-rounds.gen';
 import {
-    slotIndexFromPath,
-    formatIndexFromPath,
     formatCardIndexOf,
     diagnosticsForFormatCard,
     generalDiagnostics,
@@ -10,7 +8,7 @@ import {
 } from '../../src/create/diagnostics';
 
 // Pure presenter for create-flow diagnostics (Phase 3). Covers (a) the
-// slot-N ⇔ formats[N] re-bucketing, (b) humanization per code, (c) the raw
+// slotIndex ⇔ formatIndex re-bucketing, (b) humanization per code, (c) the raw
 // fallback for unknown codes / missing structured fields.
 
 // A label resolver standing in for the catalog's locale-aware labelOf.
@@ -21,48 +19,41 @@ const LABELS: Record<string, string> = {
 };
 const label = (id: string): string | null => LABELS[id] ?? null;
 
-describe('path bucketing', () => {
-    test('slotIndexFromPath extracts N from slots[slot-N]…', () => {
-        expect(slotIndexFromPath('slots[slot-0].teamGrouping')).toBe(0);
-        expect(slotIndexFromPath('slots[slot-3]')).toBe(3);
-        expect(slotIndexFromPath('slots[slot-12].allowanceConfig')).toBe(12);
-        expect(slotIndexFromPath('formats[1].teams')).toBeNull();
-        expect(slotIndexFromPath('producers[2]')).toBeNull();
-        expect(slotIndexFromPath(undefined)).toBeNull();
-    });
-
-    test('formatIndexFromPath extracts N from formats[N]…', () => {
-        expect(formatIndexFromPath('formats[0].formatId')).toBe(0);
-        expect(formatIndexFromPath('formats[2].teams')).toBe(2);
-        expect(formatIndexFromPath('slots[slot-1]')).toBeNull();
-        expect(formatIndexFromPath(undefined)).toBeNull();
-    });
-
-    test('formatCardIndexOf folds slot-scoped paths onto the format card', () => {
-        expect(formatCardIndexOf({ code: 'x', message: '', path: 'slots[slot-1].teamGrouping' })).toBe(1);
-        expect(formatCardIndexOf({ code: 'x', message: '', path: 'formats[1].teams' })).toBe(1);
+describe('structured bucketing', () => {
+    test('formatCardIndexOf folds slotIndex onto the format card', () => {
+        expect(formatCardIndexOf({ code: 'x', message: '', slotIndex: 1 })).toBe(1);
+        expect(formatCardIndexOf({ code: 'x', message: '', formatIndex: 1 })).toBe(1);
+        expect(formatCardIndexOf({ code: 'x', message: '', formatIndex: 0 })).toBe(0);
+        expect(formatCardIndexOf({ code: 'x', message: '', slotIndex: 0 })).toBe(0);
         expect(formatCardIndexOf({ code: 'x', message: '', path: 'producers[0]' })).toBeNull();
-        expect(formatCardIndexOf({ code: 'x', message: '', path: undefined })).toBeNull();
+        expect(formatCardIndexOf({ code: 'x', message: '' })).toBeNull();
     });
 
-    test('diagnosticsForFormatCard collects both formats[i] and slots[slot-i]', () => {
+    test('the display path is NOT parsed — only the structured index buckets', () => {
+        // A slot-scoped path with no index is a general diagnostic: the client
+        // does not reverse-engineer `slot-3` out of the path.
+        expect(formatCardIndexOf({ code: 'x', message: '', path: 'slots[slot-3].teamGrouping' })).toBeNull();
+        expect(formatCardIndexOf({ code: 'x', message: '', path: 'formats[2].teams' })).toBeNull();
+    });
+
+    test('diagnosticsForFormatCard collects both builder- and compiler-scoped refusals', () => {
         const all: CompilerDiagnostic[] = [
-            { code: 'a', message: '', path: 'formats[0].formatId' },
-            { code: 'b', message: '', path: 'slots[slot-0].teamGrouping' },
-            { code: 'c', message: '', path: 'slots[slot-1].teamGrouping' },
+            { code: 'a', message: '', path: 'formats[0].formatId', formatIndex: 0 },
+            { code: 'b', message: '', path: 'slots[slot-0].teamGrouping', slotIndex: 0 },
+            { code: 'c', message: '', path: 'slots[slot-1].teamGrouping', slotIndex: 1 },
             { code: 'd', message: '', path: 'producers[0]' },
         ];
         expect(diagnosticsForFormatCard(all, 0).map((d) => d.code)).toEqual(['a', 'b']);
         expect(diagnosticsForFormatCard(all, 1).map((d) => d.code)).toEqual(['c']);
     });
 
-    test('generalDiagnostics excludes producer, group, and any format-attributable path', () => {
+    test('generalDiagnostics excludes producer, group, and any format-attributable refusal', () => {
         const all: CompilerDiagnostic[] = [
-            { code: 'card', message: '', path: 'formats[0].formatId' },
-            { code: 'slot', message: '', path: 'slots[slot-2].teamGrouping' },
+            { code: 'card', message: '', path: 'formats[0].formatId', formatIndex: 0 },
+            { code: 'slot', message: '', path: 'slots[slot-2].teamGrouping', slotIndex: 2 },
             { code: 'player', message: '', path: 'producers[0]' },
             { code: 'group', message: '', path: 'playingGroups[1].members' },
-            { code: 'gen', message: 'no formats', path: 'formats' }, // bare 'formats' (no index) → general
+            { code: 'gen', message: 'no formats', path: 'formats' }, // whole-list refusal, no index → general
             { code: 'genNoPath', message: 'boom' },
         ];
         expect(generalDiagnostics(all).map((d) => d.code).sort()).toEqual(['gen', 'genNoPath']);

@@ -36,6 +36,15 @@
     `src/create/diagnostics.ts` plus a test in
     `tests/create/diagnostics.test.ts`. The raw-`message` fallback is a safety
     net for unknown codes, not a presentation path.
+  - A FORMAT-scoped refusal reaches the right format card by STRUCTURED
+    coordinate, never by parsing `path`: the setup builder stamps `formatIndex`
+    (draft `formats[]` position) and the compiler stamps `slotIndex` (definition
+    `slots[]` position). For those two, `path` is display and debugging only.
+    Refusals scoped to a PRODUCER (`producers[i]`) or a PLAYING GROUP
+    (`playingGroups[i]`) are still bucketed by `path` prefix in
+    `src/create/setup.service.ts` — the remaining half of this contract,
+    deliberately out of scope for the N3 pass; give those their own structured
+    coordinate when that half is done, don't add another prefix match.
   - The TypeBox schema 400 (the framework's literal "Validation failed") must
     be unreachable from the wizard: any draft shape the UI can produce that
     would violate the schema needs a local pre-check in

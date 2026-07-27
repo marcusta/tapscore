@@ -821,14 +821,14 @@ test('an empty roster / missing format short-circuits with a submit-level messag
     expect(svc2.submitError.get()).toBe('Add at least one format.');
 });
 
-test('compiler diagnostics from a rejected draft land on the service, bucketed by path', async () => {
+test('compiler diagnostics from a rejected draft land on the service, bucketed by index', async () => {
     const svc = makeService();
     addPlayer(svc, 'Anna', '10');
     addSlot(svc, 'stableford_individual');
     createResult = {
         ok: false,
         diagnostics: [
-            { code: 'bad_slot', message: 'Bad slot', path: 'formats[0].teams' },
+            { code: 'bad_slot', message: 'Bad slot', path: 'formats[0].teams', formatIndex: 0 },
             { code: 'bad_round', message: 'Bad round' },
         ],
     };

@@ -2,12 +2,13 @@
 //
 // The setup UI shows diagnostics in three places: the offending player row
 // (`producers[i]`), the offending format card (`formats[i]`), and a general
-// error card for everything else. The compiler, however, tags SLOT-scoped
-// refusals with `slots[slot-N]…` paths (team size, ball count, missing team
-// grouping) — and `slot-N` maps one-for-one to the draft's `formats[N]` (the
-// builder stamps `slot.id = slot-${i}` off the draft format index; verified in
-// server/domain/round-setup/builder.ts). So this module:
-//   (a) re-buckets `slots[slot-N]` diagnostics onto format card N, and
+// error card for everything else. Refusals reach the card by STRUCTURED index,
+// never by parsing `path`: the setup builder stamps `formatIndex` (the draft's
+// `formats[]` position) and the compiler stamps `slotIndex` (the definition's
+// `slots[]` position). The builder emits one slot per draft format in draft
+// order — a format that produces no slot aborts the build before the compiler
+// runs — so the two indices name the same card. So this module:
+//   (a) re-buckets slot-scoped diagnostics onto format card N, and
 //   (b) HUMANIZES the common structured codes into a plain sentence using the
 //       format's display label; unknown codes fall back to the raw `message`.
 //
@@ -25,30 +26,20 @@
 
 import type { CompilerDiagnostic } from '../api/friendly-rounds.gen';
 
-/** `slots[slot-3].teamGrouping` → 3; anything else → null. */
-export function slotIndexFromPath(path: string | undefined): number | null {
-    if (!path) return null;
-    const m = /^slots\[slot-(\d+)\]/.exec(path);
-    return m ? Number(m[1]) : null;
-}
-
-/** `formats[2].teams` → 2; anything else → null. */
-export function formatIndexFromPath(path: string | undefined): number | null {
-    if (!path) return null;
-    const m = /^formats\[(\d+)\]/.exec(path);
-    return m ? Number(m[1]) : null;
-}
-
 /**
- * The format-card index a diagnostic belongs to, folding slot-scoped paths onto
- * their originating format card. Returns null when the diagnostic is not
+ * The format-card index a diagnostic belongs to, folding slot-scoped refusals
+ * onto their originating format card. Returns null when the diagnostic is not
  * attributable to a specific format card (a general error).
+ *
+ * Reads the diagnostic's structured coordinates only — `path` is display text
+ * (`slots[slot-3].teamGrouping`), and reverse-engineering a server-internal
+ * def-id out of it is not this client's business.
  */
 export function formatCardIndexOf(d: CompilerDiagnostic): number | null {
-    return formatIndexFromPath(d.path) ?? slotIndexFromPath(d.path);
+    return d.formatIndex ?? d.slotIndex ?? null;
 }
 
-/** Diagnostics attributable to format card `index`, both `formats[i]` and `slots[slot-i]`. */
+/** Diagnostics attributable to format card `index`, both builder- and compiler-scoped. */
 export function diagnosticsForFormatCard(
     all: CompilerDiagnostic[],
     index: number,

@@ -23,7 +23,10 @@
 //
 // Status: LIVE. `scoreToParMarker` markers ride on gross/net cells via
 // `ballScoreRows` / `matchNetRow` (result-presenter-helpers.ts) and render as
-// the filled Gamebook-style shapes in `src/round/leaderboard.component.ts`.
+// the filled Gamebook-style shapes the web client's marker token table
+// (`src/round/marker-tokens.ts`) defines. `scoreToParMarker` below is the
+// authoritative score-to-par → template mapping; docs must link it, not
+// restate it.
 
 // --- closed presentation unions -------------------------------------------
 
@@ -66,6 +69,13 @@ export type Tone = 'neutral' | 'side_a' | 'side_b' | 'success' | 'warning' | 'da
  *
  * For a one-off visual that none of these express, do NOT widen this union —
  * use `marker.custom(id, …)`, which is explicit and greppable.
+ *
+ * WHAT EACH FORM LOOKS LIKE is not decided here — the server never sends a
+ * colour. Each consumer keeps one id-keyed token table: the web client's is
+ * `src/round/marker-tokens.ts` (meaning + CSS class + visual, and the
+ * `.lb-mark--*` rules are emitted from it). Adding a form here is the ONE
+ * server edit; `bun run generate` then makes that table stop compiling until
+ * the new form has a visual.
  */
 export type MarkerTemplate =
     | 'ring'

@@ -2179,6 +2179,9 @@ export class SetupService {
                 localDiags.push({
                     code: 'no_subjects',
                     message: this.noSubjectsMessage(slot),
+                    // Same shape a server refusal has: `formatIndex` buckets it
+                    // onto the card, `path` is display text only.
+                    formatIndex: i,
                     path: `formats[${i}]`,
                 });
             }

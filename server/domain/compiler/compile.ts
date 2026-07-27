@@ -150,9 +150,16 @@ export function compile(input: CompilerInput): CompileResult {
         playHoleCount: playHoles.length,
         courseHoleNumbers: new Set(playHoles.map((ph) => ph.courseHoleNumber)),
     };
-    for (const slotDef of resolved.slots) {
-        compileSlot(slotDef, rinput, strategies, allBalls, slotCtx, slots, slotBalls, slotBallTeams, diags);
-    }
+    // Slot refusals are collected per slot and stamped with the slot's INDEX on
+    // the way out: `path` (`slots[slot-2].teamGrouping`) is display text, and no
+    // consumer should have to parse a def-id back into a position. One stamp
+    // site here beats remembering the field at every `diags.push` inside
+    // `compileSlot` and its validators.
+    resolved.slots.forEach((slotDef, slotIndex) => {
+        const slotDiags: CompilerDiagnostic[] = [];
+        compileSlot(slotDef, rinput, strategies, allBalls, slotCtx, slots, slotBalls, slotBallTeams, slotDiags);
+        for (const d of slotDiags) diags.push({ ...d, slotIndex });
+    });
     if (diags.length > 0) return { ok: false, diagnostics: diags };
 
     // Invariant: a persisted ball is scored by ≥1 slot. Ball-creation strategies

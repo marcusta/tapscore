@@ -15,9 +15,16 @@ FormatStrategy.score()            pure scoring → StrategyResult (BallResult/Pa
         ↓
 plugin.renderResult(input)        presenter → SlotResultView { cards, leaderboard }
         ↓  (serialized; client types in src/api/friendly-rounds.gen.ts)
-src/round/result-render.ts        SlotResultView → HTML strings
-src/round/leaderboard.component.ts  hosts the HTML + owns ALL the CSS
+src/round/result-layout.ts        SlotResultView → platform-neutral LAYOUT tree
+        ↓                         (column grouping, subtotals, TOT, pace, decorations)
+src/round/result-render.ts        layout tree → product HTML strings
+scripts/render/sections/result.ts layout tree → verification-oracle HTML
+        ↓
+src/round/leaderboard.component.ts  hosts the product HTML + owns ALL the CSS
 ```
+
+Both emitters are THIN adapters over the one fold: a layout rule changes in
+`result-layout.ts` and both (plus the N4 native renderer) follow.
 
 Dispatch site: `server/services/leaderboard.service.ts` (`renderResult` call,
 passes `effectiveSi` + `scoreGridComponentId`).
@@ -31,15 +38,19 @@ passes `effectiveSi` + `scoreGridComponentId`).
 | Presenter helpers (par/SI/gross/net/points/match rows, ranking) | `server/domain/strategies/result-presenter-helpers.ts` |
 | Closed presentation vocabulary (markers, tones, smart ctors) | `server/domain/strategies/result-vocabulary.ts` |
 | Wire types (`SlotResultView`, `GridRow`, `GridCell`) | `server/domain/strategies/result-sections.ts` |
+| Shared layout fold (grouping, subtotals, TOT, pace, decorations) | `src/round/result-layout.ts` |
 | Client renderer (grid/ranked/match sections → HTML) | `src/round/result-render.ts` |
-| All scorecard/leaderboard CSS incl. marker colors | `src/round/leaderboard.component.ts` |
+| Verification-oracle renderer (same fold, wide-table markup) | `scripts/render/sections/result.ts` |
+| Marker → visual tokens (meaning, class, colours) | `src/round/marker-tokens.ts` |
+| All other scorecard/leaderboard CSS | `src/round/leaderboard.component.ts` |
 
 ## Scorecard cards (`SlotResultView.cards`)
 
 Each card is a `ScoreGridSection`: rows (`par`/`si`/`given`/`gross`/`net`/
-`points`/`status`/`category`) of hole-keyed `GridCell`s, grouped client-side
-into the round's frozen route sections (OUT/IN/TOT), rendered as stacked
-9-hole blocks.
+`points`/`status`/`category`) of hole-keyed `GridCell`s. The shared fold
+(`result-layout.ts`) groups them into the round's frozen route sections
+(OUT/IN/TOT); the web renderer emits each group as its own stacked 9-hole
+block, the oracle lays them side by side in one wide table with a TOT column.
 
 A card picks its renderer via `resultDisplay.scoreGridComponentId` on the
 format descriptor: `default-score-grid` (default), `compact-match-grid`,
@@ -54,22 +65,19 @@ names** — meaning rides in the marker `label` (tooltip/aria). Templates:
 `ring`, `double_ring`, `diamond`, `dot`, `badge`, `box_badge`, `square`,
 `double_square`, plus greppable `marker.custom(id)` escape.
 
-`scoreToParMarker({strokes, par, holeInOne?})` is the house score-to-par
-classifier:
+`scoreToParMarker({strokes, par, holeInOne?})` in `result-vocabulary.ts` is the
+house score-to-par classifier (birdie → `ring`, eagle → `double_ring`, +1 →
+`square`, …). **Read the function** — it is the mapping; this page deliberately
+does not restate it.
 
-| Score vs par | Template | Rendered as (Gamebook idiom) |
-|---|---|---|
-| Hole-in-one / albatross (−3+) | `diamond` | yellow filled circle |
-| Eagle (−2) | `double_ring` | orange filled circle |
-| Birdie (−1) | `ring` | red filled circle |
-| Par | *(none)* | plain number |
-| Bogey (+1) | `square` | light-blue filled square |
-| Double (+2) | `double_square` | dark-blue filled square |
-| Triple+ | `box_badge` | dark-blue filled square |
-
-The visual style (filled circles under par / filled squares over par, white
-number) lives ONLY in `.lb-mark--*` CSS in `leaderboard.component.ts`. Server
-sends the abstract template; changing the look is a CSS-only edit.
+**Marker → visual is a token table, not a doc table.** `src/round/marker-tokens.ts`
+holds one entry per marker id — meaning, CSS class, fill/shape, visual note —
+and the `.lb-mark--*` rules in `leaderboard.component.ts` are EMITTED from it
+(`markerFormCss()` / `markerTeamFillCss()`, pinned byte-for-byte by
+`tests/round/marker-tokens.test.ts`). Restyling a marker or adding one is an
+edit to that table; the server still sends only the abstract template and never
+a colour. A new form is one edit in `result-vocabulary.ts` + `bun run generate`,
+after which the token table stops compiling until it has a visual.
 
 Where markers get attached:
 
@@ -108,7 +116,8 @@ hides results.
    `scoreGridComponentId`.
 3. Only invent a new marker template / grid component when no existing form
    expresses it — one central edit in `result-vocabulary.ts` + the client
-   registry, guarded by `assertNever`.
+   registry (`marker-tokens.ts` for markers, `scoreGridRegistry` for grids),
+   guarded by `assertNever` / an exhaustive `Record`.
 
 ## Regression & verification
 

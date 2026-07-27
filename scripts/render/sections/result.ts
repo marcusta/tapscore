@@ -1,76 +1,39 @@
-// Generic result renderer — Phase 2.6b-final / Slice 2b.
+// Generic result renderer — Phase 2.6b-final / Slice 2b, N3 adapter.
 //
 // Lays out the serializable sections on `ctx.roundResult` with ZERO format
-// knowledge: a score grid is a hole-indexed table of rows; a ranked section
-// is a sorted table; a match summary is a list of idiom lines. Every value,
-// note, total, and golf-idiom string was computed server-side by the format
-// plugin. The renderer only resolves ball ids → live names and groups holes
-// into OUT / IN / TOT columns.
+// knowledge. Since N3 all the LAYOUT decisions — route-section column grouping,
+// subtotals, the TOT column, cell decorations, pace values — come from the
+// shared fold `src/round/result-layout.ts`, the same tree the product renderer
+// (`src/round/result-render.ts`) and the native client walk. This file only
+// turns that tree into the verification page's markup, which deliberately
+// differs from the product one: ONE wide table per card with a TOT column,
+// verification-mode subtitle facts, plain class names.
+//
+// Importing from `src/` is the allowed direction (`src/` must never import
+// `server/`); `tsconfig.server.json` covers `scripts` and type-checks it.
 
 import type {
-    GridRow,
-    HoleRef,
-    MatchSummarySection,
     RankedSection,
     RouteSectionRef,
     ScoreGridSection,
+    MatchSummarySection,
 } from '../../../server/domain/strategies/result-sections';
-import type { Tone } from '../../../server/domain/strategies/result-vocabulary';
 import type { RoundRenderContext } from '../types';
 import type { RoundRenderState } from '../round-state';
 import { esc } from '../util';
+import {
+    layoutMatchSummary,
+    layoutRanked,
+    layoutScoreGrid,
+    scoreGridComponentId,
+} from '../../../src/round/result-layout';
+import type { CellLayout, GridRowLayout, ScoreGridLayout } from '../../../src/round/result-layout';
 
-/** A column group (route section) holding the ordered HoleRef columns it owns. */
-interface ColumnGroup {
-    label: string;
-    holes: HoleRef[];
-    /** Stable column identities in this group — drives cell filtering. */
-    playHoleIds: Set<string>;
-}
-
-/**
- * Group scorecard columns (ordered HoleRefs) by the round's frozen route
- * sections: a column belongs to the section whose
- * `[fromCanonicalOrdinal, toCanonicalOrdinal]` contains its
- * `canonicalOrdinal`. Columns are ordered by `canonicalOrdinal`. If there
- * are no route sections, fall back to a single TOT group over all columns.
- */
-function groupColumns(holes: HoleRef[], routeSections: RouteSectionRef[]): ColumnGroup[] {
-    const ordered = [...holes].sort((a, b) => a.canonicalOrdinal - b.canonicalOrdinal);
-    if (routeSections.length === 0) {
-        return [
-            {
-                label: 'TOT',
-                holes: ordered,
-                playHoleIds: new Set(ordered.map((h) => h.playHoleId)),
-            },
-        ];
-    }
-    const sections = [...routeSections].sort(
-        (a, b) => a.fromCanonicalOrdinal - b.fromCanonicalOrdinal,
-    );
-    const groups: ColumnGroup[] = [];
-    for (const section of sections) {
-        const members = ordered.filter(
-            (h) =>
-                h.canonicalOrdinal >= section.fromCanonicalOrdinal &&
-                h.canonicalOrdinal <= section.toCanonicalOrdinal,
-        );
-        if (members.length === 0) continue;
-        groups.push({
-            label: section.label,
-            holes: members,
-            playHoleIds: new Set(members.map((h) => h.playHoleId)),
-        });
-    }
-    return groups;
-}
-
-function rowClass(row: GridRow): string {
+function rowClass(row: GridRowLayout): string {
     if (row.kind === 'si' || row.kind === 'given') return 'dim';
     return '';
 }
-function cellClass(row: GridRow): string {
+function cellClass(row: GridRowLayout): string {
     if (row.kind === 'si') return 'si';
     if (row.kind === 'given') return 'given';
     if (row.kind === 'status') return 'status';
@@ -78,51 +41,36 @@ function cellClass(row: GridRow): string {
     return '';
 }
 
-function markerToneClass(tone: Tone | undefined): string {
-    return tone === 'success' || tone === 'warning' || tone === 'danger' ? ` mark-tone--${tone}` : '';
+/**
+ * One grid cell. A per-cell team (standing row, deciding ball): an undecorated
+ * score gets the filled pill; a decorated one gets the team fill on the
+ * marker's own shape — the fold made that choice, this only names the classes.
+ */
+function cellHtml(cell: CellLayout, row: GridRowLayout, emph: (s: string) => string): string {
+    const title = cell.title !== null ? ` title="${esc(cell.title)}"` : '';
+    const text = emph(esc(cell.text));
+    const d = cell.decoration;
+    let inner: string;
+    if (d.kind === 'marker') {
+        const tone = d.tone ? ` mark-tone--${d.tone}` : '';
+        const fill = d.teamFill ? ` mark-fill--${d.teamFill}` : '';
+        const attrs = d.label !== null ? ` title="${esc(d.label)}" aria-label="${esc(d.label)}"` : '';
+        inner = `<span class="mark mark--${esc(d.template)}${tone}${fill}"${attrs}>${text}</span>`;
+    } else if (d.kind === 'pill') {
+        inner = `<span class="pill pill--${d.team}">${text}</span>`;
+    } else {
+        inner = text;
+    }
+    return `<td class="${cellClass(row)}"${title}>${inner}</td>`;
 }
 
-function groupSubtotal(row: GridRow, playHoleIds: Set<string>): string {
-    const cells = row.cells.filter((c) => playHoleIds.has(c.playHoleId));
-    if (row.aggregate === 'sum') {
-        const nums = cells.map((c) => c.value).filter((v): v is number => v !== null);
-        return nums.length === 0 ? '—' : String(nums.reduce((a, b) => a + b, 0));
-    }
-    if (row.aggregate === 'last') {
-        for (let i = cells.length - 1; i >= 0; i--) {
-            const v = cells[i]!.value;
-            if (v !== null) return Number.isInteger(v) ? String(v) : v.toFixed(1);
-        }
-        return '—';
-    }
-    return '—';
-}
+function renderGridLayout(layout: ScoreGridLayout, cardModifier?: string): string {
+    const includeTot = layout.hasTotalColumn;
 
-function totColumn(row: GridRow, groups: ColumnGroup[]): string {
-    if (row.aggregate === 'sum') {
-        const all = row.cells.map((c) => c.value).filter((v): v is number => v !== null);
-        return all.length === 0 ? '—' : String(all.reduce((a, b) => a + b, 0));
-    }
-    if (row.aggregate === 'last') {
-        const last = groups[groups.length - 1]!;
-        return groupSubtotal(row, last.playHoleIds);
-    }
-    return '—';
-}
-
-function renderScoreGrid(
-    section: ScoreGridSection,
-    routeSections: RouteSectionRef[],
-    nameOf: (id: string) => string,
-    opts: { cardModifier?: string } = {},
-): string {
-    const groups = groupColumns(section.holes, routeSections);
-    const includeTot = groups.length > 1;
-
-    const headerCells = groups
+    const headerCells = layout.columnGroups
         .map(
             (g) =>
-                g.holes.map((h) => `<th>${esc(h.occurrenceLabel)}</th>`).join('') +
+                g.columns.map((c) => `<th>${esc(c.label)}</th>`).join('') +
                 `<th class="sum">${esc(g.label)}</th>`,
         )
         .join('');
@@ -133,43 +81,17 @@ function renderScoreGrid(
   ${includeTot ? '<th class="sum">TOT</th>' : ''}
 </tr>`;
 
-    const byPlayHole = (row: GridRow) => new Map(row.cells.map((c) => [c.playHoleId, c]));
-
-    const renderRow = (row: GridRow): string => {
-        const cells = byPlayHole(row);
+    const renderRow = (row: GridRowLayout): string => {
         const emph = (s: string): string => (row.emphasis ? `<strong>${s}</strong>` : s);
-        const groupCells = groups
-            .map((g) => {
-                const body = g.holes
-                    .map((h) => {
-                        const c = cells.get(h.playHoleId);
-                        const title = c?.title ? ` title="${esc(c.title)}"` : '';
-                        const text = emph(esc(c?.display ?? ''));
-                        const marker = c?.marker;
-                        const markerAttrs = marker?.label
-                            ? ` title="${esc(marker.label)}" aria-label="${esc(marker.label)}"`
-                            : '';
-                        // Per-cell team (standing row, deciding ball): an
-                        // undecorated score gets the filled pill; a decorated one
-                        // gets the team fill on the marker's own shape — mirrors
-                        // the client renderer's composition.
-                        let inner: string;
-                        if (marker) {
-                            const fill = c?.team ? ` mark-fill--${c.team}` : '';
-                            inner = `<span class="mark mark--${esc(marker.template)}${markerToneClass(marker.tone)}${fill}"${markerAttrs}>${text}</span>`;
-                        } else if (c?.team) {
-                            inner = `<span class="pill pill--${c.team}">${text}</span>`;
-                        } else {
-                            inner = text;
-                        }
-                        return `<td class="${cellClass(row)}"${title}>${inner}</td>`;
-                    })
-                    .join('');
-                return body + `<td class="sum">${emph(groupSubtotal(row, g.playHoleIds))}</td>`;
-            })
+        const groupCells = row.groups
+            .map(
+                (g) =>
+                    g.cells.map((cell) => cellHtml(cell, row, emph)).join('') +
+                    `<td class="sum">${emph(g.subtotal)}</td>`,
+            )
             .join('');
-        const tot = includeTot ? `<td class="sum">${emph(totColumn(row, groups))}</td>` : '';
-        const label = row.subjectBallId ? `${esc(nameOf(row.subjectBallId))} ${esc(row.label)}` : esc(row.label);
+        const tot = includeTot ? `<td class="sum">${emph(row.total)}</td>` : '';
+        const label = row.subjectName !== null ? `${esc(row.subjectName)} ${esc(row.labelText)}` : esc(row.labelText);
         return `
 <tr class="${rowClass(row)}">
   <th class="rowlabel">${label}</th>
@@ -178,35 +100,45 @@ function renderScoreGrid(
 </tr>`;
     };
 
-    const title = section.title.groups
-        .map((g) => g.map((id) => esc(nameOf(id))).join(' & '))
-        .join(section.title.joiner);
+    const title = layout.title.groups
+        .map((g) => g.map((name) => esc(name)).join(layout.title.nameJoiner))
+        .join(layout.title.joiner);
 
     const footnotes =
-        section.footnotes.length > 0
-            ? `<p class="arithmetic">${section.footnotes.map(esc).join(' · ')}</p>`
+        layout.footnotes.length > 0
+            ? `<p class="arithmetic">${layout.footnotes.map(esc).join(' · ')}</p>`
             : '';
     const totals =
-        section.totals.length > 0
-            ? `<ul class="totals">${section.totals
-                  .map((t) => `<li>${esc(t.label)} = <strong>${t.value ?? '—'}</strong></li>`)
+        layout.totals.length > 0
+            ? `<ul class="totals">${layout.totals
+                  .map((t) => `<li>${esc(t.label)} = <strong>${t.value}</strong></li>`)
                   .join('')}</ul>`
             : '';
 
-    const cardClass = opts.cardModifier ? `scorecard-card ${opts.cardModifier}` : 'scorecard-card';
+    const cardClass = cardModifier ? `scorecard-card ${cardModifier}` : 'scorecard-card';
     return `
 <article class="${cardClass}">
   <header>
     <h3>${title}</h3>
-    <span class="muted">${section.subtitleFacts.map(esc).join(' · ')}</span>
+    <span class="muted">${layout.subtitleFacts.map(esc).join(' · ')}</span>
   </header>
   <table class="scorecard">
     <thead>${holeHeader}</thead>
-    <tbody>${section.rows.map(renderRow).join('')}</tbody>
+    <tbody>${layout.rows.map(renderRow).join('')}</tbody>
   </table>
   ${footnotes}
   ${totals}
 </article>`;
+}
+
+/** The oracle is the verification view — it shows every fact the server sent. */
+function renderScoreGrid(
+    section: ScoreGridSection,
+    routeSections: RouteSectionRef[],
+    nameOf: (id: string) => string,
+    cardModifier?: string,
+): string {
+    return renderGridLayout(layoutScoreGrid(section, routeSections, nameOf, { mode: 'verification' }), cardModifier);
 }
 
 type ScoreGridComponentId = NonNullable<ScoreGridSection['componentId']>;
@@ -219,14 +151,10 @@ type ScoreGridRenderer = (
 const scoreGridRegistry: Record<ScoreGridComponentId, ScoreGridRenderer> = {
     'default-score-grid': renderScoreGrid,
     'compact-match-grid': (section, routeSections, nameOf) =>
-        renderScoreGrid(section, routeSections, nameOf, { cardModifier: 'scorecard-card--compact-match' }),
+        renderScoreGrid(section, routeSections, nameOf, 'scorecard-card--compact-match'),
     'category-matrix-grid': (section, routeSections, nameOf) =>
-        renderScoreGrid(section, routeSections, nameOf, { cardModifier: 'scorecard-card--category-matrix' }),
+        renderScoreGrid(section, routeSections, nameOf, 'scorecard-card--category-matrix'),
 };
-
-function scoreGridComponentId(section: ScoreGridSection): ScoreGridComponentId {
-    return section.componentId ?? 'default-score-grid';
-}
 
 function renderScoreGridSection(
     section: ScoreGridSection,
@@ -240,35 +168,25 @@ function renderScoreGridSection(
         : `<div class="diag">Unsupported score-grid component <code>${esc(componentId)}</code> — no generic view yet. Results are not hidden.</div>`;
 }
 
-/** Compact live-board pace chip — the metric relative to its playing-to-pace
- * baseline over the entry's own thru-N, so the server's ordering explains
- * itself. `E` at pace, signed otherwise (real minus sign). Absent when the
- * metric declares no pace. */
-function paceChip(paceDelta: number | undefined, direction: RankedSection['direction']): string {
-    if (paceDelta === undefined) return '';
-    // Golf's one sign convention: +N = N worse than expectation. The raw delta
-    // is `total − target`, so a `high` metric (points) is negated for display —
-    // same rule the product renderer applies.
-    const shown = direction === 'high' ? -paceDelta : paceDelta;
-    const text = shown === 0 ? 'E' : shown > 0 ? `+${shown}` : `−${Math.abs(shown)}`;
-    return ` <span class="lb-pace">${esc(text)}</span>`;
-}
-
 function renderRanked(section: RankedSection, nameOf: (id: string) => string): string {
-    const rows = section.entries
-        .map(
-            (e) => `
+    const layout = layoutRanked(section, nameOf);
+    // Compact live-board pace chip — absent when the metric declares no pace;
+    // its value and golf sign convention come from the fold.
+    const rows = layout.entries
+        .map((e) => {
+            const chip = e.pace ? ` <span class="lb-pace">${esc(e.pace.text)}</span>` : '';
+            return `
 <tr>
   <td class="num">${e.position}</td>
-  <td>${esc(e.ballIds.map(nameOf).join(' & '))}</td>
-  <td class="num">${e.total ?? '—'}${paceChip(e.paceDelta, section.direction)}</td>
+  <td>${esc(e.name)}</td>
+  <td class="num">${e.total}${chip}</td>
   <td class="num muted">${e.holesPlayed}</td>
-</tr>`,
-        )
+</tr>`;
+        })
         .join('');
     return `
 <div class="lb-col">
-  <h4>${esc(section.metricLabel)}</h4>
+  <h4>${esc(layout.metricLabel)}</h4>
   <table class="grid">
     <thead><tr><th>pos</th><th>ball</th><th>total</th><th>holes</th></tr></thead>
     <tbody>${rows}</tbody>
@@ -277,19 +195,20 @@ function renderRanked(section: RankedSection, nameOf: (id: string) => string): s
 }
 
 function renderMatchSummary(section: MatchSummarySection, nameOf: (id: string) => string): string {
-    const rows = section.matches
+    const layout = layoutMatchSummary(section, nameOf);
+    const rows = layout.matches
         .map((m) => {
-            const a = esc(m.sideA.ballIds.map(nameOf).join(' & '));
-            const b = esc(m.sideB.ballIds.map(nameOf).join(' & '));
-            const standing = m.magnitude === 0 ? 'AS' : `${m.magnitude} UP`;
-            const status = m.finished ? 'Final' : `thru ${m.thru}`;
+            const a = esc(m.sideAName);
+            const b = esc(m.sideBName);
+            // One idiom line per match: the verification page names the leader
+            // instead of drawing the product renderer's two-sided panel.
             const lead = m.leader === 'a' ? a : m.leader === 'b' ? b : `${a} / ${b}`;
-            return `<tr><td>${lead} — ${esc(standing)} (${esc(status)})</td></tr>`;
+            return `<tr><td>${lead} — ${esc(m.standing)} (${esc(m.status)})</td></tr>`;
         })
         .join('');
     return `
 <div class="lb-col" style="min-width: 420px;">
-  <h4>${esc(section.title)}</h4>
+  <h4>${esc(layout.title)}</h4>
   <table class="grid">
     <thead><tr><th>result</th></tr></thead>
     <tbody>${rows}</tbody>

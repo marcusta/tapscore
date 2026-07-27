@@ -1,31 +1,44 @@
 // Generic mobile result renderer (2.6e M5) — the no-login leaderboard's
-// section layer. It mirrors the static oracle `scripts/render/sections/result.ts`
-// EXACTLY in shape: a score grid is a hole-indexed table grouped into the
-// round's frozen route sections (OUT/IN/TOT), a ranked section is a sorted
-// table, a match summary is a list of golf-idiom lines. Every value, note,
-// total, and idiom string is computed server-side by the format plugin — this
-// renderer never reimplements a scoring rule and never branches on a format id.
-// It only resolves ball ids → live names and groups holes into columns.
+// section layer, and a THIN ADAPTER over the shared layout fold (N3).
+//
+// `result-layout.ts` decides layout: route-section column grouping, subtotals,
+// the TOT column, cell decorations, pace values, ranked/match folds. This file
+// only turns that tree into HTML — class names, tag structure, escaping. The
+// static oracle (`scripts/render/sections/result.ts`) and, from N4, the native
+// renderer walk the SAME tree, so a layout rule is changed in one place.
+//
+// Nothing here reimplements a scoring rule and nothing branches on a format id.
 //
 // Output is an HTML string (consumed via innerHTML). An unrecognised section
 // kind renders a visible structured diagnostic rather than vanishing, so a
 // missing adapter is never silently hidden (PHASES M5 requirement).
 
 import type {
-    GridCell,
-    GridRow,
-    HoleRef,
     MatchSummarySection,
     RankedSection,
     RouteSectionRef,
     ScoreGridSection,
     SlotResultView,
 } from '../api/friendly-rounds.gen';
+import {
+    layoutMatchSummary,
+    layoutRanked,
+    layoutScoreGrid,
+    scoreGridComponentId,
+} from './result-layout';
+import { markerClass } from './marker-tokens';
+import type {
+    CellLayout,
+    GridRowLayout,
+    RankedEntryLayout,
+    ResultRenderMode,
+    ScoreGridLayout,
+} from './result-layout';
 
+export type { ResultRenderMode } from './result-layout';
 export type NameOf = (ballId: string) => string;
 /** Ball id → "Group N" label, or `null` on a single-group round (Phase 3.5). */
 export type GroupOf = (ballId: string) => string | null;
-export type ResultRenderMode = 'product' | 'verification';
 export interface ResultRenderOptions {
     mode?: ResultRenderMode;
 }
@@ -41,170 +54,94 @@ export function esc(value: unknown): string {
         .replace(/"/g, '&quot;');
 }
 
-/** A column group (route section) holding the ordered HoleRef columns it owns. */
-interface ColumnGroup {
-    label: string;
-    holes: HoleRef[];
-    playHoleIds: Set<string>;
-}
-
-/**
- * Group scorecard columns by the round's frozen route sections: a column
- * belongs to the section whose `[from, to]` canonical-ordinal range contains
- * it. Columns are ordered by `canonicalOrdinal`. With no route sections, fall
- * back to a single TOT group over all columns. (Verbatim from the oracle.)
- */
-function groupColumns(holes: HoleRef[], routeSections: RouteSectionRef[]): ColumnGroup[] {
-    const ordered = [...holes].sort((a, b) => a.canonicalOrdinal - b.canonicalOrdinal);
-    if (routeSections.length === 0) {
-        return [{ label: 'TOT', holes: ordered, playHoleIds: new Set(ordered.map((h) => h.playHoleId)) }];
-    }
-    const sections = [...routeSections].sort((a, b) => a.fromCanonicalOrdinal - b.fromCanonicalOrdinal);
-    const groups: ColumnGroup[] = [];
-    for (const section of sections) {
-        const members = ordered.filter(
-            (h) =>
-                h.canonicalOrdinal >= section.fromCanonicalOrdinal &&
-                h.canonicalOrdinal <= section.toCanonicalOrdinal,
-        );
-        if (members.length === 0) continue;
-        groups.push({ label: section.label, holes: members, playHoleIds: new Set(members.map((h) => h.playHoleId)) });
-    }
-    return groups;
-}
-
-function cellClass(row: GridRow): string {
+function cellClass(row: GridRowLayout): string {
     if (row.kind === 'si') return 'lb-c-si';
     if (row.kind === 'given') return 'lb-c-given';
     if (row.kind === 'status') return 'lb-c-status';
     if (row.kind === 'category') return 'lb-c-cat';
     return '';
 }
-function rowClass(row: GridRow): string {
+function rowClass(row: GridRowLayout): string {
     const classes = [row.kind === 'category' ? 'lb-r-cat' : `lb-r-${row.kind}`];
     if (row.kind === 'si' || row.kind === 'given') classes.push('lb-r-dim');
     if (row.team) classes.push(`lb-team-${row.team}`);
     return classes.join(' ');
 }
 
-/** Resolve a cell's deciding-ball marker template → the CSS modifier the
- * `.lb-mark--<template>` rules style. Reads the presentation-vocabulary
- * `marker.template` (`ring` | `double_ring` | `diamond` | …). */
-function cellMarkerTemplate(c: GridCell | undefined): string | null {
-    if (!c) return null;
-    if (c.marker) return c.marker.template;
-    return null;
-}
-function cellMarkerToneClass(c: GridCell | undefined): string {
-    const tone = c?.marker?.tone;
-    return tone === 'success' || tone === 'warning' || tone === 'danger' ? ` lb-mark-tone--${tone}` : '';
-}
-
-function groupSubtotal(row: GridRow, playHoleIds: Set<string>): string {
-    const cells = row.cells.filter((c) => playHoleIds.has(c.playHoleId));
-    if (row.aggregate === 'sum') {
-        const nums = cells.map((c) => c.value).filter((v): v is number => v !== null);
-        return nums.length === 0 ? '—' : String(nums.reduce((a, b) => a + b, 0));
+/**
+ * One grid cell. A score marker draws a shape (ring / double_ring / square …)
+ * around the score. A per-cell team (standing row, deciding ball) fills the cell
+ * in team colour: on an UNDECORATED score it's the round pill; on a decorated
+ * one the marker's own shape gets the team fill (white number/outline) — never
+ * a shape nested in a pill. The marker's `label` carries the golf meaning
+ * ("Birdie (-1)") — surfaced as tooltip + aria. The fold picked WHICH of these
+ * applies; this only names the CSS.
+ */
+function cellHtml(cell: CellLayout, row: GridRowLayout, emph: (s: string) => string): string {
+    const title = cell.title !== null ? ` title="${esc(cell.title)}"` : '';
+    const text = emph(esc(cell.text));
+    const d = cell.decoration;
+    let inner: string;
+    if (d.kind === 'marker') {
+        const tone = d.tone ? ` lb-mark-tone--${d.tone}` : '';
+        const fill = d.teamFill ? ` lb-mark-fill--${d.teamFill}` : '';
+        const attrs = d.label !== null ? ` title="${esc(d.label)}" aria-label="${esc(d.label)}"` : '';
+        inner = `<span class="lb-mark ${markerClass(d.template)}${tone}${fill}"${attrs}>${text}</span>`;
+    } else if (d.kind === 'pill') {
+        inner = `<span class="lb-pill lb-pill--${d.team}">${text}</span>`;
+    } else {
+        inner = text;
     }
-    if (row.aggregate === 'last') {
-        for (let i = cells.length - 1; i >= 0; i--) {
-            const v = cells[i]!.value;
-            if (v !== null) return Number.isInteger(v) ? String(v) : v.toFixed(1);
-        }
-        return '—';
-    }
-    return '—';
+    return `<td class="${cellClass(row)}"${title}>${inner}</td>`;
 }
 
-function productSubtitleFacts(facts: string[]): string[] {
-    return facts.filter((fact) => {
-        if (fact.startsWith('slot #')) return false;
-        if (/^CH -?\d/.test(fact)) return false;
-        if (/^PH -?\d/.test(fact)) return false;
-        return true;
-    });
-}
-
-function renderScoreGridBase(
-    section: ScoreGridSection,
-    routeSections: RouteSectionRef[],
-    nameOf: NameOf,
-    opts: { mode: ResultRenderMode; cardModifier?: string },
-): string {
-    const groups = groupColumns(section.holes, routeSections);
-
+function renderScoreGridBase(layout: ScoreGridLayout, opts: { mode: ResultRenderMode; cardModifier?: string }): string {
     // Each hole-group (front 9 / back 9) renders as its OWN stacked table block so
     // an 18-hole card never scrolls sideways — the traditional mobile scorecard.
-    const renderBlock = (g: (typeof groups)[number]): string => {
-        const header = `<tr><th class="lb-rowlabel">Hole</th>${g.holes
-            .map((h) => `<th>${esc(h.occurrenceLabel)}</th>`)
-            .join('')}<th class="lb-sum">${esc(g.label)}</th></tr>`;
+    // (The fold's TOT column has no place in a stacked card; each block carries
+    // its own group subtotal.)
+    const renderBlock = (groupIndex: number): string => {
+        const group = layout.columnGroups[groupIndex]!;
+        const header = `<tr><th class="lb-rowlabel">Hole</th>${group.columns
+            .map((c) => `<th>${esc(c.label)}</th>`)
+            .join('')}<th class="lb-sum">${esc(group.label)}</th></tr>`;
 
-        const body = section.rows
+        const body = layout.rows
             .map((row) => {
-                const cells = new Map(row.cells.map((c) => [c.playHoleId, c]));
                 const emph = (str: string): string => (row.emphasis ? `<strong>${str}</strong>` : str);
-                const cellsHtml = g.holes
-                    .map((h) => {
-                        const c = cells.get(h.playHoleId);
-                        const title = c?.title ? ` title="${esc(c.title)}"` : '';
-                        const text = emph(esc(c?.display ?? ''));
-                        // A score marker draws a shape (ring / double_ring / square …)
-                        // around the score. A per-cell team (standing row, deciding
-                        // ball) fills the cell in team colour: on an UNDECORATED score
-                        // it's the round pill; on a decorated one the marker's own
-                        // shape gets the team fill (white number/outline) — never a
-                        // shape nested in a pill. The marker's `label` carries the
-                        // golf meaning ("Birdie (-1)") — surfaced as tooltip + aria.
-                        const markTemplate = cellMarkerTemplate(c);
-                        const markTone = cellMarkerToneClass(c);
-                        const markLabel = c?.marker?.label;
-                        const markAttrs = markLabel
-                            ? ` title="${esc(markLabel)}" aria-label="${esc(markLabel)}"`
-                            : '';
-                        let inner: string;
-                        if (markTemplate) {
-                            const fill = c?.team ? ` lb-mark-fill--${c.team}` : '';
-                            inner = `<span class="lb-mark lb-mark--${markTemplate}${markTone}${fill}"${markAttrs}>${text}</span>`;
-                        } else if (c?.team) {
-                            inner = `<span class="lb-pill lb-pill--${c.team}">${text}</span>`;
-                        } else {
-                            inner = text;
-                        }
-                        return `<td class="${cellClass(row)}"${title}>${inner}</td>`;
-                    })
-                    .join('');
-                const sub = `<td class="lb-sum">${emph(groupSubtotal(row, g.playHoleIds))}</td>`;
-                const label = row.subjectBallId
-                    ? esc(nameOf(row.subjectBallId)) + (row.label ? ' ' + esc(row.label) : '')
-                    : esc(row.label);
+                const rowGroup = row.groups[groupIndex]!;
+                const cellsHtml = rowGroup.cells.map((cell) => cellHtml(cell, row, emph)).join('');
+                const sub = `<td class="lb-sum">${emph(rowGroup.subtotal)}</td>`;
+                const label =
+                    row.subjectName !== null
+                        ? esc(row.subjectName) + (row.labelText ? ' ' + esc(row.labelText) : '')
+                        : esc(row.labelText);
                 return `<tr class="${rowClass(row)}"><th class="lb-rowlabel">${label}</th>${cellsHtml}${sub}</tr>`;
             })
             .join('');
 
         return `<div class="lb-card__scroll"><table class="lb-grid"><thead>${header}</thead><tbody>${body}</tbody></table></div>`;
     };
-    const blocks = groups.map((g) => renderBlock(g)).join('');
+    const blocks = layout.columnGroups.map((_g, i) => renderBlock(i)).join('');
 
-    const title = section.title.groups
-        .map((g) => g.map((id) => esc(nameOf(id))).join(' & '))
+    const title = layout.title.groups
+        .map((g) => g.map((name) => esc(name)).join(layout.title.nameJoiner))
         .filter(Boolean)
-        .join(section.title.joiner);
-    const subtitleFacts = opts.mode === 'verification' ? section.subtitleFacts : productSubtitleFacts(section.subtitleFacts);
-    const subtitle = subtitleFacts.length
-        ? `<div class="lb-card__sub">${subtitleFacts.map(esc).join(' · ')}</div>`
+        .join(layout.title.joiner);
+    const subtitle = layout.subtitleFacts.length
+        ? `<div class="lb-card__sub">${layout.subtitleFacts.map(esc).join(' · ')}</div>`
         : '';
     // Per-hole arithmetic (how each hole's points were earned) — a labelled,
     // full-width block so it's visible on touch (where cell hover tooltips aren't).
-    const footnotes = opts.mode === 'verification' && section.footnotes.length
-        ? `<div class="lb-card__notes"><span class="lb-card__notes-label">Points breakdown</span>${section.footnotes
+    const footnotes = opts.mode === 'verification' && layout.footnotes.length
+        ? `<div class="lb-card__notes"><span class="lb-card__notes-label">Points breakdown</span>${layout.footnotes
               .map((n) => `<span class="lb-card__note">${esc(n)}</span>`)
               .join('')}</div>`
         : '';
-    const caption = opts.mode === 'verification' && section.caption ? `<p class="lb-card__caption">${esc(section.caption)}</p>` : '';
-    const totals = section.totals.length
-        ? `<ul class="lb-card__totals">${section.totals
-              .map((tt) => `<li>${esc(tt.label)} = <strong>${tt.value ?? '—'}</strong></li>`)
+    const caption = opts.mode === 'verification' && layout.caption ? `<p class="lb-card__caption">${esc(layout.caption)}</p>` : '';
+    const totals = layout.totals.length
+        ? `<ul class="lb-card__totals">${layout.totals
+              .map((tt) => `<li>${esc(tt.label)} = <strong>${tt.value}</strong></li>`)
               .join('')}</ul>`
         : '';
 
@@ -226,7 +163,7 @@ function renderScoreGrid(
     nameOf: NameOf,
     opts: { mode: ResultRenderMode },
 ): string {
-    return renderScoreGridBase(section, routeSections, nameOf, opts);
+    return renderScoreGridBase(layoutScoreGrid(section, routeSections, nameOf, opts), opts);
 }
 
 function renderCompactMatchGrid(
@@ -235,7 +172,10 @@ function renderCompactMatchGrid(
     nameOf: NameOf,
     opts: { mode: ResultRenderMode },
 ): string {
-    return renderScoreGridBase(section, routeSections, nameOf, { ...opts, cardModifier: 'lb-card--compact-match' });
+    return renderScoreGridBase(layoutScoreGrid(section, routeSections, nameOf, opts), {
+        ...opts,
+        cardModifier: 'lb-card--compact-match',
+    });
 }
 
 function renderCategoryMatrixGrid(
@@ -244,67 +184,40 @@ function renderCategoryMatrixGrid(
     nameOf: NameOf,
     opts: { mode: ResultRenderMode },
 ): string {
-    return renderScoreGridBase(section, routeSections, nameOf, { ...opts, cardModifier: 'lb-card--category-matrix' });
-}
-
-/**
- * The entry's group label, when every ball in it (own-ball or team) shares
- * ONE group — mixed-group teams shouldn't happen (the compiler rejects
- * cross-group team balls per §3), but a defensive mismatch just omits the
- * label rather than guessing.
- */
-function entryGroupLabel(ballIds: readonly string[], groupOf: GroupOf): string | null {
-    const labels = new Set(ballIds.map(groupOf));
-    if (labels.size !== 1) return null;
-    return [...labels][0] ?? null;
+    return renderScoreGridBase(layoutScoreGrid(section, routeSections, nameOf, opts), {
+        ...opts,
+        cardModifier: 'lb-card--category-matrix',
+    });
 }
 
 /**
  * A ranked entry's live-board pace delta — the metric relative to its
  * playing-to-pace baseline over that entry's own thru-N, which is WHY the
  * server ordered the board this way (a team ahead of pace ranks above one
- * behind it even on fewer holes). `E` when even (0), a signed number otherwise
- * (real minus sign).
+ * behind it even on fewer holes).
  *
  * It gets its OWN column rather than trailing the total: run together in one
  * cell, "33 −3" reads as a single mangled number ("33-3"). Two columns with
- * their own headers is how every golf board (and Golf GameBook) does it.
- *
- * ONE sign convention, golf's: `+N` always means N WORSE than playing to
- * expectation, `−N` better. The raw `paceDelta` is `total − target`, so a
- * `high` metric (stableford points: more is better) is negated for display —
- * 33 points off a 36 pace shows `+3`, matching how every board (and a
- * scorecard's to-par) reads. `low` metrics (gross strokes) already run that
- * way and display raw.
+ * their own headers is how every golf board (and Golf GameBook) does it. The
+ * value and its sign convention come from the fold.
  */
-function paceText(paceDelta: number): string {
-    return paceDelta === 0 ? 'E' : paceDelta > 0 ? `+${paceDelta}` : `−${Math.abs(paceDelta)}`;
-}
-
-/** Raw delta → the displayed, worse-is-positive value. */
-function displayPace(paceDelta: number, direction: RankedSection['direction']): number {
-    return direction === 'high' ? -paceDelta : paceDelta;
-}
-
-function paceCell(paceDelta: number | undefined, direction: RankedSection['direction']): string {
-    if (paceDelta === undefined) return '<td class="lb-rank__pace"></td>';
-    const shown = displayPace(paceDelta, direction);
-    const tone = shown === 0 ? 'even' : shown > 0 ? 'over' : 'under';
-    return `<td class="lb-rank__pace lb-rank__pace--${tone}">${esc(paceText(shown))}</td>`;
+function paceCell(entry: RankedEntryLayout): string {
+    if (entry.pace === null) return '<td class="lb-rank__pace"></td>';
+    return `<td class="lb-rank__pace lb-rank__pace--${entry.pace.tone}">${esc(entry.pace.text)}</td>`;
 }
 
 function renderRanked(section: RankedSection, nameOf: NameOf, groupOf: GroupOf = noGroup): string {
+    const layout = layoutRanked(section, nameOf, groupOf);
     // The pace column exists only for metrics whose descriptor declares a pace
     // baseline — a non-pace board (gross strokes, say) keeps its old 4 columns.
-    const hasPace = section.entries.some((e) => e.paceDelta !== undefined);
-    const rows = section.entries
+    const hasPace = layout.hasPace;
+    const rows = layout.entries
         .map((e) => {
-            const group = entryGroupLabel(e.ballIds, groupOf);
-            const groupTag = group ? ` <span class="lb-rank__group">${esc(group)}</span>` : '';
-            return `<tr class="${e.position === 1 ? 'lb-rank__lead' : ''}">
+            const groupTag = e.group ? ` <span class="lb-rank__group">${esc(e.group)}</span>` : '';
+            return `<tr class="${e.lead ? 'lb-rank__lead' : ''}">
   <td class="lb-rank__pos">${e.position}</td>
-  <td class="lb-rank__who"><span class="lb-rank__whobox"><span class="lb-rank__name">${esc(e.ballIds.map(nameOf).join(' & '))}</span>${groupTag}</span></td>
-  <td class="lb-rank__total">${e.total ?? '—'}</td>${hasPace ? `\n  ${paceCell(e.paceDelta, section.direction)}` : ''}
+  <td class="lb-rank__who"><span class="lb-rank__whobox"><span class="lb-rank__name">${esc(e.name)}</span>${groupTag}</span></td>
+  <td class="lb-rank__total">${e.total}</td>${hasPace ? `\n  ${paceCell(e)}` : ''}
   <td class="lb-rank__thru">${e.holesPlayed}</td>
 </tr>`;
         })
@@ -312,7 +225,7 @@ function renderRanked(section: RankedSection, nameOf: NameOf, groupOf: GroupOf =
     const paceCol = hasPace ? '\n      <col class="lb-rank__col-pace">' : '';
     const paceHead = hasPace ? '<th class="lb-rank__pace">Pace</th>' : '';
     return `<div class="lb-section">
-  <h4 class="lb-section__title">${esc(section.metricLabel)}</h4>
+  <h4 class="lb-section__title">${esc(layout.metricLabel)}</h4>
   <table class="lb-rank">
     <colgroup>
       <col class="lb-rank__col-pos">
@@ -327,23 +240,20 @@ function renderRanked(section: RankedSection, nameOf: NameOf, groupOf: GroupOf =
 }
 
 function renderMatchSummary(section: MatchSummarySection, nameOf: NameOf): string {
-    const panels = section.matches
+    const layout = layoutMatchSummary(section, nameOf);
+    const panels = layout.matches
         .map((m) => {
-            const aNames = esc(m.sideA.ballIds.map(nameOf).join(' & '));
-            const bNames = esc(m.sideB.ballIds.map(nameOf).join(' & '));
-            const standing = m.magnitude === 0 ? 'AS' : `${m.magnitude} UP`;
-            const status = m.finished ? 'Final' : `thru ${m.thru}`;
             const aLead = m.leader === 'a' ? ' lb-mp__team--lead' : '';
             const bLead = m.leader === 'b' ? ' lb-mp__team--lead' : '';
             return `<div class="lb-mp">
-    <div class="lb-mp__team lb-mp__team--a${aLead}">${aNames}</div>
-    <div class="lb-mp__center"><span class="lb-mp__standing">${esc(standing)}</span><span class="lb-mp__status">${esc(status)}</span></div>
-    <div class="lb-mp__team lb-mp__team--b${bLead}">${bNames}</div>
+    <div class="lb-mp__team lb-mp__team--a${aLead}">${esc(m.sideAName)}</div>
+    <div class="lb-mp__center"><span class="lb-mp__standing">${esc(m.standing)}</span><span class="lb-mp__status">${esc(m.status)}</span></div>
+    <div class="lb-mp__team lb-mp__team--b${bLead}">${esc(m.sideBName)}</div>
   </div>`;
         })
         .join('');
     return `<div class="lb-section">
-  <h4 class="lb-section__title">${esc(section.title)}</h4>${panels}
+  <h4 class="lb-section__title">${esc(layout.title)}</h4>${panels}
 </div>`;
 }
 
@@ -396,11 +306,6 @@ const scoreGridRegistry: Record<ScoreGridComponentId, ScoreGridRenderer> = {
     'compact-match-grid': renderCompactMatchGrid,
     'category-matrix-grid': renderCategoryMatrixGrid,
 };
-
-/** Missing means `default-score-grid`. */
-function scoreGridComponentId(section: ScoreGridSection): ScoreGridComponentId {
-    return section.componentId ?? 'default-score-grid';
-}
 
 function diagnostic(kind: string): string {
     return `<div class="lb-diag">Unrenderable result section <code>${esc(kind)}</code> — no generic view yet. Results are not hidden.</div>`;

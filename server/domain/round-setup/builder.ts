@@ -117,6 +117,17 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
         });
     }
 
+    // Every format-scoped refusal carries BOTH the display `path` and the
+    // structured `formatIndex` — the setup UI buckets diagnostics onto format
+    // card N by that index and never parses the path (src/create/diagnostics.ts).
+    // Each format pass opens with `const fmtDiag = formatDiagPusher(i)`; use it
+    // instead of `diags.push` for anything scoped to one format selection.
+    const formatDiagPusher =
+        (i: number) =>
+        (d: Omit<CompilerDiagnostic, 'formatIndex'>): void => {
+            diags.push({ ...d, formatIndex: i });
+        };
+
     // Coalesced ball strategies, in first-seen order, keyed for dedupe.
     const ballStrategies: BallStrategyDefinition[] = [];
     const strategyDefIdByKey = new Map<string, string>();
@@ -179,12 +190,13 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
     draft.formats.forEach((sel, i) => {
         if (sel.ballsFrom || sel.subjects) return; // scoring-only; wired in later passes
         const fmtPath = `formats[${i}]`;
+        const fmtDiag = formatDiagPusher(i);
 
         let plugin;
         try {
             plugin = findFormatPlugin(sel.formatId);
         } catch {
-            diags.push({
+            fmtDiag({
                 code: 'unknown_format',
                 message: `no format plugin registered for id '${sel.formatId}'`,
                 path: `${fmtPath}.formatId`,
@@ -197,7 +209,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
         if (subset) {
             for (const pid of subset) {
                 if (!rosterIds.has(pid)) {
-                    diags.push({
+                    fmtDiag({
                         code: 'unknown_producer_in_selection',
                         message: `format '${sel.formatId}' references producer '${pid}' which is not in the roster`,
                         path: `${fmtPath}.producerDefIds`,
@@ -208,7 +220,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
         for (const team of sel.teams ?? []) {
             for (const pid of team.producerDefIds) {
                 if (!rosterIds.has(pid)) {
-                    diags.push({
+                    fmtDiag({
                         code: 'unknown_producer_in_team',
                         message: `format '${sel.formatId}' team '${team.label}' references producer '${pid}' which is not in the roster`,
                         path: `${fmtPath}.teams`,
@@ -296,12 +308,13 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
     draft.formats.forEach((sel, i) => {
         if (!sel.ballsFrom) return;
         const fmtPath = `formats[${i}]`;
+        const fmtDiag = formatDiagPusher(i);
 
         let plugin;
         try {
             plugin = findFormatPlugin(sel.formatId);
         } catch {
-            diags.push({
+            fmtDiag({
                 code: 'unknown_format',
                 message: `no format plugin registered for id '${sel.formatId}'`,
                 path: `${fmtPath}.formatId`,
@@ -309,7 +322,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
             return;
         }
         if (!plugin.descriptor.scoresAnyBall) {
-            diags.push({
+            fmtDiag({
                 code: 'format_cannot_score_composition',
                 message: `format '${sel.formatId}' cannot score another composition's balls (it does not declare scoresAnyBall)`,
                 path: `${fmtPath}.ballsFrom`,
@@ -318,7 +331,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
         }
         const refIds = idToStrategyDefIds.get(sel.ballsFrom.ref);
         if (!refIds) {
-            diags.push({
+            fmtDiag({
                 code: 'unknown_balls_from_ref',
                 message: `format '${sel.formatId}' ballsFrom references composition '${sel.ballsFrom.ref}', which is not a ball-creating selection in this round`,
                 path: `${fmtPath}.ballsFrom`,
@@ -341,11 +354,12 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
     draft.formats.forEach((sel, i) => {
         if (!sel.subjects) return;
         const fmtPath = `formats[${i}]`;
+        const fmtDiag = formatDiagPusher(i);
         let plugin;
         try {
             plugin = findFormatPlugin(sel.formatId);
         } catch {
-            diags.push({
+            fmtDiag({
                 code: 'unknown_format',
                 message: `no format plugin registered for id '${sel.formatId}'`,
                 path: `${fmtPath}.formatId`,
@@ -373,7 +387,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
             sel.subjects.forEach((subj, si) => {
                 const subjPath = `${fmtPath}.subjects[${si}]`;
                 if (subj.kind !== 'team') {
-                    diags.push({
+                    fmtDiag({
                         code: 'side_format_requires_side_subjects',
                         message: `format '${sel.formatId}' is a side format; each subject must be a multi-ball (side) team, not a player`,
                         path: subjPath,
@@ -382,7 +396,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
                 }
                 const side = teamsById.get(subj.teamId);
                 if (!side) {
-                    diags.push({
+                    fmtDiag({
                         code: 'unknown_subject_team',
                         message: `format '${sel.formatId}' subject references team '${subj.teamId}' which is not a round team`,
                         path: subjPath,
@@ -390,7 +404,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
                     return;
                 }
                 if (teamKind(side) !== 'multi_ball') {
-                    diags.push({
+                    fmtDiag({
                         code: 'side_format_requires_side_subjects',
                         message: `format '${sel.formatId}' is a side format but team '${side.id}' is single-ball (a merged composition)`,
                         path: subjPath,
@@ -401,7 +415,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
                 for (const m of side.members) {
                     if (isPlayerMember(m)) {
                         if (!rosterIds.has(m.producerDefId)) {
-                            diags.push({
+                            fmtDiag({
                                 code: 'unknown_producer_in_team',
                                 message: `side '${side.id}' member '${m.producerDefId}' is not in the roster`,
                                 path: subjPath,
@@ -414,7 +428,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
                     } else {
                         const nested = teamsById.get(m.teamId);
                         if (!nested) {
-                            diags.push({
+                            fmtDiag({
                                 code: 'unknown_subject_team',
                                 message: `side '${side.id}' member team '${m.teamId}' is not a round team`,
                                 path: subjPath,
@@ -422,7 +436,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
                             continue;
                         }
                         if (teamKind(nested) !== 'single_ball') {
-                            diags.push({
+                            fmtDiag({
                                 code: 'nested_team_must_be_single_ball',
                                 message: `side '${side.id}' member team '${nested.id}' must be a single-ball team`,
                                 path: subjPath,
@@ -467,7 +481,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
             const subjPath = `${fmtPath}.subjects[${si}]`;
             if (subj.kind === 'player') {
                 if (!rosterIds.has(subj.producerDefId)) {
-                    diags.push({
+                    fmtDiag({
                         code: 'unknown_subject_producer',
                         message: `format '${sel.formatId}' subject references producer '${subj.producerDefId}' which is not in the roster`,
                         path: subjPath,
@@ -478,7 +492,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
             } else {
                 const team = teamsById.get(subj.teamId);
                 if (!team) {
-                    diags.push({
+                    fmtDiag({
                         code: 'unknown_subject_team',
                         message: `format '${sel.formatId}' subject references team '${subj.teamId}' which is not a round team`,
                         path: subjPath,
@@ -490,7 +504,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
                     // consuming per-ball metadata (umbrella's GIR) refuse:
                     // aggregating metadata across a side is undefined.
                     if (formatTakesMetadata) {
-                        diags.push({
+                        fmtDiag({
                             code: 'format_metadata_rejects_side_subject',
                             message: `format '${sel.formatId}' consumes per-ball metadata (GIR etc.), which has no defined aggregation across a side — pick a metadata-free format for team '${team.id}', or score its members individually`,
                             path: subjPath,
@@ -501,7 +515,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
                     for (const m of team.members) {
                         if (isPlayerMember(m)) {
                             if (!rosterIds.has(m.producerDefId)) {
-                                diags.push({
+                                fmtDiag({
                                     code: 'unknown_producer_in_team',
                                     message: `side '${team.id}' member '${m.producerDefId}' is not in the roster`,
                                     path: subjPath,
@@ -514,7 +528,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
                         } else {
                             const nested = teamsById.get(m.teamId);
                             if (!nested) {
-                                diags.push({
+                                fmtDiag({
                                     code: 'unknown_subject_team',
                                     message: `side '${team.id}' member team '${m.teamId}' is not a round team`,
                                     path: subjPath,
@@ -522,7 +536,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
                                 continue;
                             }
                             if (teamKind(nested) !== 'single_ball') {
-                                diags.push({
+                                fmtDiag({
                                     code: 'nested_team_must_be_single_ball',
                                     message: `side '${team.id}' member team '${nested.id}' must be a single-ball team`,
                                     path: subjPath,
@@ -540,13 +554,13 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
                 }
                 for (const m of team.members) {
                     if (isPlayerMember(m) && !rosterIds.has(m.producerDefId)) {
-                        diags.push({
+                        fmtDiag({
                             code: 'unknown_producer_in_team',
                             message: `team '${team.id}' member '${m.producerDefId}' is not in the roster`,
                             path: subjPath,
                         });
                     } else if (isNestedTeamMember(m)) {
-                        diags.push({
+                        fmtDiag({
                             code: 'nested_team_in_single_ball',
                             message: `single-ball team '${team.id}' cannot contain a nested team member`,
                             path: subjPath,
@@ -565,7 +579,7 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
             const inSides = new Set(sides.flatMap((s) => s.producerDefIds));
             for (const pid of individuals) {
                 if (inSides.has(pid)) {
-                    diags.push({
+                    fmtDiag({
                         code: 'side_member_also_individual_subject',
                         message: `format '${sel.formatId}' lists producer '${pid}' both as an individual subject and inside a side — one ball cannot be both`,
                         path: `${fmtPath}.subjects`,
@@ -630,7 +644,19 @@ export function buildRoundDefinition(draft: RoundSetupDraft): BuildResult {
 
     if (diags.length > 0) return { ok: false, diagnostics: diags };
 
-    const slots = slotByIndex.filter((s): s is SlotDefinition => s !== null);
+    // Past the diagnostics gate every format selection MUST have produced its
+    // slot, and at its own index: the client folds compiler `slotIndex` back
+    // onto format card N by that positional identity (src/create/diagnostics.ts).
+    // Silently compacting a hole here would shift every later slot's index and
+    // point refusals at the wrong card, so a null without a diagnostic is loud.
+    const slots = slotByIndex.map((s, i) => {
+        if (s === null) {
+            throw new Error(
+                `builder invariant: format index ${i} produced no slot but pushed no diagnostic`,
+            );
+        }
+        return s;
+    });
 
     const definition: RoundDefinitionInput = {
         courseId: draft.courseId,

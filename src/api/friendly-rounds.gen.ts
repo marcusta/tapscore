@@ -35,6 +35,8 @@ export interface CompilerDiagnostic {
     code: string;
     message: string;
     path?: string;
+    formatIndex?: number;
+    slotIndex?: number;
     formatId?: string;
     teamLabel?: string;
     actual?: number;
