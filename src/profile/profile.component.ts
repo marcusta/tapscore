@@ -5,6 +5,7 @@ import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { ProfileService } from './profile.service';
 import { FriendsService } from '../friends/friends.service';
+import { AdminService } from '../admin/admin.service';
 import { parseHandicapIndex, formatHandicapIndex } from '../create/hcp-input';
 
 // Phase 3 profile — the logged-in side door's home: display name, the
@@ -58,6 +59,7 @@ const tpl = template(`
                 <div bind="history" class="profile__history"></div>
             </section>
 
+            <button bind="admin" class="profile__admin" type="button">Admin</button>
             <button bind="signout" class="profile__signout" type="button">Sign out</button>
         </div>
     </div>
@@ -205,6 +207,21 @@ export class ProfileComponent extends Component {
                 }
             }
 
+            /* Only rendered for a super admin — the entry point to /admin. */
+            & .profile__admin {
+                display: block;
+                width: 100%;
+                margin-top: ${s('xl')};
+                padding: ${s('md')} ${s('lg')};
+                background: ${t('surface-sunken')};
+                border: none; border-radius: ${t('radius')};
+                font-family: inherit; font-size: 0.9rem; font-weight: 700;
+                color: ${t('text')};
+                cursor: pointer;
+
+                &.hidden { display: none; }
+            }
+
             & .profile__signout {
                 display: block;
                 margin: ${s('2xl')} auto 0;
@@ -219,13 +236,19 @@ export class ProfileComponent extends Component {
 
     private svc = this.inject(ProfileService);
     private friends = this.inject(FriendsService);
+    // Caller-scoped role read — decides whether the Admin entry point shows.
+    // Presentation only; /admin itself is gated server-side.
+    private admins = this.inject(AdminService);
     private auth = this.inject(AuthService);
     private router = this.inject(Router);
     private indexDraft = new Signal('');
     private localErr = new Signal('');
 
     render(): DocumentFragment {
-        if (this.auth.currentUser.get()) void this.svc.load();
+        if (this.auth.currentUser.get()) {
+            void this.svc.load();
+            void this.admins.loadRoles();
+        }
 
         const loggedIn = () => this.auth.currentUser.get() !== null;
 
@@ -280,11 +303,17 @@ export class ProfileComponent extends Component {
                         ? 'profile__empty'
                         : 'profile__empty hidden',
             },
+            admin: {
+                className: () =>
+                    this.admins.isSuperAdmin() ? 'profile__admin' : 'profile__admin hidden',
+                onclick: () => this.router.navigate('/admin'),
+            },
             signout: {
                 onclick: async () => {
                     await this.auth.logout();
                     this.svc.clear();
                     this.friends.clear();
+                    this.admins.clear();
                     this.router.navigate('/');
                 },
             },

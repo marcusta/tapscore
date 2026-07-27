@@ -13,6 +13,7 @@ import { createFriendlyRoundsClient } from './api/friendly-rounds.gen';
 import { createDashboardClient } from './api/dashboard.gen';
 import { createSetupClient } from './api/setup.gen';
 import { createCompetitionsClient } from './api/competitions.gen';
+import { createAdminClient } from './api/admin.gen';
 
 export { ApiError } from '@basics/core/client/api-error';
 
@@ -36,4 +37,5 @@ export const api = {
     dashboard: createDashboardClient(API_BASE),
     setup: createSetupClient(API_BASE),
     competitions: createCompetitionsClient(API_BASE),
+    admin: createAdminClient(API_BASE),
 };

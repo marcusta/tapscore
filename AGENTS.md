@@ -65,6 +65,29 @@ presentation vocabulary.
   versions aligned with the released framework. When upgrading `@basics/core`,
   realign these pins, then reinstall and commit `bun.lock`.
 
+## Authorization
+
+Roles live in `role_grants` (`RoleService`) and are enforced at the API edge by
+two small gates, never scattered `if`s:
+
+- `server/api/competition-authz.ts` — owner-or-`competition_admin`, scoped to
+  one competition; gates competition mutations.
+- `server/api/admin-authz.ts` — the unscoped `super_admin` grant; gates every
+  `/api/admin/*` route (`admin.api.ts`), the app's ONLY cross-player read path.
+  Read-only by design: an operator sees rounds/players/activity and administers
+  grants, and nothing else. `GET /api/me/roles` is caller-scoped (session only)
+  so the client can decide whether to show the entry point — presentation, not
+  the gate.
+
+The first `super_admin` is minted with `bun run grant:role` on the box holding
+the DB. There is deliberately no network path to bootstrap one, and no env-var
+auto-grant.
+
+Ordinary rules are unchanged: reads are open, round writes are token-scoped.
+Note that `/api/admin/rounds` returns share tokens — the token is a round's
+write credential, so an operator can act on any round the same way a
+participant can. That is the front door's trust model, not a new privilege.
+
 ## Theme and CSS
 
 **Recipe-first ordering (ADR-005).** In `css` template literals, recipe
@@ -110,6 +133,8 @@ bun run test:scripts     # render/scenario tooling tests
 bun run test             # canonical project suite (asserts not linked, then server + client + scripts)
 bun run test:affected    # only tests reachable from changed files (needs at least one commit)
 bun run generate         # regenerate typed clients using the installed framework generator
+bun run grant:role list  # role grants in the DB (DB_PATH-aware)
+bun run grant:role grant <username> super_admin   # mint an operator
 bun run fw:update [X.Y.Z] # pull a released @basics/core tarball into vendor/ + package.json
 bun run fw:check         # assert @basics/core is not bun-linked (safe to commit)
 bun run seed:formats     # rebuild canonical manual-format fixture DB under tmp/

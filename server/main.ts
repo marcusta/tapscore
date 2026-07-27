@@ -28,6 +28,8 @@ import { createDashboardApi } from './api/dashboard.api';
 import { createSetupApi } from './api/setup.api';
 import { createCompetitionsApi } from './api/competitions.api';
 import { CompetitionAuthz } from './api/competition-authz';
+import { createAdminApi } from './api/admin.api';
+import { AdminAuthz } from './api/admin-authz';
 import { seedDev } from './db/seeds/dev';
 import { registerBuiltInBallCreationStrategies } from './domain/strategies/ball-creation';
 import { registerBuiltInFormats } from './domain/formats';
@@ -67,6 +69,7 @@ const {
     correctionService,
     formatActionService,
     roleService,
+    adminService,
     competitionService,
     competitionRoundService,
     competitionLeaderboardService,
@@ -112,6 +115,7 @@ mount(
         new CompetitionAuthz(roleService, competitionService),
     ),
 );
+mount(app, '/api', createAdminApi(adminService, roleService, new AdminAuthz(roleService)));
 
 // --- Static client ---
 

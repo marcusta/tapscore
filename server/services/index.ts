@@ -8,6 +8,7 @@ import { TeeService } from './tee.service';
 import { GuestPlayerService } from './guest-player.service';
 import { HandicapService } from './handicap.service';
 import { RoleService } from './role.service';
+import { AdminService } from './admin.service';
 import { RoundService, type RoundServiceDeps } from './round.service';
 import { ScoreEventService } from './score-event.service';
 import { ScorecardService } from './scorecard.service';
@@ -102,6 +103,7 @@ export function createServices(db: Kysely<Database>) {
     const teeService = new TeeService(db);
     const guestPlayerService = new GuestPlayerService(db);
     const roleService = new RoleService(db);
+    const adminService = new AdminService(db);
     const roundService = new RoundService(
         db,
         buildRoundServiceDeps(
@@ -209,6 +211,7 @@ export function createServices(db: Kysely<Database>) {
         guestPlayerService,
         handicapService,
         roleService,
+        adminService,
         roundService,
         scoreEventService,
         scorecardService,

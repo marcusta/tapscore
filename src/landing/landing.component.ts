@@ -4,6 +4,7 @@ import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import { t } from '../theme';
 import { s, btn, card } from '../css';
 import { LandingService } from './landing.service';
+import { AdminService } from '../admin/admin.service';
 import { landingRows, type LandingRow } from './rows';
 import { partitionRounds, type Partitioned } from './partition';
 
@@ -45,6 +46,7 @@ const tpl = template(`
         <div bind="empty" class="landing__empty">No rounds yet — create one to tee off.</div>
 
         <button bind="history" class="landing__history" type="button">See all rounds →</button>
+        <button bind="admin" class="landing__admin" type="button">Admin — all rounds</button>
         <button bind="signin" class="landing__signin" type="button">Sign in</button>
         <div bind="confirmHost"></div>
     </div>
@@ -277,6 +279,23 @@ export class LandingComponent extends Component {
                 &.hidden { display: none; }
             }
 
+            /* Operator shortcut, super admins only. Sits under "See all rounds"
+               as its cross-player counterpart; the gate is the server. */
+            & .landing__admin {
+                display: block;
+                margin: ${s('xs')} auto 0;
+                padding: ${s('sm')} ${s('lg')};
+                background: none;
+                border: none;
+                font-family: inherit;
+                font-size: 0.85rem;
+                font-weight: 700;
+                color: ${t('text-muted')};
+                cursor: pointer;
+
+                &.hidden { display: none; }
+            }
+
             & .landing__signin {
                 display: block;
                 &.hidden { display: none; }
@@ -301,6 +320,8 @@ export class LandingComponent extends Component {
 
     private svc = this.inject(LandingService);
     private auth = this.inject(AuthService);
+    // Presentation only; /admin itself is gated server-side.
+    private admins = this.inject(AdminService);
     private router = this.inject(Router);
 
     private loggedIn = new Computed(() => this.auth.currentUser.get() !== null);
@@ -341,8 +362,11 @@ export class LandingComponent extends Component {
     render(): DocumentFragment {
         // Logged in: fetch the dashboard halves. Logged out: read the device
         // recent list from localStorage. Either way the partition is reactive.
-        if (this.loggedIn.get()) void this.svc.loadMine();
-        else this.svc.loadDevice();
+        if (this.loggedIn.get()) {
+            void this.svc.loadMine();
+            // Only for a session — anonymous would just 401 into an empty list.
+            void this.admins.loadRoles();
+        } else this.svc.loadDevice();
 
         const anyRows = () => this.rows.get().length > 0;
 
@@ -355,6 +379,11 @@ export class LandingComponent extends Component {
             history: {
                 className: () => (anyRows() ? 'landing__history' : 'landing__history hidden'),
                 onclick: () => this.router.navigate('/history'),
+            },
+            admin: {
+                className: () =>
+                    this.admins.isSuperAdmin() ? 'landing__admin' : 'landing__admin hidden',
+                onclick: () => this.router.navigate('/admin'),
             },
             newSection: {
                 className: () =>

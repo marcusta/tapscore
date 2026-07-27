@@ -1,4 +1,4 @@
-import{a as x,S as i,r as R,b as G,C as u,e as F,t as g,c as v,R as H,T as B}from"./index-CAZsgPYt.js";function U(o){return{async listTraces(e){const s=new URLSearchParams;for(const[a,r]of Object.entries(e))r!==void 0&&s.set(a,String(r));const t=s.toString();return x({method:"GET",url:`${o}/traces${t?"?"+t:""}`})},async metrics(e){const s=new URLSearchParams;for(const[a,r]of Object.entries(e))r!==void 0&&s.set(a,String(r));const t=s.toString();return x({method:"GET",url:`${o}/metrics${t?"?"+t:""}`})},async analytics(e){const s=new URLSearchParams;for(const[a,r]of Object.entries(e))r!==void 0&&s.set(a,String(r));const t=s.toString();return x({method:"GET",url:`${o}/analytics${t?"?"+t:""}`})}}}const T=U("/api/_obs"),W={"1h":3600*1e3,"6h":360*60*1e3,"24h":1440*60*1e3,"3d":4320*60*1e3};class V{constructor(){this.traces=new i([]),this.loading=new i(!1),this.error=new i(null),this.page=new i(0),this.total=new i(0),this.pageSize=50,this.pathFilter=new i(""),this.statusFilter=new i(null),this.timeRange=new i("1h"),this.expandedId=new i(null)}async load(){const e=new Date(Date.now()-W[this.timeRange.get()]).toISOString(),s={offset:this.page.get()*this.pageSize,limit:this.pageSize,since:e},t=this.pathFilter.get();t&&(s.path=t);const a=this.statusFilter.get();a!=null&&(s.status=a);const r=await R(this.loading,this.error,()=>T.listTraces(s));r&&G(()=>{this.traces.set(r.items),this.total.set(r.total)})}applyFilters(){this.page.set(0),this.load()}nextPage(){const e=Math.ceil(this.total.get()/this.pageSize)-1;this.page.get()<e&&(this.page.update(s=>s+1),this.load())}prevPage(){this.page.get()>0&&(this.page.update(e=>e-1),this.load())}toggleExpanded(e){this.expandedId.set(this.expandedId.get()===e?null:e)}}const Y=g(`
+import{a as x,A as G,S as i,r as R,b as H,C as p,e as L,t as m,c as v,n as B,d as U,R as W,T as Y}from"./index-CPJfdCLn.js";function V(o){return{async listTraces(e){const s=new URLSearchParams;for(const[a,r]of Object.entries(e))r!==void 0&&s.set(a,String(r));const t=s.toString();return x({method:"GET",url:`${o}/traces${t?"?"+t:""}`})},async metrics(e){const s=new URLSearchParams;for(const[a,r]of Object.entries(e))r!==void 0&&s.set(a,String(r));const t=s.toString();return x({method:"GET",url:`${o}/metrics${t?"?"+t:""}`})},async analytics(e){const s=new URLSearchParams;for(const[a,r]of Object.entries(e))r!==void 0&&s.set(a,String(r));const t=s.toString();return x({method:"GET",url:`${o}/analytics${t?"?"+t:""}`})}}}const T=V(`${G}/_obs`),J={"1h":3600*1e3,"6h":360*60*1e3,"24h":1440*60*1e3,"3d":4320*60*1e3};class K{constructor(){this.traces=new i([]),this.loading=new i(!1),this.error=new i(null),this.page=new i(0),this.total=new i(0),this.pageSize=50,this.pathFilter=new i(""),this.statusFilter=new i(null),this.timeRange=new i("1h"),this.expandedId=new i(null)}async load(){const e=new Date(Date.now()-J[this.timeRange.get()]).toISOString(),s={offset:this.page.get()*this.pageSize,limit:this.pageSize,since:e},t=this.pathFilter.get();t&&(s.path=t);const a=this.statusFilter.get();a!=null&&(s.status=a);const r=await R(this.loading,this.error,()=>T.listTraces(s));r&&H(()=>{this.traces.set(r.items),this.total.set(r.total)})}applyFilters(){this.page.set(0),this.load()}nextPage(){const e=Math.ceil(this.total.get()/this.pageSize)-1;this.page.get()<e&&(this.page.update(s=>s+1),this.load())}prevPage(){this.page.get()>0&&(this.page.update(e=>e-1),this.load())}toggleExpanded(e){this.expandedId.set(this.expandedId.get()===e?null:e)}}const Q=m(`
     <div class="obs-trace-list" bind="root">
         <div class="obs-trace-list__filters">
             <input bind="pathInput" type="text" placeholder="Filter by path..." />
@@ -35,7 +35,7 @@ import{a as x,S as i,r as R,b as G,C as u,e as F,t as g,c as v,R as H,T as B}fro
             <button bind="next">Next</button>
         </div>
     </div>
-`),J=g(`
+`),X=m(`
     <tr class="obs-trace-list__row" bind="row">
         <td bind="time"></td>
         <td bind="method"></td>
@@ -43,13 +43,13 @@ import{a as x,S as i,r as R,b as G,C as u,e as F,t as g,c as v,R as H,T as B}fro
         <td bind="status"></td>
         <td bind="duration"></td>
     </tr>
-`),K=g(`
+`),Z=m(`
     <tr class="obs-trace-list__detail">
         <td colspan="5" bind="detail"></td>
     </tr>
-`);function Q(o){return o>=500?"obs-status--5xx":o>=400?"obs-status--4xx":"obs-status--2xx"}function X(o){return new Date(o).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}const $=class $ extends u{constructor(){super(...arguments),this.svc=this.inject(V)}render(){const e=this.wire(Y,{root:{inert:()=>this.svc.loading.get()},pathInput:{oninput:t=>this.svc.pathFilter.set(t.target.value)},statusSelect:{onchange:t=>{const a=t.target.value;this.svc.statusFilter.set(a?Number(a):null)}},rangeSelect:{onchange:t=>{this.svc.timeRange.set(t.target.value)}},apply:{onclick:()=>this.svc.applyFilters()},error:{className:()=>this.svc.error.get()?"obs-error show":"obs-error",textContent:()=>this.svc.error.get()?.message??""},prev:{onclick:()=>this.svc.prevPage(),disabled:()=>this.svc.page.get()===0},pageInfo:()=>{const t=this.svc.total.get(),a=Math.max(1,Math.ceil(t/this.svc.pageSize));return`${this.svc.page.get()+1} / ${a} (${t} traces)`},next:{onclick:()=>this.svc.nextPage(),disabled:()=>this.svc.page.get()>=Math.ceil(this.svc.total.get()/this.svc.pageSize)-1}}),s=this.ref(e,"tbody");return this.$each(s,this.svc.traces,(t,a,r)=>{const n=document.createElement("tbody"),h=this.wireEl(J,{row:{onclick:()=>this.svc.toggleExpanded(t.traceId)},time:()=>X(t.timestamp),method:()=>t.method,path:()=>t.path,status:{textContent:()=>String(t.status),className:()=>Q(t.status)},duration:()=>`${t.durationMs.toFixed(1)}ms`},r);n.appendChild(h);const d=this.wireEl(K,{detail:()=>`Trace ID: ${t.traceId}
+`);function tt(o){return o>=500?"obs-status--5xx":o>=400?"obs-status--4xx":"obs-status--2xx"}function et(o){return new Date(o).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}const A=class A extends p{constructor(){super(...arguments),this.svc=this.inject(K)}render(){const e=this.wire(Q,{root:{inert:()=>this.svc.loading.get()},pathInput:{oninput:t=>this.svc.pathFilter.set(t.target.value)},statusSelect:{onchange:t=>{const a=t.target.value;this.svc.statusFilter.set(a?Number(a):null)}},rangeSelect:{onchange:t=>{this.svc.timeRange.set(t.target.value)}},apply:{onclick:()=>this.svc.applyFilters()},error:{className:()=>this.svc.error.get()?"obs-error show":"obs-error",textContent:()=>this.svc.error.get()?.message??""},prev:{onclick:()=>this.svc.prevPage(),disabled:()=>this.svc.page.get()===0},pageInfo:()=>{const t=this.svc.total.get(),a=Math.max(1,Math.ceil(t/this.svc.pageSize));return`${this.svc.page.get()+1} / ${a} (${t} traces)`},next:{onclick:()=>this.svc.nextPage(),disabled:()=>this.svc.page.get()>=Math.ceil(this.svc.total.get()/this.svc.pageSize)-1}}),s=this.ref(e,"tbody");return this.$each(s,this.svc.traces,(t,a,r)=>{const n=document.createElement("tbody"),h=this.wireEl(X,{row:{onclick:()=>this.svc.toggleExpanded(t.traceId)},time:()=>et(t.timestamp),method:()=>t.method,path:()=>t.path,status:{textContent:()=>String(t.status),className:()=>tt(t.status)},duration:()=>`${t.durationMs.toFixed(1)}ms`},r);n.appendChild(h);const d=this.wireEl(Z,{detail:()=>`Trace ID: ${t.traceId}
 User: ${t.userId??"anonymous"}
-Timestamp: ${t.timestamp}`},r);return d.style.display="none",n.appendChild(d),r(F(()=>{d.style.display=this.svc.expandedId.get()===t.traceId?"":"none"})),n},t=>t.traceId),e}onMount(){this.svc.load()}};$.styles=`
+Timestamp: ${t.timestamp}`},r);return d.style.display="none",n.appendChild(d),r(L(()=>{d.style.display=this.svc.expandedId.get()===t.traceId?"":"none"})),n},t=>t.traceId),e}onMount(){this.svc.load()}};A.styles=`
         .obs-trace-list {
             &[inert] { opacity: 0.6; }
 
@@ -136,9 +136,19 @@ Timestamp: ${t.timestamp}`},r);return d.style.display="none",n.appendChild(d),r(
                 white-space: pre-wrap;
             }
 
-            & .obs-status--2xx { color: var(--primary); font-weight: 600; }
-            & .obs-status--4xx { color: var(--accent); font-weight: 600; }
-            & .obs-status--5xx { color: var(--error); font-weight: 600; }
+            /*
+             * One semantic tone per status class. These used to be --primary
+             * (2xx) and --accent (4xx), which rendered IDENTICALLY: obs supplies
+             * its own tokens from default-theme's neutral palette, where the two
+             * names have always resolved to the same blue — first because both
+             * were literally #4263eb, and now because the compat alias defines
+             * primary as var(--accent). A 4xx was therefore indistinguishable
+             * from a 2xx at a glance, which is the one thing this column exists
+             * to show.
+             */
+            & .obs-status--2xx { color: var(--success); font-weight: 600; }
+            & .obs-status--4xx { color: var(--warning); font-weight: 600; }
+            & .obs-status--5xx { color: var(--danger); font-weight: 600; }
 
             & .obs-trace-list__pagination {
                 display: flex;
@@ -166,7 +176,7 @@ Timestamp: ${t.timestamp}`},r);return d.style.display="none",n.appendChild(d),r(
                 }
             }
         }
-    `;let w=$;const Z={"1h":3600*1e3,"6h":360*60*1e3,"24h":1440*60*1e3,"7d":10080*60*1e3};class tt{constructor(){this.metrics=new i([]),this.loading=new i(!1),this.error=new i(null),this.timeRange=new i("1h"),this.requestRateData=new v(()=>this.toPoints(e=>e.requests)),this.errorRateData=new v(()=>this.toPoints(e=>e.errors)),this.latencyP50Data=new v(()=>this.toPoints(e=>e.p50Ms)),this.latencyP95Data=new v(()=>this.toPoints(e=>e.p95Ms))}async load(){const e=Date.now(),s=new Date(e-Z[this.timeRange.get()]).toISOString(),t=new Date(e).toISOString(),a=await R(this.loading,this.error,()=>T.metrics({since:s,until:t}));a&&this.metrics.set(a)}toPoints(e){const s=this.metrics.get();if(s.length===0)return[];const t=new Date(s[0].timestamp).getTime(),r=new Date(s[s.length-1].timestamp).getTime()-t||1;return s.map(n=>({x:(new Date(n.timestamp).getTime()-t)/r*100,y:e(n),label:n.timestamp}))}}const et=g(`
+    `;let y=A;const st={"1h":3600*1e3,"6h":360*60*1e3,"24h":1440*60*1e3,"7d":10080*60*1e3};class rt{constructor(){this.metrics=new i([]),this.loading=new i(!1),this.error=new i(null),this.timeRange=new i("1h"),this.requestRateData=new v(()=>this.toPoints(e=>e.requests)),this.errorRateData=new v(()=>this.toPoints(e=>e.errors)),this.latencyP50Data=new v(()=>this.toPoints(e=>e.p50Ms)),this.latencyP95Data=new v(()=>this.toPoints(e=>e.p95Ms))}async load(){const e=Date.now(),s=new Date(e-st[this.timeRange.get()]).toISOString(),t=new Date(e).toISOString(),a=await R(this.loading,this.error,()=>T.metrics({since:s,until:t}));a&&this.metrics.set(a)}toPoints(e){const s=this.metrics.get();if(s.length===0)return[];const t=new Date(s[0].timestamp).getTime(),r=new Date(s[s.length-1].timestamp).getTime()-t||1;return s.map(n=>({x:(new Date(n.timestamp).getTime()-t)/r*100,y:e(n),label:n.timestamp}))}}const at=m(`
     <div class="obs-metrics" bind="root">
         <div class="obs-metrics__controls">
             <button bind="r1h">1h</button>
@@ -178,7 +188,7 @@ Timestamp: ${t.timestamp}`},r);return d.style.display="none",n.appendChild(d),r(
         <div bind="charts" class="obs-metrics__charts"></div>
         <div bind="empty" class="obs-metrics__empty">No metrics data for this time range.</div>
     </div>
-`),f=600,P=120,l={top:20,right:10,bottom:25,left:50};function y(o,e,s,t,a){const r=document.createElementNS("http://www.w3.org/2000/svg","svg");r.setAttribute("viewBox",`0 0 ${f} ${P}`),r.setAttribute("class","obs-metrics__chart");const n=f-l.left-l.right,h=P-l.top-l.bottom,d=document.createElementNS("http://www.w3.org/2000/svg","text");if(d.setAttribute("x",String(l.left)),d.setAttribute("y","14"),d.setAttribute("class","chart-title"),d.textContent=o,r.appendChild(d),e.length===0)return r;const L=t?[...e,...t]:e,E=Math.max(...L.map(b=>b.y),1);for(let b=0;b<=4;b++){const m=l.top+h-h*b/4,c=document.createElementNS("http://www.w3.org/2000/svg","line");c.setAttribute("x1",String(l.left)),c.setAttribute("y1",String(m)),c.setAttribute("x2",String(f-l.right)),c.setAttribute("y2",String(m)),c.setAttribute("class","grid-line"),r.appendChild(c);const p=document.createElementNS("http://www.w3.org/2000/svg","text");p.setAttribute("x",String(l.left-5)),p.setAttribute("y",String(m+4)),p.setAttribute("class","axis-label"),p.textContent=String(Math.round(E*b/4)),r.appendChild(p)}function C(b,m){const c=document.createElementNS("http://www.w3.org/2000/svg","polyline"),p=b.map(M=>{const q=l.left+M.x/100*n,O=l.top+h-M.y/E*h;return`${q},${O}`}).join(" ");return c.setAttribute("points",p),c.setAttribute("fill","none"),c.setAttribute("stroke",m),c.setAttribute("stroke-width","2"),c}return r.appendChild(C(e,s)),t&&a&&r.appendChild(C(t,a)),r}const N=class N extends u{constructor(){super(...arguments),this.svc=this.inject(tt)}render(){const e=this.wire(et,{root:{inert:()=>this.svc.loading.get()},r1h:{onclick:()=>{this.svc.timeRange.set("1h"),this.svc.load()},className:()=>this.svc.timeRange.get()==="1h"?"active":""},r6h:{onclick:()=>{this.svc.timeRange.set("6h"),this.svc.load()},className:()=>this.svc.timeRange.get()==="6h"?"active":""},r24h:{onclick:()=>{this.svc.timeRange.set("24h"),this.svc.load()},className:()=>this.svc.timeRange.get()==="24h"?"active":""},r7d:{onclick:()=>{this.svc.timeRange.set("7d"),this.svc.load()},className:()=>this.svc.timeRange.get()==="7d"?"active":""},error:{className:()=>this.svc.error.get()?"obs-error show":"obs-error",textContent:()=>this.svc.error.get()?.message??""},empty:{className:()=>this.svc.metrics.get().length===0&&!this.svc.loading.get()?"obs-metrics__empty show":"obs-metrics__empty"}}),s=this.ref(e,"charts");return this.track(F(()=>{s.textContent="",this.svc.metrics.get().length!==0&&(s.appendChild(y("Requests / min",this.svc.requestRateData.get(),"var(--primary)")),s.appendChild(y("Errors / min",this.svc.errorRateData.get(),"var(--error)")),s.appendChild(y("Latency (ms)",this.svc.latencyP50Data.get(),"var(--primary)",this.svc.latencyP95Data.get(),"var(--accent)")))})),e}onMount(){this.svc.load()}};N.styles=`
+`),f=600,P=120,l={top:20,right:10,bottom:25,left:50};function w(o,e,s,t,a){const r=document.createElementNS("http://www.w3.org/2000/svg","svg");r.setAttribute("viewBox",`0 0 ${f} ${P}`),r.setAttribute("class","obs-metrics__chart");const n=f-l.left-l.right,h=P-l.top-l.bottom,d=document.createElementNS("http://www.w3.org/2000/svg","text");if(d.setAttribute("x",String(l.left)),d.setAttribute("y","14"),d.setAttribute("class","chart-title"),d.textContent=o,r.appendChild(d),e.length===0)return r;const F=t?[...e,...t]:e,E=Math.max(...F.map(b=>b.y),1);for(let b=0;b<=4;b++){const u=l.top+h-h*b/4,c=document.createElementNS("http://www.w3.org/2000/svg","line");c.setAttribute("x1",String(l.left)),c.setAttribute("y1",String(u)),c.setAttribute("x2",String(f-l.right)),c.setAttribute("y2",String(u)),c.setAttribute("class","grid-line"),r.appendChild(c);const g=document.createElementNS("http://www.w3.org/2000/svg","text");g.setAttribute("x",String(l.left-5)),g.setAttribute("y",String(u+4)),g.setAttribute("class","axis-label"),g.textContent=String(Math.round(E*b/4)),r.appendChild(g)}function C(b,u){const c=document.createElementNS("http://www.w3.org/2000/svg","polyline"),g=b.map(I=>{const q=l.left+I.x/100*n,O=l.top+h-I.y/E*h;return`${q},${O}`}).join(" ");return c.setAttribute("points",g),c.setAttribute("fill","none"),c.setAttribute("stroke",u),c.setAttribute("stroke-width","2"),c}return r.appendChild(C(e,s)),t&&a&&r.appendChild(C(t,a)),r}const $=class $ extends p{constructor(){super(...arguments),this.svc=this.inject(rt)}render(){const e=this.wire(at,{root:{inert:()=>this.svc.loading.get()},r1h:{onclick:()=>{this.svc.timeRange.set("1h"),this.svc.load()},className:()=>this.svc.timeRange.get()==="1h"?"active":""},r6h:{onclick:()=>{this.svc.timeRange.set("6h"),this.svc.load()},className:()=>this.svc.timeRange.get()==="6h"?"active":""},r24h:{onclick:()=>{this.svc.timeRange.set("24h"),this.svc.load()},className:()=>this.svc.timeRange.get()==="24h"?"active":""},r7d:{onclick:()=>{this.svc.timeRange.set("7d"),this.svc.load()},className:()=>this.svc.timeRange.get()==="7d"?"active":""},error:{className:()=>this.svc.error.get()?"obs-error show":"obs-error",textContent:()=>this.svc.error.get()?.message??""},empty:{className:()=>this.svc.metrics.get().length===0&&!this.svc.loading.get()?"obs-metrics__empty show":"obs-metrics__empty"}}),s=this.ref(e,"charts");return this.track(L(()=>{s.textContent="",this.svc.metrics.get().length!==0&&(s.appendChild(w("Requests / min",this.svc.requestRateData.get(),"var(--primary)")),s.appendChild(w("Errors / min",this.svc.errorRateData.get(),"var(--error)")),s.appendChild(w("Latency (ms)",this.svc.latencyP50Data.get(),"var(--primary)",this.svc.latencyP95Data.get(),"var(--warning)")))})),e}onMount(){this.svc.load()}};$.styles=`
         .obs-metrics {
             &[inert] { opacity: 0.6; }
 
@@ -250,7 +260,7 @@ Timestamp: ${t.timestamp}`},r);return d.style.display="none",n.appendChild(d),r(
                 }
             }
         }
-    `;let _=N;const st={"24h":1440*60*1e3,"7d":10080*60*1e3,"30d":720*60*60*1e3};class rt{constructor(){this.events=new i([]),this.loading=new i(!1),this.error=new i(null),this.timeRange=new i("24h")}async load(){const e=new Date(Date.now()-st[this.timeRange.get()]).toISOString(),s=await R(this.loading,this.error,()=>T.analytics({since:e,topN:50}));s&&this.events.set(s)}}const at=g(`
+    `;let _=$;const it={"24h":1440*60*1e3,"7d":10080*60*1e3,"30d":720*60*60*1e3};class ot{constructor(){this.events=new i([]),this.loading=new i(!1),this.error=new i(null),this.timeRange=new i("24h")}async load(){const e=new Date(Date.now()-it[this.timeRange.get()]).toISOString(),s=await R(this.loading,this.error,()=>T.analytics({since:e,topN:50}));s&&this.events.set(s)}}const nt=m(`
     <div class="obs-analytics" bind="root">
         <div class="obs-analytics__controls">
             <button bind="r24h">24h</button>
@@ -271,14 +281,14 @@ Timestamp: ${t.timestamp}`},r);return d.style.display="none",n.appendChild(d),r(
         </table>
         <div bind="empty" class="obs-analytics__empty">No analytics data for this time range.</div>
     </div>
-`),it=g(`
+`),ct=m(`
     <tr>
         <td bind="rank" class="rank-col"></td>
         <td bind="event"></td>
         <td bind="count" class="count-col"></td>
         <td class="bar-col"><div bind="bar" class="obs-analytics__bar"></div></td>
     </tr>
-`),A=class A extends u{constructor(){super(...arguments),this.svc=this.inject(rt)}render(){const e=this.wire(at,{root:{inert:()=>this.svc.loading.get()},r24h:{onclick:()=>{this.svc.timeRange.set("24h"),this.svc.load()},className:()=>this.svc.timeRange.get()==="24h"?"active":""},r7d:{onclick:()=>{this.svc.timeRange.set("7d"),this.svc.load()},className:()=>this.svc.timeRange.get()==="7d"?"active":""},r30d:{onclick:()=>{this.svc.timeRange.set("30d"),this.svc.load()},className:()=>this.svc.timeRange.get()==="30d"?"active":""},error:{className:()=>this.svc.error.get()?"obs-error show":"obs-error",textContent:()=>this.svc.error.get()?.message??""},empty:{className:()=>this.svc.events.get().length===0&&!this.svc.loading.get()?"obs-analytics__empty show":"obs-analytics__empty"}}),s=this.ref(e,"tbody");return this.$each(s,this.svc.events,(t,a,r)=>{const n=this.svc.events.get()[0]?.count??1;return this.wireEl(it,{rank:()=>String(a+1),event:()=>t.event,count:()=>String(t.count),bar:{style:()=>`width: ${Math.round(t.count/n*100)}%`}},r)},t=>t.event),e}onMount(){this.svc.load()}};A.styles=`
+`),N=class N extends p{constructor(){super(...arguments),this.svc=this.inject(ot)}render(){const e=this.wire(nt,{root:{inert:()=>this.svc.loading.get()},r24h:{onclick:()=>{this.svc.timeRange.set("24h"),this.svc.load()},className:()=>this.svc.timeRange.get()==="24h"?"active":""},r7d:{onclick:()=>{this.svc.timeRange.set("7d"),this.svc.load()},className:()=>this.svc.timeRange.get()==="7d"?"active":""},r30d:{onclick:()=>{this.svc.timeRange.set("30d"),this.svc.load()},className:()=>this.svc.timeRange.get()==="30d"?"active":""},error:{className:()=>this.svc.error.get()?"obs-error show":"obs-error",textContent:()=>this.svc.error.get()?.message??""},empty:{className:()=>this.svc.events.get().length===0&&!this.svc.loading.get()?"obs-analytics__empty show":"obs-analytics__empty"}}),s=this.ref(e,"tbody");return this.$each(s,this.svc.events,(t,a,r)=>{const n=this.svc.events.get()[0]?.count??1;return this.wireEl(ct,{rank:()=>String(a+1),event:()=>t.event,count:()=>String(t.count),bar:{style:()=>`width: ${Math.round(t.count/n*100)}%`}},r)},t=>t.event),e}onMount(){this.svc.load()}};N.styles=`
         .obs-analytics {
             &[inert] { opacity: 0.6; }
 
@@ -352,7 +362,7 @@ Timestamp: ${t.timestamp}`},r);return d.style.display="none",n.appendChild(d),r(
             }
             & .obs-analytics__empty.show { display: block; }
         }
-    `;let k=A;const ot=g(`
+    `;let k=N;const dt=m(`
     <div class="obs-dashboard">
         <div class="obs-dashboard__tabs">
             <button bind="tabTraces">Traces</button>
@@ -361,7 +371,7 @@ Timestamp: ${t.timestamp}`},r);return d.style.display="none",n.appendChild(d),r(
         </div>
         <div bind="content" class="obs-dashboard__content"></div>
     </div>
-`),z=class z extends u{constructor(){super(...arguments),this.activeTab=new i("traces")}render(){const e=this.wire(ot,{tabTraces:{onclick:()=>this.activeTab.set("traces"),className:()=>this.activeTab.get()==="traces"?"active":""},tabMetrics:{onclick:()=>this.activeTab.set("metrics"),className:()=>this.activeTab.get()==="metrics"?"active":""},tabAnalytics:{onclick:()=>this.activeTab.set("analytics"),className:()=>this.activeTab.get()==="analytics"?"active":""}});return this.$swap(this.ref(e,"content"),this.activeTab,{traces:w,metrics:_,analytics:k}),e}};z.styles=`
+`),z=class z extends p{constructor(){super(...arguments),this.activeTab=new i("traces")}render(){const e=this.wire(dt,{tabTraces:{onclick:()=>this.activeTab.set("traces"),className:()=>this.activeTab.get()==="traces"?"active":""},tabMetrics:{onclick:()=>this.activeTab.set("metrics"),className:()=>this.activeTab.get()==="metrics"?"active":""},tabAnalytics:{onclick:()=>this.activeTab.set("analytics"),className:()=>this.activeTab.get()==="analytics"?"active":""}});return this.$swap(this.ref(e,"content"),this.activeTab,{traces:y,metrics:_,analytics:k}),e}};z.styles=`
         .obs-dashboard {
             & .obs-dashboard__tabs {
                 display: flex;
@@ -394,7 +404,7 @@ Timestamp: ${t.timestamp}`},r);return d.style.display="none",n.appendChild(d),r(
                 min-height: 200px;
             }
         }
-    `;let S=z;const nt={bg:"#f8f9fa",surface:"#f1f3f5",primary:"#4263eb","primary-text":"#f8f9fa","btn-bg":"#e9ecef","btn-hover":"#dee2e6",text:"#212529","text-muted":"#868e96",border:"#ced4da","topbar-bg":"#343a40","topbar-logo":"rgba(248, 249, 250, 0.55)","active-bg":"#4263eb","active-text":"#f8f9fa","hover-bg":"#e9ecef","input-bg":"#ffffff",accent:"#4263eb",error:"#c92a2a",radius:"8px","radius-pill":"20px","radius-sm":"4px","done-opacity":"0.4",shadow:"0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)","shadow-elevated":"0 4px 6px rgba(0,0,0,0.06), 0 16px 32px rgba(0,0,0,0.08)"},ct={bg:"#1a1b1e",surface:"#25262b",primary:"#748ffc","primary-text":"#1a1b1e","btn-bg":"#2c2e33","btn-hover":"#373a40",text:"#c1c2c5","text-muted":"#909296",border:"#373a40","topbar-bg":"#141517","topbar-logo":"rgba(193, 194, 197, 0.45)","active-bg":"#4263eb","active-text":"#c1c2c5","hover-bg":"#2c2e33","input-bg":"#25262b",accent:"#748ffc",error:"#ff8787",radius:"8px","radius-pill":"20px","radius-sm":"4px","done-opacity":"0.35",shadow:"0 1px 3px rgba(0,0,0,0.2), 0 4px 12px rgba(0,0,0,0.15)","shadow-elevated":"0 4px 6px rgba(0,0,0,0.15), 0 16px 32px rgba(0,0,0,0.2)"};let I=!1;function dt(o,e){if(I)return;I=!0;const s={...nt,...o},t={...ct,...e},a=n=>Object.entries(n).map(([h,d])=>`--${h}:${d}`).join(";"),r=document.createElement("style");r.textContent=`@scope ([data-theme="light"] .obs-shell) { :scope { ${a(s)} } }@scope ([data-theme="dark"] .obs-shell) { :scope { ${a(t)} } }`,document.head.appendChild(r)}dt();const lt=g(`
+    `;let S=z,M=!1;function lt(o,e){if(M)return;M=!0;const s={...B,...o},t={...U,...e},a=n=>Object.entries(n).map(([h,d])=>`--${h}:${d}`).join(";"),r=document.createElement("style");r.textContent=`@scope ([data-theme="light"] .obs-shell) { :scope { ${a(s)} } }@scope ([data-theme="dark"] .obs-shell) { :scope { ${a(t)} } }`,document.head.appendChild(r)}lt();const ht=m(`
     <div class="obs-shell">
         <header class="obs-shell__header">
             <a bind="back" href="/">&larr; Back to app</a>
@@ -403,7 +413,7 @@ Timestamp: ${t.timestamp}`},r);return d.style.display="none",n.appendChild(d),r(
         </header>
         <div bind="content" class="obs-shell__content"></div>
     </div>
-`),D=class D extends u{constructor(){super(...arguments),this.router=this.inject(H),this.theme=this.inject(B)}render(){const e=this.wire(lt,{back:{onclick:s=>{s.preventDefault(),this.router.navigate("/")}},theme:{onclick:()=>this.theme.toggle(),textContent:()=>this.theme.dark.get()?"☀ Light":"☾ Dark"}});return this.spawn(S,this.ref(e,"content")),e}};D.styles=`
+`),D=class D extends p{constructor(){super(...arguments),this.router=this.inject(W),this.theme=this.inject(Y)}render(){const e=this.wire(ht,{back:{onclick:s=>{s.preventDefault(),this.router.navigate("/")}},theme:{onclick:()=>this.theme.toggle(),textContent:()=>this.theme.dark.get()?"☀ Light":"☾ Dark"}});return this.spawn(S,this.ref(e,"content")),e}};D.styles=`
         .obs-shell {
             min-height: 100vh;
             background: var(--bg);
