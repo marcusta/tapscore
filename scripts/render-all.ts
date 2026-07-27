@@ -11,6 +11,15 @@ import { createDb } from '@basics/core/server/db';
 import { runMigrations } from '@basics/core/server/migrate';
 import type { Database } from '../server/db/schema';
 import { createServices } from '../server/services/index';
+import { registerBuiltInBallCreationStrategies } from '../server/domain/strategies/ball-creation';
+import { registerBuiltInFormats } from '../server/domain/formats';
+import { registerBuiltInAggregationStrategies } from '../server/domain/aggregation';
+
+// Registration is explicit (main.ts does the same); without it every
+// leaderboard read dies on `no format plugin registered`.
+registerBuiltInBallCreationStrategies();
+registerBuiltInFormats();
+registerBuiltInAggregationStrategies();
 import {
     collectRoundContext,
     renderRoundHtml,
