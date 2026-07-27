@@ -1294,6 +1294,14 @@ Client: series page (teams, competitions, running team score), captain lineup ed
 - Server-side coalescing (~500 ms debounce per round channel).
 - Replaces the Phase 3.5 polling; the persistent pending-event queue from 2.7c becomes the offline write path feeding reconnect flush.
 
+**Scoping amendment (2026-07-26).** Two things previously bundled here are now explicitly sequenced and separated:
+
+- **Slice 9a — SSE only, no WebSocket, no APNs.** Ship the server→client half first: `GET /friendly-rounds/:token/events?since=<eventId>` as `text/event-stream`, emitting `{ latestEventId }` and letting the client refetch through the existing result path. Scores continue to travel *up* over ordinary POST, so the transport only ever needs one direction; SSE brings auto-reconnect (`Last-Event-ID`) for free, which matters more than usual on course wifi. This is a near-one-line swap at `src/round/round.component.ts:481` — the `setInterval` gated by `shouldPoll()` becomes an SSE trigger — and leaves the whole presenter pipeline untouched. Delta payloads (aggregated leaderboard diffs rather than a refetch) are a later optimisation, not part of 9a.
+- **Slice 9b — channels, coalescing, deltas.** The §11 subscription granularity and ~500 ms debounce, once 9a proves the transport.
+- **APNs/FCM is NOT in Phase 9.** Spec §11 names it; it needs a server-side device record holding a push token, an Apple developer setup, and a product decision about what justifies interrupting someone mid-round. Deferred until after the native track ships, and tracked there.
+
+**Native note:** iOS suspends the app on background and the SSE connection dies with it. Recovery on foreground is "reconnect with the stored cursor and refetch" — the same code path as initial load, but only if the cursor is *persisted* rather than held in memory. `resultCursor` is currently a private in-memory field on `src/round/round.service.ts`; 9a should move it to durable storage alongside the pending queue.
+
 **Gate:** two phones on one round see each other's scores without manual refresh; airplane-mode entry flushes on reconnect; battery-honest (no background keep-alive). Commit `phase 9 complete: real-time`.
 
 ---
@@ -1308,3 +1316,69 @@ Client: series page (teams, competitions, running team score), captain lineup ed
 - Admin tooling polish: score-correction UI over the typed-event endpoints from 2.6d.
 
 Plan the detailed slices at phase start per the standing rule, including the HTML render plan and seeds.
+
+---
+
+## Native track (N1–N4) — added 2026-07-26
+
+**Parallel to Phases 5–10, not inserted into them.** Nothing here blocks the 5→10 sequence and the sequence does not block it; N1/N2 are server work usable by the web client on their own. Pull forward by renumbering only if the native client becomes the priority — the "top-to-bottom, stop at the gates" rule in `AGENTS.md` applies *within* this track, not across the two.
+
+Design decisions are locked in [ADR-0005](docs/adr/0005-identity-credentials-and-native-auth.md): identity is one `players` row, auth methods are `player_credentials` rows, iOS is logged-in only, web keeps its anonymous FriendlyRound path.
+
+### N1 — Credentials split (server only)
+
+Do this first. It is small, entirely local, needs no Apple developer account, and it is the one item that gets materially more expensive to retrofit: after sign-up and OAuth exist, the same change is a migration over live credentials.
+
+- Migration: create `player_credentials(player_id, provider, subject, password_hash NULL, created_at)` + `UNIQUE(provider, subject)`; backfill every player as `provider='password'`; assert no player ends credential-less; drop `players.password_hash`. `username` stays on `players` — it is a public handle (friend search returns it), not a credential.
+- `playerService.verify()` resolves through the credential row. The framework's `createAuthApi({ verify, sessions })` contract is unchanged.
+- **Migration-tombstone hazard**: dev DBs need the `kysely_migration` ledger patched, not deleted.
+
+**Gate:** seeded players log in unchanged after the backfill; unique constraint rejects duplicate subjects; cascade delete verified. Visual gate: not applicable (no rendered surface). Commit `N1 complete: credentials split`.
+
+### N2 — Sign-up, Sign in with Apple, bearer sessions
+
+- `POST /auth/signup` (password, web) and `POST /auth/apple` (verify Apple identity token → upsert `provider='apple'` credential → issue session). Both join the existing per-username rate-limit map.
+- Framework change in `@basics/core`: accept a bearer token alongside the cookie in the session-reading middleware, plus a token-returning issue path beside `issueSessionCookie`. Session minting already sits behind `sessions.create(userId)` — one `SessionStore`, two deliveries, never two session systems. Refresh the vendored snapshot via `bun run vendor:basics`.
+- Apple returns name/email **only on first authorization** — persist `display_name` on that callback or it is unrecoverable.
+- Web signup form. The anonymous path is untouched.
+
+**Gate:** password and Apple credentials on one player resolve to the same `players.id`; a replayed Apple callback without name fields does not clobber `display_name`; cookie and bearer sessions resolve identically. Commit `N2 complete: signup + SIWA + bearer sessions`.
+
+### N3 — Result contract as a platform-neutral view tree
+
+Independent of N1/N2 and of the native client — this is the largest single win in the client architecture and it gets worse once a second client exists.
+
+Today the server computes everything correctly (`SlotResultView`, ADR-0001..0004, `docs/scorecard-presentation.md`) and then `src/round/result-render.ts` concatenates **HTML strings** — 461 lines that hold real derived logic (route-section column grouping, subtotals, TOT column, pace cells) and cannot be reused by any non-DOM client. `scripts/render/sections/result.ts` (361 lines) is a second, hand-synced emitter of the same shapes; its own header says it mirrors the oracle "EXACTLY in shape". A native client makes that three.
+
+- Insert one platform-neutral layout model between `SlotResultView` and rendering. Web renderer, native renderer and the static oracle become thin adapters over one shared fold.
+- Move the **marker → visual** mapping into the contract or a shared token table. It currently lives only in `.lb-mark--*` CSS inside `src/round/leaderboard.component.ts`, with the meaning in a markdown table — three unconnected places that must agree, four once native exists.
+- Have the compiler send the format index on diagnostics; delete the regex path-parsing in `src/create/diagnostics.ts` (`slots[slot-3].teamGrouping` → 3), which reverse-engineers a server-internal identifier format client-side.
+
+**Gate:** the fixture oracle renders byte-identical through the new fold; `result-render.ts` and `scripts/render/sections/result.ts` no longer duplicate grouping/subtotal logic. Visual review against the canonical format fixtures. Commit `N3 complete: result view tree`.
+
+### N4 — iOS client
+
+Only after N1–N3. Requires N2 (auth) and benefits enormously from N3 (no scoring or layout logic to re-derive).
+
+- Check whether `vendor/basics-core/generate-api.ts` can emit Swift before hand-writing any client — it already produces the 18 typed clients under `src/api/`, and a shared generator is the only thing that keeps two clients from drifting.
+- Re-implement, do not port: all `.component.ts` files, the ~2600 lines of `static styles`, `template()`/`bind=` wiring, and the three `localStorage` modules.
+- Carry across as *specs with tests attached*, not code: the pure modules (`partition.ts`, `my-rounds.ts`, `poll-gate.ts`, `friend-sort.ts`, `hcp-input.ts`, `diagnostics.ts`).
+- **Extract score entry's advance policy first.** `src/round/score-entry.component.ts` (1116 lines) mixes keypad, pointer-drag carousel physics, meta chips, and genuine domain logic (`advance()`, `holeCompleteOnEntry`, `noteHoleEntered`). The carousel is free on iOS; the advance policy is not. Pull it out as a pure state machine so both clients share one spec.
+- Risk to design for: **the share link.** A friend taps a round link mid-round, installs, and hits a sign-up wall before scoring. This is survivable only because SIWA makes it ~two taps — measure it.
+
+**Gate:** a round created on web is scored on iOS against the same leaderboard; sign-up from a cold share-link tap reaches score entry in under 30 seconds. Commit `N4 complete: iOS client`.
+
+---
+
+## Web-client debt (independent of the native track)
+
+Findings from the 2026-07-26 client review that are **not** port-blocking and have no dependency on the native track. Priority is independent of the iOS decision; they get worse only as the web client grows.
+
+- **Framework disposal scope.** `src/create/create.component.ts` reimplements `$each` as `eachInto` (~100 lines) because the framework's `$each` self-tracks at component scope and leaks when nested; `mountSelect` exists because `spawn` self-tracks; `bound` exists because `SelectComponent` takes a value `Signal` instead of a change callback, with a `queueMicrotask` hack to break the resulting effect loop. Three workarounds for one missing concept — a disposal scope. Same root cause as the `$swap` field-init refetch footgun. Fix in `@basics/core`, then delete all three.
+- **landing ↔ history are a fork.** Same `round-row` template, trash SVG, empty state and delete flow; `history.component.ts` imports `STATUS_TEXT` *from another component*, and `competition-rounds.component.ts` defines it a third time. One `RoundListModel` + one list component.
+- **Three identical `localStorage` wrappers** (`seen-rounds.ts`, `device-rounds.ts`, `friend-sort-pref.ts`) — same interface, same `defaultStorage()` try/catch, same JSON guard. One `deviceStore<T>(key, codec, cap?)`.
+- **Two hand-synced setup mappings.** `setup.service.ts` builds the draft, `draft-to-forms.ts` inverts it, guarded by a 28-line comment about def-id/guest-id stability. Drift silently orphans scored balls. Make the draft the edit model and derive form state from it.
+- **Services are signal-bags.** `SetupService` exposes ~20 public `Signal`s; `CompetitionDetailService` exposes 20 draft signals. Interface ≈ implementation, so components drive fields instead of expressing intent. Move to intent methods plus one `Computed` view model per screen.
+- **Five predicates over one leaked shape.** `format-catalog.service.ts`'s `classify`/`classifyId`/`needsTeams`/`isSideFormat`/`acceptsSideSubjects` each re-read descriptor internals. One `capabilitiesOf(id) → FormatCapabilities`.
+- **`ConfirmComponent` doesn't own Escape**, so landing, history and round each hand-roll a `window` keydown listener.
+- **Zero tests under `src/`** (39 live in `tests/`), and coverage sits on the pure modules — the component layer is untested.
