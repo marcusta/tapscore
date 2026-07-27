@@ -38,6 +38,20 @@ final class AppEnvironment {
     let keychain: Keychain
     let scenePhase: ScenePhaseCoordinator
 
+    /// This device's recent-rounds list — **one shared instance**, deliberately.
+    ///
+    /// Two writers need it and they are on opposite sides of the shell/feature
+    /// boundary: the shell records a sighting the moment it pushes the round
+    /// screen (`RootView.open(round:)`), and `RoundStore` enriches that row once
+    /// `byToken` has resolved the course name and status, and again whenever the
+    /// status moves under it. `DeviceRoundsStore` is a thin façade over
+    /// `UserDefaults`, so two instances would not *corrupt* anything — they
+    /// would read the same key — but the instance is the natural place for a
+    /// cache or an in-memory list to grow later, and two of those silently
+    /// disagree. Owning it here keeps that impossible and keeps the injection
+    /// point for tests in one place.
+    let deviceRounds: DeviceRoundsStore
+
     // MARK: Observable state
 
     private(set) var authState: AuthState = .unknown
@@ -53,11 +67,13 @@ final class AppEnvironment {
     init(
         configuration: APIConfiguration = .resolved(),
         keychain: Keychain = Keychain(),
-        session: URLSession = .shared
+        session: URLSession = .shared,
+        deviceRounds: DeviceRoundsStore = DeviceRoundsStore()
     ) {
         self.configuration = configuration
         self.keychain = keychain
         self.scenePhase = ScenePhaseCoordinator()
+        self.deviceRounds = deviceRounds
 
         // The API actor reads the token through a closure rather than holding a
         // copy, so a logout or a token refresh takes effect on the next request

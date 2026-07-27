@@ -1,79 +1,156 @@
 import SwiftUI
 
-/// Navigation shell. Owns the single `NavigationPath` so deep links can push a
-/// destination without a screen having to be on-screen to receive it.
+/// The app shell: one `NavigationStack`, one place that decides what a route
+/// means, and one place that records a round as seen on this device.
 ///
-/// Placeholder-grade: the real client will re-implement the web screens (never
-/// port them — see PHASES.md N4), so nothing here should be treated as a
-/// layout decision.
+/// Two invariants shape everything here.
+///
+/// 1. **Sign-in is never a gate.** tapscore is no-login by design on the
+///    share-link path: a friend taps a link and scores. So the landing, the
+///    join screen and the round screen are all reachable while `.anonymous`,
+///    the sign-in affordance sits *beside* the content (a dismissible inset
+///    with an explicit "Continue without an account"), and the deep-link push
+///    below never consults `AuthState`.
+/// 2. **A round is recorded where it is opened, not where it is displayed.**
+///    Every push of the round screen goes through `open(round:)`, so the
+///    device-recent list gets the deep-link path for free and `RoundView` is
+///    left to be a round screen rather than a history writer.
 struct RootView: View {
     @Environment(AppEnvironment.self) private var environment
-    @State private var path = NavigationPath()
+
+    /// Routing decisions live in a value type so they are testable without a
+    /// UI harness — see `ShellNavigationTests`.
+    @State private var navigation = ShellNavigation()
+
+    /// This device's recent-rounds list, and the anonymous landing's only
+    /// data source. Taken from the environment rather than constructed here:
+    /// `RoundStore` writes to the same list once `byToken` resolves, and the
+    /// two must be the same object (see `AppEnvironment.deviceRounds`).
+    private var deviceRounds: DeviceRoundsStore { environment.deviceRounds }
+
+    /// Set once the user has said "Continue without an account". Persisted:
+    /// asking again on every cold launch is exactly the wall this app does not
+    /// have. The toolbar keeps a way back to sign-in.
+    @AppStorage("tapscore.sign-in-inset-dismissed.v1") private var signInDismissed = false
 
     var body: some View {
-        NavigationStack(path: $path) {
-            RoundListView(onJoin: { path.append(Destination.join) })
-                // Sign-in is an INSET, never a gate (N4). tapscore is no-login
-                // by design on the share-link path: the round list, the join
-                // screen and score entry all stay reachable while signed out,
-                // so the signed-out affordance sits beside the content rather
-                // than in front of it. Anything that made `.anonymous` render
-                // a full-screen wall would break the cold-tap gate.
-                .safeAreaInset(edge: .bottom) { signedOutInset }
-                .toolbar { signOutButton }
-                .navigationDestination(for: Destination.self) { destination in
-                    switch destination {
-                    case .join:
-                        JoinView(onOpen: { token in path.append(Destination.round(token: token)) })
-                    case let .round(token):
-                        RoundView(shareToken: token)
-                    }
+        NavigationStack(path: $navigation.stack) {
+            RoundListView(
+                deviceRounds: deviceRounds,
+                onJoin: { navigation.openJoin() },
+                onOpen: { request in open(round: request) }
+            )
+            .safeAreaInset(edge: .bottom) { signedOutInset }
+            .toolbar { accountToolbar }
+            .navigationDestination(for: ShellDestination.self) { destination in
+                switch destination {
+                case .join:
+                    JoinView(onOpen: { request in open(round: request) })
+                case let .round(token):
+                    // BOUNDARY: the round feature owns this screen entirely.
+                    // The shell hands it a token and reads nothing back.
+                    RoundView(token: token)
                 }
+            }
         }
-        // Deep links can arrive before or after this view exists; draining the
-        // environment's pending route covers both.
+        // Deep links arrive both before this view exists (cold start) and
+        // after it does (warm). Draining the environment's pending route on
+        // appear and on change covers both with one path.
         .onChange(of: environment.pendingRoute) { _, _ in drainPendingRoute() }
         .onAppear { drainPendingRoute() }
     }
 
-    /// Shown only while genuinely signed out. `.unknown` (bootstrap in flight)
-    /// and `.unreachable` deliberately show nothing: offering Sign in with
-    /// Apple against a server we cannot reach would fail at the POST, after the
-    /// user has already been through Apple's sheet.
+    // MARK: - Opening a round
+
+    /// The single funnel for "show this round".
+    ///
+    /// Records the sighting first so the landing already reflects it when the
+    /// user swipes back, then pushes. Nil metadata never erases a richer
+    /// earlier sighting (see `recordOpen`), which is what lets the cold
+    /// deep-link path record a token-only row and have the preview fill it in.
+    private func open(round request: RoundOpenRequest) {
+        deviceRounds.recordOpen(
+            token: request.token,
+            courseName: request.courseName,
+            status: request.status,
+            completedAt: request.completedAt,
+            date: request.date
+        )
+        navigation.openRound(token: request.token)
+    }
+
+    private func drainPendingRoute() {
+        guard let route = environment.consumePendingRoute() else { return }
+        // A deep link knows the token and nothing else; the row is recorded
+        // now and enriched by the landing's next refresh.
+        if let token = navigation.apply(route) {
+            deviceRounds.recordOpen(token: token)
+        }
+    }
+
+    // MARK: - Auth affordances
+
+    /// The signed-out inset. `.unknown` (bootstrap in flight) and
+    /// `.unreachable` deliberately show nothing: offering Sign in with Apple
+    /// against a server we cannot reach fails at our own POST, after the user
+    /// has already been through Apple's sheet.
     @ViewBuilder
     private var signedOutInset: some View {
-        if case .anonymous = environment.authState {
-            SignInView()
-                .padding()
-                .background(.bar)
+        if case .anonymous = environment.authState, !signInDismissed {
+            VStack(spacing: 8) {
+                SignInView()
+                Button("Continue without an account") { signInDismissed = true }
+                    .font(.footnote)
+                Text("Scoring a round you were invited to never needs an account.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding()
+            .background(.bar)
         }
     }
 
     @ToolbarContentBuilder
-    private var signOutButton: some ToolbarContent {
-        if case .signedIn = environment.authState {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Sign out") {
-                    Task { await environment.signOut() }
-                }
+    private var accountToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            switch environment.authState {
+            case .signedIn:
+                Button("Sign out") { Task { await environment.signOut() } }
+            case .anonymous where signInDismissed:
+                // The only way back to the inset once it has been dismissed.
+                Button("Sign in") { signInDismissed = false }
+            default:
+                EmptyView()
             }
         }
     }
+}
 
-    private func drainPendingRoute() {
-        switch environment.consumePendingRoute() {
-        case let .round(token):
-            path.append(Destination.round(token: token))
-        case .roundList:
-            path = NavigationPath()
-        case nil:
-            break
-        }
-    }
+/// What the shell needs to open a round: the token, plus whatever the caller
+/// already knows about it.
+///
+/// Everything but the token is optional and advisory — a cold deep-link tap
+/// has only the token, while the join preview and the landing rows have the
+/// course and status already. Nil means "unknown", never "clear it".
+struct RoundOpenRequest: Equatable, Sendable {
+    let token: String
+    var courseName: String?
+    var status: DeviceRoundStatus?
+    var completedAt: String?
+    var date: String?
 
-    /// Push targets for the root stack.
-    enum Destination: Hashable {
-        case join
-        case round(token: String)
+    init(
+        token: String,
+        courseName: String? = nil,
+        status: DeviceRoundStatus? = nil,
+        completedAt: String? = nil,
+        date: String? = nil
+    ) {
+        self.token = token
+        self.courseName = courseName
+        self.status = status
+        self.completedAt = completedAt
+        self.date = date
     }
 }

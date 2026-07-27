@@ -122,7 +122,11 @@ Related deploy-side prerequisites, all outside this repo (PHASES.md N4):
 ## Layout (`TapScore/`)
 
 - `App/` — `@main TapScoreApp`, `AppEnvironment` (the DI container + auth state
-  every screen reads), `Keychain` (bearer token; **never** `UserDefaults`),
+  every screen reads), `Keychain` (bearer token; **never** `UserDefaults`, and
+  the Keychain is for that bearer session only — the share tokens in
+  `DeviceRoundsStore`/`ResultCursorStore` are deliberately `UserDefaults`-class:
+  a share token is a write credential the holder already possesses, arriving in
+  the link this device opened, so storing it grants nothing new),
   `DeepLinkRouter` (pure URL → route; the trust boundary for inbound links),
   `ScenePhaseCoordinator` (the single foreground/background funnel the SSE feed
   will hang off — screens must not observe `scenePhase` directly).
@@ -197,3 +201,27 @@ need a joint policy+tests decision before anyone tightens them) and
 JSON-serializable, and deliberately the Swift renderer's contract). Deciding
 presentation on the client instead of rendering that fold is how the two clients
 start disagreeing about who won.
+
+## Driving a round headlessly (`-tapscoreDeepLink`)
+
+`xcrun simctl openurl` opens a `tapscore://` link, but the first one a fresh
+simulator sees raises a SpringBoard confirmation alert that a script cannot
+dismiss — so any automated check of the round screen quietly becomes "a human
+taps Open". A launch argument avoids the system UI entirely:
+
+```sh
+xcrun simctl launch <udid> com.marcusandersson.tapscore \
+    -tapscoreDeepLink 'tapscore://round?token=<share-token>'
+# environment form, for wrappers that cannot pass argv:
+SIMCTL_CHILD_TAPSCORE_DEEP_LINK='tapscore://round?token=<share-token>' \
+    xcrun simctl launch <udid> com.marcusandersson.tapscore
+```
+
+Read by `LaunchDeepLink` (in `App/TapScoreApp.swift`) and handed to
+`AppEnvironment.handle(url:)` at startup — the *same* `DeepLinkRouter` parse and
+the same `ShellNavigation` push a real universal link takes. It widens **how a
+URL arrives, never which URLs count**: the host allow-list and the https rule
+are untouched, and the whole hook is `#if DEBUG`. The argument wins over the
+environment variable when both are set.
+
+A round token is a write credential — keep it out of CI logs like any other.

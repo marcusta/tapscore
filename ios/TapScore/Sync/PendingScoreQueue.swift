@@ -195,6 +195,13 @@ actor PendingScoreQueue {
     /// event type, **metadata** and a new id — wholesale. Latest-wins means the
     /// newest intent replaces the older one entirely; carrying a superseded
     /// entry's metadata forward would post a mixture nobody ever entered.
+    ///
+    /// - Parameter clientEventId: normally omitted — property 3 above is that
+    ///   the id is minted here, once. Pass one ONLY to re-queue an intent that
+    ///   already has an id and lost its entry (the retry path, whose whole
+    ///   point is that the re-send must dedupe against the attempt that may
+    ///   have landed). Passing a fresh id there would turn a retry into a
+    ///   second score event.
     @discardableResult
     func enqueue(
         token: String,
@@ -204,6 +211,7 @@ actor PendingScoreQueue {
         strokes: Double?,
         eventType: ScoreEventEventType,
         metadata: TriState<[String: JSONValue]> = .absent,
+        clientEventId: String? = nil,
         now: Date = Date()
     ) -> PendingScoreWrite {
         let write = PendingScoreWrite(
@@ -213,7 +221,7 @@ actor PendingScoreQueue {
             playHoleId: playHoleId,
             strokes: strokes,
             eventType: eventType,
-            clientEventId: makeID(),
+            clientEventId: clientEventId ?? makeID(),
             metadata: metadata,
             queuedAt: now
         )
