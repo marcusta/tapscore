@@ -10,6 +10,8 @@ import {
     createAppleTokenVerifier,
     DEV_APPLE_AUDIENCE,
     resolveAppleAudience,
+    checkAppleNonceBinding,
+    sha256Hex,
     unverifiedSubject,
     verifyAppleIdentityToken,
     type AppleJwks,
@@ -382,4 +384,85 @@ test('resolveAppleAudience THROWS in production rather than failing open', () =>
             /APPLE_AUDIENCE/,
         );
     }
+});
+
+// --- Nonce binding (N4) -------------------------------------------------
+
+/**
+ * THE CROSS-CLIENT VECTOR. This exact pair is pinned a second time in
+ * `ios/TapScoreTests/AuthFlowTests.swift`, where CryptoKit computes it. If
+ * the two ever disagree, every native sign-in 401s with
+ * `apple_nonce_mismatch` and no server-only suite would have caught it — which
+ * is the whole reason the constant is duplicated by hand rather than shared.
+ */
+const NONCE_VECTOR = {
+    raw: 'tapscore-nonce-vector-1',
+    sha256Hex: '18b0d0b1e8c4a4871b83352808fa1781c9f1f8c19038640719b2832996f65d1c',
+} as const;
+
+test('sha256Hex is lowercase hex and matches the vector iOS pins', async () => {
+    expect(await sha256Hex(NONCE_VECTOR.raw)).toBe(NONCE_VECTOR.sha256Hex);
+    // Empty-string digest — the standard vector, so a broken padding path in
+    // the hex conversion cannot hide behind a single sample.
+    expect(await sha256Hex('')).toBe(
+        'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    );
+});
+
+test('verifyAppleIdentityToken surfaces the nonce claim verbatim, unjudged', async () => {
+    const withNonce = await verifyAppleIdentityToken(
+        await key.sign(appleClaims({ nonce: NONCE_VECTOR.sha256Hex })),
+        verifierDeps(),
+    );
+    expect(withNonce).toMatchObject({ ok: true, nonce: NONCE_VECTOR.sha256Hex });
+
+    // Absent claim → absent field. Not '' and not null: the binding policy
+    // distinguishes "no nonce" from "a nonce that did not match".
+    const without = await verifyAppleIdentityToken(await key.sign(appleClaims()), verifierDeps());
+    expect(without).toMatchObject({ ok: true });
+    expect((without as { nonce?: string }).nonce).toBeUndefined();
+
+    // A token whose nonce claim is not a non-empty string is treated as none.
+    const empty = await verifyAppleIdentityToken(
+        await key.sign(appleClaims({ nonce: '' })),
+        verifierDeps(),
+    );
+    expect((empty as { nonce?: string }).nonce).toBeUndefined();
+});
+
+test('checkAppleNonceBinding — all four quadrants', async () => {
+    // (absent, absent): the web/legacy flow, unchanged.
+    expect(await checkAppleNonceBinding(undefined, undefined)).toBeNull();
+    expect(await checkAppleNonceBinding(null, undefined)).toBeNull();
+    expect(await checkAppleNonceBinding('', undefined)).toBeNull();
+
+    // (present, present) and matching.
+    expect(await checkAppleNonceBinding(NONCE_VECTOR.raw, NONCE_VECTOR.sha256Hex)).toBeNull();
+
+    // (present, absent).
+    expect(await checkAppleNonceBinding(NONCE_VECTOR.raw, undefined)).toBe('apple_nonce_missing');
+
+    // (present, present) but wrong — including the classic mistake of sending
+    // the RAW value where the hash belongs.
+    expect(await checkAppleNonceBinding(NONCE_VECTOR.raw, 'deadbeef')).toBe('apple_nonce_mismatch');
+    expect(await checkAppleNonceBinding(NONCE_VECTOR.raw, NONCE_VECTOR.raw)).toBe(
+        'apple_nonce_mismatch',
+    );
+
+    // (absent, present): the row that makes the binding worth anything. A
+    // captured nonce-bearing token must not be redeemable by simply dropping
+    // the nonce field and falling back to the legacy path.
+    expect(await checkAppleNonceBinding(undefined, NONCE_VECTOR.sha256Hex)).toBe(
+        'apple_nonce_required',
+    );
+    expect(await checkAppleNonceBinding('', NONCE_VECTOR.sha256Hex)).toBe('apple_nonce_required');
+});
+
+test('checkAppleNonceBinding accepts an uppercase-hex claim', async () => {
+    // Apple echoes the client's string verbatim, so the casing is whatever the
+    // client chose. iOS sends lowercase; a client that sent uppercase is still
+    // presenting a valid pre-image proof.
+    expect(
+        await checkAppleNonceBinding(NONCE_VECTOR.raw, NONCE_VECTOR.sha256Hex.toUpperCase()),
+    ).toBeNull();
 });

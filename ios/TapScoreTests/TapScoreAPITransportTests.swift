@@ -136,6 +136,71 @@ final class TapScoreAPITransportTests: XCTestCase {
         XCTAssertNil(StubURLProtocol.requests.first?.headers["Authorization"])
         XCTAssertEqual(StubURLProtocol.requests.first?.headers["Accept"], "application/json")
     }
+
+    // MARK: - 4. Path-parameter rendering
+
+    /// An input whose path params are NUMBERS — the case that broke. Every
+    /// scalar `JSONSerialization` hands back is an `NSNumber`, and `NSNumber`
+    /// bridges to `Bool` by value, so a naive `case let bool as Bool` ahead of
+    /// the number case turns `hole: 1` into `/holes/true`.
+    private struct HoleRef: Codable, Sendable {
+        let hole: Int
+        let strokes: Int
+    }
+
+    private struct Ack: Codable, Sendable {
+        let id: String
+    }
+
+    func testNumericPathParametersOfOneAndZeroStayNumbers() async throws {
+        StubURLProtocol.reset(status: 200, body: Data(#"{"id":"ok"}"#.utf8))
+        let api = TapScoreAPI(configuration: .dev, session: session)
+        let endpoint = APIEndpoint<HoleRef, Ack>(
+            method: .post,
+            path: "/rounds/holes/:hole",
+            pathParams: ["hole"]
+        )
+
+        // 1 and 0 are exactly the two integers that bridge to `true`/`false`.
+        _ = try await api.send(endpoint, HoleRef(hole: 1, strokes: 4))
+        _ = try await api.send(endpoint, HoleRef(hole: 0, strokes: 3))
+
+        XCTAssertEqual(
+            StubURLProtocol.requests.map(\.url?.absoluteString),
+            [
+                "http://localhost:3030/api/rounds/holes/1",
+                "http://localhost:3030/api/rounds/holes/0",
+            ],
+            "A numeric path param must render as a number, never as true/false."
+        )
+        // The consumed param is stripped from the body; the rest survives.
+        XCTAssertEqual(StubURLProtocol.requests.first?.json?["strokes"] as? Int, 4)
+        XCTAssertNil(StubURLProtocol.requests.first?.json?["hole"])
+    }
+
+    /// The other half of the same fix: a genuine JSON `true`/`false` must not
+    /// regress into `1`/`0` now that numbers are matched first.
+    func testBooleanPathParametersStillRenderAsTrueAndFalse() async throws {
+        struct FlagRef: Codable, Sendable { let locked: Bool }
+        StubURLProtocol.reset(status: 200, body: Data(#"{"id":"ok"}"#.utf8))
+        let api = TapScoreAPI(configuration: .dev, session: session)
+        let endpoint = APIEndpoint<FlagRef, Ack>(
+            method: .post,
+            path: "/rounds/locked/:locked",
+            pathParams: ["locked"]
+        )
+
+        _ = try await api.send(endpoint, FlagRef(locked: true))
+        _ = try await api.send(endpoint, FlagRef(locked: false))
+
+        XCTAssertEqual(
+            StubURLProtocol.requests.map(\.url?.absoluteString),
+            [
+                "http://localhost:3030/api/rounds/locked/true",
+                "http://localhost:3030/api/rounds/locked/false",
+            ]
+        )
+    }
 }
 
 /// Intercepts every request made through a session configured with it, records
@@ -147,6 +212,17 @@ final class StubURLProtocol: URLProtocol {
         let url: URL?
         let method: String?
         let headers: [String: String]
+        /// The outbound JSON body, or nil for a body-less request. Read from
+        /// `httpBodyStream` as well as `httpBody`: URLSession converts the
+        /// former on the way into a URLProtocol, so reading only `httpBody`
+        /// records nil for every request the transport actually sent.
+        let body: Data?
+
+        /// The body decoded as a JSON object, for assertions that care about
+        /// which keys were sent rather than about byte order.
+        var json: [String: Any]? {
+            body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        }
     }
 
     private static let lock = NSLock()
@@ -178,6 +254,24 @@ final class StubURLProtocol: URLProtocol {
         return (status, body)
     }
 
+    /// `httpBody` is nil by the time a request reaches a URLProtocol — the
+    /// loader has turned it into a stream — so drain the stream when present.
+    private static func bodyData(of request: URLRequest) -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let size = 4096
+        var buffer = [UInt8](repeating: 0, count: size)
+        while stream.hasBytesAvailable {
+            let read = stream.read(&buffer, maxLength: size)
+            if read <= 0 { break }
+            data.append(buffer, count: read)
+        }
+        return data.isEmpty ? nil : data
+    }
+
     override class func canInit(with request: URLRequest) -> Bool { true }
 
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -187,7 +281,8 @@ final class StubURLProtocol: URLProtocol {
             Recorded(
                 url: request.url,
                 method: request.httpMethod,
-                headers: request.allHTTPHeaderFields ?? [:]
+                headers: request.allHTTPHeaderFields ?? [:],
+                body: Self.bodyData(of: request)
             )
         )
         let response = HTTPURLResponse(

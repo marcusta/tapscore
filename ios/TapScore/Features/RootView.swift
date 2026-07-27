@@ -13,6 +13,14 @@ struct RootView: View {
     var body: some View {
         NavigationStack(path: $path) {
             RoundListView(onJoin: { path.append(Destination.join) })
+                // Sign-in is an INSET, never a gate (N4). tapscore is no-login
+                // by design on the share-link path: the round list, the join
+                // screen and score entry all stay reachable while signed out,
+                // so the signed-out affordance sits beside the content rather
+                // than in front of it. Anything that made `.anonymous` render
+                // a full-screen wall would break the cold-tap gate.
+                .safeAreaInset(edge: .bottom) { signedOutInset }
+                .toolbar { signOutButton }
                 .navigationDestination(for: Destination.self) { destination in
                     switch destination {
                     case .join:
@@ -26,6 +34,30 @@ struct RootView: View {
         // environment's pending route covers both.
         .onChange(of: environment.pendingRoute) { _, _ in drainPendingRoute() }
         .onAppear { drainPendingRoute() }
+    }
+
+    /// Shown only while genuinely signed out. `.unknown` (bootstrap in flight)
+    /// and `.unreachable` deliberately show nothing: offering Sign in with
+    /// Apple against a server we cannot reach would fail at the POST, after the
+    /// user has already been through Apple's sheet.
+    @ViewBuilder
+    private var signedOutInset: some View {
+        if case .anonymous = environment.authState {
+            SignInView()
+                .padding()
+                .background(.bar)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var signOutButton: some ToolbarContent {
+        if case .signedIn = environment.authState {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Sign out") {
+                    Task { await environment.signOut() }
+                }
+            }
+        }
     }
 
     private func drainPendingRoute() {

@@ -14,7 +14,7 @@ export interface Player {
 }
 
 export interface AuthNativeApi {
-    appleSignIn(input: { fullName?: null | string; identityToken: string }): Promise<{ user: Player; token: string }>;
+    appleSignIn(input: { fullName?: null | string; nonce?: string; identityToken: string }): Promise<{ user: Player; token: string }>;
     revoke(): Promise<{ ok: boolean; userId: string }>;
 }
 

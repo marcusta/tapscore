@@ -95,15 +95,18 @@ struct Player: Codable, Sendable, Equatable {
 
 struct AuthNativeAppleSignInInput: Codable, Sendable, Equatable {
     var fullName: TriState<String>
+    var nonce: String?
     var identityToken: String
 
     enum CodingKeys: String, CodingKey {
         case fullName = "fullName"
+        case nonce = "nonce"
         case identityToken = "identityToken"
     }
 
-    init(fullName: TriState<String> = .absent, identityToken: String) {
+    init(fullName: TriState<String> = .absent, nonce: String? = nil, identityToken: String) {
         self.fullName = fullName
+        self.nonce = nonce
         self.identityToken = identityToken
     }
 
@@ -116,6 +119,7 @@ struct AuthNativeAppleSignInInput: Codable, Sendable, Equatable {
         } else {
             self.fullName = .absent
         }
+        self.nonce = try c.decodeIfPresent(String.self, forKey: .nonce)
         self.identityToken = try c.decode(String.self, forKey: .identityToken)
     }
 
@@ -126,6 +130,7 @@ struct AuthNativeAppleSignInInput: Codable, Sendable, Equatable {
         case .null: try c.encodeNil(forKey: .fullName)
         case .value(let v): try c.encode(v, forKey: .fullName)
         }
+        try c.encodeIfPresent(nonce, forKey: .nonce)
         try c.encode(identityToken, forKey: .identityToken)
     }
 }

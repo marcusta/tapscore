@@ -21,15 +21,39 @@
  * `{ ok: false, code }` value. The API layer turns those into 401s. A thrown
  * error here would surface as a 500, which the N2 gate forbids.
  *
- * Out of scope on purpose: `nonce` binding. The native client will pass a
- * nonce to `ASAuthorizationAppleIDRequest` and Apple echoes it in the token;
- * checking it requires server-issued nonce state that does not exist yet
- * (there is no /auth/apple/challenge endpoint). Add it with the iOS client
- * (N4), not before — a half-checked nonce is worse than an unchecked one.
- * The accepted cost, stated plainly so N4 inherits the obligation: until that
- * nonce binding exists, a CAPTURED identity token is replayable by anyone for
- * its (~10 minute) lifetime, and `aud` is the only thing confining it to this
- * app — there is nothing tying a token to the client that obtained it.
+ * NONCE BINDING — closed in N4 (was the N2 deferral). The replay window
+ * described here as an accepted cost is gone for nonce-bearing clients:
+ * `verifyAppleIdentityToken` now surfaces the token's `nonce` claim and
+ * `checkAppleNonceBinding` is the policy over it, applied by `/auth/apple`.
+ *
+ * The shape is CLIENT-generated, not server-issued — there is still no
+ * `/auth/apple/challenge` endpoint and there does not need to be. Apple echoes
+ * whatever string the app put in `ASAuthorizationAppleIDRequest.nonce` into the
+ * token's `nonce` claim, verbatim. The convention every SIWA client follows
+ * (and the one iOS implements here) is:
+ *
+ *   1. the app generates a random RAW nonce;
+ *   2. it puts `sha256_hex(raw)` in the authorization request, so the token
+ *      claim is the HASH — a captured token leaks nothing usable;
+ *   3. it sends the RAW nonce to us alongside the token.
+ *
+ * So the server's check is `sha256_hex(request.nonce) === token.nonce`: proof
+ * that whoever posted the token also knows the pre-image, i.e. is the client
+ * that obtained it. A captured token alone no longer buys a session.
+ *
+ * Residual, accepted: a token minted with NO nonce at all is still replayable
+ * for its (~10 minute) lifetime, with `aud` as its only confinement. That path
+ * stays open on purpose — it is the web/legacy flow — but a token that DOES
+ * carry a nonce can never be redeemed without the pre-image
+ * (`apple_nonce_required`), so the binding defeats REPLAY FROM THE TOKEN
+ * ALONE.
+ *
+ * Precisely that, and no more. On the hop from app to us the token travels
+ * WITH its own pre-image, so anyone who can read that request has both halves;
+ * and nonces are not single-use here, so a captured pair can be redeemed
+ * again. What the binding buys is that a token lifted from anywhere the
+ * pre-image is not — Apple's response to the app, a log, a crash report — is
+ * inert on its own. TLS, not the nonce, is what protects the request itself.
  */
 
 // --- Public types ---
@@ -39,6 +63,13 @@ export interface AppleIdentity {
     sub: string;
     email?: string;
     emailVerified?: boolean;
+    /**
+     * The `nonce` claim exactly as Apple echoed it, or undefined when the
+     * token carries none. Surfaced RAW and unjudged: the binding policy lives
+     * in `checkAppleNonceBinding`, because whether a missing claim is fatal
+     * depends on what the REQUEST carried, which this function never sees.
+     */
+    nonce?: string;
 }
 
 /**
@@ -280,7 +311,66 @@ export async function verifyAppleIdentityToken(
                 ? false
                 : undefined;
 
-    return { ok: true, sub, ...(email ? { email } : {}), ...(emailVerified !== undefined ? { emailVerified } : {}) };
+    const nonce = typeof payload.nonce === 'string' && payload.nonce.length > 0 ? payload.nonce : undefined;
+
+    return {
+        ok: true,
+        sub,
+        ...(email ? { email } : {}),
+        ...(emailVerified !== undefined ? { emailVerified } : {}),
+        ...(nonce !== undefined ? { nonce } : {}),
+    };
+}
+
+// --- Nonce binding ---
+
+/**
+ * Lowercase hex SHA-256 of a UTF-8 string. The exact spelling matters: it is
+ * the wire format both clients must agree on (iOS pins the same vector in
+ * `TapScoreTests/AuthFlowTests.swift`), so hex — not base64 — and lowercase.
+ */
+export async function sha256Hex(input: string): Promise<string> {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+    return Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+}
+
+export type AppleNonceFailureCode =
+    | 'apple_nonce_missing'
+    | 'apple_nonce_mismatch'
+    | 'apple_nonce_required';
+
+/**
+ * The four-quadrant policy over (request nonce, token nonce claim):
+ *
+ *   | request | token  | result                                          |
+ *   |---------|--------|-------------------------------------------------|
+ *   | absent  | absent | allowed — the web/legacy flow, unchanged        |
+ *   | absent  | present| `apple_nonce_required`                          |
+ *   | present | absent | `apple_nonce_missing`                           |
+ *   | present | present| `sha256_hex(request) === token` or `_mismatch`  |
+ *
+ * The (absent, present) row is the non-obvious one, and it is the row that
+ * makes this worth anything: without it, a token captured from a native client
+ * could simply be redeemed by REPLAYING IT WITHOUT the nonce field, and the
+ * server would happily fall back to the legacy path. A nonce-bearing token is
+ * therefore only ever redeemable by someone holding the pre-image.
+ *
+ * Comparison is constant-time-ish by construction (both sides are fixed-length
+ * hex of a hash), but there is nothing secret to leak by timing here anyway:
+ * the token's claim is public to whoever holds the token.
+ */
+export async function checkAppleNonceBinding(
+    requestNonce: string | null | undefined,
+    tokenNonce: string | undefined,
+): Promise<AppleNonceFailureCode | null> {
+    const raw = typeof requestNonce === 'string' && requestNonce.length > 0 ? requestNonce : null;
+    const claim = typeof tokenNonce === 'string' && tokenNonce.length > 0 ? tokenNonce : null;
+
+    if (raw === null) return claim === null ? null : 'apple_nonce_required';
+    if (claim === null) return 'apple_nonce_missing';
+    return (await sha256Hex(raw)) === claim.toLowerCase() ? null : 'apple_nonce_mismatch';
 }
 
 // --- JWKS cache ---

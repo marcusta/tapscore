@@ -138,6 +138,36 @@ re-login** — SIWA cannot be replayed headlessly, so a 401 surfaces as
 `.unauthorized` and the UI asks. Anonymous is a normal, fully functional state:
 share links are token-scoped, and scoring a round never requires an account.
 
+The bearer is obtained by a **nonce-bound** Sign in with Apple exchange, and the
+binding is a two-repo contract — `AppleSignInNonce` here, `checkAppleNonceBinding`
+in `server/services/apple-identity.ts`:
+
+1. `SignInView` generates a random raw nonce and puts **`sha256_hex(raw)`** in
+   `ASAuthorizationAppleIDRequest.nonce`, so the hash — never the pre-image — is
+   what ends up in the identity token's `nonce` claim.
+2. The **raw** nonce is posted alongside the token to `/auth/apple`; the server
+   hashes it and requires it to equal the claim.
+3. A token carrying a nonce claim that arrives **without** a pre-image is
+   rejected (`apple_nonce_required`); a mismatched one is `apple_nonce_mismatch`.
+
+The wire spelling is **lowercase hex, not base64**, and the same vector is pinned
+on both sides (`ios/TapScoreTests/AuthFlowTests.swift` and
+`server/services/apple-identity.test.ts`) — a disagreement 401s every native
+sign-in and neither suite would see it alone. What the binding buys is narrow and
+worth stating exactly: **replay from the token alone fails.** On the app→server
+hop the token travels with its pre-image, and nonces are not single-use, so TLS
+is what protects that request; the nonce is what makes a token lifted from
+anywhere else (Apple's response, a log, a crash report) useless.
+
+Two consequences for anyone touching this flow:
+
+- The nonce must be **the same one that went out** — regenerating it mid-flight
+  (a second button tap) guarantees a mismatch, which is why `SignInView` marks
+  itself busy in the request builder, not in the completion handler.
+- The Keychain write happens **before** `authState` flips, and if it fails the
+  just-issued token is revoked server-side before the error is thrown — a
+  session whose only token was dropped is otherwise unrevokable.
+
 ## Build / test (CLI)
 
 Both lines run from `ios/`, so the paths below are relative to it — copy-paste

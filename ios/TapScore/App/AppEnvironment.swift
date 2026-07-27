@@ -99,13 +99,72 @@ final class AppEnvironment {
     /// Re-runs `bootstrap()` — the retry affordance on the landing screen.
     func retry() async { await bootstrap() }
 
-    /// Drops the bearer token and returns to the anonymous (share-link) state.
+    // MARK: - Sign in / out
+
+    /// Exchanges an Apple identity token for a bearer session (N4).
     ///
-    /// TODO(N4): also call `POST /api/auth/revoke` so the server-side token
-    /// dies with it — the route exists; the generated client call does not yet.
-    func signOut() {
-        keychain.clear()
-        authState = .anonymous
+    /// Order matters and is asserted by the tests: the token is written to the
+    /// Keychain BEFORE `authState` flips, so any view that reacts to
+    /// `.signedIn` and immediately makes a request finds a bearer to send.
+    ///
+    /// - Parameters:
+    ///   - identityToken: `ASAuthorizationAppleIDCredential.identityToken`, as
+    ///     UTF-8 text.
+    ///   - rawNonce: the PRE-IMAGE of the nonce the authorization request
+    ///     carried (`AppleSignInNonce.raw`). The server hashes it and requires
+    ///     it to match the token's `nonce` claim, which is what makes a
+    ///     captured token useless to anyone else. Nil only for a request that
+    ///     used no nonce at all — a nonce-bearing token posted without it is
+    ///     rejected with `apple_nonce_required`.
+    ///   - fullName: forwarded from the FIRST authorization only; Apple never
+    ///     sends it again. Advisory — the server applies it to a new player and
+    ///     ignores it for a known Apple subject.
+    @discardableResult
+    func signIn(
+        identityToken: String,
+        rawNonce: String?,
+        fullName: String? = nil
+    ) async throws -> Player {
+        let input = AuthNativeAppleSignInInput(
+            fullName: fullName.map { .value($0) } ?? .absent,
+            nonce: rawNonce,
+            identityToken: identityToken
+        )
+        let result = try await api.send(AuthNativeEndpoints.appleSignIn, input)
+
+        // A token we cannot store is a sign-in that would evaporate on the next
+        // launch (and on the next request, since the bearer is read from the
+        // Keychain every time), so it fails here rather than pretending.
+        //
+        // The server has already issued a live session, though, and we are
+        // about to drop the only copy of its token — leaving a session nobody
+        // can ever revoke, valid until it expires. So revoke it here, while the
+        // value is still in hand. Best effort by design: its outcome cannot
+        // change this failure, and must not mask it.
+        guard keychain.saveToken(result.token) else {
+            await api.revokeOrphanedToken(result.token)
+            throw APIError.network("Could not store the session token in the Keychain.")
+        }
+        authState = .signedIn(result.user)
+        return result.user
+    }
+
+    /// Ends the session: revoke server-side, then wipe locally.
+    ///
+    /// The wipe is UNCONDITIONAL — in a `defer`, so it happens even if the
+    /// revoke call throws. A 401 from `/auth/revoke` means the token was
+    /// already dead, which is precisely the state sign-out wants; treating that
+    /// as a failure would strand the user in a signed-in UI holding a token
+    /// nothing accepts. Same for a network failure: the local credential goes
+    /// regardless, and the server-side token expires on its own.
+    ///
+    /// Revoke goes FIRST because it needs the bearer the Keychain still holds.
+    func signOut() async {
+        defer {
+            keychain.clear()
+            authState = .anonymous
+        }
+        _ = try? await api.send(AuthNativeEndpoints.revoke)
     }
 
     // MARK: - Deep links

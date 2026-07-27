@@ -431,3 +431,106 @@ test('the limiter’s bucket map is hard-capped — the oldest bucket is dropped
     // surprise: 'noisy' lost its throttle along with its bucket.
     expect((await spend('noisy')).status).toBe(401);
 });
+
+// --- Nonce binding (N4) -------------------------------------------------
+//
+// Closes the replay window N2 accepted. All four quadrants of
+// (request `nonce`, token `nonce` claim) are exercised through the route, with
+// forged tokens, because the interesting failure mode is a WIRING one: a
+// binding checked in the service but never called by the route would still
+// pass every unit test in apple-identity.test.ts.
+
+const NONCE_RAW = 'tapscore-nonce-vector-1';
+const NONCE_SHA256_HEX = '18b0d0b1e8c4a4871b83352808fa1781c9f1f8c19038640719b2832996f65d1c';
+
+async function signInWithNonce(
+    app: Hono,
+    options: { claimNonce?: string; requestNonce?: string; sub?: string },
+) {
+    return req(app, 'POST', '/api/auth/apple', {
+        identityToken: await key.sign(
+            appleClaims({
+                sub: options.sub ?? 'apple-nonce-sub',
+                ...(options.claimNonce !== undefined ? { nonce: options.claimNonce } : {}),
+            }),
+        ),
+        ...(options.requestNonce !== undefined ? { nonce: options.requestNonce } : {}),
+    });
+}
+
+test('nonce quadrant: request nonce + matching token claim signs in', async () => {
+    const ctx = await setup();
+    const res = await signInWithNonce(ctx.app, {
+        requestNonce: NONCE_RAW,
+        claimNonce: NONCE_SHA256_HEX,
+        sub: 'nonce-ok',
+    });
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).token).toBeString();
+});
+
+test('nonce quadrant: request nonce, token claim MISSING → 401 apple_nonce_missing', async () => {
+    const ctx = await setup();
+    const res = await signInWithNonce(ctx.app, { requestNonce: NONCE_RAW, sub: 'nonce-missing' });
+
+    expect(res.status).toBe(401);
+    expect((await res.json()).error).toBe('apple_nonce_missing');
+});
+
+test('nonce quadrant: request nonce ≠ token claim → 401 apple_nonce_mismatch', async () => {
+    const ctx = await setup();
+
+    // Someone else's hash.
+    const wrong = await signInWithNonce(ctx.app, {
+        requestNonce: NONCE_RAW,
+        claimNonce: '0'.repeat(64),
+        sub: 'nonce-mismatch',
+    });
+    expect(wrong.status).toBe(401);
+    expect((await wrong.json()).error).toBe('apple_nonce_mismatch');
+
+    // The client bug that would otherwise pass unnoticed: sending the RAW
+    // nonce to Apple instead of its SHA-256.
+    const unhashed = await signInWithNonce(ctx.app, {
+        requestNonce: NONCE_RAW,
+        claimNonce: NONCE_RAW,
+        sub: 'nonce-mismatch',
+    });
+    expect(unhashed.status).toBe(401);
+    expect((await unhashed.json()).error).toBe('apple_nonce_mismatch');
+});
+
+test('nonce quadrant: NO request nonce but a token claim → 401 apple_nonce_required', async () => {
+    // THE replay case. A token captured from the native client carries a nonce
+    // claim; redeeming it without the pre-image must fail rather than fall
+    // back to the legacy path.
+    const ctx = await setup();
+    const res = await signInWithNonce(ctx.app, {
+        claimNonce: NONCE_SHA256_HEX,
+        sub: 'nonce-required',
+    });
+
+    expect(res.status).toBe(401);
+    expect((await res.json()).error).toBe('apple_nonce_required');
+});
+
+test('nonce quadrant: neither side carries a nonce — the web/legacy path is unchanged', async () => {
+    const ctx = await setup();
+    const res = await signInWithNonce(ctx.app, { sub: 'nonce-none' });
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).token).toBeString();
+});
+
+test('a bad nonce never creates a player — the binding runs before findOrCreate', async () => {
+    const ctx = await setup();
+    const before = await ctx.db.selectFrom('players').select('id').execute();
+
+    expect((await signInWithNonce(ctx.app, { requestNonce: NONCE_RAW, sub: 'ghost' })).status).toBe(
+        401,
+    );
+
+    const after = await ctx.db.selectFrom('players').select('id').execute();
+    expect(after.length).toBe(before.length);
+});

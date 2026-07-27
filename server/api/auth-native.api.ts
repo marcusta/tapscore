@@ -10,7 +10,11 @@ import {
     type SessionStore,
 } from '@basics/core/server/auth';
 import type { PlayerService } from '../services/player.service';
-import { unverifiedSubject, type AppleTokenVerifier } from '../services/apple-identity';
+import {
+    checkAppleNonceBinding,
+    unverifiedSubject,
+    type AppleTokenVerifier,
+} from '../services/apple-identity';
 
 /**
  * Native track N2 — Sign in with Apple + bearer-session endpoints (ADR-0005).
@@ -35,6 +39,12 @@ import { unverifiedSubject, type AppleTokenVerifier } from '../services/apple-id
  * authorization only, and never again — so the client forwards it as
  * `fullName` here, and `findOrCreateByApple` persists it exactly once. Every
  * later sign-in leaves `display_name` alone.
+ *
+ * NONCE BINDING (N4, closing the N2 deferral): `nonce` is the RAW value whose
+ * SHA-256 the client sent to Apple. The four-quadrant policy lives in
+ * `checkAppleNonceBinding` — including the row that does the actual work, a
+ * nonce-bearing token posted WITHOUT its pre-image being rejected rather than
+ * silently taking the legacy path.
  */
 
 const AppleSignInInput = Type.Object({
@@ -44,6 +54,14 @@ const AppleSignInInput = Type.Object({
      * names a NEW player and is ignored for a known Apple `sub`.
      */
     fullName: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    /**
+     * The RAW nonce whose SHA-256 the client put in the Apple authorization
+     * request (N4). Optional because the web/legacy flow sends no nonce at
+     * all — but see `checkAppleNonceBinding`: a token that CARRIES a nonce
+     * claim is rejected when this is absent, so omitting it is not a way to
+     * downgrade a native token.
+     */
+    nonce: Type.Optional(Type.String({ minLength: 1 })),
 });
 
 // Mirrors `createAuthApi`'s login limiter (60s window, 5 attempts) — the same
@@ -169,6 +187,13 @@ export function createAuthNativeApi(
                     // never become a 500 (N2 gate).
                     throw new AuthenticationError(verified.code);
                 }
+
+                // Nonce binding (N4). Runs AFTER the signature holds — the
+                // claim is only meaningful once the token is known to be
+                // Apple's. Same wire contract as the verify codes: the code IS
+                // the 401 body's `error`.
+                const nonceFailure = await checkAppleNonceBinding(input.nonce, verified.nonce);
+                if (nonceFailure) throw new AuthenticationError(nonceFailure);
 
                 const sessionPlayerId = optionalUserId(c);
                 const player = sessionPlayerId
