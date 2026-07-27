@@ -121,10 +121,15 @@ anonymous FriendlyRound path unchanged.
    Apple identity token, upsert credential, issue session). Both route through
    the existing `issueSessionCookie` or its bearer sibling. Signup joins the
    rate-limit map.
-4. **Framework** (`vendor/basics-core/server/auth.ts`): add bearer-token
+4. **Framework** (`../mackans-client-fw/core/server/auth.ts`): add bearer-token
    acceptance alongside the cookie in the session-reading middleware, and a
-   token-returning issue path. Refresh the vendored snapshot via
-   `bun run vendor:basics`; tapscore is the first consumer, same as Phase 9.
+   token-returning issue path. Land it per AGENTS.md's tarball flow — release
+   upstream (`bun release.ts <bump>` with a matching CHANGELOG heading), then
+   `bun run fw:update <version>` here, committing `vendor/*.tgz` +
+   `package.json` + `bun.lock` together. (This ADR originally said
+   `bun run vendor:basics`; that rsync-mirror flow was deleted when the
+   framework moved to versioned releases.) Tapscore is the first consumer,
+   same as Phase 9.
 5. **Client (web)**: unchanged except a real signup form; the anonymous path is
    untouched.
 

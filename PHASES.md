@@ -1311,6 +1311,8 @@ Client: series page (teams, competitions, running team score), captain lineup ed
 
 **Gate:** two phones on one round see each other's scores without manual refresh; airplane-mode entry flushes on reconnect; battery-honest (no background keep-alive). Commit `phase 9 complete: real-time`.
 
+**Slice 9a status: BUILT (2026-07-27), commit `6f81834`.** Opus implement/review agent waves (two review rounds; all findings arbitrated and applied). Gates: 1302 tests / 0 fail, checks clean, `public/` rebuilt. Browser-verified: a score posted by a second client appeared on an open leaderboard in <1 s with no refresh; the durable cursor rode the SSE `since` param; the hidden-page gate held no stream (battery-honest, observed directly). _Awaiting user two-phone confirmation for the phase gate; 9b (channels/coalescing/deltas/WebSocket + framework promotion) not started._
+
 ---
 
 ## Phase 10 — Documents, audit surfacing, admin tooling, manual import
@@ -1341,6 +1343,8 @@ Do this first. It is small, entirely local, needs no Apple developer account, an
 - **Migration-tombstone hazard**: dev DBs need the `kysely_migration` ledger patched, not deleted.
 
 **Gate:** seeded players log in unchanged after the backfill; unique constraint rejects duplicate subjects; cascade delete verified. Visual gate: not applicable (no rendered surface). Commit `N1 complete: credentials split`.
+
+**Status: COMPLETE (2026-07-27), commit `fcb5a2d`.** Opus implement/review wave; reviewer approved, four accepted findings applied by the arbiter (re-run-safe migration — ifNotExists DDL + idempotent backfill, since SQLite lacks transactional DDL; hardDelete wrapped in a transaction; two load-bearing doc comments). Arbiter call on pre-split GDPR tombstones: total backfill kept per the ADR — their `''`-hash credentials fail closed twice (falsy-hash guard before `Bun.password.verify`, which itself rejects `''`). Gate proven by `player-credentials.test.ts` (9 tests incl. pre-041→latest round-trip); 1311 total / 0 fail.
 
 ### N2 — Sign-up, Sign in with Apple, bearer sessions
 

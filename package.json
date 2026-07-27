@@ -31,7 +31,7 @@
         "fw:check": "bun ../mackans-client-fw/tools/assert-not-linked.ts"
     },
     "dependencies": {
-        "@basics/core": "file:./vendor/basics-core-1.1.0.tgz",
+        "@basics/core": "file:./vendor/basics-core-1.2.0.tgz",
         "@sinclair/typebox": "0.34.48",
         "hono": "4.11.9",
         "kysely": "0.27.6",
