@@ -54,7 +54,6 @@ async function insertPlayer(ctx: Awaited<ReturnType<typeof createTestDb>>, id: s
         .values({
             id,
             username: id,
-            password_hash: 'x',
             display_name: id.toUpperCase(),
             nickname: null,
             avatar_url: null,

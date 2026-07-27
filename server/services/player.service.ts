@@ -109,7 +109,6 @@ export class PlayerService {
         values: {
             id: string;
             username: string;
-            password_hash: string;
             display_name: string;
             nickname: string | null;
             avatar_url: string | null;
@@ -120,6 +119,21 @@ export class PlayerService {
         trx: Kysely<Database> = this.db,
     ) {
         return trx.insertInto('players').values(values);
+    }
+
+    /**
+     * The password credential for a player (ADR-0005 / migration 041): the
+     * hash lives here, never on `players`, and `subject` mirrors the username.
+     */
+    private insertPasswordCredential(
+        values: { player_id: string; subject: string; password_hash: string },
+        trx: Kysely<Database> = this.db,
+    ) {
+        return trx.insertInto('player_credentials').values({
+            id: crypto.randomUUID(),
+            provider: 'password',
+            ...values,
+        });
     }
 
     private updatePlayerById(id: string, trx: Kysely<Database> = this.db) {
@@ -135,7 +149,6 @@ export class PlayerService {
         const values = {
             id,
             username: input.username,
-            password_hash: passwordHash,
             display_name: input.displayName,
             nickname: input.nickname ?? null,
             avatar_url: input.avatarUrl ?? null,
@@ -144,7 +157,16 @@ export class PlayerService {
             gender: input.gender ?? null,
         };
 
-        await this.insertPlayer(values).execute();
+        // Identity row + its password credential land together: a player
+        // created "with a password" who ends up without the credential row
+        // could never log in (ADR-0005 — backfill/creation are total).
+        await this.db.transaction().execute(async (trx) => {
+            await this.insertPlayer(values, trx).execute();
+            await this.insertPasswordCredential(
+                { player_id: id, subject: input.username, password_hash: passwordHash },
+                trx,
+            ).execute();
+        });
 
         return {
             id,
@@ -255,11 +277,34 @@ export class PlayerService {
         if (!club) throw new NotFoundError('club not found');
     }
 
+    /**
+     * Password login (ADR-0005): the player is still resolved by
+     * `players.username` — the public handle — but the hash now comes from the
+     * `('password', username)` credential row. A player with no password
+     * credential (Apple-only, or GDPR-tombstoned) simply cannot log in this
+     * way; that is the whole point of 0..n credentials.
+     *
+     * The framework's `createAuthApi({ verify, sessions })` contract is
+     * unchanged, as is the per-username rate limiting in front of it.
+     */
     async verify(username: string, password: string): Promise<AuthUser | null> {
         const row = await this.byUsername(username).executeTakeFirst();
         if (!row) return null;
 
-        const valid = await Bun.password.verify(password, row.password_hash);
+        const credential = await this.db
+            .selectFrom('player_credentials')
+            .select('password_hash')
+            .where('provider', '=', 'password')
+            .where('subject', '=', username)
+            .where('player_id', '=', row.id)
+            .executeTakeFirst();
+        // Falsy check is deliberate, not a routine null-guard: a legacy
+        // empty-string hash (migration 041 backfilled `''` for pre-split GDPR
+        // tombstones) must fail closed HERE, before Bun.password.verify ever
+        // sees it. Do not narrow this to `credential === undefined`.
+        if (!credential?.password_hash) return null;
+
+        const valid = await Bun.password.verify(password, credential.password_hash);
         if (!valid) return null;
 
         return { id: row.id, username: row.username };
@@ -367,22 +412,38 @@ export class PlayerService {
      * `username` is NOT NULL UNIQUE, so it becomes an opaque `deleted:<id>`
      * sentinel rather than null; login is disabled. Snapshots on
      * `ball_players` are untouched — the round still renders the played-as name.
+     *
+     * Login is disabled by DELETING the player's credentials (ADR-0005 /
+     * migration 041), where this used to write `password_hash: ''`. Post-split
+     * a credential row with an empty hash would be a lie — it asserts "this
+     * human has a password" — and zero credentials is legal and exactly
+     * truthful: nothing left to prove identity with. Observable behaviour is
+     * unchanged (`verify` returned null for the `''` hash and returns null for
+     * a missing credential), and it now also erases the Apple `sub`, which is
+     * itself PII the GDPR path must not keep. The credential rows would
+     * cascade on a row delete too, but this path deliberately keeps the
+     * `players` tombstone for FK integrity, so the delete is explicit.
      */
     async hardDelete(id: string): Promise<void> {
         const now = new Date().toISOString();
-        await this.db
-            .updateTable('players')
-            .set({
-                username: `deleted:${id}`,
-                password_hash: '',
-                display_name: 'Deleted player',
-                nickname: null,
-                avatar_url: null,
-                home_club_id: null,
-                handicap_index: null,
-                deleted_at: sql`COALESCE(deleted_at, ${now})`,
-            })
-            .where('id', '=', id)
-            .execute();
+        // One transaction: the erasure is credential-delete + PII-scrub, and a
+        // crash between them must not leave a half-erased player with no
+        // marker that erasure was requested.
+        await this.db.transaction().execute(async (trx) => {
+            await trx.deleteFrom('player_credentials').where('player_id', '=', id).execute();
+            await trx
+                .updateTable('players')
+                .set({
+                    username: `deleted:${id}`,
+                    display_name: 'Deleted player',
+                    nickname: null,
+                    avatar_url: null,
+                    home_club_id: null,
+                    handicap_index: null,
+                    deleted_at: sql`COALESCE(deleted_at, ${now})`,
+                })
+                .where('id', '=', id)
+                .execute();
+        });
     }
 }

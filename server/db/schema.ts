@@ -2,6 +2,7 @@ import type { Generated } from 'kysely';
 
 export interface Database {
     players: PlayersTable;
+    player_credentials: PlayerCredentialsTable;
     clubs: ClubsTable;
     courses: CoursesTable;
     course_holes: CourseHolesTable;
@@ -692,8 +693,13 @@ export interface CompetitionAuditEventsTable {
 
 export interface PlayersTable {
     id: string;
+    /**
+     * Public handle, NOT a credential (ADR-0005): friend search returns it as
+     * `PlayerSearchResult.username`. `password_hash` moved to
+     * `player_credentials` in migration 041; for `provider='password'` the
+     * credential's `subject` mirrors this column.
+     */
     username: string;
-    password_hash: string;
     display_name: string;
     nickname: string | null;
     avatar_url: string | null;
@@ -706,6 +712,34 @@ export interface PlayersTable {
      */
     gender: 'M' | 'F' | null;
     deleted_at: string | null;
+    created_at: Generated<string>;
+}
+
+/**
+ * Auth methods are data, not columns (ADR-0005). A new provider is a value
+ * here PLUS a migration relaxing migration 041's `provider IN (...)` CHECK
+ * (on SQLite that is a table rebuild) — still a row type and a handler,
+ * never a change to `players`.
+ */
+export type CredentialProvider = 'password' | 'apple';
+
+/**
+ * How a human proves who they are (migration 041). A `players` row has 0..n
+ * of these: password on web, Apple on iOS, both for the same person = two
+ * rows and ONE `players.id`. Zero rows is legal and means "cannot sign in"
+ * (a GDPR-tombstoned player) — never an empty hash, which would be a lie.
+ *
+ * `UNIQUE(provider, subject)` is the linking guard.
+ */
+export interface PlayerCredentialsTable {
+    id: string;
+    /** ON DELETE CASCADE — a credential is meaningless without its human. */
+    player_id: string;
+    provider: CredentialProvider;
+    /** `password`: the player's username; `apple`: the Apple `sub`. */
+    subject: string;
+    /** Password provider only; NULL for every other provider (CHECKed). */
+    password_hash: string | null;
     created_at: Generated<string>;
 }
 
