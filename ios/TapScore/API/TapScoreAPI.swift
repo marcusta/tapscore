@@ -46,25 +46,32 @@ actor TapScoreAPI {
 
     // MARK: - Implemented probe
 
-    /// `GET /api/auth/me` — the smoke probe. Returns the signed-in player, or
-    /// throws `.unauthorized` when the bearer token is absent/stale.
+    /// `GET /api/players/me` — the signed-in profile probe. Returns the full
+    /// `Player`, or throws `.unauthorized` when the bearer is absent/stale.
     ///
-    /// Surfaced on the landing screen so a build can be proven against a live
-    /// server without any other endpoint existing yet. `Player` is the
-    /// generated model (`API/Generated/AuthNativeTypes.swift`) — the
-    /// hand-written stand-in this used to decode into is gone.
+    /// NOT `/auth/me`: that is the framework's credential probe and answers
+    /// with `AuthUser` — id and username only, no `displayName` — so decoding
+    /// `Player` from it fails against a real server (found live: native
+    /// password sign-in died on `keyNotFound(displayName)`). `/players/me`
+    /// is the app-level route that answers with the profile the whole
+    /// `AuthState.signedIn` layer carries. Its output is `Player?` — null
+    /// means the session resolves to a player that no longer exists, which
+    /// for the client is indistinguishable from being signed out.
     ///
     /// `bearer` overrides the Keychain-backed provider for this one call. It
-    /// exists for the password door (N5): `POST /auth/native/login` answers with
-    /// the framework's `AuthUser` — id and username, a CREDENTIAL answer — while
-    /// `AuthState.signedIn` carries a `Player`. The profile is therefore fetched
-    /// with the freshly issued token BEFORE that token is written to the
-    /// Keychain, which keeps the ordering the whole auth layer relies on: the
-    /// bearer is stored, and only then does `authState` flip.
+    /// exists for the password door (N5): the profile is fetched with the
+    /// freshly issued token BEFORE that token is written to the Keychain,
+    /// which keeps the ordering the whole auth layer relies on: the bearer
+    /// is stored, and only then does `authState` flip.
     func me(bearer: String? = nil) async throws -> Player {
-        let data = try await requestData(path: "auth/me", bearer: bearer)
+        let data = try await requestData(path: "players/me", bearer: bearer)
         do {
-            return try decoder.decode(Player.self, from: data)
+            guard let player = try decoder.decode(Player?.self, from: data) else {
+                throw APIError.unauthorized
+            }
+            return player
+        } catch let error as APIError {
+            throw error
         } catch {
             throw APIError.decoding("\(Player.self): \(error)")
         }

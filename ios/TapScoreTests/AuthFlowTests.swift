@@ -28,7 +28,7 @@ final class AuthFlowTests: XCTestCase {
         #"{"user":{"id":"p9","username":"marcus"},"token":"bearer-pw"}"#.utf8
     )
 
-    /// What `GET /auth/me` answers: the full `Player` the login could not give.
+    /// What `GET /players/me` answers: the full `Player` the login could not give.
     private static let meJSON = Data(
         #"{"id":"p9","username":"marcus","displayName":"Marcus Andersson"}"#.utf8
     )
@@ -253,7 +253,7 @@ final class AuthFlowTests: XCTestCase {
     @MainActor
     func testPasswordLoginStoresTheBearerAndSignsIn() async throws {
         StubURLProtocol.reset(status: 200, body: Self.passwordLoginJSON)
-        StubURLProtocol.stub(path: "/auth/me", status: 200, body: Self.meJSON)
+        StubURLProtocol.stub(path: "/players/me", status: 200, body: Self.meJSON)
         let environment = makeEnvironment()
         await environment.bootstrap()
         XCTAssertEqual(environment.authState, .anonymous)
@@ -277,7 +277,7 @@ final class AuthFlowTests: XCTestCase {
         // The profile read that turns a credential answer into a Player, and
         // it carries the NEW token — the Keychain has not been written yet.
         let profile = try XCTUnwrap(StubURLProtocol.requests.last)
-        XCTAssertEqual(profile.url?.absoluteString, "http://localhost:3030/api/auth/me")
+        XCTAssertEqual(profile.url?.absoluteString, "http://localhost:3030/api/players/me")
         XCTAssertEqual(profile.headers["Authorization"], "Bearer bearer-pw")
 
         XCTAssertEqual(player.displayName, "Marcus Andersson", "Never invented from the username.")
@@ -335,7 +335,7 @@ final class AuthFlowTests: XCTestCase {
         // is". Nothing is stored yet, so walking away would leave a live
         // session with no copy of its token anywhere.
         StubURLProtocol.reset(status: 200, body: Self.passwordLoginJSON)
-        StubURLProtocol.stub(path: "/auth/me", status: 500, body: Data())
+        StubURLProtocol.stub(path: "/players/me", status: 500, body: Data())
         let environment = makeEnvironment()
 
         do {
@@ -396,7 +396,7 @@ final class AuthFlowTests: XCTestCase {
     @MainActor
     func testPasswordLoginLeavesTheConnectOfferStanding() async throws {
         StubURLProtocol.reset(status: 200, body: Self.passwordLoginJSON)
-        StubURLProtocol.stub(path: "/auth/me", status: 200, body: Self.meJSON)
+        StubURLProtocol.stub(path: "/players/me", status: 200, body: Self.meJSON)
         let environment = makeEnvironment()
 
         try await environment.signInWithPassword(username: "marcus", password: "hunter2")
@@ -591,7 +591,7 @@ final class AuthFlowTests: XCTestCase {
     @MainActor
     func testPasswordLoginRevokesTheTokenItCouldNotStore() async {
         StubURLProtocol.reset(status: 200, body: Self.passwordLoginJSON)
-        StubURLProtocol.stub(path: "/auth/me", status: 200, body: Self.meJSON)
+        StubURLProtocol.stub(path: "/players/me", status: 200, body: Self.meJSON)
         let broken = Keychain.failingWrites(
             service: "com.marcusandersson.tapscore.tests.\(UUID().uuidString)"
         )

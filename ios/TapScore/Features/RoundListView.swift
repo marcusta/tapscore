@@ -220,7 +220,7 @@ struct RoundListView: View {
             TapCard(sunken: true) {
                 VStack(alignment: .leading, spacing: TapSpacing.xs) {
                     HStack(spacing: TapSpacing.sm) {
-                        Text("GET /auth/me")
+                        Text("GET /players/me")
                             .foregroundStyle(TapColors.textMuted)
                         Spacer(minLength: 0)
                         switch environment.authState {

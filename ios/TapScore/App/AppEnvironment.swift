@@ -95,13 +95,32 @@ final class AppEnvironment {
     /// what has already happened.
     ///
     /// Deliberately NOT persisted and deliberately not treated as knowledge:
-    /// the client cannot see which credentials a player row holds — `/auth/me`
+    /// the client cannot see which credentials a player row holds — `/players/me`
     /// returns a `Player`, which carries none — so this is a record of what
     /// this run of the app just did, nothing more. It resets on launch and on
     /// sign-out, and the server remains the only truth. Faking persistence
     /// here would mean hiding the affordance from someone whose link never
     /// actually landed.
     private(set) var appleLinkedThisSession = false
+
+    /// Whether the signed-in player holds the `super_admin` grant, as far as
+    /// THIS session was able to find out.
+    ///
+    /// It gates one thing: whether the Server settings row exists at all. That
+    /// is a **footgun-hider, not a security boundary** — any debug build
+    /// accepts `-apiBaseURL` from the launch arguments, and the row would only
+    /// ever change where this device points itself. `AdminAuthz` on the server
+    /// is the real gate for everything privileged. So the failure direction is
+    /// chosen accordingly: unknown means false, and false means the row is
+    /// simply absent.
+    private(set) var isSuperAdmin = false
+
+    /// One probe per session. `/me/roles` answers a question that cannot change
+    /// while the app is open (a grant issued mid-round is not a case worth a
+    /// polling loop), and re-asking after a failure is how a 403 becomes a
+    /// retry storm — every appearance of the account inset firing another
+    /// request that will fail exactly the same way.
+    private var didProbeRoles = false
 
     // MARK: Init
 
@@ -134,7 +153,7 @@ final class AppEnvironment {
 
     // MARK: - Bootstrap
 
-    /// Resolves the initial auth state with the `/auth/me` probe.
+    /// Resolves the initial auth state with the `/players/me` probe.
     ///
     /// - No stored token → `.anonymous` without a network round-trip.
     /// - 401 → the token is stale; wipe it so the next launch is fast.
@@ -349,8 +368,37 @@ final class AppEnvironment {
             // what this session did, not a fact about any player row.
             showsNewAccountNotice = false
             appleLinkedThisSession = false
+            // The grant belonged to the player who just left. Clearing the
+            // "already asked" flag too is what lets the NEXT sign-in — possibly
+            // a different human on the same device — be answered on its own
+            // merits instead of inheriting this one's.
+            isSuperAdmin = false
+            didProbeRoles = false
         }
         _ = try? await api.send(AuthNativeEndpoints.revoke)
+    }
+
+    // MARK: - Roles
+
+    /// Asks the server which role grants the bearer holds, once per session.
+    ///
+    /// Driven by the signed-in account UI (`AccountInsetView.task`) rather than
+    /// bolted onto `bootstrap()` / `adoptSession(…)`: this is a question only
+    /// the account area has any use for, and hanging it off the auth path would
+    /// put a second request inside every sign-in — including the ones that are
+    /// failing, where the last thing anyone needs is another call.
+    ///
+    /// **Every failure is silence.** 401 (session died), 403 (not an admin —
+    /// the ordinary case for almost everyone), a decode mismatch, an unreachable
+    /// server: all of them mean `isSuperAdmin` stays false and nothing is shown
+    /// to the user. There is no error to surface, because there is no request
+    /// the user made. `didProbeRoles` is set REGARDLESS, so a failure is not
+    /// retried.
+    func probeRolesIfNeeded() async {
+        guard !didProbeRoles, case .signedIn = authState else { return }
+        didProbeRoles = true
+        guard let grants = try? await api.send(AdminEndpoints.myRoles) else { return }
+        isSuperAdmin = grants.contains { $0.role == .superAdmin }
     }
 
     // MARK: - Deep links

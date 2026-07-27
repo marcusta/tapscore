@@ -15,7 +15,7 @@ import XCTest
 ///
 /// Everything runs against a `URLProtocol` stub: no network, no server.
 final class TapScoreAPITransportTests: XCTestCase {
-    /// A well-formed `GET /auth/me` body for the generated `Player` model.
+    /// A well-formed `GET /players/me` body for the generated `Player` model.
     private static let playerJSON = Data(
         #"{"id":"p1","username":"marcus","displayName":"Marcus Andersson"}"#.utf8
     )
@@ -48,7 +48,7 @@ final class TapScoreAPITransportTests: XCTestCase {
         XCTAssertEqual(player.username, "marcus")
         XCTAssertEqual(
             StubURLProtocol.requests.map(\.url?.absoluteString),
-            ["https://app.swedenindoorgolf.se/tapscore/api/auth/me"],
+            ["https://app.swedenindoorgolf.se/tapscore/api/players/me"],
             "The /tapscore deployment prefix must survive the base+path join."
         )
         XCTAssertEqual(StubURLProtocol.requests.first?.method, "GET")
@@ -61,7 +61,7 @@ final class TapScoreAPITransportTests: XCTestCase {
 
         XCTAssertEqual(
             StubURLProtocol.requests.first?.url?.absoluteString,
-            "http://localhost:3030/api/auth/me"
+            "http://localhost:3030/api/players/me"
         )
     }
 
@@ -232,7 +232,7 @@ final class StubURLProtocol: URLProtocol {
     /// Path-suffix overrides in REGISTRATION ORDER, first match wins.
     ///
     /// An array rather than a dictionary because suffixes can overlap
-    /// (`/auth/me` and `/me`), and a dictionary's iteration order is
+    /// (`/players/me` and `/me`), and a dictionary's iteration order is
     /// unspecified — two overlapping stubs would pick a different winner per
     /// run and the test would fail on someone else's machine.
     nonisolated(unsafe) private static var overrides: [(suffix: String, status: Int, body: Data)] = []
@@ -250,7 +250,7 @@ final class StubURLProtocol: URLProtocol {
 
     /// Arms a DIFFERENT answer for one path suffix, leaving the catch-all in
     /// place. Needed by any flow that makes two calls with different shapes —
-    /// the password door posts `/auth/native/login` and then reads `/auth/me`,
+    /// the password door posts `/auth/native/login` and then reads `/players/me`,
     /// and one canned body cannot be both. Cleared by `reset`, so a test that
     /// never calls it behaves exactly as before.
     ///

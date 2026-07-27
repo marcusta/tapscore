@@ -70,7 +70,8 @@ struct RoundView: View {
     }
 
     /// The link the share card offers. Built from the resolved web origin (not
-    /// the API base) so a dev build hands out a `localhost:3030` link and a
+    /// the API base) so a build OVERRIDDEN to the dev server (`-apiBaseURL
+    /// http://localhost:3030/api`) hands out a `localhost:3030` link and a
     /// production build the `/tapscore` sub-path one.
     private var shareURL: String {
         var url = environment.configuration.webOrigin

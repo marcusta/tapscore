@@ -18,7 +18,7 @@ struct AccountInsetView: View {
     /// Persisted "stop offering this", not "this is connected".
     ///
     /// The distinction is the whole reason there are two flags. The CLIENT
-    /// CANNOT SEE which credentials a player row holds — `/auth/me` returns a
+    /// CANNOT SEE which credentials a player row holds — `/players/me` returns a
     /// `Player`, which carries none — so the app has no way to know whether
     /// Apple is already attached. `environment.appleLinkedThisSession` records
     /// only what this run did and resets on launch; this one records a user
@@ -40,11 +40,20 @@ struct AccountInsetView: View {
     /// confirmation is feedback for an action, so it belongs to the action.
     @State private var justLinked = false
 
+    /// The super-admin Server screen, presented as a sheet.
+    ///
+    /// A sheet rather than a `ShellDestination`: this is an account-area detail
+    /// with no route, no deep link and no back-stack meaning, and adding it to
+    /// `ShellNavigation` would put a developer tool in the same enum as the two
+    /// screens a share link can reach.
+    @State private var showsServerSettings = false
+
     var body: some View {
         if hasSomethingToSay {
             VStack(alignment: .leading, spacing: TapSpacing.md) {
                 if environment.showsNewAccountNotice { newAccountNotice }
                 if showsConnectOffer { connectOffer }
+                if environment.isSuperAdmin { serverRow }
                 if justLinked {
                     Label("Sign in with Apple is connected.", systemImage: "checkmark.circle")
                         .font(TapFont.ui(size: 13.6))
@@ -64,6 +73,20 @@ struct AccountInsetView: View {
                     .fill(TapColors.border)
                     .frame(height: 1)
             }
+            // One probe per session, asked from the one place that has any use
+            // for the answer. Failures are silent by design — see
+            // `AppEnvironment.probeRolesIfNeeded()`.
+            .task { await environment.probeRolesIfNeeded() }
+            .sheet(isPresented: $showsServerSettings) {
+                ServerSettingsView(active: environment.configuration)
+            }
+        } else {
+            // Nothing to say — but the role probe still has to happen, or an
+            // account with no notice and no connect offer (the settled case)
+            // would never ask, and the Server row could never appear.
+            Color.clear
+                .frame(height: 0)
+                .task { await environment.probeRolesIfNeeded() }
         }
     }
 
@@ -72,12 +95,48 @@ struct AccountInsetView: View {
             || showsConnectOffer
             || justLinked
             || problem != nil
+            || environment.isSuperAdmin
     }
 
     /// Hidden once this session has linked — but only for this session, and
     /// only because we watched it happen.
     private var showsConnectOffer: Bool {
         !environment.appleLinkedThisSession && !connectHidden
+    }
+
+    // MARK: - The server row (super admin only)
+
+    /// Absent, not disabled, for everyone else.
+    ///
+    /// There is no greyed-out row and no long-press easter egg: a control that
+    /// can point the app at a server nobody else runs has nothing to say to a
+    /// player, and a visible-but-dead version of it is worse than none — it
+    /// invites the question it cannot answer.
+    private var serverRow: some View {
+        Button {
+            showsServerSettings = true
+        } label: {
+            HStack(spacing: TapSpacing.sm) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Server")
+                        .font(TapFont.ui(size: 14.4, weight: .semibold))
+                        .foregroundStyle(TapColors.text)
+                    Text(verbatim: environment.configuration.baseURL.absoluteString)
+                        .font(TapFont.ui(size: 12.8))
+                        .foregroundStyle(TapColors.textMuted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(TapFont.ui(size: 12.8, weight: .semibold))
+                    .foregroundStyle(TapColors.textMuted)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("server-settings-row")
     }
 
     // MARK: - The fork notice

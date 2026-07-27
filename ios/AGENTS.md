@@ -119,9 +119,15 @@ comment. `-tapscoreGallery` (DEBUG only, same seam as `-tapscoreDeepLink`) swaps
 the app for `DesignGalleryView`, which is how the layer gets reviewed visually:
 
 ```
-xcrun simctl launch <udid> com.marcusandersson.tapscore -tapscoreGallery YES
+xcrun simctl launch <udid> com.marcusandersson.tapscore \
+    -apiBaseURL http://localhost:3030/api -tapscoreGallery YES
 xcrun simctl ui <udid> appearance dark   # then screenshot again
 ```
+
+(The gallery renders no live data, so the base URL changes nothing it draws —
+it is here anyway, because "every launch line in this file carries it" is a rule
+that survives copy-paste and "this one doesn't need it" is not. See
+**Which server a run talks to**.)
 
 Screenshot BOTH appearances. The one real bug this layer has shipped so far —
 an inactive tab label rendered dark-on-dark — was invisible in every test and
@@ -163,10 +169,11 @@ Related deploy-side prerequisites, all outside this repo (PHASES.md N4):
   `DeepLinkRouter` (pure URL → route; the trust boundary for inbound links),
   `ScenePhaseCoordinator` (the single foreground/background funnel the SSE feed
   will hang off — screens must not observe `scenePhase` directly).
-- `API/` — `TapScoreAPI` (an `actor`), `APIConfiguration` (dev
-  `http://localhost:3030/api` vs prod
-  `https://app.swedenindoorgolf.se/tapscore/api`), `APIError`, and the
-  generated seam.
+- `API/` — `TapScoreAPI` (an `actor`), `APIConfiguration` (prod
+  `https://app.swedenindoorgolf.se/tapscore/api` — **the default everywhere** —
+  vs dev `http://localhost:3030/api`, reachable only via the `apiBaseURL`
+  override), `ServerOverride` (validation + the `UserDefaults` write-through),
+  `APIError`, and the generated seam.
 - `Features/` — SwiftUI screens. Currently placeholders.
 
 Auth model, because it differs from golf-map: tapscore sends
@@ -223,6 +230,76 @@ one the rest of this file assumes.)
 
 Pick a destination that actually exists — `xcrun simctl list devices available`.
 
+`xcodebuild test` never touches a server — every suite stubs `URLProtocol` — so
+those two lines need no base-URL argument. **Every line that LAUNCHES the app
+does.** See the next section.
+
+## Which server a run talks to (🚩 read before any simulator run)
+
+**The default is production, everywhere.** Device, simulator, DEBUG, release —
+`APIConfiguration.default` is `.production` with no `#if` in it. It used to
+branch on `targetEnvironment(simulator)` and hand the simulator `.dev`; that is
+gone, and `ServerConfigurationTests.testDefaultIsProductionEvenInTheSimulator`
+(which runs in a simulator) is what keeps it gone.
+
+**So a simulator launch that forgets the argument hits PRODUCTION.** Silently.
+It looks like a working app with someone else's data in it — real rounds, real
+players, real score writes. A verification screenshot taken against prod is not
+a verification; it is a change to prod that also produced a picture. Never
+accept one, never take one.
+
+The only way anywhere else is the `apiBaseURL` override, so **every run,
+verify, and screenshot command in this repo carries it**:
+
+```sh
+xcrun simctl launch <udid> com.marcusandersson.tapscore \
+    -apiBaseURL http://localhost:3030/api
+```
+
+Add it to the deep-link line, the gallery line, and anything you write next:
+
+```sh
+xcrun simctl launch <udid> com.marcusandersson.tapscore \
+    -apiBaseURL http://localhost:3030/api \
+    -tapscoreDeepLink 'tapscore://round?token=<share-token>'
+
+xcrun simctl launch <udid> com.marcusandersson.tapscore \
+    -apiBaseURL http://localhost:3030/api -tapscoreGallery YES
+```
+
+`-apiBaseURL` is a plain `UserDefaults` argument, so **it persists across
+launches** of that simulator until something overwrites or removes it — which
+cuts both ways: one launch with it and the next launch without it is still on
+localhost, and one launch pointed at prod poisons the next one that assumed
+otherwise. When in doubt, pass it explicitly; it is idempotent.
+
+### The Server screen (super-admin only)
+
+`ServerSettingsView` is the same override with a UI: it shows the base URL the
+app actually resolved, offers Production / Local dev presets and a validated
+custom URL, and writes the **same `apiBaseURL` key** the launch argument does.
+Validation: parseable, has a scheme and host, and https unless the host is
+loopback (`localhost` / `127.0.0.1` / `::1`) — the same set `Info.plist`'s
+`NSAllowsLocalNetworking` actually makes reachable.
+
+Nothing hot-swaps. The API actor, the SSE feed and the pending-score queue all
+hold the base URL resolved at launch; re-pointing them mid-session would leave a
+half-migrated app whose every symptom looks like a server bug. The screen says
+"relaunch to apply" and means it.
+
+It is reached from the signed-in account inset, and the row **exists only when
+`AppEnvironment.isSuperAdmin`** — no disabled row, no long-press easter egg.
+`isSuperAdmin` comes from one `GET /me/roles` probe per session (the generated
+`AdminEndpoints.myRoles`), cached in memory, with **every** failure — 401, 403,
+decode mismatch, unreachable — meaning "not a super admin", silently and without
+a retry.
+
+**That gate is a footgun-hider, not a security boundary.** Any debug build
+accepts `-apiBaseURL` from the launch arguments no matter who is signed in, and
+all the screen can do is re-point this device at a server. `AdminAuthz` on the
+server is the real gate for anything privileged; do not add a privileged action
+behind this flag and think it is protected.
+
 ## Re-implement, do not port
 
 The web client's `.component.ts` files, its `static styles`, and its
@@ -244,11 +321,17 @@ taps Open". A launch argument avoids the system UI entirely:
 
 ```sh
 xcrun simctl launch <udid> com.marcusandersson.tapscore \
+    -apiBaseURL http://localhost:3030/api \
     -tapscoreDeepLink 'tapscore://round?token=<share-token>'
 # environment form, for wrappers that cannot pass argv:
 SIMCTL_CHILD_TAPSCORE_DEEP_LINK='tapscore://round?token=<share-token>' \
-    xcrun simctl launch <udid> com.marcusandersson.tapscore
+    xcrun simctl launch <udid> com.marcusandersson.tapscore \
+        -apiBaseURL http://localhost:3030/api
 ```
+
+The `-apiBaseURL` is not optional here. A share token is scoped to ONE server;
+opening a dev token against prod (the default) is a 404 that reads as "the deep
+link is broken". See **Which server a run talks to**.
 
 Read by `LaunchDeepLink` (in `App/TapScoreApp.swift`) and handed to
 `AppEnvironment.handle(url:)` at startup — the *same* `DeepLinkRouter` parse and
