@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Sign in with Apple is the only sign-up path in the native client
+	     (N2/N4). The App ID must have the capability enabled in the developer
+	     portal or automatic signing fails. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+	<!-- Universal links for share links. NOTE: the
+	     apple-app-site-association file must be served from the DOMAIN ROOT
+	     (https://app.swedenindoorgolf.se/.well-known/apple-app-site-association),
+	     not from under /tapscore/ — see PHASES.md N4 deploy prerequisites. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:app.swedenindoorgolf.se</string>
+	</array>
+</dict>
+</plist>

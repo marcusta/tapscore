@@ -1,0 +1,76 @@
+# XcodeGen source of truth for the tapscore iOS app (PHASES.md N4).
+# Regenerate the (gitignored) Xcode project with:  cd ios && xcodegen generate
+# Docs: https://github.com/yonaskolb/XcodeGen/blob/master/Docs/ProjectSpec.md
+#
+# Mirrors ../golf-map/ios/project.yml deliberately — same team, same signing
+# style, same iOS 17 / Swift 6 / iPhone-portrait envelope. The one intentional
+# divergence: tapscore commits its Info.plist (see `INFOPLIST_FILE` below)
+# instead of letting XcodeGen synthesize a gitignored one, because the
+# associated-domains + URL-scheme wiring is reviewable configuration.
+name: TapScore
+
+options:
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "17.0"
+
+# Zero SPM dependencies — deliberate (N4). Everything the app needs
+# (URLSession, Keychain, SwiftUI, AuthenticationServices) ships with the SDK.
+# Adding a package here is an architecture decision, not a convenience.
+
+targets:
+  TapScore:
+    type: application
+    platform: iOS
+    sources:
+      # Recursive glob over the whole app folder. `TapScore/API/Generated/` is
+      # machine-written by `bun run generate:swift` and may not exist yet —
+      # XcodeGen simply emits nothing for it, and the target still builds. Run
+      # `xcodegen generate` again after the first generation so the new files
+      # are picked up.
+      - path: TapScore
+        excludes:
+          # Committed, referenced via INFOPLIST_FILE / CODE_SIGN_ENTITLEMENTS.
+          # Excluded from `sources` so they are not also copied as resources.
+          - "Info.plist"
+          - "TapScore.entitlements"
+    settings:
+      base:
+        # This value IS the server's prod `APPLE_AUDIENCE`. Changing it breaks
+        # Sign in with Apple verification server-side. See ios/AGENTS.md.
+        PRODUCT_BUNDLE_IDENTIFIER: com.marcusandersson.tapscore
+        # Paid Apple Developer team (shared with golf-map); automatic signing
+        # lets xcodebuild -allowProvisioningUpdates register devices and mint
+        # profiles on demand.
+        DEVELOPMENT_TEAM: AC979WJ4JA
+        CODE_SIGN_STYLE: Automatic
+        # Committed, hand-maintained — not generated.
+        GENERATE_INFOPLIST_FILE: false
+        INFOPLIST_FILE: TapScore/Info.plist
+        CODE_SIGN_ENTITLEMENTS: TapScore/TapScore.entitlements
+        # iPhone only.
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "6.0"
+        # Swift 6 language mode already implies complete concurrency checking;
+        # set explicitly so it survives a language-mode downgrade.
+        SWIFT_STRICT_CONCURRENCY: complete
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 0.1.0
+    # Generates the TapScore scheme with TapScoreTests wired into the test action.
+    scheme:
+      testTargets:
+        - TapScoreTests
+
+  TapScoreTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - TapScoreTests
+    dependencies:
+      - target: TapScore
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        # Test bundles need an Info.plist; let Xcode synthesize it.
+        GENERATE_INFOPLIST_FILE: true

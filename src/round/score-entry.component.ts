@@ -3,6 +3,14 @@ import { t } from '../theme';
 import { s } from '../css';
 import { RoundViewService, ballDisplayName } from './round.service';
 import { clampIndex, stepsFromDrag } from './hole-carousel';
+import {
+    advance as decideAdvance,
+    hasMoreUnscored as policyHasMoreUnscored,
+    isHoleCompleteOnEntry,
+    type AdvanceDecision,
+    type AdvanceState,
+    type EntryEvent,
+} from './advance-policy';
 import type { RoundBall } from '../api/friendly-rounds.gen';
 import type { MetadataInput } from '../api/setup.gen';
 
@@ -627,7 +635,7 @@ export class ScoreEntryComponent extends Component {
                 textContent: () => (this.hasMoreUnscored() ? 'Next ›' : 'Done ›'),
                 onclick: () => {
                     this.statsOpen.set(false);
-                    if (!this.holeCompleteOnEntry) this.advance();
+                    this.apply({ kind: 'statsDone' });
                 },
             },
         });
@@ -865,18 +873,34 @@ export class ScoreEntryComponent extends Component {
     }
 
     /**
+     * Snapshot of everything `advance-policy.ts` is allowed to know, read out
+     * of the live signals at event time. Built here and nowhere else — the
+     * policy owns the domain choice, this component only executes it.
+     */
+    private advanceState(): AdvanceState {
+        const ph = this.currentHole();
+        return {
+            balls: this.ballsInGroup().map((b) => ({
+                pending: !!b.pending,
+                scored: !!ph && this.svc.strokesFor(b.id, ph.playHoleId) !== null,
+            })),
+            currentBallIndex: this.currentBallIdx.get(),
+            currentHole: ph ? { id: ph.playHoleId, label: this.occLabel(ph.playHoleId) } : null,
+            holeIndex: this.holeIndex(),
+            holeCount: this.playedOrder().length,
+            holeCompleteOnEntry: this.holeCompleteOnEntry,
+            collectsStats: this.metaInputs().length > 0,
+        };
+    }
+
+    /**
      * Snapshot whether the hole the keypad just arrived on was already fully
      * scored (pending seats excluded — they can't be scored at all). Decides
      * entry mode vs correction mode for this visit; a clear+re-enter during
      * the visit deliberately keeps correction mode.
      */
     private noteHoleEntered(): void {
-        const ph = this.currentHole();
-        const balls = this.ballsInGroup().filter((b) => !b.pending);
-        this.holeCompleteOnEntry =
-            !!ph &&
-            balls.length > 0 &&
-            balls.every((b) => this.svc.strokesFor(b.id, ph.playHoleId) !== null);
+        this.holeCompleteOnEntry = isHoleCompleteOnEntry(this.advanceState());
     }
 
     /** Header-chevron hole navigation inside the keypad modal. */
@@ -902,42 +926,95 @@ export class ScoreEntryComponent extends Component {
 
     /** Record `value` for the selected ball on the current hole, then advance. */
     private commit(value: number | null): void {
-        const balls = this.ballsInGroup();
-        const ph = this.currentHole();
-        const ball = balls[this.currentBallIdx.get()];
-        if (!ph || !ball) return;
-        // Phase 5.5: an unclaimed seat's ball refuses scoring (server 409s the
-        // write with `seat_unclaimed`); skip past it instead of queueing a
-        // write that can never land.
-        if (ball.pending) {
-            if (!this.holeCompleteOnEntry) this.advance();
-            return;
+        this.apply({ kind: 'score', value });
+    }
+
+    /**
+     * Ask `advance-policy.ts` what this interaction means, then execute the
+     * answer. Every domain branch (pending seats, correction mode, the stats
+     * detour, ball wrap-around, hole/round completion) lives in the policy;
+     * everything below is mechanics.
+     */
+    private apply(entry: EntryEvent): void {
+        this.execute(decideAdvance(this.advanceState(), entry));
+    }
+
+    private execute(decision: AdvanceDecision): void {
+        const write = decision.write;
+        if (write) {
+            const ball = this.ballsInGroup()[write.ballIndex];
+            if (ball)
+                void this.svc.setScore(
+                    ball.id,
+                    write.holeId,
+                    write.value,
+                    write.withMetadata ? this.metaSnapshot() : undefined,
+                );
         }
-        // Clearing a hole carries no metadata; a real/pickup score carries the
-        // COMPLETE toggle snapshot so the latest event's blob is authoritative.
-        const meta = value === null ? undefined : this.metaSnapshot();
-        void this.svc.setScore(ball.id, ph.playHoleId, value, meta);
-        // A real score (>0) on a hole that collects stats opens the stats screen,
-        // where the player marks GIR/fairway and taps Next to advance. Clear,
-        // pickup, and strokes-only holes auto-advance immediately for fast entry.
-        // Correction mode (hole was already complete on arrival) never advances:
-        // the player stays put to fix as many scores as needed.
-        if (value !== null && value > 0 && this.metaInputs().length > 0) {
-            this.statsOpen.set(true);
-        } else if (!this.holeCompleteOnEntry) {
-            this.advance();
+        const move = decision.move;
+        switch (move.kind) {
+            case 'noop':
+            case 'stay':
+                return;
+            case 'moveToBall':
+                this.currentBallIdx.set(move.ballIndex);
+                return;
+            case 'openStats':
+                this.statsOpen.set(true);
+                return;
+            case 'roundComplete':
+                this.flash(move.toast);
+                this.modalOpen.set(false);
+                return;
+            case 'holeComplete': {
+                this.flash(move.toast);
+                if (this.advanceTimer) clearTimeout(this.advanceTimer);
+                this.advanceTimer = setTimeout(() => {
+                    this.advanceTimer = null;
+                    // Only auto-advance if still on the hole that completed — a
+                    // manual swipe during the pause must not yank the user to
+                    // the wrong hole.
+                    if (this.currentHole()?.playHoleId !== move.fromHoleId) return;
+                    // Deliberate: the target index is FROZEN at decision time
+                    // and only re-clamped here against the live played order —
+                    // it is not recomputed. The `fromHoleId` guard above covers
+                    // the realistic case (the user moved); the only way to land
+                    // somewhere unintended is the itinerary itself changing
+                    // during the 700ms pause while the keypad stayed put, which
+                    // the clamp keeps in range rather than tries to follow.
+                    this.holeIdx.set(clampIndex(move.toHoleIndex, this.playedOrder().length));
+                    this.currentBallIdx.set(0);
+                    // Arriving on the next hole is a fresh visit: normally
+                    // unscored (entry mode), but a hole scored ahead of time
+                    // flips to correction mode so the advance chain stops there.
+                    this.noteHoleEntered();
+                }, move.delayMs);
+                return;
+            }
         }
     }
 
-    /** True when at least one other ball on the current hole is still unscored. */
+    /**
+     * True when at least one other ball on the current hole is still unscored.
+     *
+     * Built from the narrow slice the policy actually consumes rather than the
+     * full `advanceState()` snapshot: this runs inside a reactive binding (the
+     * stats button label), and reading the whole snapshot would subscribe it to
+     * `metaInputs`/`holeIndex`/`playedOrder`/`occLabel` as well — signals the
+     * label does not depend on.
+     */
     private hasMoreUnscored = (): boolean => {
-        const balls = this.ballsInGroup();
         const ph = this.currentHole();
-        if (!ph) return false;
-        const cur = this.currentBallIdx.get();
-        return balls.some(
-            (b, i) => i !== cur && this.svc.strokesFor(b.id, ph.playHoleId) === null,
-        );
+        return policyHasMoreUnscored({
+            balls: this.ballsInGroup().map((b) => ({
+                pending: !!b.pending,
+                scored: !!ph && this.svc.strokesFor(b.id, ph.playHoleId) !== null,
+            })),
+            currentBallIndex: this.currentBallIdx.get(),
+            // The label is only used for toasts, which this predicate never
+            // produces — avoid the `occLabel` read for the same reason.
+            currentHole: ph ? { id: ph.playHoleId, label: '' } : null,
+        });
     };
 
     /** Explicit booleans for every applicable toggle (so turning one OFF persists). */
@@ -979,44 +1056,6 @@ export class ScoreEntryComponent extends Component {
             },
             track,
         );
-    }
-
-    /**
-     * Move to the next ball with no score on this hole; once every ball is
-     * scored, flash a confirmation and advance to the next hole (keeping the
-     * keypad up for fast entry). The last hole closes the keypad.
-     */
-    private advance(): void {
-        const balls = this.ballsInGroup();
-        const ph = this.currentHole();
-        if (!ph) return;
-        const scored = (i: number) => this.svc.strokesFor(balls[i]!.id, ph.playHoleId) !== null;
-        const cur = this.currentBallIdx.get();
-        for (let i = cur + 1; i < balls.length; i++) if (!scored(i)) return this.currentBallIdx.set(i);
-        for (let i = 0; i < cur; i++) if (!scored(i)) return this.currentBallIdx.set(i);
-
-        const po = this.playedOrder();
-        const idx = this.holeIndex();
-        if (idx >= po.length - 1) {
-            this.flash('Round complete');
-            this.modalOpen.set(false);
-            return;
-        }
-        this.flash(`Hole ${this.occLabel(ph.playHoleId)} done`);
-        const fromPh = ph.playHoleId;
-        if (this.advanceTimer) clearTimeout(this.advanceTimer);
-        this.advanceTimer = setTimeout(() => {
-            this.advanceTimer = null;
-            // Only auto-advance if still on the hole that completed — a manual
-            // swipe during the pause must not yank the user to the wrong hole.
-            if (this.currentHole()?.playHoleId !== fromPh) return;
-            this.holeIdx.set(clampIndex(this.holeIndex() + 1, this.playedOrder().length));
-            this.currentBallIdx.set(0);
-            // Arriving on the next hole is a fresh visit: normally unscored
-            // (entry mode), but a hole scored ahead of time flips to
-            // correction mode so the advance chain stops there.
-            this.noteHoleEntered();
-        }, 700);
     }
 
     private flash(msg: string): void {

@@ -1355,6 +1355,8 @@ Do this first. It is small, entirely local, needs no Apple developer account, an
 
 **Gate:** password and Apple credentials on one player resolve to the same `players.id`; a replayed Apple callback without name fields does not clobber `display_name`; cookie and bearer sessions resolve identically. Commit `N2 complete: signup + SIWA + bearer sessions`.
 
+**Status: COMPLETE (2026-07-27), commits `2caa71f` (fw) → `bb570f5` (1.2.0 landing) → `0606b01` (Apple + bearer).** The signup item was already satisfied by Phase 3 (`POST /players/register` + client register mode) — no new signup surface built. Framework 1.2.0: bearer beside cookie in `createAuth` (cookie wins absolutely), `issueSessionToken`/`revokeSessionToken` pair. Tapscore: dependency-free SIWA verify (WebCrypto, typed failures), `findOrCreateByApple`/`linkAppleCredential`, `POST /auth/apple` + `POST /auth/revoke`. Two opus review rounds; all arbitrated findings applied, incl. three majors (revoke confused-deputy, `APPLE_AUDIENCE` fails closed at prod boot, JWKS kid-miss refetch cooldown). Gate pinned by `auth-native.routes.test.ts`; 1371 total / 0 fail. **Deploy prerequisite for N4: set `APPLE_AUDIENCE` in the prod systemd unit.** Deferred follow-ups: nonce binding (N4 inherits — captured tokens replayable for their lifetime until then), JWKS-outage backoff on the cold path, soft-delete login-vs-discovery product decision (documented at `verify()`).
+
 ### N3 — Result contract as a platform-neutral view tree
 
 Independent of N1/N2 and of the native client — this is the largest single win in the client architecture and it gets worse once a second client exists.
@@ -1367,6 +1369,8 @@ Today the server computes everything correctly (`SlotResultView`, ADR-0001..0004
 
 **Gate:** the fixture oracle renders byte-identical through the new fold; `result-render.ts` and `scripts/render/sections/result.ts` no longer duplicate grouping/subtotal logic. Visual review against the canonical format fixtures. Commit `N3 complete: result view tree`.
 
+**Status: COMPLETE (2026-07-27), commit `6ee058e`** (plus `8fb273e` fixing render-all's missing plugin registration, found because the byte-oracle wouldn't run at all). Two parallel opus implement/review streams, both approved; all minor findings applied and the byte gate re-proven afterward. The fold is `src/round/result-layout.ts` (zero imports, JSON-serializable — the N4 Swift renderer's contract); marker tokens in `src/round/marker-tokens.ts`; diagnostics carry `formatIndex`/`slotIndex` and the client regex parser is gone. Pre-existing web/oracle emitter drift preserved verbatim and documented in the fold (web composition canonical for new renderers). Remaining half of structured diagnostics (producer/playingGroup path-prefix bucketing in `setup.service.ts`) deliberately out of scope, noted in `game-rules.md`. 1396 tests / 0 fail.
+
 ### N4 — iOS client
 
 Only after N1–N3. Requires N2 (auth) and benefits enormously from N3 (no scoring or layout logic to re-derive).
@@ -1378,6 +1382,8 @@ Only after N1–N3. Requires N2 (auth) and benefits enormously from N3 (no scori
 - Risk to design for: **the share link.** A friend taps a round link mid-round, installs, and hits a sign-up wall before scoring. This is survivable only because SIWA makes it ~two taps — measure it.
 
 **Gate:** a round created on web is scored on iOS against the same leaderboard; sign-up from a cold share-link tap reaches score entry in under 30 seconds. Commit `N4 complete: iOS client`.
+
+**Arbitrated decisions (2026-07-27, wave 1).** Advance policy extracted (`src/round/advance-policy.ts` + 44 branch tests — the Swift spec; three preserved QUIRKs documented there need a joint policy+tests decision before any tightening). Swift generation: `generate-api.ts` walks the TS checker and emits strings — no IR to add a backend to — so the generator is **tapscore-local** (`scripts/generate-swift.ts`): a real type IR, a TS emitter that must reproduce the framework's `src/api/*.gen.ts` byte-for-byte (the correctness proof), and a Swift emitter (three-state optionality: `null|T` → explicit `encodeNil`, `T?` → `encodeIfPresent`, `?: null|T` → `TriState<T>`; presence-based fallback discriminator for the double-`ok:false` unions; generation-time failure on ambiguity). Upstream to `@basics/core` only after N4 proves the IR. App scaffold: `ios/` with XcodeGen mirroring `../golf-map/ios` (iOS 17, Swift 6 strict concurrency, iPhone-only, team `AC979WJ4JA`, zero SPM deps, gitignored xcodeproj); bundle id `com.marcusandersson.tapscore` — which **is** the prod `APPLE_AUDIENCE` value. Nonce binding closes IN N4 (iOS is the first client that can send one). **Deploy-side prerequisites (outside this repo):** `APPLE_AUDIENCE=com.marcusandersson.tapscore` in the systemd unit; `apple-app-site-association` served at the DOMAIN ROOT of app.swedenindoorgolf.se (not under `/tapscore/`); SIWA capability on the App ID; a real device for the gate (SIWA needs a signed-in Apple ID).
 
 ---
 
