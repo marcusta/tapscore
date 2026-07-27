@@ -29,6 +29,7 @@ import { createSetupApi } from './api/setup.api';
 import { createCompetitionsApi } from './api/competitions.api';
 import { CompetitionAuthz } from './api/competition-authz';
 import { createAdminApi } from './api/admin.api';
+import { registerFriendlyRoundEvents } from './api/friendly-rounds-events';
 import { AdminAuthz } from './api/admin-authz';
 import { seedDev } from './db/seeds/dev';
 import { registerBuiltInBallCreationStrategies } from './domain/strategies/ball-creation';
@@ -75,6 +76,7 @@ const {
     competitionLeaderboardService,
     competitionCutService,
     competitionFinalizeService,
+    roundEventsHub,
 } = services;
 
 // `sessions` is captured so self-serve registration can issue a session
@@ -116,6 +118,10 @@ mount(
     ),
 );
 mount(app, '/api', createAdminApi(adminService, roleService, new AdminAuthz(roleService)));
+
+// Streaming has no descriptor shape (Phase 9a) — a raw Hono route, registered
+// with the other /api routes so it precedes the static fallthrough.
+registerFriendlyRoundEvents(app, friendlyRoundService, roundEventsHub);
 
 // --- Static client ---
 

@@ -3,35 +3,25 @@
 // a fake, mirroring `src/landing/device-rounds.ts`. Suggested (frecency) is the
 // default when nothing is stored or storage is unavailable.
 
+import { defaultStorage, deviceStore, type DeviceStorage } from '../device-store';
 import type { FriendSortMode } from './friend-sort';
 
 /** Minimal storage surface so tests can pass an in-memory fake. */
-export interface SortPrefStorage {
-    getItem(key: string): string | null;
-    setItem(key: string, value: string): void;
-}
+export type SortPrefStorage = DeviceStorage;
 
-const STORAGE_KEY = 'tapscore.friends.sort.v1';
-
-function defaultStorage(): SortPrefStorage | null {
-    try {
-        return typeof localStorage !== 'undefined' ? localStorage : null;
-    } catch {
-        return null;
-    }
-}
+// Stored as the bare mode string, not JSON — the on-disk value predates the
+// shared store and must stay byte-identical or every device silently reverts
+// to Suggested.
+const store = deviceStore<FriendSortMode>('tapscore.friends.sort.v1', {
+    decode: (raw) => (raw === 'alpha' ? 'alpha' : 'frecency'),
+    encode: (mode) => mode,
+    empty: 'frecency',
+});
 
 /** Read the saved sort mode; defaults to 'frecency' (Suggested) when absent,
  *  unrecognised, or storage is unavailable. */
 export function loadSortMode(storage: SortPrefStorage | null = defaultStorage()): FriendSortMode {
-    if (!storage) return 'frecency';
-    let raw: string | null;
-    try {
-        raw = storage.getItem(STORAGE_KEY);
-    } catch {
-        return 'frecency';
-    }
-    return raw === 'alpha' ? 'alpha' : 'frecency';
+    return store.read(storage);
 }
 
 /** Persist the sort mode. A storage failure is swallowed (best-effort). */
@@ -39,12 +29,7 @@ export function saveSortMode(
     mode: FriendSortMode,
     storage: SortPrefStorage | null = defaultStorage(),
 ): void {
-    if (!storage) return;
-    try {
-        storage.setItem(STORAGE_KEY, mode);
-    } catch {
-        // Quota/locked storage — the choice just won't persist.
-    }
+    store.write(mode, storage);
 }
 
 export type { FriendSortMode };

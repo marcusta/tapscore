@@ -10,6 +10,7 @@ import { HandicapService } from './handicap.service';
 import { RoleService } from './role.service';
 import { AdminService } from './admin.service';
 import { RoundService, type RoundServiceDeps } from './round.service';
+import { RoundEventsHub } from './round-events-hub';
 import { ScoreEventService } from './score-event.service';
 import { ScorecardService } from './scorecard.service';
 import { LeaderboardService } from './leaderboard.service';
@@ -104,6 +105,10 @@ export function createServices(db: Kysely<Database>) {
     const guestPlayerService = new GuestPlayerService(db);
     const roleService = new RoleService(db);
     const adminService = new AdminService(db);
+    // Phase 9a: every cursor move announces itself here; the SSE route is the
+    // only subscriber today. Nothing else may depend on delivery — the hub is
+    // in-process and best-effort, `rounds.latest_event_id` stays the truth.
+    const roundEventsHub = new RoundEventsHub();
     const roundService = new RoundService(
         db,
         buildRoundServiceDeps(
@@ -113,6 +118,7 @@ export function createServices(db: Kysely<Database>) {
             guestPlayerService,
             courseRouteTemplateService,
         ),
+        roundEventsHub,
     );
     const scoreEventService = new ScoreEventService(db, roundService);
     const scorecardService = new ScorecardService(db);
@@ -141,6 +147,9 @@ export function createServices(db: Kysely<Database>) {
         scorecardService,
         leaderboardService,
         startListService,
+        // Finish/reopen move `rounds.status` without moving the cursor; an open
+        // SSE stream learns about them only through this hub.
+        roundEventsHub,
     );
     const roundJoinService = new RoundJoinService(
         db,
@@ -202,6 +211,7 @@ export function createServices(db: Kysely<Database>) {
     );
     return {
         db,
+        roundEventsHub,
         playerService,
         friendService,
         clubService,

@@ -19,6 +19,7 @@ import { EditCardComponent } from './edit-card.component';
 import { LeaveCardComponent } from './leave-card.component';
 import { formatLabelFromSlot } from './slot-labels';
 import { shouldPoll } from './poll-gate';
+import { startLiveResult, type LiveResultFeed } from './live-result';
 import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import type { FormatSlot } from '../api/rounds.gen';
 
@@ -471,31 +472,116 @@ export class RoundComponent extends Component {
         document.addEventListener('visibilitychange', onVisibility);
         this.track(() => document.removeEventListener('visibilitychange', onVisibility));
 
-        // One interval, started/stopped by the gate rather than left running
-        // and no-op'd — an inactive round view should hold no timer at all.
-        // The effect re-evaluates on every tab switch, visibility change, and
-        // round-status change (not_started → active on the first score), so
-        // opening the leaderboard starts the timer and navigating away (this
+        // One live feed, started/stopped by the same Phase 3.5 gate the poll
+        // interval used (Slice 9a) — an inactive round view holds no stream and
+        // no timer at all. The effect re-evaluates on every tab switch,
+        // visibility change, and round-status change (not_started → active on
+        // the first score, or → complete from another device via the stream),
+        // so opening the leaderboard connects and navigating away (this
         // effect's disposer, and the whole component's teardown via `track`)
-        // stops it — never a orphaned timer surviving a route change.
+        // disconnects — never an orphaned stream or timer surviving a route
+        // change.
+        //
+        // `degraded` survives re-runs while the gate stays true, so a repeatedly
+        // failing stream isn't retried on every unrelated signal change; closing
+        // the gate (backgrounding, or leaving the leaderboard) clears it, so
+        // coming back tries the stream fresh.
+        //
+        // The whole thing is keyed on the token in `feedToken`, because a
+        // ?token=-only URL change does NOT remount this component (routes key on
+        // the pathname; the load effect re-loads in place). Without the key,
+        // round A's stream would stay open and pipe A's status and refetches
+        // into round B's service.
+        let feed: LiveResultFeed | null = null;
+        let feedToken: string | null = null;
         let pollTimer: ReturnType<typeof setInterval> | null = null;
+        let degraded = false;
+        const stopPollTimer = () => {
+            if (pollTimer === null) return;
+            clearInterval(pollTimer);
+            pollTimer = null;
+        };
+        const startPollTimer = () => {
+            if (pollTimer !== null) return;
+            pollTimer = setInterval(() => void this.svc.pollResult(), LEADERBOARD_POLL_MS);
+        };
         this.track(
             effect(() => {
+                // Read the token FIRST, before any early return, so it is
+                // always a tracked dependency of this effect — reading it after
+                // the "already streaming" guard would leave the leaked state
+                // (feed open on the old round) untracked and permanent.
+                const token = this.tokenQ.get() || null;
                 const gate = shouldPoll({
                     tab: this.tab.get(),
                     pageVisible: this.pageVisible.get(),
                     status: this.svc.round.get()?.status ?? null,
                 });
-                if (gate && pollTimer === null) {
-                    pollTimer = setInterval(() => void this.svc.pollResult(), LEADERBOARD_POLL_MS);
-                } else if (!gate && pollTimer !== null) {
-                    clearInterval(pollTimer);
-                    pollTimer = null;
+                // A token change is a different round: drop the old stream and
+                // the old fallback timer, and clear the degrade latch so the
+                // new round gets a fresh SSE attempt rather than inheriting the
+                // previous round's failure.
+                if (feedToken !== token) {
+                    feed?.stop();
+                    feed = null;
+                    feedToken = null;
+                    stopPollTimer();
+                    degraded = false;
+                }
+                if (!gate) {
+                    feed?.stop();
+                    feed = null;
+                    feedToken = null;
+                    stopPollTimer();
+                    degraded = false;
+                    return;
+                }
+                if (degraded) {
+                    // Fallback path: the Phase 3.5 interval, which refetches the
+                    // RESULT only. It deliberately cannot notice a remote status
+                    // change, so a round finished on another device will not
+                    // close the gate while we are degraded — the poll runs until
+                    // the view is left or backgrounded. That is inherited Phase
+                    // 3.5 behaviour: the result envelope carries no status, and
+                    // changing that contract is out of Slice 9a's scope (the
+                    // stream is what makes the gate self-closing again).
+                    startPollTimer();
+                    return;
+                }
+                if (feed !== null) return;
+                if (!token) return;
+                feedToken = token;
+                try {
+                    feed = startLiveResult({
+                        token,
+                        since: this.svc.persistedCursor(token),
+                        onEvent: (ev) => this.svc.onLiveResultEvent(ev),
+                        onDegrade: () => {
+                            // The feed has already closed itself; fall back to
+                            // the Phase 3.5 interval for as long as the gate
+                            // holds.
+                            feed = null;
+                            degraded = true;
+                            startPollTimer();
+                        },
+                    });
+                } catch {
+                    // A hardened WebView can throw from the EventSource
+                    // constructor itself; without this catch the effect would
+                    // be wedged with feedToken set and neither stream nor
+                    // fallback running. feedToken stays set so a token change
+                    // is still detected while degraded.
+                    feed = null;
+                    degraded = true;
+                    startPollTimer();
                 }
             }),
         );
         this.track(() => {
-            if (pollTimer !== null) clearInterval(pollTimer);
+            feed?.stop();
+            feed = null;
+            feedToken = null;
+            stopPollTimer();
         });
 
         // Mirror tab + selected slot + current hole back into the query string

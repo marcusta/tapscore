@@ -1,4 +1,4 @@
-import { beforeEach, expect, mock, test } from 'bun:test';
+import { afterAll, beforeEach, expect, mock, test } from 'bun:test';
 
 type Deferred<T> = {
     promise: Promise<T>;
@@ -33,6 +33,7 @@ const apiMock = {
             return d.promise;
         }),
         balls: mock(async ({ token }: { token: string }) => ballsByToken.get(token) ?? []),
+        remove: mock(async (_input: { token: string }) => ({ ok: true })),
         scorecard: mock(async ({ token }: { token: string }) => scorecardsByToken.get(token) ?? []),
         // The endpoint answers with the cursor envelope; the mock wraps the
         // stored raw RoundResult the way the server would, honouring the
@@ -51,7 +52,23 @@ const apiMock = {
 
 mock.module('../../src/api', () => ({ api: apiMock }));
 
+// Slice 9a: the service write-throughs (device rounds, seen ids, result
+// cursors) resolve `globalThis.localStorage` per call, so an in-memory fake
+// installed here makes the durable cursor observable. Bun has no localStorage.
+// The fake is global state, so it gets an explicit lifetime: without the
+// teardown a later suite in the same process would inherit it and this file's
+// results would depend on run order.
+const deviceStorage = new Map<string, string>();
+(globalThis as unknown as { localStorage: unknown }).localStorage = {
+    getItem: (k: string) => deviceStorage.get(k) ?? null,
+    setItem: (k: string, v: string) => void deviceStorage.set(k, v),
+};
+afterAll(() => {
+    delete (globalThis as unknown as { localStorage?: unknown }).localStorage;
+});
+
 const { RoundViewService } = await import('../../src/round/round.service');
+const { getResultCursor } = await import('../../src/round/result-cursor-store');
 
 function roundPayload(
     token: string,
@@ -95,6 +112,7 @@ beforeEach(() => {
     scorecardsByToken.clear();
     resultsByToken.clear();
     cursorByToken.clear();
+    deviceStorage.clear();
     apiMock.setup.formats.mockClear();
     apiMock.friendlyRounds.byToken.mockClear();
     apiMock.friendlyRounds.balls.mockClear();
@@ -391,4 +409,187 @@ test('switching tokens resets the polling cursor — a stale cursor from the old
     // Must send NO cursor (fresh token ⇒ fresh fetch), not the stale 'cursor-1'.
     expect(apiMock.friendlyRounds.result).toHaveBeenCalledWith({ token: 'second' });
     expect(svc.result.get()?.slots[0]?.formatLabel).toBe('B');
+});
+
+// --- Slice 9a: durable result cursor (the SSE `since` source) ---
+
+test('loadResult and pollResult write the cursor through to device storage', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    const load = svc.loadByToken('tok');
+    byToken.get('tok')!.resolve(roundPayload('tok', 'r1', 'Course'));
+    await load;
+
+    resultsByToken.set('tok', { slots: [{ slotDefId: 'a', formatLabel: 'A' }], routeSections: [], posting: { eligible: true, reason: null } });
+    cursorByToken.set('tok', 'cursor-1');
+    await svc.loadResult();
+    expect(getResultCursor('tok')).toBe('cursor-1');
+
+    cursorByToken.set('tok', 'cursor-2');
+    resultsByToken.set('tok', { slots: [{ slotDefId: 'a', formatLabel: 'A2' }], routeSections: [], posting: { eligible: true, reason: null } });
+    await svc.pollResult();
+    expect(getResultCursor('tok')).toBe('cursor-2');
+});
+
+test('persistedCursor reads the stored cursor for a token, and null for an unknown one', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    const load = svc.loadByToken('tok');
+    byToken.get('tok')!.resolve(roundPayload('tok', 'r1', 'Course'));
+    await load;
+    resultsByToken.set('tok', { slots: [], routeSections: [], posting: { eligible: true, reason: null } });
+    cursorByToken.set('tok', 'cursor-1');
+    await svc.loadResult();
+
+    expect(svc.persistedCursor()).toBe('cursor-1');
+    expect(svc.persistedCursor('other')).toBe(null);
+});
+
+test('loadResult never SENDS a persisted cursor — an unchanged reply with no cached result would blank the board', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    const load = svc.loadByToken('tok');
+    byToken.get('tok')!.resolve(roundPayload('tok', 'r1', 'Course'));
+    await load;
+    resultsByToken.set('tok', { slots: [{ slotDefId: 'a', formatLabel: 'A' }], routeSections: [], posting: { eligible: true, reason: null } });
+    cursorByToken.set('tok', 'cursor-1');
+    await svc.loadResult();
+
+    // Fresh service over the SAME device storage — the reload case.
+    const reloaded = new RoundViewService();
+    byToken.set('tok', deferred());
+    const reload = reloaded.loadByToken('tok');
+    byToken.get('tok')!.resolve(roundPayload('tok', 'r1', 'Course'));
+    await reload;
+    expect(reloaded.persistedCursor()).toBe('cursor-1');
+
+    apiMock.friendlyRounds.result.mockClear();
+    await reloaded.loadResult();
+    expect(apiMock.friendlyRounds.result).toHaveBeenCalledWith({ token: 'tok' });
+    expect(reloaded.result.get()?.slots[0]?.formatLabel).toBe('A');
+});
+
+test('switching tokens keeps the OLD token’s persisted cursor so re-opening can resume', async () => {
+    const svc = new RoundViewService();
+    byToken.set('first', deferred());
+    const firstLoad = svc.loadByToken('first');
+    byToken.get('first')!.resolve(roundPayload('first', 'round-first', 'First'));
+    await firstLoad;
+    resultsByToken.set('first', { slots: [], routeSections: [], posting: { eligible: true, reason: null } });
+    cursorByToken.set('first', 'cursor-first');
+    await svc.loadResult();
+
+    byToken.set('second', deferred());
+    const secondLoad = svc.loadByToken('second');
+    byToken.get('second')!.resolve(roundPayload('second', 'round-second', 'Second'));
+    await secondLoad;
+
+    expect(svc.persistedCursor('first')).toBe('cursor-first');
+    expect(svc.persistedCursor('second')).toBe(null);
+});
+
+test('a null cursor from the server leaves an existing persisted cursor alone', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    const load = svc.loadByToken('tok');
+    byToken.get('tok')!.resolve(roundPayload('tok', 'r1', 'Course'));
+    await load;
+    resultsByToken.set('tok', { slots: [], routeSections: [], posting: { eligible: true, reason: null } });
+    cursorByToken.set('tok', 'cursor-1');
+    await svc.loadResult();
+
+    // A round with no events yet answers `cursor: null`.
+    cursorByToken.delete('tok');
+    await svc.pollResult();
+    expect(svc.persistedCursor()).toBe('cursor-1');
+});
+
+test('deleting a round drops its persisted cursor', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    const load = svc.loadByToken('tok');
+    byToken.get('tok')!.resolve(roundPayload('tok', 'r1', 'Course'));
+    await load;
+    resultsByToken.set('tok', { slots: [], routeSections: [], posting: { eligible: true, reason: null } });
+    cursorByToken.set('tok', 'cursor-1');
+    await svc.loadResult();
+    expect(svc.persistedCursor()).toBe('cursor-1');
+
+    await svc.deleteRound();
+    expect(svc.persistedCursor('tok')).toBe(null);
+});
+
+// --- Slice 9a: live result stream messages (`onLiveResultEvent`) ---
+
+test('a status change on the stream flips the round signal (closing the poll gate) and refetches', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    const load = svc.loadByToken('tok');
+    byToken.get('tok')!.resolve(roundPayload('tok', 'r1', 'Course'));
+    await load;
+    resultsByToken.set('tok', { slots: [{ slotDefId: 'a', formatLabel: 'A' }], routeSections: [], posting: { eligible: true, reason: null } });
+    cursorByToken.set('tok', 'cursor-1');
+    await svc.loadResult();
+    expect(svc.round.get()?.status).toBe('active');
+
+    // Another device finished the round; the stream is the only notice we get.
+    resultsByToken.set('tok', { slots: [{ slotDefId: 'a', formatLabel: 'A-final' }], routeSections: [], posting: { eligible: true, reason: null } });
+    cursorByToken.set('tok', 'cursor-2');
+    apiMock.friendlyRounds.result.mockClear();
+    svc.onLiveResultEvent({ latestEventId: 'cursor-2', status: 'complete' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(svc.round.get()?.status).toBe('complete');
+    expect(svc.round.get()?.completedAt).not.toBeNull();
+    expect(apiMock.friendlyRounds.result).toHaveBeenCalledWith({ token: 'tok', cursor: 'cursor-1' });
+    expect(svc.result.get()?.slots[0]?.formatLabel).toBe('A-final');
+});
+
+test('reopening elsewhere clears completedAt the same way a local reopen does', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    const load = svc.loadByToken('tok');
+    byToken.get('tok')!.resolve(roundPayload('tok', 'r1', 'Course'));
+    await load;
+    resultsByToken.set('tok', { slots: [], routeSections: [], posting: { eligible: true, reason: null } });
+
+    svc.onLiveResultEvent({ latestEventId: null, status: 'complete' });
+    expect(svc.round.get()?.completedAt).not.toBeNull();
+
+    svc.onLiveResultEvent({ latestEventId: null, status: 'active' });
+    expect(svc.round.get()?.status).toBe('active');
+    expect(svc.round.get()?.completedAt).toBeNull();
+});
+
+test('a same-status message only refetches — the round signal is left untouched', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    const load = svc.loadByToken('tok');
+    byToken.get('tok')!.resolve(roundPayload('tok', 'r1', 'Course'));
+    await load;
+    resultsByToken.set('tok', { slots: [{ slotDefId: 'a', formatLabel: 'A' }], routeSections: [], posting: { eligible: true, reason: null } });
+    cursorByToken.set('tok', 'cursor-1');
+    await svc.loadResult();
+    const before = svc.round.get();
+
+    resultsByToken.set('tok', { slots: [{ slotDefId: 'a', formatLabel: 'A2' }], routeSections: [], posting: { eligible: true, reason: null } });
+    cursorByToken.set('tok', 'cursor-2');
+    apiMock.friendlyRounds.result.mockClear();
+    svc.onLiveResultEvent({ latestEventId: 'cursor-2', status: 'active' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(svc.round.get()).toBe(before);
+    expect(apiMock.friendlyRounds.result).toHaveBeenCalledTimes(1);
+    expect(svc.result.get()?.slots[0]?.formatLabel).toBe('A2');
+});
+
+test('a stream message before any round is loaded is a harmless no-op', async () => {
+    const svc = new RoundViewService();
+    apiMock.friendlyRounds.result.mockClear();
+    svc.onLiveResultEvent({ latestEventId: 'cursor-1', status: 'active' });
+    await Promise.resolve();
+    expect(svc.round.get()).toBeNull();
+    expect(apiMock.friendlyRounds.result).not.toHaveBeenCalled();
 });

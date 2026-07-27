@@ -14,12 +14,11 @@ import { createDashboardClient } from './api/dashboard.gen';
 import { createSetupClient } from './api/setup.gen';
 import { createCompetitionsClient } from './api/competitions.gen';
 import { createAdminClient } from './api/admin.gen';
+import { API_BASE } from './api-base';
 
 export { ApiError } from '@basics/core/client/api-error';
 
-// Carry the deploy base path (Vite BASE_URL) so API calls resolve under the
-// sub-path in production ('/tapscore/api') and at the root in dev ('/api').
-export const API_BASE = (import.meta.env?.BASE_URL ?? '/').replace(/\/+$/, '') + '/api';
+export { API_BASE } from './api-base';
 
 export const api = {
     players: createPlayersClient(API_BASE),

@@ -7,6 +7,8 @@
 // Pure module: storage is injected (defaults to window.localStorage) so tests
 // drive it with a fake. Capped and deduped by token.
 
+import { defaultStorage, deviceStore, jsonListCodec, type DeviceStorage } from '../device-store';
+
 export interface DeviceRound {
     token: string;
     /** Course name for the row label; '' when unknown at record time. */
@@ -23,44 +25,23 @@ export interface DeviceRound {
 
 /** Minimal storage surface (a subset of the Web Storage API) so tests can pass
  *  an in-memory fake. */
-export interface DeviceRoundStorage {
-    getItem(key: string): string | null;
-    setItem(key: string, value: string): void;
-}
+export type DeviceRoundStorage = DeviceStorage;
 
-const STORAGE_KEY = 'tapscore.device-rounds.v1';
 /** Keep the most-recent N; older rounds fall off (they persist server-side and
  *  reappear on next open). */
 export const DEVICE_ROUNDS_CAP = 50;
 
-function defaultStorage(): DeviceRoundStorage | null {
-    try {
-        return typeof localStorage !== 'undefined' ? localStorage : null;
-    } catch {
-        // Access can throw in locked-down/SSR contexts — degrade to no storage.
-        return null;
-    }
-}
+const store = deviceStore<DeviceRound[]>(
+    'tapscore.device-rounds.v1',
+    jsonListCodec(isDeviceRound),
+    DEVICE_ROUNDS_CAP,
+);
 
 /** Read the list, newest-seen first. Corrupt/absent storage → empty list. */
 export function getDeviceRounds(
     storage: DeviceRoundStorage | null = defaultStorage(),
 ): DeviceRound[] {
-    if (!storage) return [];
-    let raw: string | null;
-    try {
-        raw = storage.getItem(STORAGE_KEY);
-    } catch {
-        return [];
-    }
-    if (!raw) return [];
-    try {
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) return [];
-        return parsed.filter(isDeviceRound);
-    } catch {
-        return [];
-    }
+    return store.read(storage);
 }
 
 function isDeviceRound(v: unknown): v is DeviceRound {
@@ -72,15 +53,6 @@ function isDeviceRound(v: unknown): v is DeviceRound {
         (r.status === 'not_started' || r.status === 'active' || r.status === 'complete') &&
         typeof r.lastSeenAt === 'string'
     );
-}
-
-function write(storage: DeviceRoundStorage, list: DeviceRound[]): void {
-    try {
-        storage.setItem(STORAGE_KEY, JSON.stringify(list));
-    } catch {
-        // Quota/permission failures are non-fatal — the recent list is a
-        // convenience, never load-bearing.
-    }
 }
 
 /**
@@ -95,9 +67,7 @@ export function recordDeviceRound(
 ): DeviceRound[] {
     if (!storage) return [];
     const existing = getDeviceRounds(storage).filter((r) => r.token !== entry.token);
-    const next = [entry, ...existing].slice(0, DEVICE_ROUNDS_CAP);
-    write(storage, next);
-    return next;
+    return store.write([entry, ...existing], storage);
 }
 
 /** Remove a round from the device list (e.g. on delete), returning the new
@@ -109,6 +79,6 @@ export function removeDeviceRound(
     if (!storage) return [];
     const existing = getDeviceRounds(storage);
     const next = existing.filter((r) => r.token !== token);
-    if (next.length !== existing.length) write(storage, next);
+    if (next.length !== existing.length) store.write(next, storage);
     return next;
 }

@@ -29,6 +29,12 @@ test('round-trips a saved choice', () => {
     expect(loadSortMode(storage)).toBe('frecency');
 });
 
+test('stores the bare mode string, not JSON (on-disk format predates the shared store)', () => {
+    const storage = fakeStorage();
+    saveSortMode('alpha', storage);
+    expect(storage.map.get('tapscore.friends.sort.v1')).toBe('alpha');
+});
+
 test('an unrecognised stored value falls back to Suggested', () => {
     expect(loadSortMode(fakeStorage({ 'tapscore.friends.sort.v1': 'garbage' }))).toBe('frecency');
 });

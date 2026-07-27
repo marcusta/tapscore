@@ -20,6 +20,11 @@ import { clampIndex } from './hole-carousel';
 import { PendingScoreQueue } from './pending-queue';
 import { recordDeviceRound, removeDeviceRound } from '../landing/device-rounds';
 import { markSeen, forgetSeen } from '../landing/seen-rounds';
+import {
+    forgetResultCursor,
+    getResultCursor,
+    rememberResultCursor,
+} from './result-cursor-store';
 
 const ORD_WORDS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
 
@@ -111,6 +116,10 @@ export class RoundViewService {
      * The cursor from the last non-`unchanged` result response (Phase 3.5).
      * Sent back on the next poll so an unchanged round replies with the tiny
      * `{ unchanged: true }` envelope instead of re-serialising the full result.
+     *
+     * In-memory is the source of truth for requests; `result-cursor-store`
+     * keeps a durable shadow for the SSE `since` param (Slice 9a), which
+     * survives a reload or an OS-suspended app.
      */
     private resultCursor: string | null = null;
 
@@ -252,6 +261,8 @@ export class RoundViewService {
             // slot in the capped seen set.
             const roundId = this.round.get()?.id;
             if (roundId) forgetSeen(roundId);
+            // …and its durable cursor — a deleted round has no stream to resume.
+            forgetResultCursor(token);
             return true;
         } catch {
             return false;
@@ -331,8 +342,30 @@ export class RoundViewService {
         );
         if (seq !== this.resultSeq || token !== this.token) return;
         if (!rr) return;
-        this.resultCursor = rr.cursor;
+        this.setResultCursor(token, rr.cursor);
         if (!rr.unchanged) this.result.set(rr.result);
+    }
+
+    /**
+     * The cursor persisted for a token on this device, independent of whether
+     * a result is cached in memory. This is the SSE `since` value — it is
+     * deliberately NOT fed into `loadResult`'s request: an `unchanged: true`
+     * reply with nothing rendered would blank the board.
+     */
+    persistedCursor(token: string | null = this.token): string | null {
+        return token ? getResultCursor(token) : null;
+    }
+
+    /** In-memory stays authoritative for requests; the store is its durable
+     *  shadow. A null cursor (server has no events yet) leaves the persisted
+     *  entry alone rather than erasing a usable one, and an unchanged cursor
+     *  writes nothing — the ~20s poll must not hit synchronous localStorage on
+     *  every tick. The first response after a reload still persists, because
+     *  the in-memory field starts null. */
+    private setResultCursor(token: string, cursor: string | null): void {
+        const changed = cursor !== null && cursor !== this.resultCursor;
+        this.resultCursor = cursor;
+        if (changed) rememberResultCursor(token, cursor);
     }
 
     /**
@@ -358,8 +391,46 @@ export class RoundViewService {
             return;
         }
         if (seq !== this.resultSeq || token !== this.token) return;
-        this.resultCursor = rr.cursor;
+        this.setResultCursor(token, rr.cursor);
         if (!rr.unchanged) this.result.set(rr.result);
+    }
+
+    /**
+     * A message from the live result stream (Slice 9a). The payload's
+     * `latestEventId` is NOT trusted as the request cursor — the refetch goes
+     * through `pollResult`, which keeps its own seq guard and cursor
+     * bookkeeping, so a stream message and a fallback poll can never race into
+     * an out-of-order render.
+     *
+     * `status` rides on every message because the stream ends on a completed
+     * round: applying it here is what closes the poll gate when another device
+     * finishes the round, instead of reconnect-looping forever. The transition
+     * is mirrored onto the round signal exactly as `finishRound`/`reopenRound`
+     * do it locally; `completedAt` is this device's clock, not the server's.
+     *
+     * That fabricated timestamp does NOT stay in memory: `recordDeviceRound`
+     * below persists it to device storage, so it survives a reload and orders
+     * the landing's "Recently finished" list until the next full load of this
+     * round overwrites it with the server's value. Accepted deliberately — the
+     * ordering is a convenience and the skew is bounded by one device clock;
+     * the alternative (refetching the round just to learn a timestamp nothing
+     * authoritative depends on) buys a request per remote finish.
+     */
+    onLiveResultEvent(event: { latestEventId: string | null; status: Round['status'] }): void {
+        const token = this.token;
+        const r = this.round.get();
+        if (token && r && event.status !== r.status) {
+            const completedAt = event.status === 'complete' ? new Date().toISOString() : null;
+            this.round.set({ ...r, status: event.status, completedAt });
+            recordDeviceRound({
+                token,
+                courseName: r.courseNameSnapshot ?? '',
+                status: event.status,
+                completedAt,
+                lastSeenAt: new Date().toISOString(),
+            });
+        }
+        void this.pollResult();
     }
 
     /** Display name for a ball: joined producer names, else its label, else the id. */
@@ -724,6 +795,9 @@ export class RoundViewService {
 
     private resetForNewToken(initial?: InitialPosition): void {
         this.resultSeq++;
+        // Only the in-memory cursor is cleared: a fresh token must re-fetch a
+        // full result, but the OLD token's persisted cursor is kept so
+        // re-opening that round can resume its stream from where it left off.
         this.resultCursor = null;
         this.friendlyRound.set(null);
         this.round.set(null);

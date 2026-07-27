@@ -12,6 +12,7 @@ import type { Scorecard, ScorecardService } from './scorecard.service';
 import type { LeaderboardService } from './leaderboard.service';
 import type { RoundResult } from '../domain/strategies/result-sections';
 import type { StartListService, StartListView } from './start-list.service';
+import type { RoundEventsHub } from './round-events-hub';
 
 // --- Output types ---
 
@@ -100,6 +101,7 @@ export class FriendlyRoundService {
         private scorecards: ScorecardService,
         private leaderboards: LeaderboardService,
         private startLists: StartListService,
+        private events?: RoundEventsHub,
     ) {}
 
     /**
@@ -304,6 +306,31 @@ export class FriendlyRoundService {
     }
 
     /**
+     * Round identity + cursor + lifecycle for a token, in one row — what the
+     * Phase 9a SSE stream needs and all it may read: the round id to subscribe
+     * on, the cursor to emit on connect, and the status that tells the stream
+     * when to end. `roundIdForToken` stays private; this is the public shape.
+     */
+    async liveStateByToken(token: string): Promise<{
+        roundId: string;
+        latestEventId: string | null;
+        status: RoundStatus;
+    } | null> {
+        const row = await this.db
+            .selectFrom('friendly_rounds')
+            .innerJoin('rounds', 'rounds.id', 'friendly_rounds.round_id')
+            .select(['rounds.id as round_id', 'rounds.latest_event_id', 'rounds.status'])
+            .where('friendly_rounds.share_token', '=', token)
+            .executeTakeFirst();
+        if (!row) return null;
+        return {
+            roundId: row.round_id,
+            latestEventId: row.latest_event_id,
+            status: row.status,
+        };
+    }
+
+    /**
      * Append a trust-based score event to the token's round. Idempotent on
      * `clientEventId`. Returns `null` for an unknown token (nothing written).
      *
@@ -386,9 +413,13 @@ export class FriendlyRoundService {
             .execute();
         const row = await this.db
             .selectFrom('rounds')
-            .select(['status', 'completed_at'])
+            .select(['status', 'completed_at', 'latest_event_id'])
             .where('id', '=', roundId)
             .executeTakeFirst();
+        // Phase 9a: a lifecycle change is invisible to an open stream otherwise
+        // — it carries status, not just the cursor. The cursor is passed
+        // UNCHANGED: it means "the result changed", and finishing changes none.
+        this.events?.notify(roundId, row!.latest_event_id);
         // `row` is guaranteed here (the token resolved to it); complete rounds
         // always carry a completed_at (set on the transition above or a prior one).
         return { status: row!.status, completedAt: row!.completed_at ?? now };
@@ -412,9 +443,11 @@ export class FriendlyRoundService {
             .execute();
         const row = await this.db
             .selectFrom('rounds')
-            .select('status')
+            .select(['status', 'latest_event_id'])
             .where('id', '=', roundId)
             .executeTakeFirst();
+        // Same as finish: announce the lifecycle move on the unchanged cursor.
+        this.events?.notify(roundId, row!.latest_event_id);
         return { status: row!.status };
     }
 }

@@ -29,6 +29,7 @@ import {
     conventionalRouteHandicapPolicy,
     defaultRouteSections,
 } from '../domain/compiler/normalize';
+import type { RoundEventsHub } from './round-events-hub';
 
 // --- Output types ---
 
@@ -500,6 +501,7 @@ export class RoundService {
     constructor(
         private db: Kysely<Database>,
         private deps?: RoundServiceDeps,
+        private events?: RoundEventsHub,
     ) {}
 
     // --- Queries (read) ---
@@ -1045,6 +1047,10 @@ export class RoundService {
      * corrections, allowance overrides, rulings and format actions via this
      * method), so a matching cursor guarantees an unchanged result. The value
      * is whatever event id moved it last; clients treat it as opaque.
+     *
+     * Phase 9a: the same movement is announced on the events hub, which
+     * debounces before emitting — this call can be inside the caller's
+     * transaction, so a live subscriber must not read before the commit.
      */
     async bumpResultCursor(
         id: string,
@@ -1052,6 +1058,7 @@ export class RoundService {
         trx: Kysely<Database> = this.db,
     ): Promise<void> {
         await this.updateById(id, trx).set({ latest_event_id: eventId }).execute();
+        this.events?.notify(id, eventId);
     }
 
     /**

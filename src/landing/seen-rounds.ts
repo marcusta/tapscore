@@ -10,48 +10,29 @@
 // Pure module: storage is injected (defaults to window.localStorage) so tests
 // drive it with a fake. Capped + deduped by round id (a Set).
 
+import { defaultStorage, deviceStore, jsonListCodec, type DeviceStorage } from '../device-store';
+
 /** Minimal storage surface (a subset of the Web Storage API) so tests can pass
  *  an in-memory fake. */
-export interface SeenRoundsStorage {
-    getItem(key: string): string | null;
-    setItem(key: string, value: string): void;
-}
+export type SeenRoundsStorage = DeviceStorage;
 
-const STORAGE_KEY = 'tapscore.seen-rounds.v1';
 /** Keep the most-recently-seen N ids; older ones fall off. A dropped id just
  *  means an old round could re-surface as "new" once — harmless for a
  *  highlight, and the cap keeps localStorage bounded. */
 export const SEEN_ROUNDS_CAP = 500;
 
-function defaultStorage(): SeenRoundsStorage | null {
-    try {
-        return typeof localStorage !== 'undefined' ? localStorage : null;
-    } catch {
-        // Access can throw in locked-down/SSR contexts — degrade to no storage.
-        return null;
-    }
-}
+const store = deviceStore<string[]>(
+    'tapscore.seen-rounds.v1',
+    jsonListCodec((v): v is string => typeof v === 'string'),
+    SEEN_ROUNDS_CAP,
+);
 
 /**
  * Read the seen ids, most-recently-seen first. Corrupt/absent storage → empty.
  * Non-string entries are dropped (defensive against hand-edited/garbage JSON).
  */
 export function getSeenRounds(storage: SeenRoundsStorage | null = defaultStorage()): string[] {
-    if (!storage) return [];
-    let raw: string | null;
-    try {
-        raw = storage.getItem(STORAGE_KEY);
-    } catch {
-        return [];
-    }
-    if (!raw) return [];
-    try {
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) return [];
-        return parsed.filter((v): v is string => typeof v === 'string');
-    } catch {
-        return [];
-    }
+    return store.read(storage);
 }
 
 /** The seen ids as a Set (the shape `newToYou` wants). */
@@ -62,14 +43,6 @@ export function getSeenRoundIds(storage: SeenRoundsStorage | null = defaultStora
 /** True when this round id has already been opened on this device. */
 export function isSeen(roundId: string, storage: SeenRoundsStorage | null = defaultStorage()): boolean {
     return getSeenRounds(storage).includes(roundId);
-}
-
-function write(storage: SeenRoundsStorage, ids: string[]): void {
-    try {
-        storage.setItem(STORAGE_KEY, JSON.stringify(ids));
-    } catch {
-        // Quota/permission failures are non-fatal — seen-state is a convenience.
-    }
 }
 
 /**
@@ -83,9 +56,7 @@ export function markSeen(
 ): string[] {
     if (!storage) return [];
     const rest = getSeenRounds(storage).filter((id) => id !== roundId);
-    const next = [roundId, ...rest].slice(0, SEEN_ROUNDS_CAP);
-    write(storage, next);
-    return next;
+    return store.write([roundId, ...rest], storage);
 }
 
 /** Drop a round id from the seen set (housekeeping on delete), returning the
@@ -97,6 +68,6 @@ export function forgetSeen(
     if (!storage) return [];
     const existing = getSeenRounds(storage);
     const next = existing.filter((id) => id !== roundId);
-    if (next.length !== existing.length) write(storage, next);
+    if (next.length !== existing.length) store.write(next, storage);
     return next;
 }
