@@ -13,29 +13,26 @@ import SwiftUI
 ///
 /// Data fidelity over pixel fidelity: a marker renders as its tone and label,
 /// not as a hand-drawn replica of the web's SVG.
+///
+/// The format selector is NOT here — the round header's chip row owns it, the
+/// way `.round-view__formats` does on the web. This view reads the selection.
 struct LeaderboardView: View {
     @Bindable var store: RoundStore
+    /// The round header. It is part of THIS view's scroll content — web parity:
+    /// `.round-view__main` scrolls the header with the board.
+    let header: RoundHeaderView
 
     var body: some View {
-        Group {
-            if store.resultLoading && store.result == nil {
-                ProgressView().frame(maxHeight: .infinity)
-            } else if let error = store.resultError, store.result == nil {
-                ContentUnavailableView(
-                    "Leaderboard unavailable",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text(error)
-                )
-            } else if let result = store.result {
-                content(result)
-            } else {
-                ContentUnavailableView(
-                    "No scores yet",
-                    systemImage: "list.number",
-                    description: Text("The board fills in as scores come in.")
-                )
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                board
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, TapSpacing.xxl)
         }
+        .refreshable { await store.refresh() }
+        .background(TapColors.bg)
         // No `.task` fetch here on purpose. `RoundStore.setTab(.leaderboard)`
         // already loads an empty board, and this view appears in the same turn
         // the tab flips — so a `.task` guarded on `store.result == nil` sees
@@ -44,20 +41,40 @@ struct LeaderboardView: View {
     }
 
     @ViewBuilder
+    private var board: some View {
+        if store.resultLoading && store.result == nil {
+            ProgressView()
+                .controlSize(.large)
+                .tint(TapColors.primary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, TapSpacing.xxl)
+        } else if let error = store.resultError, store.result == nil {
+            RoundEmptyState(
+                title: "Leaderboard unavailable",
+                systemImage: "exclamationmark.triangle",
+                message: error
+            )
+        } else if let result = store.result {
+            content(result)
+        } else {
+            RoundEmptyState(
+                title: "No scores yet",
+                systemImage: "list.number",
+                message: "The board fills in as scores come in."
+            )
+        }
+    }
+
+    @ViewBuilder
     private func content(_ result: RoundResult) -> some View {
-        let slots = result.slots
-        VStack(spacing: 0) {
-            if slots.count > 1 { slotPicker(slots) }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    if let slot = selectedSlot(slots) {
-                        slotBody(slot, routeSections: result.routeSections)
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.bottom, 32)
+        VStack(alignment: .leading, spacing: TapSpacing.xl) {
+            if let slot = selectedSlot(result.slots) {
+                slotBody(slot, routeSections: result.routeSections)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, TapSpacing.lg)
+        .padding(.top, TapSpacing.lg)
     }
 
     /// Selection is by `slotDefId` — the round's slots and the result's slots
@@ -67,22 +84,6 @@ struct LeaderboardView: View {
             return match
         }
         return slots.first
-    }
-
-    private func slotPicker(_ slots: [SlotResultView]) -> some View {
-        Picker("Format", selection: slotBinding(slots)) {
-            ForEach(slots, id: \.slotDefId) { Text($0.formatLabel).tag($0.slotDefId) }
-        }
-        .pickerStyle(.segmented)
-        .padding(.horizontal)
-        .padding(.bottom, 12)
-    }
-
-    private func slotBinding(_ slots: [SlotResultView]) -> Binding<String> {
-        Binding(
-            get: { selectedSlot(slots)?.slotDefId ?? "" },
-            set: { store.selectedSlot = $0 }
-        )
     }
 
     @ViewBuilder
@@ -99,6 +100,12 @@ struct LeaderboardView: View {
             case .matchSummary(let match):
                 MatchSummaryView(layout: layoutMatchSummary(match, nameOf))
             }
+        }
+
+        if !slot.cards.isEmpty {
+            // Web: `.lb-cards__head` — the scorecard block's own section title.
+            SectionHeader(title: "Scorecard", size: 17.6)
+                .padding(.top, TapSpacing.sm)
         }
 
         ForEach(Array(slot.cards.enumerated()), id: \.offset) { _, card in

@@ -25,59 +25,158 @@ struct JoinView: View {
     @State private var isLoading = false
 
     var body: some View {
-        Form {
-            Section("Paste a round link") {
-                TextField(
-                    "https://app.swedenindoorgolf.se/tapscore/round?token=…",
-                    text: $input,
-                    axis: .vertical
-                )
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .textContentType(.URL)
-                .font(.footnote)
-                .onChange(of: input) { _, _ in
-                    // Editing invalidates whatever the last paste resolved to,
-                    // so "Open round" can never open a stale token.
-                    preview = nil
-                    problem = nil
-                }
+        ScrollView {
+            VStack(alignment: .leading, spacing: TapSpacing.xl) {
+                heading
+                pasteCard
+                if let problem { problemNotice(problem) }
+                if let preview { previewCard(preview) }
+                Text("No account needed — a share link is all it takes to score.")
+                    .font(TapFont.ui(size: 13.6))
+                    .foregroundStyle(TapColors.textMuted)
+            }
+            .padding(.horizontal, TapSpacing.lg)
+            .padding(.top, TapSpacing.xl)
+            .padding(.bottom, TapSpacing.xxl)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(TapColors.bg)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(TapColors.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    // MARK: - Rendering
+
+    /// Web `.login__hero` tone, one step down in size: the serif carries the
+    /// screen's name, a muted line says what it is for.
+    private var heading: some View {
+        VStack(alignment: .leading, spacing: TapSpacing.xs) {
+            Text("Open a share link")
+                .font(TapFont.display(size: 27.2, weight: .semibold))
+                .tracking(27.2 * -0.02)
+                .foregroundStyle(TapColors.text)
+            Text("Paste the link a friend sent you.")
+                .font(TapFont.ui(size: 14.4))
+                .foregroundStyle(TapColors.textMuted)
+        }
+    }
+
+    /// The paste target, skinned by the `--field-*` tokens (web `input()`).
+    ///
+    /// The placeholder goes through `Text(verbatim:)`. A `Text` built from a
+    /// string LITERAL is parsed as Markdown, and a bare URL in Markdown is an
+    /// autolink — so the plain-string form renders the example link in system
+    /// blue, off-palette and (since it is a placeholder) not tappable. Passing
+    /// it verbatim is what keeps `--text-muted`.
+    private var linkField: some View {
+        TextField(
+            "",
+            text: $input,
+            prompt: Text(verbatim: "https://app.swedenindoorgolf.se/tapscore/round?token=…")
+                .foregroundColor(TapColors.textMuted),
+            axis: .vertical
+        )
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .textContentType(.URL)
+        .font(TapFont.ui(size: 13.6))
+        .foregroundStyle(TapColors.text)
+        .tint(TapColors.primary)
+        .padding(.vertical, TapMetrics.fieldPaddingY)
+        .padding(.horizontal, TapMetrics.fieldPaddingX)
+        .onChange(of: input) { _, _ in
+            // Editing invalidates whatever the last paste resolved to, so
+            // "Open round" can never open a stale token.
+            preview = nil
+            problem = nil
+        }
+        // `minHeight` is a TAP-TARGET floor, not a style: the token padding
+        // above puts a single line of 13.6pt text in ~38pt, under the 44pt
+        // minimum. The padding stays token-derived and untouched; the field
+        // simply never draws shorter than a finger. `contentShape` makes the
+        // whole of that rectangle hittable rather than the glyph run alone.
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
+        // Web `input()` — `--field-bg` fill, 1px `--field-border`,
+        // `--field-radius`. The tokens are the whole style.
+        .background(
+            RoundedRectangle(cornerRadius: TapRadius.fieldRadius, style: .continuous)
+                .fill(TapColors.fieldBg)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: TapRadius.fieldRadius, style: .continuous)
+                .strokeBorder(TapColors.fieldBorder, lineWidth: TapMetrics.fieldBorderWidth)
+        )
+    }
+
+    private var pasteCard: some View {
+        TapCard {
+            VStack(alignment: .leading, spacing: TapSpacing.md) {
+                linkField
 
                 Button(isLoading ? "Looking up…" : "Look up round") {
                     Task { await lookUp() }
                 }
+                .buttonStyle(.tap(.secondary, fillsWidth: true))
                 .disabled(isLoading || input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+            .padding(TapSpacing.lg)
+        }
+    }
 
-            if let problem {
-                Section {
-                    Label(problem, systemImage: "exclamationmark.triangle")
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
+    private func problemNotice(_ message: String) -> some View {
+        TapCard(sunken: true) {
+            HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
+                Image(systemName: "exclamationmark.triangle")
+                Text(message)
+                Spacer(minLength: 0)
             }
+            .font(TapFont.ui(size: 13.6))
+            .foregroundStyle(TapColors.danger)
+            .padding(TapSpacing.md)
+        }
+    }
 
-            if let preview {
-                Section("Round") {
-                    LabeledContent("Course", value: preview.courseName.isEmpty ? "—" : preview.courseName)
-                    LabeledContent("Date", value: preview.displayDate ?? "—")
-                    LabeledContent("Status", value: preview.status.label)
+    private func previewCard(_ preview: RoundPreview) -> some View {
+        VStack(alignment: .leading, spacing: TapSpacing.sm) {
+            SectionHeader(title: "Round")
+            TapCard {
+                VStack(alignment: .leading, spacing: TapSpacing.md) {
+                    HStack(alignment: .firstTextBaseline, spacing: TapSpacing.md) {
+                        Text(preview.courseName.isEmpty ? "Round" : preview.courseName)
+                            .font(TapFont.display(size: 19.2, weight: .semibold))
+                            .foregroundStyle(TapColors.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: TapSpacing.sm)
+                        StatusChip(status: RoundStatusTone(preview.status))
+                    }
+                    if let date = preview.displayDate {
+                        detail("Date", date)
+                    }
                     if !preview.players.isEmpty {
-                        LabeledContent("Players", value: preview.players.joined(separator: ", "))
+                        detail("Players", preview.players.joined(separator: ", "))
                     }
                     Button("Open round") { onOpen(preview.openRequest) }
-                        .font(.body.weight(.semibold))
+                        .buttonStyle(.tap(.primary, fillsWidth: true))
                 }
-            }
-
-            Section {
-                Text("No account needed — a share link is all it takes to score.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                .padding(TapSpacing.lg)
             }
         }
-        .navigationTitle("Open a share link")
-        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func detail(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: TapSpacing.md) {
+            Text(label)
+                .font(TapFont.ui(size: 13.6))
+                .foregroundStyle(TapColors.textMuted)
+            Spacer(minLength: TapSpacing.sm)
+            Text(value)
+                .font(TapFont.ui(size: 13.6, weight: .medium))
+                .foregroundStyle(TapColors.text)
+                .multilineTextAlignment(.trailing)
+        }
     }
 
     private func lookUp() async {

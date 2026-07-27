@@ -99,8 +99,18 @@ struct SignInView: View {
     @State private var problem: String?
     @State private var isWorking = false
 
+    /// The SIWA button's own skin is Apple's to dictate — only `.black`,
+    /// `.white` and `.whiteOutline` are permitted, so the page cannot theme it.
+    /// What it CAN do is pick the permitted variant that reads on this paper:
+    /// black on the light palette, white on the dark one.
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: TapSpacing.md) {
+            Text("Keep your rounds")
+                .font(TapFont.display(size: 19.2, weight: .semibold))
+                .foregroundStyle(TapColors.text)
+
             SignInWithAppleButton(.signIn) { request in
                 // `isWorking` goes up HERE, not in the completion: it is what
                 // disables the button, and the window that matters is the whole
@@ -119,7 +129,11 @@ struct SignInView: View {
             } onCompletion: { result in
                 handle(result)
             }
-            .signInWithAppleButtonStyle(.black)
+            .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+            // Apple's button owns its corner radius; matching the theme's
+            // control radius is the one dimension the guidelines leave open,
+            // so it sits on the same grid as `TapButton` above and below it.
+            .cornerRadius(TapRadius.btnRadius)
             .frame(height: 44)
             .disabled(isWorking)
             .accessibilityIdentifier("sign-in-with-apple")
@@ -129,12 +143,12 @@ struct SignInView: View {
             }
             if let problem {
                 Text(problem)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
+                    .font(TapFont.ui(size: 13.6))
+                    .foregroundStyle(TapColors.danger)
             }
             Text("Optional. You can score a round from a share link without an account — signing in keeps your rounds across devices.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                .font(TapFont.ui(size: 12.8))
+                .foregroundStyle(TapColors.textMuted)
         }
     }
 

@@ -40,7 +40,11 @@ struct RootView: View {
                 onJoin: { navigation.openJoin() },
                 onOpen: { request in open(round: request) }
             )
-            .safeAreaInset(edge: .bottom) { signedOutInset }
+            // Applied to the STACK ROOT, so the sign-in inset belongs to the
+            // landing only — a pushed round screen owns its own bottom
+            // furniture (`RoundView`'s `BottomTabBar`) and must not get a
+            // second one underneath it.
+            .safeAreaInset(edge: .bottom, spacing: 0) { signedOutInset }
             .toolbar { accountToolbar }
             .navigationDestination(for: ShellDestination.self) { destination in
                 switch destination {
@@ -90,6 +94,14 @@ struct RootView: View {
 
     // MARK: - Auth affordances
 
+    // NO DOCK on the landing, deliberately. The web landing has one (Friends /
+    // Competitions / Profile), but none of those destinations exist natively
+    // yet, and the only route the shell can take — the paste-a-link screen —
+    // is already carried by the landing's single prominent "Join a round" CTA.
+    // A dock whose one live item duplicates the CTA is furniture, not
+    // navigation. Bring it back the moment a *second* real destination lands;
+    // `BottomTabBar` (used by `RoundView`) is the primitive to reach for.
+
     /// The signed-out inset. `.unknown` (bootstrap in flight) and
     /// `.unreachable` deliberately show nothing: offering Sign in with Apple
     /// against a server we cannot reach fails at our own POST, after the user
@@ -97,17 +109,21 @@ struct RootView: View {
     @ViewBuilder
     private var signedOutInset: some View {
         if case .anonymous = environment.authState, !signInDismissed {
-            VStack(spacing: 8) {
+            VStack(spacing: TapSpacing.md) {
                 SignInView()
                 Button("Continue without an account") { signInDismissed = true }
-                    .font(.footnote)
-                Text("Scoring a round you were invited to never needs an account.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                    .buttonStyle(.plain)
+                    .font(TapFont.ui(size: 13.6, weight: .semibold))
+                    .foregroundStyle(TapColors.textMuted)
             }
-            .padding()
-            .background(.bar)
+            .padding(TapSpacing.lg)
+            .frame(maxWidth: .infinity)
+            .background(TapColors.surface)
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(TapColors.border)
+                    .frame(height: 1)
+            }
         }
     }
 
@@ -117,9 +133,15 @@ struct RootView: View {
             switch environment.authState {
             case .signedIn:
                 Button("Sign out") { Task { await environment.signOut() } }
+                    .buttonStyle(.plain)
+                    .font(TapFont.ui(size: 14.4, weight: .semibold))
+                    .foregroundStyle(TapColors.textMuted)
             case .anonymous where signInDismissed:
                 // The only way back to the inset once it has been dismissed.
                 Button("Sign in") { signInDismissed = false }
+                    .buttonStyle(.plain)
+                    .font(TapFont.ui(size: 14.4, weight: .semibold))
+                    .foregroundStyle(TapColors.accent)
             default:
                 EmptyView()
             }

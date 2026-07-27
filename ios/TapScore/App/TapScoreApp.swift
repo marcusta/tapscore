@@ -7,28 +7,47 @@ struct TapScoreApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environment(appEnvironment)
-                // Single funnel for lifecycle: everything that cares about
-                // foreground/background registers with the coordinator instead
-                // of observing scenePhase itself (see ScenePhaseCoordinator).
-                .onChange(of: scenePhase, initial: true) { _, phase in
-                    appEnvironment.scenePhase.update(to: phase)
-                }
-                // Universal links (https://app.swedenindoorgolf.se/tapscore/…)
-                // and the tapscore:// dev scheme both land here.
-                .onOpenURL { url in
-                    appEnvironment.handle(url: url)
-                }
-                .task {
-                    // A launch-argument link is applied BEFORE bootstrap, for
-                    // the same reason a cold-start `onOpenURL` is: the route is
-                    // parked on the environment and drained by `RootView`, and
-                    // nothing about opening a round waits on auth.
-                    if let url = LaunchDeepLink.url() { appEnvironment.handle(url: url) }
-                    await appEnvironment.bootstrap()
-                }
+            #if DEBUG
+            // `-tapscoreGallery` swaps the whole app for the design-system
+            // catalogue, so a review can screenshot every primitive headlessly.
+            // It REPLACES the shell rather than sitting inside it: the gallery
+            // is not a screen of this app, and nothing in normal navigation
+            // must be able to reach it. DEBUG only, like `LaunchDeepLink`.
+            if LaunchGallery.isEnabled {
+                DesignGalleryView()
+            } else {
+                shell
+            }
+            #else
+            shell
+            #endif
         }
+    }
+
+    /// The real app. Extracted from `body` only so the DEBUG gallery switch
+    /// above stays a two-line branch instead of duplicating every modifier.
+    private var shell: some View {
+        RootView()
+            .environment(appEnvironment)
+            // Single funnel for lifecycle: everything that cares about
+            // foreground/background registers with the coordinator instead
+            // of observing scenePhase itself (see ScenePhaseCoordinator).
+            .onChange(of: scenePhase, initial: true) { _, phase in
+                appEnvironment.scenePhase.update(to: phase)
+            }
+            // Universal links (https://app.swedenindoorgolf.se/tapscore/…)
+            // and the tapscore:// dev scheme both land here.
+            .onOpenURL { url in
+                appEnvironment.handle(url: url)
+            }
+            .task {
+                // A launch-argument link is applied BEFORE bootstrap, for
+                // the same reason a cold-start `onOpenURL` is: the route is
+                // parked on the environment and drained by `RootView`, and
+                // nothing about opening a round waits on auth.
+                if let url = LaunchDeepLink.url() { appEnvironment.handle(url: url) }
+                await appEnvironment.bootstrap()
+            }
     }
 }
 

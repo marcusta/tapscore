@@ -94,6 +94,39 @@ Other rules:
   `Player`, and `TapScoreAPI.me()` now decodes the generated type. Do not
   reintroduce a hand-written model — add it to the generator instead.
 
+## `DesignSystem/ThemeTokens.swift` is machine-written too
+
+Produced by `bun run generate:theme` (`scripts/generate-theme-swift.ts`, from the
+repo root) out of `src/theme.ts` — the SAME token tables the web client ships.
+Committed for the same reasons as `Generated/`, and with the same rules: never
+hand-edit, and `xcodegen generate` after any run that adds or removes a file.
+
+**Regenerate whenever `src/theme.ts` changes.** That is the whole point of the
+file: web and native read one palette. A `src/theme.ts` diff without a
+`ThemeTokens.swift` diff means the two have drifted, and nothing at build time
+will tell you — the app just stops matching the web. `ios/TapScoreTests/DesignSystem/ThemeTokensTests.swift`
+spot-checks the load-bearing hexes by hand as a tripwire on the generator, not on
+the palette; it will not notice a palette change that was never regenerated.
+
+The generator imports `src/theme.ts` under a four-line DOM shim (the framework's
+`createTokens` injects a `<style>` at import). It reads the exported
+`resolvedLight` / `resolvedDark` maps, which is why those exports exist — keep
+them if you refactor the theme.
+
+The design-system primitives around it (`TapFont`, `TapCard`, `TapChip`,
+`HoleBar`, …) are hand-written and each names its source web component in a doc
+comment. `-tapscoreGallery` (DEBUG only, same seam as `-tapscoreDeepLink`) swaps
+the app for `DesignGalleryView`, which is how the layer gets reviewed visually:
+
+```
+xcrun simctl launch <udid> com.marcusandersson.tapscore -tapscoreGallery YES
+xcrun simctl ui <udid> appearance dark   # then screenshot again
+```
+
+Screenshot BOTH appearances. The one real bug this layer has shipped so far —
+an inactive tab label rendered dark-on-dark — was invisible in every test and
+obvious in the dark screenshot.
+
 ## Bundle id == `APPLE_AUDIENCE` (coupling warning)
 
 ```

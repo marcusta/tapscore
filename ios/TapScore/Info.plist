@@ -22,6 +22,28 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- The web client's type pair: Fraunces (display serif) + Archivo (UI
+	     sans), loaded from static TTFs in TapScore/Resources/Fonts/ rather
+	     than the variable fonts the web pulls from Google Fonts — the app must
+	     render its own typography offline, on the first hole, with no network.
+
+	     These are FILENAMES; the names code asks for are the PostScript names
+	     (Archivo-Regular/Medium/SemiBold/Bold/ExtraBold,
+	     Fraunces-Regular/SemiBold/Bold), which is why TapFont spells those and
+	     `TapFontTests` asserts every one of them actually resolves. A wrong
+	     entry here fails silently at runtime: UIKit simply falls back to the
+	     system face and the app looks almost right. -->
+	<key>UIAppFonts</key>
+	<array>
+		<string>Archivo-400.ttf</string>
+		<string>Archivo-500.ttf</string>
+		<string>Archivo-600.ttf</string>
+		<string>Archivo-700.ttf</string>
+		<string>Archivo-800.ttf</string>
+		<string>Fraunces-400.ttf</string>
+		<string>Fraunces-600.ttf</string>
+		<string>Fraunces-700.ttf</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<!-- iPhone only, portrait only. -->

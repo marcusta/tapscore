@@ -16,6 +16,7 @@
         "test:affected": "bun node_modules/@basics/core/affected-tests.ts",
         "generate": "bun node_modules/@basics/core/generate-api.ts",
         "generate:swift": "bun scripts/generate-swift.ts",
+        "generate:theme": "bun scripts/generate-theme-swift.ts",
         "reset:dev": "rm -rf data/",
         "render:round": "bun scripts/render-round.ts",
         "render:all": "bun scripts/render-all.ts",

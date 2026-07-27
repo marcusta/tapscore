@@ -14,6 +14,19 @@ import SwiftUI
 /// The partition (Ongoing / Recently finished, 14-day window) is the Swift
 /// image of `src/landing/partition.ts`, and it is a pure function of rows plus
 /// a `now` — so it is tested rather than eyeballed.
+///
+/// **Presentation is the web's `.landing`** (`src/landing/landing.component.ts`):
+/// a paper page, not a grouped `List`. Wordmark header, one full-width primary
+/// call to action, then serif section headers over `card()` rows. The system
+/// `List` chrome was placeholder — it painted the app in iOS grey on a client
+/// whose whole identity is the scorecard palette, and every colour here now
+/// comes from `ThemeTokens`.
+///
+/// One honest divergence from the web: the CTA is **Join a round**, not
+/// "+ Create round". iOS has no create flow yet, so the slot keeps the web's
+/// prominence and spends it on the action this client actually has. Labelling
+/// it "Create" and pushing the paste-a-link screen would be a lie in the one
+/// place the user is most likely to tap.
 struct RoundListView: View {
     @Environment(AppEnvironment.self) private var environment
 
@@ -31,39 +44,52 @@ struct RoundListView: View {
     @State private var rows: [LandingRow] = []
     @State private var loadFailure: String?
 
+    /// The row whose trash was tapped, parked while the confirmation is up.
+    ///
+    /// The web ALWAYS confirms before a row leaves the landing (`askDelete` in
+    /// `src/landing/landing.component.ts`), and one shared dialog serves every
+    /// row there — same shape here. A single tap must not be able to remove a
+    /// round: the trash sits a few points from the row's own tap target.
+    @State private var pendingRemoval: LandingRow?
+
     var body: some View {
-        List {
-            if let loadFailure {
-                Section {
-                    Label(loadFailure, systemImage: "exclamationmark.triangle")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
+        ScrollView {
             let partition = LandingRow.partition(rows, now: Date())
-            section("Ongoing", rows: partition.ongoing)
-            section("Recently finished", rows: partition.finished)
 
-            if partition.ongoing.isEmpty && partition.finished.isEmpty {
-                Section {
-                    ContentUnavailableView(
-                        "No rounds yet",
-                        systemImage: "flag.and.flag.filled.crossed",
-                        description: Text("Open a share link and the round shows up here.")
-                    )
+            VStack(alignment: .leading, spacing: TapSpacing.xl) {
+                wordmark
+                joinCallToAction
+
+                if let loadFailure {
+                    failureNotice(loadFailure)
                 }
-            }
 
-            Section {
-                Button("Open a share link", action: onJoin)
-            }
+                section("Ongoing", rows: partition.ongoing)
+                section("Recently finished", rows: partition.finished)
 
-            #if DEBUG
-            debugSection
-            #endif
+                if partition.ongoing.isEmpty && partition.finished.isEmpty {
+                    emptyNotice
+                }
+
+                #if DEBUG
+                debugSection
+                #endif
+            }
+            // Web `.landing`: `padding: s('xl') s('lg') s('2xl')`.
+            .padding(.horizontal, TapSpacing.lg)
+            .padding(.top, TapSpacing.xl)
+            .padding(.bottom, TapSpacing.xxl)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .navigationTitle("tapscore")
+        .background(TapColors.bg)
+        // The wordmark IS the title, exactly as on the web — a large system
+        // title above it would say "tapscore" twice in two different faces.
+        // The bar stays (inline, blank) because `RootView`'s account button
+        // lives in it.
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(TapColors.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .refreshable { await load() }
         // `onAppear` rather than `task`: coming back from a round must re-read
         // the device list, and `task` would not re-run on a pop. It *merges*
@@ -72,71 +98,151 @@ struct RoundListView: View {
         // signed-in viewer every time they popped back from a round.
         .onAppear { rows = LandingRow.applyingDevice(deviceRounds.all(), to: rows) }
         .task { await load() }
+        .confirmationDialog(
+            "Remove this round from this device?",
+            isPresented: Binding(
+                get: { pendingRemoval != nil },
+                set: { if !$0 { pendingRemoval = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingRemoval
+        ) { row in
+            Button("Remove", role: .destructive) {
+                if let token = row.token { remove(token: token) }
+                pendingRemoval = nil
+            }
+            Button("Cancel", role: .cancel) { pendingRemoval = nil }
+        } message: { row in
+            // Says the one thing that makes this safe to confirm — and it is
+            // why the copy is "Remove", not the web's "Delete": nothing leaves
+            // the server.
+            Text("\(row.courseName.isEmpty ? "This round" : row.courseName) stays on the server. Its share link brings it back.")
+        }
     }
 
     // MARK: - Rendering
 
+    /// Web: `.landing__head` — flag glyph, 2.2rem Fraunces 600 wordmark at
+    /// -0.02em, muted 0.9rem tagline, all centred.
+    private var wordmark: some View {
+        VStack(spacing: TapSpacing.xs) {
+            Text(verbatim: "⛳")
+                .font(.system(size: 35.2))
+            Text("tapscore")
+                .font(TapFont.display(size: 35.2, weight: .semibold))
+                .tracking(35.2 * -0.02)
+                .foregroundStyle(TapColors.text)
+            Text("Scores, settled on the green. No sign-in needed.")
+                .font(TapFont.ui(size: 14.4))
+                .foregroundStyle(TapColors.textMuted)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Web: `.landing__create` — the one elevated, full-width, `--primary`
+    /// button on the page. See the type doc for why it says Join here.
+    private var joinCallToAction: some View {
+        Button(action: onJoin) {
+            HStack(spacing: TapSpacing.sm) {
+                Image(systemName: "link")
+                    .font(.system(size: 17.6, weight: .bold))
+                Text("Join a round")
+            }
+        }
+        .buttonStyle(.tap(.primary, size: .prominent, fillsWidth: true))
+    }
+
     @ViewBuilder
     private func section(_ title: String, rows sectionRows: [LandingRow]) -> some View {
         if !sectionRows.isEmpty {
-            Section(title) {
-                ForEach(sectionRows) { row in
-                    Button {
-                        guard let token = row.token else { return }
-                        onOpen(
-                            RoundOpenRequest(
-                                token: token,
-                                courseName: row.courseName.isEmpty ? nil : row.courseName,
-                                status: row.status,
-                                completedAt: row.completedAt,
-                                date: row.date
-                            )
+            VStack(alignment: .leading, spacing: TapSpacing.sm) {
+                SectionHeader(title: title, count: String(sectionRows.count))
+                // Web `.landing__list` — a `s('sm')` gapped column of cards.
+                VStack(spacing: TapSpacing.sm) {
+                    ForEach(sectionRows) { row in
+                        RoundRow(
+                            row: row,
+                            onOpen: { open(row) },
+                            onRemove: { pendingRemoval = row }
                         )
-                    } label: {
-                        RoundRow(row: row)
-                    }
-                    // A produced round with no friendly wrapper has no token,
-                    // so it renders but cannot be opened.
-                    .disabled(row.token == nil)
-                    // Remove is device-local, so it is only offered on rows the
-                    // device list actually holds. A server row the viewer never
-                    // opened here has nothing to remove, and a swipe that did
-                    // nothing would read as a broken delete.
-                    .swipeActions(edge: .trailing) {
-                        if row.deviceLocal, let token = row.token {
-                            Button("Remove", systemImage: "trash", role: .destructive) {
-                                remove(token: token)
-                            }
-                        }
                     }
                 }
             }
         }
     }
 
+    /// Web: `.landing__empty`.
+    private var emptyNotice: some View {
+        Text("No rounds yet — open a share link to tee off.")
+            .font(TapFont.ui(size: 14.4))
+            .foregroundStyle(TapColors.textMuted)
+            .padding(.vertical, TapSpacing.lg)
+    }
+
+    private func failureNotice(_ message: String) -> some View {
+        TapCard(sunken: true) {
+            HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
+                Image(systemName: "exclamationmark.triangle")
+                Text(message)
+                Spacer(minLength: 0)
+            }
+            .font(TapFont.ui(size: 13.6))
+            .foregroundStyle(TapColors.textMuted)
+            .padding(TapSpacing.md)
+        }
+    }
+
+    private func open(_ row: LandingRow) {
+        guard let token = row.token else { return }
+        onOpen(
+            RoundOpenRequest(
+                token: token,
+                courseName: row.courseName.isEmpty ? nil : row.courseName,
+                status: row.status,
+                completedAt: row.completedAt,
+                date: row.date
+            )
+        )
+    }
+
     /// The connectivity probe, kept from the scaffold: it is the one row that
     /// proves XcodeGen, ATS local networking, the base URL and the bearer
     /// header are all wired. Debug builds only — it is a diagnostic, not a
-    /// feature.
+    /// feature, which is why it is drawn in the sunken tone rather than as
+    /// another card on the page.
     #if DEBUG
     @ViewBuilder
     private var debugSection: some View {
-        Section("Server (debug)") {
-            switch environment.authState {
-            case .unknown:
-                LabeledContent("GET /auth/me") { ProgressView() }
-            case .anonymous:
-                LabeledContent("GET /auth/me", value: "anonymous")
-            case let .signedIn(player):
-                LabeledContent("GET /auth/me", value: player.username)
-            case let .unreachable(detail):
-                LabeledContent("GET /auth/me", value: "unreachable")
-                    .foregroundStyle(.red)
-                    .accessibilityHint(detail)
+        VStack(alignment: .leading, spacing: TapSpacing.sm) {
+            SectionHeader(title: "Server (debug)", size: 14.4)
+            TapCard(sunken: true) {
+                VStack(alignment: .leading, spacing: TapSpacing.xs) {
+                    HStack(spacing: TapSpacing.sm) {
+                        Text("GET /auth/me")
+                            .foregroundStyle(TapColors.textMuted)
+                        Spacer(minLength: 0)
+                        switch environment.authState {
+                        case .unknown:
+                            ProgressView().controlSize(.small)
+                        case .anonymous:
+                            Text("anonymous").foregroundStyle(TapColors.text)
+                        case let .signedIn(player):
+                            Text(player.username).foregroundStyle(TapColors.text)
+                        case let .unreachable(detail):
+                            Text("unreachable")
+                                .foregroundStyle(TapColors.danger)
+                                .accessibilityHint(detail)
+                        }
+                    }
+                    Text(environment.configuration.baseURL.absoluteString)
+                        .foregroundStyle(TapColors.textMuted)
+                }
+                .font(TapFont.ui(size: 12.8))
+                .padding(TapSpacing.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Text(environment.configuration.baseURL.absoluteString)
-                .font(.footnote.monospaced())
-                .foregroundStyle(.secondary)
         }
     }
     #endif
@@ -169,7 +275,7 @@ struct RoundListView: View {
 
     private func remove(token: String) {
         // Local only: the round is untouched server-side, and its link brings
-        // it back. Deleting somebody's round from a swipe is not a thing this
+        // it back. Deleting somebody's round from a tap is not a thing this
         // screen does — so a row the server also reported stays, minus its
         // device-local flag, and only a device-only row disappears.
         rows = LandingRow.applyingDevice(deviceRounds.remove(token: token), to: rows)
@@ -178,49 +284,120 @@ struct RoundListView: View {
 
 // MARK: - Row
 
+/// One round, as `.round-row` draws it: a `card()` split into a tappable main
+/// column and a 44pt trash column at the right edge.
+///
+/// The trash replaces the placeholder's swipe action, matching the web — and
+/// it is offered on exactly the same rows the swipe was: device-local ones. A
+/// server row this device never opened has nothing local to remove, and a
+/// control that did nothing would read as a broken delete.
 private struct RoundRow: View {
     let row: LandingRow
+    let onOpen: () -> Void
+    let onRemove: () -> Void
+
+    private var isRemovable: Bool { row.deviceLocal && row.token != nil }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(row.courseName.isEmpty ? "Round" : row.courseName)
-                    .font(.headline)
-                Spacer()
-                StatusChip(status: row.status)
-            }
-            HStack(spacing: 8) {
-                if let date = row.displayDate {
-                    Text(date)
+        TapCard {
+            HStack(spacing: 0) {
+                Button(action: onOpen) {
+                    HStack(alignment: .top, spacing: TapSpacing.md) {
+                        VStack(alignment: .leading, spacing: TapSpacing.xs) {
+                            // Web `.round-row__course`: 1.05rem/700 in the UI
+                            // face. Kept in the UI face here too — the serif
+                            // marks *structure* (section headers, the
+                            // wordmark), and a course name is content. Two
+                            // clients disagreeing about which face a round row
+                            // wears is a divergence with nothing to buy it.
+                            Text(row.courseName.isEmpty ? "Round" : row.courseName)
+                                .font(TapFont.ui(size: 16.8, weight: .bold))
+                                .foregroundStyle(TapColors.text)
+                                .multilineTextAlignment(.leading)
+                                // Two lines is enough for every real course
+                                // name; past that the row would push the chip
+                                // column around for no gain.
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if let date = row.displayDate {
+                                // Web `.round-row__bottom` — muted 0.85rem.
+                                Text(date)
+                                    .font(TapFont.ui(size: 13.6))
+                                    .foregroundStyle(TapColors.textMuted)
+                            }
+                        }
+                        Spacer(minLength: TapSpacing.sm)
+                        VStack(alignment: .trailing, spacing: TapSpacing.xs) {
+                            if let role = row.roleLabel {
+                                RoleLabel(text: role)
+                            }
+                            StatusChip(status: RoundStatusTone(row.status))
+                        }
+                    }
+                    .padding(.vertical, TapSpacing.md)
+                    .padding(.leading, TapSpacing.lg)
+                    .padding(.trailing, isRemovable ? 0 : TapSpacing.lg)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                if let role = row.roleLabel {
-                    Text(role)
+                .buttonStyle(.plain)
+                // A produced round with no friendly wrapper has no token, so it
+                // renders but cannot be opened.
+                .disabled(row.token == nil)
+
+                if isRemovable {
+                    // Web `.round-row__del`: quiet muted glyph in its own 44px
+                    // tap column at the card's edge, outside the row's main
+                    // target so a scroll-tap cannot hit it.
+                    Button(action: onRemove) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(TapColors.textMuted)
+                            .frame(width: 44)
+                            .frame(maxHeight: .infinity)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    // Names the round, because VoiceOver reads these buttons
+                    // out of the list one after another and "Remove round"
+                    // four times over says nothing about which.
+                    .accessibilityLabel("Remove \(row.courseName.isEmpty ? "round" : row.courseName)")
                 }
             }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
         }
-        .contentShape(Rectangle())
     }
 }
 
-private struct StatusChip: View {
-    let status: DeviceRoundStatus
+/// Web: `.round-row__role` — uppercase 0.7rem/700 at 0.08em in brass, so the
+/// viewer's relationship to a round reads at a glance without competing with
+/// the status chip beside it.
+private struct RoleLabel: View {
+    let text: String
 
     var body: some View {
-        Text(status.label)
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(tint.opacity(0.15), in: Capsule())
-            .foregroundStyle(tint)
+        Text(text.uppercased())
+            .font(TapFont.ui(size: 11.2, weight: .bold))
+            .tracking(11.2 * 0.08)
+            .lineLimit(1)
+            .foregroundStyle(TapColors.accent)
     }
+}
 
-    private var tint: Color {
+/// The domain lifecycle in the design system's vocabulary.
+///
+/// A feature-side mapping rather than an initialiser shipped with the
+/// primitive: `DesignSystem` does not know this app's storage types, and the
+/// web keeps the same split (`STATUS_TEXT` lives in the component, not the
+/// theme). Internal, not fileprivate — `JoinView`'s preview card draws the same
+/// chip from the same status, and a second copy of this switch is exactly how
+/// two screens start disagreeing about what "complete" looks like.
+extension RoundStatusTone {
+    init(_ status: DeviceRoundStatus) {
         switch status {
-        case .notStarted: .secondary
-        case .active: .green
-        case .complete: .blue
+        case .notStarted: self = .notStarted
+        case .active: self = .active
+        case .complete: self = .complete
         }
     }
 }
