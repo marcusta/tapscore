@@ -94,7 +94,11 @@ export interface VScoreGridSection {
     /** Registered grid renderer; omit for `default-score-grid`. */
     componentId?: ScoreGridComponentId;
     title: TitleSpec;
-    /** Real ball ids this card represents — consumer resolves + joins names. */
+    /**
+     * Real ball ids this card represents — consumer resolves + joins names.
+     * Same ATTACHMENT key as `ScoreGridSection.subjectBallIds`; the structural
+     * rule (and the future `presentation` override seam) is documented there.
+     */
     subjectBallIds: string[];
     /** Ordered played hole occurrences = the grid's columns. */
     holes: HoleRef[];

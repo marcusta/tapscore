@@ -334,6 +334,10 @@ struct CardTotalLayout: Codable, Sendable, Equatable {
 
 struct ScoreGridLayout: Codable, Sendable, Equatable {
     var componentId: String
+    /// The card's subject balls, carried through UNRESOLVED (ids, not names) —
+    /// names are already in `title`. An adapter needs the ids to ask
+    /// `attachmentFor` where this card belongs on a Gamebook-style board.
+    var subjectBallIds: [String]
     var title: TitleLayout
     var subtitleFacts: [String]
     /// `footnotes` and `caption` are carried in EVERY mode. Unlike
@@ -350,12 +354,13 @@ struct ScoreGridLayout: Codable, Sendable, Equatable {
     var rows: [GridRowLayout]
 
     private enum CodingKeys: String, CodingKey {
-        case componentId, title, subtitleFacts, footnotes, caption, totals
+        case componentId, subjectBallIds, title, subtitleFacts, footnotes, caption, totals
         case columnGroups, hasTotalColumn, rows
     }
 
     init(
         componentId: String,
+        subjectBallIds: [String],
         title: TitleLayout,
         subtitleFacts: [String],
         footnotes: [String],
@@ -366,6 +371,7 @@ struct ScoreGridLayout: Codable, Sendable, Equatable {
         rows: [GridRowLayout]
     ) {
         self.componentId = componentId
+        self.subjectBallIds = subjectBallIds
         self.title = title
         self.subtitleFacts = subtitleFacts
         self.footnotes = footnotes
@@ -379,6 +385,7 @@ struct ScoreGridLayout: Codable, Sendable, Equatable {
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(componentId, forKey: .componentId)
+        try c.encode(subjectBallIds, forKey: .subjectBallIds)
         try c.encode(title, forKey: .title)
         try c.encode(subtitleFacts, forKey: .subtitleFacts)
         try c.encode(footnotes, forKey: .footnotes)
@@ -763,6 +770,7 @@ func layoutScoreGrid(
 
     return ScoreGridLayout(
         componentId: scoreGridComponentId(section),
+        subjectBallIds: section.subjectBallIds,
         title: TitleLayout(
             groups: section.title.groups.map { $0.map { id in nameOf(id) } },
             joiner: section.title.joiner,
@@ -785,6 +793,121 @@ func layoutScoreGrid(
         hasTotalColumn: groups.count > 1,
         rows: rows
     )
+}
+
+// --- card attachment (Gamebook boards) ---------------------------------------
+
+/// Where a scorecard card belongs on a Gamebook-style leaderboard: folded into
+/// a ranked row (`attached`, with that row's index in `entries`) or shown on its
+/// own (`standalone`).
+///
+/// PORTING: TS's `{ kind: 'attached'; entryIndex } | { kind: 'standalone' }`
+/// union, in the same flat-`kind` JSON shape as the other unions here.
+enum CardAttachment: Codable, Sendable, Equatable {
+    case attached(entryIndex: Int)
+    case standalone
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, entryIndex
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        switch try c.decode(String.self, forKey: .kind) {
+        case "attached":
+            self = .attached(entryIndex: try c.decode(Int.self, forKey: .entryIndex))
+        case "standalone":
+            self = .standalone
+        case let other:
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: decoder.codingPath,
+                debugDescription: "unknown attachment kind: \(other)"))
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .attached(let entryIndex):
+            try c.encode("attached", forKey: .kind)
+            try c.encode(entryIndex, forKey: .entryIndex)
+        case .standalone:
+            try c.encode("standalone", forKey: .kind)
+        }
+    }
+}
+
+/// Anything that carries a card's subject balls — the contract section or the
+/// folded layout.
+///
+/// PORTING: TS takes a structural `{ subjectBallIds }`; Swift has no structural
+/// typing, so the same "widest shape that carries an identity" is spelled as a
+/// protocol with two conformances and a generic parameter.
+protocol CardSubjectCarrier {
+    var subjectBallIds: [String] { get }
+}
+
+/// Anything that carries a ranked entry's balls.
+protocol RankedSubjectCarrier {
+    var ballIds: [String] { get }
+}
+
+extension ScoreGridSection: CardSubjectCarrier {}
+extension ScoreGridLayout: CardSubjectCarrier {}
+extension RankedEntry: RankedSubjectCarrier {}
+
+/// Order-insensitive set key for a subject / entry's ball ids.
+private func subjectKey(_ ballIds: [String]) -> String {
+    Set(ballIds).sorted().joined(separator: " ")
+}
+
+/// Classify each card against a ranked section's entries — the STRUCTURAL rule,
+/// and the only rule:
+///
+///     a card that maps 1:1 to a ranked entry attaches to that row;
+///     ANYTHING else stays standalone.
+///
+/// "1:1" means the card's subject ball ids are exactly the entry's `ballIds` as
+/// a SET (order and repetition are not identity), AND that pairing is
+/// unambiguous in both directions: exactly one entry carries that subject and
+/// exactly one card claims it. A subjectless card, a card no entry matches, two
+/// cards over the same subject, two entries over the same subject — all
+/// standalone. Ambiguity is NEVER guessed: showing a card on its own is always
+/// correct, attaching it to the wrong row is not.
+///
+/// Pure and total: the returned array is parallel to `cards`, one verdict each.
+///
+/// FUTURE SEAM (not built): when a format plugin declares an explicit
+/// `presentation: "attached" | "standalone"` on a card (absent = this structural
+/// rule), that declaration is honoured HERE, before the structural match runs —
+/// one branch at the top of the loop, no format ids anywhere.
+func attachmentFor<Card: CardSubjectCarrier, Entry: RankedSubjectCarrier>(
+    _ cards: [Card],
+    _ entries: [Entry]
+) -> [CardAttachment] {
+    // `Int?` value: `nil` marks a key claimed by more than one entry — the
+    // dictionary's own "absent" is a different verdict, so the double optional
+    // is deliberate (TS stores `number | null` in the same map).
+    var entryIndexByKey: [String: Int?] = [:]
+    for (index, entry) in entries.enumerated() {
+        if entry.ballIds.isEmpty { continue }
+        let key = subjectKey(entry.ballIds)
+        // Second entry over the same subject ⇒ the key is ambiguous forever.
+        entryIndexByKey[key] = entryIndexByKey.keys.contains(key) ? Int?.none : index
+    }
+
+    var cardCountByKey: [String: Int] = [:]
+    for card in cards where !card.subjectBallIds.isEmpty {
+        cardCountByKey[subjectKey(card.subjectBallIds), default: 0] += 1
+    }
+
+    return cards.map { card in
+        if card.subjectBallIds.isEmpty { return .standalone }
+        let key = subjectKey(card.subjectBallIds)
+        if (cardCountByKey[key] ?? 0) != 1 { return .standalone }
+        guard let claimed = entryIndexByKey[key], let entryIndex = claimed else { return .standalone }
+        return .attached(entryIndex: entryIndex)
+    }
 }
 
 // --- ranked ------------------------------------------------------------------

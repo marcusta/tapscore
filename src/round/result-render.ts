@@ -26,6 +26,7 @@ import {
     layoutScoreGrid,
     scoreGridComponentId,
 } from './result-layout';
+import { entryKey, type BoardPlan } from './board-expansion';
 import { markerClass } from './marker-tokens';
 import type {
     CellLayout,
@@ -40,6 +41,20 @@ export type NameOf = (ballId: string) => string;
 /** Ball id → "Group N" label, or `null` on a single-group round (Phase 3.5). */
 export type GroupOf = (ballId: string) => string | null;
 export interface ResultRenderOptions {
+    mode?: ResultRenderMode;
+}
+
+/**
+ * Gamebook-style expansion context for the ONE ranked board cards were
+ * classified against (`plan.rankedSection`). Absent ⇒ every board renders
+ * exactly as it always has: no buttons, no panels, byte-identical rows.
+ */
+export interface BoardExpansion {
+    plan: BoardPlan;
+    /** The round's frozen route sections — needed to lay out an inline card. */
+    routeSections: RouteSectionRef[];
+    /** Is this entry's row currently expanded? Keyed by the slot-scoped signature `entryKey` builds. */
+    isOpen: (key: string) => boolean;
     mode?: ResultRenderMode;
 }
 
@@ -206,19 +221,64 @@ function paceCell(entry: RankedEntryLayout): string {
     return `<td class="lb-rank__pace lb-rank__pace--${entry.pace.tone}">${esc(entry.pace.text)}</td>`;
 }
 
-function renderRanked(section: RankedSection, nameOf: NameOf, groupOf: GroupOf = noGroup): string {
+/**
+ * A stable, id-safe DOM id for one row's panel (`aria-controls` needs one).
+ * Derived from the entry signature so it survives a live refetch — never from
+ * the row index, which reorders.
+ */
+function panelId(key: string): string {
+    return `lb-panel-${key.replace(/[^a-zA-Z0-9_-]+/g, '-')}`;
+}
+
+function renderRanked(
+    section: RankedSection,
+    nameOf: NameOf,
+    groupOf: GroupOf = noGroup,
+    expansion: BoardExpansion | null = null,
+): string {
     const layout = layoutRanked(section, nameOf, groupOf);
     // The pace column exists only for metrics whose descriptor declares a pace
     // baseline — a non-pace board (gross strokes, say) keeps its old 4 columns.
     const hasPace = layout.hasPace;
+    const columnCount = hasPace ? 5 : 4;
     const rows = layout.entries
-        .map((e) => {
+        .map((e, index) => {
             const groupTag = e.group ? ` <span class="lb-rank__group">${esc(e.group)}</span>` : '';
-            return `<tr class="${e.lead ? 'lb-rank__lead' : ''}">
-  <td class="lb-rank__pos">${e.position}</td>
-  <td class="lb-rank__who"><span class="lb-rank__whobox"><span class="lb-rank__name">${esc(e.name)}</span>${groupTag}</span></td>
+            const tail = `
   <td class="lb-rank__total">${e.total}</td>${hasPace ? `\n  ${paceCell(e)}` : ''}
   <td class="lb-rank__thru">${e.holesPlayed}</td>
+</tr>`;
+            // No expansion context (the oracle, the tests' default path, any
+            // board that isn't the one cards were classified against): render
+            // byte-for-byte what this file always emitted.
+            const entry = section.entries[index];
+            const card =
+                expansion && entry
+                    ? expansion.plan.attached.get(entryKey(expansion.plan.slotDefId, entry.ballIds))
+                    : undefined;
+            if (!expansion || !entry || !card) {
+                return `<tr class="${e.lead ? 'lb-rank__lead' : ''}">
+  <td class="lb-rank__pos">${e.position}</td>
+  <td class="lb-rank__who"><span class="lb-rank__whobox"><span class="lb-rank__name">${esc(e.name)}</span>${groupTag}</span></td>${tail}`;
+            }
+
+            // Expandable row: the whole row is tappable (delegated click), and
+            // the button inside the name cell carries the semantics keyboard and
+            // screen-reader users need (aria-expanded / aria-controls).
+            const key = entryKey(expansion.plan.slotDefId, entry.ballIds);
+            const open = expansion.isOpen(key);
+            const id = panelId(key);
+            const cardHtml = renderScoreGridSection(card, expansion.routeSections, nameOf, {
+                mode: expansion.mode ?? 'product',
+            });
+            const rowClasses = ['lb-rank__row--expandable'];
+            if (e.lead) rowClasses.push('lb-rank__lead');
+            if (open) rowClasses.push('lb-rank__row--open');
+            return `<tr class="${rowClasses.join(' ')}" data-expand-key="${esc(key)}">
+  <td class="lb-rank__pos">${e.position}</td>
+  <td class="lb-rank__who"><button type="button" class="lb-rank__toggle" aria-expanded="${open}" aria-controls="${esc(id)}"><span class="lb-rank__whobox"><span class="lb-rank__name">${esc(e.name)}</span>${groupTag}</span><span class="lb-rank__chev" aria-hidden="true"></span></button></td>${tail}
+<tr class="lb-rank__panel${open ? ' lb-rank__panel--open' : ''}" data-panel-key="${esc(key)}">
+  <td class="lb-rank__panelcell" colspan="${columnCount}"><div class="lb-rank__panelwrap" id="${esc(id)}"><div class="lb-rank__panelbox">${cardHtml}</div></div></td>
 </tr>`;
         })
         .join('');
@@ -272,6 +332,7 @@ type SectionRenderer<S extends LeaderboardSection> = (
     section: S,
     nameOf: NameOf,
     groupOf: GroupOf,
+    expansion: BoardExpansion | null,
 ) => string;
 
 /**
@@ -316,14 +377,19 @@ function gridDiagnostic(componentId: string): string {
 }
 
 /** Dispatch one leaderboard section through {@link sectionRegistry}. */
-function renderLeaderboardSection(section: LeaderboardSection, nameOf: NameOf, groupOf: GroupOf): string {
+function renderLeaderboardSection(
+    section: LeaderboardSection,
+    nameOf: NameOf,
+    groupOf: GroupOf,
+    expansion: BoardExpansion | null = null,
+): string {
     // Contained dispatcher cast: the registry is typed per-kind on definition;
     // the lookup widens to "any leaderboard renderer, or none" so an unknown
     // runtime kind falls through to a visible diagnostic instead of throwing.
     const render = (
         sectionRegistry as Record<string, SectionRenderer<LeaderboardSection> | undefined>
     )[section.kind];
-    return render ? render(section, nameOf, groupOf) : diagnostic(section.kind);
+    return render ? render(section, nameOf, groupOf, expansion) : diagnostic(section.kind);
 }
 
 /** Dispatch one score grid through {@link scoreGridRegistry}. */
@@ -345,11 +411,27 @@ function renderScoreGridSection(
  * `groupOf` (Phase 3.5) is optional — a single-group round (the common case)
  * passes nothing and every entry renders exactly as before.
  */
-export function renderSlotLeaderboard(slot: SlotResultView, nameOf: NameOf, groupOf: GroupOf = noGroup): string {
+export function renderSlotLeaderboard(
+    slot: SlotResultView,
+    nameOf: NameOf,
+    groupOf: GroupOf = noGroup,
+    expansion: BoardExpansion | null = null,
+): string {
     if (slot.leaderboard.length === 0 && slot.cards.length === 0) {
         return `<div class="lb-empty">No scores entered yet for ${esc(slot.formatLabel)}.</div>`;
     }
-    const sections = slot.leaderboard.map((sec) => renderLeaderboardSection(sec, nameOf, groupOf)).join('');
+    const sections = slot.leaderboard
+        .map((sec) =>
+            // Only the board the cards were classified against gets expandable
+            // rows — identity, not "the first ranked kind I happen to see".
+            renderLeaderboardSection(
+                sec,
+                nameOf,
+                groupOf,
+                expansion && sec === expansion.plan.rankedSection ? expansion : null,
+            ),
+        )
+        .join('');
     return sections || `<div class="lb-empty">No leaderboard metric for ${esc(slot.formatLabel)}.</div>`;
 }
 
@@ -360,7 +442,22 @@ export function renderSlotCards(
     nameOf: NameOf,
     options: ResultRenderOptions = {},
 ): string {
-    if (slot.cards.length === 0) return '';
+    return renderCards(slot.cards, routeSections, nameOf, options);
+}
+
+/**
+ * The card list for an explicit set of cards — the Gamebook board passes only
+ * the STANDALONE ones (`planBoard(slot).standalone`), because the attached cards
+ * have already been rendered inside their ranked rows. Same bytes per card as
+ * {@link renderSlotCards}.
+ */
+export function renderCards(
+    cards: readonly ScoreGridSection[],
+    routeSections: RouteSectionRef[],
+    nameOf: NameOf,
+    options: ResultRenderOptions = {},
+): string {
+    if (cards.length === 0) return '';
     const mode = options.mode ?? 'product';
-    return slot.cards.map((c) => renderScoreGridSection(c, routeSections, nameOf, { mode })).join('\n');
+    return cards.map((c) => renderScoreGridSection(c, routeSections, nameOf, { mode })).join('\n');
 }

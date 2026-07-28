@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test';
+import type { CardAttachment } from '../../src/round/result-layout';
 import {
+    attachmentFor,
     layoutMatchSummary,
     layoutRanked,
     layoutScoreGrid,
@@ -373,6 +375,65 @@ test('match panels carry the golf idiom: AS / N UP and Final / thru N', () => {
         status: 'thru 7',
     });
     expect(layout.matches[1]).toMatchObject({ sideAName: 'name:a & name:b', standing: '3 UP', status: 'Final' });
+});
+
+// --- card attachment ---------------------------------------------------------
+//
+// The STRUCTURAL rule: a card that maps 1:1 to a ranked entry attaches to that
+// row; anything else is standalone. Mirrored case-for-case in
+// `ios/TapScoreTests/Domain/ResultLayoutTests.swift` — keep the two batteries
+// diffable (same order, same names, same data).
+
+const card = (...subjectBallIds: string[]) => ({ subjectBallIds });
+const entry = (...ballIds: string[]) => ({ ballIds });
+const attached = (entryIndex: number): CardAttachment => ({ kind: 'attached', entryIndex });
+const standalone: CardAttachment = { kind: 'standalone' };
+
+test('a card whose subject is exactly one entry attaches to that row', () => {
+    expect(attachmentFor([card('a'), card('b')], [entry('b'), entry('a')])).toEqual([attached(1), attached(0)]);
+});
+
+test('subject identity is a SET — member order and repetition are not identity', () => {
+    expect(attachmentFor([card('b', 'a')], [entry('a', 'b')])).toEqual([attached(0)]);
+    expect(attachmentFor([card('a', 'a', 'b')], [entry('b', 'a')])).toEqual([attached(0)]);
+});
+
+test('a partial or superset overlap is NOT 1:1 — the card stays standalone', () => {
+    expect(attachmentFor([card('a'), card('a', 'b')], [entry('a', 'b', 'c')])).toEqual([standalone, standalone]);
+});
+
+test('a subjectless card is standalone, and it never claims a subjectless entry', () => {
+    expect(attachmentFor([card()], [entry(), entry('a')])).toEqual([standalone]);
+});
+
+test('an unmatched card is standalone and leaves its neighbours attachable', () => {
+    expect(attachmentFor([card('x'), card('a')], [entry('a')])).toEqual([standalone, attached(0)]);
+});
+
+test('two cards over one subject BOTH stay standalone — the claim is ambiguous', () => {
+    expect(attachmentFor([card('a'), card('a'), card('b')], [entry('a'), entry('b')])).toEqual([
+        standalone,
+        standalone,
+        attached(1),
+    ]);
+});
+
+test('two entries over one subject leave the card standalone — never guess a row', () => {
+    expect(attachmentFor([card('a'), card('b')], [entry('a'), entry('a'), entry('b')])).toEqual([
+        standalone,
+        attached(2),
+    ]);
+});
+
+test('no cards or no entries classifies totally, one verdict per card', () => {
+    expect(attachmentFor([], [entry('a')])).toEqual([]);
+    expect(attachmentFor([card('a'), card('b')], [])).toEqual([standalone, standalone]);
+});
+
+test('a folded ScoreGridLayout carries the subject ids and classifies directly', () => {
+    const layout = layoutScoreGrid(grid([], [], { subjectBallIds: ['a', 'b'] }), [], nameOf);
+    expect(layout.subjectBallIds).toEqual(['a', 'b']);
+    expect(attachmentFor([layout], [entry('b', 'a')])).toEqual([attached(0)]);
 });
 
 // --- serializability ---------------------------------------------------------

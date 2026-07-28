@@ -118,7 +118,26 @@ export interface ScoreGridSection {
      * pair). The consumer resolves ball ids → live names.
      */
     title: { groups: string[][]; joiner: string };
-    /** Real ball ids this card represents — consumer resolves + joins names. */
+    /**
+     * The card's SUBJECT — the real ball ids it represents (a per-ball card:
+     * that ball; a team/shared card: every ball the card covers; an aggregated
+     * side: that side's virtual subject id, per `subjectLabels`). Empty only
+     * for a genuinely subjectless card. The consumer resolves + joins names.
+     *
+     * This is also the ATTACHMENT key (Gamebook leaderboards). The rule is
+     * STRUCTURAL and lives in the shared fold, not here: a card whose subject
+     * ids match exactly one ranked entry's `ballIds` 1:1 attaches to that row;
+     * anything else stays standalone. See `attachmentFor` in
+     * `src/round/result-layout.ts` / `ios/TapScore/Domain/ResultLayout.swift`.
+     * The builder KNOWS the subject, so nothing here branches on a format.
+     *
+     * FUTURE SEAM (not built): a format plugin may later declare
+     * `presentation: 'attached' | 'standalone'` explicitly on its cards —
+     * absent = the structural rule above. It would plug in HERE, as an
+     * additional optional field on this section, and `attachmentFor` would
+     * honour it before falling back to the structural match. Do not add it
+     * until a format actually needs to override the structure.
+     */
     subjectBallIds: string[];
     /** Ordered played hole numbers = the grid's columns. */
     holes: HoleRef[];

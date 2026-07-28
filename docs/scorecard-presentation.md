@@ -106,6 +106,33 @@ hides results.
   column.
 - `match_summary` — `matchPanel` per pair (leader, magnitude, thru, final).
 
+## Card ↔ leaderboard attachment (Gamebook boards)
+
+A board that wants a scorecard folded INTO its ranked row asks the shared fold,
+never the format id:
+
+```ts
+attachmentFor(cards, rankedEntries) // → per card: {kind:'attached', entryIndex} | {kind:'standalone'}
+```
+
+The rule is STRUCTURAL: a card whose `subjectBallIds` are exactly one entry's
+`ballIds` **as a set**, unambiguously in both directions (one such entry, one
+such card), attaches to that row. Everything else — subjectless card, partial
+overlap, two cards on one subject, two entries on one subject — stays
+standalone. Ambiguity is never guessed.
+
+`subjectBallIds` is emitted by every presenter (the builder knows the subject);
+synthetic `team:<label>` ids are resolved to member balls first, and an
+aggregated side's virtual subject id (ADR-0004) is a legitimate subject.
+`server/domain/strategies/result-view-invariance.test.ts` pins that invariant
+across every fixture round. Same helper, same cases, in
+`src/round/result-layout.ts` and `ios/TapScore/Domain/ResultLayout.swift`.
+
+FUTURE SEAM (not built): a format plugin may later declare
+`presentation: 'attached' | 'standalone'` on a card — absent = the structural
+rule. It plugs in on `ScoreGridSection` and is honoured at the top of
+`attachmentFor`.
+
 ## Adding a new format's presentation
 
 1. Write `score()` (pure; no presentation) + a presenter composed from the

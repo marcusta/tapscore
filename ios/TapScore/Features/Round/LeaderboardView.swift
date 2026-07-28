@@ -96,25 +96,162 @@ struct LeaderboardView: View {
         let nameOf: NameOf = { [store] id in MainActor.assumeIsolated { store.name(ofBallId: id) } }
         let groupOf: GroupOf = { [store] id in MainActor.assumeIsolated { store.groupLabel(ofBallId: id) } }
 
-        ForEach(Array(slot.leaderboard.enumerated()), id: \.offset) { _, section in
+        let cards = slot.cards.map { layoutScoreGrid($0, routeSections, nameOf) }
+        // Gamebook: cards are classified against the slot's FIRST ranked board.
+        // `attachmentFor` is deliberately agnostic about WHICH ranked section it
+        // is handed, so the choice is made here, once — the first ranked board
+        // is the one the round's own metric ranks, and it is the one a reader
+        // taps a row on.
+        let ranking = firstRanked(slot.leaderboard)
+        let placement = boardCardPlacement(cards: cards, entries: ranking?.entries ?? [])
+
+        ForEach(Array(slot.leaderboard.enumerated()), id: \.offset) { index, section in
             switch section {
             case .ranked(let ranked):
-                RankedSectionView(layout: layoutRanked(ranked, nameOf, groupOf))
+                RankedSectionView(
+                    layout: layoutRanked(ranked, nameOf, groupOf),
+                    // Only the classified board gets expandable rows; every
+                    // other ranked board on the slot stays inert.
+                    attachedCards: index == ranking?.index ? placement.attached : [],
+                    slotDefId: slot.slotDefId,
+                    expansion: $store.expandedScorecards
+                )
             case .matchSummary(let match):
                 MatchSummaryView(layout: layoutMatchSummary(match, nameOf))
             }
         }
 
-        if !slot.cards.isEmpty {
+        if !placement.standalone.isEmpty {
             // Web: `.lb-cards__head` — the scorecard block's own section title.
             SectionHeader(title: "Scorecard", size: 17.6)
                 .padding(.top, TapSpacing.sm)
         }
 
-        ForEach(Array(slot.cards.enumerated()), id: \.offset) { _, card in
-            ScoreGridCardView(layout: layoutScoreGrid(card, routeSections, nameOf))
+        // Attached cards have LEFT this list — they render under their row.
+        // What stays is what the structural rule could not place 1:1: match /
+        // taliban shared cards (whose subject spans both sides), subjectless
+        // cards, and anything ambiguous.
+        ForEach(Array(placement.standalone.enumerated()), id: \.offset) { _, card in
+            ScoreGridCardView(layout: card)
         }
     }
+
+    /// The slot's first ranked section, with its index in `leaderboard`.
+    private func firstRanked(
+        _ sections: [SlotResultViewLeaderboardItem]
+    ) -> (index: Int, entries: [RankedEntry])? {
+        for (index, section) in sections.enumerated() {
+            if case .ranked(let ranked) = section { return (index, ranked.entries) }
+        }
+        return nil
+    }
+}
+
+// MARK: - Gamebook placement
+
+/// Which scorecard hangs under which ranked row, and which cards stay in the
+/// standalone list below it.
+///
+/// This is the board's half of the Gamebook split; the RULE itself is
+/// `attachmentFor` in `Domain/ResultLayout.swift` — the same structural rule the
+/// web renders, so the two clients cannot disagree about where a card belongs.
+/// Nothing here inspects a format id.
+struct BoardCardPlacement: Equatable, Sendable {
+    /// Parallel to the ranked section's entries. A `nil` element is an INERT
+    /// row: no card, no chevron, no tap target.
+    var attached: [ScoreGridLayout?]
+    /// Cards no row claimed, in their original card order.
+    var standalone: [ScoreGridLayout]
+}
+
+/// Split folded cards into per-row attachments and the leftover standalone list.
+///
+/// Generic over the entry so a caller (and a test) can pass anything carrying
+/// ball ids; production passes the contract's `RankedEntry`, which is what the
+/// fold's `RankedLayout.entries` is built from 1:1 — so an index into `attached`
+/// is also an index into the rendered rows.
+func boardCardPlacement<Entry: RankedSubjectCarrier>(
+    cards: [ScoreGridLayout],
+    entries: [Entry]
+) -> BoardCardPlacement {
+    let verdicts = attachmentFor(cards, entries)
+    var attached = [ScoreGridLayout?](repeating: nil, count: entries.count)
+    var standalone: [ScoreGridLayout] = []
+    for (card, verdict) in zip(cards, verdicts) {
+        switch verdict {
+        case .attached(let entryIndex) where entryIndex < attached.count:
+            attached[entryIndex] = card
+        case .attached:
+            // Out of range cannot happen — `attachmentFor` indexes the array it
+            // was handed — but a board that silently DROPPED a card would be a
+            // worse failure than one that shows it below.
+            standalone.append(card)
+        case .standalone:
+            standalone.append(card)
+        }
+    }
+    return BoardCardPlacement(attached: attached, standalone: standalone)
+}
+
+// MARK: - Expansion state
+
+/// Which attached scorecards are open, keyed by the row's SLOT-SCOPED SUBJECT.
+///
+/// Keying is the whole point of this type. An index into the entries array is
+/// not an identity: a live refetch re-ranks the board, so the row at index 2 is
+/// routinely a different player a second later, and index-keyed state would
+/// silently move the open card onto whoever took that place. The key is the
+/// row's ball ids as a SET — the same identity `attachmentFor` matches on — so
+/// an open card survives a refetch, a re-rank, and a card being rebuilt from
+/// scratch, and quietly disappears when its subject leaves the board.
+///
+/// It is a plain value held by `RoundStore` rather than `@State` on the view,
+/// because the round screen DESTROYS the leaderboard view when you tab away to
+/// score entry; view state would not come back.
+struct ScorecardExpansion: Equatable, Sendable {
+    private(set) var openKeys: Set<String> = []
+
+    init(openKeys: Set<String> = []) {
+        self.openKeys = openKeys
+    }
+
+    /// THE EXPANSION KEY FORMAT — one definition, two clients:
+    ///
+    ///     slotDefId + "|" + ballIds.deduped().sorted().joined("|")
+    ///
+    /// - Order-insensitive, because a pairing is a SET of balls — the same
+    ///   identity `attachmentFor` pairs on.
+    /// - Slot-scoped, because one round can rank the same balls on two format
+    ///   slots; without the slot id, expanding a row on one board would expand
+    ///   its twin on the other.
+    /// - Attribute-safe: `|` survives the web's `data-expand-key` round-trip
+    ///   through the HTML parser, where a control character does not. Nothing on
+    ///   this side depends on that, but a key that is not byte-identical across
+    ///   the two clients is not one shared format.
+    ///
+    /// The web implements it in `src/round/board-expansion.ts` (`entryKey`),
+    /// where the round-trip is pinned by a test. Change one, change both.
+    static func key(_ slotDefId: String, _ ballIds: [String]) -> String {
+        ([slotDefId] + Set(ballIds).sorted()).joined(separator: "|")
+    }
+
+    func isOpen(_ slotDefId: String, _ ballIds: [String]) -> Bool {
+        guard !ballIds.isEmpty else { return false }
+        return openKeys.contains(Self.key(slotDefId, ballIds))
+    }
+
+    /// Several rows may be open at once — opening one never closes another.
+    mutating func toggle(_ slotDefId: String, _ ballIds: [String]) {
+        guard !ballIds.isEmpty else { return }
+        let key = Self.key(slotDefId, ballIds)
+        if openKeys.contains(key) {
+            openKeys.remove(key)
+        } else {
+            openKeys.insert(key)
+        }
+    }
+
+    var isEmpty: Bool { openKeys.isEmpty }
 }
 
 

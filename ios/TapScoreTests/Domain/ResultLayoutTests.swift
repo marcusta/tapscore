@@ -35,6 +35,7 @@ private func grid(
     _ holes: [HoleRef],
     componentId: FormatDescriptorResultDisplayScoreGridComponentId? = nil,
     title: ScoreGridSectionTitle? = nil,
+    subjectBallIds: [String]? = nil,
     subtitleFacts: [String]? = nil,
     footnotes: [String]? = nil,
     caption: String? = nil,
@@ -43,7 +44,7 @@ private func grid(
     ScoreGridSection(
         componentId: componentId,
         title: title ?? ScoreGridSectionTitle(groups: [["a"]], joiner: " vs. "),
-        subjectBallIds: ["a"],
+        subjectBallIds: subjectBallIds ?? ["a"],
         holes: holes,
         subtitleFacts: subtitleFacts ?? [],
         rows: rows,
@@ -80,6 +81,17 @@ private let OUT_IN: [RouteSectionRef] = [
     RouteSectionRef(id: "s-out", label: "OUT", fromCanonicalOrdinal: 1, toCanonicalOrdinal: 9),
     RouteSectionRef(id: "s-in", label: "IN", fromCanonicalOrdinal: 10, toCanonicalOrdinal: 18),
 ]
+
+/// TS: `const card = (...subjectBallIds) => ({ subjectBallIds })` — the real
+/// contract section stands in for the structural literal.
+private func card(_ subjectBallIds: String...) -> ScoreGridSection {
+    grid([], [], subjectBallIds: subjectBallIds)
+}
+
+/// TS: `const entry = (...ballIds) => ({ ballIds })`
+private func entry(_ ballIds: String...) -> RankedEntry {
+    RankedEntry(ballIds: ballIds, total: nil, holesPlayed: 0, position: 1)
+}
 
 final class ResultLayoutTests: XCTestCase {
 
@@ -410,6 +422,29 @@ final class ResultLayoutTests: XCTestCase {
         )
     }
 
+    /// THE assumption the Gamebook board rests on: `RankedSectionView` indexes
+    /// `attachedCards[i]` — built from `section.entries` by `boardCardPlacement`
+    /// — against `layout.entries[i]`. That is only sound while `layoutRanked` is
+    /// a 1:1 `map`. The day it filters, sorts or dedupes, every expandable row
+    /// silently gets somebody else's scorecard, and nothing else would catch it.
+    func test_layoutRankedPreservesEntryCountAndOrder() {
+        // Deliberately NOT in position order, so a hidden sort would show.
+        let section = ranked([
+            RankedEntry(ballIds: ["c"], total: 30, holesPlayed: 18, position: 3),
+            RankedEntry(ballIds: ["a"], total: 36, holesPlayed: 18, position: 1),
+            RankedEntry(ballIds: ["b", "d"], total: 33, holesPlayed: 18, position: 2),
+        ])
+
+        let layout = layoutRanked(section, nameOf)
+
+        XCTAssertEqual(layout.entries.count, section.entries.count)
+        XCTAssertEqual(layout.entries.map(\.position), [3, 1, 2], "input order, not rank order")
+        XCTAssertEqual(
+            layout.entries.map(\.name),
+            section.entries.map { $0.ballIds.map(nameOf).joined(separator: NAME_JOINER) },
+            "entry i of the layout is entry i of the section — the index IS the pairing")
+    }
+
     /// a board without any pace declares none; one paced entry grows the column for the whole board
     func test_paceColumnExistsWhenAnyEntryHasPace() {
         let noPace = layoutRanked(
@@ -540,6 +575,77 @@ final class ResultLayoutTests: XCTestCase {
         XCTAssertEqual(layout.matches[1].sideAName, "name:a & name:b")
         XCTAssertEqual(layout.matches[1].standing, "3 UP")
         XCTAssertEqual(layout.matches[1].status, "Final")
+    }
+
+    // --- card attachment ----------------------------------------------------
+    //
+    // The STRUCTURAL rule: a card that maps 1:1 to a ranked entry attaches to
+    // that row; anything else is standalone. Mirrored case-for-case from
+    // `tests/round/result-layout.test.ts` — keep the two batteries diffable
+    // (same order, same names, same data).
+
+    /// a card whose subject is exactly one entry attaches to that row
+    func test_cardMatchingOneEntryAttachesToThatRow() {
+        XCTAssertEqual(
+            attachmentFor([card("a"), card("b")], [entry("b"), entry("a")]),
+            [.attached(entryIndex: 1), .attached(entryIndex: 0)]
+        )
+    }
+
+    /// subject identity is a SET — member order and repetition are not identity
+    func test_subjectIdentityIsASet() {
+        XCTAssertEqual(attachmentFor([card("b", "a")], [entry("a", "b")]), [.attached(entryIndex: 0)])
+        XCTAssertEqual(attachmentFor([card("a", "a", "b")], [entry("b", "a")]), [.attached(entryIndex: 0)])
+    }
+
+    /// a partial or superset overlap is NOT 1:1 — the card stays standalone
+    func test_partialOverlapStaysStandalone() {
+        XCTAssertEqual(
+            attachmentFor([card("a"), card("a", "b")], [entry("a", "b", "c")]),
+            [.standalone, .standalone]
+        )
+    }
+
+    /// a subjectless card is standalone, and it never claims a subjectless entry
+    func test_subjectlessCardIsStandalone() {
+        XCTAssertEqual(attachmentFor([card()], [entry(), entry("a")]), [.standalone])
+    }
+
+    /// an unmatched card is standalone and leaves its neighbours attachable
+    func test_unmatchedCardLeavesNeighboursAttachable() {
+        XCTAssertEqual(
+            attachmentFor([card("x"), card("a")], [entry("a")]),
+            [.standalone, .attached(entryIndex: 0)]
+        )
+    }
+
+    /// two cards over one subject BOTH stay standalone — the claim is ambiguous
+    func test_twoCardsOverOneSubjectBothStandalone() {
+        XCTAssertEqual(
+            attachmentFor([card("a"), card("a"), card("b")], [entry("a"), entry("b")]),
+            [.standalone, .standalone, .attached(entryIndex: 1)]
+        )
+    }
+
+    /// two entries over one subject leave the card standalone — never guess a row
+    func test_twoEntriesOverOneSubjectLeaveTheCardStandalone() {
+        XCTAssertEqual(
+            attachmentFor([card("a"), card("b")], [entry("a"), entry("a"), entry("b")]),
+            [.standalone, .attached(entryIndex: 2)]
+        )
+    }
+
+    /// no cards or no entries classifies totally, one verdict per card
+    func test_emptyInputsClassifyTotally() {
+        XCTAssertEqual(attachmentFor([ScoreGridSection](), [entry("a")]), [])
+        XCTAssertEqual(attachmentFor([card("a"), card("b")], [RankedEntry]()), [.standalone, .standalone])
+    }
+
+    /// a folded ScoreGridLayout carries the subject ids and classifies directly
+    func test_foldedLayoutCarriesSubjectIds() {
+        let layout = layoutScoreGrid(grid([], [], subjectBallIds: ["a", "b"]), [], nameOf)
+        XCTAssertEqual(layout.subjectBallIds, ["a", "b"])
+        XCTAssertEqual(attachmentFor([layout], [entry("b", "a")]), [.attached(entryIndex: 0)])
     }
 
     // --- serializability ----------------------------------------------------

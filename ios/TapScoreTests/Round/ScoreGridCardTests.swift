@@ -40,6 +40,7 @@ private func eighteenHoleLayout(
     let inn = (10...18).map(String.init)
     return ScoreGridLayout(
         componentId: "default-score-grid",
+        subjectBallIds: ["ball-ada"],
         title: TitleLayout(groups: [["Ada"]], joiner: " vs. ", nameJoiner: " & "),
         subtitleFacts: ["HCP 12"],
         footnotes: footnotes,

@@ -62,6 +62,12 @@ export interface ViewGridRow {
 export interface ViewScoreGridSection {
     componentId?: string;
     title: { groups: string[][]; joiner: string };
+    /**
+     * The card's subject balls — its ATTACHMENT key. Required in both sources
+     * (`ScoreGridSection` and the generated client type), so it is required
+     * here too.
+     */
+    subjectBallIds: readonly string[];
     holes: readonly ViewHoleRef[];
     subtitleFacts: readonly string[];
     rows: readonly ViewGridRow[];
@@ -184,6 +190,12 @@ export interface GridRowLayout {
 
 export interface ScoreGridLayout {
     componentId: string;
+    /**
+     * The card's subject balls, carried through UNRESOLVED (ids, not names) —
+     * names are already in `title`. An adapter needs the ids to ask
+     * {@link attachmentFor} where this card belongs on a Gamebook-style board.
+     */
+    subjectBallIds: string[];
     /**
      * Resolved names per title group; the adapter escapes each name, joins the
      * names WITHIN a group with `nameJoiner`, and joins the groups with
@@ -399,6 +411,7 @@ export function layoutScoreGrid(
 
     return {
         componentId: scoreGridComponentId(section),
+        subjectBallIds: [...section.subjectBallIds],
         title: {
             groups: section.title.groups.map((g) => g.map((id) => nameOf(id))),
             joiner: section.title.joiner,
@@ -413,6 +426,74 @@ export function layoutScoreGrid(
         hasTotalColumn: groups.length > 1,
         rows,
     };
+}
+
+// --- card attachment (Gamebook boards) ---------------------------------------
+
+/**
+ * Where a scorecard card belongs on a Gamebook-style leaderboard: folded into a
+ * ranked row (`attached`, with that row's index in `entries`) or shown on its
+ * own (`standalone`).
+ */
+export type CardAttachment = { kind: 'attached'; entryIndex: number } | { kind: 'standalone' };
+
+/** Order-insensitive set key for a subject / entry's ball ids. */
+function subjectKey(ballIds: readonly string[]): string {
+    return [...new Set(ballIds)].sort().join(' ');
+}
+
+/**
+ * Classify each card against a ranked section's entries — the STRUCTURAL rule,
+ * and the only rule:
+ *
+ *   a card that maps 1:1 to a ranked entry attaches to that row;
+ *   ANYTHING else stays standalone.
+ *
+ * "1:1" means the card's subject ball ids are exactly the entry's `ballIds` as
+ * a SET (order and repetition are not identity), AND that pairing is
+ * unambiguous in both directions: exactly one entry carries that subject and
+ * exactly one card claims it. A subjectless card, a card no entry matches, two
+ * cards over the same subject, two entries over the same subject — all
+ * standalone. Ambiguity is NEVER guessed: showing a card on its own is
+ * always correct, attaching it to the wrong row is not.
+ *
+ * Pure and total: the returned array is parallel to `cards`, one verdict each.
+ * The parameters are the widest shape that carries an identity, so it accepts
+ * raw contract sections, folded {@link ScoreGridLayout}s, or anything else with
+ * these fields.
+ *
+ * FUTURE SEAM (not built): when a format plugin declares an explicit
+ * `presentation: 'attached' | 'standalone'` on a card (absent = this structural
+ * rule), that declaration is honoured HERE, before the structural match runs —
+ * one branch at the top of the loop, no format ids anywhere.
+ */
+export function attachmentFor(
+    cards: readonly { readonly subjectBallIds: readonly string[] }[],
+    entries: readonly { readonly ballIds: readonly string[] }[],
+): CardAttachment[] {
+    const entryIndexByKey = new Map<string, number | null>();
+    entries.forEach((entry, index) => {
+        if (entry.ballIds.length === 0) return;
+        const key = subjectKey(entry.ballIds);
+        // Second entry over the same subject ⇒ the key is ambiguous forever.
+        entryIndexByKey.set(key, entryIndexByKey.has(key) ? null : index);
+    });
+
+    const cardCountByKey = new Map<string, number>();
+    for (const card of cards) {
+        if (card.subjectBallIds.length === 0) continue;
+        const key = subjectKey(card.subjectBallIds);
+        cardCountByKey.set(key, (cardCountByKey.get(key) ?? 0) + 1);
+    }
+
+    return cards.map((card): CardAttachment => {
+        if (card.subjectBallIds.length === 0) return { kind: 'standalone' };
+        const key = subjectKey(card.subjectBallIds);
+        if ((cardCountByKey.get(key) ?? 0) !== 1) return { kind: 'standalone' };
+        const entryIndex = entryIndexByKey.get(key);
+        if (entryIndex === undefined || entryIndex === null) return { kind: 'standalone' };
+        return { kind: 'attached', entryIndex };
+    });
 }
 
 // --- ranked ------------------------------------------------------------------

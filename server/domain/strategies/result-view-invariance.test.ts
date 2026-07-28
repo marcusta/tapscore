@@ -140,6 +140,42 @@ afterAll(async () => {
     await db?.destroy();
 });
 
+// Every card's `subjectBallIds` is the ATTACHMENT key the shared fold matches
+// against a ranked entry's `ballIds` (Gamebook leaderboards). These invariants
+// hold for EVERY fixture round, not just the snapshot cases: a presenter that
+// forgets to resolve a synthetic `team:<label>` id, or emits a subjectless
+// card, silently turns an attachable card standalone on every client.
+describe('card subject ids (attachment key)', () => {
+    test('every card carries a resolvable, duplicate-free, non-synthetic subject', () => {
+        expect(liveBySignature.size).toBeGreaterThan(0);
+        let cards = 0;
+        for (const [signature, slots] of liveBySignature) {
+            for (const slot of slots as SlotResultView[]) {
+                const virtual = new Set((slot.subjectLabels ?? []).map((s) => s.ballId));
+                for (const card of slot.cards) {
+                    cards++;
+                    const where = `${signature} slot #${slot.slotIndex} card "${card.title.groups.flat().join('/')}"`;
+                    expect(card.subjectBallIds.length, `${where}: subjectless card`).toBeGreaterThan(0);
+                    expect(new Set(card.subjectBallIds).size, `${where}: duplicate subject id`).toBe(
+                        card.subjectBallIds.length,
+                    );
+                    for (const id of card.subjectBallIds) {
+                        // A synthetic team id must have been resolved to its
+                        // member balls before crossing the wire; a virtual
+                        // aggregated-side subject is legitimate (ADR-0004) and
+                        // must be declared in `subjectLabels`.
+                        expect(id.startsWith('team:'), `${where}: unresolved synthetic id ${id}`).toBe(false);
+                        if (!HEX_ID.test(id) && !id.startsWith('<id:')) {
+                            expect(virtual.has(id), `${where}: undeclared subject id ${id}`).toBe(true);
+                        }
+                    }
+                }
+            }
+        }
+        expect(cards).toBeGreaterThan(0);
+    });
+});
+
 describe('SlotResultView invariance', () => {
     for (const { format, signature } of CASES) {
         test(`${format} (${signature}) matches committed snapshot`, () => {

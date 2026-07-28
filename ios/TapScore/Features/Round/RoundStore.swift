@@ -117,6 +117,12 @@ final class RoundStore {
     /// `round.formatSlots` and `result.slots` are not guaranteed to line up.
     var selectedSlot: String?
 
+    /// Which attached scorecards are open on the leaderboard, keyed by SUBJECT
+    /// (see `ScorecardExpansion`). It lives here, not on `LeaderboardView`,
+    /// because the round screen destroys that view when the user tabs away to
+    /// score entry — view state would not survive the trip back.
+    var expandedScorecards = ScorecardExpansion()
+
     // MARK: - Keypad
 
     private(set) var keypadOpen = false

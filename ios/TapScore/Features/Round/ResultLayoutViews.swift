@@ -11,12 +11,49 @@ import SwiftUI
 /// warm `--accent-soft` band with a brass rank numeral.
 struct RankedSectionView: View {
     let layout: RankedLayout
+    /// Parallel to `layout.entries` — the card that hangs under each row, or
+    /// `nil` for an INERT row (no chevron, no tap target). Empty means no row on
+    /// this board is expandable, which is what every non-classified board gets.
+    var attachedCards: [ScoreGridLayout?]
+    /// The slot this board belongs to. Expansion keys are SLOT-SCOPED (see
+    /// `ScorecardExpansion.key`), so the board cannot build a key without it.
+    var slotDefId: String
+    @Binding var expansion: ScorecardExpansion
+
+    /// Honour Settings → Motion. `withAnimation(nil)` runs the mutation with no
+    /// animation at all, which is what "reduce motion" asks for — the row still
+    /// opens, it just does not slide.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(
+        layout: RankedLayout,
+        attachedCards: [ScoreGridLayout?] = [],
+        slotDefId: String = "",
+        expansion: Binding<ScorecardExpansion> = .constant(ScorecardExpansion())
+    ) {
+        self.layout = layout
+        self.attachedCards = attachedCards
+        self.slotDefId = slotDefId
+        self._expansion = expansion
+    }
 
     /// Web: `.lb-rank__col-*` — 2.25rem / 3.25rem / 3.25rem / 3rem.
     private let posWidth: CGFloat = 36
     private let totalWidth: CGFloat = 52
     private let paceWidth: CGFloat = 52
     private let thruWidth: CGFloat = 48
+    /// The disclosure affordance's column. Reserved for the WHOLE board as soon
+    /// as one row is expandable — the same idiom as `hasPace` — so an inert row
+    /// beside an expandable one keeps its columns aligned instead of shifting
+    /// every value 20pt sideways.
+    private let chevronWidth: CGFloat = 20
+
+    /// The card for a row, or nil when the row is inert.
+    private func attachedCard(_ index: Int) -> ScoreGridLayout? {
+        index < attachedCards.count ? attachedCards[index] : nil
+    }
+
+    private var hasExpandable: Bool { attachedCards.contains { $0 != nil } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: TapSpacing.sm) {
@@ -24,13 +61,69 @@ struct RankedSectionView: View {
             VStack(spacing: 0) {
                 headerRow
                 hairline
-                ForEach(Array(layout.entries.enumerated()), id: \.offset) { _, entry in
-                    row(entry)
+                ForEach(Array(layout.entries.enumerated()), id: \.offset) { index, entry in
+                    if let card = attachedCard(index) {
+                        expandableRow(entry, card: card)
+                    } else {
+                        row(entry)
+                    }
                     hairline
                 }
             }
         }
     }
+
+    // MARK: - expansion
+
+    /// A row whose scorecard folds out beneath it. The row itself is the
+    /// button — the whole row, not the chevron alone — and the card is a
+    /// sibling below it inside the same block, so the hairline still closes the
+    /// row group whether the card is open or shut.
+    @ViewBuilder
+    private func expandableRow(_ entry: RankedEntryLayout, card: ScoreGridLayout) -> some View {
+        let open = expansion.isOpen(slotDefId, card.subjectBallIds)
+        Button {
+            withAnimation(reduceMotion ? nil : RankedSectionView.disclosure) {
+                expansion.toggle(slotDefId, card.subjectBallIds)
+            }
+        } label: {
+            // The row keeps its 36pt visual rhythm but must be a 44pt target.
+            // The trick: pad the label out to 44pt, declare the HIT SHAPE on the
+            // padded view, then take the 8pt back with a negative pad. Layout
+            // sees 36pt (rows still butt against their hairlines); the tappable
+            // rectangle is the 44pt one, and neighbouring rows overlap into each
+            // other's slack rather than growing the board.
+            row(entry, chevron: open, combineAccessibility: false)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+                .padding(.vertical, -4)
+        }
+        .buttonStyle(RankedRowButtonStyle())
+        // Exactly ONE `.combine` on this path — the Button's. `row(…)` skips its
+        // own above; two nested combines make VoiceOver announce the row twice.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        // No `expanded` trait exists on iOS, so the state is announced as the
+        // element's VALUE — which VoiceOver reads after the row's content and
+        // re-reads on every toggle.
+        .accessibilityValue(open ? "Expanded" : "Collapsed")
+        .accessibilityHint(open ? "Hides the scorecard" : "Shows the scorecard")
+
+        if open {
+            // Web: `.lb-rank__panelbox .lb-card` — an inline card drops its own
+            // chrome, because the row above already names the player and a
+            // bordered card inside the board reads as a box in a box.
+            ScoreGridCardView(layout: card, variant: .inline)
+                .padding(.top, TapSpacing.xs)
+                .padding(.bottom, TapSpacing.sm)
+                .transition(.opacity)
+        }
+    }
+
+    /// Web: `.lb-rank__chev { transition: transform 200ms ease }` in
+    /// `src/round/leaderboard.component.ts` — the board's own disclosure timing,
+    /// not a second one invented here.
+    static let disclosure: Animation = .easeInOut(duration: 0.2)
 
     private var hairline: some View {
         Rectangle().fill(TapColors.border).frame(height: 1)
@@ -46,6 +139,9 @@ struct RankedSectionView: View {
                 head("Pace", width: paceWidth, alignment: .trailing)
             }
             head("Thru", width: thruWidth, alignment: .trailing)
+            if hasExpandable {
+                Color.clear.frame(width: chevronWidth, height: 1)
+            }
         }
         .frame(height: 26)
     }
@@ -60,7 +156,15 @@ struct RankedSectionView: View {
             .padding(.horizontal, TapSpacing.sm)
     }
 
-    private func row(_ entry: RankedEntryLayout) -> some View {
+    /// - Parameter chevron: `nil` on an inert row — the affordance appears ONLY
+    ///   where a tap does something; the reserved column stays blank otherwise.
+    /// - Parameter combineAccessibility: `false` when the caller already wraps
+    ///   this row in an accessibility element of its own (the expandable path).
+    private func row(
+        _ entry: RankedEntryLayout,
+        chevron: Bool? = nil,
+        combineAccessibility: Bool = true
+    ) -> some View {
         HStack(spacing: 0) {
             // Web: `.lb-rank__pos` — muted, brass on the leader row.
             Text("\(entry.position)")
@@ -109,11 +213,55 @@ struct RankedSectionView: View {
                 .foregroundStyle(TapColors.textMuted)
                 .frame(width: thruWidth, alignment: .trailing)
                 .padding(.horizontal, TapSpacing.sm)
+
+            if hasExpandable {
+                // A quiet chevron, muted like the "thru" column: the row is a
+                // leaderboard line first and a control second.
+                Image(systemName: "chevron.down")
+                    .font(TapFont.ui(size: 10, weight: .bold))
+                    .foregroundStyle(TapColors.textMuted)
+                    .rotationEffect(.degrees(chevron == true ? 0 : -90))
+                    .opacity(chevron == nil ? 0 : 1)
+                    .frame(width: chevronWidth)
+                    .accessibilityHidden(true)
+            }
         }
         .frame(height: 36)
         // Web: `.lb-rank__lead td { background: var(--accent-soft) }`.
         .background(entry.lead ? TapColors.accentSoft : Color.clear)
-        .accessibilityElement(children: .combine)
+        .contentShape(Rectangle())
+        .modifier(CombineChildren(active: combineAccessibility))
+    }
+
+    /// Applies `.accessibilityElement(children: .combine)` only when asked. A
+    /// modifier rather than an `if` in the view body so the row's type — and
+    /// therefore its identity across a toggle — does not change with the flag.
+    private struct CombineChildren: ViewModifier {
+        let active: Bool
+
+        func body(content: Content) -> some View {
+            if active {
+                content.accessibilityElement(children: .combine)
+            } else {
+                content
+            }
+        }
+    }
+
+    /// The board row's press feedback. `.plain` gives none at all, which on a
+    /// full-width row reads as a dead tap.
+    ///
+    /// It is an OVERLAY, not a background: the row paints its own background
+    /// (`--accent-soft` on the leader), and a style-level background would sit
+    /// behind that and never be seen on the one row most likely to be tapped.
+    private struct RankedRowButtonStyle: ButtonStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .overlay(
+                    (configuration.isPressed ? TapColors.text.opacity(0.07) : Color.clear)
+                        .allowsHitTesting(false)
+                )
+        }
     }
 
     /// Web: `.lb-rank__pace--under/--over`, the same two colours the scorecard
@@ -269,15 +417,42 @@ struct ScoreGridCardComposition: Equatable, Sendable {
         return out
     }
 
-    init(_ layout: ScoreGridLayout) {
-        title = layout.title.groups
-            .map { $0.joined(separator: layout.title.nameJoiner) }
-            .filter { !$0.isEmpty }
-            .joined(separator: layout.title.joiner)
+    init(_ layout: ScoreGridLayout, variant: ScoreGridCardVariant = .standalone) {
+        title = variant.showsTitle
+            ? ScoreGridCardComposition.composedTitle(layout)
+            // Web: `.lb-rank__panelbox .lb-card__head h4 { display: none }` — the
+            // ranked row directly above the card already names the player, so the
+            // title would be the same string twice, three points apart.
+            : ""
         subtitle = layout.subtitleFacts.isEmpty ? nil : layout.subtitleFacts.joined(separator: " · ")
         blocks = scoreGridBlocks(layout)
         totals = layout.totals
     }
+
+    private static func composedTitle(_ layout: ScoreGridLayout) -> String {
+        layout.title.groups
+            .map { $0.joined(separator: layout.title.nameJoiner) }
+            .filter { !$0.isEmpty }
+            .joined(separator: layout.title.joiner)
+    }
+}
+
+/// How a scorecard card is framed.
+///
+/// Web: the SAME card markup renders twice — as `.lb-card` in the standalone
+/// list, and inside `.lb-rank__panelbox`, where CSS strips its border, radius,
+/// shadow and title (`.lb-rank__panelbox .lb-card { border: 0; box-shadow: none;
+/// background: var(--surface-sunken); border-radius: 0 }`). Swift has no
+/// descendant selector, so the same divergence has to be a parameter.
+enum ScoreGridCardVariant: Equatable, Sendable {
+    /// The card list below the board: full chrome — bordered, rounded, titled.
+    case standalone
+    /// Folded under a ranked row: no title head, no border, no radius, no
+    /// shadow, sunken surface. A bordered card nested inside the board reads as
+    /// a box in a box, and its title repeats the row three points above it.
+    case inline
+
+    var showsTitle: Bool { self == .standalone }
 }
 
 /// One scorecard card: a title, then one table block PER COLUMN GROUP stacked
@@ -299,6 +474,8 @@ struct ScoreGridCardComposition: Equatable, Sendable {
 /// subtotal columns, and the row label column on the card's own surface.
 struct ScoreGridCardView: View {
     let layout: ScoreGridLayout
+    /// Full chrome by default; `.inline` is the folded-under-a-row form.
+    var variant: ScoreGridCardVariant = .standalone
 
     /// Web: `.lb-rowlabel { width: 6em }` (76.8px) and `.lb-sum { width: 2.4em }`
     /// (30.7px) at the grid's 0.8rem type. `sumWidth` follows the em math;
@@ -309,20 +486,40 @@ struct ScoreGridCardView: View {
     private let sumWidth: CGFloat = 32
     private let rowHeight: CGFloat = 24
 
-    private var composition: ScoreGridCardComposition { ScoreGridCardComposition(layout) }
+    private var composition: ScoreGridCardComposition {
+        ScoreGridCardComposition(layout, variant: variant)
+    }
 
     var body: some View {
         let card = composition
-        TapCard {
-            VStack(alignment: .leading, spacing: TapSpacing.sm) {
-                header(card)
-                // Web: `.lb-card__scroll + .lb-card__scroll { margin-top: sm }`.
-                ForEach(Array(card.blocks.enumerated()), id: \.offset) { _, block in
-                    blockView(block)
-                }
-                if !card.totals.isEmpty { totals(card.totals) }
+        switch variant {
+        case .standalone:
+            TapCard { stack(card).padding(TapSpacing.md) }
+        case .inline:
+            // No TapCard at all: no border, no radius, no shadow — just the
+            // sunken surface the web's panel box uses. Padding is tighter than
+            // the standalone card's (web: `sm sm md`) because the board's own
+            // gutters already indent it.
+            stack(card)
+                .padding(.horizontal, TapSpacing.sm)
+                .padding(.top, TapSpacing.sm)
+                .padding(.bottom, TapSpacing.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(TapColors.surfaceSunken)
+        }
+    }
+
+    private func stack(_ card: ScoreGridCardComposition) -> some View {
+        VStack(alignment: .leading, spacing: TapSpacing.sm) {
+            // Skipped entirely rather than rendered empty: an empty header view
+            // is still a VStack child, and the stack's spacing would leave a
+            // phantom gap above the grid on every titleless (inline, match) card.
+            if !card.title.isEmpty || card.subtitle != nil { header(card) }
+            // Web: `.lb-card__scroll + .lb-card__scroll { margin-top: sm }`.
+            ForEach(Array(card.blocks.enumerated()), id: \.offset) { _, block in
+                blockView(block)
             }
-            .padding(TapSpacing.md)
+            if !card.totals.isEmpty { totals(card.totals) }
         }
     }
 
