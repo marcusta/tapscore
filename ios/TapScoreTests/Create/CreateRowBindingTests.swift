@@ -114,9 +114,12 @@ final class CreateRowBindingTests: XCTestCase {
     // MARK: - Fixtures
 
     @MainActor
+    /// Two rows: the flow opens on one (B5.2), and every test here is about a
+    /// binding surviving its NEIGHBOURS moving, which needs a neighbour.
     private func loadedStore() async -> CreateStore {
         let store = CreateStore(api: RoundStubURLProtocol.makeAPI())
         await store.load()
+        store.addPlayer()
         return store
     }
 }

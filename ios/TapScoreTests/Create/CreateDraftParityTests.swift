@@ -21,11 +21,17 @@ import XCTest
 /// `playedAt` is frozen in the generator (both clients otherwise stamp "today",
 /// which would rot the fixture overnight); the drafts below are built with the
 /// same literal, so the field is still asserted.
+@MainActor
 final class CreateDraftParityTests: XCTestCase {
     private var catalog: FormatCatalog!
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
+    override func setUp() async throws {
+        try await super.setUp()
+        // The games under test are composed by the real `CreateStore` (see
+        // `seedGames`), which gets its catalog the way the app does — over the
+        // wire, from these stubs.
+        RoundStubURLProtocol.reset()
+        routeCatalog()
         let descriptors = try JSONDecoder().decode(
             [FormatDescriptor].self,
             from: Data(WebDraftFixtures.catalogJSON.utf8))
@@ -33,42 +39,43 @@ final class CreateDraftParityTests: XCTestCase {
     }
 
     override func tearDown() {
+        RoundStubURLProtocol.reset()
         catalog = nil
         super.tearDown()
     }
 
     // MARK: - Scenarios
 
-    func testStablefordIndividualThreePlayersMatchesWeb() throws {
-        try assertParity(
+    func testStablefordIndividualThreePlayersMatchesWeb() async throws {
+        try await assertParity(
             formatId: "stableford_individual",
             indices: [12, 18.4, -2.4],
             fixture: WebDraftFixtures.stablefordIndividualThree)
     }
 
-    func testTalibanBetterBallFourPlayersMatchesWeb() throws {
-        try assertParity(
+    func testTalibanBetterBallFourPlayersMatchesWeb() async throws {
+        try await assertParity(
             formatId: "taliban_better_ball",
             indices: [12, 12, 12, 12],
             fixture: WebDraftFixtures.talibanBetterBallFour)
     }
 
-    func testStablefordBetterBallFourPlayersMatchesWeb() throws {
-        try assertParity(
+    func testStablefordBetterBallFourPlayersMatchesWeb() async throws {
+        try await assertParity(
             formatId: "stableford_better_ball",
             indices: [12, 12, 12, 12],
             fixture: WebDraftFixtures.stablefordBetterBallFour)
     }
 
-    func testKopenhamnareFourPlayersMatchesWeb() throws {
-        try assertParity(
+    func testKopenhamnareFourPlayersMatchesWeb() async throws {
+        try await assertParity(
             formatId: "kopenhamnare_individual",
             indices: [12, 12, 12, 12],
             fixture: WebDraftFixtures.kopenhamnareFour)
     }
 
-    func testUmbrellaIndividualThreePlayersMatchesWeb() throws {
-        try assertParity(
+    func testUmbrellaIndividualThreePlayersMatchesWeb() async throws {
+        try await assertParity(
             formatId: "umbrella_individual",
             indices: [12, 12, 12],
             fixture: WebDraftFixtures.umbrellaIndividualThree)
@@ -77,8 +84,8 @@ final class CreateDraftParityTests: XCTestCase {
     /// A ball-count minimum with no maximum and no team grouping — the shape no
     /// other scenario has (Stableford individual declares no `slotBallCount` at
     /// all, Köpenhamnare bounds it at both ends).
-    func testMatchPlayIndividualTwoPlayersMatchesWeb() throws {
-        try assertParity(
+    func testMatchPlayIndividualTwoPlayersMatchesWeb() async throws {
+        try await assertParity(
             formatId: "match_play_individual",
             indices: [12, 12],
             fixture: WebDraftFixtures.matchPlayIndividualTwo)
@@ -86,8 +93,8 @@ final class CreateDraftParityTests: XCTestCase {
 
     /// Grouping with a declared team COUNT and a wide team size — Stableford
     /// better-ball declares a size but no count, and the two seed differently.
-    func testMatchPlayBetterBallFourPlayersMatchesWeb() throws {
-        try assertParity(
+    func testMatchPlayBetterBallFourPlayersMatchesWeb() async throws {
+        try await assertParity(
             formatId: "match_play_better_ball",
             indices: [12, 12, 12, 12],
             fixture: WebDraftFixtures.matchPlayBetterBallFour)
@@ -95,11 +102,166 @@ final class CreateDraftParityTests: XCTestCase {
 
     /// Taliban's shape plus per-ball metadata (GIR), which is what excludes a
     /// format from side aggregation — so it is a branch, not a label.
-    func testUmbrella4BallFourPlayersMatchesWeb() throws {
-        try assertParity(
+    func testUmbrella4BallFourPlayersMatchesWeb() async throws {
+        try await assertParity(
             formatId: "umbrella_4_ball",
             indices: [12, 12, 12, 12],
             fixture: WebDraftFixtures.umbrella4BallFour)
+    }
+
+    // MARK: - Route encodings (spec §3)
+
+    /// A round played from the head of its hole set is CONVENTIONAL: the draft
+    /// carries the bare `roundType` and no `route` key at all (B3.5). Emitting
+    /// a route object here would make every ordinary nine non-standard.
+    func testFrontNineFromHoleOneEmitsBareRoundType() async throws {
+        try await assertParity(
+            formatId: "stableford_individual",
+            indices: [12, 12],
+            route: .init(preset: .front9, holes: Array(1...9), startHole: 1),
+            fixture: WebDraftFixtures.frontNineFromHoleOne)
+    }
+
+    func testBackNineFromHoleTenEmitsBareRoundType() async throws {
+        try await assertParity(
+            formatId: "stableford_individual",
+            indices: [12, 12],
+            route: .init(preset: .back9, holes: Array(10...18), startHole: 10),
+            fixture: WebDraftFixtures.backNineFromHoleTen)
+    }
+
+    /// A start anywhere else rotates the itinerary into an explicit route and
+    /// turns handicap posting off (B3.6).
+    func testFullEighteenFromHoleTenRotatesTheRoute() async throws {
+        try await assertParity(
+            formatId: "stableford_individual",
+            indices: [12, 12],
+            route: .init(preset: .full18, holes: Array(1...18), startHole: 10),
+            fixture: WebDraftFixtures.fullEighteenFromHoleTen)
+    }
+
+    func testBackNineFromHoleFourteenRotatesWithinTheNine() async throws {
+        try await assertParity(
+            formatId: "stableford_individual",
+            indices: [12, 12],
+            route: .init(preset: .back9, holes: Array(10...18), startHole: 14),
+            fixture: WebDraftFixtures.backNineFromHoleFourteen)
+    }
+
+    /// Spec §3.3's whole vector table, against the encoder alone — the four
+    /// fixtures above pin the wire, this pins the rule that produced it.
+    func testStartHoleVectors() {
+        let builder = CreateDraftBuilder(catalog: catalog)
+        let full = Array(1...18), front = Array(1...9), back = Array(10...18)
+        let cases: [(RoundRoundType, [Int], Int, RoundRoundType, [Int]?)] = [
+            (.full18, full, 1, .full18, nil),
+            (.full18, full, 10, .customHoles, Array(10...18) + Array(1...9)),
+            (.full18, full, 7, .customHoles, Array(7...18) + Array(1...6)),
+            (.front9, front, 1, .front9, nil),
+            (.front9, front, 4, .customHoles, Array(4...9) + Array(1...3)),
+            (.back9, back, 10, .back9, nil),
+            (.back9, back, 14, .customHoles, Array(14...18) + Array(10...13)),
+        ]
+        for (preset, holes, start, expectedType, expectedHoles) in cases {
+            let fields = builder.routeFields(
+                .init(preset: preset, holes: holes, startHole: start))
+            XCTAssertEqual(fields.roundType, expectedType, "\(preset) from \(start)")
+            XCTAssertEqual(
+                fields.route?.playHoles?.map { Int($0.courseHoleNumber) },
+                expectedHoles,
+                "\(preset) from \(start)")
+            XCTAssertEqual(
+                fields.route?.routeHandicapPolicy?.postingEligible,
+                expectedHoles == nil ? nil : false)
+        }
+    }
+
+    /// A preset's hole set comes off the COURSE, not off a hardcoded 1…18
+    /// (B3.2) — a nine-hole course must never be offered eighteen.
+    func testPresetHolesComeFromTheCourse() {
+        let nine = Array(1...9)
+        XCTAssertEqual(CreateDraftBuilder.Route.holes(for: .full18, courseHoles: nine), nine)
+        XCTAssertEqual(CreateDraftBuilder.Route.holes(for: .front9, courseHoles: nine), nine)
+        XCTAssertEqual(CreateDraftBuilder.Route.holes(for: .back9, courseHoles: nine), [])
+        XCTAssertEqual(
+            CreateDraftBuilder.Route.holes(for: .back9, courseHoles: Array(1...18)),
+            Array(10...18))
+    }
+
+    // MARK: - Per-player tees (spec §4.5 B4.8)
+
+    /// Tees ride on the PRODUCER: two players in one round can be on different
+    /// tees, and there is no round-level tee on the wire at all.
+    func testPerPlayerTeesAndGendersMatchWeb() throws {
+        let builder = CreateDraftBuilder(catalog: catalog)
+        let players = [
+            CreateDraftBuilder.Player(
+                name: "Anna", handicapText: "12", handicapIndex: 12,
+                teeId: "tee-r", gender: .f, ref: .guest("guest-1")),
+            CreateDraftBuilder.Player(
+                name: "Bert", handicapText: "12", handicapIndex: 12,
+                teeId: "tee-y", gender: .m, ref: .guest("guest-2")),
+        ]
+        let draft = builder.draft(
+            courseId: "c1",
+            route: .full18(),
+            games: [builder.seedGame(formatId: "stableford_individual", rosterCount: 2)],
+            players: players,
+            playedAt: WebDraftFixtures.playedAt)
+        XCTAssertEqual(
+            try JSONCanon.text(of: try JSONEncoder().encode(draft)),
+            try JSONCanon.text(of: Data(WebDraftFixtures.mixedTeesAndGenders.utf8)))
+    }
+
+    // MARK: - Several games on one round (spec §6.2 B6.3)
+
+    /// Two games, scored side by side off one set of scores. Slot order is wire
+    /// order, and the individual game's subjects stay individual while the
+    /// side game's stay sides.
+    func testTwoGamesOnOneRoundMatchWeb() async throws {
+        try await assertParity(
+            formatIds: ["stableford_individual", "stableford_better_ball"],
+            indices: [12, 12, 12, 12],
+            fixture: WebDraftFixtures.twoIndividualAndBetterBall)
+    }
+
+    /// The one that matters: a SECOND side game adopts the sides the first
+    /// already made rather than minting a parallel pairing. A builder that
+    /// re-seeds per slot ships four teams and two disagreeing leaderboards,
+    /// and nothing but this fixture would notice.
+    func testTwoSideGamesShareTheRoundsTeams() async throws {
+        try await assertParity(
+            formatIds: ["taliban_better_ball", "stableford_better_ball"],
+            indices: [12, 12, 12, 12],
+            fixture: WebDraftFixtures.twoSideGamesShareTeams)
+        let draft = await makeDraft(
+            formatIds: ["taliban_better_ball", "stableford_better_ball"],
+            indices: [12, 12, 12, 12])
+        XCTAssertEqual(draft.teams?.count, 2, "one pairing, not one per game")
+    }
+
+    // MARK: - The custom path (spec §6.3)
+
+    /// A slot no card owns: its own format, its own allowance, its own subject
+    /// list — and NO balls of its own, so it cannot invent sides behind the
+    /// user. Ticking Dan out of it leaves him scored by the card game only.
+    func testCustomSlotAlongsideACardMatchesWeb() async throws {
+        let builder = CreateDraftBuilder(catalog: catalog)
+        var custom = CreateDraftBuilder.Game(
+            formatId: "stroke_play_individual",
+            ballCount: 0,
+            ballByPlayer: [:])
+        custom.allowancePct = 90
+        custom.excludedPlayers = [3]
+        let draft = builder.draft(
+            courseId: "c1",
+            route: .full18(),
+            games: await seedGames(["stableford_individual"], rosterCount: 4) + [custom],
+            players: players(indices: [12, 12, 12, 12]),
+            playedAt: WebDraftFixtures.playedAt)
+        XCTAssertEqual(
+            try JSONCanon.text(of: try JSONEncoder().encode(draft)),
+            try JSONCanon.text(of: Data(WebDraftFixtures.customStrokePlayAlongsideCard.utf8)))
     }
 
     // MARK: - Properties the fixtures make concrete
@@ -108,8 +270,8 @@ final class CreateDraftParityTests: XCTestCase {
     /// better-ball must not also arrive as four individual subjects — that is
     /// the double-scoring trap `compose` exists to avoid, and it is the single
     /// most expensive way this port could differ from the web.
-    func testSideFormatEmitsNoPlayerSubjects() throws {
-        let draft = makeDraft(formatId: "taliban_better_ball", indices: [12, 12, 12, 12])
+    func testSideFormatEmitsNoPlayerSubjects() async throws {
+        let draft = await makeDraft(formatId: "taliban_better_ball", indices: [12, 12, 12, 12])
         let kinds = (draft.formats[0].subjects ?? []).map { subject -> String in
             switch subject {
             case .player: "player"
@@ -129,8 +291,8 @@ final class CreateDraftParityTests: XCTestCase {
         game.ballCount = 3
         let draft = builder.draft(
             courseId: "c1",
-            roundType: .full18,
-            game: game,
+            route: .full18(),
+            games: [game],
             players: players(indices: [12, 12, 12, 12]),
             playedAt: WebDraftFixtures.playedAt)
         XCTAssertEqual(draft.teams?.count, 1)
@@ -139,8 +301,8 @@ final class CreateDraftParityTests: XCTestCase {
 
     /// A knobless format emits no `formatConfig` key at all — an empty object
     /// would be a wire-shape change the server has to interpret.
-    func testKnoblessFormatOmitsFormatConfig() throws {
-        let draft = makeDraft(formatId: "stableford_individual", indices: [12, 12])
+    func testKnoblessFormatOmitsFormatConfig() async throws {
+        let draft = await makeDraft(formatId: "stableford_individual", indices: [12, 12])
         XCTAssertNil(draft.formats[0].formatConfig)
     }
 
@@ -158,6 +320,7 @@ final class CreateDraftParityTests: XCTestCase {
         indices.enumerated().map { i, index in
             CreateDraftBuilder.Player(
                 name: ["Anna", "Bert", "Cleo", "Dan"][i],
+                handicapText: HandicapInput.format(index),
                 handicapIndex: index,
                 teeId: "tee-y",
                 gender: .m,
@@ -165,27 +328,83 @@ final class CreateDraftParityTests: XCTestCase {
         }
     }
 
+    /// Card picks, in pick order, as THE STORE composes them.
+    ///
+    /// This deliberately does not re-implement the pick loop. A local copy of
+    /// "seed each game against the sides the ones before it already made"
+    /// would pin the fixtures against a second implementation that no user ever
+    /// runs — and the store's own loop, the one the app actually ships, could
+    /// drift away from the web with every fixture still green. Driving the
+    /// store means these parity tests cover the store AND the builder.
+    private func seedGames(
+        _ formatIds: [String],
+        rosterCount: Int
+    ) async -> [CreateDraftBuilder.Game] {
+        let store = CreateStore(api: RoundStubURLProtocol.makeAPI())
+        await store.load()
+        // Roster first: an ineligible card is refused (B6.5), so the four-seat
+        // games must have their four rows before they can be picked.
+        for index in 0..<rosterCount {
+            if index > 0 { store.addPlayer() }
+            store.updatePlayer(id: store.players[index].id) {
+                $0.name = ["Anna", "Bert", "Cleo", "Dan"][index]
+                $0.handicapText = "12"
+            }
+        }
+        // `load()` opens the round on a default game (B6.2) that these
+        // scenarios did not ask for.
+        for slot in store.formatSlots { store.removeSlot(id: slot.id) }
+        for formatId in formatIds { store.toggleFormat(formatId) }
+        XCTAssertEqual(
+            store.formatSlots.map(\.formatId), formatIds,
+            "the store did not end up playing the games under test")
+        return store.games
+    }
+
     private func makeDraft(
-        formatId: String,
-        indices: [Double]
-    ) -> CompetitionsCreateRoundOutputOkDraft {
+        formatIds: [String],
+        indices: [Double],
+        route: CreateDraftBuilder.Route = .full18()
+    ) async -> CompetitionsCreateRoundOutputOkDraft {
         let builder = CreateDraftBuilder(catalog: catalog)
         return builder.draft(
             courseId: "c1",
-            roundType: .full18,
-            game: builder.seedGame(formatId: formatId, rosterCount: indices.count),
+            route: route,
+            games: await seedGames(formatIds, rosterCount: indices.count),
             players: players(indices: indices),
             playedAt: WebDraftFixtures.playedAt)
+    }
+
+    private func makeDraft(
+        formatId: String,
+        indices: [Double],
+        route: CreateDraftBuilder.Route = .full18()
+    ) async -> CompetitionsCreateRoundOutputOkDraft {
+        await makeDraft(formatIds: [formatId], indices: indices, route: route)
     }
 
     private func assertParity(
         formatId: String,
         indices: [Double],
+        route: CreateDraftBuilder.Route = .full18(),
         fixture: String,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) throws {
-        let draft = makeDraft(formatId: formatId, indices: indices)
+    ) async throws {
+        try await assertParity(
+            formatIds: [formatId], indices: indices, route: route, fixture: fixture,
+            file: file, line: line)
+    }
+
+    private func assertParity(
+        formatIds: [String],
+        indices: [Double],
+        route: CreateDraftBuilder.Route = .full18(),
+        fixture: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let draft = await makeDraft(formatIds: formatIds, indices: indices, route: route)
         let native = try JSONCanon.text(of: try JSONEncoder().encode(draft))
         let web = try JSONCanon.text(of: Data(fixture.utf8))
         XCTAssertEqual(native, web, "native draft differs from the web's", file: file, line: line)

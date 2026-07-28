@@ -69,17 +69,33 @@ const course: SetupCourse = {
     holes: Array.from({ length: 18 }, (_, i) => ({ holeNumber: i + 1, par: 4, strokeIndex: i + 1 })),
 };
 
-const tee: Tee = {
-    id: 'tee-y',
-    courseId: 'c1',
-    name: 'Yellow',
-    colour: null,
-    holeLengths: [],
-    ratings: [
-        { gender: 'M', courseRating: 72, slope: 113, par: 72, totalLengthM: 5800 },
-        { gender: 'F', courseRating: 74, slope: 120, par: 72, totalLengthM: 5200 },
-    ],
-};
+// `tee-y` MUST stay first: the web's `addPlayer` seeds every row with
+// `tees[0]`, so the tee-blind scenarios below (and the eight drafts they
+// pinned before per-player tees existed) depend on it being Yellow.
+const tees: Tee[] = [
+    {
+        id: 'tee-y',
+        courseId: 'c1',
+        name: 'Yellow',
+        colour: null,
+        holeLengths: [],
+        ratings: [
+            { gender: 'M', courseRating: 72, slope: 113, par: 72, totalLengthM: 5800 },
+            { gender: 'F', courseRating: 74, slope: 120, par: 72, totalLengthM: 5200 },
+        ],
+    },
+    {
+        id: 'tee-r',
+        courseId: 'c1',
+        name: 'Red',
+        colour: null,
+        holeLengths: [],
+        ratings: [
+            { gender: 'M', courseRating: 68.4, slope: 124, par: 72, totalLengthM: 5000 },
+            { gender: 'F', courseRating: 72.1, slope: 128, par: 72, totalLengthM: 5000 },
+        ],
+    },
+];
 
 type Setup = InstanceType<typeof SetupService>;
 
@@ -93,59 +109,152 @@ function makeService(): Setup {
     );
     svc.courses.set([course]);
     svc.courseId.set('c1');
-    svc.tees.set([tee]);
+    svc.tees.set(tees);
     return svc;
 }
 
-/** One scenario: a game and a roster, exactly as a user would set it up. */
+/**
+ * A game the round is played under that NO card owns — the "+ Custom game"
+ * path (spec §6.3). It is not a card pick with extra fields: the web's
+ * `addCustomGame` mints a slot and NO balls, which is why a custom slot's
+ * subjects are whoever is ticked rather than sides the client invented.
+ */
+interface CustomGame {
+    formatId: string;
+    /** As typed into the allowance field; the web parses it at build time. */
+    allowancePct?: string;
+    /** Roster indices (0-based) ticked OUT of this slot's subjects. */
+    excludePlayers?: number[];
+}
+
+/** One scenario: a roster and the game(s) it plays, as a user would set it up. */
 interface Scenario {
     name: string;
-    formatId: string;
+    /** Card picks, in pick order — which is wire order. */
+    formatIds: string[];
+    /** Slots added through "+ Custom game", after the cards. */
+    custom?: CustomGame[];
     players: string[];
     /** Handicap index text per player, defaulting to '12' (as typed). */
     indices?: string[];
+    /** The route preset, defaulting to the whole course from hole 1. */
+    preset?: 'full_18' | 'front_9' | 'back_9';
+    /** The hole play starts on, defaulting to the preset's first. */
+    startHole?: number;
+    /** Tee id per player, defaulting to `tees[0]` as the web's roster does. */
+    tees?: string[];
+    /** Gender per player, defaulting to the web's `M`. */
+    genders?: ('M' | 'F')[];
 }
 
 const scenarios: Scenario[] = [
     {
         name: 'stablefordIndividualThree',
-        formatId: 'stableford_individual',
+        formatIds: ['stableford_individual'],
         players: ['Anna', 'Bert', 'Cleo'],
         indices: ['12', '18.4', '+2.4'],
     },
     {
         name: 'talibanBetterBallFour',
-        formatId: 'taliban_better_ball',
+        formatIds: ['taliban_better_ball'],
         players: ['Anna', 'Bert', 'Cleo', 'Dan'],
     },
     {
         name: 'stablefordBetterBallFour',
-        formatId: 'stableford_better_ball',
+        formatIds: ['stableford_better_ball'],
         players: ['Anna', 'Bert', 'Cleo', 'Dan'],
     },
     {
         name: 'kopenhamnareFour',
-        formatId: 'kopenhamnare_individual',
+        formatIds: ['kopenhamnare_individual'],
         players: ['Anna', 'Bert', 'Cleo', 'Dan'],
     },
     {
         name: 'umbrellaIndividualThree',
-        formatId: 'umbrella_individual',
+        formatIds: ['umbrella_individual'],
         players: ['Anna', 'Bert', 'Cleo'],
     },
     {
         name: 'matchPlayIndividualTwo',
-        formatId: 'match_play_individual',
+        formatIds: ['match_play_individual'],
         players: ['Anna', 'Bert'],
     },
     {
         name: 'matchPlayBetterBallFour',
-        formatId: 'match_play_better_ball',
+        formatIds: ['match_play_better_ball'],
         players: ['Anna', 'Bert', 'Cleo', 'Dan'],
     },
     {
         name: 'umbrella4BallFour',
-        formatId: 'umbrella_4_ball',
+        formatIds: ['umbrella_4_ball'],
+        players: ['Anna', 'Bert', 'Cleo', 'Dan'],
+    },
+    // --- Route encodings (spec §3.3). The head-of-the-set cases pin the rule
+    // that matters most on the wire: a conventional round emits the BARE
+    // `roundType` and no `route` key at all.
+    {
+        name: 'frontNineFromHoleOne',
+        formatIds: ['stableford_individual'],
+        players: ['Anna', 'Bert'],
+        preset: 'front_9',
+    },
+    {
+        name: 'backNineFromHoleTen',
+        formatIds: ['stableford_individual'],
+        players: ['Anna', 'Bert'],
+        preset: 'back_9',
+    },
+    {
+        name: 'fullEighteenFromHoleTen',
+        formatIds: ['stableford_individual'],
+        players: ['Anna', 'Bert'],
+        preset: 'full_18',
+        startHole: 10,
+    },
+    {
+        name: 'backNineFromHoleFourteen',
+        formatIds: ['stableford_individual'],
+        players: ['Anna', 'Bert'],
+        preset: 'back_9',
+        startHole: 14,
+    },
+    // --- Per-player tees (spec §4.5 B4.8): tees ride on the PRODUCER, and two
+    // players in the same round can be on different ones.
+    {
+        name: 'mixedTeesAndGenders',
+        formatIds: ['stableford_individual'],
+        players: ['Anna', 'Bert'],
+        tees: ['tee-r', 'tee-y'],
+        genders: ['F', 'M'],
+    },
+    // --- Several games on one round (spec §6.2 B6.3). Slot order is wire
+    // order, and the two leaderboards are scored side by side off one set of
+    // scores.
+    {
+        name: 'twoIndividualAndBetterBall',
+        formatIds: ['stableford_individual', 'stableford_better_ball'],
+        players: ['Anna', 'Bert', 'Cleo', 'Dan'],
+    },
+    // Two SIDE games. The second must adopt the sides the first already made
+    // rather than mint a parallel pairing — "set your pairs up once". This is
+    // the fixture that catches a native builder re-seeding per slot.
+    {
+        name: 'twoSideGamesShareTeams',
+        formatIds: ['taliban_better_ball', 'stableford_better_ball'],
+        players: ['Anna', 'Bert', 'Cleo', 'Dan'],
+    },
+    // --- The custom path (spec §6.3): a card game plus a slot no card owns,
+    // with its own allowance and its own subject list.
+    {
+        name: 'customStrokePlayAlongsideCard',
+        formatIds: ['stableford_individual'],
+        custom: [
+            {
+                formatId: 'stroke_play_individual',
+                allowancePct: '90',
+                excludePlayers: [3],
+            },
+        ],
         players: ['Anna', 'Bert', 'Cleo', 'Dan'],
     },
 ];
@@ -177,11 +286,13 @@ const allDescriptors = JSON.parse(JSON.stringify(formatCatalog())) as FormatDesc
 assertEveryShapeIsCovered(
     allDescriptors,
     new Set(
-        scenarios.map((s) => {
-            const d = allDescriptors.find((x) => x.id === s.formatId);
-            if (!d) throw new Error(`scenario ${s.name}: no such format ${s.formatId}`);
-            return shapeKey(d);
-        }),
+        scenarios.flatMap((s) =>
+            s.formatIds.map((id) => {
+                const d = allDescriptors.find((x) => x.id === id);
+                if (!d) throw new Error(`scenario ${s.name}: no such format ${id}`);
+                return shapeKey(d);
+            }),
+        ),
     ),
 );
 
@@ -193,9 +304,27 @@ for (const scenario of scenarios) {
     scenario.players.forEach((name, i) => {
         svc.addPlayer();
         const p = svc.players.get().at(-1)!;
-        svc.patchPlayer(p.key, { name, handicapIndex: scenario.indices?.[i] ?? '12' });
+        svc.patchPlayer(p.key, {
+            name,
+            handicapIndex: scenario.indices?.[i] ?? '12',
+            ...(scenario.tees ? { teeId: scenario.tees[i] } : {}),
+            ...(scenario.genders ? { gender: scenario.genders[i] } : {}),
+        });
     });
-    svc.pickGame(scenario.formatId);
+    if (scenario.preset) svc.setPreset(scenario.preset);
+    if (scenario.startHole !== undefined) svc.startHole.set(scenario.startHole);
+    for (const formatId of scenario.formatIds) svc.pickGame(formatId);
+    for (const custom of scenario.custom ?? []) {
+        // The same two calls the "+ Custom game" button makes: mint a slot no
+        // card owns, then point it at the format the user actually wanted.
+        svc.addCustomGame();
+        const slot = svc.formatSlots.get().at(-1)!;
+        svc.setSlotFormat(slot.key, custom.formatId);
+        if (custom.allowancePct) svc.setSlotAllowance(slot.key, custom.allowancePct);
+        for (const index of custom.excludePlayers ?? []) {
+            svc.setSubjectPlayer(slot.key, svc.players.get()[index]!.key, false);
+        }
+    }
     const result = await svc.submit();
     if (!result.ok) throw new Error(`${scenario.name}: the web refused its own setup`);
     // `playedAt` is "today" on both clients, so pinning the run date would make
@@ -214,7 +343,9 @@ for (const scenario of scenarios) {
 // The catalog the web read while building those drafts, so the Swift side
 // derives its shapes from the SAME descriptors rather than a hand-typed copy.
 // Only the formats the scenarios use, to keep the fixture readable.
-const usedIds = new Set(scenarios.map((s) => s.formatId));
+const usedIds = new Set(
+    scenarios.flatMap((s) => [...s.formatIds, ...(s.custom ?? []).map((c) => c.formatId)]),
+);
 clearFormats();
 registerBuiltInFormats();
 const catalogJSON = JSON.stringify(

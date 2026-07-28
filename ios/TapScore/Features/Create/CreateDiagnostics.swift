@@ -45,13 +45,38 @@ enum CreateDiagnostics {
         all.filter { $0.path?.hasPrefix("producers") == true }
     }
 
+    /// Roster-scoped diagnostics MINUS the ones rows `rows` already render
+    /// inline — what is left for a step banner that must not repeat them.
+    static func forPlayers(
+        _ all: [CompilerDiagnostic],
+        excludingRows rows: Set<Int>
+    ) -> [CompilerDiagnostic] {
+        forPlayers(all).filter { d in
+            !rows.contains { d.path?.hasPrefix("producers[\($0)]") == true }
+        }
+    }
+
+    /// Diagnostics about the ROUTE (`path: "route"`), which the Course step
+    /// owns (B9.3). Without this bucket they were attributable to nothing and
+    /// `general` already excludes them — so they were dropped on the floor,
+    /// which B9.6 forbids outright.
+    static func forRoute(_ all: [CompilerDiagnostic]) -> [CompilerDiagnostic] {
+        all.filter { isRoute($0) }
+    }
+
+    /// `route` itself, or anything under it (`route.playHoles`) — the same test
+    /// `general` uses to stay out of this bucket's way.
+    private static func isRoute(_ d: CompilerDiagnostic) -> Bool {
+        d.path == "route" || d.path?.hasPrefix("route.") == true
+    }
+
     /// Diagnostics attributable to no player row, no game card, no playing
     /// group and not the route — the ones the flow shows as a general error.
     static func general(_ all: [CompilerDiagnostic]) -> [CompilerDiagnostic] {
         all.filter { d in
             d.path?.hasPrefix("producers") != true
                 && d.path?.hasPrefix("playingGroups") != true
-                && d.path != "route"
+                && !isRoute(d)
                 && formatCardIndex(d) == nil
         }
     }

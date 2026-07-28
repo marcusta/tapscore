@@ -291,6 +291,56 @@ enum WebDraftFixtures {
       },
       {
         "clientAdapterId": null,
+        "defaults": {
+          "allowanceConfig": {
+            "pct": 100,
+            "type": "flat"
+          }
+        },
+        "description": "Gross + net stroke totals; lowest wins.",
+        "id": "stroke_play_individual",
+        "label": "Stroke play",
+        "labels": {
+          "en": "Stroke play",
+          "sv": "Slagspel"
+        },
+        "metrics": [
+          {
+            "direction": "low",
+            "id": "gross",
+            "label": "Gross",
+            "pace": "par"
+          },
+          {
+            "direction": "low",
+            "id": "net",
+            "label": "Net",
+            "pace": "par"
+          }
+        ],
+        "preset": {
+          "rank": 4,
+          "tagline": {
+            "en": "Count every stroke — the lowest total wins.",
+            "sv": "Räkna varje slag – lägst antal vinner."
+          }
+        },
+        "requirements": {
+          "balls": {
+            "ballMode": "own",
+            "producerCount": {
+              "max": 1,
+              "min": 1
+            },
+            "requiresSlotTeamGrouping": false
+          }
+        },
+        "scoresAnyBall": true,
+        "scoringMode": "stroke_play",
+        "teamShape": "individual"
+      },
+      {
+        "clientAdapterId": null,
         "configFields": [
           {
             "default": "gross",
@@ -1178,6 +1228,697 @@ enum WebDraftFixtures {
           ]
         }
       ]
+    }
+    """
+
+    static let frontNineFromHoleOne = """
+    {
+      "courseId": "c1",
+      "formats": [
+        {
+          "allowanceConfig": {
+            "pct": 100,
+            "type": "flat"
+          },
+          "formatId": "stableford_individual",
+          "subjects": [
+            {
+              "kind": "player",
+              "producerDefId": "p1"
+            },
+            {
+              "kind": "player",
+              "producerDefId": "p2"
+            }
+          ]
+        }
+      ],
+      "playedAt": "2026-01-02",
+      "producers": [
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-1",
+            "kind": "guest"
+          },
+          "producerDefId": "p1",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-2",
+            "kind": "guest"
+          },
+          "producerDefId": "p2",
+          "teeId": "tee-y"
+        }
+      ],
+      "roundType": "front_9"
+    }
+    """
+
+    static let backNineFromHoleTen = """
+    {
+      "courseId": "c1",
+      "formats": [
+        {
+          "allowanceConfig": {
+            "pct": 100,
+            "type": "flat"
+          },
+          "formatId": "stableford_individual",
+          "subjects": [
+            {
+              "kind": "player",
+              "producerDefId": "p1"
+            },
+            {
+              "kind": "player",
+              "producerDefId": "p2"
+            }
+          ]
+        }
+      ],
+      "playedAt": "2026-01-02",
+      "producers": [
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-1",
+            "kind": "guest"
+          },
+          "producerDefId": "p1",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-2",
+            "kind": "guest"
+          },
+          "producerDefId": "p2",
+          "teeId": "tee-y"
+        }
+      ],
+      "roundType": "back_9"
+    }
+    """
+
+    static let fullEighteenFromHoleTen = """
+    {
+      "courseId": "c1",
+      "formats": [
+        {
+          "allowanceConfig": {
+            "pct": 100,
+            "type": "flat"
+          },
+          "formatId": "stableford_individual",
+          "subjects": [
+            {
+              "kind": "player",
+              "producerDefId": "p1"
+            },
+            {
+              "kind": "player",
+              "producerDefId": "p2"
+            }
+          ]
+        }
+      ],
+      "playedAt": "2026-01-02",
+      "producers": [
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-1",
+            "kind": "guest"
+          },
+          "producerDefId": "p1",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-2",
+            "kind": "guest"
+          },
+          "producerDefId": "p2",
+          "teeId": "tee-y"
+        }
+      ],
+      "roundType": "custom_holes",
+      "route": {
+        "playHoles": [
+          {
+            "courseHoleNumber": 10
+          },
+          {
+            "courseHoleNumber": 11
+          },
+          {
+            "courseHoleNumber": 12
+          },
+          {
+            "courseHoleNumber": 13
+          },
+          {
+            "courseHoleNumber": 14
+          },
+          {
+            "courseHoleNumber": 15
+          },
+          {
+            "courseHoleNumber": 16
+          },
+          {
+            "courseHoleNumber": 17
+          },
+          {
+            "courseHoleNumber": 18
+          },
+          {
+            "courseHoleNumber": 1
+          },
+          {
+            "courseHoleNumber": 2
+          },
+          {
+            "courseHoleNumber": 3
+          },
+          {
+            "courseHoleNumber": 4
+          },
+          {
+            "courseHoleNumber": 5
+          },
+          {
+            "courseHoleNumber": 6
+          },
+          {
+            "courseHoleNumber": 7
+          },
+          {
+            "courseHoleNumber": 8
+          },
+          {
+            "courseHoleNumber": 9
+          }
+        ],
+        "routeHandicapPolicy": {
+          "postingEligible": false,
+          "type": "explicit"
+        }
+      }
+    }
+    """
+
+    static let backNineFromHoleFourteen = """
+    {
+      "courseId": "c1",
+      "formats": [
+        {
+          "allowanceConfig": {
+            "pct": 100,
+            "type": "flat"
+          },
+          "formatId": "stableford_individual",
+          "subjects": [
+            {
+              "kind": "player",
+              "producerDefId": "p1"
+            },
+            {
+              "kind": "player",
+              "producerDefId": "p2"
+            }
+          ]
+        }
+      ],
+      "playedAt": "2026-01-02",
+      "producers": [
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-1",
+            "kind": "guest"
+          },
+          "producerDefId": "p1",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-2",
+            "kind": "guest"
+          },
+          "producerDefId": "p2",
+          "teeId": "tee-y"
+        }
+      ],
+      "roundType": "custom_holes",
+      "route": {
+        "playHoles": [
+          {
+            "courseHoleNumber": 14
+          },
+          {
+            "courseHoleNumber": 15
+          },
+          {
+            "courseHoleNumber": 16
+          },
+          {
+            "courseHoleNumber": 17
+          },
+          {
+            "courseHoleNumber": 18
+          },
+          {
+            "courseHoleNumber": 10
+          },
+          {
+            "courseHoleNumber": 11
+          },
+          {
+            "courseHoleNumber": 12
+          },
+          {
+            "courseHoleNumber": 13
+          }
+        ],
+        "routeHandicapPolicy": {
+          "postingEligible": false,
+          "type": "explicit"
+        }
+      }
+    }
+    """
+
+    static let mixedTeesAndGenders = """
+    {
+      "courseId": "c1",
+      "formats": [
+        {
+          "allowanceConfig": {
+            "pct": 100,
+            "type": "flat"
+          },
+          "formatId": "stableford_individual",
+          "subjects": [
+            {
+              "kind": "player",
+              "producerDefId": "p1"
+            },
+            {
+              "kind": "player",
+              "producerDefId": "p2"
+            }
+          ]
+        }
+      ],
+      "playedAt": "2026-01-02",
+      "producers": [
+        {
+          "gender": "F",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-1",
+            "kind": "guest"
+          },
+          "producerDefId": "p1",
+          "teeId": "tee-r"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-2",
+            "kind": "guest"
+          },
+          "producerDefId": "p2",
+          "teeId": "tee-y"
+        }
+      ],
+      "roundType": "full_18"
+    }
+    """
+
+    static let twoIndividualAndBetterBall = """
+    {
+      "courseId": "c1",
+      "formats": [
+        {
+          "allowanceConfig": {
+            "pct": 100,
+            "type": "flat"
+          },
+          "formatId": "stableford_individual",
+          "subjects": [
+            {
+              "kind": "player",
+              "producerDefId": "p1"
+            },
+            {
+              "kind": "player",
+              "producerDefId": "p2"
+            },
+            {
+              "kind": "player",
+              "producerDefId": "p3"
+            },
+            {
+              "kind": "player",
+              "producerDefId": "p4"
+            }
+          ]
+        },
+        {
+          "allowanceConfig": {
+            "pct": 100,
+            "type": "flat"
+          },
+          "formatId": "stableford_better_ball",
+          "subjects": [
+            {
+              "kind": "team",
+              "teamId": "1"
+            },
+            {
+              "kind": "team",
+              "teamId": "2"
+            }
+          ]
+        }
+      ],
+      "playedAt": "2026-01-02",
+      "producers": [
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-1",
+            "kind": "guest"
+          },
+          "producerDefId": "p1",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-2",
+            "kind": "guest"
+          },
+          "producerDefId": "p2",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-3",
+            "kind": "guest"
+          },
+          "producerDefId": "p3",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-4",
+            "kind": "guest"
+          },
+          "producerDefId": "p4",
+          "teeId": "tee-y"
+        }
+      ],
+      "roundType": "full_18",
+      "teams": [
+        {
+          "formation": "custom",
+          "id": "1",
+          "kind": "multi_ball",
+          "label": "Team A",
+          "members": [
+            {
+              "allowancePct": 100,
+              "producerDefId": "p1"
+            },
+            {
+              "allowancePct": 100,
+              "producerDefId": "p2"
+            }
+          ]
+        },
+        {
+          "formation": "custom",
+          "id": "2",
+          "kind": "multi_ball",
+          "label": "Team B",
+          "members": [
+            {
+              "allowancePct": 100,
+              "producerDefId": "p3"
+            },
+            {
+              "allowancePct": 100,
+              "producerDefId": "p4"
+            }
+          ]
+        }
+      ]
+    }
+    """
+
+    static let twoSideGamesShareTeams = """
+    {
+      "courseId": "c1",
+      "formats": [
+        {
+          "allowanceConfig": {
+            "pct": 100,
+            "type": "flat"
+          },
+          "formatConfig": {
+            "bonusRule": "gross"
+          },
+          "formatId": "taliban_better_ball",
+          "subjects": [
+            {
+              "kind": "team",
+              "teamId": "1"
+            },
+            {
+              "kind": "team",
+              "teamId": "2"
+            }
+          ]
+        },
+        {
+          "allowanceConfig": {
+            "pct": 100,
+            "type": "flat"
+          },
+          "formatId": "stableford_better_ball",
+          "subjects": [
+            {
+              "kind": "team",
+              "teamId": "1"
+            },
+            {
+              "kind": "team",
+              "teamId": "2"
+            }
+          ]
+        }
+      ],
+      "playedAt": "2026-01-02",
+      "producers": [
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-1",
+            "kind": "guest"
+          },
+          "producerDefId": "p1",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-2",
+            "kind": "guest"
+          },
+          "producerDefId": "p2",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-3",
+            "kind": "guest"
+          },
+          "producerDefId": "p3",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-4",
+            "kind": "guest"
+          },
+          "producerDefId": "p4",
+          "teeId": "tee-y"
+        }
+      ],
+      "roundType": "full_18",
+      "teams": [
+        {
+          "formation": "custom",
+          "id": "1",
+          "kind": "multi_ball",
+          "label": "Team A",
+          "members": [
+            {
+              "allowancePct": 100,
+              "producerDefId": "p1"
+            },
+            {
+              "allowancePct": 100,
+              "producerDefId": "p2"
+            }
+          ]
+        },
+        {
+          "formation": "custom",
+          "id": "2",
+          "kind": "multi_ball",
+          "label": "Team B",
+          "members": [
+            {
+              "allowancePct": 100,
+              "producerDefId": "p3"
+            },
+            {
+              "allowancePct": 100,
+              "producerDefId": "p4"
+            }
+          ]
+        }
+      ]
+    }
+    """
+
+    static let customStrokePlayAlongsideCard = """
+    {
+      "courseId": "c1",
+      "formats": [
+        {
+          "allowanceConfig": {
+            "pct": 100,
+            "type": "flat"
+          },
+          "formatId": "stableford_individual",
+          "subjects": [
+            {
+              "kind": "player",
+              "producerDefId": "p1"
+            },
+            {
+              "kind": "player",
+              "producerDefId": "p2"
+            },
+            {
+              "kind": "player",
+              "producerDefId": "p3"
+            },
+            {
+              "kind": "player",
+              "producerDefId": "p4"
+            }
+          ]
+        },
+        {
+          "allowanceConfig": {
+            "pct": 90,
+            "type": "flat"
+          },
+          "formatId": "stroke_play_individual",
+          "subjects": [
+            {
+              "kind": "player",
+              "producerDefId": "p1"
+            },
+            {
+              "kind": "player",
+              "producerDefId": "p2"
+            },
+            {
+              "kind": "player",
+              "producerDefId": "p3"
+            }
+          ]
+        }
+      ],
+      "playedAt": "2026-01-02",
+      "producers": [
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-1",
+            "kind": "guest"
+          },
+          "producerDefId": "p1",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-2",
+            "kind": "guest"
+          },
+          "producerDefId": "p2",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-3",
+            "kind": "guest"
+          },
+          "producerDefId": "p3",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-4",
+            "kind": "guest"
+          },
+          "producerDefId": "p4",
+          "teeId": "tee-y"
+        }
+      ],
+      "roundType": "full_18"
     }
     """
 }

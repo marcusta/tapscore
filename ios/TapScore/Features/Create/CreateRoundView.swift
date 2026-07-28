@@ -1,17 +1,23 @@
 import SwiftUI
 
-/// Create a round — course, game, players, go.
+/// Create a round — course, players, formats, go.
 ///
 /// The native image of `src/create/create.component.ts` for the friendly path:
 /// three questions, each on its own screen, and a round at the end. It is
 /// deliberately NOT the web's single long form — a phone on a first tee wants
 /// one decision at a time and a thumb-sized Next.
 ///
+/// The step ORDER is contractual (`docs/proposals/create-flow-behavior.md`
+/// §1.2): Course — with the route, the start hole and the round's tee defaults
+/// folded into it — then Players, then Format, which carries submit. Each step
+/// is gated with a stated reason rather than letting a user walk to the end and
+/// only there learn what is missing (B1.2/B1.3).
+///
 /// Everything it decides lives in `CreateStore` and the pure types behind it;
 /// this file only draws. Refusals are shown where they can be FIXED: a
-/// game-scoped diagnostic on the game step, a roster-scoped one on the player
-/// step, and the flow jumps back to that step rather than announcing failure
-/// from the last one.
+/// slot-scoped diagnostic on that slot's own panel, a roster-scoped one on the
+/// player row, and the flow jumps back to the earliest step carrying an error
+/// rather than announcing failure from the last one.
 struct CreateRoundView: View {
     @Environment(AppEnvironment.self) private var environment
 
@@ -21,6 +27,13 @@ struct CreateRoundView: View {
     let onCreated: (RoundOpenRequest) -> Void
 
     @State private var store: CreateStore?
+    /// The row whose handicap pad is open. Nil ⇒ closed.
+    @State private var padRowId: UUID?
+    @State private var friendsOpen = false
+    /// B2.3: the course search is the Course step's primary control, so it is
+    /// focus-ready — a flow that opens on a list of hundreds and makes the user
+    /// tap the box first has wasted the one tap it asked for.
+    @FocusState private var courseSearchFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -48,12 +61,15 @@ struct CreateRoundView: View {
             if store == nil {
                 let store = CreateStore(api: environment.api)
                 self.store = store
-                await store.load()
-                // The owner is the likeliest first player; pre-seating them
-                // saves the most common typing on this screen.
+                // Who is playing decides the STARTING roster (B5.1/B5.2), so
+                // it is answered before the catalog lands rather than patched
+                // onto a row that already exists.
                 if case .signedIn(let player) = environment.authState {
-                    store.seatOwner(player)
+                    store.setOwner(player)
+                } else {
+                    store.setOwner(nil)
                 }
+                await store.load()
             }
         }
     }
@@ -72,8 +88,8 @@ struct CreateRoundView: View {
                     }
                     switch store.step {
                     case .course: courseStep(store)
-                    case .game: gameStep(store)
                     case .players: playerStep(store)
+                    case .format: formatStep(store)
                     }
                     ForEach(store.generalDiagnostics, id: \.self) { notice($0, tone: .danger) }
                     if let submitError = store.submitError {
@@ -87,16 +103,41 @@ struct CreateRoundView: View {
             }
             footer(store)
         }
+        .sheet(isPresented: $friendsOpen) { FriendsPickerSheet(store: store) }
+        .sheet(item: Binding(
+            get: { padRowId.flatMap { store.player(id: $0) } },
+            set: { padRowId = $0?.id })) { row in
+            HandicapPadSheet(
+                playerName: row.name.isEmpty ? "Handicap index" : row.name,
+                tee: store.tee(for: row),
+                gender: row.gender,
+                initialText: row.handicapText,
+                onCommit: { text in
+                    store.updatePlayer(id: row.id) { $0.handicapText = text }
+                })
+        }
     }
 
     /// Where you are in the flow, and a way back to a step you already passed.
+    ///
+    /// A step carrying a refusal is marked (B9.8) — otherwise a diagnostic on a
+    /// step the user has walked away from is discoverable only by walking back
+    /// to it on a hunch.
     private func stepBar(_ store: CreateStore) -> some View {
         HStack(spacing: TapSpacing.sm) {
             ForEach(CreateStore.Step.allCases, id: \.rawValue) { step in
-                TapChip(
-                    title: step.title,
-                    isSelected: store.step == step,
-                    action: { if step.rawValue <= store.step.rawValue { store.step = step } })
+                HStack(spacing: 2) {
+                    TapChip(
+                        title: step.title,
+                        isSelected: store.step == step,
+                        action: { if step.rawValue <= store.step.rawValue { store.step = step } })
+                    if store.stepsWithErrors.contains(step) {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(TapColors.danger)
+                            .accessibilityLabel("\(step.title) has a problem")
+                    }
+                }
             }
             Spacer(minLength: 0)
         }
@@ -107,7 +148,9 @@ struct CreateRoundView: View {
     /// The one action bar, pinned so Next never scrolls away.
     private func footer(_ store: CreateStore) -> some View {
         VStack(spacing: TapSpacing.sm) {
-            if let blocker = store.blocker, store.step == .players {
+            // B1.2/B1.3: the advance control is disabled WITH ITS REASON, so
+            // "Next does nothing" is never the whole message.
+            if let blocker = store.advanceBlocker(from: store.step) {
                 Text(blocker)
                     .font(TapFont.ui(size: 13.6))
                     .foregroundStyle(TapColors.textMuted)
@@ -119,7 +162,7 @@ struct CreateRoundView: View {
                     Button("Back") { store.step = previous(store.step) }
                         .buttonStyle(.tap(.ghost))
                 }
-                if store.step == .players {
+                if store.step == .format {
                     Button(store.submitting ? "Creating…" : "Create round") {
                         Task { await create(store) }
                     }
@@ -142,11 +185,7 @@ struct CreateRoundView: View {
     }
 
     private func canAdvance(_ store: CreateStore) -> Bool {
-        switch store.step {
-        case .course: store.courseStepComplete
-        case .game: store.gameStepComplete
-        case .players: store.canSubmit
-        }
+        store.advanceBlocker(from: store.step) == nil && !store.submitting
     }
 
     private func next(_ step: CreateStore.Step) -> CreateStore.Step {
@@ -172,15 +211,25 @@ struct CreateRoundView: View {
     @ViewBuilder
     private func courseStep(_ store: CreateStore) -> some View {
         @Bindable var store = store
-        heading("Where are you playing?", subtitle: "Pick the course and the tee you're playing off.")
+        heading("Where are you playing?", subtitle: "Pick the course, the holes you're playing and the tees.")
 
+        // B2.3: the search box sits at the TOP of the list, so a long course
+        // database is one type away rather than one scroll after another.
         TextField(
             "",
             text: $store.courseSearch,
             prompt: tapFieldPrompt("Search club or course"))
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
+            .focused($courseSearchFocused)
+            .submitLabel(.search)
             .tapField()
+            .onAppear {
+                // Only while the question is still open: coming BACK to a step
+                // whose answer is already picked, raising the keyboard over the
+                // route and tee controls would be an interruption, not a help.
+                if store.courseId == nil { courseSearchFocused = true }
+            }
 
         if store.loading {
             ProgressView().frame(maxWidth: .infinity)
@@ -188,57 +237,38 @@ struct CreateRoundView: View {
 
         VStack(alignment: .leading, spacing: TapSpacing.sm) {
             SectionHeader(title: "Course")
+            if store.courseSearchIsEmptyHanded {
+                // B2.5: an empty state, not a blank list — a blank list reads
+                // as "still loading".
+                Text("No courses match “\(store.courseSearch)”.")
+                    .font(TapFont.ui(size: 13.6))
+                    .foregroundStyle(TapColors.textMuted)
+            }
             VStack(spacing: TapSpacing.sm) {
-                ForEach(store.filteredClubs(), id: \.id) { club in
-                    clubCard(store, club: club)
+                ForEach(store.filteredCourseGroups()) { group in
+                    clubGroupCard(store, group: group)
                 }
             }
         }
 
-        if !store.tees.isEmpty {
-            VStack(alignment: .leading, spacing: TapSpacing.sm) {
-                SectionHeader(title: "Tee")
-                FlowRow(spacing: TapSpacing.sm) {
-                    ForEach(store.tees, id: \.id) { tee in
-                        TapChip(
-                            title: tee.name,
-                            isSelected: store.selectedTee?.id == tee.id,
-                            action: { store.selectTee(tee.id) })
-                    }
-                }
-            }
-        } else if store.loadingTees {
-            ProgressView().frame(maxWidth: .infinity)
-        }
-
-        VStack(alignment: .leading, spacing: TapSpacing.sm) {
-            SectionHeader(title: "Holes")
-            FlowRow(spacing: TapSpacing.sm) {
-                ForEach(Self.roundTypes, id: \.0.rawValue) { type, label in
-                    TapChip(
-                        title: label,
-                        isSelected: store.roundType == type,
-                        action: { store.roundType = type })
-                }
-            }
+        if store.courseId != nil {
+            routeSection(store)
+            teeDefaultsSection(store)
         }
     }
 
-    private static let roundTypes: [(RoundRoundType, String)] = [
-        (.full18, "18 holes"),
-        (.front9, "Front 9"),
-        (.back9, "Back 9"),
-    ]
-
-    private func clubCard(_ store: CreateStore, club: Club) -> some View {
-        let courses = store.courses(inClub: club.id)
-        return TapCard {
+    /// One club and its courses. The club name is a HEADER, not a control
+    /// (B2.1) — selecting a club selects nothing, so it must not look tappable.
+    private func clubGroupCard(_ store: CreateStore, group: CreateStore.CourseGroup) -> some View {
+        TapCard {
             VStack(alignment: .leading, spacing: TapSpacing.sm) {
-                Text(club.name)
-                    .font(TapFont.ui(size: 15.2, weight: .semibold))
-                    .foregroundStyle(TapColors.text)
+                Text(group.clubName.uppercased())
+                    .font(TapFont.ui(size: 12.8, weight: .bold))
+                    .tracking(0.6)
+                    .foregroundStyle(TapColors.textMuted)
+                    .accessibilityAddTraits(.isHeader)
                 FlowRow(spacing: TapSpacing.sm) {
-                    ForEach(courses, id: \.id) { course in
+                    ForEach(group.courses, id: \.id) { course in
                         TapChip(
                             title: course.name,
                             isSelected: store.courseId == course.id,
@@ -251,92 +281,111 @@ struct CreateRoundView: View {
         }
     }
 
-    // MARK: - Step 2 — game
-
+    /// Route + start hole (§3), which live on the Course step (B1.6).
     @ViewBuilder
-    private func gameStep(_ store: CreateStore) -> some View {
-        heading("What are you playing?", subtitle: "Pick the game. You can change nothing else — the rules come with it.")
-
-        ForEach(store.gameDiagnostics, id: \.self) { notice($0, tone: .danger) }
-
-        VStack(spacing: TapSpacing.sm) {
-            ForEach(store.catalog.presets(), id: \.id) { descriptor in
-                gameCard(store, descriptor: descriptor)
+    private func routeSection(_ store: CreateStore) -> some View {
+        VStack(alignment: .leading, spacing: TapSpacing.sm) {
+            SectionHeader(title: "Holes")
+            FlowRow(spacing: TapSpacing.sm) {
+                ForEach(Self.routePresets, id: \.0.rawValue) { preset, label in
+                    TapChip(
+                        title: label,
+                        isSelected: store.routePreset == preset,
+                        action: { store.setRoutePreset(preset) })
+                }
             }
         }
 
-        if let format = store.selectedFormat, let fields = format.configFields, !fields.isEmpty {
+        if store.permittedStartHoles.count > 1 {
             VStack(alignment: .leading, spacing: TapSpacing.sm) {
-                SectionHeader(title: "Options")
-                TapCard {
-                    VStack(alignment: .leading, spacing: TapSpacing.md) {
-                        ForEach(fields, id: \.key) { field in
-                            configField(store, field: field)
-                        }
+                SectionHeader(title: "Start hole")
+                FlowRow(spacing: TapSpacing.sm) {
+                    ForEach(store.permittedStartHoles, id: \.self) { hole in
+                        TapChip(
+                            title: "\(hole)",
+                            isSelected: store.startHole == hole,
+                            action: { store.setStartHole(hole) })
                     }
-                    .padding(TapSpacing.md)
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            }
-        }
-    }
-
-    private func gameCard(_ store: CreateStore, descriptor: FormatDescriptor) -> some View {
-        let selected = store.formatId == descriptor.id
-        return Button {
-            store.selectFormat(descriptor.id)
-        } label: {
-            TapCard(sunken: selected) {
-                VStack(alignment: .leading, spacing: TapSpacing.xs) {
-                    HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
-                        Text(store.catalog.label(descriptor))
-                            .font(TapFont.display(size: 17.6, weight: .semibold))
-                            .foregroundStyle(TapColors.text)
-                            .multilineTextAlignment(.leading)
-                        Spacer(minLength: 0)
-                        if selected {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(TapColors.primary)
-                        }
-                    }
-                    Text(store.catalog.tagline(descriptor))
-                        .font(TapFont.ui(size: 13.6))
+                if !store.isPostingEligible {
+                    // B3.7: the draft already says so; say it out loud rather
+                    // than let a handicap record quietly not move.
+                    Text("Starting on \(store.startHole) — this round won't count for handicap.")
+                        .font(TapFont.ui(size: 12.8))
                         .foregroundStyle(TapColors.textMuted)
-                        .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(store.catalog.shapeText(descriptor.id))
-                        .font(TapFont.ui(size: 12.8, weight: .medium))
-                        .foregroundStyle(TapColors.accent)
                 }
-                .padding(TapSpacing.md)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
             }
         }
-        .buttonStyle(.plain)
+
+        // B9.3: a route refusal belongs on the control that can fix it — the
+        // holes and the start hole, both of which live right here.
+        ForEach(store.routeDiagnostics, id: \.self) { message in
+            Text(message)
+                .font(TapFont.ui(size: 12.8))
+                .foregroundStyle(TapColors.danger)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
-    /// A knob the FORMAT declared. Generic by construction — the key, the
-    /// options and their labels all come off the descriptor, so a format that
-    /// grows an option needs no change here.
-    private func configField(_ store: CreateStore, field: FormatConfigField) -> some View {
+    /// The round's two tee defaults (§4.4). Per-player overrides are drawn on
+    /// the Players step; these are what a row starts on.
+    @ViewBuilder
+    private func teeDefaultsSection(_ store: CreateStore) -> some View {
+        if store.loadingTees {
+            ProgressView().frame(maxWidth: .infinity)
+        } else if !store.tees.isEmpty {
+            VStack(alignment: .leading, spacing: TapSpacing.md) {
+                SectionHeader(title: "Tees")
+                teeDefaultRow(store, gender: .m, label: "Men")
+                teeDefaultRow(store, gender: .f, label: "Women")
+            }
+        }
+    }
+
+    private func teeDefaultRow(
+        _ store: CreateStore,
+        gender: PlayerGender,
+        label: String
+    ) -> some View {
         VStack(alignment: .leading, spacing: TapSpacing.xs) {
-            Text(store.catalog.configLabel(field.labels))
+            Text(label)
                 .font(TapFont.ui(size: 13.6, weight: .medium))
                 .foregroundStyle(TapColors.textMuted)
+            // ONE list, in the §4.3 canon order (B4.1). Partitioning it into
+            // rated and unrated blocks re-ordered the picker behind the sort's
+            // back — the user reads a tee list as a length ordering, and a
+            // White-then-Red list that puts Yellow last because of a missing
+            // rating row is a lie about the course.
+            //
+            // A tee with no rating for this gender is MARKED and still
+            // selectable (B4.13): on a course where nothing is rated for a
+            // gender, an unselectable list is a dead end with no way out. Pick
+            // it and every row of that gender says why (B4.11) — a stated
+            // problem the user can act on, rather than a control that does
+            // nothing when tapped.
             FlowRow(spacing: TapSpacing.sm) {
-                ForEach(field.options, id: \.value) { option in
+                ForEach(store.tees, id: \.id) { tee in
+                    let rated = TeeOrder.hasRating(tee, for: gender)
                     TapChip(
-                        title: store.catalog.configLabel(option.labels),
-                        isSelected: (store.formatConfig[field.key] ?? field.`default`) == option.value,
-                        tone: .accent,
-                        action: { store.setConfig(field.key, option.value) })
+                        title: rated ? tee.name : "\(tee.name) ⚠",
+                        isSelected: store.defaultTeeId(for: gender) == tee.id,
+                        action: { store.setDefaultTee(tee.id, for: gender) })
+                        .accessibilityLabel(rated
+                            ? tee.name
+                            : "\(tee.name) — no rating for \(label.lowercased())")
                 }
             }
         }
     }
 
-    // MARK: - Step 3 — players
+    private static let routePresets: [(RoundRoundType, String)] = [
+        (.full18, "Full 18"),
+        (.front9, "Front 9"),
+        (.back9, "Back 9"),
+    ]
+
+    // MARK: - Step 2 — players
 
     @ViewBuilder
     private func playerStep(_ store: CreateStore) -> some View {
@@ -350,28 +399,62 @@ struct CreateRoundView: View {
             }
         }
 
-        Button {
-            store.addPlayer()
-        } label: {
-            HStack(spacing: TapSpacing.sm) {
-                Image(systemName: "plus")
-                Text("Add player")
+        // B5.6/B8.2: signed out, the friends path is ABSENT — not a disabled
+        // button that asks a no-login flow to log in.
+        VStack(spacing: TapSpacing.sm) {
+            if store.isSignedIn {
+                Button {
+                    friendsOpen = true
+                } label: {
+                    HStack(spacing: TapSpacing.sm) {
+                        Image(systemName: "person.2")
+                        Text("Add from friends")
+                    }
+                }
+                .buttonStyle(.tap(.secondary, fillsWidth: true))
+                .disabled(!store.canAddPlayer)
+
+                if store.canAddOwner {
+                    Button {
+                        store.addOwner()
+                    } label: {
+                        HStack(spacing: TapSpacing.sm) {
+                            Image(systemName: "person.crop.circle.badge.plus")
+                            Text("Add me")
+                        }
+                    }
+                    .buttonStyle(.tap(.secondary, fillsWidth: true))
+                    .disabled(!store.canAddPlayer)
+                }
             }
+
+            Button {
+                store.addPlayer()
+            } label: {
+                HStack(spacing: TapSpacing.sm) {
+                    Image(systemName: "plus")
+                    Text("Add guest")
+                }
+            }
+            .buttonStyle(.tap(.secondary, fillsWidth: true))
+            .disabled(!store.canAddPlayer)
         }
-        .buttonStyle(.tap(.secondary, fillsWidth: true))
-        .disabled(!store.canAddPlayer)
     }
 
+    /// B5.28 makes the index part of a complete row, so the subtitle says so —
+    /// promising "handicaps are optional" and then refusing to advance is the
+    /// worst of both.
     private func playersSubtitle(_ store: CreateStore) -> String {
-        guard let formatId = store.formatId else { return "Names are enough — handicaps are optional." }
-        let min = store.catalog.minPlayers(for: formatId)
-        if min > 0, let max = store.maxPlayers, max == min {
-            return "\(store.catalog.label(formatId) ?? "This game") is played by exactly \(min). Handicaps are optional."
+        let hcp = "Everyone needs a name and a handicap index."
+        guard !store.formatSlots.isEmpty else { return hcp }
+        let min = store.minPlayers
+        if let max = store.maxPlayers, max == min {
+            return "This round is played by exactly \(min). \(hcp)"
         }
-        if min > 0 {
-            return "\(store.catalog.label(formatId) ?? "This game") needs at least \(min). Handicaps are optional."
+        if min > 1 {
+            return "This round needs at least \(min). \(hcp)"
         }
-        return "Names are enough — handicaps are optional."
+        return hcp
     }
 
     /// A text binding onto one roster row, resolved BY ID on every read.
@@ -401,14 +484,26 @@ struct CreateRoundView: View {
         TapCard {
             VStack(alignment: .leading, spacing: TapSpacing.sm) {
                 HStack(spacing: TapSpacing.sm) {
-                    TextField(
-                        "",
-                        text: Self.rowText(store, id: row.id, \.name),
-                        prompt: tapFieldPrompt("Player \(index + 1)"))
-                        .textInputAutocapitalization(.words)
-                        .autocorrectionDisabled()
-                        .tapField()
-                        .disabled(row.playerId != nil)
+                    if row.nameLocked {
+                        // B5.10: a friend's name is a fact about them, not a
+                        // field on this round.
+                        HStack(spacing: TapSpacing.xs) {
+                            Image(systemName: "person.crop.circle.fill")
+                                .foregroundStyle(TapColors.primary)
+                            Text(row.name)
+                                .font(TapFont.ui(size: 15.2, weight: .bold))
+                                .foregroundStyle(TapColors.text)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        TextField(
+                            "",
+                            text: Self.rowText(store, id: row.id, \.name),
+                            prompt: tapFieldPrompt("Player \(index + 1)"))
+                            .textInputAutocapitalization(.words)
+                            .autocorrectionDisabled()
+                            .tapField()
+                    }
 
                     if store.players.count > 1 {
                         Button {
@@ -426,26 +521,63 @@ struct CreateRoundView: View {
                 }
 
                 HStack(spacing: TapSpacing.sm) {
-                    TextField(
-                        "",
-                        text: Self.rowText(store, id: row.id, \.handicapText),
-                        prompt: tapFieldPrompt("HCP"))
-                        // Both notations the parser accepts need typing: a
-                        // decimal comma and a leading "+" for a plus handicap.
-                        .keyboardType(.numbersAndPunctuation)
-                        .autocorrectionDisabled()
-                        .tapField()
-                        .frame(maxWidth: 120)
+                    // B5.15: the index is never text-editable — tapping it opens
+                    // the pad, because "+2,4" is not typeable on a phone.
+                    Button {
+                        padRowId = row.id
+                    } label: {
+                        Text(row.handicapText.isEmpty ? "HCP" : row.handicapText)
+                            .font(TapFont.ui(size: 15.2, weight: .bold))
+                            .foregroundStyle(row.handicapText.isEmpty ? TapColors.textMuted : TapColors.text)
+                            .monospacedDigit()
+                            .frame(minWidth: 72, minHeight: 44)
+                            .padding(.horizontal, TapSpacing.md)
+                            .background(RoundedRectangle(cornerRadius: 10).fill(TapColors.btnBg))
+                            .overlay(RoundedRectangle(cornerRadius: 10)
+                                .strokeBorder(TapColors.border, lineWidth: 1))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Handicap index for \(row.name.isEmpty ? "player \(index + 1)" : row.name)")
 
-                    TapChip(
-                        title: "Men",
-                        isSelected: row.gender == .m,
-                        action: { store.updatePlayer(id: row.id) { $0.gender = .m } })
-                    TapChip(
-                        title: "Women",
-                        isSelected: row.gender == .f,
-                        action: { store.updatePlayer(id: row.id) { $0.gender = .f } })
+                    if row.genderLocked {
+                        // B5.26: locked, and visibly so — a control that looks
+                        // tappable and is not is worse than a label.
+                        Text(row.gender == .m ? "Men" : "Women")
+                            .font(TapFont.ui(size: 13.6, weight: .bold))
+                            .foregroundStyle(TapColors.textMuted)
+                            .padding(.vertical, TapSpacing.sm)
+                            .padding(.horizontal, TapSpacing.lg)
+                            .overlay(Capsule().strokeBorder(TapColors.border, lineWidth: 1))
+                            .accessibilityLabel("\(row.gender == .m ? "Men" : "Women") — from their profile")
+                    } else {
+                        TapChip(
+                            title: "Men",
+                            isSelected: row.gender == .m,
+                            action: { store.updatePlayer(id: row.id) { $0.gender = .m } })
+                        TapChip(
+                            title: "Women",
+                            isSelected: row.gender == .f,
+                            action: { store.updatePlayer(id: row.id) { $0.gender = .f } })
+                    }
                     Spacer(minLength: 0)
+                }
+
+                teeControl(store, row: row)
+
+                // §4.6 B4.9: the course handicap AND its arithmetic, so a
+                // surprising number is self-explaining.
+                if let line = store.courseHandicapLine(for: row) {
+                    Text(line)
+                        .font(TapFont.ui(size: 12.8))
+                        .foregroundStyle(TapColors.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let issue = store.rowIssue(row), !row.name.isEmpty {
+                    Text(issue)
+                        .font(TapFont.ui(size: 12.8))
+                        .foregroundStyle(TapColors.danger)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 ForEach(store.playerDiagnostics(rowId: row.id), id: \.self) { message in
@@ -455,6 +587,273 @@ struct CreateRoundView: View {
                 }
             }
             .padding(TapSpacing.md)
+        }
+    }
+
+    /// B4.6/B4.13: this row's own tee, chosen from the §4.3-sorted list — every
+    /// tee listed, including the ones with no rating for this player's gender,
+    /// which are marked rather than hidden.
+    private func teeControl(_ store: CreateStore, row: CreateStore.PlayerRow) -> some View {
+        let current = store.tee(for: row)
+        return Menu {
+            ForEach(store.tees, id: \.id) { tee in
+                Button {
+                    store.setPlayerTee(rowId: row.id, teeId: tee.id)
+                } label: {
+                    if TeeOrder.hasRating(tee, for: row.gender) {
+                        Text(tee.name)
+                    } else {
+                        Text("\(tee.name) — no \(row.gender == .m ? "men's" : "women's") rating")
+                    }
+                }
+            }
+            if row.teeOverridden {
+                Divider()
+                Button("Follow the default") { store.clearPlayerTeeOverride(rowId: row.id) }
+            }
+        } label: {
+            HStack(spacing: TapSpacing.xs) {
+                Image(systemName: "flag")
+                Text(current.map { row.teeOverridden ? "\($0.name) tee" : "\($0.name) tee (default)" }
+                    ?? "Pick a tee")
+                Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
+            }
+            .font(TapFont.ui(size: 12.8, weight: .medium))
+            .foregroundStyle(current == nil ? TapColors.danger : TapColors.textMuted)
+        }
+        .disabled(store.tees.isEmpty)
+    }
+
+    // MARK: - Step 3 — formats
+
+    @ViewBuilder
+    private func formatStep(_ store: CreateStore) -> some View {
+        heading(
+            "What are you playing?",
+            subtitle: "Pick one game or several — they're scored side by side on the same round.")
+
+        VStack(spacing: TapSpacing.sm) {
+            ForEach(store.catalog.presets(), id: \.id) { descriptor in
+                gameCard(store, descriptor: descriptor)
+            }
+        }
+
+        // B6.10: the way out of the curated grid, and the only thing that opens
+        // the advanced surface on a round that has not needed it.
+        Button {
+            store.addCustomSlot()
+        } label: {
+            HStack(spacing: TapSpacing.sm) {
+                Image(systemName: "slider.horizontal.3")
+                Text("Custom game")
+            }
+        }
+        .buttonStyle(.tap(.secondary, fillsWidth: true))
+
+        if !store.formatSlots.isEmpty {
+            VStack(alignment: .leading, spacing: TapSpacing.sm) {
+                SectionHeader(title: "This round", count: "\(store.formatSlots.count)")
+                ForEach(Array(store.formatSlots.enumerated()), id: \.element.id) { index, slot in
+                    slotPanel(store, index: index, slot: slot)
+                }
+            }
+        }
+    }
+
+    private func gameCard(_ store: CreateStore, descriptor: FormatDescriptor) -> some View {
+        let selected = store.isPicked(descriptor.id)
+        // B6.5: a game the roster cannot play is DISABLED with its reason, not
+        // hidden — and picking it never edits the roster behind the user.
+        let issue = store.eligibilityIssue(for: descriptor.id)
+        return Button {
+            store.toggleFormat(descriptor.id)
+        } label: {
+            TapCard(sunken: selected) {
+                VStack(alignment: .leading, spacing: TapSpacing.xs) {
+                    HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
+                        Text(store.catalog.label(descriptor))
+                            .font(TapFont.display(size: 17.6, weight: .semibold))
+                            .foregroundStyle(TapColors.text)
+                            .multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                        if selected {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(TapColors.primary)
+                        }
+                    }
+                    Text(store.catalog.tagline(descriptor))
+                        .font(TapFont.ui(size: 13.6))
+                        .foregroundStyle(TapColors.textMuted)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(store.catalog.shapeText(descriptor.id))
+                        .font(TapFont.ui(size: 12.8, weight: .medium))
+                        .foregroundStyle(TapColors.accent)
+                    if let issue {
+                        Text(issue)
+                            .font(TapFont.ui(size: 12.8))
+                            .foregroundStyle(TapColors.danger)
+                    }
+                }
+                .padding(TapSpacing.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .opacity(issue == nil ? 1 : 0.55)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(issue != nil && !selected)
+    }
+
+    /// One format the round will be scored under. Its diagnostics live here,
+    /// keyed by the slot's own index — which is the wire's index too (B9.2), so
+    /// a refusal about the second game never appears under the first.
+    private func slotPanel(
+        _ store: CreateStore,
+        index: Int,
+        slot: CreateStore.FormatSlot
+    ) -> some View {
+        TapCard {
+            VStack(alignment: .leading, spacing: TapSpacing.md) {
+                HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(store.catalog.label(slot.formatId) ?? slot.formatId)
+                            .font(TapFont.display(size: 17.6, weight: .semibold))
+                            .foregroundStyle(TapColors.text)
+                        Text(store.catalog.shapeText(slot.formatId))
+                            .font(TapFont.ui(size: 12.8, weight: .medium))
+                            .foregroundStyle(TapColors.accent)
+                    }
+                    Spacer(minLength: 0)
+                    if slot.isCustom {
+                        Text("CUSTOM")
+                            .font(TapFont.ui(size: 10.4, weight: .bold))
+                            .tracking(0.6)
+                            .foregroundStyle(TapColors.accent)
+                    }
+                    Button {
+                        store.removeSlot(id: slot.id)
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(TapColors.textMuted)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Remove \(store.catalog.label(slot.formatId) ?? slot.formatId)")
+                }
+
+                // B6.7: exactly the knobs the descriptor declared, with exactly
+                // its option sets — never a hardcoded list.
+                if let fields = store.catalog.byId(slot.formatId)?.configFields, !fields.isEmpty {
+                    ForEach(fields, id: \.key) { field in
+                        configField(store, slot: slot, field: field)
+                    }
+                }
+
+                if slot.isCustom || store.showFlexible {
+                    customControls(store, slot: slot)
+                }
+
+                ForEach(store.slotDiagnostics(index: index), id: \.self) { message in
+                    Text(message)
+                        .font(TapFont.ui(size: 12.8))
+                        .foregroundStyle(TapColors.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(TapSpacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// B6.11: the custom slot's own surface — the full catalog (including the
+    /// formats that have no card), the allowance, and which players it scores.
+    @ViewBuilder
+    private func customControls(_ store: CreateStore, slot: CreateStore.FormatSlot) -> some View {
+        VStack(alignment: .leading, spacing: TapSpacing.sm) {
+            HStack(spacing: TapSpacing.md) {
+                Menu {
+                    ForEach(store.catalog.descriptors, id: \.id) { descriptor in
+                        Button(store.catalog.label(descriptor)) {
+                            store.setSlotFormat(id: slot.id, formatId: descriptor.id)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: TapSpacing.xs) {
+                        Text("Format")
+                        Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
+                    }
+                    .font(TapFont.ui(size: 12.8, weight: .medium))
+                    .foregroundStyle(TapColors.textMuted)
+                }
+
+                HStack(spacing: TapSpacing.xs) {
+                    Text("Allowance")
+                        .font(TapFont.ui(size: 12.8, weight: .medium))
+                        .foregroundStyle(TapColors.textMuted)
+                    TextField(
+                        "",
+                        text: Binding(
+                            get: { store.slot(id: slot.id)?.allowanceText ?? "100" },
+                            set: { store.setSlotAllowance(id: slot.id, text: $0) }),
+                        prompt: tapFieldPrompt("100"))
+                        .keyboardType(.numberPad)
+                        .tapField()
+                        .frame(maxWidth: 84)
+                    Text("%")
+                        .font(TapFont.ui(size: 12.8))
+                        .foregroundStyle(TapColors.textMuted)
+                }
+                Spacer(minLength: 0)
+            }
+
+            // Who this game scores. A side format scores sides only, so the
+            // individual list would be a lie — it is not offered.
+            if !store.catalog.isSideFormat(slot.formatId), !store.filledPlayers.isEmpty {
+                Text("Scores")
+                    .font(TapFont.ui(size: 12.8, weight: .medium))
+                    .foregroundStyle(TapColors.textMuted)
+                FlowRow(spacing: TapSpacing.sm) {
+                    ForEach(store.filledPlayers, id: \.id) { row in
+                        TapChip(
+                            title: row.name,
+                            isSelected: store.isSubjectPlayer(slotId: slot.id, rowId: row.id),
+                            tone: .accent,
+                            action: {
+                                store.setSubjectPlayer(
+                                    slotId: slot.id,
+                                    rowId: row.id,
+                                    included: !store.isSubjectPlayer(slotId: slot.id, rowId: row.id))
+                            })
+                    }
+                }
+            }
+        }
+    }
+
+    /// A knob the FORMAT declared. Generic by construction — the key, the
+    /// options and their labels all come off the descriptor, so a format that
+    /// grows an option needs no change here.
+    private func configField(
+        _ store: CreateStore,
+        slot: CreateStore.FormatSlot,
+        field: FormatConfigField
+    ) -> some View {
+        VStack(alignment: .leading, spacing: TapSpacing.xs) {
+            Text(store.catalog.configLabel(field.labels))
+                .font(TapFont.ui(size: 13.6, weight: .medium))
+                .foregroundStyle(TapColors.textMuted)
+            FlowRow(spacing: TapSpacing.sm) {
+                ForEach(field.options, id: \.value) { option in
+                    TapChip(
+                        title: store.catalog.configLabel(option.labels),
+                        isSelected: (slot.config[field.key] ?? field.`default`) == option.value,
+                        tone: .accent,
+                        action: { store.setConfig(slotId: slot.id, key: field.key, value: option.value) })
+                }
+            }
         }
     }
 

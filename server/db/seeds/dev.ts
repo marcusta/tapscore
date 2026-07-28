@@ -49,6 +49,7 @@ export async function seedDev(ctx: TestContext): Promise<void> {
         { username: 'pelle', displayName: 'Pelle Persson', gender: null, index: 15.0, club: null },
         { username: 'mia', displayName: 'Mia Månsson', gender: 'F', index: null, club: linkopings.id },
     ] as const;
+    const pool = new Map<string, string>();
     for (const f of FRIEND_POOL) {
         const p = await ensurePlayer(ctx, {
             username: f.username,
@@ -59,6 +60,15 @@ export async function seedDev(ctx: TestContext): Promise<void> {
             homeClubId: f.club,
         });
         if (f.index !== null) await ensureHandicap(ctx, p.id, f.index);
+        pool.set(f.username, p.id);
+    }
+
+    // A few of alice's friends so the create flow's friends picker has real
+    // rows to show on a dev boot. `FriendService.add` is itself idempotent
+    // (composite PK + existence check), so re-seeding is a no-op.
+    for (const username of ['erik', 'karin', 'sara']) {
+        const friendId = pool.get(username);
+        if (friendId) await ctx.friendService.add(alice.id, friendId);
     }
 
     const course = await ensureCourse(ctx, club.id, 'North', 18);

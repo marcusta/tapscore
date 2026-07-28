@@ -29,12 +29,20 @@ enum HandicapInput {
     /// number this accepts identically — so the two clients only disagree about
     /// text that was already a mistake.
     static func parse(_ raw: String) -> Double? {
-        let text = raw
+        var text = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: ",", with: ".")
+        // A separator the user has typed but not yet filled in ("0,", the state
+        // the keypad's own §5.7 B5.19 rule produces from a bare separator).
+        // `parseFloat` reads it as 0; Swift's `Double.init` refuses it, and
+        // refusing here would make the pad's Done unclickable on a value the
+        // web commits as 0 (vector K5).
+        if text.hasSuffix(".") { text.removeLast() }
         if text.isEmpty { return nil }
         let plus = text.hasPrefix("+")
-        guard let n = Double(plus ? String(text.dropFirst()) : text), n.isFinite else { return nil }
+        let body = plus ? String(text.dropFirst()) : text
+        if body.isEmpty { return nil }
+        guard let n = Double(body), n.isFinite else { return nil }
         return plus ? -n : n
     }
 
