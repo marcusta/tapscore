@@ -536,6 +536,30 @@ struct CreateDraftBuilder: Sendable {
     /// 400, long before the compiler's friendly diagnostics run. Catching it
     /// here is what turns that into a sentence saying what to build instead.
     func preflight(games: [Game], players: [Player]) -> [CompilerDiagnostic] {
+        var out = preflightPlayers(players)
+        let composition = compose(games: games, rosterCount: players.count)
+        let live = composition.liveTeams
+        let defIds = (0..<players.count).map { "p\($0 + 1)" }
+        for i in games.indices
+        where subjects(game: games[i], per: composition.games[i], defIds: defIds, live: live).isEmpty {
+            out.append(CompilerDiagnostic(
+                code: "no_subjects",
+                message: noSubjectsMessage(formatId: games[i].formatId),
+                // Same shape a server refusal has: `formatIndex` buckets it
+                // onto ITS OWN game card — with several slots, "the game that
+                // has nobody to score" must name which one.
+                path: "formats[\(i)]",
+                formatIndex: Double(i)))
+        }
+        return out
+    }
+
+    /// The per-ROW half of pre-flight: name, index, tee. Split out because the
+    /// EDIT path (`CreateStore.saveEdits`) needs exactly these and none of the
+    /// subject checks — an edited round's subjects come from the stored draft,
+    /// not from this flow's ball composition, so judging them here would refuse
+    /// a perfectly good side game for having no balls the create flow can see.
+    func preflightPlayers(_ players: [Player]) -> [CompilerDiagnostic] {
         var out: [CompilerDiagnostic] = []
         for (i, p) in players.enumerated() {
             if p.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -568,20 +592,6 @@ struct CreateDraftBuilder: Sendable {
                     path: "producers[\(i)].teeId"))
             }
         }
-        let composition = compose(games: games, rosterCount: players.count)
-        let live = composition.liveTeams
-        let defIds = (0..<players.count).map { "p\($0 + 1)" }
-        for i in games.indices
-        where subjects(game: games[i], per: composition.games[i], defIds: defIds, live: live).isEmpty {
-            out.append(CompilerDiagnostic(
-                code: "no_subjects",
-                message: noSubjectsMessage(game: games[i]),
-                // Same shape a server refusal has: `formatIndex` buckets it
-                // onto ITS OWN game card — with several slots, "the game that
-                // has nobody to score" must name which one.
-                path: "formats[\(i)]",
-                formatIndex: Double(i)))
-        }
         return out
     }
 
@@ -601,9 +611,9 @@ struct CreateDraftBuilder: Sendable {
         return trimmed.isEmpty ? "This player" : trimmed
     }
 
-    private func noSubjectsMessage(game: Game) -> String {
-        let name = catalog.label(game.formatId) ?? game.formatId
-        if catalog.isSideFormat(game.formatId) {
+    func noSubjectsMessage(formatId: String) -> String {
+        let name = catalog.label(formatId) ?? formatId
+        if catalog.isSideFormat(formatId) {
             return "\(name) is played between sides — add enough players to fill them."
         }
         return "\(name) has nobody to score — add players."

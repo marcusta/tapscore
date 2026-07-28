@@ -189,16 +189,22 @@ struct RoundHeaderView: View {
     @Bindable var store: RoundStore
     let onBack: () -> Void
 
+    @State private var showsManageSheet = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button(action: onBack) {
-                Text("← Home")
-                    .font(TapFont.ui(size: 14.4, weight: .semibold))
-                    .foregroundStyle(TapColors.textMuted)
-                    .padding(.vertical, TapSpacing.xs)
-                    .contentShape(Rectangle())
+            HStack(spacing: TapSpacing.sm) {
+                Button(action: onBack) {
+                    Text("← Home")
+                        .font(TapFont.ui(size: 14.4, weight: .semibold))
+                        .foregroundStyle(TapColors.textMuted)
+                        .padding(.vertical, TapSpacing.xs)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Spacer(minLength: 0)
+                manageButton
             }
-            .buttonStyle(.plain)
             .padding(.horizontal, TapSpacing.lg)
 
             HStack(alignment: .firstTextBaseline, spacing: TapSpacing.md) {
@@ -233,6 +239,38 @@ struct RoundHeaderView: View {
             formatChips
         }
         .padding(.bottom, TapSpacing.md)
+        // `onDismiss`, not the Done button: a sheet is as easily swiped away as
+        // tapped away, and an error line the user already left behind must not
+        // greet the next presentation. One mechanism, every exit.
+        .sheet(isPresented: $showsManageSheet, onDismiss: { store.clearManageError() }) {
+            // A successful delete dismisses the sheet and then leaves the
+            // screen, which is `onBack` — the same exit the "← Home" link takes,
+            // so there is one way off this screen and not two.
+            RoundManageSheet(store: store, onDeleted: onBack)
+        }
+    }
+
+    /// The manage entry point. Present only once the round has actually loaded:
+    /// every row behind it acts on a round, and a sheet that opened on nothing
+    /// would offer nothing.
+    @ViewBuilder
+    private var manageButton: some View {
+        if store.round != nil {
+            Button {
+                showsManageSheet = true
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 20, weight: .regular))
+                    .foregroundStyle(TapColors.textMuted)
+                    // 44pt of thumb over a 20pt glyph, the same trade the
+                    // account avatar makes.
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("round-manage-button")
+            .accessibilityLabel("Manage round")
+        }
     }
 
     /// Web: two muted spans. The interpunct is the native equivalent of the

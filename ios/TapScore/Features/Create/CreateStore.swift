@@ -73,6 +73,12 @@ final class CreateStore {
         var genderLocked: Bool
         /// A friend's (or the owner's) name is not this round's to edit (B5.10).
         var nameLocked: Bool
+        /// The `producers[].producerDefId` this row IS, when the row came from a
+        /// stored draft. It is what a scored ball is addressed by and what the
+        /// server's `producer_has_scores` guard reads, so it survives hydrate →
+        /// edit → save verbatim. Nil on a row added in this session — the edit
+        /// path mints one before submitting.
+        var producerDefId: String?
 
         var teeOverridden: Bool { teeId != nil }
         /// True when the row plays as somebody with an account.
@@ -87,7 +93,8 @@ final class CreateStore {
             playerId: String? = nil,
             teeId: String? = nil,
             genderLocked: Bool = false,
-            nameLocked: Bool = false
+            nameLocked: Bool = false,
+            producerDefId: String? = nil
         ) {
             self.id = id
             self.name = name
@@ -98,6 +105,7 @@ final class CreateStore {
             self.teeId = teeId
             self.genderLocked = genderLocked
             self.nameLocked = nameLocked
+            self.producerDefId = producerDefId
         }
     }
 
@@ -124,6 +132,12 @@ final class CreateStore {
         /// (B6.11). Keyed by row id rather than position so removing a row
         /// above cannot silently exclude a different player.
         var excludedRowIds: Set<UUID>
+        /// The entry of the LOADED draft's `formats[]` this slot was hydrated
+        /// from (edit mode only). It is what lets a save CARRY a slot's stored
+        /// shape — subjects, ball sources, a split allowance — rather than
+        /// rebuild it from controls that cannot express it. Nil on a slot added
+        /// in this session, which has nothing to carry.
+        var sourceIndex: Int?
 
         init(
             id: UUID = UUID(),
@@ -131,7 +145,8 @@ final class CreateStore {
             allowanceText: String = "100",
             config: [String: String] = [:],
             isCustom: Bool = false,
-            excludedRowIds: Set<UUID> = []
+            excludedRowIds: Set<UUID> = [],
+            sourceIndex: Int? = nil
         ) {
             self.id = id
             self.formatId = formatId
@@ -139,6 +154,7 @@ final class CreateStore {
             self.config = config
             self.isCustom = isCustom
             self.excludedRowIds = excludedRowIds
+            self.sourceIndex = sourceIndex
         }
 
         /// The number that reaches the wire. Web: `parsePct` — a leading
@@ -248,6 +264,50 @@ final class CreateStore {
     }
 
     var builder: CreateDraftBuilder { CreateDraftBuilder(catalog: catalog) }
+
+    // MARK: - Edit mode
+
+    /// Why a round the flow was asked to edit cannot be edited. All three are
+    /// dead ends with a way back, never a form the user can fill in and have
+    /// refused (spec B3).
+    enum EditBlockedReason: Sendable, Equatable {
+        case roundComplete
+        case noStoredDraft
+        case openSeats
+
+        var message: String {
+            switch self {
+            case .roundComplete:
+                "This round is complete — its setup can no longer be edited."
+            case .noStoredDraft:
+                "This round didn't come from the setup wizard, so it can't be edited here."
+            case .openSeats:
+                "This round has open seats waiting to be claimed — the wizard cannot edit it yet."
+            }
+        }
+    }
+
+    /// The share token of the round being edited. Nil ⇒ this is a create flow.
+    /// NEVER logged: the token is the round's write credential.
+    private(set) var editToken: String?
+    /// The draft this edit started from — the document a save REPLACES, and so
+    /// the source of every field the flow does not surface (B7).
+    private(set) var loadedDraft: CompetitionsCreateRoundOutputOkDraft?
+    private(set) var editHydrated = false
+    private(set) var editBlockedReason: EditBlockedReason?
+    /// The round has scores, so the course and the route are settled (B4).
+    private(set) var hasScores = false
+    /// The edit was accepted by the server.
+    private(set) var editSaved = false
+
+    var isEditing: Bool { editToken != nil }
+
+    /// B4: the two controls a scored round cannot move. Everything else — the
+    /// roster, the tees, the formats — stays editable.
+    var courseRouteLocked: Bool { isEditing && hasScores }
+
+    static let courseRouteLockNotice =
+        "Scores have been recorded — the course and route are locked for this round."
 
     // MARK: - Loading
 
@@ -401,6 +461,10 @@ final class CreateStore {
     /// all survive, because a user correcting the course they picked has not
     /// changed their mind about who is playing.
     func selectCourse(_ id: String) async {
+        // B4: a scored round's course is settled. The control is drawn disabled
+        // too, but refusing the write means a stale tap cannot move a round
+        // whose balls are already addressed to this course's tees.
+        guard !courseRouteLocked else { return }
         guard courseId != id else { return }
         courseId = id
         clubId = courses.first { $0.id == id }?.clubId ?? clubId
@@ -548,6 +612,7 @@ final class CreateStore {
     /// Spec §3.2 B3.4: a preset change keeps the start hole when the new hole
     /// set still contains it, otherwise falls to that set's first hole.
     func setRoutePreset(_ preset: RoundRoundType) {
+        guard !courseRouteLocked else { return }
         guard preset != routePreset else { return }
         routePreset = preset
         let holes = permittedStartHoles
@@ -555,6 +620,7 @@ final class CreateStore {
     }
 
     func setStartHole(_ hole: Int) {
+        guard !courseRouteLocked else { return }
         guard permittedStartHoles.contains(hole) || permittedStartHoles.isEmpty else { return }
         startHole = hole
     }
@@ -1024,6 +1090,233 @@ final class CreateStore {
             submitError = Self.message(for: error, fallback: "Could not create the round. Try again.")
             return nil
         }
+    }
+
+    // MARK: - Edit mode — load
+
+    /// Open an existing round's setup for editing (spec B2; web:
+    /// `SetupService.loadForEdit`).
+    ///
+    /// The order is the web's and it matters: the catalog and the stored draft
+    /// first (the draft decides which course's tees are even worth asking for),
+    /// then the courses and that course's tees, then the round's balls — which
+    /// are the ONLY place a producer's display name lives, the draft carrying
+    /// nothing but an identity ref.
+    ///
+    /// Every step is a hard requirement. A half-hydrated form is worse than an
+    /// error: it looks like a setup the user can save, and saving it would
+    /// replace the stored draft with the parts that happened to load.
+    func loadForEdit(token: String) async {
+        guard !loading else { return }
+        loading = true
+        loadError = nil
+        editBlockedReason = nil
+        editHydrated = false
+        editSaved = false
+        editToken = token
+        defer { loading = false }
+        do {
+            async let formats = api.send(SetupEndpoints.formats)
+            async let courses = api.send(SetupEndpoints.courses)
+            let setup = try await api.send(
+                FriendlyRoundsEndpoints.setup,
+                FriendlyRoundsByTokenInput(token: token))
+            self.catalog = FormatCatalog(descriptors: try await formats)
+            self.courses = try await courses
+
+            guard case .editable(let editable) = setup else {
+                if case .notEditable(let blocked) = setup {
+                    editBlockedReason = blocked.reason == .roundComplete ? .roundComplete : .noStoredDraft
+                }
+                return
+            }
+            // B3's client-side rule: a seat nobody has claimed has no roster row
+            // to hydrate into, so the wizard says so rather than inventing one.
+            guard !EditDraftHydration.hasPlaceholderSeat(editable.draft) else {
+                editBlockedReason = .openSeats
+                return
+            }
+
+            let balls = try await api.send(
+                FriendlyRoundsEndpoints.balls,
+                FriendlyRoundsByTokenInput(token: token))
+            var nameByDefId: [String: String] = [:]
+            for ball in balls {
+                for player in ball.players { nameByDefId[player.producerDefId] = player.displayName }
+            }
+
+            hasScores = editable.hasScores
+            loadedDraft = editable.draft
+
+            // The tees BEFORE the prefill: `loadTees` re-defaults the round's
+            // tees and the start hole, which would otherwise land on top of the
+            // values just hydrated from the draft.
+            courseId = editable.draft.courseId
+            clubId = self.courses.first { $0.id == editable.draft.courseId }?.clubId
+            await loadTees(courseId: editable.draft.courseId)
+            if loadError != nil { return }
+
+            let prefill = EditDraftHydration.prefill(draft: editable.draft) { defId in
+                nameByDefId[defId] ?? ""
+            }
+            routePreset = prefill.preset
+            startHole = prefill.startHole
+            players = prefill.players
+            formatSlots = prefill.slots
+            // A stored draft records composition, not the cards behind it, so
+            // the flexible surface is what can actually describe it.
+            customOpen = true
+            editHydrated = true
+        } catch {
+            loadError = Self.message(for: error, fallback: "Couldn't load this round's setup. Try again.")
+        }
+    }
+
+    // MARK: - Edit mode — save
+
+    /// Replace the round's stored setup (spec B6). Returns true when the server
+    /// accepted it.
+    ///
+    /// Same order as `submit()` — every local check before the first request —
+    /// and the same guest contract. What differs is the document: it is
+    /// ASSEMBLED against the loaded draft (`EditDraftAssembler`), never rebuilt,
+    /// because `editSetup` is a full-document replace and this flow cannot say
+    /// everything a draft can (B7).
+    @discardableResult
+    func saveEdits() async -> Bool {
+        guard let token = editToken, let loaded = loadedDraft, let courseId,
+              !formatSlots.isEmpty, !submitting else { return false }
+        submitting = true
+        submitError = nil
+        diagnostics = []
+        defer { submitting = false }
+
+        let rows = filledPlayers
+        builtRowIds = rows.map(\.id)
+
+        var players = rows.map { row in
+            CreateDraftBuilder.Player(
+                name: row.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                handicapText: row.handicapText,
+                handicapIndex: HandicapInput.parse(row.handicapText) ?? 0,
+                teeId: teeId(for: row) ?? "",
+                gender: row.gender,
+                ref: row.playerId.map { .player($0) } ?? .guest(row.guestPlayerId ?? ""))
+        }
+
+        // B9.7 again: a refusal the flow can see coming costs zero requests —
+        // including the guest mint. The SUBJECT checks `submit()` runs are
+        // deliberately not run here; an edited round's subjects come off the
+        // stored draft, not off ball composition this flow can see.
+        let local = builder.preflightPlayers(players)
+        if !local.isEmpty {
+            diagnostics = local
+            return false
+        }
+
+        do {
+            for (i, row) in rows.enumerated() {
+                guard row.playerId == nil, row.guestPlayerId == nil else { continue }
+                let guest = try await api.send(
+                    GuestPlayersEndpoints.create,
+                    GuestPlayersCreateInput(
+                        handicapIndex: .value(players[i].handicapIndex),
+                        displayName: players[i].name,
+                        gender: row.gender))
+                updatePlayer(id: row.id) { $0.guestPlayerId = guest.id }
+                players[i].ref = .guest(guest.id)
+            }
+
+            let defIds = assignDefIds(rows: rows)
+            let defIdByRow = Dictionary(uniqueKeysWithValues: zip(rows.map(\.id), defIds))
+            let producers = zip(defIds, players).map { defId, player in
+                EditDraftAssembler.Producer(
+                    producerDefId: defId,
+                    handicapIndex: player.handicapIndex,
+                    teeId: player.teeId,
+                    gender: player.gender,
+                    ref: player.ref)
+            }
+            let slots = formatSlots.map { slot in
+                EditDraftAssembler.Slot(
+                    sourceIndex: slot.sourceIndex,
+                    formatId: slot.formatId,
+                    allowanceText: slot.allowanceText,
+                    config: slot.config,
+                    excludedDefIds: Set(slot.excludedRowIds.compactMap { defIdByRow[$0] }))
+            }
+            let draft = EditDraftAssembler(catalog: catalog).draft(
+                replacing: loaded,
+                courseId: courseId,
+                route: route,
+                producers: producers,
+                slots: slots)
+
+            // The one shape the server rejects as a bare 400 rather than a
+            // diagnostic (`subjects minItems 1`), caught here so it reads as a
+            // sentence on the card it belongs to.
+            let empty = draft.formats.indices.filter { draft.formats[$0].subjects?.isEmpty == true }
+            if !empty.isEmpty {
+                diagnostics = empty.map { index in
+                    CompilerDiagnostic(
+                        code: "no_subjects",
+                        message: builder.noSubjectsMessage(formatId: draft.formats[index].formatId),
+                        path: "formats[\(index)]",
+                        formatIndex: Double(index))
+                }
+                return false
+            }
+
+            let result = try await api.send(
+                FriendlyRoundsEndpoints.editSetup,
+                FriendlyRoundsEditSetupInput(
+                    clientEventId: UUID().uuidString,
+                    draft: draft,
+                    token: token))
+            switch result {
+            case .notOk(let refusal):
+                diagnostics = refusal.diagnostics
+                if refusal.diagnostics.isEmpty {
+                    submitError = "The server refused this setup but didn't say why. Try again."
+                }
+                return false
+            case .ok:
+                editSaved = true
+                return true
+            }
+        } catch {
+            submitError = Self.message(for: error, fallback: "Could not save the round. Try again.")
+            return false
+        }
+    }
+
+    /// The def-id each roster row submits as: the one it was loaded with, or a
+    /// fresh one for a row added during this edit.
+    ///
+    /// Minted ids are cached on the row for the same reason guest ids are — a
+    /// save refused by the server and retried after a fix must submit the SAME
+    /// ids, or every ball the first attempt would have created is addressed
+    /// differently the second time. The `p-` prefix keeps a new row from ever
+    /// colliding with the `p1…pn` a created round's producers carry.
+    private func assignDefIds(rows: [PlayerRow]) -> [String] {
+        var used = Set(rows.compactMap(\.producerDefId))
+        for producer in loadedDraft?.producers ?? [] {
+            if case .teeId(let p) = producer { used.insert(p.producerDefId) }
+        }
+        var out: [String] = []
+        var counter = 1
+        for row in rows {
+            if let existing = row.producerDefId {
+                out.append(existing)
+                continue
+            }
+            while used.contains("p-\(counter)") { counter += 1 }
+            let minted = "p-\(counter)"
+            used.insert(minted)
+            out.append(minted)
+            updatePlayer(id: row.id) { $0.producerDefId = minted }
+        }
+        return out
     }
 
     // MARK: - Diagnostics for the view

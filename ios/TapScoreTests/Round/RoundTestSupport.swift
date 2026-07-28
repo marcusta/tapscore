@@ -50,10 +50,32 @@ final class RoundStubURLProtocol: URLProtocol {
     }
 
     /// Route a path suffix to a JSON string (or several, consumed in order).
-    static func route(_ path: String, status: Int = 200, _ bodies: String...) {
+    ///
+    /// `method` narrows the route to one verb, which the edit flow needs and
+    /// nothing before it did: `GET /friendly-rounds/setup` (read the stored
+    /// draft) and `POST /friendly-rounds/setup` (replace it) are the same path,
+    /// so a path-only stub would answer the save with the load's body.
+    static func route(_ path: String, method: String? = nil, status: Int = 200, _ bodies: String...) {
         lock.lock()
         defer { lock.unlock() }
-        routes[path] = Route(status: status, bodies: bodies.map { Data($0.utf8) })
+        routes[key(path, method)] = Route(status: status, bodies: bodies.map { Data($0.utf8) })
+    }
+
+    private static func key(_ path: String, _ method: String?) -> String {
+        method.map { "\($0) \(path)" } ?? path
+    }
+
+    /// The registered key this request answers to. Method-qualified routes are
+    /// tried FIRST, so a suite can leave a broad path route in place and still
+    /// override one verb of it.
+    private static func matchingKey(path: String, method: String) -> String? {
+        let qualified = routes.keys.first { key in
+            guard let space = key.firstIndex(of: " ") else { return false }
+            return String(key[key.startIndex..<space]) == method
+                && path.hasSuffix(String(key[key.index(after: space)...]))
+        }
+        if let qualified { return qualified }
+        return routes.keys.first { !$0.contains(" ") && path.hasSuffix($0) }
     }
 
     /// Hold this path's responses until `release(_:)`.
@@ -78,7 +100,7 @@ final class RoundStubURLProtocol: URLProtocol {
     private static func resolve(_ request: Recorded) -> (Int, Data, DispatchSemaphore?) {
         lock.lock()
         recorded.append(request)
-        let key = routes.keys.first { request.path.hasSuffix($0) }
+        let key = matchingKey(path: request.path, method: request.method)
         let gate = key.flatMap { gates[$0] }
         guard let key, let route = routes[key] else {
             lock.unlock()
@@ -385,6 +407,60 @@ enum RoundFixtures {
             "pending":\(secondPending)}],
           "slots":\(slots),"pending":\(secondPending)}]
         """
+    }
+
+    /// The `GET /friendly-rounds/setup` editability probe, in both shapes. The
+    /// editable arm needs a real draft, so it borrows the create suite's web
+    /// fixture rather than inventing a second spelling of the same document.
+    static func setupEditable(status: String = "active", hasScores: Bool = false) -> String {
+        """
+        {"editable":true,"status":"\(status)","hasScores":\(hasScores),
+         "draft":\(WebDraftFixtures.stablefordIndividualThree),"draftVersion":1}
+        """
+    }
+
+    static func setupNotEditable(
+        status: String = "complete", reason: String = "round_complete"
+    ) -> String {
+        "{\"editable\":false,\"status\":\"\(status)\",\"reason\":\"\(reason)\"}"
+    }
+
+    /// `POST /friendly-rounds/finish` / `.../reopen`.
+    static func finished(completedAt: String = "2026-07-27T11:00:00.000Z") -> String {
+        "{\"status\":\"complete\",\"completedAt\":\"\(completedAt)\"}"
+    }
+
+    static let reopened = "{\"status\":\"active\"}"
+
+    /// `POST /friendly-rounds/leave` — the accepted arm. It carries a full
+    /// `Round`, lifted out of the `byToken` fixture so there is one description
+    /// of this round in the suite and not two.
+    static func leaveOk() -> String {
+        guard
+            let object = try? JSONSerialization.jsonObject(with: Data(byToken().utf8))
+                as? [String: Any],
+            let round = object["round"],
+            let data = try? JSONSerialization.data(withJSONObject: ["ok": true, "round": round])
+        else { return "{\"ok\":true}" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// `POST /friendly-rounds/leave` — the refusal arm, which is an HTTP 200.
+    static func leaveRefused(_ messages: [String]) -> String {
+        let diagnostics = messages
+            .map { "{\"code\":\"last_player\",\"message\":\"\($0)\"}" }
+            .joined(separator: ",")
+        return "{\"ok\":false,\"diagnostics\":[\(diagnostics)]}"
+    }
+
+    /// Decoded balls, for the pure visibility rules.
+    static func decodedBalls(_ json: String = RoundFixtures.balls()) -> [RoundBall] {
+        (try? JSONDecoder().decode([RoundBall].self, from: Data(json.utf8))) ?? []
+    }
+
+    /// Decoded editability probe output, for the pure visibility rules.
+    static func decodedSetup(_ json: String) -> FriendlyRoundsSetupOutput? {
+        try? JSONDecoder().decode(FriendlyRoundsSetupOutput.self, from: Data(json.utf8))
     }
 
     static let emptyScorecards = "[]"

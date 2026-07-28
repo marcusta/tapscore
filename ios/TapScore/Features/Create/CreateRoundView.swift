@@ -19,12 +19,36 @@ import SwiftUI
 /// player row, and the flow jumps back to the earliest step carrying an error
 /// rather than announcing failure from the last one.
 struct CreateRoundView: View {
+    /// The same three questions, asked of a round that does not exist yet or of
+    /// one that does. Only the copy, the load and the submit differ — which is
+    /// the whole reason edit REUSES this screen instead of forking it (B1).
+    enum Mode: Equatable {
+        case create
+        /// The share token of the round being edited. Never logged.
+        case edit(token: String)
+
+        var title: String {
+            switch self {
+            case .create: "New round"
+            case .edit: "Edit round"
+            }
+        }
+
+        var isEditing: Bool {
+            if case .edit = self { return true }
+            return false
+        }
+    }
+
     @Environment(AppEnvironment.self) private var environment
 
-    /// Dismiss without creating anything.
+    var mode: Mode = .create
+    /// Dismiss without creating or saving anything.
     let onCancel: () -> Void
     /// The round was created — hand it to the shell to record and open.
-    let onCreated: (RoundOpenRequest) -> Void
+    var onCreated: (RoundOpenRequest) -> Void = { _ in }
+    /// An edit was accepted by the server.
+    var onSaved: () -> Void = {}
 
     @State private var store: CreateStore?
     /// The row whose handicap pad is open. Nil ⇒ closed.
@@ -35,13 +59,13 @@ struct CreateRoundView: View {
         NavigationStack {
             Group {
                 if let store {
-                    content(store)
+                    screen(store)
                 } else {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .background(TapColors.bg)
-            .navigationTitle("")
+            .navigationTitle(mode.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(TapColors.bg, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
@@ -65,12 +89,74 @@ struct CreateRoundView: View {
                 } else {
                     store.setOwner(nil)
                 }
-                await store.load()
+                switch mode {
+                case .create: await store.load()
+                // The hydrate REPLACES the starting roster, so the owner row
+                // above never survives into an edit — it is set purely so the
+                // friends path exists while editing.
+                case .edit(let token): await store.loadForEdit(token: token)
+                }
             }
         }
     }
 
     // MARK: - Shell
+
+    /// The screen's three states in edit mode: blocked, loading, or the form.
+    /// In create mode only the last exists.
+    @ViewBuilder
+    private func screen(_ store: CreateStore) -> some View {
+        if let blocked = store.editBlockedReason {
+            blockedState(blocked)
+        } else if mode.isEditing, !store.editHydrated {
+            editLoadingState(store)
+        } else {
+            content(store)
+        }
+    }
+
+    /// B3: a round that cannot be edited says why and offers the way back —
+    /// never a form that will be refused when it is submitted.
+    private func blockedState(_ reason: CreateStore.EditBlockedReason) -> some View {
+        VStack(spacing: TapSpacing.lg) {
+            Spacer(minLength: 0)
+            Text(reason.message)
+                .font(TapFont.ui(size: 16))
+                .foregroundStyle(TapColors.text)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("edit-round-blocked")
+            Button("Back", action: onCancel)
+                .buttonStyle(.tap(.secondary))
+            Spacer(minLength: 0)
+        }
+        .padding(TapSpacing.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Loading, or the retry a failed load leaves behind (B2). Deliberately not
+    /// a partial form: half a hydrated setup looks saveable and is not.
+    @ViewBuilder
+    private func editLoadingState(_ store: CreateStore) -> some View {
+        VStack(spacing: TapSpacing.lg) {
+            Spacer(minLength: 0)
+            if let loadError = store.loadError {
+                notice(loadError, tone: .danger)
+                Button("Try again") {
+                    if case .edit(let token) = mode {
+                        Task { await store.loadForEdit(token: token) }
+                    }
+                }
+                .buttonStyle(.tap(.primary))
+                .accessibilityIdentifier("edit-round-retry")
+            } else {
+                ProgressView()
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(TapSpacing.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 
     @ViewBuilder
     private func content(_ store: CreateStore) -> some View {
@@ -79,6 +165,16 @@ struct CreateRoundView: View {
             stepBar(store)
             ScrollView {
                 VStack(alignment: .leading, spacing: TapSpacing.xl) {
+                    if mode.isEditing {
+                        // B1: what an edit is, said once at the top — the
+                        // question everyone opening this screen has is whether
+                        // the scores they already took are about to vanish.
+                        Text("Change the setup — scored balls are preserved.")
+                            .font(TapFont.ui(size: 14.4))
+                            .foregroundStyle(TapColors.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("edit-round-subtitle")
+                    }
                     if let loadError = store.loadError {
                         notice(loadError, tone: .danger)
                     }
@@ -158,7 +254,14 @@ struct CreateRoundView: View {
                     Button("Back") { store.step = previous(store.step) }
                         .buttonStyle(.tap(.ghost))
                 }
-                if store.step == .format {
+                if store.step == .format, mode.isEditing {
+                    Button(store.submitting ? "Saving…" : "Save changes") {
+                        Task { await save(store) }
+                    }
+                    .buttonStyle(.tap(.primary, size: .prominent, fillsWidth: true))
+                    .disabled(!store.canSubmit)
+                    .accessibilityIdentifier("edit-round-save")
+                } else if store.step == .format {
                     Button(store.submitting ? "Creating…" : "Create round") {
                         Task { await create(store) }
                     }
@@ -202,11 +305,26 @@ struct CreateRoundView: View {
         if let step = store.diagnosticsStep { store.step = step }
     }
 
+    private func save(_ store: CreateStore) async {
+        if await store.saveEdits() {
+            onSaved()
+            return
+        }
+        if let step = store.diagnosticsStep { store.step = step }
+    }
+
     // MARK: - Step 1 — course
 
     @ViewBuilder
     private func courseStep(_ store: CreateStore) -> some View {
         heading("Where are you playing?", subtitle: "Pick the course, the holes you're playing and the tees.")
+
+        // B4: a round with scores has settled its course and its route — the
+        // balls are already addressed to them. The reason is stated ONCE, above
+        // both locked controls, rather than repeated on each.
+        if store.courseRouteLocked {
+            notice(CreateStore.courseRouteLockNotice, tone: .muted)
+        }
 
         VStack(alignment: .leading, spacing: TapSpacing.sm) {
             SectionHeader(title: "Course")
@@ -216,6 +334,7 @@ struct CreateRoundView: View {
             // same screen as the course they belong to; expanded inline, they
             // are a club list away.
             courseField(store)
+                .disabled(store.courseRouteLocked)
         }
 
         if store.courseId != nil {
@@ -271,6 +390,7 @@ struct CreateRoundView: View {
                         action: { store.setRoutePreset(preset) })
                 }
             }
+            .disabled(store.courseRouteLocked)
         }
 
         if store.permittedStartHoles.count > 1 {
@@ -287,6 +407,7 @@ struct CreateRoundView: View {
                     selection: store.startHole,
                     groups: CreatePickerRows.startHoles(store.permittedStartHoles),
                     onSelect: { store.setStartHole($0) })
+                    .disabled(store.courseRouteLocked)
                 if !store.isPostingEligible {
                     // B3.7: the draft already says so; say it out loud rather
                     // than let a handicap record quietly not move.

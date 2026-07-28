@@ -92,6 +92,27 @@ final class RoundStore {
     private(set) var scorecards: [Scorecard] = []
     private(set) var formats: [FormatDescriptor] = []
     private(set) var cells: [String: CellState] = [:]
+    /// The `GET /friendly-rounds/setup` probe, re-run on every `load()`. Nil
+    /// means it failed, 401'd, or has not answered yet — all of which the manage
+    /// sheet reads as "not editable" (see `RoundManageRows`).
+    private(set) var editability: FriendlyRoundsSetupOutput?
+
+    // MARK: - Manage actions
+
+    /// The manage action currently in flight, if any. The sheet disables its
+    /// rows on this, so a double tap cannot fire two finishes.
+    enum ManageAction: Sendable, Equatable { case finish, delete, leave }
+
+    private(set) var manageAction: ManageAction?
+    /// The manage sheet's inline error line. Transient view-model state: cleared
+    /// at the start of the next attempt, never persisted.
+    private(set) var manageError: String?
+    /// The round was deleted server-side by this device — a terminal state the
+    /// store cannot come back from. Nothing in production reads it: the sheet
+    /// leaves the screen on `deleteRound()`'s return value, not on this. It is
+    /// here so the tests (and any future view) can observe that the delete
+    /// landed, rather than inferring it from the requests that followed.
+    private(set) var deleted = false
 
     // MARK: - Leaderboard
 
@@ -326,8 +347,19 @@ final class RoundStore {
         let cardsTicket = nextScorecardTicket()
         async let cardsResult = try? api.send(
             FriendlyRoundsEndpoints.scorecard, FriendlyRoundsByTokenInput(token: token))
-        let (loadedBalls, loadedCards) = await (ballsResult, cardsResult)
+        // The manage sheet's editability probe, in the same non-fatal fan-out:
+        // `try?` because a round that renders without an Edit row beats a round
+        // that does not render. Re-run on every load rather than once per mount
+        // (the web asks once), so a round that becomes uneditable — someone
+        // finished it from another phone — stops offering the row on the next
+        // refresh instead of at the next launch.
+        async let editabilityResult = try? api.send(
+            FriendlyRoundsEndpoints.setup, FriendlyRoundsByTokenInput(token: token))
+        let (loadedBalls, loadedCards, loadedEditability) = await (
+            ballsResult, cardsResult, editabilityResult
+        )
         guard seq == loadSeq else { return }
+        editability = loadedEditability
         // Order matters, exactly as on the web: clear the optimistic overlay and
         // seat the scorecards BEFORE the balls that drive rendering.
         cells = [:]
@@ -610,7 +642,7 @@ final class RoundStore {
     /// Mirror a remote status transition onto the loaded round so the gate can
     /// close itself when another device finishes the round.
     private func applyRemoteStatus(_ status: LiveRoundStatus) {
-        guard var r = round else { return }
+        guard let r = round else { return }
         let mapped: AdminRoundSummaryStatus
         switch status {
         case .notStarted: mapped = .notStarted
@@ -618,27 +650,145 @@ final class RoundStore {
         case .complete: mapped = .complete
         }
         guard mapped != r.status else { return }
-        r.status = mapped
         // This device's clock, not the server's — the same fabrication the web
-        // client makes, and overwritten by the next full load.
-        r.completedAt = mapped == .complete ? ISO8601DateFormatter().string(from: now()) : nil
+        // client makes, and overwritten by the next full load. The fabricated
+        // timestamp does not just sit in memory: `applyStatus` records it, which
+        // is what lets the landing order "Recently finished" after another
+        // device finished this round. Same trade the web client documents.
+        applyStatus(
+            mapped,
+            completedAt: mapped == .complete ? ISO8601DateFormatter().string(from: now()) : nil
+        )
+    }
+
+    /// Patch the loaded round's lifecycle in place, then run the two things a
+    /// status change always owes: the device-history row (so the landing moves
+    /// the round between Ongoing and Recently finished) and the live gate (so a
+    /// completed round stops streaming and a reopened one starts again).
+    ///
+    /// One funnel for both the remote transition and this device's own
+    /// finish/reopen, so the two cannot drift into doing different bookkeeping
+    /// for the same fact.
+    private func applyStatus(_ status: AdminRoundSummaryStatus, completedAt: String?) {
+        guard var r = round else { return }
+        r.status = status
+        r.completedAt = completedAt
         round = r
-        // The fabricated timestamp does not just sit in memory: recording it
-        // here is what lets the landing order "Recently finished" after another
-        // device finished this round, until the next full load overwrites it
-        // with the server's value. Same trade the web client documents.
         recordDeviceRound()
         updateLiveGate()
+    }
+
+    // MARK: - Manage actions
+
+    /// Finish the round, or reopen it when it is already complete.
+    ///
+    /// Both directions are organizational only — `complete` seals nothing, the
+    /// round stays scorable, and a re-finish preserves the original
+    /// `completedAt` server-side. The response is applied in place: there is
+    /// nothing to refetch, because status and `completedAt` are the only two
+    /// facts that changed.
+    func finishOrReopen() async {
+        guard let current = round?.status, manageAction == nil else { return }
+        manageAction = .finish
+        manageError = nil
+        defer { manageAction = nil }
+        do {
+            if current == .complete {
+                let output = try await api.send(
+                    FriendlyRoundsEndpoints.reopen, FriendlyRoundsByTokenInput(token: token))
+                applyStatus(output.status, completedAt: nil)
+            } else {
+                let output = try await api.send(
+                    FriendlyRoundsEndpoints.finish, FriendlyRoundsByTokenInput(token: token))
+                applyStatus(output.status, completedAt: output.completedAt)
+            }
+        } catch {
+            // The web swallows this silently; saying so is a deliberate
+            // improvement. Nothing local changed, so the row's label still
+            // describes what the next tap would do.
+            manageError = "Could not update the round. Try again."
+        }
+    }
+
+    /// Delete the round and everything in it, for everyone.
+    ///
+    /// Token trust: no owner gate and no status gate, exactly as on the web. On
+    /// success this device forgets the round entirely — the recent-rounds row,
+    /// the durable SSE cursor, and the live machinery this screen was running.
+    ///
+    /// - Returns: true when the round is gone and the screen should navigate
+    ///   home. A false answer leaves every local fact untouched.
+    @discardableResult
+    func deleteRound() async -> Bool {
+        guard manageAction == nil else { return false }
+        manageAction = .delete
+        manageError = nil
+        defer { manageAction = nil }
+        do {
+            _ = try await api.send(
+                FriendlyRoundsEndpoints.remove,
+                FriendlyRoundsByTokenInput(token: token),
+                pathValues: ["token": token]
+            )
+        } catch {
+            // A 404 lands here too, and reads the same: the local state is not
+            // touched on any failure, so a retry costs one tap.
+            manageError = "Could not delete the round. Try again."
+            return false
+        }
+        deviceRounds?.remove(token: token)
+        cursors.forget(token: token)
+        await stop()
+        deleted = true
+        return true
+    }
+
+    /// Remove the signed-in viewer from the round.
+    ///
+    /// Needs a bearer (the transport injects it); `playerId` is resolved
+    /// server-side, so there is nothing to pass but the token. Refusals arrive
+    /// as HTTP-200 diagnostics — last player, shared ball, a partner whose
+    /// scores would be orphaned — and those messages are the server's to word.
+    func leaveRound() async {
+        guard manageAction == nil else { return }
+        manageAction = .leave
+        manageError = nil
+        defer { manageAction = nil }
+        do {
+            let output = try await api.send(
+                FriendlyRoundsEndpoints.leave, FriendlyRoundsByTokenInput(token: token))
+            switch output {
+            case .ok:
+                // A full reload, not a patch: the viewer leaves balls,
+                // scorecards, the leaderboard and possibly a playing group all
+                // at once, and the server is the only thing that knows the
+                // shape that leaves behind.
+                await load()
+            case .notOk(let refusal):
+                manageError = refusal.diagnostics.map(\.message).joined(separator: " · ")
+            }
+        } catch {
+            // Includes a 401: the session died, and the honest thing to say is
+            // that it did not work. Re-auth is deliberately not built here.
+            manageError = "Could not remove you right now. Try again."
+        }
+    }
+
+    /// Clear the sheet's inline error. Called from the presenter's `onDismiss`
+    /// (`RoundView`), so every way OUT of the sheet — Done, swipe, a delete that
+    /// dismissed it — leaves the same clean slate for the next presentation.
+    func clearManageError() {
+        manageError = nil
     }
 
     // MARK: - Device history
 
     /// Upsert this round into the device-recent list from whatever is loaded.
     ///
-    /// Called on load, on a remote status flip, and when the first accepted
-    /// score promotes `not_started → active` — the three moments the web
-    /// service calls `recordDeviceRound`, minus finish/reopen, which this
-    /// screen does not offer yet (when it does, it calls this too).
+    /// Called on load, on a remote status flip, when this device finishes or
+    /// reopens the round, and when the first accepted score promotes
+    /// `not_started → active` — the same moments the web service calls
+    /// `recordDeviceRound`.
     ///
     /// `recordOpen` treats nil as "unknown, keep what you had", so this can
     /// only ever enrich the shell's token-only row, never blank it.
