@@ -735,6 +735,75 @@ final class RoundStore {
         return slots.first?.slotDefId
     }
 
+    // MARK: - Handicap hint (Gamebook-style)
+
+    /// The hint printed inside an UNSCORED circle: how handicap will modify the
+    /// gross on this hole. `"-1"` = one stroke received, `"+1"` = a
+    /// plus-handicap giveback, `"0"` = plays off scratch here. `nil` — the plain
+    /// "–" placeholder — when no hint applies.
+    ///
+    /// Web: `hintText` in `score-entry.component.ts`. The sign flip is part of
+    /// the port and not a typo: strokes RECEIVED read as a minus, because that
+    /// is what they do to the gross.
+    func hintText(ballId: String, playHoleId: String) -> String? {
+        guard let strokes = strokesHint(ballId: ballId, playHoleId: playHoleId) else { return nil }
+        if strokes == 0 { return "0" }
+        return strokes > 0 ? "-\(strokes)" : "+\(-strokes)"
+    }
+
+    /// Strokes this ball's playing handicap gives it on one occurrence, under
+    /// the SELECTED format slot (falling back to the ball's first slot).
+    /// Positive = strokes received; negative = a plus-handicap giveback. `nil`
+    /// when no hint applies: a pending seat, a slot with no playing handicap, or
+    /// an unknown hole.
+    ///
+    /// Web: `strokesHintFor` in `round.service.ts`. **DISPLAY ONLY** — it
+    /// mirrors the server's allocation (first-producer tee resolves the
+    /// effective SI; the payload's per-tee `strokeIndex` is already
+    /// override → base), and the server's net stays authoritative. Format-level
+    /// PH tweaks (match-play normalisation off the low ball) are deliberately
+    /// not reproduced, exactly as on the web.
+    func strokesHint(ballId: String, playHoleId: String) -> Int? {
+        guard let round else { return nil }
+        guard let ball = balls.first(where: { $0.id == ballId }), !ball.pending else { return nil }
+        let slot = ball.slots.first { $0.slotDefId == selectedSlotDefId } ?? ball.slots.first
+        guard let playingHandicap = slot?.playingHandicap else { return nil }
+        guard let hole = playHole(id: playHoleId) else { return nil }
+        // First-producer convention, as on the server: a team ball's SI
+        // reference is its first producer's tee.
+        let teeName = ball.players.first?.teeName
+        let strokeIndex =
+            hole.tees.first { $0.teeName == teeName }?.strokeIndex ?? hole.baseStrokeIndex
+        return Self.strokesReceived(
+            playingHandicap: playingHandicap,
+            strokeIndex: strokeIndex,
+            allocationCycleSize: round.routeSi.allocationCycleSize
+        )
+    }
+
+    /// The WHS allocator, mirrored from `strokesReceivedForStrokeIndex` in
+    /// `src/create/handicap.ts` (itself a mirror of `server/domain/handicap.ts`).
+    /// Kept branch-for-branch, including the plus-handicap arm's "give strokes
+    /// back from the EASIEST holes" (`si > cycle - remainder`) and its
+    /// `0 → 0` normalisation, so the three copies can be diffed by eye.
+    nonisolated static func strokesReceived(
+        playingHandicap: Double,
+        strokeIndex: Double,
+        allocationCycleSize cycle: Double
+    ) -> Int {
+        guard cycle > 0 else { return 0 }
+        if playingHandicap >= 0 {
+            let full = (playingHandicap / cycle).rounded(.down)
+            let remainder = playingHandicap - full * cycle  // 0..<cycle
+            return countInt(full) + (strokeIndex >= 1 && strokeIndex <= remainder ? 1 : 0)
+        }
+        let magnitude = -playingHandicap
+        let full = (magnitude / cycle).rounded(.down)
+        let remainder = magnitude - full * cycle  // 0..<cycle
+        let givenBack = countInt(full) + (strokeIndex > cycle - remainder ? 1 : 0)
+        return givenBack == 0 ? 0 : -givenBack
+    }
+
     // MARK: - Metadata inputs (umbrella GIR/fairway)
 
     /// The boolean metadata inputs declared across the round's formats, deduped
@@ -927,6 +996,18 @@ final class RoundStore {
     func statsDone() {
         statsOpen = false
         apply(.statsDone)
+    }
+
+    /// The stats screen's back chevron (web: `.se-stats__back`, whose whole
+    /// handler is `statsOpen.set(false)`).
+    ///
+    /// It dismisses the step and NOTHING else: no `statsDone` event, so no
+    /// write, no ball hop, no hole jump, and the toggles already applied stay
+    /// applied (each one persisted itself through `setMetadata`). The player is
+    /// back on the keypad with the same ball under the cursor, free to re-enter
+    /// the score they just typed.
+    func statsBack() {
+        statsOpen = false
     }
 
     private func apply(_ entry: EntryEvent) {

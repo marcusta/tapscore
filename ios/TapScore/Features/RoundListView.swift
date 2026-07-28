@@ -22,11 +22,11 @@ import SwiftUI
 /// whose whole identity is the scorecard palette, and every colour here now
 /// comes from `ThemeTokens`.
 ///
-/// One honest divergence from the web: the CTA is **Join a round**, not
-/// "+ Create round". iOS has no create flow yet, so the slot keeps the web's
-/// prominence and spends it on the action this client actually has. Labelling
-/// it "Create" and pushing the paste-a-link screen would be a lie in the one
-/// place the user is most likely to tap.
+/// The call to action is the web's hierarchy, now that iOS has a create flow:
+/// "+ Create round" is THE elevated full-width primary button (`.landing__create`),
+/// with "Join a round" directly under it as the secondary tier. Starting a round
+/// is what people come here to do; opening someone else's link is the answer to
+/// a link they already have.
 struct RoundListView: View {
     @Environment(AppEnvironment.self) private var environment
 
@@ -41,8 +41,11 @@ struct RoundListView: View {
     /// screen never writes to the device list except on an explicit delete.
     let onOpen: (RoundOpenRequest) -> Void
 
-    @State private var rows: [LandingRow] = []
-    @State private var loadFailure: String?
+    /// Rows, failure copy and the server count — owned by a loader rather than
+    /// by `@State` on the view, because the one thing this screen gets wrong is
+    /// WHEN it loads, and "when" is not something a view body can be tested on.
+    /// See `LandingLoader`.
+    @State private var loader = LandingLoader()
 
     /// The row whose trash was tapped, parked while the confirmation is up.
     ///
@@ -52,15 +55,18 @@ struct RoundListView: View {
     /// round: the trash sits a few points from the row's own tap target.
     @State private var pendingRemoval: LandingRow?
 
+    /// True while the create flow is up.
+    @State private var isCreating = false
+
     var body: some View {
         ScrollView {
-            let partition = LandingRow.partition(rows, now: Date())
+            let partition = LandingRow.partition(loader.rows, now: Date())
 
             VStack(alignment: .leading, spacing: TapSpacing.xl) {
                 wordmark
-                joinCallToAction
+                callsToAction
 
-                if let loadFailure {
+                if let loadFailure = loader.loadFailure {
                     failureNotice(loadFailure)
                 }
 
@@ -70,10 +76,6 @@ struct RoundListView: View {
                 if partition.ongoing.isEmpty && partition.finished.isEmpty {
                     emptyNotice
                 }
-
-                #if DEBUG
-                debugSection
-                #endif
             }
             // Web `.landing`: `padding: s('xl') s('lg') s('2xl')`.
             .padding(.horizontal, TapSpacing.lg)
@@ -90,14 +92,41 @@ struct RoundListView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(TapColors.bg, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        .refreshable { await load() }
+        // An explicit pull always refetches — the dedupe below is about not
+        // fetching when nobody asked, never about refusing when they did.
+        .refreshable { await load(force: true) }
+        // Full-screen rather than a sheet: creating a round is a three-step
+        // task, and a card that can be swiped away mid-roster is how a typed
+        // roster gets lost.
+        .fullScreenCover(isPresented: $isCreating) {
+            CreateRoundView(
+                onCancel: { isCreating = false },
+                // Hand the new round to the SHELL's open path — the same
+                // closure a row uses — so the device-recent recording and the
+                // push into the round screen stay in one place.
+                onCreated: { request in
+                    isCreating = false
+                    onOpen(request)
+                }
+            )
+        }
         // `onAppear` rather than `task`: coming back from a round must re-read
         // the device list, and `task` would not re-run on a pop. It *merges*
         // rather than reseeds — rebuilding the list from the device entries
         // alone would wipe the server-sourced rows and their role labels for a
         // signed-in viewer every time they popped back from a round.
-        .onAppear { rows = LandingRow.applyingDevice(deviceRounds.all(), to: rows) }
-        .task { await load() }
+        .onAppear { loader.applyDevice(deviceRounds.all()) }
+        // Keyed on the AUTH STATE, and that key is the whole bug fix.
+        //
+        // `bootstrap()` resolves the Keychain session asynchronously, so a
+        // plain `.task` runs while `authState` is still `.unknown`: the screen
+        // decides it is signed out, skips the dashboard fetch, and — because
+        // nothing ever re-triggered it — the owner's rounds appeared only after
+        // a pull-to-refresh. Keyed, the task re-runs the moment sign-in
+        // resolves, and again after the sign-in flow and after sign-out, each
+        // of those being exactly one transition and therefore exactly one
+        // fetch. `LandingLoader` dedupes anything that is not a transition.
+        .task(id: LandingLoader.key(environment.authState)) { await load() }
         .confirmationDialog(
             "Remove this round from this device?",
             isPresented: Binding(
@@ -141,17 +170,29 @@ struct RoundListView: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// Web: `.landing__create` — the one elevated, full-width, `--primary`
-    /// button on the page. See the type doc for why it says Join here.
-    private var joinCallToAction: some View {
-        Button(action: onJoin) {
-            HStack(spacing: TapSpacing.sm) {
-                Image(systemName: "link")
-                    .font(.system(size: 17.6, weight: .bold))
-                Text("Join a round")
+    /// Web: `.landing__create` (the one elevated, full-width, `--primary`
+    /// button on the page) with the join door beneath it in the secondary tier.
+    /// Two tiers, not two primaries: the page must have exactly one obvious
+    /// next tap.
+    private var callsToAction: some View {
+        VStack(spacing: TapSpacing.sm) {
+            Button { isCreating = true } label: {
+                HStack(spacing: TapSpacing.sm) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 17.6, weight: .bold))
+                    Text("Create round")
+                }
             }
+            .buttonStyle(.tap(.primary, size: .prominent, fillsWidth: true))
+
+            Button(action: onJoin) {
+                HStack(spacing: TapSpacing.sm) {
+                    Image(systemName: "link")
+                    Text("Join a round")
+                }
+            }
+            .buttonStyle(.tap(.secondary, fillsWidth: true))
         }
-        .buttonStyle(.tap(.primary, size: .prominent, fillsWidth: true))
     }
 
     @ViewBuilder
@@ -173,12 +214,29 @@ struct RoundListView: View {
         }
     }
 
-    /// Web: `.landing__empty`.
+    /// Web: `.landing__empty` — but split in two, because the two empties mean
+    /// different things and conflating them is the "where are my rounds?"
+    /// confusion.
+    ///
+    /// Signed OUT, the list is this device's, so a share link is the answer.
+    /// Signed IN with a dashboard that came back empty, the account genuinely
+    /// has no rounds — and the likely reason is that the rounds the owner is
+    /// thinking of were played anonymously, which ties them to the device that
+    /// played them, not to the account. Saying "open a share link" there would
+    /// send them looking for a link that will not help.
     private var emptyNotice: some View {
-        Text("No rounds yet — open a share link to tee off.")
+        Text(emptyMessage)
             .font(TapFont.ui(size: 14.4))
             .foregroundStyle(TapColors.textMuted)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.vertical, TapSpacing.lg)
+    }
+
+    private var emptyMessage: String {
+        if case .signedIn = environment.authState {
+            return LandingEmptyCopy.message(signedIn: true, serverRoundCount: loader.serverRoundCount)
+        }
+        return LandingEmptyCopy.message(signedIn: false, serverRoundCount: loader.serverRoundCount)
     }
 
     private func failureNotice(_ message: String) -> some View {
@@ -207,70 +265,14 @@ struct RoundListView: View {
         )
     }
 
-    /// The connectivity probe, kept from the scaffold: it is the one row that
-    /// proves XcodeGen, ATS local networking, the base URL and the bearer
-    /// header are all wired. Debug builds only — it is a diagnostic, not a
-    /// feature, which is why it is drawn in the sunken tone rather than as
-    /// another card on the page.
-    #if DEBUG
-    @ViewBuilder
-    private var debugSection: some View {
-        VStack(alignment: .leading, spacing: TapSpacing.sm) {
-            SectionHeader(title: "Server (debug)", size: 14.4)
-            TapCard(sunken: true) {
-                VStack(alignment: .leading, spacing: TapSpacing.xs) {
-                    HStack(spacing: TapSpacing.sm) {
-                        Text("GET /players/me")
-                            .foregroundStyle(TapColors.textMuted)
-                        Spacer(minLength: 0)
-                        switch environment.authState {
-                        case .unknown:
-                            ProgressView().controlSize(.small)
-                        case .anonymous:
-                            Text("anonymous").foregroundStyle(TapColors.text)
-                        case let .signedIn(player):
-                            Text(player.username).foregroundStyle(TapColors.text)
-                        case let .unreachable(detail):
-                            Text("unreachable")
-                                .foregroundStyle(TapColors.danger)
-                                .accessibilityHint(detail)
-                        }
-                    }
-                    Text(environment.configuration.baseURL.absoluteString)
-                        .foregroundStyle(TapColors.textMuted)
-                }
-                .font(TapFont.ui(size: 12.8))
-                .padding(TapSpacing.md)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-    #endif
-
     // MARK: - Loading
 
-    /// Reads the device list, then folds in the server dashboard when signed
-    /// in. The device half is applied first and unconditionally: a dashboard
-    /// failure must degrade to the anonymous list, never to an empty screen.
-    private func load() async {
-        let device = deviceRounds.all()
-        rows = LandingRow.fromDevice(device)
-
-        guard case .signedIn = environment.authState else {
-            loadFailure = nil
-            return
-        }
-        do {
-            let mine = try await environment.api.send(DashboardEndpoints.myRounds)
-            rows = LandingRow.merge(device: device, mine: mine)
-            loadFailure = nil
-        } catch APIError.unauthorized {
-            // The bearer went stale between bootstrap and now. The device list
-            // still stands; `AppEnvironment` re-resolves on the next probe.
-            loadFailure = "Your session expired — sign in again to see all your rounds."
-        } catch {
-            loadFailure = "Couldn't reach the server. Showing rounds opened on this device."
-        }
+    private func load(force: Bool = false) async {
+        await loader.load(
+            auth: environment.authState,
+            api: environment.api,
+            device: deviceRounds.all(),
+            force: force)
     }
 
     private func remove(token: String) {
@@ -278,7 +280,96 @@ struct RoundListView: View {
         // it back. Deleting somebody's round from a tap is not a thing this
         // screen does — so a row the server also reported stays, minus its
         // device-local flag, and only a device-only row disappears.
-        rows = LandingRow.applyingDevice(deviceRounds.remove(token: token), to: rows)
+        loader.applyDevice(deviceRounds.remove(token: token))
+    }
+}
+
+// MARK: - The loader
+
+/// What the landing has loaded, and — the part that has actually been wrong —
+/// **when it loads again**.
+///
+/// The shipped bug: `AppEnvironment.bootstrap()` resolves the stored session
+/// asynchronously, so the landing's `.task` ran while `authState` was still
+/// `.unknown`, concluded "signed out", skipped `GET /dashboard/my-rounds`, and
+/// nothing re-triggered it. The owner's own rounds showed up only if they
+/// happened to pull to refresh. The fix is to key the load on the auth state
+/// and let a TRANSITION drive it.
+///
+/// The dedupe is the other half of that fix and is why this is a class with a
+/// memory rather than a free function. `.task(id:)` fires on appearance as well
+/// as on change, `authState` can be re-published with the same value, and the
+/// launch sequence alone walks `.unknown → .signedIn`; without a key to compare
+/// against, "reload on auth change" becomes a small fetch storm on every
+/// launch. So: one fetch per distinct auth key, plus whatever the user asks for
+/// explicitly (`force`, i.e. pull-to-refresh).
+@MainActor
+@Observable
+final class LandingLoader {
+    private(set) var rows: [LandingRow] = []
+    private(set) var loadFailure: String?
+
+    /// How many rounds the DASHBOARD returned, or nil when it was never asked
+    /// (signed out) or could not answer. Only a real zero from the server can
+    /// justify the signed-in empty copy — an unreachable dashboard must not
+    /// tell someone their account has no rounds.
+    private(set) var serverRoundCount: Int?
+
+    /// The auth key the last load ran for. Nil ⇒ nothing has loaded yet.
+    private var loadedKey: String?
+
+    /// The identity of an auth state for reload purposes.
+    ///
+    /// A STRING rather than the state itself, because what must re-trigger a
+    /// load is a change of *who we are*, and `AuthState` carries a whole
+    /// `Player` — a profile edit that leaves the same person signed in is not
+    /// a reason to refetch the dashboard. `.unreachable` folds its message in,
+    /// since a different failure means a different attempt happened.
+    static func key(_ state: AuthState) -> String {
+        switch state {
+        case .unknown: "unknown"
+        case .anonymous: "anonymous"
+        case .signedIn(let player): "signedIn:\(player.id)"
+        case .unreachable(let message): "unreachable:\(message)"
+        }
+    }
+
+    /// Reads the device list, then folds in the server dashboard when signed
+    /// in. The device half is applied first and unconditionally: a dashboard
+    /// failure must degrade to the anonymous list, never to an empty screen.
+    ///
+    /// - Parameter force: bypass the dedupe (pull-to-refresh).
+    func load(auth: AuthState, api: TapScoreAPI, device: [DeviceRound], force: Bool = false) async {
+        let key = Self.key(auth)
+        guard force || key != loadedKey else { return }
+        loadedKey = key
+
+        rows = LandingRow.fromDevice(device)
+
+        guard case .signedIn = auth else {
+            loadFailure = nil
+            serverRoundCount = nil
+            return
+        }
+        do {
+            let mine = try await api.send(DashboardEndpoints.myRounds)
+            rows = LandingRow.merge(device: device, mine: mine)
+            serverRoundCount = mine.created.count + mine.produced.count
+            loadFailure = nil
+        } catch APIError.unauthorized {
+            serverRoundCount = nil
+            // The bearer went stale between bootstrap and now. The device list
+            // still stands; `AppEnvironment` re-resolves on the next probe.
+            loadFailure = "Your session expired — sign in again to see all your rounds."
+        } catch {
+            serverRoundCount = nil
+            loadFailure = "Couldn't reach the server. Showing rounds opened on this device."
+        }
+    }
+
+    /// Folds a freshly-read device list into the rows already on screen.
+    func applyDevice(_ device: [DeviceRound]) {
+        rows = LandingRow.applyingDevice(device, to: rows)
     }
 }
 
@@ -653,5 +744,26 @@ struct LandingRow: Identifiable, Equatable, Sendable {
                 return ordering == 0 ? lhs.offset < rhs.offset : ordering < 0
             }
             .map(\.element)
+    }
+}
+
+/// The landing's empty-state sentence, kept out of the view so the distinction
+/// it draws is testable.
+///
+/// The two empties mean different things. Signed OUT, the list is this device's
+/// and a share link is the answer. Signed IN with a dashboard that answered
+/// with zero rounds, the ACCOUNT is genuinely empty — and the usual reason is
+/// that the rounds the owner has in mind were played anonymously, which ties
+/// them to the device that played them. Telling that user to "open a share
+/// link" would send them hunting for a link that does not exist.
+///
+/// A nil `serverRoundCount` means the dashboard never answered (offline, or the
+/// session expired), so we do not claim the account is empty.
+enum LandingEmptyCopy {
+    static func message(signedIn: Bool, serverRoundCount: Int?) -> String {
+        guard signedIn, serverRoundCount == 0 else {
+            return "No rounds yet — open a share link to tee off."
+        }
+        return "No rounds on this account yet — rounds you played before signing in stay on the device that played them. Create one to start."
     }
 }

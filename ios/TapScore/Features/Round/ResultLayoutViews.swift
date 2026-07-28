@@ -189,50 +189,138 @@ struct MatchSummaryView: View {
 
 // MARK: - Score grid
 
-/// One scorecard card, rendered as a horizontally scrolling table.
+/// One row of one stacked table block: the row's cells for that column group
+/// plus that group's subtotal.
+struct ScoreGridBlockRow: Equatable, Sendable {
+    /// Contract row kind (`par` / `si` / `gross` / …) — a styling hint only.
+    var kind: String
+    /// The fold's canonical label composition (`GridRowLayout.composedLabel`).
+    var label: String
+    var emphasis: Bool
+    var team: GridRowTeam?
+    var cells: [CellLayout]
+    var subtotal: String
+}
+
+/// One stacked table block — a column group's holes plus its own subtotal
+/// column, headed by the group's label ("Out", "In").
+struct ScoreGridBlock: Equatable, Sendable {
+    var label: String
+    var columnLabels: [String]
+    var rows: [ScoreGridBlockRow]
+}
+
+/// Split a card into ONE BLOCK PER COLUMN GROUP, in layout order (which is the
+/// round's play order — the fold froze it from the route sections).
 ///
-/// The column structure is `layout.columnGroups` (front/back, or whatever the
-/// route declares) and each row's cells are PARALLEL to it — so the table is
-/// built by zipping, never by matching hole numbers. `hasTotalColumn` decides
-/// whether the TOT column appears; this view does not second-guess it by
-/// counting groups.
+/// This is `renderBlock` in `src/round/result-render.ts`, which is the adapter a
+/// client-facing renderer follows: an 18-hole card is two stacked 9-hole tables,
+/// never one wide table that scrolls sideways, and the fold's whole-card TOT
+/// column is deliberately ignored — each block carries its own group subtotal
+/// and a TOT has no place in a stacked card. (`ScoreGridLayout.hasTotalColumn`
+/// and `GridRowLayout.total` stay in the shared fold for the verification
+/// oracle, which lays the groups out side by side in one table.)
+///
+/// One deliberate divergence: the web indexes `row.groups[i]!`. A row that is
+/// short a group is dropped from that block here instead of trapping — a
+/// malformed card must not take down the scorecard tab.
+func scoreGridBlocks(_ layout: ScoreGridLayout) -> [ScoreGridBlock] {
+    layout.columnGroups.enumerated().map { index, group in
+        ScoreGridBlock(
+            label: group.label,
+            columnLabels: group.columns.map(\.label),
+            rows: layout.rows.compactMap { row in
+                guard index < row.groups.count else { return nil }
+                let rowGroup = row.groups[index]
+                return ScoreGridBlockRow(
+                    kind: row.kind,
+                    label: row.composedLabel,
+                    emphasis: row.emphasis,
+                    team: row.team,
+                    cells: rowGroup.cells,
+                    subtotal: rowGroup.subtotal
+                )
+            }
+        )
+    }
+}
+
+/// Everything one scorecard card puts on screen, as DATA — so what the card
+/// draws (and, load-bearing here, what it does NOT draw) is one value a test can
+/// assert on instead of a claim about a SwiftUI body.
+struct ScoreGridCardComposition: Equatable, Sendable {
+    /// Empty when the card has no title — a match card renders no header at all.
+    var title: String
+    /// nil when the card has no subtitle facts.
+    var subtitle: String?
+    /// One stacked table block per column group, in layout order.
+    var blocks: [ScoreGridBlock]
+    var totals: [CardTotalLayout]
+
+    /// Every string the card draws OUTSIDE the grid blocks. The product card's
+    /// chrome is a title, a subtitle and the totals strip — deliberately not the
+    /// fold's `footnotes` or `caption`, which are verification-mode chrome on
+    /// the web (`renderScoreGridBase` gates both on `mode === 'verification'`).
+    var chromeText: [String] {
+        var out: [String] = []
+        if !title.isEmpty { out.append(title) }
+        if let subtitle { out.append(subtitle) }
+        for total in totals { out.append(total.label); out.append(total.value) }
+        return out
+    }
+
+    init(_ layout: ScoreGridLayout) {
+        title = layout.title.groups
+            .map { $0.joined(separator: layout.title.nameJoiner) }
+            .filter { !$0.isEmpty }
+            .joined(separator: layout.title.joiner)
+        subtitle = layout.subtitleFacts.isEmpty ? nil : layout.subtitleFacts.joined(separator: " · ")
+        blocks = scoreGridBlocks(layout)
+        totals = layout.totals
+    }
+}
+
+/// One scorecard card: a title, then one table block PER COLUMN GROUP stacked
+/// vertically, then the card's totals.
+///
+/// Two things this view deliberately does NOT draw, both following
+/// `renderScoreGridBase` in `src/round/result-render.ts`:
+///
+/// - **No TOT column and no sideways scroll.** Blocks are stacked (see
+///   `scoreGridBlocks`) and every block fits the page width.
+/// - **No footnotes and no caption.** The per-hole arithmetic block
+///   ("h10: 4 pts (netPar 6 − 4 = +2)") and the explanatory caption are gated on
+///   `mode === 'verification'` on the web — page chrome for the verification
+///   oracle, not for a live board. The fold carries both fields in every mode on
+///   purpose (`ScoreGridLayout.footnotes` / `.caption`); the GATING is
+///   adapter-side, and this adapter is the product one.
 ///
 /// Web: `.lb-card` + `.lb-grid` — a card surface, a hairline grid, sunken
 /// subtotal columns, and the row label column on the card's own surface.
 struct ScoreGridCardView: View {
     let layout: ScoreGridLayout
 
-    private let labelWidth: CGFloat = 96
-    private let cellWidth: CGFloat = 30
-    private let totalWidth: CGFloat = 38
+    /// Web: `.lb-rowlabel { width: 6em }` (76.8px) and `.lb-sum { width: 2.4em }`
+    /// (30.7px) at the grid's 0.8rem type. `sumWidth` follows the em math;
+    /// `labelWidth` is DELIBERATELY narrower than the web's 6em — 66pt buys the
+    /// nine hole columns room above the marker's 26pt halo footprint on a
+    /// 402pt device, at the cost of slightly earlier name truncation.
+    private let labelWidth: CGFloat = 66
+    private let sumWidth: CGFloat = 32
     private let rowHeight: CGFloat = 24
 
+    private var composition: ScoreGridCardComposition { ScoreGridCardComposition(layout) }
+
     var body: some View {
+        let card = composition
         TapCard {
             VStack(alignment: .leading, spacing: TapSpacing.sm) {
-                header
-                ScrollView(.horizontal, showsIndicators: true) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        headerRow
-                        hairline
-                        ForEach(Array(layout.rows.enumerated()), id: \.offset) { _, row in
-                            gridRow(row)
-                            hairline
-                        }
-                    }
+                header(card)
+                // Web: `.lb-card__scroll + .lb-card__scroll { margin-top: sm }`.
+                ForEach(Array(card.blocks.enumerated()), id: \.offset) { _, block in
+                    blockView(block)
                 }
-                if !layout.totals.isEmpty { totals }
-                if let caption = layout.caption {
-                    Text(caption)
-                        .font(TapFont.ui(size: 11.5))
-                        .italic()
-                        .foregroundStyle(TapColors.textMuted)
-                }
-                ForEach(Array(layout.footnotes.enumerated()), id: \.offset) { _, note in
-                    Text(note)
-                        .font(TapFont.ui(size: 11.5))
-                        .foregroundStyle(TapColors.textMuted)
-                }
+                if !card.totals.isEmpty { totals(card.totals) }
             }
             .padding(TapSpacing.md)
         }
@@ -244,9 +332,9 @@ struct ScoreGridCardView: View {
 
     /// Web: `.lb-card__totals` — a wrapping strip of "label value" facts under
     /// the grid. The strings are the fold's; this only lays them out.
-    private var totals: some View {
+    private func totals(_ facts: [CardTotalLayout]) -> some View {
         HStack(spacing: TapSpacing.lg) {
-            ForEach(Array(layout.totals.enumerated()), id: \.offset) { _, total in
+            ForEach(Array(facts.enumerated()), id: \.offset) { _, total in
                 HStack(spacing: TapSpacing.xs) {
                     Text(total.label.uppercased())
                         .font(TapFont.ui(size: 11.2, weight: .bold))
@@ -265,98 +353,122 @@ struct ScoreGridCardView: View {
     ///
     /// Names within a title group join with `nameJoiner`, groups with `joiner`.
     /// Both separators come from the layout — no literal `" vs. "` here.
-    private var header: some View {
+    private func header(_ card: ScoreGridCardComposition) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(
-                layout.title.groups
-                    .map { $0.joined(separator: layout.title.nameJoiner) }
-                    .joined(separator: layout.title.joiner)
-            )
-            .font(TapFont.display(size: 16, weight: .semibold))
-            .foregroundStyle(TapColors.text)
-
-            if !layout.subtitleFacts.isEmpty {
-                Text(layout.subtitleFacts.joined(separator: " · "))
+            // Web: a match card with no title renders no `<header>` at all —
+            // the team-tinted row labels already say who is who.
+            if !card.title.isEmpty {
+                Text(card.title)
+                    .font(TapFont.display(size: 16, weight: .semibold))
+                    .foregroundStyle(TapColors.text)
+            }
+            if let subtitle = card.subtitle {
+                Text(subtitle)
                     .font(TapFont.ui(size: 12))
                     .foregroundStyle(TapColors.textMuted)
             }
         }
     }
 
+    // MARK: one stacked block
+
+    /// A block wider than ~9 hole columns cannot fit the page (the marker's
+    /// 26pt halo footprint sets the floor), which happens only when the round
+    /// declares no route sections and the fold falls back to one group with
+    /// every hole. The web keeps `.lb-card__scroll { overflow-x: auto }` for
+    /// exactly that degradation — mirror it: scroll the OVERSIZED block, keep
+    /// normal blocks fixed so Out/In always fit without scrolling.
+    private let maxFixedColumns = 10
+
+    @ViewBuilder
+    private func blockView(_ block: ScoreGridBlock) -> some View {
+        if block.columnLabels.count > maxFixedColumns {
+            ScrollView(.horizontal, showsIndicators: false) {
+                blockTable(block).frame(minWidth: labelWidth + sumWidth + CGFloat(block.columnLabels.count) * 28)
+            }
+        } else {
+            blockTable(block)
+        }
+    }
+
+    private func blockTable(_ block: ScoreGridBlock) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            headerRow(block)
+            hairline
+            ForEach(Array(block.rows.enumerated()), id: \.offset) { _, row in
+                gridRow(row)
+                hairline
+            }
+        }
+    }
+
     /// Web: `<th class="lb-rowlabel">Hole</th>` + the group's hole numbers + the
     /// group label in the sunken subtotal column.
-    private var headerRow: some View {
+    private func headerRow(_ block: ScoreGridBlock) -> some View {
         HStack(spacing: 0) {
             Text("Hole")
                 .font(TapFont.ui(size: 11.2, weight: .bold))
                 .foregroundStyle(TapColors.textMuted)
                 .frame(width: labelWidth, alignment: .leading)
-            ForEach(Array(layout.columnGroups.enumerated()), id: \.offset) { _, group in
-                ForEach(Array(group.columns.enumerated()), id: \.offset) { _, column in
-                    Text(column.label)
-                        .font(TapFont.ui(size: 11.2, weight: .bold))
-                        .foregroundStyle(TapColors.textMuted)
-                        .frame(width: cellWidth, height: rowHeight)
-                }
-                subtotalCell(group.label, bold: true)
+            ForEach(Array(block.columnLabels.enumerated()), id: \.offset) { _, label in
+                Text(label)
+                    .font(TapFont.ui(size: 11.2, weight: .bold))
+                    .foregroundStyle(TapColors.textMuted)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: rowHeight)
             }
-            if layout.hasTotalColumn {
-                subtotalCell("TOT", bold: true)
-            }
+            subtotalCell(block.label, bold: true, emphasis: false)
         }
         .frame(height: rowHeight)
-        .padding(.horizontal, 2)
     }
 
     /// Web: `.lb-sum` — bold, on the sunken surface.
-    private func subtotalCell(_ text: String, bold: Bool) -> some View {
+    private func subtotalCell(_ text: String, bold: Bool, emphasis: Bool) -> some View {
         Text(text)
-            .font(TapFont.ui(size: bold ? 11.2 : 12.8, weight: .bold))
+            .font(TapFont.ui(size: bold ? 11.2 : 12.8, weight: emphasis ? .extraBold : .bold))
             .foregroundStyle(bold ? TapColors.textMuted : TapColors.text)
-            .frame(width: totalWidth, height: rowHeight)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(width: sumWidth, height: rowHeight)
             .background(TapColors.surfaceSunken)
     }
 
-    private func gridRow(_ row: GridRowLayout) -> some View {
+    private func gridRow(_ row: ScoreGridBlockRow) -> some View {
         HStack(spacing: 0) {
-            Text(row.composedLabel)
+            Text(row.label)
                 .font(TapFont.ui(size: 12.8, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(width: labelWidth, alignment: .leading)
-                .foregroundStyle(labelInk(row))
+                .foregroundStyle(ink(row))
 
-            // Parallel to `columnGroups` by contract — zip, never match.
-            ForEach(Array(row.groups.enumerated()), id: \.offset) { _, group in
-                ForEach(Array(group.cells.enumerated()), id: \.offset) { _, cell in
-                    CellView(cell: cell, dim: isDim(row), compact: isSI(row))
-                        .frame(width: cellWidth, height: rowHeight)
-                }
-                subtotalCell(group.subtotal, bold: false)
+            ForEach(Array(row.cells.enumerated()), id: \.offset) { _, cell in
+                CellView(cell: cell, ink: ink(row), compact: isSI(row), emphasis: row.emphasis)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: rowHeight)
             }
-            if layout.hasTotalColumn {
-                subtotalCell(row.total, bold: false)
-            }
+            subtotalCell(row.subtotal, bold: false, emphasis: row.emphasis)
         }
         .frame(height: rowHeight)
-        .padding(.horizontal, 2)
     }
 
-    /// Web: `.lb-team-a/-b th` tint the label, `.lb-r-dim` mutes the SI and
-    /// given-strokes rows.
-    private func labelInk(_ row: GridRowLayout) -> Color {
+    /// The cell ink a marker/plain value INHERITS. Web: `.lb-team-a/-b` colour
+    /// the whole row (and its cells), `.lb-r-dim` mutes the SI and given rows.
+    private func ink(_ row: ScoreGridBlockRow) -> Color {
         if let team = row.team { return TeamTint(team).color }
         return isDim(row) ? TapColors.textMuted : TapColors.text
     }
 
     /// Web: `.lb-r-dim` is added for the `si` and `given` row kinds.
-    private func isDim(_ row: GridRowLayout) -> Bool {
+    private func isDim(_ row: ScoreGridBlockRow) -> Bool {
         row.kind == "si" || row.kind == "given"
     }
 
     /// Web: `.lb-c-si` — the stroke-index row's cells alone are set at 0.7rem.
     /// `given` is dimmed but NOT shrunk, so the two cannot share one flag.
-    private func isSI(_ row: GridRowLayout) -> Bool {
+    private func isSI(_ row: ScoreGridBlockRow) -> Bool {
         row.kind == "si"
     }
 }
@@ -366,194 +478,135 @@ struct ScoreGridCardView: View {
 /// `CellDecorationLayout` is a closed union and every case is handled:
 /// `.plain`, `.pill(team:)` and `.marker(template:tone:label:teamFill:)`.
 ///
-/// The marker's shape and fill come from `ScoreMarkerForm` — the SAME table the
-/// score circle tints from — so a birdie is one red disc everywhere in the app.
-/// A template with no form is NOT one bucket, because `MARKER_TOKENS` does not
-/// treat it as one:
-///
-/// - `dot` is the bare base shape — "no fill, no border, inherits cell colour".
-///   It draws as tone-coloured text with no shape at all (and, when the flag
-///   carries no text, as a small filled dot so it is still visible).
-/// - `badge` is `width: auto; min-width: 1.8em` with `0.45em` side padding and
-///   a 2px `currentColor` border — a labelled outline pill that must grow with
-///   its text.
-/// - `custom`, or a template this client predates, takes the badge treatment
-///   too: the web's "visible as unfinished" outcome (`marker-tokens.ts` rule 4).
+/// A marker's appearance is NOT decided here — `MarkerVisual.resolve` runs the
+/// web's `.lb-mark` cascade and this view draws the result, so "what a
+/// double_ring looks like when the deciding ball carries it" is one testable
+/// value rather than a branch buried in a body.
 struct CellView: View {
     let cell: CellLayout
-    var dim: Bool = false
+    /// The colour the cell inherits from its row — what `currentColor` resolves
+    /// to for a bare or outline marker.
+    var ink: Color = TapColors.text
     /// Web: `.lb-c-si { font-size: 0.7rem }` — the stroke-index row is set
-    /// smaller than the score rows, on top of the shared `.lb-r-dim` muting.
+    /// smaller than the score rows.
     var compact: Bool = false
+    /// Web: `renderScoreGridBase` wraps an emphasised row's values in `<strong>`.
+    var emphasis: Bool = false
 
-    private let size: CGFloat = 22
+    /// Web: `.lb-mark { width: 1.7em; height: 1.7em }` at the grid's 0.8rem.
+    private let markerSize: CGFloat = 21
+    private let markerFontSize: CGFloat = 11.2
 
     var body: some View {
         content
-            .accessibilityLabel(cell.title ?? cell.text)
+            .accessibilityLabel(accessibilityText)
+    }
+
+    private var accessibilityText: String {
+        if case let .marker(_, _, label, _) = cell.decoration, let label { return label }
+        return cell.title ?? cell.text
     }
 
     @ViewBuilder
     private var content: some View {
         switch cell.decoration {
         case .plain:
-            text(TapColors.text)
+            text(ink)
         case let .pill(team):
             // Web: `.lb-pill` — team-colour background, white text.
             text(TeamTint(team).onColor)
-                .frame(minWidth: size, minHeight: 17)
+                .padding(.horizontal, markerFontSize * 0.45)
+                .frame(minWidth: markerSize * 0.8, minHeight: 17)
                 .background(Capsule().fill(TeamTint(team).color))
-        case let .marker(template, tone, label, teamFill):
-            marker(template: template, tone: tone, label: label, teamFill: teamFill)
+        case let .marker(template, tone, _, teamFill):
+            MarkerBox(
+                visual: MarkerVisual.resolve(template: template, tone: tone, teamFill: teamFill),
+                text: cell.text,
+                inheritedInk: ink,
+                size: markerSize,
+                fontSize: markerFontSize
+            )
         }
     }
 
     private func text(_ color: Color) -> some View {
         Text(cell.text)
-            .font(TapFont.ui(size: compact ? 11.2 : 12.8, weight: .semibold))
-            .foregroundStyle(dim ? TapColors.textMuted : color)
+            .font(TapFont.ui(size: compact ? 11.2 : 12.8, weight: emphasis ? .extraBold : .semibold))
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
     }
+}
+
+/// Draws a resolved `MarkerVisual`: the halo outside the box, the fill, the
+/// concentric rings inside it, and the value on top.
+///
+/// The shape branch is on the CONCRETE type rather than a type-erased one
+/// because `strokeBorder` — which is what keeps a ring INSIDE the marker's box
+/// (the web's `box-sizing: border-box`) instead of straddling its edge — needs
+/// `InsettableShape`, and `AnyShape` drops it.
+struct MarkerBox: View {
+    let visual: MarkerVisual
+    let text: String
+    let inheritedInk: Color
+    var size: CGFloat = 21
+    var fontSize: CGFloat = 11.2
+
+    var body: some View {
+        if visual.shape == .boxy {
+            // Web: the shared `border-radius: 3px` rule for the boxy forms.
+            faces(RoundedRectangle(cornerRadius: 3, style: .continuous))
+        } else {
+            // Web: the base `.lb-mark { border-radius: 999px }`.
+            faces(Capsule(style: .continuous))
+        }
+    }
+
+    private var ink: Color { visual.inkHex.map { Color(webHex: $0) } ?? inheritedInk }
 
     @ViewBuilder
-    private func marker(
-        template: String,
-        tone: MarkerTone?,
-        label: String?,
-        teamFill: GridRowTeam?
-    ) -> some View {
-        let form = ScoreMarkerForm(webTemplate: template)
-        let fill = teamFill.map { TeamTint($0).color } ?? form?.fill
-        Group {
-            if let fill {
-                filledMarker(form: form, fill: fill, ringed: teamFill != nil)
-            } else if template == "dot" {
-                dotMarker(tone: tone)
-            } else {
-                badgeMarker(tone: tone)
-            }
-        }
-        // The marker's word ("Birdie") is the web's `title` tooltip, not printed
-        // ink — a 22pt cell in a 30pt column has no room for it, and drawn small
-        // enough to fit it collides with the row above. It is announced instead.
-        .accessibilityLabel(label ?? cell.title ?? cell.text)
-    }
-
-    /// One of the six par shapes, or any form carrying a team fill.
-    private func filledMarker(form: ScoreMarkerForm?, fill: Color, ringed: Bool) -> some View {
-        ZStack {
-            MarkerShape(
-                // Web: `boxy` forms get 3px corners; everything else is the
-                // 999px pill.
-                boxy: form?.isBoxy == true,
-                fill: fill,
-                // Web: `.lb-mark-fill--a/b { border: 2px solid #fff }` — the
-                // white ring is what keeps a team-filled marker from reading as
-                // the plain standing pill.
-                ringed: ringed
-            )
-            .frame(width: size, height: size)
-
-            Text(cell.text)
-                .font(TapFont.ui(size: 11.2, weight: .bold))
-                .foregroundStyle(Color.white)
-        }
-        .frame(width: size, height: size)
-    }
-
-    /// Web: `MARKER_TOKENS.dot` — "the bare base shape (no fill, no border) —
-    /// inherits cell colour". A lightweight per-hole flag, so it must stay
-    /// lighter than the badge's outline pill: no shape, just the tone.
-    @ViewBuilder
-    private func dotMarker(tone: MarkerTone?) -> some View {
-        if cell.text.isEmpty {
-            // A flag with nothing to print still has to be visible; the base
-            // shape at its smallest is a filled dot in the inherited colour.
+    private func faces<S: InsettableShape>(_ shape: S) -> some View {
+        if visual.isBare && text.isEmpty {
+            // A bare flag with nothing to print still has to be visible; the
+            // base shape at its smallest is a filled dot in the inherited ink.
             Circle()
-                .fill(markerColor(tone))
+                .fill(inheritedInk)
                 .frame(width: 6, height: 6)
                 .frame(width: size, height: size)
         } else {
-            Text(cell.text)
-                .font(TapFont.ui(size: 11.2, weight: .bold))
-                .foregroundStyle(markerColor(tone))
-                .frame(minWidth: size, minHeight: size)
+            label
+                .frame(width: visual.autoWidth ? nil : size, height: size)
+                .frame(minWidth: visual.autoWidth ? fontSize * 1.8 : nil)
+                .background(backdrop(shape))
         }
     }
 
-    /// Web: `MARKER_TOKENS.badge` — `width: auto; min-width: 1.8em;` with
-    /// `0.45em` of side padding and a 2px `currentColor` border. The width is
-    /// AUTO by contract: a badge carries short text ("2UP", "+4") and a fixed
-    /// box would clip it. Also the fallback for `custom` and for a template
-    /// this client predates.
-    private func badgeMarker(tone: MarkerTone?) -> some View {
-        // 1.8em / 0.45em against the badge's own 11.2pt text.
-        let minWidth = 11.2 * 1.8
-        let padding = 11.2 * 0.45
-        return Text(cell.text)
-            .font(TapFont.ui(size: 11.2, weight: .bold))
-            .foregroundStyle(markerColor(tone))
+    private var label: some View {
+        Text(text)
+            .font(TapFont.ui(size: fontSize, weight: .bold))
+            .foregroundStyle(ink)
             .lineLimit(1)
-            .padding(.horizontal, padding)
-            .frame(minWidth: minWidth, minHeight: size)
-            .background(
-                Capsule().strokeBorder(markerColor(tone), lineWidth: 1.5)
-            )
+            .minimumScaleFactor(0.7)
+            // Web: `padding-left/right: 0.45em` on the auto-width badge only.
+            .padding(.horizontal, visual.autoWidth ? fontSize * 0.45 : 0)
     }
 
-    private func markerColor(_ tone: MarkerTone?) -> Color {
-        switch tone {
-        case .success: TapColors.success
-        case .warning: TapColors.warning
-        case .danger: TapColors.danger
-        case nil: TapColors.textMuted
-        }
-    }
-}
-
-/// The marker's filled disc or rounded square, with the team-fill ring.
-///
-/// The branch is on the CONCRETE shape rather than a type-erased one because
-/// `strokeBorder` — which is what keeps a 2pt ring inside the marker's 22pt box
-/// instead of straddling its edge — needs `InsettableShape`, and `AnyShape`
-/// drops it.
-private struct MarkerShape: View {
-    let boxy: Bool
-    let fill: Color
-    let ringed: Bool
-
-    var body: some View {
-        if boxy {
-            faces(RoundedRectangle(cornerRadius: 3, style: .continuous))
-        } else {
-            faces(Circle())
-        }
-    }
-
-    private func faces<S: InsettableShape>(_ shape: S) -> some View {
+    @ViewBuilder
+    private func backdrop<S: InsettableShape>(_ shape: S) -> some View {
         ZStack {
-            shape.fill(fill)
-            if ringed { shape.strokeBorder(Color.white, lineWidth: 2) }
-        }
-    }
-}
-
-extension ScoreMarkerForm {
-    /// The wire template string → this table's form.
-    ///
-    /// The spellings are `MARKER_TOKENS`' keys in `src/round/marker-tokens.ts`
-    /// (snake_case, straight off the server vocabulary). `dot`, `badge` and
-    /// `custom` deliberately map to nil: they are the web's bare/outline forms,
-    /// not one of the six par shapes. `CellView` tells those three apart —
-    /// nil here means "not a par shape", never "draw the same fallback".
-    init?(webTemplate: String) {
-        switch webTemplate {
-        case "ring": self = .ring
-        case "double_ring": self = .doubleRing
-        case "diamond": self = .diamond
-        case "square": self = .square
-        case "double_square": self = .doubleSquare
-        case "box_badge": self = .boxBadge
-        default: return nil
+            // Web: `box-shadow: 0 0 0 2.5px <team>` — drawn OUTSIDE the box, so
+            // the marker reads as fill / white gap-ring / team ring.
+            if let haloHex = visual.haloHex {
+                shape.fill(Color(webHex: haloHex)).padding(-visual.haloWidth)
+            }
+            if let fillHex = visual.fillHex {
+                shape.fill(Color(webHex: fillHex))
+            }
+            ForEach(Array(visual.rings.enumerated()), id: \.offset) { _, ring in
+                shape
+                    .strokeBorder(ring.hex.map { Color(webHex: $0) } ?? inheritedInk, lineWidth: ring.width)
+                    .padding(ring.inset)
+            }
         }
     }
 }

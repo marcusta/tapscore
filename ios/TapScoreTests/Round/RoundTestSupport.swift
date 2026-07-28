@@ -264,10 +264,25 @@ enum RoundFixtures {
     static let token = "tok-1"
     static let roundId = "round-1"
 
-    static func playHole(_ id: String, ordinal: Int, number: Int, par: Int) -> String {
-        """
+    /// `baseStrokeIndex` is the hole NUMBER, so `ph-1` is SI 1 and `ph-2` is
+    /// SI 2 — the handicap-hint tests read strokes off that.
+    ///
+    /// - Parameter teeStrokeIndex: when set, the hole also carries a "Yellow"
+    ///   tee whose (already effective, override → base) stroke index is this.
+    ///   A ball whose first producer plays that tee must allocate off it and
+    ///   not off `baseStrokeIndex`.
+    static func playHole(
+        _ id: String, ordinal: Int, number: Int, par: Int, teeStrokeIndex: Int? = nil
+    ) -> String {
+        let tees =
+            teeStrokeIndex.map {
+                """
+                [{"teeRef":"tee-yellow","teeName":"Yellow","lengthM":300,"strokeIndex":\($0)}]
+                """
+            } ?? "[]"
+        return """
         {"id":"\(id)","playHoleDefId":"def-\(id)","ordinal":\(ordinal),
-         "courseHoleNumber":\(number),"par":\(par),"baseStrokeIndex":\(number),"tees":[]}
+         "courseHoleNumber":\(number),"par":\(par),"baseStrokeIndex":\(number),"tees":\(tees)}
         """
     }
 
@@ -279,11 +294,18 @@ enum RoundFixtures {
     ///   the client doing anything. That is the itinerary-changed-under-you
     ///   case the pending jump's fire-time `fromHoleId` check exists for, and a
     ///   reload is the one path that reaches it without cancelling the jump.
-    static func byToken(status: String = "active", holes: Int = 2, reversedOrder: Bool = false)
-        -> String
-    {
+    static func byToken(
+        status: String = "active",
+        holes: Int = 2,
+        reversedOrder: Bool = false,
+        par: Int = 4,
+        teeStrokeIndex: Int? = nil
+    ) -> String {
         let playHoles = (1...holes)
-            .map { playHole("ph-\($0)", ordinal: $0, number: $0, par: 4) }
+            .map {
+                playHole(
+                    "ph-\($0)", ordinal: $0, number: $0, par: par, teeStrokeIndex: teeStrokeIndex)
+            }
             .joined(separator: ",")
         let order = reversedOrder ? Array((1...holes).reversed()) : Array(1...holes)
         let played = order
@@ -332,18 +354,36 @@ enum RoundFixtures {
 
     /// Two balls. `secondPending` turns the second into a still-unclaimed
     /// placeholder seat, which is the case the non-scoreable rules exist for.
-    static func balls(secondPending: Bool = false) -> String {
-        """
+    ///
+    /// - Parameters:
+    ///   - playingHandicap: seats a `slot-0` entry carrying this PH on BOTH
+    ///     balls. Absent by default — a round with no PH shows no handicap hint
+    ///     at all, and that is the shape most of these tests want.
+    ///   - teeName: the first producer's tee, which is what resolves a hole's
+    ///     effective stroke index.
+    static func balls(
+        secondPending: Bool = false,
+        playingHandicap: Double? = nil,
+        teeName: String? = nil
+    ) -> String {
+        let slots =
+            playingHandicap.map {
+                """
+                [{"slotDefId":"slot-0","slotIndex":0,"playingHandicap":\($0),"teamLabel":null}]
+                """
+            } ?? "[]"
+        let tee = teeName.map { "\"\($0)\"" } ?? "null"
+        return """
         [{"id":"ball-1","label":"Ada","courseHandicap":10,
           "players":[{"producerDefId":"p1","playerId":"p-1","guestPlayerId":null,
-            "displayName":"Ada","handicapIndex":10,"teeName":null,"courseHandicap":10,
+            "displayName":"Ada","handicapIndex":10,"teeName":\(tee),"courseHandicap":10,
             "pending":false}],
-          "slots":[],"pending":false},
+          "slots":\(slots),"pending":false},
          {"id":"ball-2","label":"Bo","courseHandicap":null,
           "players":[{"producerDefId":"p2","playerId":null,"guestPlayerId":"g-2",
-            "displayName":"Bo","handicapIndex":null,"teeName":null,"courseHandicap":null,
+            "displayName":"Bo","handicapIndex":null,"teeName":\(tee),"courseHandicap":null,
             "pending":\(secondPending)}],
-          "slots":[],"pending":\(secondPending)}]
+          "slots":\(slots),"pending":\(secondPending)}]
         """
     }
 

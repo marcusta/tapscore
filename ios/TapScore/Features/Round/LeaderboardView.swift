@@ -79,11 +79,14 @@ struct LeaderboardView: View {
 
     /// Selection is by `slotDefId` — the round's slots and the result's slots
     /// are two lists and their indices are not a contract.
+    ///
+    /// A real selection (the header's chip row) always wins; the launch
+    /// argument only decides which slot an unattended run opens on.
     private func selectedSlot(_ slots: [SlotResultView]) -> SlotResultView? {
         if let wanted = store.selectedSlot, let match = slots.first(where: { $0.slotDefId == wanted }) {
             return match
         }
-        return slots.first
+        return LaunchSlot.slot(in: slots) ?? slots.first
     }
 
     @ViewBuilder
@@ -111,5 +114,58 @@ struct LeaderboardView: View {
         ForEach(Array(slot.cards.enumerated()), id: \.offset) { _, card in
             ScoreGridCardView(layout: layoutScoreGrid(card, routeSections, nameOf))
         }
+    }
+}
+
+
+/// `-tapscoreSlot <formatId | slotDefId | index>` — which format's board a
+/// headless launch opens on.
+///
+/// The same seam, and the same DEBUG-only rule, as `LaunchTab` in
+/// `RoundView.swift`: `simctl` can open a round and pick a tab but cannot press
+/// the header's format chip, so a screenshot of the SECOND format's scorecard
+/// would otherwise need a human finger. It picks between boards the user can
+/// already reach and never invents one — an argument matching no slot is
+/// ignored, and a tapped chip beats it.
+///
+/// It moves the BOARD only: the header's chip row reads the store's own
+/// selection, so a run driven by this argument shows the default chip
+/// highlighted over another format's board. That is a known cosmetic artefact
+/// of the debug seam, not something the app can do in a user's hands.
+///
+/// ```sh
+/// xcrun simctl launch <udid> com.marcusandersson.tapscore \
+///     -apiBaseURL http://localhost:3030/api \
+///     -tapscoreDeepLink 'tapscore://round?token=…' \
+///     -tapscoreTab board -tapscoreSlot taliban_better_ball
+/// ```
+enum LaunchSlot {
+    static let argument = "-tapscoreSlot"
+
+    static func slot(
+        in slots: [SlotResultView],
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> SlotResultView? {
+        #if DEBUG
+        return match(in: slots, arguments: arguments)
+        #else
+        return nil
+        #endif
+    }
+
+    /// Pure lookup, split out so the spelling stays testable without a process
+    /// (and so release semantics are testable from the always-DEBUG test bundle).
+    static func match(in slots: [SlotResultView], arguments: [String]) -> SlotResultView? {
+        guard let index = arguments.firstIndex(of: argument), index + 1 < arguments.count else {
+            return nil
+        }
+        let wanted = arguments[index + 1]
+        if let byId = slots.first(where: { $0.slotDefId == wanted || $0.formatId == wanted }) {
+            return byId
+        }
+        if let position = Int(wanted), position >= 0, position < slots.count {
+            return slots[position]
+        }
+        return nil
     }
 }

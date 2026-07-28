@@ -394,11 +394,21 @@ final class AppEnvironment {
     /// to the user. There is no error to surface, because there is no request
     /// the user made. `didProbeRoles` is set REGARDLESS, so a failure is not
     /// retried.
+    ///
+    /// **The predicate is `role == super_admin` AND `scopeType == nil`**, which
+    /// is `src/admin/admin.service.ts`'s `isSuperAdmin` character for character
+    /// (`g.role === 'super_admin' && g.scopeType === null`) and what
+    /// `server/api/admin-authz.ts` enforces per request. `super_admin` is
+    /// unscoped by construction, so a scoped row carrying that role should not
+    /// exist — but "should not exist" is not a gate. Matching on the role alone
+    /// would let a future scoped grant (or a hand-written DB row) light up an
+    /// entry point the server then refuses, which is the one failure mode this
+    /// screen must not have: an Admin row that leads to a 403.
     func probeRolesIfNeeded() async {
         guard !didProbeRoles, case .signedIn = authState else { return }
         didProbeRoles = true
         guard let grants = try? await api.send(AdminEndpoints.myRoles) else { return }
-        isSuperAdmin = grants.contains { $0.role == .superAdmin }
+        isSuperAdmin = grants.contains { $0.role == .superAdmin && $0.scopeType == nil }
     }
 
     // MARK: - Deep links
