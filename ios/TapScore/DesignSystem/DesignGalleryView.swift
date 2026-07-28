@@ -24,6 +24,10 @@ struct DesignGalleryView: View {
     @State private var selectedChip = 1
     @State private var tab = Tab.score
     @State private var hole = 7
+    @State private var galleryCourse: String? = "lkpg"
+    @State private var gallerySearch = ""
+    @State private var galleryHole = 10
+    @State private var galleryTee: String? = "rod"
 
     private enum Tab: Hashable { case score, leaderboard }
 
@@ -35,6 +39,7 @@ struct DesignGalleryView: View {
                     typography
                     buttons
                     chips
+                    dropdowns
                     badges
                     cards
                     scoreCircles
@@ -123,6 +128,62 @@ struct DesignGalleryView: View {
                     TapChip(title: "Group 2", tone: .accent)
                 }
             }
+        }
+    }
+
+    /// The long-choice control (`TapDropdown`) next to the short-choice one
+    /// (`TapChip`), because the standing rule in `ios/AGENTS.md` is about
+    /// choosing BETWEEN them — and because a warning that renders as words in a
+    /// tone rather than an emoji has to be looked at to be believed.
+    private var dropdowns: some View {
+        section("Dropdowns") {
+            TapDropdown(
+                placeholder: "Choose course",
+                title: "Course",
+                selection: galleryCourse,
+                groups: [
+                    TapDropdownGroup(id: "halmstad", header: "Halmstad GK", rows: [
+                        TapDropdownRow(value: "north", title: "North"),
+                    ]),
+                    TapDropdownGroup(id: "lkpg", header: "Linköpings Golfklubb", rows: [
+                        TapDropdownRow(value: "lkpg", title: "Linköping"),
+                    ]),
+                ],
+                selectedRow: TapDropdownRow(
+                    value: "lkpg", title: "Linköping", subtitle: "LINKÖPINGS GOLFKLUBB"),
+                search: TapDropdownSearch(
+                    prompt: "Search club or course",
+                    text: $gallerySearch,
+                    emptyPrefix: "No courses match"),
+                onSelect: { galleryCourse = $0 })
+
+            TapDropdown(
+                label: "Start hole",
+                placeholder: "Hole 1",
+                title: "Start hole",
+                selection: galleryHole,
+                groups: [TapDropdownGroup(rows: (1...18).map { hole in
+                    TapDropdownRow(
+                        value: hole,
+                        title: "Hole \(hole)",
+                        annotation: hole == 1
+                            ? nil
+                            : TapDropdownAnnotation("Won't count for handicap"))
+                })],
+                onSelect: { galleryHole = $0 })
+
+            TapDropdown(
+                label: "Women",
+                placeholder: "Choose tee",
+                title: "Women's tee",
+                selection: galleryTee,
+                groups: [TapDropdownGroup(rows: [
+                    TapDropdownRow(value: "vit", title: "Vit", annotation: TapDropdownAnnotation(
+                        "No women's rating", tone: .danger)),
+                    TapDropdownRow(value: "gul", title: "Gul"),
+                    TapDropdownRow(value: "rod", title: "Röd"),
+                ])],
+                onSelect: { galleryTee = $0 })
         }
     }
 

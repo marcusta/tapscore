@@ -27,6 +27,57 @@ Terms used throughout:
   by `producerDefId` (`p1..pN` positionally in create mode).
 - **format slot** — one entry of the draft's `formats[]`.
 - **route** — the played-holes description (`roundType`, optional `route`).
+- **chip** — a pill in an always-visible row; the whole option set is on screen.
+- **dropdown** — a collapsed field showing the ANSWER, which opens an overlay
+  list of the options.
+- **annotation** — a row-level qualifier inside a dropdown list, written as
+  words in a muted or danger tone.
+
+---
+
+## 0. Control shapes (normative, whole flow)
+
+The web is the reference, and on every long choice the web already uses a
+collapsed dropdown: its course select, its start-hole select and its tee selects
+are all `<select>`-alikes with a raised list. This section makes that binding so
+the question is not re-litigated per control.
+
+**B0.1** WHEN a choice offers **at most 3–4 short options that are worth having
+permanently on screen** THEN it MAY be rendered as chips or a segmented row.
+The rule is the test, not a headcount — but for orientation, the sets that pass
+it today are the **route preset** (Full 18 / Front 9 / Back 9), the **holes
+toggle**, the **format template cards**, the per-row **gender toggle**
+(Men / Women), the per-slot **config knobs** a format declares (each a handful
+of short options), and the **step bar** (Course / Players / Format), which is
+navigation drawn in the same chip. Anything not on that list is B0.2's until an
+owner says otherwise; adding to it means showing the choice meets the test
+above, not that the list had room.
+
+§0 governs choosing ONE of a set. Multi-select ticks — the custom slot's "who
+this game scores" — are not dropdown candidates at all: a collapsed field can
+show one answer, and the question there is which subset, asked of a roster the
+user is already looking at.
+
+**B0.2** WHEN a choice offers **more than that, or options whose labels are long
+or unbounded in number** THEN it MUST be rendered as a **collapsed dropdown
+field** — at least 44pt, showing the selected value (or a muted placeholder),
+with a chevron — that opens an overlay list. This binds, at minimum: the
+**course**, the **start hole**, the **round's tee defaults**, and the
+**per-player tee override**. A wrapped wall of chips for any of these is a
+deviation, not a style choice: eighteen start-hole chips in three rows push the
+questions below them off the screen and re-ask a question already answered.
+
+**B0.3** WHEN a dropdown option needs qualifying (a missing rating, a handicap
+consequence) THEN the qualifier is an **annotation on that row** — WORDS, in a
+muted or danger tone, e.g. `Orange — no men's rating` — and never an emoji or a
+symbol appended to the option's label. An emoji has no accessible name, no
+theme token and no room to say what it meant. When the qualified option is the
+selected one, the collapsed field repeats the annotation.
+
+**B0.4** WHEN two dropdowns exist anywhere in this flow THEN they are the SAME
+control: one primitive, one overlay anatomy (optional search, optional
+non-selectable group headers, rows with title + optional annotation + a
+checkmark on the selection, tap ⇒ select and dismiss).
 
 ---
 
@@ -120,8 +171,24 @@ courses inside a group appear in the order the server returned them.
 the server's order (club name ascending, then course name ascending) and does
 **not** re-sort. If a future server changes the order, the client follows it.
 
-**B2.3** WHEN the course selector is open THEN a **search field** is present and
-focused-ready at the top of the list.
+**B2.3** WHEN the Course step is shown THEN the course selector is a
+**collapsed dropdown field per §0 B0.2** — never chips, never an inline list.
+One control, field-styled, at least 44pt,
+showing the selected course's name (placeholder per B2.7 until there is one) and
+a chevron affording "this opens". The grouped list of B2.1 is **not** rendered
+inline on the step: it exists only inside the overlay B2.3a describes. An
+always-expanded list of clubs and courses does not satisfy this clause — it
+pushes the route, start-hole and tee controls (B1.6, §3, §4.4) off the screen
+they belong to, and it re-asks a question that has already been answered every
+time the step is revisited.
+
+**B2.3a** WHEN the collapsed selector is tapped THEN an **overlay picker**
+(sheet) opens containing, in this order: a **search field at the top, focused on
+open**, then the grouped list of B2.1 — uppercase, muted, non-interactive club
+headers with their courses beneath — with a **checkmark on the currently
+selected course**. Choosing a course selects it (B2.8) and **closes the
+overlay** in the same act; no separate confirm step. Dismissing without choosing
+leaves the selection unchanged.
 
 **B2.4** WHEN the user types `q` into the search field THEN the list shows every
 course whose **course name OR club name** contains `q`, case-insensitively and
@@ -134,8 +201,9 @@ state is shown ("No courses match …"), not a blank list.
 **B2.6** WHEN the search field is cleared THEN the full grouped list is restored
 with grouping intact.
 
-**B2.7** WHEN nothing is selected yet THEN the selector shows a placeholder
-("Select a course"). iOS **does not** auto-select the first course — an
+**B2.7** WHEN nothing is selected yet THEN the collapsed selector of B2.3 shows
+a placeholder in muted text ("Choose course"; the web's wording is "Select a
+course"). iOS **does not** auto-select the first course — an
 auto-selected course is indistinguishable from a chosen one and silently ships a
 wrong `courseId`. Selection is an explicit act.
 
@@ -253,6 +321,23 @@ bare integer — the shape `src/create/setup.service.ts` emits.)
 **B3.7** WHEN the start hole is not the first hole THEN the UI states that the
 round is **not handicap-posting**, because the draft says so. A silent
 `postingEligible: false` is a deviation.
+
+**B3.8** WHEN the start-hole control is shown THEN it is a **collapsed dropdown
+field per §0 B0.2** — a 44pt field reading the chosen hole ("Start hole — 1"),
+opening a list of exactly the route's permitted holes, one row each, with a
+checkmark on the current one. **No search field** (eighteen rows scroll in one
+flick) and **no chips**: a wrapped grid of eighteen hole pills is the rejected
+shape, and it buries the tee controls below it.
+
+**B3.9** WHEN a start-hole row would rotate the route (any hole that is not the
+route's first — B3.6) THEN that row carries the B3.7 disclosure as a **muted
+annotation** ("Won't count for handicap"), so the consequence is readable
+**before** the choice, not only after it. The route's own head (1 on full_18 /
+front_9, 10 on back_9) carries no annotation. The step-level sentence of B3.7
+stays: the annotation announces, the sentence confirms.
+
+**B3.10** The route preset itself (Full 18 / Front 9 / Back 9) REMAINS chips —
+three short options, §0 B0.1.
 
 ### 3.3 Start-hole test vectors
 
@@ -372,6 +457,18 @@ defaults: a **default tee for male players** and a **default tee for female
 players**. Both are user-changeable on the Course step, both are shown with the
 sorted tee list of §4.3.
 
+**B4.2a** WHEN either gender default is shown THEN it is a **collapsed dropdown
+field per §0 B0.2**, labelled with the gender ("Men", "Women"), reading the
+chosen tee, opening the §4.3-ordered list. Two rows of tee chips per gender is
+the rejected shape.
+
+**B4.2b** WHEN a tee has **no rating row for the gender of the picker it appears
+in** THEN that row carries a **danger annotation in words** — "No men's rating" /
+"No women's rating" (§0 B0.3) — and REMAINS selectable (B4.13). A warning emoji
+appended to the tee's name is a deviation: it cannot be read out, cannot be
+translated, and does not say which gender it meant. When such a tee is the
+selection, the collapsed field repeats the annotation.
+
 **B4.3** WHEN the defaults are first computed for a course THEN, for each gender
 G ∈ {M, F}, the default is chosen by this deterministic rule:
 
@@ -396,8 +493,10 @@ which case the override is kept.
 
 ### 4.5 iOS MUST — per-player override
 
-**B4.6** WHEN a player row is shown THEN it carries its own tee control, showing
-the §4.3-sorted tee list of the selected course.
+**B4.6** WHEN a player row is shown THEN it carries its own tee control — the
+**same dropdown primitive** as the gender defaults (§0 B0.4), with the same
+§4.3-sorted list and the same B4.2b annotations — showing the tee that row
+plays off and whether it is still following its gender default.
 
 **B4.7** WHEN the user picks a tee in a row THEN that row is marked **overridden**
 and no longer follows gender-default changes (B4.4/B4.5).

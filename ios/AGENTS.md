@@ -133,6 +133,36 @@ Screenshot BOTH appearances. The one real bug this layer has shipped so far —
 an inactive tab label rendered dark-on-dark — was invisible in every test and
 obvious in the dark screenshot.
 
+## Chips vs dropdowns (standing design rule)
+
+Owner ruling, twice over, on the create flow. **The web is the reference, and
+the web already uses dropdowns for every long choice** — its course select, its
+start-hole select and its tee selects are all collapsed fields with a raised
+list. So:
+
+- **Chips / segmented rows** are for **≤ 3–4 short options worth keeping
+  permanently on screen**. In this app that is: the route preset
+  (Full 18 / Front 9 / Back 9), the holes toggle, and the format template cards.
+  Nothing else, until an owner says so.
+- **Everything longer is a collapsed dropdown field** — `TapDropdown`, the one
+  primitive: 44pt, `.tapField()` skin, selected value + chevron, opening a sheet
+  with an optional search field, optional non-selectable group headers, and rows
+  that select-and-dismiss on tap. Courses, start hole, the two gender tee
+  defaults and the per-player tee override all go through it.
+- **Warnings are row annotations, in WORDS** — "No men's rating", "Won't count
+  for handicap" — in `--text-muted` or `--danger`. **Never an emoji.** `⚠` glued
+  to a chip label has no accessible name, no theme token, and no room to say
+  which gender or which hole it meant. When the annotated option is the
+  selection, the collapsed field repeats the annotation.
+
+Eighteen start-hole chips in three wrapped rows, and a tee chip row per gender,
+were both rejected on sight: they push the questions below them off the screen
+and re-ask a question the user already answered. The rule is written up
+normatively in `docs/proposals/create-flow-behavior.md` §0 (B0.1–B0.4), with
+B2.3, B3.8–B3.10 and B4.2a/B4.2b/B4.6 as the per-control instances. A new
+long-list control that does not use `TapDropdown` is a deviation, not a style
+choice.
+
 ## Bundle id == `APPLE_AUDIENCE` (coupling warning)
 
 ```

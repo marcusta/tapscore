@@ -345,12 +345,17 @@ final class CreateStore {
         }
     }
 
-    /// True when the search box has been typed in but nothing matched — the
-    /// empty state B2.5 asks for, as opposed to a list that simply has not
-    /// loaded yet.
-    var courseSearchIsEmptyHanded: Bool {
-        !courseSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && filteredCourseGroups().isEmpty
+    /// The course picker is being opened.
+    ///
+    /// The query belongs to the OPEN list, not to the flow: it survives the
+    /// sheet only because the binding does. Reopening on a query typed two
+    /// steps ago showed a list filtered down to one club — or B2.5's "No
+    /// courses match “vreta”" over a course the user had already picked — as
+    /// though the flow had made a choice on their behalf. Nothing else is
+    /// reset: this is a search box being cleared, not a selection being
+    /// dropped.
+    func beginCourseSearch() {
+        courseSearch = ""
     }
 
     /// Case- and diacritic-insensitive containment, against a FIXED locale so

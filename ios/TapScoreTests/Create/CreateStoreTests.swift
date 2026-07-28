@@ -309,7 +309,42 @@ final class CreateStoreTests: XCTestCase {
 
         store.courseSearch = "  "
         XCTAssertEqual(store.filteredCourseGroups().count, 2)
-        XCTAssertFalse(store.courseSearchIsEmptyHanded)
+    }
+
+    /// The query belongs to the OPEN picker, not to the flow. Reopening after a
+    /// query that narrowed — or emptied — the list must start on the whole
+    /// list, or the sheet comes back filtered by something the user typed on a
+    /// previous visit and cannot see the cause of.
+    @MainActor
+    func testReopeningTheCoursePickerStartsUnfiltered() async {
+        let store = CreateStore(api: RoundStubURLProtocol.makeAPI())
+        await store.load()
+
+        store.courseSearch = "zzz"
+        XCTAssertTrue(store.filteredCourseGroups().isEmpty, "the stale query hides every course")
+
+        store.beginCourseSearch()
+
+        XCTAssertEqual(store.courseSearch, "")
+        XCTAssertEqual(store.filteredCourseGroups().map(\.id), ["club-1", "club-2"])
+        XCTAssertFalse(
+            TapDropdownModel.isEmptyHanded(
+                groups: CreatePickerRows.courses(store.filteredCourseGroups()),
+                query: store.courseSearch),
+            "no empty state on a picker the user has not typed into yet")
+    }
+
+    /// Clearing the search box is not un-choosing the course.
+    @MainActor
+    func testOpeningTheCoursePickerKeepsTheSelection() async {
+        let store = CreateStore(api: RoundStubURLProtocol.makeAPI())
+        await store.load()
+        await store.selectCourse("course-1")
+        store.courseSearch = "vreta"
+
+        store.beginCourseSearch()
+
+        XCTAssertEqual(store.courseId, "course-1")
     }
 
     /// Diacritics are noise on a phone keyboard: `linkoping` must find
@@ -327,14 +362,18 @@ final class CreateStoreTests: XCTestCase {
     }
 
     /// B2.5: a query that matches nothing is an EMPTY-HANDED state, distinct
-    /// from a list that has not loaded.
+    /// from a list that has not loaded. The store's job is the empty LIST; the
+    /// "typed but nothing survived" judgement is `TapDropdownModel`'s, so the
+    /// sentence and the sheet that draws it cannot disagree.
     @MainActor
     func testASearchThatMatchesNothingIsEmptyHanded() async {
         let store = CreateStore(api: RoundStubURLProtocol.makeAPI())
         await store.load()
         store.courseSearch = "zzz"
         XCTAssertTrue(store.filteredCourseGroups().isEmpty)
-        XCTAssertTrue(store.courseSearchIsEmptyHanded)
+        XCTAssertTrue(TapDropdownModel.isEmptyHanded(
+            groups: CreatePickerRows.courses(store.filteredCourseGroups()),
+            query: store.courseSearch))
     }
 
     // MARK: - Player constraints

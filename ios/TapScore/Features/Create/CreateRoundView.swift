@@ -30,10 +30,6 @@ struct CreateRoundView: View {
     /// The row whose handicap pad is open. Nil ⇒ closed.
     @State private var padRowId: UUID?
     @State private var friendsOpen = false
-    /// B2.3: the course search is the Course step's primary control, so it is
-    /// focus-ready — a flow that opens on a list of hundreds and makes the user
-    /// tap the box first has wasted the one tap it asked for.
-    @FocusState private var courseSearchFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -210,45 +206,16 @@ struct CreateRoundView: View {
 
     @ViewBuilder
     private func courseStep(_ store: CreateStore) -> some View {
-        @Bindable var store = store
         heading("Where are you playing?", subtitle: "Pick the course, the holes you're playing and the tees.")
-
-        // B2.3: the search box sits at the TOP of the list, so a long course
-        // database is one type away rather than one scroll after another.
-        TextField(
-            "",
-            text: $store.courseSearch,
-            prompt: tapFieldPrompt("Search club or course"))
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .focused($courseSearchFocused)
-            .submitLabel(.search)
-            .tapField()
-            .onAppear {
-                // Only while the question is still open: coming BACK to a step
-                // whose answer is already picked, raising the keyboard over the
-                // route and tee controls would be an interruption, not a help.
-                if store.courseId == nil { courseSearchFocused = true }
-            }
-
-        if store.loading {
-            ProgressView().frame(maxWidth: .infinity)
-        }
 
         VStack(alignment: .leading, spacing: TapSpacing.sm) {
             SectionHeader(title: "Course")
-            if store.courseSearchIsEmptyHanded {
-                // B2.5: an empty state, not a blank list — a blank list reads
-                // as "still loading".
-                Text("No courses match “\(store.courseSearch)”.")
-                    .font(TapFont.ui(size: 13.6))
-                    .foregroundStyle(TapColors.textMuted)
-            }
-            VStack(spacing: TapSpacing.sm) {
-                ForEach(store.filteredCourseGroups()) { group in
-                    clubGroupCard(store, group: group)
-                }
-            }
+            // B2.3/B2.7: the selector is a COLLAPSED field — the answer, or the
+            // placeholder until there is one — and the grouped list lives behind
+            // it. Kept collapsed, the route and tee questions below stay on the
+            // same screen as the course they belong to; expanded inline, they
+            // are a club list away.
+            courseField(store)
         }
 
         if store.courseId != nil {
@@ -257,28 +224,38 @@ struct CreateRoundView: View {
         }
     }
 
-    /// One club and its courses. The club name is a HEADER, not a control
-    /// (B2.1) — selecting a club selects nothing, so it must not look tappable.
-    private func clubGroupCard(_ store: CreateStore, group: CreateStore.CourseGroup) -> some View {
-        TapCard {
-            VStack(alignment: .leading, spacing: TapSpacing.sm) {
-                Text(group.clubName.uppercased())
-                    .font(TapFont.ui(size: 12.8, weight: .bold))
-                    .tracking(0.6)
-                    .foregroundStyle(TapColors.textMuted)
-                    .accessibilityAddTraits(.isHeader)
-                FlowRow(spacing: TapSpacing.sm) {
-                    ForEach(group.courses, id: \.id) { course in
-                        TapChip(
-                            title: course.name,
-                            isSelected: store.courseId == course.id,
-                            action: { Task { await store.selectCourse(course.id) } })
-                    }
-                }
-            }
-            .padding(TapSpacing.md)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
+    /// B2.3/B2.3a: the collapsed trigger and, behind it, the searchable grouped
+    /// overlay — one `TapDropdown`, the same primitive the start hole and the
+    /// tees use. The filter, the grouping and the act of selecting all stay in
+    /// the store; this hands over rows and takes back an id.
+    private func courseField(_ store: CreateStore) -> some View {
+        TapDropdown(
+            placeholder: store.loading ? "Loading courses…" : "Choose course",
+            title: "Course",
+            selection: store.courseId,
+            groups: CreatePickerRows.courses(store.filteredCourseGroups()),
+            // The club under the name, so two same-named courses are told
+            // apart — and read from the SELECTION, not from the filtered list,
+            // which a leftover query can empty.
+            selectedRow: store.selectedCourse.map { course in
+                TapDropdownRow(
+                    value: course.id,
+                    title: course.name,
+                    subtitle: course.clubName.uppercased())
+            },
+            search: TapDropdownSearch(
+                prompt: "Search club or course",
+                text: Binding(
+                    get: { store.courseSearch },
+                    set: { store.courseSearch = $0 }),
+                emptyPrefix: "No courses match"),
+            isLoading: store.loading,
+            // Every opening starts on the whole list. The query outlives the
+            // sheet (the binding is the store's), so without this the picker
+            // reopens onto the last search — often onto its empty state, which
+            // reads as "your course is gone" rather than "you typed this once".
+            onOpen: { store.beginCourseSearch() },
+            onSelect: { id in Task { await store.selectCourse(id) } })
     }
 
     /// Route + start hole (§3), which live on the Course step (B1.6).
@@ -298,15 +275,18 @@ struct CreateRoundView: View {
 
         if store.permittedStartHoles.count > 1 {
             VStack(alignment: .leading, spacing: TapSpacing.sm) {
-                SectionHeader(title: "Start hole")
-                FlowRow(spacing: TapSpacing.sm) {
-                    ForEach(store.permittedStartHoles, id: \.self) { hole in
-                        TapChip(
-                            title: "\(hole)",
-                            isSelected: store.startHole == hole,
-                            action: { store.setStartHole(hole) })
-                    }
-                }
+                // Eighteen holes is a LIST, not a chip wall (the design rule in
+                // `ios/AGENTS.md`): a collapsed field saying which hole, and the
+                // route's permitted holes behind it. No search — eighteen rows
+                // scroll in one flick — and each rotating choice says what it
+                // costs (B3.7) as a row annotation.
+                TapDropdown(
+                    label: "Start hole",
+                    placeholder: "Hole 1",
+                    title: "Start hole",
+                    selection: store.startHole,
+                    groups: CreatePickerRows.startHoles(store.permittedStartHoles),
+                    onSelect: { store.setStartHole($0) })
                 if !store.isPostingEligible {
                     // B3.7: the draft already says so; say it out loud rather
                     // than let a handicap record quietly not move.
@@ -348,35 +328,26 @@ struct CreateRoundView: View {
         gender: PlayerGender,
         label: String
     ) -> some View {
-        VStack(alignment: .leading, spacing: TapSpacing.xs) {
-            Text(label)
-                .font(TapFont.ui(size: 13.6, weight: .medium))
-                .foregroundStyle(TapColors.textMuted)
-            // ONE list, in the §4.3 canon order (B4.1). Partitioning it into
-            // rated and unrated blocks re-ordered the picker behind the sort's
-            // back — the user reads a tee list as a length ordering, and a
-            // White-then-Red list that puts Yellow last because of a missing
-            // rating row is a lie about the course.
-            //
-            // A tee with no rating for this gender is MARKED and still
-            // selectable (B4.13): on a course where nothing is rated for a
-            // gender, an unselectable list is a dead end with no way out. Pick
-            // it and every row of that gender says why (B4.11) — a stated
-            // problem the user can act on, rather than a control that does
-            // nothing when tapped.
-            FlowRow(spacing: TapSpacing.sm) {
-                ForEach(store.tees, id: \.id) { tee in
-                    let rated = TeeOrder.hasRating(tee, for: gender)
-                    TapChip(
-                        title: rated ? tee.name : "\(tee.name) ⚠",
-                        isSelected: store.defaultTeeId(for: gender) == tee.id,
-                        action: { store.setDefaultTee(tee.id, for: gender) })
-                        .accessibilityLabel(rated
-                            ? tee.name
-                            : "\(tee.name) — no rating for \(label.lowercased())")
-                }
-            }
-        }
+        // ONE collapsed field per gender, opening ONE list in the §4.3 canon
+        // order (B4.1). Not chips: a course can carry six tees, and two rows of
+        // them per gender is the wall this step was rejected for. Partitioning
+        // the list into rated and unrated blocks would re-order the picker
+        // behind the sort's back — the user reads a tee list as a length
+        // ordering, and a White-then-Red list that puts Yellow last because of
+        // a missing rating row is a lie about the course.
+        //
+        // A tee with no rating for this gender is ANNOTATED IN WORDS and still
+        // selectable (B4.13): on a course where nothing is rated for a gender,
+        // an unselectable list is a dead end with no way out. Pick it and every
+        // row of that gender says why (B4.11) — a stated problem the user can
+        // act on, rather than a control that does nothing when tapped.
+        TapDropdown(
+            label: label,
+            placeholder: "Choose tee",
+            title: "\(label)'s tee",
+            selection: store.defaultTeeId(for: gender),
+            groups: CreatePickerRows.tees(store.tees, for: gender),
+            onSelect: { store.setDefaultTee($0, for: gender) })
     }
 
     private static let routePresets: [(RoundRoundType, String)] = [
@@ -595,33 +566,32 @@ struct CreateRoundView: View {
     /// which are marked rather than hidden.
     private func teeControl(_ store: CreateStore, row: CreateStore.PlayerRow) -> some View {
         let current = store.tee(for: row)
-        return Menu {
-            ForEach(store.tees, id: \.id) { tee in
-                Button {
-                    store.setPlayerTee(rowId: row.id, teeId: tee.id)
-                } label: {
-                    if TeeOrder.hasRating(tee, for: row.gender) {
-                        Text(tee.name)
-                    } else {
-                        Text("\(tee.name) — no \(row.gender == .m ? "men's" : "women's") rating")
-                    }
+        return TapDropdown(
+            label: "Tee",
+            placeholder: "Pick a tee",
+            title: "Tee",
+            selection: store.teeId(for: row),
+            groups: CreatePickerRows.tees(store.tees, for: row.gender),
+            // Whether this row follows its gender default or was overridden is
+            // part of the answer (B4.7) — a row reading just "Röd" cannot be
+            // told from one the user set by hand.
+            selectedRow: current.map { tee in
+                TapDropdownRow(
+                    value: tee.id,
+                    title: tee.name,
+                    marker: row.teeOverridden ? nil : "Default",
+                    annotation: TeeOrder.hasRating(tee, for: row.gender)
+                        ? nil
+                        : TapDropdownAnnotation(
+                            CreatePickerRows.noRatingText(for: row.gender), tone: .danger))
+            },
+            extra: row.teeOverridden
+                ? TapDropdownAction(title: "Follow the default") {
+                    store.clearPlayerTeeOverride(rowId: row.id)
                 }
-            }
-            if row.teeOverridden {
-                Divider()
-                Button("Follow the default") { store.clearPlayerTeeOverride(rowId: row.id) }
-            }
-        } label: {
-            HStack(spacing: TapSpacing.xs) {
-                Image(systemName: "flag")
-                Text(current.map { row.teeOverridden ? "\($0.name) tee" : "\($0.name) tee (default)" }
-                    ?? "Pick a tee")
-                Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
-            }
-            .font(TapFont.ui(size: 12.8, weight: .medium))
-            .foregroundStyle(current == nil ? TapColors.danger : TapColors.textMuted)
-        }
-        .disabled(store.tees.isEmpty)
+                : nil,
+            onSelect: { store.setPlayerTee(rowId: row.id, teeId: $0) })
+            .disabled(store.tees.isEmpty)
     }
 
     // MARK: - Step 3 — formats
@@ -773,22 +743,21 @@ struct CreateRoundView: View {
     @ViewBuilder
     private func customControls(_ store: CreateStore, slot: CreateStore.FormatSlot) -> some View {
         VStack(alignment: .leading, spacing: TapSpacing.sm) {
-            HStack(spacing: TapSpacing.md) {
-                Menu {
-                    ForEach(store.catalog.descriptors, id: \.id) { descriptor in
-                        Button(store.catalog.label(descriptor)) {
-                            store.setSlotFormat(id: slot.id, formatId: descriptor.id)
-                        }
-                    }
-                } label: {
-                    HStack(spacing: TapSpacing.xs) {
-                        Text("Format")
-                        Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
-                    }
-                    .font(TapFont.ui(size: 12.8, weight: .medium))
-                    .foregroundStyle(TapColors.textMuted)
-                }
+            // §0 B0.2/B0.4: the full catalog is a long list of long labels, so
+            // it is the same collapsed field the course, the start hole and the
+            // tees use — not a bare `Menu`, which drew the WORD "Format" rather
+            // than the format, hid the answer behind a tap, and shared none of
+            // the dropdown's anatomy (44pt, checkmark on the selection, shape
+            // line under each row).
+            TapDropdown(
+                label: "Format",
+                placeholder: "Choose format",
+                title: "Format",
+                selection: slot.formatId,
+                groups: CreatePickerRows.formats(store.catalog.descriptors, catalog: store.catalog),
+                onSelect: { store.setSlotFormat(id: slot.id, formatId: $0) })
 
+            HStack(spacing: TapSpacing.md) {
                 HStack(spacing: TapSpacing.xs) {
                     Text("Allowance")
                         .font(TapFont.ui(size: 12.8, weight: .medium))
