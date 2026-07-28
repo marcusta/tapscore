@@ -546,8 +546,16 @@ struct ScoreStripAnchor: Equatable {
 /// One ball's row on one hole: who, how they stand, and what they scored.
 /// Tapping opens the keypad aimed at this ball.
 ///
-/// Web: `.se-row` — serif name over a coloured running to-par, with the cream
-/// score circle on the right.
+/// Web: `.se-row` — a Gamebook row. Serif name over a small muted handicap line
+/// on the left (`.se-row__name` / `.se-row__hcp`), the running to-par as the
+/// loud number to their right (`.se-row__topar`), then the ghost column and the
+/// cream score circle.
+///
+/// **The to-par used to be the small line under the name and is now the row's
+/// second-biggest number.** That swap is the whole point of the redesign: what
+/// the name sits over is the *static* fact (the handicap this ball plays off),
+/// and what stands beside it is the *moving* one. A row whose two facts were
+/// stacked made the moving one look like a caption.
 private struct BallRow: View {
     @Bindable var store: RoundStore
     let ball: RoundBall
@@ -571,10 +579,16 @@ private struct BallRow: View {
                     .foregroundStyle(ball.pending ? TapColors.textMuted : TapColors.text)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                toParLine
+                handicapLine
             }
             Spacer(minLength: 0)
+            // The write indicator sits LEFT of the to-par, in the slack the
+            // `Spacer` gives up — so a save that starts and finishes never
+            // nudges the row's biggest number sideways. Between them it would:
+            // a spinner appearing pushed the to-par ~32pt left mid-save and
+            // left it there on `.error`, which reads as the number changing.
             statusIcon
+            toParValue
             // Web: `.se-row__scores` — the two slots are flush (no gap) and
             // sit `RIGHT_PAD` off the edge, which is what puts them under
             // the header's two cells.
@@ -654,23 +668,95 @@ private struct BallRow: View {
         return jsNumberString(value)
     }
 
-    /// Web: `.se-row__topar` — the running to-par over scored holes, tinted
-    /// under/over/even. A pending seat says what it is instead.
+    /// Web: `.se-row__hcp` — the small muted line UNDER the name: the handicap
+    /// this ball plays off, prefixed `Team · ` when the ball is more than one
+    /// player. A pending seat says what it is instead.
+    ///
+    /// 12pt REGULAR, not the 12.8 semibold the old to-par line used at these
+    /// coordinates. The web's `.se-row__hcp` is `0.75rem` at normal weight —
+    /// this is a caption for the name above it, and the semibold left over from
+    /// the number that used to live here made it compete with the name.
+    ///
+    /// **Absent, not dashed.** The keypad's version of this line prints "–" for
+    /// a missing handicap because it is a labelled field in a form-ish sheet and
+    /// a field with nothing in it has to say so. Here it is an optional second
+    /// line in a dense list: a round played without handicaps should look like a
+    /// list of names, not a column of dashes. Hence `handicapText` returning nil
+    /// rather than a placeholder.
     @ViewBuilder
-    private var toParLine: some View {
+    private var handicapLine: some View {
         if ball.pending {
+            // The same line, so the same type: a seat's status is what it has
+            // instead of a handicap, not a differently-weighted thing.
             Text("open seat")
-                .font(TapFont.ui(size: 12.8, weight: .semibold))
+                .font(TapFont.ui(size: 12, weight: .regular))
                 .foregroundStyle(TapColors.textMuted)
+        } else if let handicapText {
+            Text(handicapText)
+                .font(TapFont.ui(size: 12, weight: .regular))
+                .foregroundStyle(TapColors.textMuted)
+                .lineLimit(1)
+        }
+    }
+
+    /// The handicap this ball scores off — the SAME derivation
+    /// `ScoreKeypadView.handicapLine` uses, and it has to stay the same one: two
+    /// surfaces disagreeing about which number a ball plays off is the kind of
+    /// bug nobody reports, they just stop trusting the app.
+    ///
+    /// A team's handicap is the BALL's (the composed one the server allocates
+    /// against); a single player's is their own, with the ball's as the fallback
+    /// for a ball whose player row carries none.
+    ///
+    /// User-facing spelling is **HCP**, not CH — the same rename the server's
+    /// subtitle facts and the web client made. See `productSubtitleFacts` in
+    /// `ResultLayout.swift`, which filters the server's `HCP n` fact by prefix.
+    private var handicapText: String? {
+        if ball.players.count > 1 {
+            guard let value = ball.courseHandicap else { return nil }
+            return "Team · HCP \(jsNumberString(value))"
+        }
+        guard let value = ball.players.first?.courseHandicap ?? ball.courseHandicap else {
+            return nil
+        }
+        return "HCP \(jsNumberString(value))"
+    }
+
+    /// Web: `.se-row__topar` — the running to-par over scored holes, tinted
+    /// under/over/even, at the display face's 1.35rem against the name's 1.05.
+    ///
+    /// It is right of the name block and pushed hard against the score columns
+    /// by the row's `Spacer`, so the values line up down the list without a
+    /// fixed-width slot: every row's to-par ENDS at the same x. That holds only
+    /// because the ONE view that comes and goes beside it — `statusIcon` — sits
+    /// on its LEFT, where it eats the spacer's slack instead of the to-par's
+    /// position. Putting the icon between the to-par and the score columns
+    /// breaks the alignment for exactly as long as a write is in flight, and
+    /// permanently on an error.
+    ///
+    /// `layoutPriority(1)` is the web's `flex-shrink: 0` on the same element:
+    /// at an accessibility text size something in this row has to give, and it
+    /// must be the name (which truncates with an ellipsis and is still
+    /// identifiable) rather than the number (which would truncate to a lie —
+    /// "+1" out of "+12"). A pending seat has no standing to report and renders
+    /// nothing at all; its "open seat" is on the line under the name.
+    @ViewBuilder
+    private var toParValue: some View {
+        if ball.pending {
+            EmptyView()
         } else if let value = toPar {
             let direction = ParDirection(toPar: value)
             Text(direction.formatted(toPar: value))
-                .font(TapFont.ui(size: 12.8, weight: .semibold))
+                .font(TapFont.display(size: 21.6, weight: .bold, tabular: true))
                 .foregroundStyle(direction.color)
+                .lineLimit(1)
+                .layoutPriority(1)
         } else {
             Text("–")
-                .font(TapFont.ui(size: 12.8, weight: .semibold))
+                .font(TapFont.display(size: 21.6, weight: .bold, tabular: true))
                 .foregroundStyle(TapColors.textMuted)
+                .lineLimit(1)
+                .layoutPriority(1)
         }
     }
 
@@ -710,21 +796,38 @@ private struct BallRow: View {
         return count == 0 ? .pickedUp : .score(count)
     }
 
-    /// The ghost column is part of the row's label, not a separate element:
-    /// VoiceOver reading "Ada, 4, previous hole 5" is the glance the sighted
-    /// two-column layout gives, and a focusable ghost would be a stop with
-    /// nothing to do at it.
+    /// Every visible part of the row is in this ONE label rather than in its own
+    /// element: VoiceOver reading "Ada, HCP 12, +3, 4, previous hole 5" is the
+    /// glance the sighted layout gives in one sweep, and a focusable ghost
+    /// column, handicap or to-par would be stops with nothing to do at them.
+    ///
+    /// **The to-par is in it because it is the loudest thing on the row.** The
+    /// redesign made it the second-biggest number on screen; a label that named
+    /// the name, the handicap and the score but not how the ball stands would be
+    /// describing a different row than the one being looked at. It is spoken in
+    /// its written form (`ParDirection.formatted` — "E", "-3", "+2") for the
+    /// same reason the handicap is spoken as WRITTEN (`Team · HCP 12`): a
+    /// listener and a looker have to be able to describe the row to each other.
+    /// It is omitted when nothing has been scored yet, where the row shows a
+    /// muted "–" that would only be noise read aloud.
+    ///
+    /// The unscored circle's stroke preview says "**receives** -1", not
+    /// "handicap -1": in a sentence that already carries `HCP 12`, using the
+    /// same word for the hole's allocation makes two different numbers sound
+    /// like one restated. A pending seat keeps its one short sentence.
     private var accessibilityLabel: String {
         let name = store.displayName(of: ball)
+        let handicap = handicapText.map { ", \($0)" } ?? ""
+        let standing = toPar.map { ", \(ParDirection(toPar: $0).formatted(toPar: $0))" } ?? ""
         let previous = previousText.map { ", previous hole \($0)" } ?? ""
         guard let strokes else {
             if ball.pending { return "\(name), open seat" }
             if case let .hint(text) = circleState {
-                return "\(name), no score, handicap \(text)\(previous)"
+                return "\(name)\(handicap)\(standing), no score, receives \(text)\(previous)"
             }
-            return "\(name), no score\(previous)"
+            return "\(name)\(handicap)\(standing), no score\(previous)"
         }
-        return "\(name), \(jsNumberString(strokes))\(previous)"
+        return "\(name)\(handicap)\(standing), \(jsNumberString(strokes))\(previous)"
     }
 
     @ViewBuilder

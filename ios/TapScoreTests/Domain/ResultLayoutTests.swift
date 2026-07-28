@@ -350,9 +350,9 @@ final class ResultLayoutTests: XCTestCase {
         XCTAssertEqual(layout.rows[2].composedLabel, "Par")
     }
 
-    /// product mode hides slot/CH/PH facts; verification mode keeps every fact
+    /// product mode hides slot/HCP/PH facts; verification mode keeps every fact
     func test_productModeHidesSlotAndHandicapFacts() {
-        let facts = ["slot #0 Stableford", "CH 12.3", "PH -1", "Stableford", "100%"]
+        let facts = ["slot #0 Stableford", "HCP 12.3", "PH -1", "Stableford", "100%"]
         let section = grid([], [], subtitleFacts: facts)
 
         XCTAssertEqual(layoutScoreGrid(section, [], nameOf).subtitleFacts, ["Stableford", "100%"])
@@ -363,13 +363,16 @@ final class ResultLayoutTests: XCTestCase {
         XCTAssertEqual(layoutScoreGrid(section, [], nameOf, mode: .verification).subtitleFacts, facts)
     }
 
-    /// Swift-only: the hand-rolled `^CH -?\d` / `^PH -?\d` matcher is exactly
+    /// Swift-only: the hand-rolled `^HCP -?\d` / `^PH -?\d` matcher is exactly
     /// the TS regex — a prefix alone, or a non-digit after it, is NOT a hit.
+    /// `HCPI 3` is the `CHIP 3` of the renamed prefix: a longer token that
+    /// STARTS with the letters and must survive, because the prefix includes the
+    /// space. Same job `PHASE 2` does for `PH `.
     func test_handicapFactMatcherMatchesTheRegexExactly() {
-        let facts = ["CH", "CH ", "CH -", "CH x", "CHIP 3", "PH -0", "CH 0", "PHASE 2"]
+        let facts = ["HCP", "HCP ", "HCP -", "HCP x", "HCPI 3", "PH -0", "HCP 0", "PHASE 2"]
         let kept = layoutScoreGrid(grid([], [], subtitleFacts: facts), [], nameOf).subtitleFacts
 
-        XCTAssertEqual(kept, ["CH", "CH ", "CH -", "CH x", "CHIP 3", "PHASE 2"])
+        XCTAssertEqual(kept, ["HCP", "HCP ", "HCP -", "HCP x", "HCPI 3", "PHASE 2"])
     }
 
     /// card totals become display strings (a missing total is a dash) and a missing caption is null

@@ -74,7 +74,7 @@ function buildCard(
     // No "holes played N" fact — Split sixes omits it.
     const subtitleFacts = [`slot #${input.slotIndex} · ${input.formatLabel} · ${input.allowanceLabel}`];
     if (chBall) {
-        subtitleFacts.push(`CH ${num(chBall.courseHandicapSnapshot)}`);
+        subtitleFacts.push(`HCP ${num(chBall.courseHandicapSnapshot)}`);
         subtitleFacts.push(`PH ${num(chBall.playingHandicapSnapshot)}`);
     }
 

@@ -1656,7 +1656,7 @@ export class CreateComponent extends Component {
                         if (size < 2) return 'Add one more member — a team needs at least 2.';
                         if (isSide()) return `${size} balls · a side (scored together by a side format)`;
                         const ch = this.svc.teamBallCh(key);
-                        return ch === null ? `${size} players` : `${size} players · plays off CH ${ch}`;
+                        return ch === null ? `${size} players` : `${size} players · plays off HCP ${ch}`;
                     },
                 },
             },

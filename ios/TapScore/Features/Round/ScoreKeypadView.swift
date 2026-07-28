@@ -214,10 +214,10 @@ struct KeypadView: View {
     private func handicapLine(_ ball: RoundBall) -> String {
         if ball.pending { return "Open seat — claim to score" }
         if ball.players.count > 1 {
-            return "Team · CH \(ball.courseHandicap.map { jsNumberString($0) } ?? "–")"
+            return "Team · HCP \(ball.courseHandicap.map { jsNumberString($0) } ?? "–")"
         }
         let value = ball.players.first?.courseHandicap ?? ball.courseHandicap
-        return "CH \(value.map { jsNumberString($0) } ?? "–")"
+        return "HCP \(value.map { jsNumberString($0) } ?? "–")"
     }
 
     // MARK: - Pad

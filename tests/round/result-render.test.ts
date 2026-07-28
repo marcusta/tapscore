@@ -133,7 +133,7 @@ function debugGrid(overrides: Partial<ScoreGridSection> = {}): ScoreGridSection 
         holes: [hole(1)],
         subtitleFacts: [
             'slot #0 · Umbrella (4-ball) · 100%',
-            'CH 0',
+            'HCP 0',
             'PH 0',
             'holes played 1',
         ],
@@ -454,7 +454,7 @@ test('product mode hides score-grid audit chrome', () => {
     const html = renderSlotCards(slot({ cards: [debugGrid()] }), routeSections, nameOf);
 
     expect(html).not.toContain('slot #0');
-    expect(html).not.toContain('CH 0');
+    expect(html).not.toContain('HCP 0');
     expect(html).not.toContain('PH 0');
     expect(html).not.toContain('Points breakdown');
     expect(html).not.toContain('gross = 4 net = 4');
@@ -469,7 +469,7 @@ test('verification mode preserves score-grid audit chrome', () => {
     });
 
     expect(html).toContain('slot #0');
-    expect(html).toContain('CH 0');
+    expect(html).toContain('HCP 0');
     expect(html).toContain('PH 0');
     expect(html).toContain('Points breakdown');
     expect(html).toContain('gross = 4 net = 4');

@@ -249,8 +249,8 @@ test('title groups resolve to live names; row subjects and label text stay separ
     expect(layout.rows[1]!.subjectName).toBeNull();
 });
 
-test('product mode hides slot/CH/PH facts; verification mode keeps every fact', () => {
-    const facts = ['slot #0 Stableford', 'CH 12.3', 'PH -1', 'Stableford', '100%'];
+test('product mode hides slot/HCP/PH facts; verification mode keeps every fact', () => {
+    const facts = ['slot #0 Stableford', 'HCP 12.3', 'PH -1', 'Stableford', '100%'];
     const section = grid([], [], { subtitleFacts: facts });
 
     expect(layoutScoreGrid(section, [], nameOf).subtitleFacts).toEqual(['Stableford', '100%']);

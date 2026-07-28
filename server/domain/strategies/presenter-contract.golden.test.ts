@@ -87,7 +87,7 @@ describe('presenter contract golden output', () => {
                     componentId: 'default-score-grid',
                     title: { groups: [[ball.ballId]], joiner: ' & ' },
                     subjectBallIds: [ball.ballId],
-                    subtitleFacts: ['slot #0 · Stableford · 100%', 'CH 0', 'PH 0', 'holes played 2'],
+                    subtitleFacts: ['slot #0 · Stableford · 100%', 'HCP 0', 'PH 0', 'holes played 2'],
                     totals: [],
                 },
             ],
@@ -391,7 +391,7 @@ describe('presenter contract golden output', () => {
             kind: 'score_grid',
             title: { groups: [[ball.ballId]], joiner: ' & ' },
             subjectBallIds: [ball.ballId],
-            subtitleFacts: ['slot #0 · Stroke play · 100%', 'CH 1', 'PH 1', 'holes played 2'],
+            subtitleFacts: ['slot #0 · Stroke play · 100%', 'HCP 1', 'PH 1', 'holes played 2'],
         });
         expect('caption' in view.cards[0]!).toBe(false);
         // No points row (stroke play bears no points), no running row (absolute totals).

@@ -101,6 +101,8 @@ describe('umbrella4Ball (new contract)', () => {
         expect(view.cards[0]?.title).toEqual({ groups: [[bA1.ballId, bA2.ballId]], joiner: ' & ' });
         expect(view.cards[0]?.subjectBallIds).toEqual([bA1.ballId, bA2.ballId]);
         expect(view.cards[0]?.subtitleFacts).toEqual(['slot #0 · Umbrella (4-ball) · 100%', 'holes played 1']);
+        expect(view.cards[0]?.subtitleFacts.join(' ')).not.toContain('HCP ');
+        // Also pinned under the pre-rename label, so a revert to `CH ` is caught.
         expect(view.cards[0]?.subtitleFacts.join(' ')).not.toContain('CH ');
         expect(view.cards[0]?.subtitleFacts.join(' ')).not.toContain('PH ');
         expect(view.cards[0]?.rows.map((row) => row.label)).toEqual([

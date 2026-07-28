@@ -357,7 +357,7 @@ function decorate(cell: ViewGridCell | undefined): CellDecorationLayout {
 function productSubtitleFacts(facts: readonly string[]): string[] {
     return facts.filter((fact) => {
         if (fact.startsWith('slot #')) return false;
-        if (/^CH -?\d/.test(fact)) return false;
+        if (/^HCP -?\d/.test(fact)) return false;
         if (/^PH -?\d/.test(fact)) return false;
         return true;
     });

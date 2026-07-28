@@ -138,7 +138,7 @@ typealias NameOf = @Sendable (String) -> String
 /// Ball id → "Group N" label, or `nil` on a single-group round (Phase 3.5).
 typealias GroupOf = @Sendable (String) -> String?
 
-/// `product` hides the internal/verification facts (slot index, CH/PH) a live
+/// `product` hides the internal/verification facts (slot index, HCP/PH) a live
 /// board has no use for; `verification` keeps everything the server sent.
 enum ResultRenderMode: String, Codable, Sendable, Equatable {
     case product
@@ -699,12 +699,15 @@ private func decorate(_ cell: GridCell?) -> CellDecorationLayout {
 
 /// Facts a live board hides: the slot index and the handicap arithmetic.
 ///
-/// PORTING: the TS regexes `^CH -?\d` / `^PH -?\d` are hand-matched here —
+/// PORTING: the TS regexes `^HCP -?\d` / `^PH -?\d` are hand-matched here —
 /// no Foundation, no regex engine, and the pattern is small enough to read.
+/// (`HCP` is the user-facing spelling of the course handicap everywhere now;
+/// the fact used to read `CH n` and the server emits `HCP n`. `PH` — the
+/// playing handicap — was not renamed.)
 private func productSubtitleFacts(_ facts: [String]) -> [String] {
     facts.filter { fact in
         if fact.hasPrefix("slot #") { return false }
-        if isHandicapFact(fact, prefix: "CH ") { return false }
+        if isHandicapFact(fact, prefix: "HCP ") { return false }
         if isHandicapFact(fact, prefix: "PH ") { return false }
         return true
     }

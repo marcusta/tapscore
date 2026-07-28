@@ -92,8 +92,9 @@ const rowTpl = template(`
     <div class="se-row">
         <div class="se-row__who">
             <span bind="name" class="se-row__name"></span>
-            <span bind="topar" class="se-row__topar"></span>
+            <span bind="hcp" class="se-row__hcp"></span>
         </div>
+        <span bind="topar" class="se-row__topar"></span>
         <div class="se-row__scores">
             <span class="se-row__slot"><span bind="prev" class="se-row__prev"></span></span>
             <span class="se-row__slot"><button bind="circle" class="se-row__circle" type="button"><span bind="cval"></span></button></span>
@@ -221,7 +222,10 @@ export class ScoreEntryComponent extends Component {
             padding: ${s('md')} 0;
             border-bottom: 1px solid ${t('border')};
 
-            & .se-row__who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+            /* The name block takes the slack so the to-par sits right up
+               against the fixed-width score columns; min-width:0 is what lets
+               a long name ellipsis instead of pushing the numbers off-row. */
+            & .se-row__who { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
             & .se-row__name {
                 font-family: ${t('font-display')};
                 font-weight: 600;
@@ -229,7 +233,25 @@ export class ScoreEntryComponent extends Component {
                 color: ${t('text')};
                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
             }
-            & .se-row__topar { font-size: 0.8rem; font-weight: 600; }
+            /* What the ball plays off, quiet under the name (same chain as the
+               keypad list rows). Absent — not blanked — when there is no
+               handicap to state. */
+            & .se-row__hcp {
+                font-size: 0.75rem;
+                color: ${t('text-muted')};
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            /* Gamebook puts the running to-par where the eye lands: its own
+               column between the name and the scores, in the display face at
+               score size, tinted by tone. */
+            & .se-row__topar {
+                flex-shrink: 0;
+                text-align: right;
+                font-family: ${t('font-display')};
+                font-weight: 700;
+                font-size: 1.35rem;
+                font-variant-numeric: tabular-nums;
+            }
 
             & .se-row__scores { display: flex; align-items: center; padding-right: ${RIGHT_PAD}px; flex-shrink: 0; }
             & .se-row__slot { width: ${SLOT}px; display: flex; align-items: center; justify-content: center; }
@@ -545,6 +567,25 @@ export class ScoreEntryComponent extends Component {
         return any ? shots - par : null;
     };
 
+    /**
+     * The quiet handicap line under a player row's name, re-read from the LIVE
+     * ball every time (a claimed seat rewrites the chain in place, so a
+     * snapshot taken at row-build time would go stale). `null` = no handicap to
+     * state, and the row drops the line entirely rather than print a
+     * placeholder — unlike the keypad's list row (`modalRow`), which is the
+     * scoring surface and keeps the line with a "–".
+     */
+    private hcpLine = (ballId: string): string | null => {
+        const ball = this.ballsInGroup().find((b) => b.id === ballId);
+        if (!ball || ball.pending) return null;
+        const ch =
+            ball.players.length > 1
+                ? ball.courseHandicap
+                : (ball.players[0]?.courseHandicap ?? ball.courseHandicap);
+        if (ch === null) return null;
+        return ball.players.length > 1 ? `Team · HCP ${ch}` : `HCP ${ch}`;
+    };
+
     private toParText = (ball: RoundBall): string => {
         const v = this.toParValue(ball);
         return v === null ? '–' : v === 0 ? 'E' : v > 0 ? `+${v}` : `${v}`;
@@ -670,7 +711,10 @@ export class ScoreEntryComponent extends Component {
                 return this.ballsInGroup().map((ball) => ({ ball, ph: ph.playHoleId, prevPh }));
             }),
             (d, _i, t2) => this.playerRow(d.ball, d.ph, d.prevPh, t2),
-            (d) => `${d.ball.id}|${d.ph}`,
+            // `pending` rides in the key because it picks a WHOLE branch of
+            // playerRow (inert seat vs scorable row) that no binding can undo:
+            // claiming a seat mid-round must remount the row, not update it.
+            (d) => `${d.ball.id}|${d.ph}|${d.ball.pending}`,
         );
 
         // Modal player list (stable per ball; reactive score + selection).
@@ -756,7 +800,10 @@ export class ScoreEntryComponent extends Component {
                         textContent: this.ballName(ball),
                         className: 'se-row__name se-row__name--pending',
                     },
-                    topar: { textContent: 'open seat', className: 'se-row__topar' },
+                    hcp: { textContent: 'open seat' },
+                    // Nothing has been played from this seat, so there is no
+                    // to-par to state — the slot stays empty rather than "E".
+                    topar: { textContent: '', className: 'se-row__topar' },
                     prev: { textContent: '' },
                     cval: { textContent: '–' },
                     circle: { className: 'se-row__circle empty se-row__circle--pending' },
@@ -768,6 +815,12 @@ export class ScoreEntryComponent extends Component {
             rowTpl,
             {
                 name: { textContent: this.ballName(ball) },
+                // Reactive, not snapshot: a seat claimed mid-round rewrites the
+                // ball's handicap chain in place, and this row must follow.
+                hcp: {
+                    textContent: () => this.hcpLine(ball.id) ?? '',
+                    hidden: () => this.hcpLine(ball.id) === null,
+                },
                 topar: {
                     textContent: () => this.toParText(ball),
                     className: () => this.toParClass(ball),
@@ -798,12 +851,20 @@ export class ScoreEntryComponent extends Component {
 
     private modalRow(ball: RoundBall, index: number, track: (d: () => void) => void): HTMLElement {
         // Phase 5.5: a pending ball has no handicap chain until its seat is
-        // claimed — say so instead of showing an invented CH.
+        // claimed — say so instead of showing an invented handicap. An absent
+        // handicap on a claimed ball keeps the line and prints the same "–"
+        // placeholder the score circles use; this is the scoring surface, so a
+        // missing number is stated rather than silently dropped.
+        const ch =
+            ball.players.length > 1
+                ? ball.courseHandicap
+                : (ball.players[0]?.courseHandicap ?? ball.courseHandicap);
+        const chText = ch === null ? '–' : String(ch);
         const hcp = ball.pending
             ? 'Open seat — claim to score'
             : ball.players.length > 1
-              ? `Team · CH ${ball.courseHandicap}`
-              : `CH ${ball.players[0]?.courseHandicap ?? ball.courseHandicap}`;
+              ? `Team · HCP ${chText}`
+              : `HCP ${chText}`;
         return this.wireEl(
             mrowTpl,
             {

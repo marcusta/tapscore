@@ -17,7 +17,7 @@ export const stablefordIndividualPresenter: FormatResultPresenter = (input) => {
         const chBall = input.slotBalls.find((b) => b.ballId === r.ballId);
         const subtitleFacts = [`slot #${input.slotIndex} · ${input.formatLabel} · ${input.allowanceLabel}`];
         if (chBall) {
-            subtitleFacts.push(`CH ${num(chBall.courseHandicapSnapshot)}`);
+            subtitleFacts.push(`HCP ${num(chBall.courseHandicapSnapshot)}`);
             subtitleFacts.push(`PH ${num(chBall.playingHandicapSnapshot)}`);
         }
         subtitleFacts.push(`holes played ${r.holesPlayed}`);
