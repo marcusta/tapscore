@@ -4,13 +4,14 @@ import { SelectComponent, type SelectOption } from '@basics/core/client/ui/selec
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { ProfileService } from './profile.service';
-import { FriendsService } from '../friends/friends.service';
-import { AdminService } from '../admin/admin.service';
 import { parseHandicapIndex, formatHandicapIndex } from '../create/hcp-input';
 
 // Phase 3 profile — the logged-in side door's home: display name, the
 // manually maintained handicap index (edit → `players/me/handicap`), and the
 // append-only history chain (index · source · effective date).
+//
+// It carries NO account controls: Admin and Sign out live in the app shell's
+// account menu, which is on this screen too (and on every other one).
 
 const tpl = template(`
     <div class="profile">
@@ -58,9 +59,6 @@ const tpl = template(`
                 <div bind="historyEmpty" class="profile__empty">No entries yet — save an index to start the chain.</div>
                 <div bind="history" class="profile__history"></div>
             </section>
-
-            <button bind="admin" class="profile__admin" type="button">Admin</button>
-            <button bind="signout" class="profile__signout" type="button">Sign out</button>
         </div>
     </div>
 `);
@@ -206,49 +204,17 @@ export class ProfileComponent extends Component {
                     font-variant-numeric: tabular-nums;
                 }
             }
-
-            /* Only rendered for a super admin — the entry point to /admin. */
-            & .profile__admin {
-                display: block;
-                width: 100%;
-                margin-top: ${s('xl')};
-                padding: ${s('md')} ${s('lg')};
-                background: ${t('surface-sunken')};
-                border: none; border-radius: ${t('radius')};
-                font-family: inherit; font-size: 0.9rem; font-weight: 700;
-                color: ${t('text')};
-                cursor: pointer;
-
-                &.hidden { display: none; }
-            }
-
-            & .profile__signout {
-                display: block;
-                margin: ${s('2xl')} auto 0;
-                padding: ${s('sm')} ${s('lg')};
-                background: none; border: none; font-family: inherit;
-                font-size: 0.85rem; font-weight: 600;
-                color: ${t('text-muted')};
-                text-decoration: underline; cursor: pointer;
-            }
         }
     `;
 
     private svc = this.inject(ProfileService);
-    private friends = this.inject(FriendsService);
-    // Caller-scoped role read — decides whether the Admin entry point shows.
-    // Presentation only; /admin itself is gated server-side.
-    private admins = this.inject(AdminService);
     private auth = this.inject(AuthService);
     private router = this.inject(Router);
     private indexDraft = new Signal('');
     private localErr = new Signal('');
 
     render(): DocumentFragment {
-        if (this.auth.currentUser.get()) {
-            void this.svc.load();
-            void this.admins.loadRoles();
-        }
+        if (this.auth.currentUser.get()) void this.svc.load();
 
         const loggedIn = () => this.auth.currentUser.get() !== null;
 
@@ -302,20 +268,6 @@ export class ProfileComponent extends Component {
                     this.svc.history.get().length === 0
                         ? 'profile__empty'
                         : 'profile__empty hidden',
-            },
-            admin: {
-                className: () =>
-                    this.admins.isSuperAdmin() ? 'profile__admin' : 'profile__admin hidden',
-                onclick: () => this.router.navigate('/admin'),
-            },
-            signout: {
-                onclick: async () => {
-                    await this.auth.logout();
-                    this.svc.clear();
-                    this.friends.clear();
-                    this.admins.clear();
-                    this.router.navigate('/');
-                },
             },
         });
 

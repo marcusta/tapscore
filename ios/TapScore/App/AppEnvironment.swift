@@ -35,6 +35,40 @@ enum AppleLinkError: Error, Equatable, Sendable {
     case sessionNotRecognised
 }
 
+/// What this session managed to learn about the credential rows behind the
+/// signed-in player — and, just as load-bearing, when it learned nothing.
+///
+/// The two cases are NOT "has apple" / "does not have apple". They are "the
+/// server answered" and "we do not know", and the difference decides whether an
+/// offer is allowed to exist at all. Before `GET /auth/credentials` the client
+/// could not see a player's credentials, so "Connect Sign in with Apple" was
+/// offered to everyone and muted with a preference. With an answer available,
+/// an offer shown on a hunch is worse than no offer: connecting Apple to a row
+/// that already holds it is at best a no-op the user was told to perform, and
+/// the interesting failures around it (409 `apple_subject_taken`) look like
+/// bugs. So the probe fails CLOSED — every error, every 401, every decode
+/// mismatch lands on `.unknown`, and `.unknown` offers nothing.
+enum CredentialProbe: Equatable, Sendable {
+    /// Not asked yet, or the ask failed. Never a claim about the player.
+    case unknown
+    /// The providers the server says this player holds (`"apple"`,
+    /// `"password"`, …), verbatim from the wire.
+    case known(Set<String>)
+
+    /// Whether the player holds `provider`, or nil when we do not know.
+    /// Tri-state on purpose: an `if !holds("apple")` written against a Bool
+    /// would turn every failed probe into a false offer.
+    func holds(_ provider: String) -> Bool? {
+        switch self {
+        case .unknown: nil
+        case let .known(providers): providers.contains(provider)
+        }
+    }
+
+    /// True only when the probe SUCCEEDED and `apple` was absent.
+    var offersAppleLink: Bool { holds("apple") == false }
+}
+
 /// App-wide dependency container, injected via `.environment(_:)` from
 /// `TapScoreApp`.
 ///
@@ -121,6 +155,40 @@ final class AppEnvironment {
     /// retry storm — every appearance of the account inset firing another
     /// request that will fail exactly the same way.
     private var didProbeRoles = false
+
+    /// What `GET /auth/credentials` said this player's credential rows are.
+    ///
+    /// The counterpart to `appleLinkedThisSession`, and the reason that flag's
+    /// doc comment no longer describes the whole story: the client CAN now ask
+    /// which providers a player holds. What it still cannot do is assume. This
+    /// starts `.unknown`, becomes `.known(…)` only on a successful answer, and
+    /// goes back to `.unknown` on sign-out.
+    ///
+    /// `appleLinkedThisSession` stays on top of it as an immediate-suppression
+    /// overlay: a link that lands mid-session makes the cached probe stale
+    /// instantly, and re-fetching to learn what we just did ourselves would be
+    /// a request whose answer we already have.
+    private(set) var credentials: CredentialProbe = .unknown
+
+    /// One SUCCESSFUL probe per session — and the "successful" is the whole
+    /// point, which is where this differs from `didProbeRoles`.
+    ///
+    /// A role probe that fails means "not an admin", which is the same answer a
+    /// successful one usually gives; latching a failure there costs nothing. A
+    /// credential probe that fails means "we do not know", and `.unknown` HIDES
+    /// the connect offer. Latching before the request therefore turned one
+    /// unlucky moment — the sheet opened on a dead network, the token racing a
+    /// refresh — into a whole session with no way to connect Apple, silently
+    /// and with nothing on screen to suggest a retry.
+    ///
+    /// So the latch is set only once `credentials` actually became `.known`.
+    /// A failure leaves it clear, and the next call re-arms.
+    private var didProbeCredentials = false
+
+    /// At most one credential probe in flight. The re-arming above is what
+    /// makes this necessary: two overlapping `.task`s (the button's and the
+    /// sheet's) would otherwise both see a clear latch and both fire.
+    private var isProbingCredentials = false
 
     // MARK: Init
 
@@ -374,15 +442,72 @@ final class AppEnvironment {
             // merits instead of inheriting this one's.
             isSuperAdmin = false
             didProbeRoles = false
+            // Same argument for the credential answer: it described the player
+            // who just left, and leaving it cached would let the next sign-in
+            // inherit a stranger's providers — which, for the one thing this
+            // drives, means silently withholding the connect offer from someone
+            // who needs it (or offering it to someone who does not).
+            credentials = .unknown
+            didProbeCredentials = false
+            isProbingCredentials = false
         }
         _ = try? await api.send(AuthNativeEndpoints.revoke)
     }
 
-    // MARK: - Roles
+    // MARK: - Account probes
+
+    /// The two once-per-session questions the account control needs answered,
+    /// asked together because they are asked for the same reason and by the
+    /// same view (`AccountAvatarButton.task`).
+    ///
+    /// Sequential rather than concurrent, deliberately: both are cheap, neither
+    /// blocks anything on screen (each row appears when its answer arrives),
+    /// and a task group here would buy nothing but two ways for a failure to
+    /// interleave.
+    func probeAccountIfNeeded() async {
+        await probeRolesIfNeeded()
+        await probeCredentialsIfNeeded()
+    }
+
+    /// Asks the server which credential providers the signed-in player holds,
+    /// once per session (`GET /auth/credentials`).
+    ///
+    /// **Fails closed, and that is the whole design.** Every failure — 401, a
+    /// server that is down, a body that does not decode — leaves `credentials`
+    /// on `.unknown`, and `.unknown` shows no connect offer. The alternative
+    /// (assume unlinked, offer anyway) is the pre-probe behaviour, and it is
+    /// the one this replaces: an offer that cannot be true is worse than none.
+    ///
+    /// Anonymous never asks. The endpoint is about the bearer's own player, and
+    /// a request guaranteed to 401 is not worth making.
+    ///
+    /// **Fails closed but does not STAY closed.** The latch is set after the
+    /// answer, not before the request, so a failed probe leaves this re-armed
+    /// and the next caller tries again. That is not a retry loop: nothing here
+    /// retries itself, the in-flight flag admits one request at a time, and the
+    /// only things that call it are the account button's `.task` and each
+    /// presentation of the account sheet — so the ceiling is one attempt per
+    /// time the user goes looking for the offer, which is exactly when a stale
+    /// `.unknown` is worth spending a request to clear.
+    func probeCredentialsIfNeeded() async {
+        guard !didProbeCredentials, !isProbingCredentials, case .signedIn = authState else { return }
+        isProbingCredentials = true
+        defer { isProbingCredentials = false }
+        // No `didProbeCredentials = true` here, deliberately — see above.
+        guard let result = try? await api.send(AuthNativeEndpoints.credentials) else { return }
+        // Flattened to raw strings on the way in. The generated element type is
+        // a closed enum, so a provider this build has never heard of makes the
+        // whole response fail to decode — which lands on `.unknown` and shows
+        // no offer, the same direction as every other failure here. Keeping the
+        // stored form a plain string set is what keeps `CredentialProbe` (and
+        // the rows built from it) independent of the generator's spelling.
+        credentials = .known(Set(result.providers.map(\.rawValue)))
+        didProbeCredentials = true
+    }
 
     /// Asks the server which role grants the bearer holds, once per session.
     ///
-    /// Driven by the signed-in account UI (`AccountInsetView.task`) rather than
+    /// Driven by the signed-in account UI (`AccountAvatarButton.task`) rather than
     /// bolted onto `bootstrap()` / `adoptSession(…)`: this is a question only
     /// the account area has any use for, and hanging it off the auth path would
     /// put a second request inside every sign-in — including the ones that are

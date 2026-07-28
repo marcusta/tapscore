@@ -765,3 +765,103 @@ test('link-first journey: a web account survives the iOS install as ONE player r
     expect(await ctx.playerService.list()).toHaveLength(2);
     expect(await credentialsFor(ctx, webPlayer.id)).toHaveLength(2);
 });
+
+// --- GET /auth/credentials ----------------------------------------------
+//
+// The read side of linking. `/auth/apple` is an insert with no way to ask what
+// is already attached, so the iOS app kept offering "Connect Sign in with
+// Apple" to an account that already had it. These tests pin two things: the
+// answer is right, and the answer is the ONLY thing in the body.
+
+test('GET /api/auth/credentials — a password-only caller sees exactly ["password"]', async () => {
+    const ctx = await setup();
+    const { token } = await (await nativeLogin(ctx.app, 'alice', 'password123')).json();
+
+    const res = await bearer(ctx.app, 'GET', '/api/auth/credentials', token);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ providers: ['password'] });
+});
+
+test('GET /api/auth/credentials — an apple-only caller sees exactly ["apple"]', async () => {
+    const ctx = await setup();
+    const { token } = await (await signIn(ctx.app, { sub: 'creds-apple-only' })).json();
+
+    const res = await bearer(ctx.app, 'GET', '/api/auth/credentials', token);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ providers: ['apple'] });
+});
+
+test('GET /api/auth/credentials — a linked caller sees both, in canonical order', async () => {
+    const ctx = await setup();
+
+    // alice already has a password; link Apple onto her, the N5 way.
+    const { token } = await (await nativeLogin(ctx.app, 'alice', 'password123')).json();
+    const linked = await bearer(ctx.app, 'POST', '/api/auth/apple', token, {
+        identityToken: await key.sign(appleClaims({ sub: 'creds-linked-sub' })),
+    });
+    expect(linked.status).toBe(200);
+
+    const res = await bearer(ctx.app, 'GET', '/api/auth/credentials', token);
+    expect(res.status).toBe(200);
+    // Canonical order, not insertion order — the same set reached the other
+    // way round must serialise identically (see `PROVIDER_ORDER`).
+    expect(await res.json()).toEqual({ providers: ['password', 'apple'] });
+});
+
+test('GET /api/auth/credentials answers for the CALLER, and is 401 anonymously', async () => {
+    const ctx = await setup();
+
+    // No session at all: requireAuth() rejects before any query runs.
+    const anon = await req(ctx.app, 'GET', '/api/auth/credentials');
+    expect(anon.status).toBe(401);
+
+    // A cookie session is the same identity through the same middleware.
+    const cookie = await loginAs(ctx.app, 'alice', 'password123');
+    const viaCookie = await req(ctx.app, 'GET', '/api/auth/credentials', undefined, cookie);
+    expect(await viaCookie.json()).toEqual({ providers: ['password'] });
+
+    // And a DIFFERENT player's session answers about that player, never the
+    // first one — the id comes from the session, never from input.
+    const { token } = await (await signIn(ctx.app, { sub: 'creds-other-human' })).json();
+    const viaBearer = await bearer(ctx.app, 'GET', '/api/auth/credentials', token);
+    expect(await viaBearer.json()).toEqual({ providers: ['apple'] });
+});
+
+test('GET /api/auth/credentials leaks NOTHING linkable — no subject, no hash, no ids', async () => {
+    const ctx = await setup();
+
+    // A caller with BOTH credentials: the most it could possibly say.
+    const { token } = await (await nativeLogin(ctx.app, 'alice', 'password123')).json();
+    await bearer(ctx.app, 'POST', '/api/auth/apple', token, {
+        identityToken: await key.sign(appleClaims({ sub: 'creds-secret-sub' })),
+    });
+
+    const res = await bearer(ctx.app, 'GET', '/api/auth/credentials', token);
+    // The WIRE BYTES, read once and asserted on directly. Both halves below
+    // come from this one string: re-serialising a parsed object would assert on
+    // whatever `JSON.stringify` chose to emit, not on what the route sent.
+    const raw = await res.text();
+    const body = JSON.parse(raw);
+
+    // The EXACT shape. `toEqual` on the whole body is the assertion that
+    // matters: an extra field cannot slip in later without failing here.
+    expect(body).toEqual({ providers: ['password', 'apple'] });
+    expect(Object.keys(body)).toEqual(['providers']);
+
+    // Said again over the response bytes, because that is what an attacker
+    // holding a stolen session actually reads. The Apple `sub` is app-scoped
+    // and stable — it is the one value here that would follow this human off
+    // tapscore — and neither it, the username-as-subject, nor any hash or row
+    // id may appear anywhere in the response.
+    expect(raw).toBe('{"providers":["password","apple"]}');
+    // (No bare 'id' in this list — "provIDers" contains it. The exact-bytes
+    // assertion above is what actually forbids an id field.)
+    for (const secret of ['creds-secret-sub', 'alice', 'subject', 'hash', 'password_hash']) {
+        expect(raw).not.toContain(secret);
+    }
+
+    // Sanity: those secrets really are in the database, so the absence above
+    // is the route withholding them and not an empty account.
+    const rows = await credentialsFor(ctx, (await (await bearer(ctx.app, 'GET', '/api/auth/me', token)).json()).id);
+    expect(rows.map((cr) => cr.subject).sort()).toEqual(['alice', 'creds-secret-sub']);
+});

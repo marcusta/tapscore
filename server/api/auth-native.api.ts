@@ -295,6 +295,43 @@ export function createAuthNativeApi(
                 return { user: outcome.player, token, created: outcome.created };
             },
         },
+        /**
+         * Which sign-in methods the CALLER's own player row holds.
+         *
+         * WHY IT EXISTS: linking (`/auth/apple` with a session) is an insert
+         * with no read side, so a native client had no way to know Apple was
+         * already attached and kept offering "Connect Sign in with Apple" to
+         * an account that already had it. This is the read side.
+         *
+         * THE CONSTRAINT, and it is the whole design of the response: provider
+         * NAMES ONLY. Never `subject`, never `password_hash`, never a
+         * credential id or a created_at. `subject` is the Apple `sub` for the
+         * apple provider and the username for password — the Apple `sub` is
+         * app-scoped and stable, i.e. exactly the value that links this human
+         * to an identity outside tapscore. An attacker who has stolen a
+         * session already has this player's whole account through every other
+         * route; what they must NOT gain here is a value that follows the
+         * human off this server. So the body is a closed vocabulary of two
+         * literals (`CredentialProvider`) and carries no per-row data at all —
+         * `{ providers: ['password', 'apple'] }` is the entire wire contract,
+         * and the shape is pinned by test so a future field cannot be added
+         * here by accident.
+         *
+         * CALLER-SCOPED, like `GET /api/me/roles`: the player id comes from
+         * the session, never from input. There is deliberately no
+         * `/auth/credentials/:playerId` — "which providers does that human
+         * have" is not a question this app answers, for anyone. Cross-player
+         * reads live behind `super_admin` in `admin.api.ts`, and this is not
+         * one of them.
+         */
+        credentials: {
+            method: 'GET' as const,
+            path: '/auth/credentials',
+            middleware: [requireAuth()],
+            fn: async (c: Context) => ({
+                providers: await svc.credentialProviders(requireUser(c).id),
+            }),
+        },
         revoke: {
             method: 'POST' as const,
             path: '/auth/revoke',

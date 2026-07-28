@@ -248,6 +248,33 @@ struct AuthNativeAppleSignInOutput: Codable, Sendable, Equatable {
     }
 }
 
+enum AuthNativeCredentialsOutputProvidersItem: String, Codable, Sendable, Equatable {
+    case password = "password"
+    case apple = "apple"
+}
+
+struct AuthNativeCredentialsOutput: Codable, Sendable, Equatable {
+    var providers: [AuthNativeCredentialsOutputProvidersItem]
+
+    enum CodingKeys: String, CodingKey {
+        case providers = "providers"
+    }
+
+    init(providers: [AuthNativeCredentialsOutputProvidersItem]) {
+        self.providers = providers
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.providers = try c.decode([AuthNativeCredentialsOutputProvidersItem].self, forKey: .providers)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(providers, forKey: .providers)
+    }
+}
+
 struct AuthNativeRevokeOutput: Codable, Sendable, Equatable {
     var ok: Bool
     var userId: String

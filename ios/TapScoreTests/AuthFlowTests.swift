@@ -556,6 +556,196 @@ final class AuthFlowTests: XCTestCase {
         XCTAssertFalse(environment.appleLinkedThisSession)
     }
 
+    // MARK: - 6b. The credentials probe (already-linked suppression)
+
+    /// A signed-in session, built the way the account button meets one: a token
+    /// in the Keychain, `bootstrap()` resolving it, and `/auth/credentials`
+    /// armed with `body`/`status`.
+    @MainActor
+    private func signedInEnvironment(
+        credentialsStatus: Int,
+        credentialsBody: Data
+    ) async -> AppEnvironment {
+        StubURLProtocol.reset(status: 200, body: Self.meJSON)
+        StubURLProtocol.stub(
+            path: "/auth/credentials", status: credentialsStatus, body: credentialsBody)
+        // `/me/roles` answers too, because `probeAccountIfNeeded()` asks both —
+        // an unstubbed roles call would fall through to the `/players/me` body
+        // and muddy the request counts below.
+        StubURLProtocol.stub(path: "/me/roles", status: 200, body: Data("[]".utf8))
+        XCTAssertTrue(keychain.saveToken("bearer-abc"))
+        let environment = makeEnvironment()
+        await environment.bootstrap()
+        return environment
+    }
+
+    @MainActor
+    func testCredentialsProbeReadsTheProvidersTheServerReports() async {
+        let environment = await signedInEnvironment(
+            credentialsStatus: 200,
+            credentialsBody: Data(#"{"providers":["password"]}"#.utf8)
+        )
+
+        await environment.probeAccountIfNeeded()
+
+        XCTAssertEqual(environment.credentials, .known(["password"]))
+        XCTAssertTrue(
+            AccountSheetRows(
+                isSuperAdmin: false,
+                credentials: environment.credentials,
+                appleLinkedThisSession: environment.appleLinkedThisSession
+            ).showsConnectApple
+        )
+        XCTAssertEqual(
+            StubURLProtocol.requests.last?.url?.absoluteString,
+            "http://localhost:3030/api/auth/credentials",
+            "Through the generated descriptor and the one transport."
+        )
+    }
+
+    @MainActor
+    func testAnAppleCredentialSuppressesTheConnectOffer() async {
+        let environment = await signedInEnvironment(
+            credentialsStatus: 200,
+            credentialsBody: Data(#"{"providers":["password","apple"]}"#.utf8)
+        )
+
+        await environment.probeAccountIfNeeded()
+
+        XCTAssertEqual(environment.credentials, .known(["password", "apple"]))
+        XCTAssertFalse(
+            AccountSheetRows(isSuperAdmin: false, credentials: environment.credentials)
+                .showsConnectApple
+        )
+    }
+
+    /// **Every failure is `.unknown`, and `.unknown` offers nothing.** A 401, a
+    /// dead server, a body this build cannot decode (a provider added
+    /// server-side after this app shipped) — all of them mean the app does not
+    /// know, and an offer it cannot back up is worse than no offer.
+    @MainActor
+    func testEveryCredentialsProbeFailureLandsOnUnknownAndOffersNothing() async {
+        for (status, body) in [
+            (401, Data(#"{"error":"bearer_token_required"}"#.utf8)),
+            (500, Data(#"{"error":"boom"}"#.utf8)),
+            (200, Data(#"{"providers":["carrier-pigeon"]}"#.utf8)),
+            (200, Data(#"{"not":"the shape"}"#.utf8)),
+        ] {
+            let environment = await signedInEnvironment(
+                credentialsStatus: status, credentialsBody: body)
+
+            await environment.probeAccountIfNeeded()
+
+            XCTAssertEqual(
+                environment.credentials, .unknown,
+                "A \(status) must not become a claim about the player."
+            )
+            XCTAssertFalse(
+                AccountSheetRows(isSuperAdmin: false, credentials: environment.credentials)
+                    .showsConnectApple
+            )
+        }
+    }
+
+    /// One SUCCESSFUL probe per session — and a failed one is retried.
+    ///
+    /// This used to assert the opposite, and the opposite was the bug: the latch
+    /// was set before the request, so a single 403 (or a moment offline) meant
+    /// `.unknown` for the rest of the session, which renders exactly like
+    /// "already linked" — no offer, no error, nothing to retry. The retry has a
+    /// ceiling instead of a latch: `probeAccountIfNeeded()` is called by the
+    /// account button and by each presentation of the account sheet, so a
+    /// failure costs one request the next time the user goes looking for the
+    /// offer, which is exactly when a stale `.unknown` is worth clearing.
+    @MainActor
+    func testAFailedCredentialsProbeIsRetriedAndASuccessfulOneIsNot() async {
+        let environment = await signedInEnvironment(
+            credentialsStatus: 403,
+            credentialsBody: Data(#"{"error":"forbidden"}"#.utf8)
+        )
+
+        await environment.probeAccountIfNeeded()
+        await environment.probeAccountIfNeeded()
+        await environment.probeAccountIfNeeded()
+
+        XCTAssertEqual(credentialsProbeCount(), 3, "Each failure re-arms the ask.")
+        XCTAssertEqual(environment.credentials, .unknown)
+
+        // The server comes back. `reset` re-arms the stub table AND clears the
+        // request log, so the counts below start from zero again.
+        StubURLProtocol.reset(status: 200, body: Self.meJSON)
+        StubURLProtocol.stub(
+            path: "/auth/credentials",
+            status: 200,
+            body: Data(#"{"providers":["password"]}"#.utf8)
+        )
+        StubURLProtocol.stub(path: "/me/roles", status: 200, body: Data("[]".utf8))
+
+        // The next presentation gets the real answer...
+        await environment.probeAccountIfNeeded()
+        XCTAssertEqual(environment.credentials, .known(["password"]))
+        XCTAssertEqual(credentialsProbeCount(), 1)
+
+        // ...and THAT is what stops the asking.
+        await environment.probeAccountIfNeeded()
+        await environment.probeAccountIfNeeded()
+        XCTAssertEqual(
+            credentialsProbeCount(),
+            1,
+            "A known answer is fetched once, however many times a view appears."
+        )
+    }
+
+    private func credentialsProbeCount() -> Int {
+        StubURLProtocol.requests.filter { $0.url?.path.hasSuffix("/auth/credentials") == true }.count
+    }
+
+    /// Anonymous never asks: the endpoint is scoped to the bearer's own player,
+    /// and a request guaranteed to 401 is not worth making.
+    @MainActor
+    func testAnAnonymousSessionNeverProbesCredentials() async {
+        StubURLProtocol.reset(status: 200, body: Data(#"{"providers":[]}"#.utf8))
+        let environment = makeEnvironment()
+        await environment.bootstrap()
+
+        await environment.probeAccountIfNeeded()
+
+        XCTAssertEqual(environment.credentials, .unknown)
+        XCTAssertTrue(StubURLProtocol.requests.isEmpty, "No token, no probe.")
+    }
+
+    /// The cached answer described the player who just left. Clearing the
+    /// "already asked" flag with it is what lets the next sign-in — possibly a
+    /// different human on the same device — be answered on its own merits.
+    @MainActor
+    func testSignOutForgetsTheCredentialsAndRearmsTheProbe() async {
+        let environment = await signedInEnvironment(
+            credentialsStatus: 200,
+            credentialsBody: Data(#"{"providers":["apple"]}"#.utf8)
+        )
+        await environment.probeAccountIfNeeded()
+        XCTAssertEqual(environment.credentials, .known(["apple"]))
+
+        StubURLProtocol.stub(
+            path: "/auth/revoke", status: 200, body: Data(#"{"ok":true,"userId":"p9"}"#.utf8))
+        await environment.signOut()
+
+        XCTAssertEqual(environment.credentials, .unknown)
+
+        // Re-armed: a fresh session asks again rather than inheriting.
+        XCTAssertTrue(keychain.saveToken("bearer-next"))
+        await environment.bootstrap()
+        let before = StubURLProtocol.requests.count
+        await environment.probeAccountIfNeeded()
+        XCTAssertEqual(
+            StubURLProtocol.requests.filter { $0.url?.path.hasSuffix("/auth/credentials") == true }
+                .count,
+            2,
+            "The next session gets its own answer."
+        )
+        XCTAssertGreaterThan(StubURLProtocol.requests.count, before)
+    }
+
     // MARK: - 7. The shared tail: a Keychain that refuses the write
 
     /// Both doors run through `adoptSession`, and the branch that matters is the

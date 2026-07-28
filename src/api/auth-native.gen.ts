@@ -21,6 +21,7 @@ export interface Player {
 export interface AuthNativeApi {
     nativeLogin(input: { username: string; password: string }): Promise<{ user: AuthUser; token: string }>;
     appleSignIn(input: { fullName?: null | string; nonce?: string; identityToken: string }): Promise<{ user: Player; token: string; created: boolean }>;
+    credentials(): Promise<{ providers: ('password' | 'apple')[] }>;
     revoke(): Promise<{ ok: boolean; userId: string }>;
 }
 
@@ -31,6 +32,9 @@ export function createAuthNativeClient(baseUrl: string): AuthNativeApi {
         },
         async appleSignIn(input) {
             return apiFetch({ method: 'POST', url: `${baseUrl}/auth/apple`, body: input });
+        },
+        async credentials() {
+            return apiFetch({ method: 'GET', url: `${baseUrl}/auth/credentials` });
         },
         async revoke() {
             return apiFetch({ method: 'POST', url: `${baseUrl}/auth/revoke`, body: {} });

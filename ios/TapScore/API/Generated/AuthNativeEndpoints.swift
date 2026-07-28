@@ -9,6 +9,10 @@ enum AuthNativeEndpoints {
         method: .post,
         path: "/auth/apple",
         pathParams: [])
+    static let credentials = APIEndpoint<EmptyInput, AuthNativeCredentialsOutput>(
+        method: .get,
+        path: "/auth/credentials",
+        pathParams: [])
     static let revoke = APIEndpoint<EmptyInput, AuthNativeRevokeOutput>(
         method: .post,
         path: "/auth/revoke",

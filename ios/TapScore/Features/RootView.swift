@@ -1,5 +1,63 @@
 import SwiftUI
 
+/// What the landing puts below its content.
+enum LandingAuthInset: Equatable {
+    /// Sign in with Apple, the password door, and "Continue without an account".
+    case signIn
+    /// The fork warning (`NewAccountNoticeInset`) — the ONLY account thing the
+    /// signed-in landing still carries.
+    case newAccountNotice
+    case hidden
+}
+
+/// What the landing puts in the upper right.
+enum LandingAccountControl: Equatable {
+    /// The initials button that opens `AccountSheetView`.
+    case avatar
+    /// A plain "Sign in" that brings the dismissed inset back — the only way
+    /// back to it once "Continue without an account" has been taken.
+    case signIn
+    case hidden
+}
+
+/// The landing's auth chrome, decided in one place from three inputs.
+///
+/// Lifted out of `RootView` because it was two `switch`es in two `@ViewBuilder`
+/// properties that had to agree with each other and could not be asserted from
+/// either. The rules they encode are small and easy to break by editing one of
+/// the two:
+///
+/// - **Signed out, exactly one of the two is present.** The inset and the
+///   toolbar "Sign in" are the same affordance in two places; showing both is
+///   two doors to one room, showing neither is an app nobody can sign into.
+/// - **The avatar is a signed-in control only.** Anonymous has no identity to
+///   render initials for, and a `.unreachable` bootstrap has no player object
+///   at all.
+/// - **Signed in, the landing carries the fork notice and nothing else.**
+///   Identity, Admin, Connect Apple, Server and Sign out all live in the sheet.
+///   The notice stays because it is a warning nobody would go looking for.
+/// - **`.unknown` and `.unreachable` show nothing at all.** Offering Sign in
+///   with Apple against a server we cannot reach fails at our own POST, after
+///   the user has already been through Apple's sheet.
+struct LandingChrome: Equatable {
+    let inset: LandingAuthInset
+    let accountControl: LandingAccountControl
+
+    init(authState: AuthState, signInDismissed: Bool, showsNewAccountNotice: Bool) {
+        switch authState {
+        case .anonymous:
+            inset = signInDismissed ? .hidden : .signIn
+            accountControl = signInDismissed ? .signIn : .hidden
+        case .signedIn:
+            inset = showsNewAccountNotice ? .newAccountNotice : .hidden
+            accountControl = .avatar
+        case .unknown, .unreachable:
+            inset = .hidden
+            accountControl = .hidden
+        }
+    }
+}
+
 /// The app shell: one `NavigationStack`, one place that decides what a route
 /// means, and one place that records a round as seen on this device.
 ///
@@ -109,13 +167,32 @@ struct RootView: View {
     /// fails at our own POST, after the user has already been through Apple's
     /// sheet.
     ///
-    /// The signed-IN branch is usually empty too — `AccountInsetView` draws its
-    /// own chrome only when it has something to say (the fork notice, or the
-    /// offer to connect Apple), so a settled account costs the landing nothing.
+    /// **Signed OUT, the inset stays.** Sign-in is visible ON the landing, not
+    /// filed behind a control — an app whose sign-in is a secret handshake in
+    /// the corner is one people conclude they cannot sign into. It keeps both
+    /// doors (Apple and the password door the fork guard needs) and the
+    /// explicit "Continue without an account", because sign-in is never a gate.
+    ///
+    /// **Signed IN, the landing carries almost nothing.** Identity, Admin,
+    /// Connect Apple, Server and Sign out all moved into `AccountSheetView`
+    /// behind the navigation-bar avatar, leaving the landing to be the
+    /// wordmark, the calls to action and the rounds. The one exception is the
+    /// fork notice, which is a warning rather than a control — see
+    /// `NewAccountNoticeInset`.
+    /// The one place both affordances are decided — see `LandingChrome`. The
+    /// two view builders below only render what it says.
+    private var chrome: LandingChrome {
+        LandingChrome(
+            authState: environment.authState,
+            signInDismissed: signInDismissed,
+            showsNewAccountNotice: environment.showsNewAccountNotice
+        )
+    }
+
     @ViewBuilder
     private var authInset: some View {
-        switch environment.authState {
-        case .anonymous where !signInDismissed:
+        switch chrome.inset {
+        case .signIn:
             VStack(spacing: TapSpacing.md) {
                 SignInView()
                 Button("Continue without an account") { signInDismissed = true }
@@ -131,29 +208,39 @@ struct RootView: View {
                     .fill(TapColors.border)
                     .frame(height: 1)
             }
-        case .signedIn:
-            AccountInsetView()
-        default:
+        case .newAccountNotice:
+            NewAccountNoticeInset()
+        case .hidden:
             EmptyView()
         }
     }
 
+    /// The upper-right account control.
+    ///
+    /// Signed in, it is the avatar that opens the account sheet — one button
+    /// where a floating "Sign out" pill used to sit, now leading to everything
+    /// the account can do rather than only to the way out. (Sign out itself is
+    /// the last row of that sheet, one tap further away, which is the right
+    /// distance for a destructive-ish action that was previously the easiest
+    /// thing to hit on the screen.)
+    ///
+    /// Signed out there is deliberately NO button: the sign-in inset is already
+    /// on the landing, and a second entry point to the same two doors is one
+    /// more thing to explain. The one exception is the state where the inset
+    /// has been dismissed for good — then this is the only way back to it.
     @ToolbarContentBuilder
     private var accountToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            switch environment.authState {
-            case .signedIn:
-                Button("Sign out") { Task { await environment.signOut() } }
-                    .buttonStyle(.plain)
-                    .font(TapFont.ui(size: 14.4, weight: .semibold))
-                    .foregroundStyle(TapColors.textMuted)
-            case .anonymous where signInDismissed:
+            switch chrome.accountControl {
+            case .avatar:
+                AccountAvatarButton()
+            case .signIn:
                 // The only way back to the inset once it has been dismissed.
                 Button("Sign in") { signInDismissed = false }
                     .buttonStyle(.plain)
                     .font(TapFont.ui(size: 14.4, weight: .semibold))
                     .foregroundStyle(TapColors.accent)
-            default:
+            case .hidden:
                 EmptyView()
             }
         }

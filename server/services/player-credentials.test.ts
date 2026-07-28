@@ -669,6 +669,65 @@ test('linkAppleCredential maps a lost race onto AppleSubjectTakenError, not a ra
     ).toHaveLength(1);
 });
 
+// --- credentialProviders: the read side ------------------------------------
+
+test('credentialProviders is DISTINCT — two apple subjects on one player answer ["apple"]', async () => {
+    const ctx = await createTestDb();
+    const { player } = await ctx.playerService.findOrCreateByApple('001.two-a', { name: 'Duo D.' });
+    // Nothing in the schema forbids this: `UNIQUE(provider, subject)` bounds
+    // SUBJECTS, not players, so one human can end up holding two apple rows
+    // (two Apple IDs, or a link that arrived by a route the pre-check missed).
+    // Without `.distinct()` the route would answer `['apple','apple']`, and the
+    // native client compares the array — `providers == ['apple']` — so a
+    // duplicate reads as "not the same set" and reopens an offer that is false.
+    await insertAppleCredential(ctx, player.id, '001.two-b');
+
+    const rows = await ctx.db
+        .selectFrom('player_credentials')
+        .selectAll()
+        .where('player_id', '=', player.id)
+        .execute();
+    expect(rows).toHaveLength(2);
+
+    expect(await ctx.playerService.credentialProviders(player.id)).toEqual(['apple']);
+});
+
+test('credentialProviders answers the canonical order, not the insertion order', async () => {
+    const ctx = await createTestDb();
+    const alice = await ctx.playerService.register({
+        username: 'alice',
+        password: 'password123',
+        displayName: 'Alice A.',
+    });
+    // Password first, then apple — the order a web user reaches iOS in.
+    await ctx.playerService.linkAppleCredential(alice.id, '001.order');
+    expect(await ctx.playerService.credentialProviders(alice.id)).toEqual(['password', 'apple']);
+
+    // The same set reached the other way round sorts identically.
+    const { player: appleFirst } = await ctx.playerService.findOrCreateByApple('001.order-2');
+    await ctx.db
+        .insertInto('player_credentials')
+        .values({
+            id: crypto.randomUUID(),
+            player_id: appleFirst.id,
+            provider: 'password',
+            subject: 'later-password',
+            password_hash: 'x',
+        })
+        .execute();
+    expect(await ctx.playerService.credentialProviders(appleFirst.id)).toEqual([
+        'password',
+        'apple',
+    ]);
+});
+
+test('credentialProviders is empty for a player with no credentials at all', async () => {
+    const ctx = await createTestDb();
+    const { player } = await ctx.playerService.findOrCreateByApple('001.gone');
+    await ctx.playerService.hardDelete(player.id);
+    expect(await ctx.playerService.credentialProviders(player.id)).toEqual([]);
+});
+
 test('hardDelete erases the apple sub too — it is PII in its own right', async () => {
     const ctx = await createTestDb();
     const { player } = await ctx.playerService.findOrCreateByApple('001.jjj', { name: 'Jo J.' });

@@ -111,6 +111,35 @@ export class AppleSubjectTakenError extends ConflictError {
     }
 }
 
+/**
+ * Canonical order for a player's credential providers (`credentialProviders`).
+ * Password first because it is the door every pre-ADR-0005 player already had
+ * and the web's only one; Apple second because it is the one that gets ADDED.
+ * A provider missing from this list sorts last, alphabetically among its peers,
+ * so a new provider APPENDS rather than reshuffling the array.
+ *
+ * That appending property is worth exactly one client, and it is worth saying
+ * which: the **TS client** reads `providers` as `string[]` and an unrecognised
+ * trailing entry costs it nothing. The **native client does not get that
+ * grace** — `TapScore/API/Generated` emits `CredentialProvider` as a CLOSED
+ * Swift enum, so an unknown member does not merely fail to match a case, it
+ * fails the WHOLE-BODY decode; `probeCredentialsIfNeeded()` then lands on
+ * `CredentialProbe.unknown` and the account sheet offers nothing. Ordering is
+ * not what saves it, and nothing in this file can.
+ *
+ * Recorded rather than fixed, deliberately: the fix is generator-level (lenient
+ * enums with an unknown case) and belongs to `scripts/generate-swift.ts`, and
+ * ADR-0005 rules out new providers in the near term — so the cost of shipping
+ * one today is a stale native binary showing no connect offer until it updates.
+ * Anyone adding a third provider should change the generator FIRST.
+ */
+const PROVIDER_ORDER: readonly CredentialProvider[] = ['password', 'apple'];
+
+function providerRank(provider: CredentialProvider): number {
+    const i = PROVIDER_ORDER.indexOf(provider);
+    return i === -1 ? PROVIDER_ORDER.length : i;
+}
+
 /** Today as a plain `YYYY-MM-DD` — the `handicap_history.effective_date` grain. */
 function todayIsoDate(): string {
     return new Date().toISOString().slice(0, 10);
@@ -574,6 +603,52 @@ export class PlayerService {
             throw err;
         }
         return toPlayer(row);
+    }
+
+    /**
+     * Which KINDS of credential this player holds — provider names only, never
+     * `subject` and never `password_hash` (ADR-0005: a credential row is the
+     * secret; the provider name is the only part that is not).
+     *
+     * Exists because nothing else could answer "is Apple already linked?": the
+     * native client re-offered "Connect Sign in with Apple" to an account that
+     * already had it, because linking is an insert with no read side. This is
+     * that read side, and it is deliberately the WEAKEST one that answers the
+     * question — a caller learns the shape of their own sign-in menu and
+     * nothing that identifies them anywhere else.
+     *
+     * DISTINCT: a player has 0..n rows per provider in principle (nothing in
+     * the schema forbids two `apple` rows for one human — `UNIQUE(provider,
+     * subject)` bounds subjects, not players), so the caller must never see
+     * `['apple', 'apple']`.
+     *
+     * STABLE ORDER, and why it is not the row order: credentials arrive in
+     * whatever sequence a human happened to link them, so insertion order
+     * would answer `['password','apple']` for a web user who added iOS and
+     * `['apple','password']` for the same shape reached the other way — two
+     * spellings of one set. `PROVIDER_ORDER` is the canonical one, so a client
+     * can compare two responses for equality and a test can assert an exact
+     * array. The SQL `ORDER BY` underneath keeps even an unrecognised future
+     * provider deterministic rather than left to the query planner.
+     *
+     * Says nothing about soft-delete, on purpose: this mirrors the login paths
+     * (`verify`), which do not consult `deleted_at` either. A caller holding a
+     * session is by definition able to sign in.
+     */
+    async credentialProviders(playerId: string): Promise<CredentialProvider[]> {
+        const rows = await this.db
+            .selectFrom('player_credentials')
+            .select('provider')
+            .distinct()
+            .where('player_id', '=', playerId)
+            // Alphabetical here is only the tiebreak for anything
+            // `PROVIDER_ORDER` does not know about; the canonical order is
+            // applied below. Sort stability (ES2019) preserves it.
+            .orderBy('provider', 'asc')
+            .execute();
+        return rows
+            .map((r) => r.provider)
+            .sort((a, b) => providerRank(a) - providerRank(b));
     }
 
     async findById(id: string): Promise<AuthUser | null> {

@@ -84,6 +84,21 @@ export class LandingService {
     }
 
     /**
+     * Forget the signed-in lists and fall back to the device-local ones
+     * (sign-out). Signing out while already on '/' never remounts the landing —
+     * the route doesn't change, so `render()` doesn't run again — which is why
+     * this both drops `mine` AND re-reads the device list: without the re-read
+     * the anonymous landing would sit on a stale empty list until a reload.
+     */
+    clear(): void {
+        this.mine.set(null);
+        this.mineError.set(null);
+        this.mineLoading.set(false);
+        this.seenIds.set(getSeenRoundIds());
+        this.loadDevice();
+    }
+
+    /**
      * Delete a round by its share token (same trust boundary as scoring — the
      * token IS the credential), then prune it from the loaded lists in place so
      * the row disappears without a full reload. Also drops it from this

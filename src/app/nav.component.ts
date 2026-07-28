@@ -4,37 +4,21 @@ import { t } from '../theme';
 import { s } from '../css';
 import { LandingService } from '../landing/landing.service';
 import { features } from '../features';
+import { dockItems } from './dock-items';
+import { showsDock } from './shell-chrome';
 
 const tpl = template(`
-    <nav class="tabbar" bind="root">
-        <a bind="homeLink" href="/">
-            <span class="tabbar__icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v10h12V10"/><path d="M10 20v-5.5h4V20"/>
-                </svg>
-                <span bind="badge" class="tabbar__badge"></span>
-            </span>
-            <span>Home</span>
-        </a>
-        <a bind="friendsLink" href="/friends">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="9" cy="8" r="3.5"/><path d="M3.5 20c.5-3.5 2.7-5.5 5.5-5.5s5 2 5.5 5.5"/><circle cx="16.5" cy="9.5" r="2.8"/><path d="M16.8 14.6c2.2.4 3.5 2 3.9 4.9"/>
-            </svg>
-            <span>Friends</span>
-        </a>
-        <a bind="compsLink" href="/competitions">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M8 4h8v3a4 4 0 0 1-8 0V4Z"/><path d="M8 5H5v2a3 3 0 0 0 3 3"/><path d="M16 5h3v2a3 3 0 0 1-3 3"/><path d="M10 12.5V15h4v-2.5"/><path d="M9 20h6"/><path d="M12 15v5"/>
-            </svg>
-            <span>Comps</span>
-        </a>
-        <a bind="profileLink" href="/profile">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="8" r="4"/><path d="M5 20c.7-4 3.3-6 7-6s6.3 2 7 6"/>
-            </svg>
-            <span>Profile</span>
-        </a>
-    </nav>
+    <nav class="tabbar" bind="root"></nav>
+`);
+
+const itemTpl = template(`
+    <a bind="link">
+        <span class="tabbar__icon">
+            <span bind="icon" class="tabbar__glyph"></span>
+            <span bind="badge" class="tabbar__badge"></span>
+        </span>
+        <span bind="label"></span>
+    </a>
 `);
 
 export class NavComponent extends Component {
@@ -63,6 +47,7 @@ export class NavComponent extends Component {
                 & svg { width: 26px; height: 26px; }
 
                 & .tabbar__icon { position: relative; display: inline-flex; }
+                & .tabbar__glyph { display: inline-flex; }
 
                 /* "New — you were added" badge on the Home tab: a small accent
                    pill with the count. Hidden entirely at 0 (kept honest). */
@@ -106,36 +91,45 @@ export class NavComponent extends Component {
     render(): DocumentFragment {
         const frag = this.wire(tpl, {
             root: {
-                className: () => {
-                    const route = this.router.route.get();
-                    // /round is immersive on-course mode: it has its own
-                    // Score/Leaderboard dock, and its ← back link exits to the
-                    // landing. Stacking the global tabbar under it wastes
-                    // on-course screen space.
-                    const hidden =
-                        !this.auth.currentUser.get() || route === '/login' || route === '/round';
-                    return hidden ? 'tabbar hidden' : 'tabbar';
-                },
+                // Same chrome rule as the shell header (see `shell-chrome`),
+                // plus a session: /round is immersive on-course mode with its
+                // own Score/Leaderboard dock.
+                className: () =>
+                    showsDock(this.router.route.get(), this.auth.currentUser.get() !== null)
+                        ? 'tabbar'
+                        : 'tabbar hidden',
             },
-            homeLink: this.router.link('/'),
-            badge: {
-                textContent: () => {
-                    const n = this.newCount.get();
-                    return n === 0 ? '' : String(n);
-                },
-                className: () => {
-                    const n = this.newCount.get();
-                    return n === 0 ? 'tabbar__badge' : 'tabbar__badge show';
-                },
-            },
-            friendsLink: this.router.link('/friends'),
-            compsLink: this.router.link('/competitions'),
-            profileLink: this.router.link('/profile'),
         });
 
-        // Feature-toggled off: drop the tab from the DOM so the remaining
-        // three share the bar evenly (each `a` is flex: 1).
-        if (!features.competitions) this.ref(frag, 'compsLink').remove();
+        // Feature-toggled items simply aren't in the list, so the remaining
+        // tabs share the bar evenly (each `a` is flex: 1).
+        const items = dockItems(features);
+        this.$each(
+            this.ref(frag, 'root'),
+            () => items,
+            (item, _i, track) =>
+                this.wireEl(
+                    itemTpl,
+                    {
+                        link: { ...this.router.link(item.href), href: item.href },
+                        icon: { innerHTML: () => item.icon },
+                        label: () => item.label,
+                        badge: {
+                            textContent: () => {
+                                if (item.key !== 'home') return '';
+                                const n = this.newCount.get();
+                                return n === 0 ? '' : String(n);
+                            },
+                            className: () => {
+                                const n = item.key === 'home' ? this.newCount.get() : 0;
+                                return n === 0 ? 'tabbar__badge' : 'tabbar__badge show';
+                            },
+                        },
+                    },
+                    track,
+                ),
+            (item) => item.key,
+        );
 
         return frag;
     }
