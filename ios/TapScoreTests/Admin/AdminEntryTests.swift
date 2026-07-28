@@ -82,7 +82,7 @@ final class AdminEntryTests: XCTestCase {
         let environment = await probed(status: 200, body: Self.superAdminRoles)
 
         XCTAssertTrue(environment.isSuperAdmin)
-        let rows = AccountInsetRows(isSuperAdmin: environment.isSuperAdmin)
+        let rows = AccountSheetRows(isSuperAdmin: environment.isSuperAdmin)
         XCTAssertTrue(rows.showsAdmin)
         XCTAssertTrue(rows.showsServer, "Both operator rows answer to the same grant.")
     }
@@ -92,7 +92,7 @@ final class AdminEntryTests: XCTestCase {
         for body in [Self.noRoles, Self.otherRole] {
             let environment = await probed(status: 200, body: body)
             XCTAssertFalse(environment.isSuperAdmin)
-            XCTAssertFalse(AccountInsetRows(isSuperAdmin: environment.isSuperAdmin).showsAdmin)
+            XCTAssertFalse(AccountSheetRows(isSuperAdmin: environment.isSuperAdmin).showsAdmin)
         }
     }
 
@@ -109,7 +109,7 @@ final class AdminEntryTests: XCTestCase {
             environment.isSuperAdmin,
             "super_admin is unscoped by construction; a scoped row is not the global grant."
         )
-        let rows = AccountInsetRows(isSuperAdmin: environment.isSuperAdmin)
+        let rows = AccountSheetRows(isSuperAdmin: environment.isSuperAdmin)
         XCTAssertFalse(rows.showsAdmin)
         XCTAssertFalse(rows.showsServer)
     }
@@ -127,7 +127,7 @@ final class AdminEntryTests: XCTestCase {
         for (status, body) in failures {
             let environment = await probed(status: status, body: body)
             XCTAssertFalse(
-                AccountInsetRows(isSuperAdmin: environment.isSuperAdmin).showsAdmin,
+                AccountSheetRows(isSuperAdmin: environment.isSuperAdmin).showsAdmin,
                 "HTTP \(status) must leave the Admin row absent."
             )
         }
@@ -136,7 +136,7 @@ final class AdminEntryTests: XCTestCase {
     @MainActor
     func testRowsAreAbsentWhenNothingIsKnownYet() {
         // The default before any probe: unknown reads as "not an admin".
-        let rows = AccountInsetRows(isSuperAdmin: false)
+        let rows = AccountSheetRows(isSuperAdmin: false)
         XCTAssertFalse(rows.showsAdmin)
         XCTAssertFalse(rows.showsServer)
     }
@@ -156,7 +156,7 @@ final class AdminEntryTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            AccountInsetView.identityAccessibilityLabel(player),
+            AccountSheetView.identityAccessibilityLabel(player),
             "Signed in as Marcus Andersson, username marcus",
             "The label names the framing and spells out the username."
         )
