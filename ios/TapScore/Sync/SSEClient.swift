@@ -27,9 +27,30 @@ import Foundation
 //   * A frame whose payload we cannot read is IGNORED and does not count. The
 //     degrade counter is about connectivity alone. (Payload validation itself
 //     is `LiveResultFeed`'s job — this layer stops at the SSE framing.)
+//   * SILENCE is a failure. See the watchdog note below: no bytes at all for
+//     `idleTimeout` means the connection is dead however open it looks, and it
+//     counts exactly like a transport error — countable, never terminal.
 //
-// Everything is injectable: the transport (so tests never touch the network)
-// and the sleeper (so backoff costs a test nothing).
+// LIVENESS WATCHDOG (owner field report, 2026-07-28). A wifi→cellular handoff
+// can kill the TCP connection with nobody noticing: the socket stays open from
+// this side, no error is ever delivered, and the round silently stops updating
+// — the symptom the field report opened with. `friendly-rounds-events.ts` sends
+// a `: keep-alive` comment every 25s precisely so a dead pipe is detectable, so
+// this client watches it: EVERY chunk off the wire re-arms a timer, and if the
+// timer ever elapses the in-flight request is cancelled and the stream reopened
+// from `Last-Event-ID`.
+//
+// The web sibling (`src/round/live-result.ts`) does the same thing with a LONGER
+// window (75s vs 60s), and the asymmetry is deliberate: `EventSource` discards
+// comment lines before any handler sees them, so the web can only observe data
+// frames and has to allow for three missed heartbeats. This client reads raw
+// bytes — `SSEFrameParser` is fed the comment and returns no frame, but the
+// watchdog has already been reset — so a heartbeat is directly visible and 60s
+// (two missed heartbeats) is a safe window on an otherwise idle round.
+//
+// Everything is injectable: the transport (so tests never touch the network),
+// the sleeper (so backoff costs a test nothing) and the watchdog's own sleeper
+// (so the 60s window is exercised without waiting a minute).
 
 // MARK: - Frames
 
@@ -218,6 +239,9 @@ struct URLSessionSSETransport: SSETransport {
         guard let http = response as? HTTPURLResponse else {
             throw SSEClientError.notHTTP
         }
+        // The URLSession task behind `bytes`, captured so termination can kill
+        // the CONNECTION and not merely the reader — see `onTermination` below.
+        let sessionTask = bytes.task
         let chunks = AsyncThrowingStream<Data, any Error> { continuation in
             let task = Task {
                 var buffer = Data()
@@ -235,7 +259,20 @@ struct URLSessionSSETransport: SSETransport {
                     continuation.finish(throwing: error)
                 }
             }
-            continuation.onTermination = { _ in task.cancel() }
+            // NO ZOMBIE CONNECTIONS. Cancelling the pump task alone relies on a
+            // two-hop cooperative chain — the task notices cancellation, that
+            // propagates into `AsyncBytes`, and `AsyncBytes` is expected to
+            // cancel its URLSession task — which only unwinds if the pump is
+            // actually suspended in `for try await`, and a stream that has gone
+            // silent on a dead socket is the case this client exists for.
+            // Cancelling the session task EXPLICITLY tears the request down
+            // whatever the pump is doing; both are idempotent, so doing both
+            // costs nothing and leaves no open connection behind a watchdog
+            // trip, a `stop()`, or a screen that went away.
+            continuation.onTermination = { _ in
+                sessionTask.cancel()
+                task.cancel()
+            }
         }
         return SSEResponse(
             statusCode: http.statusCode,
@@ -284,17 +321,23 @@ actor SSEClient {
         var initialBackoff: Duration = .seconds(1)
         var maxBackoff: Duration = .seconds(30)
         var backoffMultiplier: Int = 2
+        /// Silence — no bytes of ANY kind, heartbeat comments included — after
+        /// which the connection is presumed dead. Two missed 25s server
+        /// heartbeats plus slack. `.zero` (or less) disables the watchdog.
+        var idleTimeout: Duration = .seconds(60)
 
         init(
             maxConsecutiveFailures: Int = 3,
             initialBackoff: Duration = .seconds(1),
             maxBackoff: Duration = .seconds(30),
-            backoffMultiplier: Int = 2
+            backoffMultiplier: Int = 2,
+            idleTimeout: Duration = .seconds(60)
         ) {
             self.maxConsecutiveFailures = maxConsecutiveFailures
             self.initialBackoff = initialBackoff
             self.maxBackoff = maxBackoff
             self.backoffMultiplier = backoffMultiplier
+            self.idleTimeout = idleTimeout
         }
     }
 
@@ -314,6 +357,10 @@ actor SSEClient {
     private let transport: any SSETransport
     private let configuration: Configuration
     private let sleeper: Sleeper
+    /// The watchdog's clock. Separate from `sleeper` so a test can keep backoff
+    /// free (`instantSleeper`) without every connection instantly "going
+    /// silent" — the two durations mean opposite things.
+    private let idleSleeper: Sleeper
     private let isFinalFrame: FinalFramePredicate
 
     private var task: Task<Void, Never>?
@@ -321,6 +368,15 @@ actor SSEClient {
     private var failures = 0
     private var backoff: Duration
     private var stopped = false
+    /// Per-attempt framing state. It lives on the actor rather than as a local
+    /// in `attempt` because the body reader is its own task (that is what makes
+    /// it cancellable from the watchdog) and hands chunks back in.
+    private var parser = SSEFrameParser()
+    /// The task draining the current response body, while one is open.
+    private var readerTask: Task<ReaderOutcome, Never>?
+    private var watchdogTask: Task<Void, Never>?
+    /// Set when the watchdog — not the network — ended the current attempt.
+    private var idleTripped = false
     /// Set when `isFinalFrame` accepted a frame on the CURRENT connection.
     /// Reset on every open: a mid-round proxy hiccup after an old "complete"
     /// must not be mistaken for the round ending again.
@@ -336,6 +392,7 @@ actor SSEClient {
         configuration: Configuration = Configuration(),
         lastEventId: String? = nil,
         sleeper: @escaping Sleeper = { try await Task.sleep(for: $0) },
+        idleSleeper: @escaping Sleeper = { try await Task.sleep(for: $0) },
         isFinalFrame: @escaping FinalFramePredicate = { _ in false }
     ) {
         self.request = request
@@ -343,6 +400,7 @@ actor SSEClient {
         self.configuration = configuration
         self.lastEventId = lastEventId
         self.sleeper = sleeper
+        self.idleSleeper = idleSleeper
         self.isFinalFrame = isFinalFrame
         self.backoff = configuration.initialBackoff
     }
@@ -379,6 +437,13 @@ actor SSEClient {
     func stop() {
         guard !stopped else { return }
         stopped = true
+        // The body reader is an UNSTRUCTURED task, so cancelling the loop task
+        // does not reach it — and `attempt` is parked on its `value`. Leaving it
+        // running would keep the socket (and a `start()` waiting on the old
+        // loop) alive forever.
+        cancelWatchdog()
+        readerTask?.cancel()
+        readerTask = nil
         task?.cancel()
         task = nil
         continuation?.finish()
@@ -402,6 +467,9 @@ actor SSEClient {
         /// Non-2xx or wrong content type. Not countable — instantly fatal.
         case terminal
     }
+
+    /// How the body reader stopped: cleanly, or on a transport error.
+    private enum ReaderOutcome: Sendable { case ended, failed }
 
     private func run(_ continuation: AsyncStream<Event>.Continuation) async {
         while !Task.isCancelled && !stopped {
@@ -466,25 +534,106 @@ actor SSEClient {
         sawFinalFrame = false
         continuation.yield(.open)
 
-        var parser = SSEFrameParser()
-        do {
-            for try await chunk in response.chunks {
-                if stopped || Task.isCancelled { return .ended }
-                for frame in parser.consume(chunk) {
-                    if let id = frame.id { lastEventId = id }
-                    if isFinalFrame(frame) { sawFinalFrame = true }
-                    continuation.yield(.frame(frame))
+        return await readBody(response, continuation)
+    }
+
+    /// Drains one response body under the liveness watchdog.
+    ///
+    /// The reader is a task of its own for exactly one reason: it must be
+    /// cancellable from the outside. Cancelling it terminates the chunk stream,
+    /// which is what tears the in-flight request down — `URLSessionSSETransport`
+    /// hangs its byte pump off `continuation.onTermination`.
+    private func readBody(
+        _ response: SSEResponse,
+        _ continuation: AsyncStream<Event>.Continuation
+    ) async -> Outcome {
+        parser = SSEFrameParser()
+        idleTripped = false
+
+        let reader = Task { () -> ReaderOutcome in
+            do {
+                for try await chunk in response.chunks {
+                    if self.stopped || Task.isCancelled { return .ended }
+                    self.receive(chunk, continuation)
                 }
+                return .ended
+            } catch {
+                // A stream that *breaks* after the final frame is still a
+                // failure: the server closes cleanly when it is done, and a
+                // mid-flight error means we may not have seen everything.
+                return .failed
             }
-        } catch {
-            // A stream that *breaks* after the final frame is still a failure:
-            // the server closes cleanly when it is done, and a mid-flight error
-            // means we may not have seen everything.
-            parser.finish()
-            return .failed
         }
+        readerTask = reader
+        // Armed before the first byte: a connection that opens and then says
+        // nothing at all is exactly as dead as one that goes quiet later.
+        armWatchdog()
+
+        let outcome = await reader.value
+        cancelWatchdog()
+        readerTask = nil
         parser.finish()
-        return sawFinalFrame ? .completed : .ended
+
+        if outcome == .failed { return .failed }
+        // A final frame outranks the watchdog: the round is over, and treating
+        // "the server said complete and then stopped talking" as a failure would
+        // reconnect into a stream that only ever ends again.
+        if sawFinalFrame { return .completed }
+        // Silence is a NETWORK failure — countable, never terminal — so a dead
+        // pipe walks the same reconnect-then-degrade path as a refused connect.
+        if idleTripped { return .failed }
+        return .ended
+    }
+
+    /// One chunk off the wire.
+    ///
+    /// The watchdog is re-armed FIRST and unconditionally: bytes arrived, so the
+    /// pipe is alive whatever they turn out to mean. A `: keep-alive` comment
+    /// frames nothing and a mangled line frames nothing, and both still prove
+    /// liveness — that is the entire point of the server's heartbeat.
+    private func receive(_ chunk: Data, _ continuation: AsyncStream<Event>.Continuation) {
+        armWatchdog()
+        for frame in parser.consume(chunk) {
+            if let id = frame.id { lastEventId = id }
+            if isFinalFrame(frame) { sawFinalFrame = true }
+            continuation.yield(.frame(frame))
+        }
+    }
+
+    /// Re-arming is one cancelled task plus one new one, per chunk. That is
+    /// affordable at this stream's rate — a heartbeat every 25s and a frame per
+    /// score — and it buys an EXACT window: a timer that merely polled a
+    /// "last byte at" stamp would detect silence somewhere between one and two
+    /// timeouts late, which is not what "60s" is supposed to mean.
+    private func armWatchdog() {
+        watchdogTask?.cancel()
+        let timeout = configuration.idleTimeout
+        guard timeout > .zero else {
+            watchdogTask = nil
+            return
+        }
+        watchdogTask = Task { [idleSleeper] in
+            do {
+                try await idleSleeper(timeout)
+            } catch {
+                return // Cancelled: a chunk arrived, or the attempt is over.
+            }
+            // A cancelled sleeper that returns rather than throwing (an injected
+            // one may) must not trip a window that has already been superseded.
+            if Task.isCancelled { return }
+            self.tripIdle()
+        }
+    }
+
+    private func cancelWatchdog() {
+        watchdogTask?.cancel()
+        watchdogTask = nil
+    }
+
+    private func tripIdle() {
+        guard let reader = readerTask else { return } // No attempt to kill.
+        idleTripped = true
+        reader.cancel()
     }
 
     private func currentRequest() -> URLRequest {

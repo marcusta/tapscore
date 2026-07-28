@@ -17,6 +17,8 @@ const byToken = new Map<string, Deferred<unknown>>();
 const ballsByToken = new Map<string, unknown[]>();
 const scorecardsByToken = new Map<string, unknown[]>();
 const resultsByToken = new Map<string, unknown>();
+/** Per-token one-shot hold on the NEXT scorecard response (see the mock). */
+const scorecardGate = new Map<string, Deferred<unknown>>();
 // Phase 3.5: the cursor riding each stored result, so the mock can answer
 // `pollResult`'s cursor-passthrough call the way the real endpoint would —
 // `unchanged: true` when the caller's cursor already matches the stored one.
@@ -34,7 +36,17 @@ const apiMock = {
         }),
         balls: mock(async ({ token }: { token: string }) => ballsByToken.get(token) ?? []),
         remove: mock(async (_input: { token: string }) => ({ ok: true })),
-        scorecard: mock(async ({ token }: { token: string }) => scorecardsByToken.get(token) ?? []),
+        scorecard: mock(async ({ token }: { token: string }) => {
+            // One-shot gate: a test that needs a scorecard response held
+            // in flight (to race something against it) parks the NEXT call
+            // here. Read-and-delete, so only that one call waits.
+            const gate = scorecardGate.get(token);
+            if (gate) {
+                scorecardGate.delete(token);
+                await gate.promise;
+            }
+            return scorecardsByToken.get(token) ?? [];
+        }),
         // The endpoint answers with the cursor envelope; the mock wraps the
         // stored raw RoundResult the way the server would, honouring the
         // caller's `cursor` when one is passed (as `pollResult` does).
@@ -110,6 +122,7 @@ beforeEach(() => {
     byToken.clear();
     ballsByToken.clear();
     scorecardsByToken.clear();
+    scorecardGate.clear();
     resultsByToken.clear();
     cursorByToken.clear();
     deviceStorage.clear();
@@ -592,4 +605,193 @@ test('a stream message before any round is loaded is a harmless no-op', async ()
     await Promise.resolve();
     expect(svc.round.get()).toBeNull();
     expect(apiMock.friendlyRounds.result).not.toHaveBeenCalled();
+});
+
+// --- On-course liveness (2026-07-28): the score view refreshes too ---
+
+test('a live event refetches the SCORECARD as well as the result', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    scorecardsByToken.set('tok', [{ ballId: 'b1', holes: [{ playHoleId: 'ph1', strokes: 4 }] }]);
+    const load = svc.loadByToken('tok');
+    byToken.get('tok')!.resolve(roundPayload('tok', 'r1', 'Course'));
+    await load;
+    expect(svc.strokesFor('b1', 'ph1')).toBe(4);
+
+    // A playing partner scored on their own phone: only the stream tells us.
+    scorecardsByToken.set('tok', [{ ballId: 'b1', holes: [{ playHoleId: 'ph1', strokes: 3 }] }]);
+    resultsByToken.set('tok', { slots: [], routeSections: [], posting: { eligible: true, reason: null } });
+    apiMock.friendlyRounds.scorecard.mockClear();
+    svc.onLiveResultEvent({ latestEventId: 'cursor-2', status: 'active' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(apiMock.friendlyRounds.scorecard).toHaveBeenCalledTimes(1);
+    expect(svc.strokesFor('b1', 'ph1')).toBe(3);
+});
+
+test('a scorecard refresh never clobbers a cell still in flight', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    scorecardsByToken.set('tok', [{ ballId: 'b1', holes: [{ playHoleId: 'ph1', strokes: 4 }] }]);
+    const load = svc.loadByToken('tok');
+    byToken.get('tok')!.resolve(roundPayload('tok', 'r1', 'Course'));
+    await load;
+
+    // Local edit in flight; the server hasn't seen it yet.
+    void svc.setScore('b1', 'ph1', 6);
+    await svc.refreshScorecard();
+
+    // The optimistic overlay still wins over the (older) server card.
+    expect(svc.strokesFor('b1', 'ph1')).toBe(6);
+});
+
+test('refreshAll reads round + result + scorecard exactly once per call', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    const load = svc.loadByToken('tok');
+    byToken.get('tok')!.resolve(roundPayload('tok', 'r1', 'Course'));
+    await load;
+    resultsByToken.set('tok', { slots: [], routeSections: [], posting: { eligible: true, reason: null } });
+
+    // The foreground refresh re-reads byToken, so it needs a fresh deferred.
+    const second = deferred<unknown>();
+    byToken.set('tok', second);
+    second.resolve(roundPayload('tok', 'r1', 'Course'));
+    apiMock.friendlyRounds.byToken.mockClear();
+    apiMock.friendlyRounds.result.mockClear();
+    apiMock.friendlyRounds.scorecard.mockClear();
+
+    await svc.refreshAll();
+
+    expect(apiMock.friendlyRounds.byToken).toHaveBeenCalledTimes(1);
+    expect(apiMock.friendlyRounds.result).toHaveBeenCalledTimes(1);
+    expect(apiMock.friendlyRounds.scorecard).toHaveBeenCalledTimes(1);
+});
+
+test('a quiet refresh racing an in-flight load never cancels it', async () => {
+    // The blank-round bug: `refreshRound` used to bump the SHARED `loadSeq`,
+    // so a foreground refresh that fired while the first load was still in
+    // flight made that load's own guard fail — it fetched the round and then
+    // dropped it on the floor, leaving the view empty until something else
+    // loaded it. The quiet path owns its own counter now.
+    const svc = new RoundViewService();
+    ballsByToken.set('tok', [{ id: 'b1', players: [] }]);
+    scorecardsByToken.set('tok', [{ ballId: 'b1', holes: [{ playHoleId: 'ph1', strokes: 4 }] }]);
+    resultsByToken.set('tok', { slots: [], routeSections: [], posting: { eligible: true, reason: null } });
+
+    const firstRead = deferred<unknown>();
+    byToken.set('tok', firstRead);
+    const load = svc.loadByToken('tok');
+
+    // The foreground refresh lands (and completes) while the load is still out.
+    const secondRead = deferred<unknown>();
+    byToken.set('tok', secondRead);
+    const refresh = svc.refreshAll();
+    secondRead.resolve(roundPayload('tok', 'r1', 'Course'));
+    await refresh;
+
+    firstRead.resolve(roundPayload('tok', 'r1', 'Course'));
+    await load;
+
+    // Everything the load fetched is applied — round, balls, scorecards.
+    expect(svc.round.get()?.id).toBe('r1');
+    expect(svc.balls.get()).toHaveLength(1);
+    expect(svc.strokesFor('b1', 'ph1')).toBe(4);
+});
+
+test('a foreground flip with a reconnecting feed reads round + result + scorecard once each', async () => {
+    // Two things fire on one visibility flip: `refreshAll`, and the gate
+    // re-opening the stream (whose connect frame refetches result + scorecard).
+    // Coalesced, that is exactly ONE fetch of each — not two.
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    resultsByToken.set('tok', { slots: [], routeSections: [], posting: { eligible: true, reason: null } });
+    scorecardsByToken.set('tok', [{ ballId: 'b1', holes: [{ playHoleId: 'ph1', strokes: 4 }] }]);
+    const load = svc.loadByToken('tok');
+    byToken.get('tok')!.resolve(roundPayload('tok', 'r1', 'Course'));
+    await load;
+
+    const second = deferred<unknown>();
+    byToken.set('tok', second);
+    second.resolve(roundPayload('tok', 'r1', 'Course'));
+    apiMock.friendlyRounds.byToken.mockClear();
+    apiMock.friendlyRounds.result.mockClear();
+    apiMock.friendlyRounds.scorecard.mockClear();
+
+    // The flip: the component knows the gate is about to bring the stream back.
+    await svc.refreshAll({ feedWillReconnect: true });
+    expect(apiMock.friendlyRounds.result).not.toHaveBeenCalled();
+    expect(apiMock.friendlyRounds.scorecard).not.toHaveBeenCalled();
+
+    // …and the stream's connect frame arrives right behind it.
+    svc.onLiveResultEvent({ latestEventId: 'cursor-1', status: 'active' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(apiMock.friendlyRounds.byToken).toHaveBeenCalledTimes(1);
+    expect(apiMock.friendlyRounds.result).toHaveBeenCalledTimes(1);
+    expect(apiMock.friendlyRounds.scorecard).toHaveBeenCalledTimes(1);
+});
+
+test('a degraded foreground flip still refreshes all three surfaces', async () => {
+    // No stream will arrive, so nothing else would freshen the board or the
+    // grid — the full refresh is the only thing running.
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    resultsByToken.set('tok', { slots: [], routeSections: [], posting: { eligible: true, reason: null } });
+    const load = svc.loadByToken('tok');
+    byToken.get('tok')!.resolve(roundPayload('tok', 'r1', 'Course'));
+    await load;
+
+    const second = deferred<unknown>();
+    byToken.set('tok', second);
+    second.resolve(roundPayload('tok', 'r1', 'Course'));
+    apiMock.friendlyRounds.byToken.mockClear();
+    apiMock.friendlyRounds.result.mockClear();
+    apiMock.friendlyRounds.scorecard.mockClear();
+
+    await svc.refreshAll({ feedWillReconnect: false });
+
+    expect(apiMock.friendlyRounds.byToken).toHaveBeenCalledTimes(1);
+    expect(apiMock.friendlyRounds.result).toHaveBeenCalledTimes(1);
+    expect(apiMock.friendlyRounds.scorecard).toHaveBeenCalledTimes(1);
+});
+
+test('a concurrent quiet round refresh does not void an in-flight scorecard response', async () => {
+    // `refreshScorecard` owns `scorecardSeq`; it only READS `loadSeq` (a full
+    // load really does supersede it). A quiet round refresh touches neither,
+    // so the partner's score still lands.
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    scorecardsByToken.set('tok', [{ ballId: 'b1', holes: [{ playHoleId: 'ph1', strokes: 4 }] }]);
+    const load = svc.loadByToken('tok');
+    byToken.get('tok')!.resolve(roundPayload('tok', 'r1', 'Course'));
+    await load;
+
+    // The next scorecard read is held open…
+    const gate = deferred<unknown>();
+    scorecardGate.set('tok', gate);
+    scorecardsByToken.set('tok', [{ ballId: 'b1', holes: [{ playHoleId: 'ph1', strokes: 3 }] }]);
+    const cards = svc.refreshScorecard();
+
+    // …while a quiet refresh runs to completion underneath it.
+    const second = deferred<unknown>();
+    byToken.set('tok', second);
+    second.resolve(roundPayload('tok', 'r1', 'Course'));
+    await svc.refreshAll({ feedWillReconnect: true });
+
+    gate.resolve(null);
+    await cards;
+
+    expect(svc.strokesFor('b1', 'ph1')).toBe(3);
+});
+
+test('refreshAll with no round loaded touches nothing', async () => {
+    const svc = new RoundViewService();
+    apiMock.friendlyRounds.byToken.mockClear();
+    apiMock.friendlyRounds.scorecard.mockClear();
+    await svc.refreshAll();
+    expect(apiMock.friendlyRounds.byToken).not.toHaveBeenCalled();
+    expect(apiMock.friendlyRounds.scorecard).not.toHaveBeenCalled();
 });

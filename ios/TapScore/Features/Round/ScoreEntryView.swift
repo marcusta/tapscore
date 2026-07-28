@@ -60,6 +60,42 @@ struct ScoreEntryView: View {
     /// `.round-view__main` scrolls it with the carousel.
     let header: RoundHeaderView
 
+    /// Where the strip is resting, as view state — see `ScoreStripAnchor`.
+    @State private var stripAnchor: ScoreStripAnchor
+
+    /// **The remount seed**, and half of the fix for the hole-1 bug.
+    ///
+    /// `RoundView.panel` switches on `store.tab`, so leaving the Score tab (or
+    /// the app) DESTROYS this view and its `@State`; coming back builds a
+    /// brand-new `ScrollView`, and a brand-new scroll view sits at offset 0 —
+    /// the leading cell, which reads as hole 1. The store never moved: one
+    /// manual scroll used to snap the strip back, because that scroll was the
+    /// first time the store's position and the strip's position were ever
+    /// reconciled.
+    ///
+    /// Seeding here means the view is BORN knowing the answer — before any
+    /// `onAppear`, before the first layout, and without a round-trip through
+    /// the store. It is what `holeStrip`'s `onAppear` hands to `scrollTo`, and
+    /// what `anchorBinding` reads, so nothing in this screen ever *derives*
+    /// hole 1 from a missing position.
+    ///
+    /// It is not sufficient on its own, and that was measured rather than
+    /// assumed: with only this seed the strip still drew hole 1 after a tab
+    /// flip on a live round. `.scrollPosition(id:)` moves a scroll view when
+    /// the bound value CHANGES; the value a scroll view is born with is not a
+    /// change, so nothing scrolled. The push lives in `holeStrip`.
+    ///
+    /// Both halves are view-state alignment, **not navigation**: neither calls
+    /// `store.goToHole`, so a remount cannot cancel a pending auto-advance
+    /// (caller contract #3). See `ScoreStripAnchor`.
+    init(store: RoundStore, shareURL: String, header: RoundHeaderView) {
+        _store = Bindable(wrappedValue: store)
+        self.shareURL = shareURL
+        self.header = header
+        _stripAnchor = State(
+            initialValue: ScoreStripAnchor(holeIndex: store.holeIndex, in: store.playedOrder))
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -78,6 +114,29 @@ struct ScoreEntryView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .refreshable { await store.refresh() }
+        // Re-alignment, for the two ways the seed above can be stale:
+        //
+        // - `@State` SURVIVED the remount. SwiftUI is free to keep this view's
+        //   identity (it is the same `panel` slot), in which case `init`'s
+        //   `initialValue` is ignored and the cached anchor — the hole we were
+        //   on when we left — is what the strip restores to. Usually right,
+        //   wrong the moment the store moved while we were away.
+        // - `store.holeIndex` CHANGED WHILE UNMOUNTED. The keypad cannot
+        //   advance a hole from the leaderboard tab, but a live event or a
+        //   reload re-clamps the index against a `playedOrder` that shrank or
+        //   was reordered (`RoundStore` clamps on load), and a backgrounded app
+        //   comes back through the same reload.
+        //
+        // Both are "the store is right and the strip is stale", so both are the
+        // same one-line alignment. When the seed was already correct `align`
+        // reports no change and no state is written — no scroll, no animation,
+        // nothing for the eye to catch.
+        .onAppear { alignStripToStore() }
+        .onChange(of: store.holeIndex) { _, _ in alignStripToStore() }
+        // A group switch or a reload replaces the itinerary under a hole index
+        // that did not itself change; the anchor is a cell ID out of the OLD
+        // order and would resolve to nothing.
+        .onChange(of: store.playedOrder.map(\.playHoleId)) { _, _ in alignStripToStore() }
         .background(TapColors.bg)
         // The pad is a full-height dark TAKEOVER, not a sheet — the web's
         // `.se-modal` is `position: fixed; inset: 0`, and a detented sheet would
@@ -147,28 +206,54 @@ struct ScoreEntryView: View {
         TapCard(sunken: true) {
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 0) {
-                        // The empty leading cell. It is what lets hole 1 sit in
-                        // the ACTIVE (trailing) column with nothing beside it —
-                        // the web's `.se-hole.gone` at offset −1.
-                        Color.clear
-                            .frame(width: ScoreColumns.slot, height: ScoreColumns.stripHeight)
-                            .id(ScoreColumns.leadingAnchor)
-                        ForEach(store.playedOrder, id: \.playHoleId) { hole in
-                            holeCell(hole).id(hole.playHoleId)
+                // The reader exists for ONE call: pushing the seeded position
+                // into a freshly-built scroll view (see `onAppear` below).
+                // Everything else still goes through `anchorBinding`.
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 0) {
+                            // The empty leading cell. It is what lets hole 1 sit
+                            // in the ACTIVE (trailing) column with nothing beside
+                            // it — the web's `.se-hole.gone` at offset −1.
+                            Color.clear
+                                .frame(width: ScoreColumns.slot, height: ScoreColumns.stripHeight)
+                                .id(ScoreColumns.leadingAnchor)
+                            ForEach(store.playedOrder, id: \.playHoleId) { hole in
+                                holeCell(hole).id(hole.playHoleId)
+                            }
                         }
+                        .scrollTargetLayout()
                     }
-                    .scrollTargetLayout()
+                    // Snaps to a cell boundary, with momentum — the web's
+                    // `stepsFromDrag` + `snap`, from UIKit instead of by hand.
+                    // (`limitBehavior:` would cap a flick at one hole; it is
+                    // iOS 18+, and the web does not cap it at one either.)
+                    .scrollTargetBehavior(.viewAligned)
+                    .scrollPosition(id: anchorBinding, anchor: .leading)
+                    // **The other half of the remount fix.** A scroll view does
+                    // not adopt the bound position it is BORN with:
+                    // `.scrollPosition(id:)` reacts to a CHANGE, and the seeded
+                    // value is not a change — it is where the binding started.
+                    // Verified on a live round: with the seed alone the strip
+                    // still came back on hole 1. So the seed is pushed once, by
+                    // hand, at the first moment this scroll view exists.
+                    //
+                    // Unanimated on purpose. This is not the strip travelling
+                    // from hole 1 to hole 7; it is the strip having been on hole
+                    // 7 the whole time. An animated version would BE the bug,
+                    // just slower.
+                    //
+                    // `stripAnchor` is view state seeded from the store, never a
+                    // navigation: no `goToHole`, so no `cancelJump()`.
+                    .onAppear {
+                        guard let anchor = stripAnchor.anchor else { return }
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) { proxy.scrollTo(anchor, anchor: .leading) }
+                    }
+                    .frame(width: ScoreColumns.stripWidth)
+                    .padding(.trailing, ScoreColumns.rightPad)
                 }
-                // Snaps to a cell boundary, with momentum — the web's
-                // `stepsFromDrag` + `snap`, from UIKit instead of by hand.
-                // (`limitBehavior:` would cap a flick at one hole; it is
-                // iOS 18+, and the web does not cap it at one either.)
-                .scrollTargetBehavior(.viewAligned)
-                .scrollPosition(id: anchorBinding, anchor: .leading)
-                .frame(width: ScoreColumns.stripWidth)
-                .padding(.trailing, ScoreColumns.rightPad)
             }
             .frame(height: ScoreColumns.stripHeight)
         }
@@ -271,10 +356,13 @@ struct ScoreEntryView: View {
     /// against the window's LEADING edge — the ghost column. `ScoreColumns`
     /// owns both directions of that translation; this is only the plumbing.
     ///
-    /// A change routes through `goToHole`, in both directions: a drag is manual
-    /// navigation and must cancel a pending auto-advance (caller contract #3),
-    /// and reading `store.holeIndex` back out is what makes the gold `HoleBar`'s
-    /// chevrons scroll the strip.
+    /// The value READ is view state (`stripAnchor`), not a fresh derivation
+    /// from the store, because a scroll view's initial position can only come
+    /// from state it can see at layout time — that is the whole remount fix,
+    /// and `alignStripToStore()` is what keeps that state honest.
+    ///
+    /// A change routes through `goToHole`: a drag is manual navigation and must
+    /// cancel a pending auto-advance (caller contract #3).
     ///
     /// **Only a change.** `scrollPosition` writes back liberally — on settle, on
     /// a bounce, and after we ourselves scrolled the strip because `holeIndex`
@@ -284,17 +372,28 @@ struct ScoreEntryView: View {
     /// policy exists to drive would be killed by the animation that the chain
     /// itself started. `goToHole` also short-circuits on an unchanged index, but
     /// only AFTER `cancelJump()` and `statsOpen = false`, so the guard has to be
-    /// here.
+    /// here — in `ScoreStripAnchor.scrolled(to:holeIndex:in:)`, which returns a
+    /// hole index only when the report is real movement.
     private var anchorBinding: Binding<String?> {
         Binding(
-            get: { ScoreColumns.anchor(forHoleIndex: store.holeIndex, in: store.playedOrder) },
-            set: { anchor in
-                guard let index = ScoreColumns.holeIndex(forAnchor: anchor, in: store.playedOrder),
-                      index != store.holeIndex
-                else { return }
-                store.goToHole(index: index)
+            get: { stripAnchor.anchor },
+            set: { reported in
+                var next = stripAnchor
+                let target = next.scrolled(
+                    to: reported, holeIndex: store.holeIndex, in: store.playedOrder)
+                if next != stripAnchor { stripAnchor = next }
+                if let target { store.goToHole(index: target) }
             }
         )
+    }
+
+    /// Point the strip at the hole the store is on. **View state only** — it
+    /// never calls `goToHole`, so no remount, tab flip or reload can cancel a
+    /// pending jump by merely showing the screen again.
+    private func alignStripToStore() {
+        var next = stripAnchor
+        guard next.align(toHoleIndex: store.holeIndex, in: store.playedOrder) else { return }
+        stripAnchor = next
     }
 
     // MARK: - Keypad
@@ -369,6 +468,78 @@ struct ScoreColumns: Equatable {
         if anchor == leadingAnchor { return 0 }
         guard let position = order.firstIndex(where: { $0.playHoleId == anchor }) else { return nil }
         return min(position + 1, order.count - 1)
+    }
+}
+
+/// Where the hole strip is resting, as view state — and the one place that
+/// decides whether a scroll report is navigation or an echo.
+///
+/// The strip's position cannot be a pure derivation of `store.holeIndex`, even
+/// though that is the truth it must always show. A `ScrollView`'s position is
+/// state the scroll view itself owns and starts at zero, and
+/// `.scrollPosition(id:)` moves it when the bound value CHANGES. A binding that
+/// only computes from the store therefore never announces a change at mount
+/// time: the strip stays where a fresh scroll view starts — the leading cell,
+/// i.e. hole 1 — until the user's first drag finally pushes the store's value
+/// through. That was the bug: leave the Score tab and come back, and a round on
+/// hole 7 draws a strip on hole 1 over rows that are still hole 7's.
+///
+/// So the position is held here, and there are exactly two ways it moves:
+///
+/// - `align(toHoleIndex:in:)` — the store moved, or we just remounted and must
+///   catch up. **View state only. It must never call `store.goToHole`**:
+///   arriving on a screen is not navigating, and `goToHole` would
+///   `cancelJump()` — killing the auto-advance the round was mid-way through
+///   for no reason other than a tab flip.
+/// - `scrolled(to:holeIndex:in:)` — the strip reported a rest position. That IS
+///   navigation (a drag), but only when it names a different hole than the one
+///   the round is on; every other report is the scroll view echoing a position
+///   we just set.
+///
+/// The index↔cell translation itself belongs to `ScoreColumns` (the ghost-cell
+/// off-by-one: the cell at the LEADING edge is the PREVIOUS hole).
+struct ScoreStripAnchor: Equatable {
+    /// The id of the cell resting at the window's leading edge, or nil when
+    /// there is no itinerary to rest on yet.
+    private(set) var anchor: String?
+
+    /// Seeded from the round's current hole, so a freshly-built strip's FIRST
+    /// laid-out frame is already on that hole.
+    init(holeIndex: Int, in order: [RoundGroupPlayedHole]) {
+        anchor = ScoreColumns.anchor(forHoleIndex: holeIndex, in: order)
+    }
+
+    /// Move the strip to where the store says the round is.
+    ///
+    /// - Returns: whether the anchor actually moved. `false` means the seed was
+    ///   already right and the caller should not write state — no redundant
+    ///   scroll, and nothing that could animate on a remount.
+    @discardableResult
+    mutating func align(toHoleIndex index: Int, in order: [RoundGroupPlayedHole]) -> Bool {
+        let target = ScoreColumns.anchor(forHoleIndex: index, in: order)
+        guard target != anchor else { return false }
+        anchor = target
+        return true
+    }
+
+    /// Record a position the strip reported, and say whether it is navigation.
+    ///
+    /// - Returns: the hole index to navigate to, or nil when the report is an
+    ///   echo of the current hole (the common case — settle, bounce, and every
+    ///   scroll we ourselves caused) or names a cell this itinerary does not
+    ///   contain.
+    ///
+    /// An unresolvable report (nil, or an id left over from the group we just
+    /// switched away from) is not stored: it is a transient the scroll view
+    /// passes through mid-gesture, and echoing it back would make the strip
+    /// forget where it is and re-render from the leading edge.
+    mutating func scrolled(
+        to reported: String?, holeIndex: Int, in order: [RoundGroupPlayedHole]
+    ) -> Int? {
+        guard let index = ScoreColumns.holeIndex(forAnchor: reported, in: order) else { return nil }
+        anchor = reported
+        guard index != holeIndex else { return nil }
+        return index
     }
 }
 

@@ -152,6 +152,22 @@ export class RoundViewService {
     private token: string | null = null;
     private loadSeq = 0;
     private resultSeq = 0;
+    /**
+     * The QUIET round refetch's own counter (`refreshRound`), separate from
+     * `loadSeq` — mirroring iOS `RoundStore`'s separate seqs.
+     *
+     * Sharing `loadSeq` made a background refresh CANCEL an in-flight
+     * `loadByToken`: the refresh bumped the counter, the load's own guard then
+     * failed, and the round it had already fetched was never applied — a blank
+     * round view until something loaded it again. A quiet refresh must be able
+     * to lose a race, never to win one it wasn't in.
+     */
+    private quietSeq = 0;
+    /**
+     * Ditto for the cheap scorecard-only refetch, which races both itself and
+     * `loadByToken` (see `refreshScorecard`).
+     */
+    private scorecardSeq = 0;
     /** Guards against overlapping flushes (loadByToken + an `online` event). */
     private flushing = false;
     /**
@@ -347,6 +363,97 @@ export class RoundViewService {
     }
 
     /**
+     * Re-fetch the scorecards feeding the SCORE view (2026-07-28). Cheap
+     * (`GET /friendly-rounds/scorecard`), silent on failure, and it does NOT
+     * touch `loading`/`error` or the optimistic `cells` overlay — a background
+     * refresh must never blank the grid or flash a spinner over it, and a cell
+     * still in flight keeps showing the local value (`strokesFor` prefers the
+     * overlay).
+     *
+     * Fetched UNCONDITIONALLY on a live event rather than only when the score
+     * tab is mounted: the service has no idea which tab is up (the tab lives in
+     * the component + URL), the payload is small, and the tab can be switched to
+     * at any moment — a stale grid on arrival is exactly the bug being fixed.
+     */
+    async refreshScorecard(): Promise<void> {
+        const token = this.token;
+        if (!token) return;
+        // Own counter (never `loadSeq`, which this doesn't own): two quiet
+        // refreshes overlapping must resolve to the LATER one, and reading
+        // `loadSeq` alone would let a concurrent refresh void an in-flight
+        // scorecard response by pure coincidence. `load` is a read-only
+        // witness — a full `loadByToken` started meanwhile owns the scorecard.
+        const seq = ++this.scorecardSeq;
+        const load = this.loadSeq;
+        let cards: Scorecard[];
+        try {
+            cards = await api.friendlyRounds.scorecard({ token });
+        } catch {
+            return;
+        }
+        if (seq !== this.scorecardSeq || load !== this.loadSeq || token !== this.token) return;
+        this.scorecards.set(cards);
+    }
+
+    /**
+     * Quietly re-read the round itself (status, groups, balls) without the
+     * `loading`/`error` signals a user-initiated `loadByToken` drives — the
+     * foreground refresh must not flash the whole view. Cells are left alone;
+     * only server-owned structure is replaced.
+     *
+     * Sequenced on `quietSeq`, NOT `loadSeq`: this refetch must never cancel a
+     * `loadByToken` that is still in flight (that left the view blank), while
+     * still yielding to one — `load` below is a read-only witness, so a full
+     * load started meanwhile wins and this response is dropped.
+     */
+    private async refreshRound(): Promise<void> {
+        const token = this.token;
+        if (!token) return;
+        const seq = ++this.quietSeq;
+        const load = this.loadSeq;
+        const stale = (): boolean =>
+            seq !== this.quietSeq || load !== this.loadSeq || token !== this.token;
+        try {
+            const data = await api.friendlyRounds.byToken({ token });
+            if (stale()) return;
+            this.friendlyRound.set(data.friendlyRound);
+            this.round.set(data.round);
+            this.startList.set(data.startList);
+            const balls = await api.friendlyRounds.balls({ token }).catch(() => null);
+            if (balls === null || stale()) return;
+            this.balls.set(balls);
+        } catch {
+            // Silent: a foreground refresh that misses just leaves what we had.
+        }
+    }
+
+    /**
+     * Foreground refresh (2026-07-28) — the web mirror of the iOS scene
+     * contract, which refetches on every scene foreground. Fired when the page
+     * becomes visible again, REGARDLESS OF TAB: restarting the stream only
+     * re-primes the leaderboard, and a phone that spent ten minutes in a pocket
+     * comes back to a stale score grid otherwise. One round + result + scorecard
+     * read per visibility flip.
+     *
+     * `feedWillReconnect` is how that "one read" stays true. The SAME flip
+     * re-opens the live gate, and the stream's connect frame runs
+     * `onLiveResultEvent` → `pollResult` + `refreshScorecard` on its own — so
+     * when the caller knows a stream is about to come up, this refreshes only
+     * the round itself and lets the connect frame drive the other two. The
+     * caller passes false (the default) whenever no stream will arrive —
+     * degraded, gate closed, no token — and then the full three-read refresh
+     * is the only thing that freshens anything.
+     */
+    async refreshAll(options?: { feedWillReconnect?: boolean }): Promise<void> {
+        if (!this.token) return;
+        if (options?.feedWillReconnect) {
+            await this.refreshRound();
+            return;
+        }
+        await Promise.all([this.refreshRound(), this.pollResult(), this.refreshScorecard()]);
+    }
+
+    /**
      * The cursor persisted for a token on this device, independent of whether
      * a result is cached in memory. This is the SSE `since` value — it is
      * deliberately NOT fed into `loadResult`'s request: an `unchanged: true`
@@ -431,6 +538,11 @@ export class RoundViewService {
             });
         }
         void this.pollResult();
+        // …and the score view's data. The gate is no longer leaderboard-only
+        // (see poll-gate), so a live event has to refresh BOTH surfaces: the
+        // cursored result behind the leaderboard and the scorecards behind the
+        // group's score grid.
+        void this.refreshScorecard();
     }
 
     /** Display name for a ball: joined producer names, else its label, else the id. */

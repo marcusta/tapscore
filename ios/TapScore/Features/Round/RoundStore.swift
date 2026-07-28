@@ -140,6 +140,18 @@ final class RoundStore {
 
     private var loadSeq = 0
     private var resultSeq = 0
+    /// Monotonic ticket taken by EVERY scorecard writer — `load()` and
+    /// `refreshScorecard()` alike — at the moment it ISSUES its request, and
+    /// compared against `appliedScorecardTicket` when it is about to write.
+    ///
+    /// A per-caller seq cannot express this. `refreshScorecard` used to guard on
+    /// its own seq plus a read of `loadSeq`, which left one window open: a
+    /// `load()` already in flight when the refresh started keeps `loadSeq`
+    /// unchanged, so if that older load's scorecard response landed AFTER the
+    /// refresh's, it overwrote fresher data with staler. One counter shared by
+    /// both writers closes it — the later-issued request wins, whoever issued it.
+    private var scorecardTicket = 0
+    private var appliedScorecardTicket = 0
     /// The `loadResult` call that currently owns `resultLoading`, if any.
     private var loadingResultSeq: Int?
     private var writeEpoch = 0
@@ -224,9 +236,9 @@ final class RoundStore {
     ///
     /// Deliberately NOT a reload. The round in memory is still the round, and
     /// re-fetching it on every back-swipe would flash the whole screen; the
-    /// gate re-run is what reopens the stream when the leaderboard is up, and
-    /// the foreground hook covers staleness from here on. A caller that does
-    /// want fresh data has `refresh()`.
+    /// gate re-run is what reopens the stream (on either tab, since the
+    /// 2026-07-28 widening), and the foreground hook covers staleness from here
+    /// on. A caller that does want fresh data has `refresh()`.
     ///
     /// Idempotent: calling it on a store that never stopped does nothing.
     func resumeIfNeeded() {
@@ -308,6 +320,10 @@ final class RoundStore {
 
         async let ballsResult = try? api.send(
             FriendlyRoundsEndpoints.balls, FriendlyRoundsByTokenInput(token: token))
+        // The ticket is taken HERE, with the request — `load()` is a scorecard
+        // writer like any other and orders against `refreshScorecard` by issue
+        // time, not by being the more important caller.
+        let cardsTicket = nextScorecardTicket()
         async let cardsResult = try? api.send(
             FriendlyRoundsEndpoints.scorecard, FriendlyRoundsByTokenInput(token: token))
         let (loadedBalls, loadedCards) = await (ballsResult, cardsResult)
@@ -315,7 +331,7 @@ final class RoundStore {
         // Order matters, exactly as on the web: clear the optimistic overlay and
         // seat the scorecards BEFORE the balls that drive rendering.
         cells = [:]
-        scorecards = loadedCards ?? []
+        applyScorecards(loadedCards ?? [], ticket: cardsTicket)
         balls = loadedBalls ?? []
         clampPosition()
 
@@ -326,7 +342,12 @@ final class RoundStore {
         updateLiveGate()
     }
 
-    /// Round + result refetch, used on foreground and on a remote finish.
+    /// The full refetch: round + balls + SCORECARDS (all of `load()`) and then
+    /// the result. Used on foreground and on a remote finish.
+    ///
+    /// The scorecard half is not incidental — it is the score view's data, and
+    /// it is why foregrounding freshens BOTH tabs rather than just the board.
+    /// The web client mirrors this contract on `visibilitychange`.
     func refresh() async {
         await load()
         await pollResult()
@@ -392,6 +413,47 @@ final class RoundStore {
         }
     }
 
+    /// Refetch just the scorecards — the data the SCORE view draws.
+    ///
+    /// Phase 3.5 only ever refreshed the RESULT on a live event, because the
+    /// gate only opened on the leaderboard. Since the 2026-07-28 widening the
+    /// stream is up on both tabs, and the score view — which shows the whole
+    /// group's scores, one row per ball — needs its own refetch or it stays
+    /// exactly as stale as it was on the course.
+    ///
+    /// Refetched on EVERY live event rather than only while `tab == .score`, on
+    /// purpose: switching tabs is instant and triggers no load of its own, so a
+    /// tab-gated version would show a stale grid the moment a leaderboard
+    /// watcher tabs back — the same "needs a manual refresh" bug in a new place.
+    /// The endpoint is one small array and the event already costs a cursored
+    /// result fetch, so the second call is cheap.
+    ///
+    /// It does NOT touch `cells`: the optimistic overlay belongs to this device's
+    /// in-flight writes, and clearing it here would blink a pending score away.
+    func refreshScorecard() async {
+        let ticket = nextScorecardTicket()
+        guard
+            let cards = try? await api.send(
+                FriendlyRoundsEndpoints.scorecard, FriendlyRoundsByTokenInput(token: token))
+        else { return }
+        applyScorecards(cards, ticket: ticket)
+    }
+
+    /// Claim the next scorecard write ticket. Taken when the request goes OUT,
+    /// which is what makes the ordering meaningful: request order is the only
+    /// thing we know about relative freshness.
+    private func nextScorecardTicket() -> Int {
+        scorecardTicket += 1
+        return scorecardTicket
+    }
+
+    /// Seat a scorecard response, unless a later-issued request already wrote.
+    private func applyScorecards(_ cards: [Scorecard], ticket: Int) {
+        guard ticket > appliedScorecardTicket else { return }
+        appliedScorecardTicket = ticket
+        scorecards = cards
+    }
+
     private func apply(_ output: FriendlyRoundsResultOutput) {
         switch output {
         case .unchanged(let v):
@@ -418,20 +480,24 @@ final class RoundStore {
     // MARK: - Live gate
 
     private var gateInput: PollGateInput {
-        PollGateInput(tab: tab, sceneActive: sceneActive, status: round?.status)
+        PollGateInput(sceneActive: sceneActive, status: round?.status)
     }
 
-    /// Switch tabs. Opening the leaderboard loads the board if it is empty and
-    /// re-runs the live gate — this is the only writer of `tab`.
+    /// Switch tabs. Opening the leaderboard loads the board if it is empty —
+    /// this is the only writer of `tab`.
+    ///
+    /// It deliberately does NOT re-run the live gate any more: since the
+    /// 2026-07-28 widening the tab is not one of the gate's inputs, so a switch
+    /// cannot change its answer. The stream is already open on both tabs.
     func setTab(_ next: RoundTab) {
         guard next != tab else { return }
         tab = next
         if tab == .leaderboard, result == nil { Task { await loadResult() } }
-        updateLiveGate()
     }
 
-    /// The single place the stream/poll decision is made — re-run on every tab
-    /// switch, scene change and status change, exactly like the web effect.
+    /// The single place the stream/poll decision is made — re-run on every load,
+    /// scene change and status change, exactly like the web effect. (Tab
+    /// switches no longer re-run it; the tab is not an input.)
     func updateLiveGate() {
         gateGeneration += 1
         let generation = gateGeneration
@@ -441,11 +507,12 @@ final class RoundStore {
             // A gate closed by BACKGROUNDING suspends (the feed reconnects from
             // its cursor on return); any other close is a real teardown.
             //
-            // The generation guard matters: `load()` closes the gate (the score
-            // tab is not live), and if the user reaches the leaderboard before
-            // that hop runs, the close would otherwise tear down the feed that
-            // was just opened — leaving a store that thinks it is streaming and
-            // a feed that stopped.
+            // The generation guard matters: a close is asynchronous, so a
+            // decision taken while one is parked in `feed.stop()` can reopen the
+            // feed first — a background/foreground bounce, or a load landing on
+            // a completed round just before another gate run. Without the guard
+            // the stale close tears down the feed that just replaced it, leaving
+            // a store that thinks it is streaming and a feed that stopped.
             let fully = sceneActive
             Task {
                 guard self.gateGeneration == generation else { return }
@@ -518,7 +585,11 @@ final class RoundStore {
         case .event(let event):
             liveState = .live
             applyRemoteStatus(event.status)
+            // BOTH halves: the leaderboard's cursored result AND the score
+            // view's scorecards. A doorbell that only freshened the board is
+            // what left the on-course screen stale (see `refreshScorecard`).
             await pollResult()
+            await refreshScorecard()
         case .degraded:
             // `feedRunning` stays true: the feed OBJECT is still alive and still
             // owes us a `stop()`. Clearing it here would make `closeLive` skip
@@ -595,6 +666,17 @@ final class RoundStore {
         }
     }
 
+    /// The degraded fallback: the 20 s poll that stands in for the stream.
+    ///
+    /// It refetches BOTH halves — the cursored result AND the scorecards —
+    /// exactly like a live frame does, because this is the one situation where
+    /// nothing else will: the stream has given up, and the case it gives up in
+    /// is bad reception on a course, which is precisely when the score view
+    /// must not silently stop showing what the group is shooting.
+    ///
+    /// COST: 2 requests / 20 s per open round screen (~6/min), and only while
+    /// degraded. The result answers `{ unchanged: true }` on a quiet round and
+    /// the scorecard is one small array, so this is bytes rather than work.
     private func startPollTimer() {
         guard pollTask == nil else { return }
         pollTask = Task { [weak self, sleeper] in
@@ -607,6 +689,7 @@ final class RoundStore {
                 if Task.isCancelled { return }
                 guard let self else { return }
                 await self.pollResult()
+                await self.refreshScorecard()
             }
         }
     }
@@ -623,7 +706,9 @@ final class RoundStore {
         Task {
             // Refetch FIRST: the reconnect only guarantees events after the
             // cursor, so anything that happened while suspended reaches the
-            // screen through this, not through the stream.
+            // screen through this, not through the stream. `refresh()` covers
+            // round status, scorecards AND result — every tab, not just the one
+            // the gate would have reopened.
             await self.refresh()
             await self.flushPending()
             self.updateLiveGate()

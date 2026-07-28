@@ -21,6 +21,12 @@ import Foundation
 /// and finishes its stream. The caller falls back to polling every
 /// `fallbackPollInterval` seconds. Restarting is an explicit `start()`.
 ///
+/// **Liveness**: a connection that delivers no bytes at all — not even the
+/// server's 25s `: keep-alive` — for `SSEClient.Configuration.idleTimeout` is
+/// presumed dead (the silent wifi→cellular handoff) and reconnected from the
+/// cursor. That counts as one ordinary connection failure, so three of them in
+/// a row still degrade.
+///
 /// **Completion contract**: the server ENDS the stream on a completed round.
 /// A clean end after a frame carrying `status: "complete"` is the round being
 /// over — the feed emits `.finished`, sets `state` to `.finished` and stops;
@@ -88,6 +94,11 @@ actor LiveResultFeed {
     private let cursors: ResultCursorStore
     private let clientConfiguration: SSEClient.Configuration
     private let sleeper: SSEClient.Sleeper
+    /// The liveness watchdog's clock (see the note at the top of `SSEClient`).
+    /// Injectable for the same reason the backoff sleeper is, and separate from
+    /// it because a test that makes backoff free must not thereby declare every
+    /// connection instantly silent.
+    private let idleSleeper: SSEClient.Sleeper
 
     private var token: String?
     private var client: SSEClient?
@@ -101,13 +112,15 @@ actor LiveResultFeed {
         transport: any SSETransport = URLSessionSSETransport(),
         cursors: ResultCursorStore = ResultCursorStore(),
         clientConfiguration: SSEClient.Configuration = SSEClient.Configuration(),
-        sleeper: @escaping SSEClient.Sleeper = { try await Task.sleep(for: $0) }
+        sleeper: @escaping SSEClient.Sleeper = { try await Task.sleep(for: $0) },
+        idleSleeper: @escaping SSEClient.Sleeper = { try await Task.sleep(for: $0) }
     ) {
         self.configuration = configuration
         self.transport = transport
         self.cursors = cursors
         self.clientConfiguration = clientConfiguration
         self.sleeper = sleeper
+        self.idleSleeper = idleSleeper
     }
 
     /// Opens the feed for a share token and returns its update stream.
@@ -187,6 +200,7 @@ actor LiveResultFeed {
             configuration: clientConfiguration,
             lastEventId: nil, // `since` rides in the URL; the header is for reconnects.
             sleeper: sleeper,
+            idleSleeper: idleSleeper,
             // The completion gate. The server ends the stream on a completed
             // round, so a client that only knew about framing would reopen,
             // reset its backoff, get another immediate end, and spin. The

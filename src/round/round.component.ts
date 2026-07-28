@@ -18,7 +18,7 @@ import { JoinCardComponent } from './join-card.component';
 import { EditCardComponent } from './edit-card.component';
 import { LeaveCardComponent } from './leave-card.component';
 import { formatLabelFromSlot } from './slot-labels';
-import { shouldPoll } from './poll-gate';
+import { shouldPoll, shouldRefreshOnVisibility } from './poll-gate';
 import { startLiveResult, type LiveResultFeed } from './live-result';
 import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import type { FormatSlot } from '../api/rounds.gen';
@@ -468,19 +468,54 @@ export class RoundComponent extends Component {
         // `pageVisible` mirrors `document.hidden` so the gate reads it like
         // any other signal; the listener is torn down the same way `online`
         // is above.
-        const onVisibility = () => this.pageVisible.set(!document.hidden);
+        // The live-feed state the gate effect below owns. Declared HERE, ahead
+        // of the visibility listener, because that listener has to ask one
+        // question of it — "is a stream about to come up?" — to avoid
+        // double-fetching (see `onVisibility`). Everything that mutates them
+        // still lives in the effect.
+        let feed: LiveResultFeed | null = null;
+        let feedToken: string | null = null;
+        let pollTimer: ReturnType<typeof setInterval> | null = null;
+        let degraded = false;
+
+        // Foreground refresh (mirrors the iOS scene contract): coming back to a
+        // visible page refetches round + result + scorecard ONCE, whatever tab
+        // is up. The gate below restarts the stream on the same flip, but that
+        // only re-primes the leaderboard — a pocketed phone returning to the
+        // score tab would otherwise show a stale grid until someone scored.
+        // Guarded on an actual hidden→visible transition so a `visibilitychange`
+        // that reports "still visible" can't double-fetch.
+        //
+        // …and when the stream IS coming back on this same flip, its connect
+        // frame already refetches result + scorecard, so this asks only for the
+        // round — one fetch of each per foreground, not two. When no stream
+        // will arrive (degraded, or a gate that stays shut), the full refresh
+        // is the only thing that freshens anything, so it runs unchanged.
+        const feedWillReconnect = (visible: boolean): boolean =>
+            !degraded &&
+            shouldPoll({ pageVisible: visible, status: this.svc.round.get()?.status ?? null });
+        const onVisibility = () => {
+            const visible = !document.hidden;
+            const refresh = shouldRefreshOnVisibility(this.pageVisible.get(), visible);
+            const willReconnect = feedWillReconnect(visible);
+            this.pageVisible.set(visible);
+            if (refresh && this.tokenQ.get()) {
+                void this.svc.refreshAll({ feedWillReconnect: willReconnect });
+            }
+        };
         document.addEventListener('visibilitychange', onVisibility);
         this.track(() => document.removeEventListener('visibilitychange', onVisibility));
 
-        // One live feed, started/stopped by the same Phase 3.5 gate the poll
-        // interval used (Slice 9a) — an inactive round view holds no stream and
-        // no timer at all. The effect re-evaluates on every tab switch,
-        // visibility change, and round-status change (not_started → active on
-        // the first score, or → complete from another device via the stream),
-        // so opening the leaderboard connects and navigating away (this
-        // effect's disposer, and the whole component's teardown via `track`)
-        // disconnects — never an orphaned stream or timer surviving a route
-        // change.
+        // One live feed, started/stopped by the shared gate (Slice 9a), which as
+        // of 2026-07-28 no longer looks at the tab: the stream runs for as long
+        // as this round view is on a visible page and the round is unfinished,
+        // because the SCORE tab shows the whole group's scores and needs the
+        // same freshness the leaderboard does. The effect re-evaluates on every
+        // visibility change and round-status change (not_started → active on the
+        // first score, or → complete from another device via the stream), and
+        // navigating away (this effect's disposer, and the whole component's
+        // teardown via `track`) disconnects — never an orphaned stream or timer
+        // surviving a route change.
         //
         // `degraded` survives re-runs while the gate stays true, so a repeatedly
         // failing stream isn't retried on every unrelated signal change; closing
@@ -492,10 +527,6 @@ export class RoundComponent extends Component {
         // the pathname; the load effect re-loads in place). Without the key,
         // round A's stream would stay open and pipe A's status and refetches
         // into round B's service.
-        let feed: LiveResultFeed | null = null;
-        let feedToken: string | null = null;
-        let pollTimer: ReturnType<typeof setInterval> | null = null;
-        let degraded = false;
         const stopPollTimer = () => {
             if (pollTimer === null) return;
             clearInterval(pollTimer);
@@ -503,7 +534,22 @@ export class RoundComponent extends Component {
         };
         const startPollTimer = () => {
             if (pollTimer !== null) return;
-            pollTimer = setInterval(() => void this.svc.pollResult(), LEADERBOARD_POLL_MS);
+            pollTimer = setInterval(() => {
+                // Both surfaces, same as a live event: the gate is no longer
+                // leaderboard-only, so the degraded path has to keep the score
+                // grid fresh too.
+                //
+                // COST, stated plainly: this doubles the fallback's traffic to
+                // 2 requests / 20 s per visible round view (~6/min), and it only
+                // ever runs when the stream has already given up. The cursored
+                // result answers `{ unchanged: true }` on a quiet round and the
+                // scorecard is one small array, so the widening is bytes, not
+                // work — and the alternative is the bug this whole slice exists
+                // for: a score grid that stays stale exactly when reception is
+                // bad enough to have killed the stream.
+                void this.svc.pollResult();
+                void this.svc.refreshScorecard();
+            }, LEADERBOARD_POLL_MS);
         };
         this.track(
             effect(() => {
@@ -513,7 +559,6 @@ export class RoundComponent extends Component {
                 // (feed open on the old round) untracked and permanent.
                 const token = this.tokenQ.get() || null;
                 const gate = shouldPoll({
-                    tab: this.tab.get(),
                     pageVisible: this.pageVisible.get(),
                     status: this.svc.round.get()?.status ?? null,
                 });
@@ -537,14 +582,22 @@ export class RoundComponent extends Component {
                     return;
                 }
                 if (degraded) {
-                    // Fallback path: the Phase 3.5 interval, which refetches the
-                    // RESULT only. It deliberately cannot notice a remote status
-                    // change, so a round finished on another device will not
-                    // close the gate while we are degraded — the poll runs until
-                    // the view is left or backgrounded. That is inherited Phase
-                    // 3.5 behaviour: the result envelope carries no status, and
+                    // Fallback path: the Phase 3.5 interval, now widened to
+                    // result + scorecard (see `startPollTimer` for the cost).
+                    // It deliberately cannot notice a remote status change, so a
+                    // round finished on another device will not close the gate
+                    // while we are degraded — the poll runs until the view is
+                    // left or backgrounded. That is inherited Phase 3.5
+                    // behaviour: the result envelope carries no status, and
                     // changing that contract is out of Slice 9a's scope (the
                     // stream is what makes the gate self-closing again).
+                    //
+                    // FOLLOW-UP, when a server slice is open: put `status` on the
+                    // result envelope. It is one field on a response the poll
+                    // already makes, it costs no extra request, and it would let
+                    // the degraded path close its own gate on a remote finish
+                    // exactly as the stream does — retiring the caveat above
+                    // rather than documenting it a third time.
                     startPollTimer();
                     return;
                 }
@@ -552,7 +605,7 @@ export class RoundComponent extends Component {
                 if (!token) return;
                 feedToken = token;
                 try {
-                    feed = startLiveResult({
+                    const started = startLiveResult({
                         token,
                         since: this.svc.persistedCursor(token),
                         onEvent: (ev) => this.svc.onLiveResultEvent(ev),
@@ -565,6 +618,12 @@ export class RoundComponent extends Component {
                             startPollTimer();
                         },
                     });
+                    // `onDegrade` can fire synchronously from inside
+                    // `startLiveResult` (a factory that throws on the very first
+                    // connect). It nulls `feed`, so only adopt the handle if the
+                    // stream is actually live — otherwise this assignment would
+                    // resurrect a stopped feed and block the fallback path.
+                    if (!degraded) feed = started;
                 } catch {
                     // A hardened WebView can throw from the EventSource
                     // constructor itself; without this catch the effect would

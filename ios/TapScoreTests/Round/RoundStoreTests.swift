@@ -742,22 +742,45 @@ final class RoundStoreTests: XCTestCase {
 
     // MARK: - Live gate
 
-    /// The gate mirrors the web `shouldPoll`: leaderboard visible, scene active,
-    /// round not complete.
-    func testGateOpensOnLeaderboardAndClosesOnScoreTab() async {
+    /// The gate mirrors the web `shouldPoll` AFTER the 2026-07-28 widening:
+    /// scene active and round not complete, on WHICHEVER tab is up.
+    ///
+    /// This is the regression the owner's field report bought. Under Phase 3.5
+    /// the stream opened only on the leaderboard, so the score view — which
+    /// shows the whole group's scores, and which is where a player actually sits
+    /// on the course — never heard about a partner's scores at all.
+    func testGateOpensOnTheScoreTabToo() async {
         routeHappyPath()
         RoundStubURLProtocol.route("/friendly-rounds/result", RoundFixtures.result(cursor: "c1"))
         let store = makeStore()
         await store.load()
 
-        store.setTab(.leaderboard)
-        await waitUntil("the feed to start") { await self.feed.started }
-
-        store.setTab(.score)
-        await waitUntil("the feed to stop") { await self.feed.calls.contains(.stop) }
+        XCTAssertEqual(store.tab, .score, "the round opens on score entry")
+        await waitUntil("the feed to start on the score tab") { await self.feed.started }
     }
 
-    /// A completed round never streams — there is nothing left to say.
+    /// …and tabbing between the two neither reopens nor tears down the stream.
+    /// One round view, one connection.
+    func testSwitchingTabsDoesNotDisturbTheStream() async {
+        routeHappyPath()
+        RoundStubURLProtocol.route("/friendly-rounds/result", RoundFixtures.result(cursor: "c1"))
+        let store = makeStore()
+        await store.load()
+        await waitUntil("the feed to start") { await self.feed.started }
+
+        store.setTab(.leaderboard)
+        store.setTab(.score)
+        await settle()
+
+        let calls = await feed.calls
+        XCTAssertFalse(calls.contains(.stop), "the score tab must not close the stream any more")
+        XCTAssertFalse(calls.contains(.suspend))
+        let starts = await startCount()
+        XCTAssertEqual(starts, 1, "one round view, one connection")
+    }
+
+    /// A completed round never streams — there is nothing left to say. The
+    /// widened gate dropped the tab, not this condition.
     func testGateStaysClosedOnCompletedRound() async {
         routeHappyPath(status: "complete")
         RoundStubURLProtocol.route("/friendly-rounds/result", RoundFixtures.result(cursor: "c1"))
@@ -835,6 +858,95 @@ final class RoundStoreTests: XCTestCase {
         XCTAssertEqual(store.liveState, .live)
     }
 
+    /// A live event freshens the SCORE view too, not just the board.
+    ///
+    /// The field-report bug in one test: a partner scores on their own phone,
+    /// the doorbell rings, and the group's score grid on THIS phone has to catch
+    /// up without anyone pulling to refresh. The refetch is deliberately not
+    /// gated on `tab == .score` — this store is on the score tab here, but the
+    /// next test proves the leaderboard case behaves identically.
+    func testLiveEventRefreshesTheScorecard() async {
+        routeHappyPath()
+        RoundStubURLProtocol.route(
+            "/friendly-rounds/scorecard",
+            RoundFixtures.emptyScorecards,
+            RoundFixtures.scorecards(ballId: "ball-2", playHoleId: "ph-1", strokes: 5)
+        )
+        RoundStubURLProtocol.route("/friendly-rounds/result", RoundFixtures.result(cursor: "c1"))
+        let store = makeStore()
+        await store.load()
+        XCTAssertNil(store.strokes(ballId: "ball-2", playHoleId: "ph-1"))
+        await waitUntil("the feed to start") { await self.feed.started }
+
+        await feed.push(.event(LiveResultEvent(latestEventId: "c2", status: .active)))
+
+        await waitUntil("the partner's score to arrive") {
+            store.strokes(ballId: "ball-2", playHoleId: "ph-1") == 5
+        }
+    }
+
+    /// Same doorbell, leaderboard tab: the scorecard is refetched anyway, so
+    /// tabbing back to score entry shows fresh numbers instead of loading them
+    /// only after the NEXT event.
+    func testLiveEventRefreshesTheScorecardOnTheLeaderboardTabToo() async {
+        routeHappyPath()
+        RoundStubURLProtocol.route(
+            "/friendly-rounds/scorecard",
+            RoundFixtures.emptyScorecards,
+            RoundFixtures.scorecards(ballId: "ball-2", playHoleId: "ph-1", strokes: 5)
+        )
+        RoundStubURLProtocol.route("/friendly-rounds/result", RoundFixtures.result(cursor: "c1"))
+        let store = makeStore()
+        await store.load()
+        store.setTab(.leaderboard)
+        await waitUntil("the feed to start") { await self.feed.started }
+
+        await feed.push(.event(LiveResultEvent(latestEventId: "c2", status: .active)))
+
+        await waitUntil("the scorecard refetch") {
+            store.strokes(ballId: "ball-2", playHoleId: "ph-1") == 5
+        }
+    }
+
+    /// A live refetch must not blow away this device's optimistic overlay: the
+    /// cell the player just tapped stays put even though the server's copy of
+    /// the scorecard does not know about it yet.
+    func testScorecardRefetchKeepsTheOptimisticOverlay() async {
+        routeHappyPath()
+        RoundStubURLProtocol.route("/friendly-rounds/result", RoundFixtures.result(cursor: "c1"))
+        let store = makeStore()
+        await store.load()
+        await store.setScore(ballId: "ball-1", playHoleId: "ph-1", strokes: 7)
+        await waitUntil("the feed to start") { await self.feed.started }
+
+        await feed.push(.event(LiveResultEvent(latestEventId: "c2", status: .active)))
+        await waitUntil("the refetch to land") {
+            RoundStubURLProtocol.requests(for: "/friendly-rounds/scorecard").count >= 2
+        }
+
+        XCTAssertEqual(store.strokes(ballId: "ball-1", playHoleId: "ph-1"), 7)
+    }
+
+    /// Foregrounding refetches the scorecard as well as status and result —
+    /// the scene contract the web client now mirrors on `visibilitychange`.
+    /// The gate's own restart only ever covered the board.
+    func testForegroundRefetchesTheScorecard() async {
+        routeHappyPath()
+        RoundStubURLProtocol.route("/friendly-rounds/result", RoundFixtures.result(cursor: "c1"))
+        let store = makeStore()
+        await store.start()
+        await waitUntil("the feed to start") { await self.feed.started }
+        let baseline = RoundStubURLProtocol.requests(for: "/friendly-rounds/scorecard").count
+
+        store.setSceneActive(false)
+        await waitUntil("the feed to suspend") { await self.feed.calls.contains(.suspend) }
+        store.setSceneActive(true)
+
+        await waitUntil("the foreground scorecard refetch") {
+            RoundStubURLProtocol.requests(for: "/friendly-rounds/scorecard").count > baseline
+        }
+    }
+
     /// Degrade: the stream gives up, the store latches it and falls back to the
     /// 20 s poll — the interval the feed itself publishes, not a local guess.
     func testDegradeFallsBackToPolling() async {
@@ -860,6 +972,37 @@ final class RoundStoreTests: XCTestCase {
         let before = resultRequests()
         await fireClock()
         await waitUntil("a fallback poll tick") { self.resultRequests() > before }
+    }
+
+    /// …and the fallback refreshes the SCORE view too, not just the board.
+    ///
+    /// This is the case the whole degraded path exists for: reception bad
+    /// enough to kill the stream is exactly reception bad enough that nothing
+    /// else is going to freshen the group's score grid. A fallback that only
+    /// polled the result would leave the on-course screen frozen precisely when
+    /// it matters, with a "Reconnecting" chip as the only hint.
+    func testDegradedFallbackAlsoRefreshesTheScorecard() async {
+        routeHappyPath()
+        RoundStubURLProtocol.route(
+            "/friendly-rounds/scorecard",
+            RoundFixtures.emptyScorecards,
+            RoundFixtures.scorecards(ballId: "ball-2", playHoleId: "ph-1", strokes: 5)
+        )
+        RoundStubURLProtocol.route("/friendly-rounds/result", RoundFixtures.result(cursor: "c1"))
+        let store = makeStore()
+        await store.load()
+        XCTAssertNil(store.strokes(ballId: "ball-2", playHoleId: "ph-1"))
+        await waitUntil("the feed to start") { await self.feed.started }
+
+        await feed.push(.degraded)
+        await waitUntil("the degrade to latch") { store.liveState == .degraded }
+
+        // A partner scores while this phone is off the stream.
+        await fireClock()
+
+        await waitUntil("the fallback tick to refetch the scorecard") {
+            store.strokes(ballId: "ball-2", playHoleId: "ph-1") == 5
+        }
     }
 
     /// `.finished` means the round completed remotely: refetch both halves, then
