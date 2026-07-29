@@ -240,14 +240,17 @@ function renderRanked(
     // The pace column exists only for metrics whose descriptor declares a pace
     // baseline — a non-pace board (gross strokes, say) keeps its old 4 columns.
     const hasPace = layout.hasPace;
-    const columnCount = hasPace ? 5 : 4;
+    // Only the classified board gets a disclosure column. Reserving one final
+    // table column keeps every expandable row's chevron aligned at the far
+    // right, after Thru, while plain/oracle boards remain byte-identical.
+    const hasDisclosure = expansion !== null;
+    const columnCount = (hasPace ? 5 : 4) + (hasDisclosure ? 1 : 0);
     const rows = layout.entries
         .map((e, index) => {
             const groupTag = e.group ? ` <span class="lb-rank__group">${esc(e.group)}</span>` : '';
             const tail = `
   <td class="lb-rank__total">${e.total}</td>${hasPace ? `\n  ${paceCell(e)}` : ''}
-  <td class="lb-rank__thru">${e.holesPlayed}</td>
-</tr>`;
+  <td class="lb-rank__thru">${e.holesPlayed}</td>`;
             // No expansion context (the oracle, the tests' default path, any
             // board that isn't the one cards were classified against): render
             // byte-for-byte what this file always emitted.
@@ -256,10 +259,18 @@ function renderRanked(
                 expansion && entry
                     ? expansion.plan.attached.get(entryKey(expansion.plan.slotDefId, entry.ballIds))
                     : undefined;
-            if (!expansion || !entry || !card) {
+            if (!expansion) {
                 return `<tr class="${e.lead ? 'lb-rank__lead' : ''}">
   <td class="lb-rank__pos">${e.position}</td>
-  <td class="lb-rank__who"><span class="lb-rank__whobox"><span class="lb-rank__name">${esc(e.name)}</span>${groupTag}</span></td>${tail}`;
+  <td class="lb-rank__who"><span class="lb-rank__whobox"><span class="lb-rank__name">${esc(e.name)}</span>${groupTag}</span></td>${tail}
+</tr>`;
+            }
+            if (!entry || !card) {
+                return `<tr class="${e.lead ? 'lb-rank__lead' : ''}">
+  <td class="lb-rank__pos">${e.position}</td>
+  <td class="lb-rank__who"><span class="lb-rank__whobox"><span class="lb-rank__name">${esc(e.name)}</span>${groupTag}</span></td>${tail}
+  <td class="lb-rank__disclosure"></td>
+</tr>`;
             }
 
             // Expandable row: the whole row is tappable (delegated click), and
@@ -276,7 +287,9 @@ function renderRanked(
             if (open) rowClasses.push('lb-rank__row--open');
             return `<tr class="${rowClasses.join(' ')}" data-expand-key="${esc(key)}">
   <td class="lb-rank__pos">${e.position}</td>
-  <td class="lb-rank__who"><button type="button" class="lb-rank__toggle" aria-expanded="${open}" aria-controls="${esc(id)}"><span class="lb-rank__whobox"><span class="lb-rank__name">${esc(e.name)}</span>${groupTag}</span><span class="lb-rank__chev" aria-hidden="true"></span></button></td>${tail}
+  <td class="lb-rank__who"><button type="button" class="lb-rank__toggle" aria-expanded="${open}" aria-controls="${esc(id)}"><span class="lb-rank__whobox"><span class="lb-rank__name">${esc(e.name)}</span>${groupTag}</span></button></td>${tail}
+  <td class="lb-rank__disclosure"><span class="lb-rank__chev" aria-hidden="true"></span></td>
+</tr>
 <tr class="lb-rank__panel${open ? ' lb-rank__panel--open' : ''}" data-panel-key="${esc(key)}">
   <td class="lb-rank__panelcell" colspan="${columnCount}"><div class="lb-rank__panelwrap" id="${esc(id)}"><div class="lb-rank__panelbox">${cardHtml}</div></div></td>
 </tr>`;
@@ -284,6 +297,10 @@ function renderRanked(
         .join('');
     const paceCol = hasPace ? '\n      <col class="lb-rank__col-pace">' : '';
     const paceHead = hasPace ? '<th class="lb-rank__pace">Pace</th>' : '';
+    const disclosureCol = hasDisclosure ? '\n      <col class="lb-rank__col-disclosure">' : '';
+    const disclosureHead = hasDisclosure
+        ? '<th class="lb-rank__disclosure" aria-label="Scorecard"></th>'
+        : '';
     return `<div class="lb-section">
   <h4 class="lb-section__title">${esc(layout.metricLabel)}</h4>
   <table class="lb-rank">
@@ -291,9 +308,9 @@ function renderRanked(
       <col class="lb-rank__col-pos">
       <col class="lb-rank__col-who">
       <col class="lb-rank__col-total">${paceCol}
-      <col class="lb-rank__col-thru">
+      <col class="lb-rank__col-thru">${disclosureCol}
     </colgroup>
-    <thead><tr><th class="lb-rank__pos">#</th><th class="lb-rank__who">Player</th><th class="lb-rank__total">Total</th>${paceHead}<th class="lb-rank__thru">Thru</th></tr></thead>
+    <thead><tr><th class="lb-rank__pos">#</th><th class="lb-rank__who">Player</th><th class="lb-rank__total">Total</th>${paceHead}<th class="lb-rank__thru">Thru</th>${disclosureHead}</tr></thead>
     <tbody>${rows}</tbody>
   </table>
 </div>`;

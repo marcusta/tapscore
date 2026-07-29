@@ -253,6 +253,13 @@ test('an attached row renders a button, aria-expanded and its card panel', () =>
 
     expect(html).toContain('lb-rank__row--expandable');
     expect(html).toContain('<button type="button" class="lb-rank__toggle" aria-expanded="false"');
+    expect(html).toContain('<col class="lb-rank__col-disclosure">');
+    expect(html).toContain(
+        '<td class="lb-rank__disclosure"><span class="lb-rank__chev" aria-hidden="true"></span></td>',
+    );
+    expect(html).not.toContain(
+        '<span class="lb-rank__whobox"><span class="lb-rank__name">name:a</span></span><span class="lb-rank__chev"',
+    );
     expect(html).toContain(`data-expand-key="${entryKey(SLOT, ['a'])}"`);
     expect(html).toContain('class="lb-rank__panel"');
     expect(html).toContain('<article class="lb-card">');
@@ -315,9 +322,9 @@ test('the panel colspan covers the pace column when the board has one', () => {
     };
     const view = slot({ leaderboard: [withPace], cards: [card(['a'])] });
 
-    expect(boardHtml(view)).toContain('colspan="5"');
+    expect(boardHtml(view)).toContain('colspan="6"');
     expect(boardHtml(slot({ leaderboard: [ranked([{ ballIds: ['a'], position: 1 }])], cards: [card(['a'])] })))
-        .toContain('colspan="4"');
+        .toContain('colspan="5"');
 });
 
 test('a second ranked board is never expanded — only the classified one', () => {

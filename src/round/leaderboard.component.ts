@@ -71,6 +71,7 @@ export class LeaderboardComponent extends Component {
             & .lb-rank__col-total { width: 3.25rem; }
             & .lb-rank__col-pace { width: 3.25rem; }
             & .lb-rank__col-thru { width: 3rem; }
+            & .lb-rank__col-disclosure { width: 1.5rem; }
             & .lb-rank th,
             & .lb-rank td {
                 vertical-align: middle;
@@ -146,9 +147,8 @@ export class LeaderboardComponent extends Component {
 
             /* --- Gamebook expansion: a ranked row whose scorecard folds under it.
                The row is tappable anywhere; the button inside the name cell is
-               the real control (aria-expanded / aria-controls). A row with no
-               attached card renders exactly as before — no button, no chevron,
-               no pointer affordance. */
+               the real control (aria-expanded / aria-controls). The chevron has
+               its own final column so it aligns at the board's right edge. */
             & .lb-rank__row--expandable { cursor: pointer; }
             & .lb-rank__toggle {
                 display: flex;
@@ -171,18 +171,22 @@ export class LeaderboardComponent extends Component {
                 border-radius: 4px;
             }
             & .lb-rank__toggle .lb-rank__whobox { flex: 1 1 auto; }
+            & .lb-rank__disclosure {
+                text-align: right;
+                padding-left: 0;
+            }
             /* Chevron drawn from borders — no icon font, no asset. */
             & .lb-rank__chev {
-                flex: none;
+                display: inline-block;
                 width: 0.42em;
                 height: 0.42em;
                 border-right: 2px solid ${t('text-muted')};
                 border-bottom: 2px solid ${t('text-muted')};
-                transform: rotate(45deg) translateY(-0.12em);
+                transform: rotate(-45deg);
                 transition: transform 200ms ease;
             }
             & .lb-rank__row--open .lb-rank__chev {
-                transform: rotate(225deg) translateY(-0.06em);
+                transform: rotate(45deg);
             }
             /* The panel row is always in the DOM; open/closed is a HEIGHT
                animation on a 0fr→1fr grid track (the one technique that animates
