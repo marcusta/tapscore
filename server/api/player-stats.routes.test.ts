@@ -158,17 +158,47 @@ test('two players keep separate configs — the subject is the session, not a bo
 
 // --- Capture + read (token) ----------------------------------------------------
 
-test('an unknown token is a 404 on both token endpoints, not an empty success', async () => {
+test('an unknown token is a 404 on every token endpoint, not an empty success', async () => {
     const { ctx } = await setup();
 
     const read = await req(ctx.app, 'GET', '/api/friendly-rounds/stats?token=nope');
     expect(read.status).toBe(404);
+
+    const configs = await req(ctx.app, 'GET', '/api/friendly-rounds/stats-configs?token=nope');
+    expect(configs.status).toBe(404);
 
     const write = await req(ctx.app, 'POST', '/api/friendly-rounds/stat-events', {
         token: 'nope',
         items: [],
     });
     expect(write.status).toBe(404);
+});
+
+test('the prompt set is readable with the token alone and carries the module booleans', async () => {
+    const { ctx, courseId, teeId } = await setup();
+    const player = await register(ctx, 'prompted');
+    await ctx.playerStatsService.putConfig(player.id, {
+        ...ALL_ON,
+        shortGame: false,
+        recovery: false,
+    });
+    const { token } = await roundFor(ctx, courseId, teeId, player.id);
+
+    const res = await req(ctx.app, 'GET', `/api/friendly-rounds/stats-configs?token=${token}`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([
+        {
+            playerId: player.id,
+            modules: {
+                tee: true,
+                approach: true,
+                putting: true,
+                shortGame: false,
+                penalties: true,
+                recovery: false,
+            },
+        },
+    ]);
 });
 
 test('batch append then read round-trips over the token front door, with no session', async () => {

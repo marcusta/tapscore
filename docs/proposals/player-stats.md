@@ -283,6 +283,17 @@ From the projection joined with scorecards, no new input:
   per hole commit (`Type.Array`, per-item `client_event_id` idempotency).
   Server rejects events for guests, for players not in the target ball, for
   players without the module enabled, and for shared-stroke balls.
+- `GET /api/friendly-rounds/stats-configs` — token-authorized **prompt set**:
+  `[{ playerId, modules: { tee, approach, putting, shortGame, penalties,
+  recovery } }]` for the round's registered ball members. `/players/me/stats-config`
+  cannot serve capture — the scorer is usually not the player, and a hole's
+  prompts are the union over the ball's members (§2). Every exclusion is an
+  **absence**: no config row, master switch off, guest, unclaimed seat, or a
+  shared-stroke ball all mean "not in the list", which is exactly the set
+  `stat-events` would refuse. So the client prompts for what it finds and can
+  never build a doomed append. Privacy: a co-participant learns *which* modules
+  a player tracks — accepted, and strictly less than the values `stats` already
+  shares with the same token.
 - `GET /api/friendly-rounds/stats` — token-authorized flat
   `player_hole_stats` rows for the round, so the score-entry step can prefill
   and correct. (A separate endpoint, not a widening of `ScorecardHole`: the

@@ -781,6 +781,153 @@ test('values outside the closed vocabulary are refused, and the whole batch is r
     expect(await ctx.playerStatsService.statsForRound(roundId)).toEqual([]);
 });
 
+// --- The prompt set ------------------------------------------------------------
+//
+// What the capture client asks for before a hole: everyone in the round it may
+// prompt, and about what. Every exclusion is an ABSENCE — the client prompts
+// for exactly what it finds, and can never build an append that gets refused.
+
+test('promptableModules returns the module booleans for an enabled player', async () => {
+    const { ctx, player, roundId } = await soloRound({
+        config: { ...ALL_OFF, enabled: true, tee: true, approach: true, recovery: true },
+    });
+
+    expect(await ctx.playerStatsService.promptableModules(roundId)).toEqual([
+        {
+            playerId: player.id,
+            modules: {
+                tee: true,
+                approach: true,
+                putting: false,
+                shortGame: false,
+                penalties: false,
+                recovery: true,
+            },
+        },
+    ]);
+});
+
+test('the master switch off removes the player from the prompt set entirely', async () => {
+    const { ctx, roundId } = await soloRound({ config: { ...ALL_ON, enabled: false } });
+    // Not "all modules false" — absent. There is nothing to prompt, and the
+    // client never has to interpret a flag to work that out.
+    expect(await ctx.playerStatsService.promptableModules(roundId)).toEqual([]);
+});
+
+test('a player who never configured stats is absent from the prompt set', async () => {
+    const { ctx, courseId, teeId } = await base();
+    const player = await registerPlayer(ctx, 'Unconfigured Prompt');
+    const round = await createCompiledRound(ctx, {
+        courseId,
+        teeId,
+        slots: [{ formatId: 'stroke_play_individual' }],
+        players: [{ kind: 'player', id: player.id, handicapIndex: 10 }],
+    });
+    expect(await ctx.playerStatsService.promptableModules(round.round.id)).toEqual([]);
+});
+
+test('guests and unclaimed seats are absent — there is no config to have', async () => {
+    const { ctx, courseId, teeId } = await base();
+    const registered = await registerPlayer(ctx, 'Registered');
+    await ctx.playerStatsService.putConfig(registered.id, ALL_ON);
+    const guest = await ctx.guestPlayerService.create({
+        displayName: 'Gunnar Guest',
+        gender: 'M',
+        handicapIndex: 12,
+    });
+
+    const created = await ctx.friendlyRoundService.create({
+        courseId,
+        playedAt: '2026-07-29',
+        producers: [
+            { producerDefId: 'p1', playerRef: { kind: 'player', id: registered.id }, handicapIndex: 10, gender: 'M', teeId },
+            { producerDefId: 'p2', playerRef: { kind: 'guest', id: guest.id }, handicapIndex: 12, gender: 'M', teeId },
+            { producerDefId: 'seat-1', placeholder: { label: 'Seat 3' } },
+        ],
+        formats: [{ formatId: 'stroke_play_individual' }],
+        startList: START_LIST_PRESETS.organized_open_slots,
+    });
+    if (!created.ok) throw new Error(JSON.stringify(created.diagnostics));
+
+    const prompts = await ctx.playerStatsService.promptableModules(created.round.id);
+    expect(prompts.map((p) => p.playerId)).toEqual([registered.id]);
+});
+
+test('a shared-stroke player is absent — the client must not be able to prompt them', async () => {
+    const { ctx, courseId, teeId } = await base();
+    const a = await registerPlayer(ctx, 'Scr Prompt A');
+    const b = await registerPlayer(ctx, 'Scr Prompt B');
+    for (const p of [a, b]) await ctx.playerStatsService.putConfig(p.id, ALL_ON);
+
+    const created = await ctx.roundService.createFromDraft({
+        courseId,
+        playedAt: '2026-07-29',
+        producers: [
+            { producerDefId: 'p1', playerRef: { kind: 'player', id: a.id }, handicapIndex: 8, gender: 'M', teeId },
+            { producerDefId: 'p2', playerRef: { kind: 'player', id: b.id }, handicapIndex: 12, gender: 'M', teeId },
+        ],
+        teams: [
+            {
+                id: 'S',
+                label: 'Scramble',
+                formation: 'scramble',
+                members: [
+                    { producerDefId: 'p1', allowancePct: 35 },
+                    { producerDefId: 'p2', allowancePct: 15 },
+                ],
+            },
+        ],
+        formats: [
+            { formatId: 'stroke_play_individual', subjects: [{ kind: 'team', teamId: 'S' }] },
+        ],
+    });
+    if (!created.ok) throw new Error(JSON.stringify(created.diagnostics));
+
+    // Exactly the set `appendEvents` would accept — both would be refused.
+    expect(await ctx.playerStatsService.promptableModules(created.round.id)).toEqual([]);
+});
+
+test('a player on two balls appears once', async () => {
+    const { ctx, courseId, teeId } = await base();
+    const a = await registerPlayer(ctx, 'Two Balls A');
+    const b = await registerPlayer(ctx, 'Two Balls B');
+    for (const p of [a, b]) await ctx.playerStatsService.putConfig(p.id, ALL_ON);
+
+    // A scramble team ball AND an own ball each: one qualifying ball is enough,
+    // and the entry must not be duplicated per ball.
+    const created = await ctx.roundService.createFromDraft({
+        courseId,
+        playedAt: '2026-07-29',
+        producers: [
+            { producerDefId: 'p1', playerRef: { kind: 'player', id: a.id }, handicapIndex: 8, gender: 'M', teeId },
+            { producerDefId: 'p2', playerRef: { kind: 'player', id: b.id }, handicapIndex: 12, gender: 'M', teeId },
+        ],
+        teams: [
+            {
+                id: 'S',
+                label: 'Scramble',
+                formation: 'scramble',
+                members: [
+                    { producerDefId: 'p1', allowancePct: 35 },
+                    { producerDefId: 'p2', allowancePct: 15 },
+                ],
+            },
+        ],
+        formats: [
+            { formatId: 'stroke_play_individual', subjects: [{ kind: 'team', teamId: 'S' }] },
+            { formatId: 'stableford_individual' },
+        ],
+    });
+    if (!created.ok) throw new Error(JSON.stringify(created.diagnostics));
+
+    const balls = await ctx.roundService.ballsForRound(created.round.id);
+    expect(balls.length).toBeGreaterThan(2); // the team ball plus two own balls
+
+    const prompts = await ctx.playerStatsService.promptableModules(created.round.id);
+    expect(prompts.map((p) => p.playerId).sort()).toEqual([a.id, b.id].sort());
+    expect(prompts).toHaveLength(2);
+});
+
 // --- The DB is the backstop, not the service -----------------------------------
 
 test('a bad vocabulary value is refused by the CHECK constraint even bypassing the service', async () => {

@@ -16,6 +16,7 @@ import type {
     AppendStatEventsResult,
     PlayerHoleStats,
     PlayerStatsService,
+    RoundPlayerStatModules,
     StatEventInput,
 } from './player-stats.service';
 import type { RoundEventsHub } from './round-events-hub';
@@ -385,6 +386,16 @@ export class FriendlyRoundService {
         const roundId = await this.roundIdForToken(token);
         if (roundId === null) return null;
         return this.playerStats.statsForRound(roundId);
+    }
+
+    /**
+     * Which players in the token's round can be prompted for stats, and for
+     * which modules — the capture client's prompt set (spec §2).
+     */
+    async statsConfigsByToken(token: string): Promise<RoundPlayerStatModules[] | null> {
+        const roundId = await this.roundIdForToken(token);
+        if (roundId === null) return null;
+        return this.playerStats.promptableModules(roundId);
     }
 
     /**

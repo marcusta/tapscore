@@ -104,6 +104,30 @@ export interface PlayerHoleStats {
     recoveryOk: boolean | null;
 }
 
+/** The six capture modules, without the master switch or the player id. */
+export interface StatModules {
+    tee: boolean;
+    approach: boolean;
+    putting: boolean;
+    shortGame: boolean;
+    penalties: boolean;
+    recovery: boolean;
+}
+
+/**
+ * What the capture client must prompt for, for ONE player in a round.
+ *
+ * The prompt set for a hole is the UNION over the ball's members (spec §2), so
+ * the scorer — usually not the player — needs every promptable member's
+ * modules, not just their own. Absence is the whole vocabulary of "no": a
+ * player with stats off, with no config row, without per-player stroke
+ * identity, or who is a guest / an unclaimed seat simply is not in the list.
+ */
+export interface RoundPlayerStatModules {
+    playerId: string;
+    modules: StatModules;
+}
+
 /** One (occurrence, player) pair the round holds statistics for. */
 export interface StatSubject {
     playHoleId: string;
@@ -231,6 +255,14 @@ function refuse(code: string, message: string, extra: Record<string, unknown> = 
  * enforces instead is that the SUBJECT is legitimate — a registered player,
  * present in this round, on a ball whose strokes have per-player identity,
  * with the relevant module switched on in their own profile.
+ *
+ * One deliberate consequence of that model: `promptableModules` lets a token
+ * holder see WHICH modules their co-participants track. A scorer who cannot
+ * see the other players' module selections cannot build the hole's prompt set
+ * (spec §2 — the union over the ball's members) and would have to guess, so
+ * this is the minimum disclosure that makes capture work at all. It stays
+ * bounded to the round, exposes no stat VALUES that `statsForRound` does not
+ * already give the same caller, and never reaches a player outside the round.
  *
  * Deliberately absent: `recordLatestEvent` / result-cursor bumps. A stat event
  * changes no leaderboard, so it must not invalidate any client's result poll
@@ -538,6 +570,50 @@ export class PlayerStatsService {
             .orderBy('phs.player_id')
             .execute();
         return rows.map(toHoleStats);
+    }
+
+    /**
+     * Who this round can be prompted for, and about what.
+     *
+     * The capture client cannot derive this: the prompt set for a hole is the
+     * union over the ball's members (spec §2), and the scorer is usually not
+     * the player, so a self-scoped config read leaves the client guessing and
+     * its appends failing module validation blind.
+     *
+     * Every exclusion is an ABSENCE, never a flag to interpret: stats off, no
+     * config row, a guest, an unclaimed seat, or a shared-stroke ball all mean
+     * the player is not in the list. A client that prompts for exactly what it
+     * finds here can never build a prompt `appendEvents` would refuse.
+     *
+     * PRIVACY, accepted deliberately: a token holder learns WHICH modules a
+     * co-participant tracks. That is the minimum needed to prompt, it is
+     * bounded to the players sharing this round, and the stat VALUES those
+     * modules produce are already readable by the same token holders through
+     * `statsForRound`. No config is exposed for anyone outside the round.
+     */
+    async promptableModules(roundId: string): Promise<RoundPlayerStatModules[]> {
+        const members = await this.roundBallMembers(roundId).execute();
+        const { perPlayer } = perPlayerIdentityPlayers(members);
+        if (perPlayer.size === 0) return [];
+
+        // A player on two balls is one entry: `perPlayer` is a Set, and the
+        // config read is keyed by player.
+        const rows = await this.configsByPlayers([...perPlayer]).execute();
+        return rows
+            .map(toConfig)
+            .filter((config) => config.enabled)
+            .map((config) => ({
+                playerId: config.playerId,
+                modules: {
+                    tee: config.tee,
+                    approach: config.approach,
+                    putting: config.putting,
+                    shortGame: config.shortGame,
+                    penalties: config.penalties,
+                    recovery: config.recovery,
+                },
+            }))
+            .sort((a, b) => a.playerId.localeCompare(b.playerId));
     }
 
     /**

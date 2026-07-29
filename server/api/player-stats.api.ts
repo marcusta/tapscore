@@ -63,10 +63,12 @@ const ByTokenInput = Type.Object({ token: Type.String({ minLength: 1 }) });
 //     the caller is the subject, resolved from the session and never from the
 //     body (the `/players/me/*` convention).
 //
-//   /friendly-rounds/stat-* — NO `requireAuth()`. The share token IS the write
+//   /friendly-rounds/stat* — NO `requireAuth()`. The share token IS the write
 //     credential, exactly as it is for scores: whoever can score the ball can
 //     record how the score happened. What protects the SUBJECT (registered, in
 //     the round, per-player ball, module on) is the service, not the edge.
+//     `stats-configs` reads the same way, and discloses only which modules the
+//     round's own players track — see the note on `PlayerStatsService`.
 //
 // The framework collapses a null return into `{ ok: true }`, so an unknown
 // token must throw `NotFoundError` to stay distinguishable from a hit — the
@@ -84,6 +86,12 @@ async function appendStatsOr404(
 
 async function statsOr404(rounds: FriendlyRoundService, token: string) {
     const res = await rounds.statsByToken(token);
+    if (res === null) throw new NotFoundError('friendly round not found');
+    return res;
+}
+
+async function statsConfigsOr404(rounds: FriendlyRoundService, token: string) {
+    const res = await rounds.statsConfigsByToken(token);
     if (res === null) throw new NotFoundError('friendly round not found');
     return res;
 }
@@ -119,6 +127,16 @@ export function createPlayerStatsApi(svc: PlayerStatsService, rounds: FriendlyRo
             method: 'GET' as const,
             path: '/friendly-rounds/stats',
             fn: (input: Static<typeof ByTokenInput>) => statsOr404(rounds, input.token),
+            schema: ByTokenInput,
+        },
+        // The prompt set. `/players/me/stats-config` cannot serve capture: the
+        // scorer is usually not the player, and a hole's prompts are the union
+        // over the ball's members (spec §2). Absent from the list = do not
+        // prompt, which is also exactly what `appendEvents` would refuse.
+        configsByToken: {
+            method: 'GET' as const,
+            path: '/friendly-rounds/stats-configs',
+            fn: (input: Static<typeof ByTokenInput>) => statsConfigsOr404(rounds, input.token),
             schema: ByTokenInput,
         },
     };

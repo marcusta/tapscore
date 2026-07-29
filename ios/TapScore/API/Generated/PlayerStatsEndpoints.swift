@@ -17,4 +17,8 @@ enum PlayerStatsEndpoints {
         method: .get,
         path: "/friendly-rounds/stats",
         pathParams: [])
+    static let configsByToken = APIEndpoint<FriendlyRoundsByTokenInput, [RoundPlayerStatModules]>(
+        method: .get,
+        path: "/friendly-rounds/stats-configs",
+        pathParams: [])
 }

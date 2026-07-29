@@ -202,6 +202,33 @@ struct PlayerHoleStats: Codable, Sendable, Equatable {
     }
 }
 
+struct RoundPlayerStatModules: Codable, Sendable, Equatable {
+    var playerId: String
+    var modules: StatModules
+
+    enum CodingKeys: String, CodingKey {
+        case playerId = "playerId"
+        case modules = "modules"
+    }
+
+    init(playerId: String, modules: StatModules) {
+        self.playerId = playerId
+        self.modules = modules
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.playerId = try c.decode(String.self, forKey: .playerId)
+        self.modules = try c.decode(StatModules.self, forKey: .modules)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(playerId, forKey: .playerId)
+        try c.encode(modules, forKey: .modules)
+    }
+}
+
 struct AppendedStatEvent: Codable, Sendable, Equatable {
     var event: StatEvent
     var inserted: Bool
@@ -226,6 +253,53 @@ struct AppendedStatEvent: Codable, Sendable, Equatable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(event, forKey: .event)
         try c.encode(inserted, forKey: .inserted)
+    }
+}
+
+struct StatModules: Codable, Sendable, Equatable {
+    var tee: Bool
+    var approach: Bool
+    var putting: Bool
+    var shortGame: Bool
+    var penalties: Bool
+    var recovery: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case tee = "tee"
+        case approach = "approach"
+        case putting = "putting"
+        case shortGame = "shortGame"
+        case penalties = "penalties"
+        case recovery = "recovery"
+    }
+
+    init(tee: Bool, approach: Bool, putting: Bool, shortGame: Bool, penalties: Bool, recovery: Bool) {
+        self.tee = tee
+        self.approach = approach
+        self.putting = putting
+        self.shortGame = shortGame
+        self.penalties = penalties
+        self.recovery = recovery
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.tee = try c.decode(Bool.self, forKey: .tee)
+        self.approach = try c.decode(Bool.self, forKey: .approach)
+        self.putting = try c.decode(Bool.self, forKey: .putting)
+        self.shortGame = try c.decode(Bool.self, forKey: .shortGame)
+        self.penalties = try c.decode(Bool.self, forKey: .penalties)
+        self.recovery = try c.decode(Bool.self, forKey: .recovery)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(tee, forKey: .tee)
+        try c.encode(approach, forKey: .approach)
+        try c.encode(putting, forKey: .putting)
+        try c.encode(shortGame, forKey: .shortGame)
+        try c.encode(penalties, forKey: .penalties)
+        try c.encode(recovery, forKey: .recovery)
     }
 }
 

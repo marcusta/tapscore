@@ -30,9 +30,23 @@ export interface PlayerHoleStats {
     recoveryOk: boolean | null;
 }
 
+export interface RoundPlayerStatModules {
+    playerId: string;
+    modules: StatModules;
+}
+
 export interface AppendedStatEvent {
     event: StatEvent;
     inserted: boolean;
+}
+
+export interface StatModules {
+    tee: boolean;
+    approach: boolean;
+    putting: boolean;
+    shortGame: boolean;
+    penalties: boolean;
+    recovery: boolean;
 }
 
 export interface StatEvent {
@@ -53,6 +67,7 @@ export interface PlayerStatsApi {
     putMyConfig(input: { enabled: boolean; tee: boolean; approach: boolean; putting: boolean; shortGame: boolean; penalties: boolean; recovery: boolean }): Promise<PlayerStatsConfig>;
     appendEvents(input: { token: string; items: ({ playerId: string; playHoleId: string; clientEventId: string; key: 'penalties' | 'tee_result' | 'gir' | 'first_putt' | 'putts' | 'short_game_difficulty' | 'recovery_ok'; value: null | string })[] }): Promise<AppendStatEventsResult>;
     byToken(input: { token: string }): Promise<PlayerHoleStats[]>;
+    configsByToken(input: { token: string }): Promise<RoundPlayerStatModules[]>;
 }
 
 export function createPlayerStatsClient(baseUrl: string): PlayerStatsApi {
@@ -72,6 +87,13 @@ export function createPlayerStatsClient(baseUrl: string): PlayerStatsApi {
                 if (v !== undefined) params.set(k, String(v));
             const qs = params.toString();
             return apiFetch({ method: 'GET', url: `${baseUrl}/friendly-rounds/stats${qs ? '?' + qs : ''}` });
+        },
+        async configsByToken(input) {
+            const params = new URLSearchParams();
+            for (const [k, v] of Object.entries(input as any))
+                if (v !== undefined) params.set(k, String(v));
+            const qs = params.toString();
+            return apiFetch({ method: 'GET', url: `${baseUrl}/friendly-rounds/stats-configs${qs ? '?' + qs : ''}` });
         },
     };
 }
