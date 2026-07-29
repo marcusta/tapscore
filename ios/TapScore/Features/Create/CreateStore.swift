@@ -1065,9 +1065,9 @@ final class CreateStore {
                 let guest = try await api.send(
                     GuestPlayersEndpoints.create,
                     GuestPlayersCreateInput(
-                        handicapIndex: .value(players[i].handicapIndex),
                         displayName: players[i].name,
-                        gender: row.gender))
+                        gender: row.gender,
+                        handicapIndex: .value(players[i].handicapIndex)))
                 updatePlayer(id: row.id) { $0.guestPlayerId = guest.id }
                 players[i].ref = .guest(guest.id)
             }
@@ -1231,9 +1231,9 @@ final class CreateStore {
                 let guest = try await api.send(
                     GuestPlayersEndpoints.create,
                     GuestPlayersCreateInput(
-                        handicapIndex: .value(players[i].handicapIndex),
                         displayName: players[i].name,
-                        gender: row.gender))
+                        gender: row.gender,
+                        handicapIndex: .value(players[i].handicapIndex)))
                 // The baseline rides the cached id: a save refused and retried
                 // after a further rename must rename, not silently re-submit.
                 updatePlayer(id: row.id) {
@@ -1255,9 +1255,9 @@ final class CreateStore {
                 _ = try await api.send(
                     FriendlyRoundsEndpoints.renameGuest,
                     FriendlyRoundsRenameGuestInput(
-                        displayName: newName,
+                        token: token,
                         guestPlayerId: guestId,
-                        token: token))
+                        displayName: newName))
                 updatePlayer(id: row.id) { $0.guestOriginalName = newName }
             }
 
@@ -1304,9 +1304,9 @@ final class CreateStore {
             let result = try await api.send(
                 FriendlyRoundsEndpoints.editSetup,
                 FriendlyRoundsEditSetupInput(
-                    clientEventId: UUID().uuidString,
+                    token: token,
                     draft: draft,
-                    token: token))
+                    clientEventId: UUID().uuidString))
             switch result {
             case .notOk(let refusal):
                 diagnostics = refusal.diagnostics
@@ -1335,7 +1335,7 @@ final class CreateStore {
     private func assignDefIds(rows: [PlayerRow]) -> [String] {
         var used = Set(rows.compactMap(\.producerDefId))
         for producer in loadedDraft?.producers ?? [] {
-            if case .teeId(let p) = producer { used.insert(p.producerDefId) }
+            if case .playerRef(let p) = producer { used.insert(p.producerDefId) }
         }
         var out: [String] = []
         var counter = 1

@@ -81,13 +81,13 @@ struct PendingScoreWrite: Codable, Sendable, Equatable {
     /// type so a contract change shows up as a compile error here.
     var appendInput: ScoreEventsAppendInput {
         ScoreEventsAppendInput(
-            metadata: metadata,
             roundId: roundId,
             ballId: ballId,
             playHoleId: playHoleId,
             strokes: strokes,
             eventType: eventType,
-            clientEventId: clientEventId
+            clientEventId: clientEventId,
+            metadata: metadata
         )
     }
 

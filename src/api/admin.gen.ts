@@ -52,8 +52,8 @@ export interface AdminApi {
     adminStats(): Promise<AdminStats>;
     adminRounds(input: { limit?: number; offset?: number }): Promise<AdminRoundSummary[]>;
     adminPlayers(): Promise<AdminPlayerSummary[]>;
-    adminGrantRole(input: { scopeType?: null | string; scopeId?: null | string; playerId: string; role: 'super_admin' | 'series_admin' | 'tour_admin' | 'competition_admin' | 'friendly_round_owner' }): Promise<RoleGrant>;
-    adminRevokeRole(input: { scopeType?: null | string; scopeId?: null | string; playerId: string; role: 'super_admin' | 'series_admin' | 'tour_admin' | 'competition_admin' | 'friendly_round_owner' }): Promise<{ ok: true }>;
+    adminGrantRole(input: { playerId: string; role: 'super_admin' | 'series_admin' | 'tour_admin' | 'competition_admin' | 'friendly_round_owner'; scopeType?: null | string; scopeId?: null | string }): Promise<RoleGrant>;
+    adminRevokeRole(input: { playerId: string; role: 'super_admin' | 'series_admin' | 'tour_admin' | 'competition_admin' | 'friendly_round_owner'; scopeType?: null | string; scopeId?: null | string }): Promise<{ ok: true }>;
 }
 
 export function createAdminClient(baseUrl: string): AdminApi {

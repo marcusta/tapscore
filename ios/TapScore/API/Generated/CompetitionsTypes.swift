@@ -9,146 +9,6 @@ enum CompetitionDetailLifecycle: String, Codable, Sendable, Equatable {
     case finalized = "finalized"
 }
 
-enum CompetitionDetailDefaultConfigStartList: String, Codable, Sendable, Equatable {
-    case singleGroup = "single_group"
-    case foursomes = "foursomes"
-}
-
-struct CompetitionDetailDefaultConfigCategoryTeesValue: Codable, Sendable, Equatable {
-    var teeId: String
-
-    enum CodingKeys: String, CodingKey {
-        case teeId = "teeId"
-    }
-
-    init(teeId: String) {
-        self.teeId = teeId
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.teeId = try c.decode(String.self, forKey: .teeId)
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(teeId, forKey: .teeId)
-    }
-}
-
-struct CompetitionDetailDefaultConfigStartListPolicyWindow: Codable, Sendable, Equatable {
-    var opensAt: String?
-    var closesAt: String?
-
-    enum CodingKeys: String, CodingKey {
-        case opensAt = "opensAt"
-        case closesAt = "closesAt"
-    }
-
-    init(opensAt: String? = nil, closesAt: String? = nil) {
-        self.opensAt = opensAt
-        self.closesAt = closesAt
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.opensAt = try c.decodeIfPresent(String.self, forKey: .opensAt)
-        self.closesAt = try c.decodeIfPresent(String.self, forKey: .closesAt)
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(opensAt, forKey: .opensAt)
-        try c.encodeIfPresent(closesAt, forKey: .closesAt)
-    }
-}
-
-enum CompetitionDetailDefaultConfigStartListPolicyGroups: String, Codable, Sendable, Equatable {
-    case organized = "organized"
-    case roster = "roster"
-    case `open` = "open"
-}
-
-enum CompetitionDetailDefaultConfigStartListPolicySeats: String, Codable, Sendable, Equatable {
-    case assigned = "assigned"
-    case claimable = "claimable"
-}
-
-enum CompetitionDetailDefaultConfigStartListPolicyClaimBy: String, Codable, Sendable, Equatable {
-    case team = "team"
-    case roster = "roster"
-    case anyone = "anyone"
-}
-
-struct CompetitionDetailDefaultConfigStartListPolicy: Codable, Sendable, Equatable {
-    var window: CompetitionDetailDefaultConfigStartListPolicyWindow?
-    var maxGroupSize: Double?
-    var groups: CompetitionDetailDefaultConfigStartListPolicyGroups
-    var seats: CompetitionDetailDefaultConfigStartListPolicySeats
-    var claimBy: CompetitionDetailDefaultConfigStartListPolicyClaimBy
-
-    enum CodingKeys: String, CodingKey {
-        case window = "window"
-        case maxGroupSize = "maxGroupSize"
-        case groups = "groups"
-        case seats = "seats"
-        case claimBy = "claimBy"
-    }
-
-    init(window: CompetitionDetailDefaultConfigStartListPolicyWindow? = nil, maxGroupSize: Double? = nil, groups: CompetitionDetailDefaultConfigStartListPolicyGroups, seats: CompetitionDetailDefaultConfigStartListPolicySeats, claimBy: CompetitionDetailDefaultConfigStartListPolicyClaimBy) {
-        self.window = window
-        self.maxGroupSize = maxGroupSize
-        self.groups = groups
-        self.seats = seats
-        self.claimBy = claimBy
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.window = try c.decodeIfPresent(CompetitionDetailDefaultConfigStartListPolicyWindow.self, forKey: .window)
-        self.maxGroupSize = try c.decodeIfPresent(Double.self, forKey: .maxGroupSize)
-        self.groups = try c.decode(CompetitionDetailDefaultConfigStartListPolicyGroups.self, forKey: .groups)
-        self.seats = try c.decode(CompetitionDetailDefaultConfigStartListPolicySeats.self, forKey: .seats)
-        self.claimBy = try c.decode(CompetitionDetailDefaultConfigStartListPolicyClaimBy.self, forKey: .claimBy)
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(window, forKey: .window)
-        try c.encodeIfPresent(maxGroupSize, forKey: .maxGroupSize)
-        try c.encode(groups, forKey: .groups)
-        try c.encode(seats, forKey: .seats)
-        try c.encode(claimBy, forKey: .claimBy)
-    }
-}
-
-struct CompetitionDetailDefaultConfigSlotsItemTeamsItem: Codable, Sendable, Equatable {
-    var label: String
-    var producerDefIds: [String]
-
-    enum CodingKeys: String, CodingKey {
-        case label = "label"
-        case producerDefIds = "producerDefIds"
-    }
-
-    init(label: String, producerDefIds: [String]) {
-        self.label = label
-        self.producerDefIds = producerDefIds
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.label = try c.decode(String.self, forKey: .label)
-        self.producerDefIds = try c.decode([String].self, forKey: .producerDefIds)
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(label, forKey: .label)
-        try c.encode(producerDefIds, forKey: .producerDefIds)
-    }
-}
-
 struct CompetitionDetailDefaultConfigSlotsItemAllowanceConfigFlat: Codable, Sendable, Equatable {
     let type: String = "flat"
     var pct: Double
@@ -176,33 +36,33 @@ struct CompetitionDetailDefaultConfigSlotsItemAllowanceConfigFlat: Codable, Send
 }
 
 struct CompetitionDetailDefaultConfigSlotsItemAllowanceConfigSplitBandsItem: Codable, Sendable, Equatable {
-    var pct: Double
     var upToCh: Double?
+    var pct: Double
 
     enum CodingKeys: String, CodingKey {
-        case pct = "pct"
         case upToCh = "upToCh"
+        case pct = "pct"
     }
 
-    init(pct: Double, upToCh: Double? = nil) {
-        self.pct = pct
+    init(upToCh: Double? = nil, pct: Double) {
         self.upToCh = upToCh
+        self.pct = pct
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.pct = try c.decode(Double.self, forKey: .pct)
         self.upToCh = try c.decodeIfPresent(Double.self, forKey: .upToCh)
+        self.pct = try c.decode(Double.self, forKey: .pct)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(pct, forKey: .pct)
         if let upToCh {
             try c.encode(upToCh, forKey: .upToCh)
         } else {
             try c.encodeNil(forKey: .upToCh)
         }
+        try c.encode(pct, forKey: .pct)
     }
 }
 
@@ -263,6 +123,33 @@ enum CompetitionDetailDefaultConfigSlotsItemAllowanceConfig: Codable, Sendable, 
     }
 }
 
+struct CompetitionDetailDefaultConfigSlotsItemTeamsItem: Codable, Sendable, Equatable {
+    var label: String
+    var producerDefIds: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case label = "label"
+        case producerDefIds = "producerDefIds"
+    }
+
+    init(label: String, producerDefIds: [String]) {
+        self.label = label
+        self.producerDefIds = producerDefIds
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.label = try c.decode(String.self, forKey: .label)
+        self.producerDefIds = try c.decode([String].self, forKey: .producerDefIds)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(label, forKey: .label)
+        try c.encode(producerDefIds, forKey: .producerDefIds)
+    }
+}
+
 struct CompetitionDetailDefaultConfigSlotsItemBallsFrom: Codable, Sendable, Equatable {
     var ref: String
 
@@ -286,12 +173,12 @@ struct CompetitionDetailDefaultConfigSlotsItemBallsFrom: Codable, Sendable, Equa
 }
 
 struct CompetitionDetailDefaultConfigSlotsItemSubjectsItemPlayer: Codable, Sendable, Equatable {
-    var producerDefId: String
     let kind: String = "player"
+    var producerDefId: String
 
     enum CodingKeys: String, CodingKey {
-        case producerDefId = "producerDefId"
         case kind = "kind"
+        case producerDefId = "producerDefId"
     }
 
     init(producerDefId: String) {
@@ -300,14 +187,14 @@ struct CompetitionDetailDefaultConfigSlotsItemSubjectsItemPlayer: Codable, Senda
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.producerDefId = try c.decode(String.self, forKey: .producerDefId)
         _ = try c.decode(String.self, forKey: .kind)
+        self.producerDefId = try c.decode(String.self, forKey: .producerDefId)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(producerDefId, forKey: .producerDefId)
         try c.encode(kind, forKey: .kind)
+        try c.encode(producerDefId, forKey: .producerDefId)
     }
 }
 
@@ -369,101 +256,214 @@ enum CompetitionDetailDefaultConfigSlotsItemSubjectsItem: Codable, Sendable, Equ
 }
 
 struct CompetitionDetailDefaultConfigSlotsItem: Codable, Sendable, Equatable {
+    var formatId: String
     var id: String?
+    var allowanceConfig: CompetitionDetailDefaultConfigSlotsItemAllowanceConfig?
     var producerDefIds: [String]?
     var teams: [CompetitionDetailDefaultConfigSlotsItemTeamsItem]?
-    var allowanceConfig: CompetitionDetailDefaultConfigSlotsItemAllowanceConfig?
     var formatConfig: JSONValue?
     var ballsFrom: CompetitionDetailDefaultConfigSlotsItemBallsFrom?
     var subjects: [CompetitionDetailDefaultConfigSlotsItemSubjectsItem]?
-    var formatId: String
 
     enum CodingKeys: String, CodingKey {
+        case formatId = "formatId"
         case id = "id"
+        case allowanceConfig = "allowanceConfig"
         case producerDefIds = "producerDefIds"
         case teams = "teams"
-        case allowanceConfig = "allowanceConfig"
         case formatConfig = "formatConfig"
         case ballsFrom = "ballsFrom"
         case subjects = "subjects"
-        case formatId = "formatId"
     }
 
-    init(id: String? = nil, producerDefIds: [String]? = nil, teams: [CompetitionDetailDefaultConfigSlotsItemTeamsItem]? = nil, allowanceConfig: CompetitionDetailDefaultConfigSlotsItemAllowanceConfig? = nil, formatConfig: JSONValue? = nil, ballsFrom: CompetitionDetailDefaultConfigSlotsItemBallsFrom? = nil, subjects: [CompetitionDetailDefaultConfigSlotsItemSubjectsItem]? = nil, formatId: String) {
+    init(formatId: String, id: String? = nil, allowanceConfig: CompetitionDetailDefaultConfigSlotsItemAllowanceConfig? = nil, producerDefIds: [String]? = nil, teams: [CompetitionDetailDefaultConfigSlotsItemTeamsItem]? = nil, formatConfig: JSONValue? = nil, ballsFrom: CompetitionDetailDefaultConfigSlotsItemBallsFrom? = nil, subjects: [CompetitionDetailDefaultConfigSlotsItemSubjectsItem]? = nil) {
+        self.formatId = formatId
         self.id = id
+        self.allowanceConfig = allowanceConfig
         self.producerDefIds = producerDefIds
         self.teams = teams
-        self.allowanceConfig = allowanceConfig
         self.formatConfig = formatConfig
         self.ballsFrom = ballsFrom
         self.subjects = subjects
-        self.formatId = formatId
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.formatId = try c.decode(String.self, forKey: .formatId)
         self.id = try c.decodeIfPresent(String.self, forKey: .id)
+        self.allowanceConfig = try c.decodeIfPresent(CompetitionDetailDefaultConfigSlotsItemAllowanceConfig.self, forKey: .allowanceConfig)
         self.producerDefIds = try c.decodeIfPresent([String].self, forKey: .producerDefIds)
         self.teams = try c.decodeIfPresent([CompetitionDetailDefaultConfigSlotsItemTeamsItem].self, forKey: .teams)
-        self.allowanceConfig = try c.decodeIfPresent(CompetitionDetailDefaultConfigSlotsItemAllowanceConfig.self, forKey: .allowanceConfig)
         self.formatConfig = try c.decodeIfPresent(JSONValue.self, forKey: .formatConfig)
         self.ballsFrom = try c.decodeIfPresent(CompetitionDetailDefaultConfigSlotsItemBallsFrom.self, forKey: .ballsFrom)
         self.subjects = try c.decodeIfPresent([CompetitionDetailDefaultConfigSlotsItemSubjectsItem].self, forKey: .subjects)
-        self.formatId = try c.decode(String.self, forKey: .formatId)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(formatId, forKey: .formatId)
         try c.encodeIfPresent(id, forKey: .id)
+        try c.encodeIfPresent(allowanceConfig, forKey: .allowanceConfig)
         try c.encodeIfPresent(producerDefIds, forKey: .producerDefIds)
         try c.encodeIfPresent(teams, forKey: .teams)
-        try c.encodeIfPresent(allowanceConfig, forKey: .allowanceConfig)
         try c.encodeIfPresent(formatConfig, forKey: .formatConfig)
         try c.encodeIfPresent(ballsFrom, forKey: .ballsFrom)
         try c.encodeIfPresent(subjects, forKey: .subjects)
-        try c.encode(formatId, forKey: .formatId)
+    }
+}
+
+struct CompetitionDetailDefaultConfigCategoryTeesValue: Codable, Sendable, Equatable {
+    var teeId: String
+
+    enum CodingKeys: String, CodingKey {
+        case teeId = "teeId"
+    }
+
+    init(teeId: String) {
+        self.teeId = teeId
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.teeId = try c.decode(String.self, forKey: .teeId)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(teeId, forKey: .teeId)
+    }
+}
+
+enum CompetitionDetailDefaultConfigStartList: String, Codable, Sendable, Equatable {
+    case singleGroup = "single_group"
+    case foursomes = "foursomes"
+}
+
+enum CompetitionDetailDefaultConfigStartListPolicyGroups: String, Codable, Sendable, Equatable {
+    case organized = "organized"
+    case roster = "roster"
+    case `open` = "open"
+}
+
+enum CompetitionDetailDefaultConfigStartListPolicySeats: String, Codable, Sendable, Equatable {
+    case assigned = "assigned"
+    case claimable = "claimable"
+}
+
+enum CompetitionDetailDefaultConfigStartListPolicyClaimBy: String, Codable, Sendable, Equatable {
+    case team = "team"
+    case roster = "roster"
+    case anyone = "anyone"
+}
+
+struct CompetitionDetailDefaultConfigStartListPolicyWindow: Codable, Sendable, Equatable {
+    var opensAt: String?
+    var closesAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case opensAt = "opensAt"
+        case closesAt = "closesAt"
+    }
+
+    init(opensAt: String? = nil, closesAt: String? = nil) {
+        self.opensAt = opensAt
+        self.closesAt = closesAt
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.opensAt = try c.decodeIfPresent(String.self, forKey: .opensAt)
+        self.closesAt = try c.decodeIfPresent(String.self, forKey: .closesAt)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(opensAt, forKey: .opensAt)
+        try c.encodeIfPresent(closesAt, forKey: .closesAt)
+    }
+}
+
+struct CompetitionDetailDefaultConfigStartListPolicy: Codable, Sendable, Equatable {
+    var groups: CompetitionDetailDefaultConfigStartListPolicyGroups
+    var seats: CompetitionDetailDefaultConfigStartListPolicySeats
+    var claimBy: CompetitionDetailDefaultConfigStartListPolicyClaimBy
+    var window: CompetitionDetailDefaultConfigStartListPolicyWindow?
+    var maxGroupSize: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case groups = "groups"
+        case seats = "seats"
+        case claimBy = "claimBy"
+        case window = "window"
+        case maxGroupSize = "maxGroupSize"
+    }
+
+    init(groups: CompetitionDetailDefaultConfigStartListPolicyGroups, seats: CompetitionDetailDefaultConfigStartListPolicySeats, claimBy: CompetitionDetailDefaultConfigStartListPolicyClaimBy, window: CompetitionDetailDefaultConfigStartListPolicyWindow? = nil, maxGroupSize: Double? = nil) {
+        self.groups = groups
+        self.seats = seats
+        self.claimBy = claimBy
+        self.window = window
+        self.maxGroupSize = maxGroupSize
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.groups = try c.decode(CompetitionDetailDefaultConfigStartListPolicyGroups.self, forKey: .groups)
+        self.seats = try c.decode(CompetitionDetailDefaultConfigStartListPolicySeats.self, forKey: .seats)
+        self.claimBy = try c.decode(CompetitionDetailDefaultConfigStartListPolicyClaimBy.self, forKey: .claimBy)
+        self.window = try c.decodeIfPresent(CompetitionDetailDefaultConfigStartListPolicyWindow.self, forKey: .window)
+        self.maxGroupSize = try c.decodeIfPresent(Double.self, forKey: .maxGroupSize)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(groups, forKey: .groups)
+        try c.encode(seats, forKey: .seats)
+        try c.encode(claimBy, forKey: .claimBy)
+        try c.encodeIfPresent(window, forKey: .window)
+        try c.encodeIfPresent(maxGroupSize, forKey: .maxGroupSize)
     }
 }
 
 struct CompetitionDetailDefaultConfig: Codable, Sendable, Equatable {
-    var startList: CompetitionDetailDefaultConfigStartList?
+    var slots: [CompetitionDetailDefaultConfigSlotsItem]
     var categoryTees: [String: CompetitionDetailDefaultConfigCategoryTeesValue]?
     var fallbackTee: CompetitionDetailDefaultConfigCategoryTeesValue?
+    var startList: CompetitionDetailDefaultConfigStartList?
     var startListPolicy: CompetitionDetailDefaultConfigStartListPolicy?
-    var slots: [CompetitionDetailDefaultConfigSlotsItem]
 
     enum CodingKeys: String, CodingKey {
-        case startList = "startList"
+        case slots = "slots"
         case categoryTees = "categoryTees"
         case fallbackTee = "fallbackTee"
+        case startList = "startList"
         case startListPolicy = "startListPolicy"
-        case slots = "slots"
     }
 
-    init(startList: CompetitionDetailDefaultConfigStartList? = nil, categoryTees: [String: CompetitionDetailDefaultConfigCategoryTeesValue]? = nil, fallbackTee: CompetitionDetailDefaultConfigCategoryTeesValue? = nil, startListPolicy: CompetitionDetailDefaultConfigStartListPolicy? = nil, slots: [CompetitionDetailDefaultConfigSlotsItem]) {
-        self.startList = startList
+    init(slots: [CompetitionDetailDefaultConfigSlotsItem], categoryTees: [String: CompetitionDetailDefaultConfigCategoryTeesValue]? = nil, fallbackTee: CompetitionDetailDefaultConfigCategoryTeesValue? = nil, startList: CompetitionDetailDefaultConfigStartList? = nil, startListPolicy: CompetitionDetailDefaultConfigStartListPolicy? = nil) {
+        self.slots = slots
         self.categoryTees = categoryTees
         self.fallbackTee = fallbackTee
+        self.startList = startList
         self.startListPolicy = startListPolicy
-        self.slots = slots
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.startList = try c.decodeIfPresent(CompetitionDetailDefaultConfigStartList.self, forKey: .startList)
+        self.slots = try c.decode([CompetitionDetailDefaultConfigSlotsItem].self, forKey: .slots)
         self.categoryTees = try c.decodeIfPresent([String: CompetitionDetailDefaultConfigCategoryTeesValue].self, forKey: .categoryTees)
         self.fallbackTee = try c.decodeIfPresent(CompetitionDetailDefaultConfigCategoryTeesValue.self, forKey: .fallbackTee)
+        self.startList = try c.decodeIfPresent(CompetitionDetailDefaultConfigStartList.self, forKey: .startList)
         self.startListPolicy = try c.decodeIfPresent(CompetitionDetailDefaultConfigStartListPolicy.self, forKey: .startListPolicy)
-        self.slots = try c.decode([CompetitionDetailDefaultConfigSlotsItem].self, forKey: .slots)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(startList, forKey: .startList)
+        try c.encode(slots, forKey: .slots)
         try c.encodeIfPresent(categoryTees, forKey: .categoryTees)
         try c.encodeIfPresent(fallbackTee, forKey: .fallbackTee)
+        try c.encodeIfPresent(startList, forKey: .startList)
         try c.encodeIfPresent(startListPolicy, forKey: .startListPolicy)
-        try c.encode(slots, forKey: .slots)
     }
 }
 
@@ -2425,30 +2425,31 @@ struct CompetitionsUpdateInputAggregation: Codable, Sendable, Equatable {
 }
 
 struct CompetitionsUpdateInput: Codable, Sendable, Equatable {
+    var id: String
     var name: String?
     var defaultConfig: JSONValue?
     var aggregation: TriState<CompetitionsUpdateInputAggregation>
     var cutRules: JSONValue?
-    var id: String
 
     enum CodingKeys: String, CodingKey {
+        case id = "id"
         case name = "name"
         case defaultConfig = "defaultConfig"
         case aggregation = "aggregation"
         case cutRules = "cutRules"
-        case id = "id"
     }
 
-    init(name: String? = nil, defaultConfig: JSONValue? = nil, aggregation: TriState<CompetitionsUpdateInputAggregation> = .absent, cutRules: JSONValue? = nil, id: String) {
+    init(id: String, name: String? = nil, defaultConfig: JSONValue? = nil, aggregation: TriState<CompetitionsUpdateInputAggregation> = .absent, cutRules: JSONValue? = nil) {
+        self.id = id
         self.name = name
         self.defaultConfig = defaultConfig
         self.aggregation = aggregation
         self.cutRules = cutRules
-        self.id = id
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
         self.name = try c.decodeIfPresent(String.self, forKey: .name)
         self.defaultConfig = try c.decodeIfPresent(JSONValue.self, forKey: .defaultConfig)
         if c.contains(.aggregation) {
@@ -2459,11 +2460,11 @@ struct CompetitionsUpdateInput: Codable, Sendable, Equatable {
             self.aggregation = .absent
         }
         self.cutRules = try c.decodeIfPresent(JSONValue.self, forKey: .cutRules)
-        self.id = try c.decode(String.self, forKey: .id)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
         try c.encodeIfPresent(name, forKey: .name)
         try c.encodeIfPresent(defaultConfig, forKey: .defaultConfig)
         switch aggregation {
@@ -2472,7 +2473,6 @@ struct CompetitionsUpdateInput: Codable, Sendable, Equatable {
         case .value(let v): try c.encode(v, forKey: .aggregation)
         }
         try c.encodeIfPresent(cutRules, forKey: .cutRules)
-        try c.encode(id, forKey: .id)
     }
 }
 
@@ -2557,175 +2557,302 @@ struct CompetitionsTransitionInput: Codable, Sendable, Equatable {
 }
 
 struct CompetitionsCreateRoundInput: Codable, Sendable, Equatable {
-    var roundType: RoundRoundType?
-    var venueType: RoundVenueType?
     var id: String
     var courseId: String
     var playedAt: String
+    var roundType: RoundRoundType?
+    var venueType: RoundVenueType?
 
     enum CodingKeys: String, CodingKey {
-        case roundType = "roundType"
-        case venueType = "venueType"
         case id = "id"
         case courseId = "courseId"
         case playedAt = "playedAt"
+        case roundType = "roundType"
+        case venueType = "venueType"
     }
 
-    init(roundType: RoundRoundType? = nil, venueType: RoundVenueType? = nil, id: String, courseId: String, playedAt: String) {
-        self.roundType = roundType
-        self.venueType = venueType
+    init(id: String, courseId: String, playedAt: String, roundType: RoundRoundType? = nil, venueType: RoundVenueType? = nil) {
         self.id = id
         self.courseId = courseId
         self.playedAt = playedAt
+        self.roundType = roundType
+        self.venueType = venueType
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.roundType = try c.decodeIfPresent(RoundRoundType.self, forKey: .roundType)
-        self.venueType = try c.decodeIfPresent(RoundVenueType.self, forKey: .venueType)
         self.id = try c.decode(String.self, forKey: .id)
         self.courseId = try c.decode(String.self, forKey: .courseId)
         self.playedAt = try c.decode(String.self, forKey: .playedAt)
+        self.roundType = try c.decodeIfPresent(RoundRoundType.self, forKey: .roundType)
+        self.venueType = try c.decodeIfPresent(RoundVenueType.self, forKey: .venueType)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(roundType, forKey: .roundType)
-        try c.encodeIfPresent(venueType, forKey: .venueType)
         try c.encode(id, forKey: .id)
         try c.encode(courseId, forKey: .courseId)
         try c.encode(playedAt, forKey: .playedAt)
+        try c.encodeIfPresent(roundType, forKey: .roundType)
+        try c.encodeIfPresent(venueType, forKey: .venueType)
     }
 }
 
 struct CompetitionsCreateRoundOutputOkDraftRoutePlayingGroupsItem: Codable, Sendable, Equatable {
     var id: String?
+    var startTime: String
     var startPlayHoleDefId: String?
     var startOrdinal: Double?
-    var hittingBay: String?
-    var startTime: String
     var capacity: Double
+    var hittingBay: String?
     var producerDefIds: [String]
 
     enum CodingKeys: String, CodingKey {
         case id = "id"
+        case startTime = "startTime"
         case startPlayHoleDefId = "startPlayHoleDefId"
         case startOrdinal = "startOrdinal"
-        case hittingBay = "hittingBay"
-        case startTime = "startTime"
         case capacity = "capacity"
+        case hittingBay = "hittingBay"
         case producerDefIds = "producerDefIds"
     }
 
-    init(id: String? = nil, startPlayHoleDefId: String? = nil, startOrdinal: Double? = nil, hittingBay: String? = nil, startTime: String, capacity: Double, producerDefIds: [String]) {
+    init(id: String? = nil, startTime: String, startPlayHoleDefId: String? = nil, startOrdinal: Double? = nil, capacity: Double, hittingBay: String? = nil, producerDefIds: [String]) {
         self.id = id
+        self.startTime = startTime
         self.startPlayHoleDefId = startPlayHoleDefId
         self.startOrdinal = startOrdinal
-        self.hittingBay = hittingBay
-        self.startTime = startTime
         self.capacity = capacity
+        self.hittingBay = hittingBay
         self.producerDefIds = producerDefIds
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try c.decodeIfPresent(String.self, forKey: .id)
+        self.startTime = try c.decode(String.self, forKey: .startTime)
         self.startPlayHoleDefId = try c.decodeIfPresent(String.self, forKey: .startPlayHoleDefId)
         self.startOrdinal = try c.decodeIfPresent(Double.self, forKey: .startOrdinal)
-        self.hittingBay = try c.decodeIfPresent(String.self, forKey: .hittingBay)
-        self.startTime = try c.decode(String.self, forKey: .startTime)
         self.capacity = try c.decode(Double.self, forKey: .capacity)
+        self.hittingBay = try c.decodeIfPresent(String.self, forKey: .hittingBay)
         self.producerDefIds = try c.decode([String].self, forKey: .producerDefIds)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(id, forKey: .id)
+        try c.encode(startTime, forKey: .startTime)
         try c.encodeIfPresent(startPlayHoleDefId, forKey: .startPlayHoleDefId)
         try c.encodeIfPresent(startOrdinal, forKey: .startOrdinal)
-        try c.encodeIfPresent(hittingBay, forKey: .hittingBay)
-        try c.encode(startTime, forKey: .startTime)
         try c.encode(capacity, forKey: .capacity)
+        try c.encodeIfPresent(hittingBay, forKey: .hittingBay)
         try c.encode(producerDefIds, forKey: .producerDefIds)
     }
 }
 
 struct CompetitionsCreateRoundOutputOkDraftRoute: Codable, Sendable, Equatable {
+    var templateId: String?
     var playHoles: [CourseRouteTemplateRoutePlayHolesItem]?
     var routeSi: CourseRouteTemplateRouteRouteSi?
     var routeHandicapPolicy: CourseRouteTemplateRouteRouteHandicapPolicy?
     var routeSections: [CourseRouteTemplateRouteRouteSectionsItem]?
-    var templateId: String?
     var playingGroups: [CompetitionsCreateRoundOutputOkDraftRoutePlayingGroupsItem]?
 
     enum CodingKeys: String, CodingKey {
+        case templateId = "templateId"
         case playHoles = "playHoles"
         case routeSi = "routeSi"
         case routeHandicapPolicy = "routeHandicapPolicy"
         case routeSections = "routeSections"
-        case templateId = "templateId"
         case playingGroups = "playingGroups"
     }
 
-    init(playHoles: [CourseRouteTemplateRoutePlayHolesItem]? = nil, routeSi: CourseRouteTemplateRouteRouteSi? = nil, routeHandicapPolicy: CourseRouteTemplateRouteRouteHandicapPolicy? = nil, routeSections: [CourseRouteTemplateRouteRouteSectionsItem]? = nil, templateId: String? = nil, playingGroups: [CompetitionsCreateRoundOutputOkDraftRoutePlayingGroupsItem]? = nil) {
+    init(templateId: String? = nil, playHoles: [CourseRouteTemplateRoutePlayHolesItem]? = nil, routeSi: CourseRouteTemplateRouteRouteSi? = nil, routeHandicapPolicy: CourseRouteTemplateRouteRouteHandicapPolicy? = nil, routeSections: [CourseRouteTemplateRouteRouteSectionsItem]? = nil, playingGroups: [CompetitionsCreateRoundOutputOkDraftRoutePlayingGroupsItem]? = nil) {
+        self.templateId = templateId
         self.playHoles = playHoles
         self.routeSi = routeSi
         self.routeHandicapPolicy = routeHandicapPolicy
         self.routeSections = routeSections
-        self.templateId = templateId
         self.playingGroups = playingGroups
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.templateId = try c.decodeIfPresent(String.self, forKey: .templateId)
         self.playHoles = try c.decodeIfPresent([CourseRouteTemplateRoutePlayHolesItem].self, forKey: .playHoles)
         self.routeSi = try c.decodeIfPresent(CourseRouteTemplateRouteRouteSi.self, forKey: .routeSi)
         self.routeHandicapPolicy = try c.decodeIfPresent(CourseRouteTemplateRouteRouteHandicapPolicy.self, forKey: .routeHandicapPolicy)
         self.routeSections = try c.decodeIfPresent([CourseRouteTemplateRouteRouteSectionsItem].self, forKey: .routeSections)
-        self.templateId = try c.decodeIfPresent(String.self, forKey: .templateId)
         self.playingGroups = try c.decodeIfPresent([CompetitionsCreateRoundOutputOkDraftRoutePlayingGroupsItem].self, forKey: .playingGroups)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(templateId, forKey: .templateId)
         try c.encodeIfPresent(playHoles, forKey: .playHoles)
         try c.encodeIfPresent(routeSi, forKey: .routeSi)
         try c.encodeIfPresent(routeHandicapPolicy, forKey: .routeHandicapPolicy)
         try c.encodeIfPresent(routeSections, forKey: .routeSections)
-        try c.encodeIfPresent(templateId, forKey: .templateId)
         try c.encodeIfPresent(playingGroups, forKey: .playingGroups)
     }
 }
 
-struct CompetitionsCreateRoundOutputOkDraftPlayingGroupsItem: Codable, Sendable, Equatable {
-    var startTime: String?
-    var startHole: Double?
-    var members: [String]
+struct CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRefPlayerRef: Codable, Sendable, Equatable {
+    var kind: IdentityRefKind
+    var id: String
 
     enum CodingKeys: String, CodingKey {
-        case startTime = "startTime"
-        case startHole = "startHole"
-        case members = "members"
+        case kind = "kind"
+        case id = "id"
     }
 
-    init(startTime: String? = nil, startHole: Double? = nil, members: [String]) {
-        self.startTime = startTime
-        self.startHole = startHole
-        self.members = members
+    init(kind: IdentityRefKind, id: String) {
+        self.kind = kind
+        self.id = id
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.startTime = try c.decodeIfPresent(String.self, forKey: .startTime)
-        self.startHole = try c.decodeIfPresent(Double.self, forKey: .startHole)
-        self.members = try c.decode([String].self, forKey: .members)
+        self.kind = try c.decode(IdentityRefKind.self, forKey: .kind)
+        self.id = try c.decode(String.self, forKey: .id)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(startTime, forKey: .startTime)
-        try c.encodeIfPresent(startHole, forKey: .startHole)
-        try c.encode(members, forKey: .members)
+        try c.encode(kind, forKey: .kind)
+        try c.encode(id, forKey: .id)
+    }
+}
+
+struct CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRefSeat: Codable, Sendable, Equatable {
+    var label: String
+    var teamRef: String?
+
+    enum CodingKeys: String, CodingKey {
+        case label = "label"
+        case teamRef = "teamRef"
+    }
+
+    init(label: String, teamRef: String? = nil) {
+        self.label = label
+        self.teamRef = teamRef
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.label = try c.decode(String.self, forKey: .label)
+        self.teamRef = try c.decodeIfPresent(String.self, forKey: .teamRef)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(label, forKey: .label)
+        try c.encodeIfPresent(teamRef, forKey: .teamRef)
+    }
+}
+
+struct CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRef: Codable, Sendable, Equatable {
+    var producerDefId: String
+    var playerRef: CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRefPlayerRef
+    var handicapIndex: Double
+    var gender: PlayerGender?
+    var teeId: String
+    var category: String?
+    var seat: CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRefSeat?
+
+    enum CodingKeys: String, CodingKey {
+        case producerDefId = "producerDefId"
+        case playerRef = "playerRef"
+        case handicapIndex = "handicapIndex"
+        case gender = "gender"
+        case teeId = "teeId"
+        case category = "category"
+        case seat = "seat"
+    }
+
+    init(producerDefId: String, playerRef: CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRefPlayerRef, handicapIndex: Double, gender: PlayerGender? = nil, teeId: String, category: String? = nil, seat: CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRefSeat? = nil) {
+        self.producerDefId = producerDefId
+        self.playerRef = playerRef
+        self.handicapIndex = handicapIndex
+        self.gender = gender
+        self.teeId = teeId
+        self.category = category
+        self.seat = seat
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.producerDefId = try c.decode(String.self, forKey: .producerDefId)
+        self.playerRef = try c.decode(CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRefPlayerRef.self, forKey: .playerRef)
+        self.handicapIndex = try c.decode(Double.self, forKey: .handicapIndex)
+        self.gender = try c.decodeIfPresent(PlayerGender.self, forKey: .gender)
+        self.teeId = try c.decode(String.self, forKey: .teeId)
+        self.category = try c.decodeIfPresent(String.self, forKey: .category)
+        self.seat = try c.decodeIfPresent(CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRefSeat.self, forKey: .seat)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(producerDefId, forKey: .producerDefId)
+        try c.encode(playerRef, forKey: .playerRef)
+        try c.encode(handicapIndex, forKey: .handicapIndex)
+        try c.encodeIfPresent(gender, forKey: .gender)
+        try c.encode(teeId, forKey: .teeId)
+        try c.encodeIfPresent(category, forKey: .category)
+        try c.encodeIfPresent(seat, forKey: .seat)
+    }
+}
+
+struct CompetitionsCreateRoundOutputOkDraftProducersItemPlaceholder: Codable, Sendable, Equatable {
+    var producerDefId: String
+    var placeholder: CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRefSeat
+    var category: String?
+
+    enum CodingKeys: String, CodingKey {
+        case producerDefId = "producerDefId"
+        case placeholder = "placeholder"
+        case category = "category"
+    }
+
+    init(producerDefId: String, placeholder: CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRefSeat, category: String? = nil) {
+        self.producerDefId = producerDefId
+        self.placeholder = placeholder
+        self.category = category
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.producerDefId = try c.decode(String.self, forKey: .producerDefId)
+        self.placeholder = try c.decode(CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRefSeat.self, forKey: .placeholder)
+        self.category = try c.decodeIfPresent(String.self, forKey: .category)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(producerDefId, forKey: .producerDefId)
+        try c.encode(placeholder, forKey: .placeholder)
+        try c.encodeIfPresent(category, forKey: .category)
+    }
+}
+
+enum CompetitionsCreateRoundOutputOkDraftProducersItem: Codable, Sendable, Equatable {
+    case playerRef(CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRef)
+    case placeholder(CompetitionsCreateRoundOutputOkDraftProducersItemPlaceholder)
+
+    init(from decoder: any Decoder) throws {
+        let probe = try decoder.container(keyedBy: AnyCodingKey.self)
+        if probe.contains(AnyCodingKey("playerRef")) {
+            self = .playerRef(try CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRef(from: decoder))
+        } else {
+            self = .placeholder(try CompetitionsCreateRoundOutputOkDraftProducersItemPlaceholder(from: decoder))
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        switch self {
+        case .playerRef(let v): try v.encode(to: encoder)
+        case .placeholder(let v): try v.encode(to: encoder)
+        }
     }
 }
 
@@ -2805,270 +2932,143 @@ enum CompetitionsCreateRoundOutputOkDraftTeamsItemMembersItem: Codable, Sendable
 }
 
 struct CompetitionsCreateRoundOutputOkDraftTeamsItem: Codable, Sendable, Equatable {
-    var label: String?
-    var kind: CompetitionsCreateRoundOutputOkDraftTeamsItemKind?
-    var formation: String?
     var id: String
+    var label: String?
+    var formation: String?
+    var kind: CompetitionsCreateRoundOutputOkDraftTeamsItemKind?
     var members: [CompetitionsCreateRoundOutputOkDraftTeamsItemMembersItem]
 
     enum CodingKeys: String, CodingKey {
-        case label = "label"
-        case kind = "kind"
-        case formation = "formation"
         case id = "id"
+        case label = "label"
+        case formation = "formation"
+        case kind = "kind"
         case members = "members"
     }
 
-    init(label: String? = nil, kind: CompetitionsCreateRoundOutputOkDraftTeamsItemKind? = nil, formation: String? = nil, id: String, members: [CompetitionsCreateRoundOutputOkDraftTeamsItemMembersItem]) {
-        self.label = label
-        self.kind = kind
-        self.formation = formation
+    init(id: String, label: String? = nil, formation: String? = nil, kind: CompetitionsCreateRoundOutputOkDraftTeamsItemKind? = nil, members: [CompetitionsCreateRoundOutputOkDraftTeamsItemMembersItem]) {
         self.id = id
+        self.label = label
+        self.formation = formation
+        self.kind = kind
         self.members = members
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.label = try c.decodeIfPresent(String.self, forKey: .label)
-        self.kind = try c.decodeIfPresent(CompetitionsCreateRoundOutputOkDraftTeamsItemKind.self, forKey: .kind)
-        self.formation = try c.decodeIfPresent(String.self, forKey: .formation)
         self.id = try c.decode(String.self, forKey: .id)
+        self.label = try c.decodeIfPresent(String.self, forKey: .label)
+        self.formation = try c.decodeIfPresent(String.self, forKey: .formation)
+        self.kind = try c.decodeIfPresent(CompetitionsCreateRoundOutputOkDraftTeamsItemKind.self, forKey: .kind)
         self.members = try c.decode([CompetitionsCreateRoundOutputOkDraftTeamsItemMembersItem].self, forKey: .members)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(label, forKey: .label)
-        try c.encodeIfPresent(kind, forKey: .kind)
-        try c.encodeIfPresent(formation, forKey: .formation)
         try c.encode(id, forKey: .id)
+        try c.encodeIfPresent(label, forKey: .label)
+        try c.encodeIfPresent(formation, forKey: .formation)
+        try c.encodeIfPresent(kind, forKey: .kind)
         try c.encode(members, forKey: .members)
     }
 }
 
-struct CompetitionsCreateRoundOutputOkDraftProducersItemTeeIdSeat: Codable, Sendable, Equatable {
-    var teamRef: String?
-    var label: String
+struct CompetitionsCreateRoundOutputOkDraftPlayingGroupsItem: Codable, Sendable, Equatable {
+    var members: [String]
+    var startTime: String?
+    var startHole: Double?
 
     enum CodingKeys: String, CodingKey {
-        case teamRef = "teamRef"
-        case label = "label"
+        case members = "members"
+        case startTime = "startTime"
+        case startHole = "startHole"
     }
 
-    init(teamRef: String? = nil, label: String) {
-        self.teamRef = teamRef
-        self.label = label
+    init(members: [String], startTime: String? = nil, startHole: Double? = nil) {
+        self.members = members
+        self.startTime = startTime
+        self.startHole = startHole
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.teamRef = try c.decodeIfPresent(String.self, forKey: .teamRef)
-        self.label = try c.decode(String.self, forKey: .label)
+        self.members = try c.decode([String].self, forKey: .members)
+        self.startTime = try c.decodeIfPresent(String.self, forKey: .startTime)
+        self.startHole = try c.decodeIfPresent(Double.self, forKey: .startHole)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(teamRef, forKey: .teamRef)
-        try c.encode(label, forKey: .label)
-    }
-}
-
-struct CompetitionsCreateRoundOutputOkDraftProducersItemTeeIdPlayerRef: Codable, Sendable, Equatable {
-    var id: String
-    var kind: IdentityRefKind
-
-    enum CodingKeys: String, CodingKey {
-        case id = "id"
-        case kind = "kind"
-    }
-
-    init(id: String, kind: IdentityRefKind) {
-        self.id = id
-        self.kind = kind
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = try c.decode(String.self, forKey: .id)
-        self.kind = try c.decode(IdentityRefKind.self, forKey: .kind)
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(id, forKey: .id)
-        try c.encode(kind, forKey: .kind)
-    }
-}
-
-struct CompetitionsCreateRoundOutputOkDraftProducersItemTeeId: Codable, Sendable, Equatable {
-    var gender: PlayerGender?
-    var category: String?
-    var seat: CompetitionsCreateRoundOutputOkDraftProducersItemTeeIdSeat?
-    var teeId: String
-    var handicapIndex: Double
-    var producerDefId: String
-    var playerRef: CompetitionsCreateRoundOutputOkDraftProducersItemTeeIdPlayerRef
-
-    enum CodingKeys: String, CodingKey {
-        case gender = "gender"
-        case category = "category"
-        case seat = "seat"
-        case teeId = "teeId"
-        case handicapIndex = "handicapIndex"
-        case producerDefId = "producerDefId"
-        case playerRef = "playerRef"
-    }
-
-    init(gender: PlayerGender? = nil, category: String? = nil, seat: CompetitionsCreateRoundOutputOkDraftProducersItemTeeIdSeat? = nil, teeId: String, handicapIndex: Double, producerDefId: String, playerRef: CompetitionsCreateRoundOutputOkDraftProducersItemTeeIdPlayerRef) {
-        self.gender = gender
-        self.category = category
-        self.seat = seat
-        self.teeId = teeId
-        self.handicapIndex = handicapIndex
-        self.producerDefId = producerDefId
-        self.playerRef = playerRef
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.gender = try c.decodeIfPresent(PlayerGender.self, forKey: .gender)
-        self.category = try c.decodeIfPresent(String.self, forKey: .category)
-        self.seat = try c.decodeIfPresent(CompetitionsCreateRoundOutputOkDraftProducersItemTeeIdSeat.self, forKey: .seat)
-        self.teeId = try c.decode(String.self, forKey: .teeId)
-        self.handicapIndex = try c.decode(Double.self, forKey: .handicapIndex)
-        self.producerDefId = try c.decode(String.self, forKey: .producerDefId)
-        self.playerRef = try c.decode(CompetitionsCreateRoundOutputOkDraftProducersItemTeeIdPlayerRef.self, forKey: .playerRef)
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(gender, forKey: .gender)
-        try c.encodeIfPresent(category, forKey: .category)
-        try c.encodeIfPresent(seat, forKey: .seat)
-        try c.encode(teeId, forKey: .teeId)
-        try c.encode(handicapIndex, forKey: .handicapIndex)
-        try c.encode(producerDefId, forKey: .producerDefId)
-        try c.encode(playerRef, forKey: .playerRef)
-    }
-}
-
-struct CompetitionsCreateRoundOutputOkDraftProducersItemPlaceholder: Codable, Sendable, Equatable {
-    var category: String?
-    var producerDefId: String
-    var placeholder: CompetitionsCreateRoundOutputOkDraftProducersItemTeeIdSeat
-
-    enum CodingKeys: String, CodingKey {
-        case category = "category"
-        case producerDefId = "producerDefId"
-        case placeholder = "placeholder"
-    }
-
-    init(category: String? = nil, producerDefId: String, placeholder: CompetitionsCreateRoundOutputOkDraftProducersItemTeeIdSeat) {
-        self.category = category
-        self.producerDefId = producerDefId
-        self.placeholder = placeholder
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.category = try c.decodeIfPresent(String.self, forKey: .category)
-        self.producerDefId = try c.decode(String.self, forKey: .producerDefId)
-        self.placeholder = try c.decode(CompetitionsCreateRoundOutputOkDraftProducersItemTeeIdSeat.self, forKey: .placeholder)
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(category, forKey: .category)
-        try c.encode(producerDefId, forKey: .producerDefId)
-        try c.encode(placeholder, forKey: .placeholder)
-    }
-}
-
-enum CompetitionsCreateRoundOutputOkDraftProducersItem: Codable, Sendable, Equatable {
-    case teeId(CompetitionsCreateRoundOutputOkDraftProducersItemTeeId)
-    case placeholder(CompetitionsCreateRoundOutputOkDraftProducersItemPlaceholder)
-
-    init(from decoder: any Decoder) throws {
-        let probe = try decoder.container(keyedBy: AnyCodingKey.self)
-        if probe.contains(AnyCodingKey("teeId")) {
-            self = .teeId(try CompetitionsCreateRoundOutputOkDraftProducersItemTeeId(from: decoder))
-        } else {
-            self = .placeholder(try CompetitionsCreateRoundOutputOkDraftProducersItemPlaceholder(from: decoder))
-        }
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        switch self {
-        case .teeId(let v): try v.encode(to: encoder)
-        case .placeholder(let v): try v.encode(to: encoder)
-        }
+        try c.encode(members, forKey: .members)
+        try c.encodeIfPresent(startTime, forKey: .startTime)
+        try c.encodeIfPresent(startHole, forKey: .startHole)
     }
 }
 
 struct CompetitionsCreateRoundOutputOkDraft: Codable, Sendable, Equatable {
-    var route: CompetitionsCreateRoundOutputOkDraftRoute?
-    var roundType: RoundRoundType?
-    var venueType: RoundVenueType?
-    var playingGroups: [CompetitionsCreateRoundOutputOkDraftPlayingGroupsItem]?
-    var teams: [CompetitionsCreateRoundOutputOkDraftTeamsItem]?
-    var startList: CompetitionDetailDefaultConfigStartListPolicy?
     var courseId: String
     var playedAt: String
+    var roundType: RoundRoundType?
+    var venueType: RoundVenueType?
+    var route: CompetitionsCreateRoundOutputOkDraftRoute?
     var producers: [CompetitionsCreateRoundOutputOkDraftProducersItem]
+    var teams: [CompetitionsCreateRoundOutputOkDraftTeamsItem]?
     var formats: [CompetitionDetailDefaultConfigSlotsItem]
+    var playingGroups: [CompetitionsCreateRoundOutputOkDraftPlayingGroupsItem]?
+    var startList: CompetitionDetailDefaultConfigStartListPolicy?
 
     enum CodingKeys: String, CodingKey {
-        case route = "route"
-        case roundType = "roundType"
-        case venueType = "venueType"
-        case playingGroups = "playingGroups"
-        case teams = "teams"
-        case startList = "startList"
         case courseId = "courseId"
         case playedAt = "playedAt"
+        case roundType = "roundType"
+        case venueType = "venueType"
+        case route = "route"
         case producers = "producers"
+        case teams = "teams"
         case formats = "formats"
+        case playingGroups = "playingGroups"
+        case startList = "startList"
     }
 
-    init(route: CompetitionsCreateRoundOutputOkDraftRoute? = nil, roundType: RoundRoundType? = nil, venueType: RoundVenueType? = nil, playingGroups: [CompetitionsCreateRoundOutputOkDraftPlayingGroupsItem]? = nil, teams: [CompetitionsCreateRoundOutputOkDraftTeamsItem]? = nil, startList: CompetitionDetailDefaultConfigStartListPolicy? = nil, courseId: String, playedAt: String, producers: [CompetitionsCreateRoundOutputOkDraftProducersItem], formats: [CompetitionDetailDefaultConfigSlotsItem]) {
-        self.route = route
-        self.roundType = roundType
-        self.venueType = venueType
-        self.playingGroups = playingGroups
-        self.teams = teams
-        self.startList = startList
+    init(courseId: String, playedAt: String, roundType: RoundRoundType? = nil, venueType: RoundVenueType? = nil, route: CompetitionsCreateRoundOutputOkDraftRoute? = nil, producers: [CompetitionsCreateRoundOutputOkDraftProducersItem], teams: [CompetitionsCreateRoundOutputOkDraftTeamsItem]? = nil, formats: [CompetitionDetailDefaultConfigSlotsItem], playingGroups: [CompetitionsCreateRoundOutputOkDraftPlayingGroupsItem]? = nil, startList: CompetitionDetailDefaultConfigStartListPolicy? = nil) {
         self.courseId = courseId
         self.playedAt = playedAt
+        self.roundType = roundType
+        self.venueType = venueType
+        self.route = route
         self.producers = producers
+        self.teams = teams
         self.formats = formats
+        self.playingGroups = playingGroups
+        self.startList = startList
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.route = try c.decodeIfPresent(CompetitionsCreateRoundOutputOkDraftRoute.self, forKey: .route)
-        self.roundType = try c.decodeIfPresent(RoundRoundType.self, forKey: .roundType)
-        self.venueType = try c.decodeIfPresent(RoundVenueType.self, forKey: .venueType)
-        self.playingGroups = try c.decodeIfPresent([CompetitionsCreateRoundOutputOkDraftPlayingGroupsItem].self, forKey: .playingGroups)
-        self.teams = try c.decodeIfPresent([CompetitionsCreateRoundOutputOkDraftTeamsItem].self, forKey: .teams)
-        self.startList = try c.decodeIfPresent(CompetitionDetailDefaultConfigStartListPolicy.self, forKey: .startList)
         self.courseId = try c.decode(String.self, forKey: .courseId)
         self.playedAt = try c.decode(String.self, forKey: .playedAt)
+        self.roundType = try c.decodeIfPresent(RoundRoundType.self, forKey: .roundType)
+        self.venueType = try c.decodeIfPresent(RoundVenueType.self, forKey: .venueType)
+        self.route = try c.decodeIfPresent(CompetitionsCreateRoundOutputOkDraftRoute.self, forKey: .route)
         self.producers = try c.decode([CompetitionsCreateRoundOutputOkDraftProducersItem].self, forKey: .producers)
+        self.teams = try c.decodeIfPresent([CompetitionsCreateRoundOutputOkDraftTeamsItem].self, forKey: .teams)
         self.formats = try c.decode([CompetitionDetailDefaultConfigSlotsItem].self, forKey: .formats)
+        self.playingGroups = try c.decodeIfPresent([CompetitionsCreateRoundOutputOkDraftPlayingGroupsItem].self, forKey: .playingGroups)
+        self.startList = try c.decodeIfPresent(CompetitionDetailDefaultConfigStartListPolicy.self, forKey: .startList)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(route, forKey: .route)
-        try c.encodeIfPresent(roundType, forKey: .roundType)
-        try c.encodeIfPresent(venueType, forKey: .venueType)
-        try c.encodeIfPresent(playingGroups, forKey: .playingGroups)
-        try c.encodeIfPresent(teams, forKey: .teams)
-        try c.encodeIfPresent(startList, forKey: .startList)
         try c.encode(courseId, forKey: .courseId)
         try c.encode(playedAt, forKey: .playedAt)
+        try c.encodeIfPresent(roundType, forKey: .roundType)
+        try c.encodeIfPresent(venueType, forKey: .venueType)
+        try c.encodeIfPresent(route, forKey: .route)
         try c.encode(producers, forKey: .producers)
+        try c.encodeIfPresent(teams, forKey: .teams)
         try c.encode(formats, forKey: .formats)
+        try c.encodeIfPresent(playingGroups, forKey: .playingGroups)
+        try c.encodeIfPresent(startList, forKey: .startList)
     }
 }
 
@@ -3280,27 +3280,30 @@ enum CompetitionsFinalizeOutput: Codable, Sendable, Equatable {
 }
 
 struct CompetitionsAddParticipantInput: Codable, Sendable, Equatable {
-    var category: TriState<String>
+    var competitionId: String
     var playerId: String?
     var guestPlayerId: String?
-    var competitionId: String
+    var category: TriState<String>
 
     enum CodingKeys: String, CodingKey {
-        case category = "category"
+        case competitionId = "competitionId"
         case playerId = "playerId"
         case guestPlayerId = "guestPlayerId"
-        case competitionId = "competitionId"
+        case category = "category"
     }
 
-    init(category: TriState<String> = .absent, playerId: String? = nil, guestPlayerId: String? = nil, competitionId: String) {
-        self.category = category
+    init(competitionId: String, playerId: String? = nil, guestPlayerId: String? = nil, category: TriState<String> = .absent) {
+        self.competitionId = competitionId
         self.playerId = playerId
         self.guestPlayerId = guestPlayerId
-        self.competitionId = competitionId
+        self.category = category
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.competitionId = try c.decode(String.self, forKey: .competitionId)
+        self.playerId = try c.decodeIfPresent(String.self, forKey: .playerId)
+        self.guestPlayerId = try c.decodeIfPresent(String.self, forKey: .guestPlayerId)
         if c.contains(.category) {
             self.category = try c.decodeNil(forKey: .category)
                 ? .null
@@ -3308,21 +3311,18 @@ struct CompetitionsAddParticipantInput: Codable, Sendable, Equatable {
         } else {
             self.category = .absent
         }
-        self.playerId = try c.decodeIfPresent(String.self, forKey: .playerId)
-        self.guestPlayerId = try c.decodeIfPresent(String.self, forKey: .guestPlayerId)
-        self.competitionId = try c.decode(String.self, forKey: .competitionId)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(competitionId, forKey: .competitionId)
+        try c.encodeIfPresent(playerId, forKey: .playerId)
+        try c.encodeIfPresent(guestPlayerId, forKey: .guestPlayerId)
         switch category {
         case .absent: break
         case .null: try c.encodeNil(forKey: .category)
         case .value(let v): try c.encode(v, forKey: .category)
         }
-        try c.encodeIfPresent(playerId, forKey: .playerId)
-        try c.encodeIfPresent(guestPlayerId, forKey: .guestPlayerId)
-        try c.encode(competitionId, forKey: .competitionId)
     }
 }
 

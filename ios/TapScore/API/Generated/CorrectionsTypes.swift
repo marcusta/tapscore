@@ -15,48 +15,48 @@ enum CorrectionsSetupCorrectionInputTarget: String, Codable, Sendable, Equatable
 
 struct CorrectionsSetupCorrectionInput: Codable, Sendable, Equatable {
     var roundId: String
-    var clientEventId: String
     var target: CorrectionsSetupCorrectionInputTarget
     var targetRef: [String: String]
     var newValue: JSONValue
     var reason: String
+    var clientEventId: String
 
     enum CodingKeys: String, CodingKey {
         case roundId = "roundId"
-        case clientEventId = "clientEventId"
         case target = "target"
         case targetRef = "targetRef"
         case newValue = "newValue"
         case reason = "reason"
+        case clientEventId = "clientEventId"
     }
 
-    init(roundId: String, clientEventId: String, target: CorrectionsSetupCorrectionInputTarget, targetRef: [String: String], newValue: JSONValue, reason: String) {
+    init(roundId: String, target: CorrectionsSetupCorrectionInputTarget, targetRef: [String: String], newValue: JSONValue, reason: String, clientEventId: String) {
         self.roundId = roundId
-        self.clientEventId = clientEventId
         self.target = target
         self.targetRef = targetRef
         self.newValue = newValue
         self.reason = reason
+        self.clientEventId = clientEventId
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.roundId = try c.decode(String.self, forKey: .roundId)
-        self.clientEventId = try c.decode(String.self, forKey: .clientEventId)
         self.target = try c.decode(CorrectionsSetupCorrectionInputTarget.self, forKey: .target)
         self.targetRef = try c.decode([String: String].self, forKey: .targetRef)
         self.newValue = try c.decode(JSONValue.self, forKey: .newValue)
         self.reason = try c.decode(String.self, forKey: .reason)
+        self.clientEventId = try c.decode(String.self, forKey: .clientEventId)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(roundId, forKey: .roundId)
-        try c.encode(clientEventId, forKey: .clientEventId)
         try c.encode(target, forKey: .target)
         try c.encode(targetRef, forKey: .targetRef)
         try c.encode(newValue, forKey: .newValue)
         try c.encode(reason, forKey: .reason)
+        try c.encode(clientEventId, forKey: .clientEventId)
     }
 }
 
@@ -120,43 +120,43 @@ enum CorrectionsSetupCorrectionOutput: Codable, Sendable, Equatable {
 
 struct CorrectionsAllowanceOverrideInput: Codable, Sendable, Equatable {
     var roundId: String
-    var clientEventId: String
-    var reason: String
     var slotDefId: String
     var newConfig: CompetitionDetailDefaultConfigSlotsItemAllowanceConfig
+    var reason: String
+    var clientEventId: String
 
     enum CodingKeys: String, CodingKey {
         case roundId = "roundId"
-        case clientEventId = "clientEventId"
-        case reason = "reason"
         case slotDefId = "slotDefId"
         case newConfig = "newConfig"
+        case reason = "reason"
+        case clientEventId = "clientEventId"
     }
 
-    init(roundId: String, clientEventId: String, reason: String, slotDefId: String, newConfig: CompetitionDetailDefaultConfigSlotsItemAllowanceConfig) {
+    init(roundId: String, slotDefId: String, newConfig: CompetitionDetailDefaultConfigSlotsItemAllowanceConfig, reason: String, clientEventId: String) {
         self.roundId = roundId
-        self.clientEventId = clientEventId
-        self.reason = reason
         self.slotDefId = slotDefId
         self.newConfig = newConfig
+        self.reason = reason
+        self.clientEventId = clientEventId
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.roundId = try c.decode(String.self, forKey: .roundId)
-        self.clientEventId = try c.decode(String.self, forKey: .clientEventId)
-        self.reason = try c.decode(String.self, forKey: .reason)
         self.slotDefId = try c.decode(String.self, forKey: .slotDefId)
         self.newConfig = try c.decode(CompetitionDetailDefaultConfigSlotsItemAllowanceConfig.self, forKey: .newConfig)
+        self.reason = try c.decode(String.self, forKey: .reason)
+        self.clientEventId = try c.decode(String.self, forKey: .clientEventId)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(roundId, forKey: .roundId)
-        try c.encode(clientEventId, forKey: .clientEventId)
-        try c.encode(reason, forKey: .reason)
         try c.encode(slotDefId, forKey: .slotDefId)
         try c.encode(newConfig, forKey: .newConfig)
+        try c.encode(reason, forKey: .reason)
+        try c.encode(clientEventId, forKey: .clientEventId)
     }
 }
 
@@ -175,53 +175,53 @@ enum CorrectionsRulingInputRulingKind: String, Codable, Sendable, Equatable {
 
 struct CorrectionsRulingInput: Codable, Sendable, Equatable {
     var roundId: String
-    var clientEventId: String
     var target: CorrectionsRulingInputTarget
-    var reason: String
     var targetId: String
     var rulingKind: CorrectionsRulingInputRulingKind
     var value: JSONValue
+    var reason: String
+    var clientEventId: String
 
     enum CodingKeys: String, CodingKey {
         case roundId = "roundId"
-        case clientEventId = "clientEventId"
         case target = "target"
-        case reason = "reason"
         case targetId = "targetId"
         case rulingKind = "rulingKind"
         case value = "value"
+        case reason = "reason"
+        case clientEventId = "clientEventId"
     }
 
-    init(roundId: String, clientEventId: String, target: CorrectionsRulingInputTarget, reason: String, targetId: String, rulingKind: CorrectionsRulingInputRulingKind, value: JSONValue) {
+    init(roundId: String, target: CorrectionsRulingInputTarget, targetId: String, rulingKind: CorrectionsRulingInputRulingKind, value: JSONValue, reason: String, clientEventId: String) {
         self.roundId = roundId
-        self.clientEventId = clientEventId
         self.target = target
-        self.reason = reason
         self.targetId = targetId
         self.rulingKind = rulingKind
         self.value = value
+        self.reason = reason
+        self.clientEventId = clientEventId
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.roundId = try c.decode(String.self, forKey: .roundId)
-        self.clientEventId = try c.decode(String.self, forKey: .clientEventId)
         self.target = try c.decode(CorrectionsRulingInputTarget.self, forKey: .target)
-        self.reason = try c.decode(String.self, forKey: .reason)
         self.targetId = try c.decode(String.self, forKey: .targetId)
         self.rulingKind = try c.decode(CorrectionsRulingInputRulingKind.self, forKey: .rulingKind)
         self.value = try c.decode(JSONValue.self, forKey: .value)
+        self.reason = try c.decode(String.self, forKey: .reason)
+        self.clientEventId = try c.decode(String.self, forKey: .clientEventId)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(roundId, forKey: .roundId)
-        try c.encode(clientEventId, forKey: .clientEventId)
         try c.encode(target, forKey: .target)
-        try c.encode(reason, forKey: .reason)
         try c.encode(targetId, forKey: .targetId)
         try c.encode(rulingKind, forKey: .rulingKind)
         try c.encode(value, forKey: .value)
+        try c.encode(reason, forKey: .reason)
+        try c.encode(clientEventId, forKey: .clientEventId)
     }
 }
 

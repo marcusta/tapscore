@@ -248,10 +248,31 @@ function toIR(type: ts.Type, named: NamedRegistry): TypeIR {
     );
 }
 
+/**
+ * Deterministic property order: source declaration position (file, then
+ * offset), name as the tiebreak for declaration-less symbols. Mirrors the
+ * framework generator (v1.2.1) exactly — `getProperties()` order for
+ * anonymous object and intersection types depends on checker cache state,
+ * and the byte-identity oracle needs both generators to agree.
+ */
+function sortProps(props: ts.Symbol[]): ts.Symbol[] {
+    return [...props].sort((a, b) => {
+        const da = a.declarations?.[0];
+        const db = b.declarations?.[0];
+        const fa = da ? da.getSourceFile().fileName : '';
+        const fb = db ? db.getSourceFile().fileName : '';
+        if (fa !== fb) return fa < fb ? -1 : 1;
+        const pa = da ? da.getStart() : -1;
+        const pb = db ? db.getStart() : -1;
+        if (pa !== pb) return pa - pb;
+        return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+    });
+}
+
 function objectIR(props: ts.Symbol[], named: NamedRegistry): TypeIR {
     return {
         kind: 'object',
-        props: props.map((prop) => ({
+        props: sortProps(props).map((prop) => ({
             name: prop.name,
             optional: (prop.flags & ts.SymbolFlags.Optional) !== 0,
             type: toIR(typeOfSymbol(prop), named),

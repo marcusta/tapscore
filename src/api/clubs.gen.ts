@@ -11,8 +11,8 @@ export interface Club {
 export interface ClubsApi {
     list(): Promise<Club[]>;
     get(input: { id: string }): Promise<null | Club>;
-    create(input: { location?: null | string; logoUrl?: null | string; name: string }): Promise<Club>;
-    update(input: { name?: string; location?: null | string; logoUrl?: null | string; id: string }): Promise<Club>;
+    create(input: { name: string; location?: null | string; logoUrl?: null | string }): Promise<Club>;
+    update(input: { id: string; name?: string; location?: null | string; logoUrl?: null | string }): Promise<Club>;
     remove(input: { id: string }): Promise<{ ok: boolean }>;
 }
 

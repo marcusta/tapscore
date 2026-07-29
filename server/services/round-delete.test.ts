@@ -1,11 +1,12 @@
 // Round deletion — full FK-graph teardown proof.
 //
 // `RoundService.remove` deletes the RESTRICT-referenced rows (score_events,
-// scorecards) explicitly and lets ON DELETE CASCADE take the rest, all in one
-// transaction. This file proves it against a FULLY-POPULATED round: multiple
-// players, a better-ball team format alongside an individual format, two
-// playing groups, scored holes, a self-join, a setup correction, an allowance
-// override, a ruling, and a format-action row. After `removeByToken` EVERY
+// scorecards, stat_events, player_hole_stats) explicitly and lets ON DELETE
+// CASCADE take the rest, all in one transaction. This file proves it against a
+// FULLY-POPULATED round: multiple players, a better-ball team format alongside
+// an individual format, two playing groups, scored holes, a self-join, a setup
+// correction, an allowance override, a ruling, captured player statistics, and
+// a format-action row. After `removeByToken` EVERY
 // related table must hold zero rows for that round, while an unrelated round
 // created alongside survives completely untouched — and guest_players rows
 // are deliberately left in place (no round FK; a guest may be referenced by
@@ -145,6 +146,8 @@ async function roundFootprint(ctx: TestContext, roundId: string) {
         ['slot_ball_teams', 'slot_id', slotIds],
         ['score_events', 'round_id', [roundId]],
         ['scorecards', 'ball_id', ballIds],
+        ['stat_events', 'round_id', [roundId]],
+        ['player_hole_stats', 'round_id', [roundId]],
         ['setup_correction_events', 'round_id', [roundId]],
         ['allowance_override_events', 'round_id', [roundId]],
         ['ruling_events', 'round_id', [roundId]],
@@ -236,6 +239,28 @@ test('removeByToken tears down a fully-populated round; an unrelated round survi
         clientEventId: 'del-rule-1',
     });
     expect(ruling.ok).toBe(true);
+
+    // Player statistics for the one REGISTERED player here (migration 042):
+    // an append fills stat_events and the trigger fills player_hole_stats.
+    // Both reference round_play_holes AND players with ON DELETE RESTRICT, so
+    // they are the newest way a round could refuse to be deleted.
+    await ctx.playerStatsService.putConfig(joiner.id, {
+        enabled: true,
+        tee: true,
+        approach: true,
+        putting: true,
+        shortGame: true,
+        penalties: true,
+        recovery: true,
+    });
+    const stats = await ctx.friendlyRoundService.appendStatsByToken({
+        token: tokenA,
+        items: [
+            { playHoleId: g1Order[0]!.playHoleId, playerId: joiner.id, key: 'tee_result', value: 'fairway', clientEventId: 'del-stat-1' },
+            { playHoleId: g1Order[1]!.playHoleId, playerId: joiner.id, key: 'putts', value: '2', clientEventId: 'del-stat-2' },
+        ],
+    });
+    expect(stats?.events.every((e) => e.inserted)).toBe(true);
 
     // format_action_events: no built-in format declares actions yet, so seed
     // the envelope row directly — what matters here is the CASCADE teardown.

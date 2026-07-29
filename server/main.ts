@@ -24,6 +24,7 @@ import { createRoundsApi } from './api/rounds.api';
 // legacy participants bridge (API + tables) was deleted in Phase 2.7a.
 import { createScoreEventsApi } from './api/score-events.api';
 import { createScorecardsApi } from './api/scorecards.api';
+import { createPlayerStatsApi } from './api/player-stats.api';
 import { createCorrectionsApi } from './api/corrections.api';
 import { createFormatActionsApi } from './api/format-actions.api';
 import { createLeaderboardsApi } from './api/leaderboards.api';
@@ -65,6 +66,7 @@ const {
     roundService,
     scoreEventService,
     scorecardService,
+    playerStatsService,
     leaderboardService,
     friendlyRoundService,
     roundJoinService,
@@ -121,6 +123,10 @@ mount(app, '/api', createHandicapApi(handicapService));
 mount(app, '/api', createRoundsApi(roundService));
 mount(app, '/api', createScoreEventsApi(scoreEventService));
 mount(app, '/api', createScorecardsApi(scorecardService));
+// Player statistics (docs/proposals/player-stats.md): profile config under
+// `/players/me/*` (session-gated) + the token-scoped capture/read pair that
+// rides the same share-token credential as scoring.
+mount(app, '/api', createPlayerStatsApi(playerStatsService, friendlyRoundService));
 mount(app, '/api', createLeaderboardsApi(leaderboardService));
 mount(app, '/api', createFormatsApi());
 mount(app, '/api', createCourseRouteTemplatesApi(courseRouteTemplateService));

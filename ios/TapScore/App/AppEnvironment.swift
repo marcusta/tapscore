@@ -272,9 +272,9 @@ final class AppEnvironment {
         fullName: String? = nil
     ) async throws -> Player {
         let input = AuthNativeAppleSignInInput(
+            identityToken: identityToken,
             fullName: fullName.map { .value($0) } ?? .absent,
-            nonce: rawNonce,
-            identityToken: identityToken
+            nonce: rawNonce
         )
         let result = try await api.send(AuthNativeEndpoints.appleSignIn, input)
         let user = try await adoptSession(user: result.user, token: result.token)
@@ -354,11 +354,11 @@ final class AppEnvironment {
     /// `AppleLinkError.sessionNotRecognised` is thrown.
     func linkApple(identityToken: String, rawNonce: String?) async throws {
         let input = AuthNativeAppleSignInInput(
+            identityToken: identityToken,
             // No `fullName`: this player is already named, and the server
             // ignores the field outside the create branch anyway.
             fullName: .absent,
-            nonce: rawNonce,
-            identityToken: identityToken
+            nonce: rawNonce
         )
         // Read BEFORE the exchange: `adoptSession` overwrites the Keychain slot,
         // and after that the only copy of the outgoing token is gone.
@@ -387,6 +387,23 @@ final class AppEnvironment {
     /// Dismisses the fork notice. One-time by construction — nothing sets the
     /// flag again until another `created:true` response arrives.
     func dismissNewAccountNotice() { showsNewAccountNotice = false }
+
+    /// Replaces the `Player` the current session carries, after the profile
+    /// screen saved a new one.
+    ///
+    /// **This is not an auth change, and the distinction is load-bearing.** The
+    /// same human is still signed in; only their gender / home club / handicap
+    /// moved. `LandingLoader.key(_:)` identifies an auth state by the player's
+    /// ID for exactly this reason (see its doc comment) — so a profile edit
+    /// re-publishes `authState` without re-fetching the dashboard.
+    ///
+    /// A no-op unless a player is signed in: there is no state in which
+    /// `.anonymous` should acquire one from a profile save, and a save can only
+    /// have come from a session that had one.
+    func apply(profile: Player) {
+        guard case .signedIn = authState else { return }
+        authState = .signedIn(profile)
+    }
 
     /// Stores a freshly issued bearer and flips the session state — the single
     /// tail shared by every door (Apple, password, link).

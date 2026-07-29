@@ -9,12 +9,12 @@ export interface Club {
 }
 
 export interface SetupCourse {
-    clubName: string;
     id: string;
     clubId: string;
     name: string;
     holeCount: number;
     holes: Hole[];
+    clubName: string;
 }
 
 export interface Tee {
@@ -34,7 +34,7 @@ export interface FormatDescriptor {
     scoringMode: string;
     teamShape: string;
     requirements: FormatRequirements;
-    defaults: { allowanceConfig: { type: 'flat'; pct: number } | { type: 'split'; bands: ({ pct: number; upToCh: null | number })[] }; formatConfig?: Record<string, string> };
+    defaults: { allowanceConfig: { type: 'flat'; pct: number } | { type: 'split'; bands: ({ upToCh: null | number; pct: number })[] }; formatConfig?: Record<string, string> };
     configFields?: FormatConfigField[];
     preset?: FormatPreset;
     metrics: FormatMetric[];

@@ -364,7 +364,7 @@ final class EditRoundStoreTests: XCTestCase {
 
         let posted = try postedEditDraft()
         XCTAssertEqual(producerDefIds(posted), ["p1", "p2", "p3", "p4", "p-1"])
-        guard case .teeId(let fresh) = posted.producers[4] else { return XCTFail("placeholder") }
+        guard case .playerRef(let fresh) = posted.producers[4] else { return XCTFail("placeholder") }
         XCTAssertEqual(fresh.playerRef.id, "g-new")
         XCTAssertEqual(fresh.playerRef.kind, .guest)
         XCTAssertEqual(fresh.gender, .f)
@@ -390,7 +390,7 @@ final class EditRoundStoreTests: XCTestCase {
         let saved = await store.saveEdits()
         XCTAssertTrue(saved)
         let posted = try postedEditDraft()
-        guard case .teeId(let edited) = posted.producers[2] else { return XCTFail("placeholder") }
+        guard case .playerRef(let edited) = posted.producers[2] else { return XCTFail("placeholder") }
         XCTAssertEqual(edited.producerDefId, "p3", "scores are addressed by this")
         XCTAssertEqual(edited.handicapIndex, 11.2)
         XCTAssertEqual(edited.teeId, "tee-y")
@@ -423,7 +423,7 @@ final class EditRoundStoreTests: XCTestCase {
             FriendlyRoundsRenameGuestInput.self,
             from: try XCTUnwrap(renames.first?.body))
         XCTAssertEqual(sent, FriendlyRoundsRenameGuestInput(
-            displayName: "Bosse", guestPlayerId: "guest-2", token: "tok"))
+            token: "tok", guestPlayerId: "guest-2", displayName: "Bosse"))
         let order = RoundStubURLProtocol.requests
             .filter {
                 $0.path.hasSuffix("/friendly-rounds/rename-guest")
@@ -434,7 +434,7 @@ final class EditRoundStoreTests: XCTestCase {
 
         // The draft still re-submits the SAME guest ref — rename is not a re-mint.
         let posted = try postedEditDraft()
-        guard case .teeId(let renamed) = posted.producers[1] else { return XCTFail("placeholder") }
+        guard case .playerRef(let renamed) = posted.producers[1] else { return XCTFail("placeholder") }
         XCTAssertEqual(renamed.playerRef.id, "guest-2")
         XCTAssertTrue(RoundStubURLProtocol.requests(for: "/guest-players").isEmpty)
 
@@ -454,7 +454,7 @@ final class EditRoundStoreTests: XCTestCase {
     private func producerDefIds(_ draft: CompetitionsCreateRoundOutputOkDraft) -> [String] {
         draft.producers.map { producer in
             switch producer {
-            case .teeId(let p): p.producerDefId
+            case .playerRef(let p): p.producerDefId
             case .placeholder(let p): p.producerDefId
             }
         }

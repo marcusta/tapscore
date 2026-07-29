@@ -87,37 +87,37 @@ struct HandicapLatestInput: Codable, Sendable, Equatable {
 }
 
 struct HandicapRecordInput: Codable, Sendable, Equatable {
-    var handicapIndex: Double
     var playerId: String
+    var handicapIndex: Double
     var source: HandicapEntrySource
     var effectiveDate: String
 
     enum CodingKeys: String, CodingKey {
-        case handicapIndex = "handicapIndex"
         case playerId = "playerId"
+        case handicapIndex = "handicapIndex"
         case source = "source"
         case effectiveDate = "effectiveDate"
     }
 
-    init(handicapIndex: Double, playerId: String, source: HandicapEntrySource, effectiveDate: String) {
-        self.handicapIndex = handicapIndex
+    init(playerId: String, handicapIndex: Double, source: HandicapEntrySource, effectiveDate: String) {
         self.playerId = playerId
+        self.handicapIndex = handicapIndex
         self.source = source
         self.effectiveDate = effectiveDate
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.handicapIndex = try c.decode(Double.self, forKey: .handicapIndex)
         self.playerId = try c.decode(String.self, forKey: .playerId)
+        self.handicapIndex = try c.decode(Double.self, forKey: .handicapIndex)
         self.source = try c.decode(HandicapEntrySource.self, forKey: .source)
         self.effectiveDate = try c.decode(String.self, forKey: .effectiveDate)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(handicapIndex, forKey: .handicapIndex)
         try c.encode(playerId, forKey: .playerId)
+        try c.encode(handicapIndex, forKey: .handicapIndex)
         try c.encode(source, forKey: .source)
         try c.encode(effectiveDate, forKey: .effectiveDate)
     }

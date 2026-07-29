@@ -8,6 +8,9 @@ const FILES = [
     'competition-leaderboard.service.ts',
     'competition-cut.service.ts',
     'competition-finalize.service.ts',
+    // Not a competition service, but governed by the identical server-guide
+    // rule — keeping one enforcement mechanism beats a second copy of it.
+    'player-stats.service.ts',
 ] as const;
 
 const TABLE_OPERATION = /\.(?:selectFrom|insertInto|updateTable|deleteFrom)\s*\(/g;

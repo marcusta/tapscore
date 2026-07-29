@@ -35,48 +35,50 @@ struct ConfigDiagnostic: Codable, Sendable, Equatable {
 }
 
 struct FormatActionsAppendInput: Codable, Sendable, Equatable {
+    var roundId: String
+    var slotDefId: String
     var playHoleId: TriState<String>
     var sequence: Double?
+    var actionType: String
     var schemaVersion: Double?
     var subjectBallId: TriState<String>
     var subjectProducerDefId: TriState<String>
-    var supersedesActionId: TriState<String>
-    var roundId: String
-    var clientEventId: String
-    var slotDefId: String
-    var actionType: String
     var payload: JSONValue
+    var supersedesActionId: TriState<String>
+    var clientEventId: String
 
     enum CodingKeys: String, CodingKey {
+        case roundId = "roundId"
+        case slotDefId = "slotDefId"
         case playHoleId = "playHoleId"
         case sequence = "sequence"
+        case actionType = "actionType"
         case schemaVersion = "schemaVersion"
         case subjectBallId = "subjectBallId"
         case subjectProducerDefId = "subjectProducerDefId"
-        case supersedesActionId = "supersedesActionId"
-        case roundId = "roundId"
-        case clientEventId = "clientEventId"
-        case slotDefId = "slotDefId"
-        case actionType = "actionType"
         case payload = "payload"
+        case supersedesActionId = "supersedesActionId"
+        case clientEventId = "clientEventId"
     }
 
-    init(playHoleId: TriState<String> = .absent, sequence: Double? = nil, schemaVersion: Double? = nil, subjectBallId: TriState<String> = .absent, subjectProducerDefId: TriState<String> = .absent, supersedesActionId: TriState<String> = .absent, roundId: String, clientEventId: String, slotDefId: String, actionType: String, payload: JSONValue) {
+    init(roundId: String, slotDefId: String, playHoleId: TriState<String> = .absent, sequence: Double? = nil, actionType: String, schemaVersion: Double? = nil, subjectBallId: TriState<String> = .absent, subjectProducerDefId: TriState<String> = .absent, payload: JSONValue, supersedesActionId: TriState<String> = .absent, clientEventId: String) {
+        self.roundId = roundId
+        self.slotDefId = slotDefId
         self.playHoleId = playHoleId
         self.sequence = sequence
+        self.actionType = actionType
         self.schemaVersion = schemaVersion
         self.subjectBallId = subjectBallId
         self.subjectProducerDefId = subjectProducerDefId
-        self.supersedesActionId = supersedesActionId
-        self.roundId = roundId
-        self.clientEventId = clientEventId
-        self.slotDefId = slotDefId
-        self.actionType = actionType
         self.payload = payload
+        self.supersedesActionId = supersedesActionId
+        self.clientEventId = clientEventId
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.roundId = try c.decode(String.self, forKey: .roundId)
+        self.slotDefId = try c.decode(String.self, forKey: .slotDefId)
         if c.contains(.playHoleId) {
             self.playHoleId = try c.decodeNil(forKey: .playHoleId)
                 ? .null
@@ -85,6 +87,7 @@ struct FormatActionsAppendInput: Codable, Sendable, Equatable {
             self.playHoleId = .absent
         }
         self.sequence = try c.decodeIfPresent(Double.self, forKey: .sequence)
+        self.actionType = try c.decode(String.self, forKey: .actionType)
         self.schemaVersion = try c.decodeIfPresent(Double.self, forKey: .schemaVersion)
         if c.contains(.subjectBallId) {
             self.subjectBallId = try c.decodeNil(forKey: .subjectBallId)
@@ -100,6 +103,7 @@ struct FormatActionsAppendInput: Codable, Sendable, Equatable {
         } else {
             self.subjectProducerDefId = .absent
         }
+        self.payload = try c.decode(JSONValue.self, forKey: .payload)
         if c.contains(.supersedesActionId) {
             self.supersedesActionId = try c.decodeNil(forKey: .supersedesActionId)
                 ? .null
@@ -107,21 +111,20 @@ struct FormatActionsAppendInput: Codable, Sendable, Equatable {
         } else {
             self.supersedesActionId = .absent
         }
-        self.roundId = try c.decode(String.self, forKey: .roundId)
         self.clientEventId = try c.decode(String.self, forKey: .clientEventId)
-        self.slotDefId = try c.decode(String.self, forKey: .slotDefId)
-        self.actionType = try c.decode(String.self, forKey: .actionType)
-        self.payload = try c.decode(JSONValue.self, forKey: .payload)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(roundId, forKey: .roundId)
+        try c.encode(slotDefId, forKey: .slotDefId)
         switch playHoleId {
         case .absent: break
         case .null: try c.encodeNil(forKey: .playHoleId)
         case .value(let v): try c.encode(v, forKey: .playHoleId)
         }
         try c.encodeIfPresent(sequence, forKey: .sequence)
+        try c.encode(actionType, forKey: .actionType)
         try c.encodeIfPresent(schemaVersion, forKey: .schemaVersion)
         switch subjectBallId {
         case .absent: break
@@ -133,16 +136,13 @@ struct FormatActionsAppendInput: Codable, Sendable, Equatable {
         case .null: try c.encodeNil(forKey: .subjectProducerDefId)
         case .value(let v): try c.encode(v, forKey: .subjectProducerDefId)
         }
+        try c.encode(payload, forKey: .payload)
         switch supersedesActionId {
         case .absent: break
         case .null: try c.encodeNil(forKey: .supersedesActionId)
         case .value(let v): try c.encode(v, forKey: .supersedesActionId)
         }
-        try c.encode(roundId, forKey: .roundId)
         try c.encode(clientEventId, forKey: .clientEventId)
-        try c.encode(slotDefId, forKey: .slotDefId)
-        try c.encode(actionType, forKey: .actionType)
-        try c.encode(payload, forKey: .payload)
     }
 }
 

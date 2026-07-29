@@ -70,24 +70,25 @@ struct ClubsGetInput: Codable, Sendable, Equatable {
 }
 
 struct ClubsCreateInput: Codable, Sendable, Equatable {
+    var name: String
     var location: TriState<String>
     var logoUrl: TriState<String>
-    var name: String
 
     enum CodingKeys: String, CodingKey {
+        case name = "name"
         case location = "location"
         case logoUrl = "logoUrl"
-        case name = "name"
     }
 
-    init(location: TriState<String> = .absent, logoUrl: TriState<String> = .absent, name: String) {
+    init(name: String, location: TriState<String> = .absent, logoUrl: TriState<String> = .absent) {
+        self.name = name
         self.location = location
         self.logoUrl = logoUrl
-        self.name = name
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try c.decode(String.self, forKey: .name)
         if c.contains(.location) {
             self.location = try c.decodeNil(forKey: .location)
                 ? .null
@@ -102,11 +103,11 @@ struct ClubsCreateInput: Codable, Sendable, Equatable {
         } else {
             self.logoUrl = .absent
         }
-        self.name = try c.decode(String.self, forKey: .name)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(name, forKey: .name)
         switch location {
         case .absent: break
         case .null: try c.encodeNil(forKey: .location)
@@ -117,32 +118,32 @@ struct ClubsCreateInput: Codable, Sendable, Equatable {
         case .null: try c.encodeNil(forKey: .logoUrl)
         case .value(let v): try c.encode(v, forKey: .logoUrl)
         }
-        try c.encode(name, forKey: .name)
     }
 }
 
 struct ClubsUpdateInput: Codable, Sendable, Equatable {
+    var id: String
     var name: String?
     var location: TriState<String>
     var logoUrl: TriState<String>
-    var id: String
 
     enum CodingKeys: String, CodingKey {
+        case id = "id"
         case name = "name"
         case location = "location"
         case logoUrl = "logoUrl"
-        case id = "id"
     }
 
-    init(name: String? = nil, location: TriState<String> = .absent, logoUrl: TriState<String> = .absent, id: String) {
+    init(id: String, name: String? = nil, location: TriState<String> = .absent, logoUrl: TriState<String> = .absent) {
+        self.id = id
         self.name = name
         self.location = location
         self.logoUrl = logoUrl
-        self.id = id
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
         self.name = try c.decodeIfPresent(String.self, forKey: .name)
         if c.contains(.location) {
             self.location = try c.decodeNil(forKey: .location)
@@ -158,11 +159,11 @@ struct ClubsUpdateInput: Codable, Sendable, Equatable {
         } else {
             self.logoUrl = .absent
         }
-        self.id = try c.decode(String.self, forKey: .id)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
         try c.encodeIfPresent(name, forKey: .name)
         switch location {
         case .absent: break
@@ -174,7 +175,6 @@ struct ClubsUpdateInput: Codable, Sendable, Equatable {
         case .null: try c.encodeNil(forKey: .logoUrl)
         case .value(let v): try c.encode(v, forKey: .logoUrl)
         }
-        try c.encode(id, forKey: .id)
     }
 }
 

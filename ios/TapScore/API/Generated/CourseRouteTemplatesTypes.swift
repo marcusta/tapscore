@@ -2,72 +2,146 @@
 
 import Foundation
 
-struct CourseRouteTemplateRouteRouteSi: Codable, Sendable, Equatable {
-    var sourceLabel: String?
-    var sourceVersion: String?
-    var allocationCycleSize: Double?
-    var mode: RoundRouteSiMode
+struct CourseRouteTemplateRoutePlayHolesItemTeeOverridesItem: Codable, Sendable, Equatable {
+    var teeId: String
+    var lengthM: Double?
+    var strokeIndexOverride: Double?
 
     enum CodingKeys: String, CodingKey {
-        case sourceLabel = "sourceLabel"
-        case sourceVersion = "sourceVersion"
-        case allocationCycleSize = "allocationCycleSize"
-        case mode = "mode"
+        case teeId = "teeId"
+        case lengthM = "lengthM"
+        case strokeIndexOverride = "strokeIndexOverride"
     }
 
-    init(sourceLabel: String? = nil, sourceVersion: String? = nil, allocationCycleSize: Double? = nil, mode: RoundRouteSiMode) {
-        self.sourceLabel = sourceLabel
-        self.sourceVersion = sourceVersion
-        self.allocationCycleSize = allocationCycleSize
-        self.mode = mode
+    init(teeId: String, lengthM: Double? = nil, strokeIndexOverride: Double? = nil) {
+        self.teeId = teeId
+        self.lengthM = lengthM
+        self.strokeIndexOverride = strokeIndexOverride
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.sourceLabel = try c.decodeIfPresent(String.self, forKey: .sourceLabel)
-        self.sourceVersion = try c.decodeIfPresent(String.self, forKey: .sourceVersion)
-        self.allocationCycleSize = try c.decodeIfPresent(Double.self, forKey: .allocationCycleSize)
-        self.mode = try c.decode(RoundRouteSiMode.self, forKey: .mode)
+        self.teeId = try c.decode(String.self, forKey: .teeId)
+        self.lengthM = try c.decodeIfPresent(Double.self, forKey: .lengthM)
+        self.strokeIndexOverride = try c.decodeIfPresent(Double.self, forKey: .strokeIndexOverride)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(teeId, forKey: .teeId)
+        try c.encodeIfPresent(lengthM, forKey: .lengthM)
+        try c.encodeIfPresent(strokeIndexOverride, forKey: .strokeIndexOverride)
+    }
+}
+
+struct CourseRouteTemplateRoutePlayHolesItem: Codable, Sendable, Equatable {
+    var id: String?
+    var courseHoleNumber: Double
+    var parOverride: Double?
+    var baseStrokeIndexOverride: Double?
+    var teeOverrides: [CourseRouteTemplateRoutePlayHolesItemTeeOverridesItem]?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "id"
+        case courseHoleNumber = "courseHoleNumber"
+        case parOverride = "parOverride"
+        case baseStrokeIndexOverride = "baseStrokeIndexOverride"
+        case teeOverrides = "teeOverrides"
+    }
+
+    init(id: String? = nil, courseHoleNumber: Double, parOverride: Double? = nil, baseStrokeIndexOverride: Double? = nil, teeOverrides: [CourseRouteTemplateRoutePlayHolesItemTeeOverridesItem]? = nil) {
+        self.id = id
+        self.courseHoleNumber = courseHoleNumber
+        self.parOverride = parOverride
+        self.baseStrokeIndexOverride = baseStrokeIndexOverride
+        self.teeOverrides = teeOverrides
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decodeIfPresent(String.self, forKey: .id)
+        self.courseHoleNumber = try c.decode(Double.self, forKey: .courseHoleNumber)
+        self.parOverride = try c.decodeIfPresent(Double.self, forKey: .parOverride)
+        self.baseStrokeIndexOverride = try c.decodeIfPresent(Double.self, forKey: .baseStrokeIndexOverride)
+        self.teeOverrides = try c.decodeIfPresent([CourseRouteTemplateRoutePlayHolesItemTeeOverridesItem].self, forKey: .teeOverrides)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(id, forKey: .id)
+        try c.encode(courseHoleNumber, forKey: .courseHoleNumber)
+        try c.encodeIfPresent(parOverride, forKey: .parOverride)
+        try c.encodeIfPresent(baseStrokeIndexOverride, forKey: .baseStrokeIndexOverride)
+        try c.encodeIfPresent(teeOverrides, forKey: .teeOverrides)
+    }
+}
+
+struct CourseRouteTemplateRouteRouteSi: Codable, Sendable, Equatable {
+    var mode: RoundRouteSiMode
+    var sourceLabel: String?
+    var sourceVersion: String?
+    var allocationCycleSize: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case mode = "mode"
+        case sourceLabel = "sourceLabel"
+        case sourceVersion = "sourceVersion"
+        case allocationCycleSize = "allocationCycleSize"
+    }
+
+    init(mode: RoundRouteSiMode, sourceLabel: String? = nil, sourceVersion: String? = nil, allocationCycleSize: Double? = nil) {
+        self.mode = mode
+        self.sourceLabel = sourceLabel
+        self.sourceVersion = sourceVersion
+        self.allocationCycleSize = allocationCycleSize
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.mode = try c.decode(RoundRouteSiMode.self, forKey: .mode)
+        self.sourceLabel = try c.decodeIfPresent(String.self, forKey: .sourceLabel)
+        self.sourceVersion = try c.decodeIfPresent(String.self, forKey: .sourceVersion)
+        self.allocationCycleSize = try c.decodeIfPresent(Double.self, forKey: .allocationCycleSize)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(mode, forKey: .mode)
         try c.encodeIfPresent(sourceLabel, forKey: .sourceLabel)
         try c.encodeIfPresent(sourceVersion, forKey: .sourceVersion)
         try c.encodeIfPresent(allocationCycleSize, forKey: .allocationCycleSize)
-        try c.encode(mode, forKey: .mode)
     }
 }
 
 struct CourseRouteTemplateRouteRouteHandicapPolicy: Codable, Sendable, Equatable {
-    var postingIneligibleReason: String?
     var type: RoundRoutePolicyType
     var postingEligible: Bool
+    var postingIneligibleReason: String?
 
     enum CodingKeys: String, CodingKey {
-        case postingIneligibleReason = "postingIneligibleReason"
         case type = "type"
         case postingEligible = "postingEligible"
+        case postingIneligibleReason = "postingIneligibleReason"
     }
 
-    init(postingIneligibleReason: String? = nil, type: RoundRoutePolicyType, postingEligible: Bool) {
-        self.postingIneligibleReason = postingIneligibleReason
+    init(type: RoundRoutePolicyType, postingEligible: Bool, postingIneligibleReason: String? = nil) {
         self.type = type
         self.postingEligible = postingEligible
+        self.postingIneligibleReason = postingIneligibleReason
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.postingIneligibleReason = try c.decodeIfPresent(String.self, forKey: .postingIneligibleReason)
         self.type = try c.decode(RoundRoutePolicyType.self, forKey: .type)
         self.postingEligible = try c.decode(Bool.self, forKey: .postingEligible)
+        self.postingIneligibleReason = try c.decodeIfPresent(String.self, forKey: .postingIneligibleReason)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(postingIneligibleReason, forKey: .postingIneligibleReason)
         try c.encode(type, forKey: .type)
         try c.encode(postingEligible, forKey: .postingEligible)
+        try c.encodeIfPresent(postingIneligibleReason, forKey: .postingIneligibleReason)
     }
 }
 
@@ -108,114 +182,40 @@ struct CourseRouteTemplateRouteRouteSectionsItem: Codable, Sendable, Equatable {
     }
 }
 
-struct CourseRouteTemplateRoutePlayHolesItemTeeOverridesItem: Codable, Sendable, Equatable {
-    var lengthM: Double?
-    var strokeIndexOverride: Double?
-    var teeId: String
-
-    enum CodingKeys: String, CodingKey {
-        case lengthM = "lengthM"
-        case strokeIndexOverride = "strokeIndexOverride"
-        case teeId = "teeId"
-    }
-
-    init(lengthM: Double? = nil, strokeIndexOverride: Double? = nil, teeId: String) {
-        self.lengthM = lengthM
-        self.strokeIndexOverride = strokeIndexOverride
-        self.teeId = teeId
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.lengthM = try c.decodeIfPresent(Double.self, forKey: .lengthM)
-        self.strokeIndexOverride = try c.decodeIfPresent(Double.self, forKey: .strokeIndexOverride)
-        self.teeId = try c.decode(String.self, forKey: .teeId)
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(lengthM, forKey: .lengthM)
-        try c.encodeIfPresent(strokeIndexOverride, forKey: .strokeIndexOverride)
-        try c.encode(teeId, forKey: .teeId)
-    }
-}
-
-struct CourseRouteTemplateRoutePlayHolesItem: Codable, Sendable, Equatable {
-    var id: String?
-    var parOverride: Double?
-    var baseStrokeIndexOverride: Double?
-    var teeOverrides: [CourseRouteTemplateRoutePlayHolesItemTeeOverridesItem]?
-    var courseHoleNumber: Double
-
-    enum CodingKeys: String, CodingKey {
-        case id = "id"
-        case parOverride = "parOverride"
-        case baseStrokeIndexOverride = "baseStrokeIndexOverride"
-        case teeOverrides = "teeOverrides"
-        case courseHoleNumber = "courseHoleNumber"
-    }
-
-    init(id: String? = nil, parOverride: Double? = nil, baseStrokeIndexOverride: Double? = nil, teeOverrides: [CourseRouteTemplateRoutePlayHolesItemTeeOverridesItem]? = nil, courseHoleNumber: Double) {
-        self.id = id
-        self.parOverride = parOverride
-        self.baseStrokeIndexOverride = baseStrokeIndexOverride
-        self.teeOverrides = teeOverrides
-        self.courseHoleNumber = courseHoleNumber
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = try c.decodeIfPresent(String.self, forKey: .id)
-        self.parOverride = try c.decodeIfPresent(Double.self, forKey: .parOverride)
-        self.baseStrokeIndexOverride = try c.decodeIfPresent(Double.self, forKey: .baseStrokeIndexOverride)
-        self.teeOverrides = try c.decodeIfPresent([CourseRouteTemplateRoutePlayHolesItemTeeOverridesItem].self, forKey: .teeOverrides)
-        self.courseHoleNumber = try c.decode(Double.self, forKey: .courseHoleNumber)
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(id, forKey: .id)
-        try c.encodeIfPresent(parOverride, forKey: .parOverride)
-        try c.encodeIfPresent(baseStrokeIndexOverride, forKey: .baseStrokeIndexOverride)
-        try c.encodeIfPresent(teeOverrides, forKey: .teeOverrides)
-        try c.encode(courseHoleNumber, forKey: .courseHoleNumber)
-    }
-}
-
 struct CourseRouteTemplateRoute: Codable, Sendable, Equatable {
+    var playHoles: [CourseRouteTemplateRoutePlayHolesItem]
     var routeSi: CourseRouteTemplateRouteRouteSi?
     var routeHandicapPolicy: CourseRouteTemplateRouteRouteHandicapPolicy?
     var routeSections: [CourseRouteTemplateRouteRouteSectionsItem]?
-    var playHoles: [CourseRouteTemplateRoutePlayHolesItem]
 
     enum CodingKeys: String, CodingKey {
+        case playHoles = "playHoles"
         case routeSi = "routeSi"
         case routeHandicapPolicy = "routeHandicapPolicy"
         case routeSections = "routeSections"
-        case playHoles = "playHoles"
     }
 
-    init(routeSi: CourseRouteTemplateRouteRouteSi? = nil, routeHandicapPolicy: CourseRouteTemplateRouteRouteHandicapPolicy? = nil, routeSections: [CourseRouteTemplateRouteRouteSectionsItem]? = nil, playHoles: [CourseRouteTemplateRoutePlayHolesItem]) {
+    init(playHoles: [CourseRouteTemplateRoutePlayHolesItem], routeSi: CourseRouteTemplateRouteRouteSi? = nil, routeHandicapPolicy: CourseRouteTemplateRouteRouteHandicapPolicy? = nil, routeSections: [CourseRouteTemplateRouteRouteSectionsItem]? = nil) {
+        self.playHoles = playHoles
         self.routeSi = routeSi
         self.routeHandicapPolicy = routeHandicapPolicy
         self.routeSections = routeSections
-        self.playHoles = playHoles
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.playHoles = try c.decode([CourseRouteTemplateRoutePlayHolesItem].self, forKey: .playHoles)
         self.routeSi = try c.decodeIfPresent(CourseRouteTemplateRouteRouteSi.self, forKey: .routeSi)
         self.routeHandicapPolicy = try c.decodeIfPresent(CourseRouteTemplateRouteRouteHandicapPolicy.self, forKey: .routeHandicapPolicy)
         self.routeSections = try c.decodeIfPresent([CourseRouteTemplateRouteRouteSectionsItem].self, forKey: .routeSections)
-        self.playHoles = try c.decode([CourseRouteTemplateRoutePlayHolesItem].self, forKey: .playHoles)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(playHoles, forKey: .playHoles)
         try c.encodeIfPresent(routeSi, forKey: .routeSi)
         try c.encodeIfPresent(routeHandicapPolicy, forKey: .routeHandicapPolicy)
         try c.encodeIfPresent(routeSections, forKey: .routeSections)
-        try c.encode(playHoles, forKey: .playHoles)
     }
 }
 
@@ -316,33 +316,33 @@ struct CourseRouteTemplatesValidateInput: Codable, Sendable, Equatable {
 }
 
 struct CourseRouteTemplatesCreateInput: Codable, Sendable, Equatable {
-    var name: String
     var courseId: String
+    var name: String
     var route: CourseRouteTemplateRoute
 
     enum CodingKeys: String, CodingKey {
-        case name = "name"
         case courseId = "courseId"
+        case name = "name"
         case route = "route"
     }
 
-    init(name: String, courseId: String, route: CourseRouteTemplateRoute) {
-        self.name = name
+    init(courseId: String, name: String, route: CourseRouteTemplateRoute) {
         self.courseId = courseId
+        self.name = name
         self.route = route
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.name = try c.decode(String.self, forKey: .name)
         self.courseId = try c.decode(String.self, forKey: .courseId)
+        self.name = try c.decode(String.self, forKey: .name)
         self.route = try c.decode(CourseRouteTemplateRoute.self, forKey: .route)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(name, forKey: .name)
         try c.encode(courseId, forKey: .courseId)
+        try c.encode(name, forKey: .name)
         try c.encode(route, forKey: .route)
     }
 }
@@ -401,33 +401,33 @@ enum CourseRouteTemplatesCreateOutput: Codable, Sendable, Equatable {
 }
 
 struct CourseRouteTemplatesUpdateInput: Codable, Sendable, Equatable {
+    var id: String
     var name: String?
     var route: CourseRouteTemplateRoute?
-    var id: String
 
     enum CodingKeys: String, CodingKey {
+        case id = "id"
         case name = "name"
         case route = "route"
-        case id = "id"
     }
 
-    init(name: String? = nil, route: CourseRouteTemplateRoute? = nil, id: String) {
+    init(id: String, name: String? = nil, route: CourseRouteTemplateRoute? = nil) {
+        self.id = id
         self.name = name
         self.route = route
-        self.id = id
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
         self.name = try c.decodeIfPresent(String.self, forKey: .name)
         self.route = try c.decodeIfPresent(CourseRouteTemplateRoute.self, forKey: .route)
-        self.id = try c.decode(String.self, forKey: .id)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
         try c.encodeIfPresent(name, forKey: .name)
         try c.encodeIfPresent(route, forKey: .route)
-        try c.encode(id, forKey: .id)
     }
 }

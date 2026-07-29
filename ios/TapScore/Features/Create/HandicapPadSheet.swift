@@ -19,6 +19,15 @@ struct HandicapPadSheet: View {
     let gender: PlayerGender
     /// The value the row holds now — restored verbatim if the user cancels.
     let initialText: String
+    /// Replaces the live course-handicap line under the draft. The create flow
+    /// leaves this `nil`; the profile sets it, because "Pick a tee to see the
+    /// course handicap." names an action that screen has no control for.
+    let infoText: String?
+    /// B5.21 enables Done on an empty draft because in the create flow an empty
+    /// commit CLEARS the row. A caller with nothing to clear into (the profile:
+    /// the endpoint takes a number, the chain is append-only) turns this off so
+    /// Done is not an enabled button that does nothing.
+    let allowsEmptyCommit: Bool
     let onCommit: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -29,14 +38,22 @@ struct HandicapPadSheet: View {
         tee: Tee?,
         gender: PlayerGender,
         initialText: String,
+        infoText: String? = nil,
+        allowsEmptyCommit: Bool = true,
         onCommit: @escaping (String) -> Void
     ) {
         self.playerName = playerName
         self.tee = tee
         self.gender = gender
         self.initialText = initialText
+        self.infoText = infoText
+        self.allowsEmptyCommit = allowsEmptyCommit
         self.onCommit = onCommit
         _pad = State(initialValue: HandicapPad(draft: initialText))
+    }
+
+    private var canCommit: Bool {
+        pad.canCommit && (allowsEmptyCommit || !pad.draft.isEmpty)
     }
 
     var body: some View {
@@ -68,10 +85,11 @@ struct HandicapPadSheet: View {
                         dismiss()
                     }
                     .font(TapFont.ui(size: 16, weight: .bold))
-                    .foregroundStyle(pad.canCommit ? TapColors.primary : TapColors.textMuted)
-                    // B5.21/B5.22: enabled on empty (it commits a clear),
-                    // disabled on a lone "+", which is not a number.
-                    .disabled(!pad.canCommit)
+                    .foregroundStyle(canCommit ? TapColors.primary : TapColors.textMuted)
+                    // B5.21/B5.22: enabled on empty (it commits a clear, where
+                    // the caller allows clearing), disabled on a lone "+",
+                    // which is not a number.
+                    .disabled(!canCommit)
                 }
             }
         }
@@ -86,7 +104,7 @@ struct HandicapPadSheet: View {
                     .font(TapFont.display(size: 34, weight: .semibold))
                     .foregroundStyle(pad.draft.isEmpty ? TapColors.textMuted : TapColors.text)
                     .monospacedDigit()
-                Text(courseHandicapLine)
+                Text(infoText ?? courseHandicapLine)
                     .font(TapFont.ui(size: 12.8))
                     .foregroundStyle(TapColors.textMuted)
                     .fixedSize(horizontal: false, vertical: true)

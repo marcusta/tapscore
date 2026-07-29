@@ -14,7 +14,7 @@ export interface HandicapEntry {
 export interface HandicapApi {
     latest(input: { playerId: string }): Promise<null | HandicapEntry>;
     history(input: { playerId: string }): Promise<HandicapEntry[]>;
-    record(input: { handicapIndex: number; playerId: string; source: 'manual' | 'calculated' | 'import'; effectiveDate: string }): Promise<HandicapEntry>;
+    record(input: { playerId: string; handicapIndex: number; source: 'manual' | 'calculated' | 'import'; effectiveDate: string }): Promise<HandicapEntry>;
 }
 
 export function createHandicapClient(baseUrl: string): HandicapApi {

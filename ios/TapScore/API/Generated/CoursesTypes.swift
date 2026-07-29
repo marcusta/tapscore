@@ -177,144 +177,144 @@ struct CoursesListByClubInput: Codable, Sendable, Equatable {
 }
 
 struct CoursesCreateInputHolesItem: Codable, Sendable, Equatable {
-    var par: Double
     var holeNumber: Double
+    var par: Double
     var strokeIndex: Double
 
     enum CodingKeys: String, CodingKey {
-        case par = "par"
         case holeNumber = "holeNumber"
+        case par = "par"
         case strokeIndex = "strokeIndex"
     }
 
-    init(par: Double, holeNumber: Double, strokeIndex: Double) {
-        self.par = par
+    init(holeNumber: Double, par: Double, strokeIndex: Double) {
         self.holeNumber = holeNumber
+        self.par = par
         self.strokeIndex = strokeIndex
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.par = try c.decode(Double.self, forKey: .par)
         self.holeNumber = try c.decode(Double.self, forKey: .holeNumber)
+        self.par = try c.decode(Double.self, forKey: .par)
         self.strokeIndex = try c.decode(Double.self, forKey: .strokeIndex)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(par, forKey: .par)
         try c.encode(holeNumber, forKey: .holeNumber)
+        try c.encode(par, forKey: .par)
         try c.encode(strokeIndex, forKey: .strokeIndex)
     }
 }
 
 struct CoursesCreateInput: Codable, Sendable, Equatable {
-    var holes: [CoursesCreateInputHolesItem]?
-    var name: String
     var clubId: String
+    var name: String
     var holeCount: Double
+    var holes: [CoursesCreateInputHolesItem]?
 
     enum CodingKeys: String, CodingKey {
-        case holes = "holes"
-        case name = "name"
         case clubId = "clubId"
+        case name = "name"
         case holeCount = "holeCount"
+        case holes = "holes"
     }
 
-    init(holes: [CoursesCreateInputHolesItem]? = nil, name: String, clubId: String, holeCount: Double) {
-        self.holes = holes
-        self.name = name
+    init(clubId: String, name: String, holeCount: Double, holes: [CoursesCreateInputHolesItem]? = nil) {
         self.clubId = clubId
+        self.name = name
         self.holeCount = holeCount
+        self.holes = holes
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.holes = try c.decodeIfPresent([CoursesCreateInputHolesItem].self, forKey: .holes)
-        self.name = try c.decode(String.self, forKey: .name)
         self.clubId = try c.decode(String.self, forKey: .clubId)
+        self.name = try c.decode(String.self, forKey: .name)
         self.holeCount = try c.decode(Double.self, forKey: .holeCount)
+        self.holes = try c.decodeIfPresent([CoursesCreateInputHolesItem].self, forKey: .holes)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(holes, forKey: .holes)
-        try c.encode(name, forKey: .name)
         try c.encode(clubId, forKey: .clubId)
+        try c.encode(name, forKey: .name)
         try c.encode(holeCount, forKey: .holeCount)
+        try c.encodeIfPresent(holes, forKey: .holes)
     }
 }
 
 struct CoursesUpdateInput: Codable, Sendable, Equatable {
+    var id: String
     var name: String?
     var holeCount: Double?
     var holes: [CoursesCreateInputHolesItem]?
-    var id: String
 
     enum CodingKeys: String, CodingKey {
+        case id = "id"
         case name = "name"
         case holeCount = "holeCount"
         case holes = "holes"
-        case id = "id"
     }
 
-    init(name: String? = nil, holeCount: Double? = nil, holes: [CoursesCreateInputHolesItem]? = nil, id: String) {
+    init(id: String, name: String? = nil, holeCount: Double? = nil, holes: [CoursesCreateInputHolesItem]? = nil) {
+        self.id = id
         self.name = name
         self.holeCount = holeCount
         self.holes = holes
-        self.id = id
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
         self.name = try c.decodeIfPresent(String.self, forKey: .name)
         self.holeCount = try c.decodeIfPresent(Double.self, forKey: .holeCount)
         self.holes = try c.decodeIfPresent([CoursesCreateInputHolesItem].self, forKey: .holes)
-        self.id = try c.decode(String.self, forKey: .id)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
         try c.encodeIfPresent(name, forKey: .name)
         try c.encodeIfPresent(holeCount, forKey: .holeCount)
         try c.encodeIfPresent(holes, forKey: .holes)
-        try c.encode(id, forKey: .id)
     }
 }
 
 struct CoursesUpdateHoleInput: Codable, Sendable, Equatable {
-    var par: Double?
-    var strokeIndex: Double?
     var courseId: String
     var holeNumber: Double
+    var par: Double?
+    var strokeIndex: Double?
 
     enum CodingKeys: String, CodingKey {
-        case par = "par"
-        case strokeIndex = "strokeIndex"
         case courseId = "courseId"
         case holeNumber = "holeNumber"
+        case par = "par"
+        case strokeIndex = "strokeIndex"
     }
 
-    init(par: Double? = nil, strokeIndex: Double? = nil, courseId: String, holeNumber: Double) {
-        self.par = par
-        self.strokeIndex = strokeIndex
+    init(courseId: String, holeNumber: Double, par: Double? = nil, strokeIndex: Double? = nil) {
         self.courseId = courseId
         self.holeNumber = holeNumber
+        self.par = par
+        self.strokeIndex = strokeIndex
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.par = try c.decodeIfPresent(Double.self, forKey: .par)
-        self.strokeIndex = try c.decodeIfPresent(Double.self, forKey: .strokeIndex)
         self.courseId = try c.decode(String.self, forKey: .courseId)
         self.holeNumber = try c.decode(Double.self, forKey: .holeNumber)
+        self.par = try c.decodeIfPresent(Double.self, forKey: .par)
+        self.strokeIndex = try c.decodeIfPresent(Double.self, forKey: .strokeIndex)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(par, forKey: .par)
-        try c.encodeIfPresent(strokeIndex, forKey: .strokeIndex)
         try c.encode(courseId, forKey: .courseId)
         try c.encode(holeNumber, forKey: .holeNumber)
+        try c.encodeIfPresent(par, forKey: .par)
+        try c.encodeIfPresent(strokeIndex, forKey: .strokeIndex)
     }
 }

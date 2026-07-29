@@ -326,27 +326,29 @@ struct AdminAdminRoundsInput: Codable, Sendable, Equatable {
 }
 
 struct AdminAdminGrantRoleInput: Codable, Sendable, Equatable {
-    var scopeType: TriState<String>
-    var scopeId: TriState<String>
     var playerId: String
     var role: RoleGrantRole
+    var scopeType: TriState<String>
+    var scopeId: TriState<String>
 
     enum CodingKeys: String, CodingKey {
-        case scopeType = "scopeType"
-        case scopeId = "scopeId"
         case playerId = "playerId"
         case role = "role"
+        case scopeType = "scopeType"
+        case scopeId = "scopeId"
     }
 
-    init(scopeType: TriState<String> = .absent, scopeId: TriState<String> = .absent, playerId: String, role: RoleGrantRole) {
-        self.scopeType = scopeType
-        self.scopeId = scopeId
+    init(playerId: String, role: RoleGrantRole, scopeType: TriState<String> = .absent, scopeId: TriState<String> = .absent) {
         self.playerId = playerId
         self.role = role
+        self.scopeType = scopeType
+        self.scopeId = scopeId
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.playerId = try c.decode(String.self, forKey: .playerId)
+        self.role = try c.decode(RoleGrantRole.self, forKey: .role)
         if c.contains(.scopeType) {
             self.scopeType = try c.decodeNil(forKey: .scopeType)
                 ? .null
@@ -361,12 +363,12 @@ struct AdminAdminGrantRoleInput: Codable, Sendable, Equatable {
         } else {
             self.scopeId = .absent
         }
-        self.playerId = try c.decode(String.self, forKey: .playerId)
-        self.role = try c.decode(RoleGrantRole.self, forKey: .role)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(playerId, forKey: .playerId)
+        try c.encode(role, forKey: .role)
         switch scopeType {
         case .absent: break
         case .null: try c.encodeNil(forKey: .scopeType)
@@ -377,8 +379,6 @@ struct AdminAdminGrantRoleInput: Codable, Sendable, Equatable {
         case .null: try c.encodeNil(forKey: .scopeId)
         case .value(let v): try c.encode(v, forKey: .scopeId)
         }
-        try c.encode(playerId, forKey: .playerId)
-        try c.encode(role, forKey: .role)
     }
 }
 

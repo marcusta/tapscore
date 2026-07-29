@@ -12,6 +12,13 @@ import type { Scorecard, ScorecardService } from './scorecard.service';
 import type { LeaderboardService } from './leaderboard.service';
 import type { RoundResult } from '../domain/strategies/result-sections';
 import type { StartListService, StartListView } from './start-list.service';
+import type {
+    AppendStatEventsResult,
+    PlayerHoleStats,
+    PlayerStatsService,
+    RoundPlayerStatModules,
+    StatEventInput,
+} from './player-stats.service';
 import type { RoundEventsHub } from './round-events-hub';
 
 // --- Output types ---
@@ -101,6 +108,7 @@ export class FriendlyRoundService {
         private scorecards: ScorecardService,
         private leaderboards: LeaderboardService,
         private startLists: StartListService,
+        private playerStats: PlayerStatsService,
         private events?: RoundEventsHub,
     ) {}
 
@@ -348,6 +356,46 @@ export class FriendlyRoundService {
         if (roundId === null) return null;
         const { token: _token, ...event } = input;
         return this.scoreEvents.append({ ...event, roundId, recordedByPlayerId });
+    }
+
+    /**
+     * Append a batch of player-stat captures to the token's round — the same
+     * token, the same trust boundary, the same delegation shape as
+     * `appendScoreByToken`. The token only resolves WHICH round; every subject
+     * rule (registered player, in this round, on a per-player-stroke ball,
+     * module enabled) lives in `PlayerStatsService`. Unknown token → `null`.
+     *
+     * Stat appends deliberately do NOT move `rounds.latest_event_id`: they
+     * change no leaderboard, so a result poll must not be invalidated by one.
+     */
+    async appendStatsByToken(
+        input: { token: string; items: StatEventInput[] },
+        recordedByPlayerId: string | null = null,
+    ): Promise<AppendStatEventsResult | null> {
+        const roundId = await this.roundIdForToken(input.token);
+        if (roundId === null) return null;
+        return this.playerStats.appendEvents({
+            roundId,
+            items: input.items,
+            recordedByPlayerId,
+        });
+    }
+
+    /** The flat `player_hole_stats` projection for the token's round. */
+    async statsByToken(token: string): Promise<PlayerHoleStats[] | null> {
+        const roundId = await this.roundIdForToken(token);
+        if (roundId === null) return null;
+        return this.playerStats.statsForRound(roundId);
+    }
+
+    /**
+     * Which players in the token's round can be prompted for stats, and for
+     * which modules — the capture client's prompt set (spec §2).
+     */
+    async statsConfigsByToken(token: string): Promise<RoundPlayerStatModules[] | null> {
+        const roundId = await this.roundIdForToken(token);
+        if (roundId === null) return null;
+        return this.playerStats.promptableModules(roundId);
     }
 
     /**
