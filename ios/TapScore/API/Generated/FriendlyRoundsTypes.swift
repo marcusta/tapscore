@@ -269,6 +269,38 @@ struct ClaimGuestResult: Codable, Sendable, Equatable {
     }
 }
 
+struct RenameGuestResult: Codable, Sendable, Equatable {
+    var guestPlayerId: String
+    var displayName: String
+    var ballPlayersUpdated: Double
+
+    enum CodingKeys: String, CodingKey {
+        case guestPlayerId = "guestPlayerId"
+        case displayName = "displayName"
+        case ballPlayersUpdated = "ballPlayersUpdated"
+    }
+
+    init(guestPlayerId: String, displayName: String, ballPlayersUpdated: Double) {
+        self.guestPlayerId = guestPlayerId
+        self.displayName = displayName
+        self.ballPlayersUpdated = ballPlayersUpdated
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.guestPlayerId = try c.decode(String.self, forKey: .guestPlayerId)
+        self.displayName = try c.decode(String.self, forKey: .displayName)
+        self.ballPlayersUpdated = try c.decode(Double.self, forKey: .ballPlayersUpdated)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(guestPlayerId, forKey: .guestPlayerId)
+        try c.encode(displayName, forKey: .displayName)
+        try c.encode(ballPlayersUpdated, forKey: .ballPlayersUpdated)
+    }
+}
+
 struct StartListOps: Codable, Sendable, Equatable {
     var join: StartListOpDecision
     var createGroup: StartListOpDecision
@@ -2213,6 +2245,38 @@ struct FriendlyRoundsClaimGuestInput: Codable, Sendable, Equatable {
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(guestPlayerId, forKey: .guestPlayerId)
+        try c.encode(token, forKey: .token)
+    }
+}
+
+struct FriendlyRoundsRenameGuestInput: Codable, Sendable, Equatable {
+    var displayName: String
+    var guestPlayerId: String
+    var token: String
+
+    enum CodingKeys: String, CodingKey {
+        case displayName = "displayName"
+        case guestPlayerId = "guestPlayerId"
+        case token = "token"
+    }
+
+    init(displayName: String, guestPlayerId: String, token: String) {
+        self.displayName = displayName
+        self.guestPlayerId = guestPlayerId
+        self.token = token
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.displayName = try c.decode(String.self, forKey: .displayName)
+        self.guestPlayerId = try c.decode(String.self, forKey: .guestPlayerId)
+        self.token = try c.decode(String.self, forKey: .token)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(displayName, forKey: .displayName)
         try c.encode(guestPlayerId, forKey: .guestPlayerId)
         try c.encode(token, forKey: .token)
     }

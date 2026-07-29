@@ -51,6 +51,9 @@ enum EditDraftHydration {
                 handicapText: HandicapInput.format(p.handicapIndex),
                 gender: p.gender ?? .m,
                 guestPlayerId: isGuest ? p.playerRef.id : nil,
+                // The rename baseline: save renames the stored guest iff the
+                // row's name has drifted from what it hydrated with.
+                guestOriginalName: isGuest ? nameFor(p.producerDefId) : nil,
                 playerId: isGuest ? nil : p.playerRef.id,
                 // Always an explicit override: the tee this producer plays off
                 // is a fact of the round, not something to re-derive from a

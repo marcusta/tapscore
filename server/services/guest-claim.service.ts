@@ -23,6 +23,22 @@ export interface ClaimGuestResult {
     scoreEventsFlipped: number;
 }
 
+export interface RenameGuestInput {
+    /** Share token of the friendly round the guest plays in. */
+    token: string;
+    /** The guest identity being renamed. */
+    guestPlayerId: string;
+    /** The new display name (already schema-checked non-empty at the edge). */
+    displayName: string;
+}
+
+export interface RenameGuestResult {
+    guestPlayerId: string;
+    displayName: string;
+    /** `ball_players` snapshot rows refreshed in THIS round. */
+    ballPlayersUpdated: number;
+}
+
 /**
  * Phase 3 guest-claim (spec §17 open item 5) — the one-time identity flip
  * that turns a guest's participation into a registered player's.
@@ -54,6 +70,16 @@ export interface ClaimGuestResult {
  * path): the flip must atomically touch `ball_players`, `score_events`,
  * `scorecards`, and `guest_players`, which no single owning service spans.
  * All table references live in the Queries section per the server guide.
+ *
+ * `renameGuest` is the other token-scoped guest-identity operation: the wizard's
+ * edit flow lets the round rename an UNCLAIMED guest (a guest's name is the
+ * round's data — there is no profile behind it). It shares the claim's
+ * verification chain (token → round, guest a producer in THAT round) and its
+ * refusal shapes, updates `guest_players.display_name`, and refreshes this
+ * round's `ball_players.display_name_snapshot` rows so the rename is visible
+ * without waiting for a recompile. Other rounds the guest played keep their
+ * frozen snapshots — same semantics as claim's "played as". A CLAIMED guest is
+ * refused: its name now belongs to the claiming player's profile.
  */
 export class GuestClaimService {
     constructor(private db: Kysely<Database>) {}
@@ -141,6 +167,30 @@ export class GuestClaimService {
             .where('ball_id', 'in', this.roundBallIds(roundId, trx));
     }
 
+    private setGuestDisplayName(
+        guestPlayerId: string,
+        displayName: string,
+        trx: Kysely<Database>,
+    ) {
+        return trx
+            .updateTable('guest_players')
+            .set({ display_name: displayName })
+            .where('id', '=', guestPlayerId);
+    }
+
+    private refreshBallPlayerNames(
+        roundId: string,
+        guestPlayerId: string,
+        displayName: string,
+        trx: Kysely<Database>,
+    ) {
+        return trx
+            .updateTable('ball_players')
+            .set({ display_name_snapshot: displayName })
+            .where('guest_player_id', '=', guestPlayerId)
+            .where('ball_id', 'in', this.roundBallIds(roundId, trx));
+    }
+
     private stampGuestClaimed(
         guestPlayerId: string,
         playerId: string,
@@ -207,5 +257,42 @@ export class GuestClaimService {
             ballPlayersFlipped: guestRows.length,
             scoreEventsFlipped: eventRows.length,
         };
+    }
+
+    async renameGuest(input: RenameGuestInput): Promise<RenameGuestResult> {
+        const { token, guestPlayerId } = input;
+        const displayName = input.displayName.trim();
+        if (displayName === '') {
+            // Schema minLength catches the empty string; a whitespace-only name
+            // lands here rather than blanking every scorecard label.
+            throw new ConflictError('guest name cannot be empty');
+        }
+
+        const roundRow = await this.roundIdByToken(token).executeTakeFirst();
+        if (!roundRow) throw new NotFoundError('friendly round not found');
+        const roundId = roundRow.round_id;
+
+        const guest = await this.guestById(guestPlayerId).executeTakeFirst();
+        if (!guest) throw new NotFoundError('guest player not found');
+        if (guest.claimed_by_player_id !== null) {
+            throw new ConflictError('guest already claimed — the name comes from the player profile');
+        }
+
+        // Token scoping, exactly like claim: the guest must produce a ball in
+        // THIS token's round, or the rename is "not found" here.
+        const guestRows = await this.ballPlayersInRound(roundId)
+            .where('bp.guest_player_id', '=', guestPlayerId)
+            .select('bp.ball_id')
+            .execute();
+        if (guestRows.length === 0) {
+            throw new NotFoundError('guest is not a producer in this round');
+        }
+
+        await this.db.transaction().execute(async (trx) => {
+            await this.setGuestDisplayName(guestPlayerId, displayName, trx).execute();
+            await this.refreshBallPlayerNames(roundId, guestPlayerId, displayName, trx).execute();
+        });
+
+        return { guestPlayerId, displayName, ballPlayersUpdated: guestRows.length };
     }
 }

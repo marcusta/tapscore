@@ -85,6 +85,12 @@ export interface ClaimGuestResult {
     scoreEventsFlipped: number;
 }
 
+export interface RenameGuestResult {
+    guestPlayerId: string;
+    displayName: string;
+    ballPlayersUpdated: number;
+}
+
 export interface FormatSlot {
     slotIndex: number;
     slotDefId: string;
@@ -342,6 +348,7 @@ export interface FriendlyRoundsApi {
     join(input: { groupChoice?: string; teeId: string; token: string }): Promise<{ ok: true; round: Round } | { ok: false; diagnostics: CompilerDiagnostic[] }>;
     leave(input: { token: string }): Promise<{ ok: true; round: Round } | { ok: false; diagnostics: CompilerDiagnostic[] }>;
     claimGuest(input: { guestPlayerId: string; token: string }): Promise<ClaimGuestResult>;
+    renameGuest(input: { displayName: string; guestPlayerId: string; token: string }): Promise<RenameGuestResult>;
     claimSeat(input: { teeId?: string; token: string; clientEventId: string; seatId: string; identity: { kind: 'self' } | { name: string; gender: 'M' | 'F'; handicapIndex: number; kind: 'guest' } }): Promise<{ ok: true; round: Round } | { ok: false; diagnostics: CompilerDiagnostic[] }>;
     releaseSeat(input: { token: string; clientEventId: string; seatId: string }): Promise<{ ok: true; round: Round } | { ok: false; diagnostics: CompilerDiagnostic[] }>;
 }
@@ -409,6 +416,9 @@ export function createFriendlyRoundsClient(baseUrl: string): FriendlyRoundsApi {
         },
         async claimGuest(input) {
             return apiFetch({ method: 'POST', url: `${baseUrl}/friendly-rounds/claim-guest`, body: input });
+        },
+        async renameGuest(input) {
+            return apiFetch({ method: 'POST', url: `${baseUrl}/friendly-rounds/rename-guest`, body: input });
         },
         async claimSeat(input) {
             return apiFetch({ method: 'POST', url: `${baseUrl}/friendly-rounds/claim-seat`, body: input });

@@ -398,6 +398,53 @@ final class EditRoundStoreTests: XCTestCase {
         XCTAssertTrue(RoundStubURLProtocol.requests(for: "/guest-players").isEmpty)
     }
 
+    /// Renaming an existing guest row reaches the server: the draft only
+    /// carries the guest REF, so the new name must travel through the
+    /// token-scoped rename endpoint — before `editSetup`, whose recompile
+    /// re-snapshots the round's names.
+    func testRenamingAnExistingGuestCallsRenameGuestBeforeSaving() async throws {
+        routeEditSetup()
+        let store = CreateStore(api: RoundStubURLProtocol.makeAPI())
+        await store.loadForEdit(token: "tok")
+        let bo = try XCTUnwrap(store.players.first { $0.producerDefId == "p2" })
+        store.updatePlayer(id: bo.id) { $0.name = "Bosse" }
+
+        RoundStubURLProtocol.route(
+            "/friendly-rounds/rename-guest",
+            "{\"guestPlayerId\":\"guest-2\",\"displayName\":\"Bosse\",\"ballPlayersUpdated\":1}")
+        routeEditSetupAccepts()
+        let saved = await store.saveEdits()
+        XCTAssertTrue(saved, "\(store.diagnostics) \(store.submitError ?? "")")
+
+        // Exactly one rename, for Bo only, and BEFORE the editSetup POST.
+        let renames = RoundStubURLProtocol.requests(for: "/friendly-rounds/rename-guest")
+        XCTAssertEqual(renames.count, 1)
+        let sent = try JSONDecoder().decode(
+            FriendlyRoundsRenameGuestInput.self,
+            from: try XCTUnwrap(renames.first?.body))
+        XCTAssertEqual(sent, FriendlyRoundsRenameGuestInput(
+            displayName: "Bosse", guestPlayerId: "guest-2", token: "tok"))
+        let order = RoundStubURLProtocol.requests
+            .filter {
+                $0.path.hasSuffix("/friendly-rounds/rename-guest")
+                    || ($0.path.hasSuffix("/friendly-rounds/setup") && $0.method == "POST")
+            }
+            .map(\.path)
+        XCTAssertTrue(order.first?.hasSuffix("/rename-guest") == true)
+
+        // The draft still re-submits the SAME guest ref — rename is not a re-mint.
+        let posted = try postedEditDraft()
+        guard case .teeId(let renamed) = posted.producers[1] else { return XCTFail("placeholder") }
+        XCTAssertEqual(renamed.playerRef.id, "guest-2")
+        XCTAssertTrue(RoundStubURLProtocol.requests(for: "/guest-players").isEmpty)
+
+        // Baseline moved: saving again with the same name renames nothing —
+        // the recorded rename count stays at the first save's one.
+        let again = await store.saveEdits()
+        XCTAssertTrue(again)
+        XCTAssertEqual(RoundStubURLProtocol.requests(for: "/friendly-rounds/rename-guest").count, 1)
+    }
+
     // MARK: - Helpers
 
     private func canon(_ draft: CompetitionsCreateRoundOutputOkDraft) throws -> String {

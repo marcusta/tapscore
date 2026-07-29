@@ -42,6 +42,16 @@ const ClaimGuestInput = Type.Object({
     guestPlayerId: Type.String(),
 });
 
+// Rename an UNCLAIMED guest in the token's round (edit-setup companion). The
+// name is the only field: index / gender / tee edits ride the draft's
+// producers, but a guest's display name lives on `guest_players` and would
+// otherwise be unreachable from the wizard.
+const RenameGuestInput = Type.Object({
+    token: Type.String(),
+    guestPlayerId: Type.String(),
+    displayName: Type.String({ minLength: 1 }),
+});
+
 // Seat claim (Phase 5.5 Slice 3): bind an identity to a placeholder seat (or
 // rebind an unscored seat-origin producer). `identity` is a tagged union:
 // 'self' pulls everything from the SESSION player's profile (never the body);
@@ -301,6 +311,16 @@ export function createFriendlyRoundsApi(
                 claims.claimGuest({ ...input, playerId: requireUser(c).id }),
             schema: ClaimGuestInput,
             middleware: [requireAuth()],
+        },
+        // NO auth, like the rest of the token front door: the share token is
+        // the write credential, and anyone holding it already controls the
+        // round's whole setup via editSetup — a guest's name is not a new
+        // privilege. Claimed guests are refused (409) in the service.
+        renameGuest: {
+            method: 'POST' as const,
+            path: '/friendly-rounds/rename-guest',
+            fn: (input: Static<typeof RenameGuestInput>) => claims.renameGuest(input),
+            schema: RenameGuestInput,
         },
         // Seat claim/release (Phase 5.5 Slice 3). NO requireAuth, like the
         // token front door: a GUEST claim under `claimBy:'anyone'` is

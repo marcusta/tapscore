@@ -44,6 +44,11 @@ const apiMock = {
             editedDraft = draft;
             return editResult;
         }),
+        renameGuest: mock(async (input: { guestPlayerId: string; displayName: string }) => ({
+            guestPlayerId: input.guestPlayerId,
+            displayName: input.displayName,
+            ballPlayersUpdated: 1,
+        })),
     },
 };
 
@@ -189,6 +194,7 @@ beforeEach(() => {
     editResult = { ok: true, round: { id: 'r1' } };
     apiMock.guestPlayers.create.mockClear();
     apiMock.friendlyRounds.editSetup.mockClear();
+    apiMock.friendlyRounds.renameGuest.mockClear();
 });
 
 // --- Round-trip proof -----------------------------------------------------
@@ -313,6 +319,37 @@ test('changing an existing guest row keeps the SAME guest id (no re-mint)', asyn
     const p2Out = editedDraft.producers.find((p: any) => p.producerDefId === 'p2');
     expect(p2Out.playerRef).toEqual({ kind: 'guest', id: 'guest-A' });
     expect(p2Out.handicapIndex).toBe(6);
+
+    // The rename is NOT in the draft (it carries only the ref) — it must go
+    // through the token-scoped rename endpoint, exactly once, for p2 only.
+    expect(apiMock.friendlyRounds.renameGuest).toHaveBeenCalledTimes(1);
+    expect(apiMock.friendlyRounds.renameGuest).toHaveBeenCalledWith({
+        token: 'tok-live',
+        guestPlayerId: 'guest-A',
+        displayName: 'Renamed',
+    });
+    // Baseline moved: a second submit with the same name renames nothing.
+    editedDraft = null;
+    apiMock.friendlyRounds.renameGuest.mockClear();
+    const again = await svc.submit();
+    expect(again.ok).toBe(true);
+    expect(apiMock.friendlyRounds.renameGuest).toHaveBeenCalledTimes(0);
+});
+
+test('unchanged guest names never touch the rename endpoint (fresh rows included)', async () => {
+    const input = makeStoredDraft();
+    const svc = primedService();
+    applyForms(svc, 'tok-live', input);
+
+    // A freshly-added row is a MINT, not a rename, whatever its name says.
+    svc.addPlayer();
+    const fresh = svc.players.get().at(-1)!;
+    svc.patchPlayer(fresh.key, { name: 'Newcomer', handicapIndex: '15' });
+
+    const res = await svc.submit();
+    expect(res.ok).toBe(true);
+    expect(apiMock.guestPlayers.create).toHaveBeenCalledTimes(1);
+    expect(apiMock.friendlyRounds.renameGuest).toHaveBeenCalledTimes(0);
 });
 
 test('draftToForms recovers preset + start hole from a rotated custom route', () => {

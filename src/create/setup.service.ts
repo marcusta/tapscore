@@ -202,6 +202,12 @@ export interface PlayerForm {
      * so the guest keeps their content-addressed ball (and its scores). Absent
      * on a fresh guest row ⇒ a guest is minted on submit as before. */
     guestPlayerId?: string;
+    /** EDIT MODE only — the display name the guest row was hydrated with.
+     * Submit compares it against the trimmed `name` and renames the stored
+     * guest (token-scoped `renameGuest`) when they differ; without this the
+     * edited name would be silently dropped, because the draft carries only
+     * the guest REF and the server resolves names from `guest_players`. */
+    guestOriginalName?: string;
     /** EDIT MODE only — the producer def-id this row had in the stored draft.
      * Preserved on submit so an unchanged producer keeps a stable def-id (the
      * server's `producer_has_scores` guard reads `ball_players.producer_def_id`).
@@ -2257,6 +2263,28 @@ export class SetupService {
             //    round); success stays on this token. CREATE MODE — POST a new
             //    round to the no-auth front door and return the fresh token.
             if (editToken) {
+                // 2.5. An EXISTING guest whose name field drifted from the
+                //      hydrated baseline: the draft only carries the guest REF,
+                //      so the rename must go through the token-scoped
+                //      rename-guest endpoint or it is silently dropped. Runs
+                //      BEFORE editSetup — its recompile re-snapshots names.
+                for (const p of roster) {
+                    const newName = p.name.trim();
+                    if (!p.guestPlayerId || p.guestOriginalName === undefined) continue;
+                    if (newName === p.guestOriginalName) continue;
+                    await api.friendlyRounds.renameGuest({
+                        token: editToken,
+                        guestPlayerId: p.guestPlayerId,
+                        displayName: newName,
+                    });
+                    // Move the baseline so a retry after editSetup diagnostics
+                    // does not re-send an already-applied rename.
+                    this.players.set(
+                        this.players.get().map((row) =>
+                            row.key === p.key ? { ...row, guestOriginalName: newName } : row,
+                        ),
+                    );
+                }
                 const result = await api.friendlyRounds.editSetup({ token: editToken, draft });
                 if (!result.ok) {
                     this.diagnostics.set(result.diagnostics);

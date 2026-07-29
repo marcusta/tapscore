@@ -225,7 +225,9 @@ export function draftToForms(
             // Preserve the ORIGINAL def-id so an unchanged row keeps its ball.
             producerDefId: p.producerDefId,
             ...(isGuest
-                ? { guestPlayerId: p.playerRef.id }
+                // `guestOriginalName` is the rename baseline: submit renames
+                // the stored guest iff the row's name has drifted from it.
+                ? { guestPlayerId: p.playerRef.id, guestOriginalName: nameFor(p.producerDefId) }
                 : { playerId: p.playerRef.id, genderKnown: p.gender != null }),
         };
     });

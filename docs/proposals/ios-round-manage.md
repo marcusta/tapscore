@@ -297,6 +297,11 @@ When the setup payload says `hasScores == true`:
 - Existing guests keep their guest ids; brand-new guest rows mint a guest via
   the guest-players create endpoint before submit (exactly like
   `CreateStore.submit()` does today for create).
+- Renaming an existing guest goes through the token-scoped
+  `POST /friendly-rounds/rename-guest` endpoint BEFORE `editSetup` (both
+  clients): the draft carries only the guest ref, so a name typed over a
+  hydrated guest row would otherwise be silently dropped. The row keeps the
+  hydrated name as its baseline and renames only on drift.
 - `playedAt` is preserved verbatim from the loaded draft — there is no date
   UI, and the date must not silently become "today".
 

@@ -56,6 +56,15 @@ final class CreateStore {
         var handicapText: String
         var gender: PlayerGender
         var guestPlayerId: String?
+        /// The display name the guest identity behind this row currently has
+        /// server-side — hydrated from the round's balls in edit mode, stamped
+        /// at mint time for a row minted mid-edit. `saveEdits` compares it to
+        /// the trimmed `name` and renames the stored guest through the
+        /// token-scoped rename endpoint when they differ; the draft itself
+        /// carries only the guest REF, so without this the rename would be
+        /// silently dropped. Nil on rows that are not renameable this way
+        /// (real players, create-mode rows with no round token yet).
+        var guestOriginalName: String?
         /// Set for a row that plays as a REAL player — the signed-in owner or a
         /// friend picked from the list. No guest is minted for it (B5.10).
         var playerId: String?
@@ -90,6 +99,7 @@ final class CreateStore {
             handicapText: String = "",
             gender: PlayerGender = .m,
             guestPlayerId: String? = nil,
+            guestOriginalName: String? = nil,
             playerId: String? = nil,
             teeId: String? = nil,
             genderLocked: Bool = false,
@@ -101,6 +111,7 @@ final class CreateStore {
             self.handicapText = handicapText
             self.gender = gender
             self.guestPlayerId = guestPlayerId
+            self.guestOriginalName = guestOriginalName
             self.playerId = playerId
             self.teeId = teeId
             self.genderLocked = genderLocked
@@ -1223,8 +1234,31 @@ final class CreateStore {
                         handicapIndex: .value(players[i].handicapIndex),
                         displayName: players[i].name,
                         gender: row.gender))
-                updatePlayer(id: row.id) { $0.guestPlayerId = guest.id }
+                // The baseline rides the cached id: a save refused and retried
+                // after a further rename must rename, not silently re-submit.
+                updatePlayer(id: row.id) {
+                    $0.guestPlayerId = guest.id
+                    $0.guestOriginalName = guest.displayName
+                }
                 players[i].ref = .guest(guest.id)
+            }
+
+            // An EXISTING guest whose name drifted from the hydrated baseline:
+            // the draft carries only the guest REF, so the rename must go
+            // through the token-scoped rename endpoint or it is silently
+            // dropped. BEFORE `editSetup` — its recompile re-snapshots names.
+            for row in rows {
+                guard let guestId = row.guestPlayerId, let original = row.guestOriginalName
+                else { continue }
+                let newName = row.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard newName != original else { continue }
+                _ = try await api.send(
+                    FriendlyRoundsEndpoints.renameGuest,
+                    FriendlyRoundsRenameGuestInput(
+                        displayName: newName,
+                        guestPlayerId: guestId,
+                        token: token))
+                updatePlayer(id: row.id) { $0.guestOriginalName = newName }
             }
 
             let defIds = assignDefIds(rows: rows)

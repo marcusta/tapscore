@@ -225,6 +225,78 @@ test('POST /friendly-rounds/claim-guest flips the guest to the caller', async ()
     expect(again.status).toBe(409);
 });
 
+// --- Guest rename (edit-setup companion) -------------------------------------
+
+test('POST /friendly-rounds/rename-guest renames the guest and refreshes this round\'s snapshots', async () => {
+    const { ctx, draft } = await setup();
+    const created = await (
+        await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })
+    ).json();
+    const token = created.friendlyRound.shareToken;
+
+    // g1 ("Ivar") is producer p1. No session — the token is the credential.
+    const guestId = (draft.producers[0]!.playerRef as { id: string }).id;
+    const res = await req(ctx.app, 'POST', '/api/friendly-rounds/rename-guest', {
+        token, guestPlayerId: guestId, displayName: '  Ivar Renamed  ',
+    });
+    expect(res.status).toBe(200);
+    const result = await res.json();
+    expect(result.displayName).toBe('Ivar Renamed');
+    expect(result.ballPlayersUpdated).toBe(1);
+
+    // The guest row AND the round's ball snapshot both carry the new name.
+    const guest = await ctx.guestPlayerService.findById(guestId);
+    expect(guest!.displayName).toBe('Ivar Renamed');
+    const balls = await (
+        await req(ctx.app, 'GET', `/api/friendly-rounds/balls?token=${token}`)
+    ).json();
+    const names = balls.flatMap(
+        (b: { players: { displayName: string }[] }) => b.players.map((p) => p.displayName),
+    );
+    expect(names).toContain('Ivar Renamed');
+    expect(names).not.toContain('Ivar');
+});
+
+test('POST /friendly-rounds/rename-guest is token-scoped: a guest from another round is 404', async () => {
+    const { ctx, draft } = await setup();
+    const created = await (
+        await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })
+    ).json();
+    const token = created.friendlyRound.shareToken;
+
+    const outsider = await ctx.guestPlayerService.create({
+        displayName: 'Elsewhere', gender: 'M', handicapIndex: 5,
+    });
+    const res = await req(ctx.app, 'POST', '/api/friendly-rounds/rename-guest', {
+        token, guestPlayerId: outsider.id, displayName: 'Nope',
+    });
+    expect(res.status).toBe(404);
+    expect((await ctx.guestPlayerService.findById(outsider.id))!.displayName).toBe('Elsewhere');
+
+    const unknownToken = await req(ctx.app, 'POST', '/api/friendly-rounds/rename-guest', {
+        token: 'nope', guestPlayerId: outsider.id, displayName: 'Nope',
+    });
+    expect(unknownToken.status).toBe(404);
+});
+
+test('POST /friendly-rounds/rename-guest refuses a claimed guest with 409', async () => {
+    const { ctx, draft } = await setup();
+    const cookie = await loginAs(ctx.app, 'alice', 'password123');
+    const created = await (
+        await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })
+    ).json();
+    const token = created.friendlyRound.shareToken;
+    const guestId = (draft.producers[0]!.playerRef as { id: string }).id;
+
+    await req(ctx.app, 'POST', '/api/friendly-rounds/claim-guest',
+        { token, guestPlayerId: guestId }, cookie);
+
+    const res = await req(ctx.app, 'POST', '/api/friendly-rounds/rename-guest', {
+        token, guestPlayerId: guestId, displayName: 'Too Late',
+    });
+    expect(res.status).toBe(409);
+});
+
 // --- Phase 3.5: cursored result polling + self-join via link -----------------
 
 test('GET /friendly-rounds/result without a cursor returns the full envelope (pre-cursor clients keep working)', async () => {

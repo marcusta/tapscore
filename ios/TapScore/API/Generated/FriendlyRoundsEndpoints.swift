@@ -57,6 +57,10 @@ enum FriendlyRoundsEndpoints {
         method: .post,
         path: "/friendly-rounds/claim-guest",
         pathParams: [])
+    static let renameGuest = APIEndpoint<FriendlyRoundsRenameGuestInput, RenameGuestResult>(
+        method: .post,
+        path: "/friendly-rounds/rename-guest",
+        pathParams: [])
     static let claimSeat = APIEndpoint<FriendlyRoundsClaimSeatInput, FriendlyRoundsEditSetupOutput>(
         method: .post,
         path: "/friendly-rounds/claim-seat",
