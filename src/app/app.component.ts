@@ -43,6 +43,7 @@ export class AppComponent extends Component {
             /* The account slot. Its popover is absolutely positioned inside the
                menu component, so the header must not clip or under-stack it. */
             & .app-shell__header {
+                grid-row: 1;
                 position: relative;
                 z-index: 20;
                 display: flex;
@@ -53,8 +54,17 @@ export class AppComponent extends Component {
             }
 
             & .app-shell__content {
+                grid-row: 2;
                 overflow-y: auto;
                 -webkit-overflow-scrolling: touch;
+            }
+
+            /* Keep shell children in their declared tracks when route chrome is
+               display:none. Without explicit placement, hiding the header makes
+               grid auto-placement shift content into the auto-sized first row
+               and the empty nav host into 1fr, stranding /round's dock mid-page. */
+            & .app-shell__nav {
+                grid-row: 3;
             }
         }
     `;
