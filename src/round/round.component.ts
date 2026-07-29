@@ -15,12 +15,10 @@ import { LeaderboardComponent } from './leaderboard.component';
 import { ClaimCardComponent } from './claim-card.component';
 import { SeatCardComponent } from './seat-card.component';
 import { JoinCardComponent } from './join-card.component';
-import { EditCardComponent } from './edit-card.component';
-import { LeaveCardComponent } from './leave-card.component';
+import { ManageOverlayComponent } from './manage-overlay.component';
 import { formatLabelFromSlot } from './slot-labels';
 import { shouldPoll, shouldRefreshOnVisibility } from './poll-gate';
 import { startLiveResult, type LiveResultFeed } from './live-result';
-import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import type { FormatSlot } from '../api/rounds.gen';
 
 type Tab = 'score' | 'leaderboard';
@@ -48,7 +46,10 @@ const tpl = template(`
             <div bind="body" class="round-view__body">
                 <header class="round-view__head">
                     <h1 bind="course"></h1>
-                    <span bind="status" class="round-view__status"></span>
+                    <div class="round-view__chrome">
+                        <span bind="status" class="round-view__status"></span>
+                        <button bind="manageBtn" class="round-view__manage" type="button" aria-label="Manage round">⋯</button>
+                    </div>
                 </header>
                 <div class="round-view__meta">
                     <span bind="date"></span>
@@ -70,15 +71,8 @@ const tpl = template(`
                     </div>
 
                     <div bind="seats"></div>
-                    <div bind="edit"></div>
                     <div bind="claim"></div>
                     <div bind="join"></div>
-
-                    <div bind="leave"></div>
-                    <button bind="finishBtn" class="round-view__finish" type="button"></button>
-                    <button bind="deleteBtn" class="round-view__delete" type="button">Delete round</button>
-                    <div bind="confirmHost"></div>
-                    <div bind="finishConfirmHost"></div>
                 </div>
 
                 <div bind="lbPanel" class="round-view__panel hidden">
@@ -86,6 +80,8 @@ const tpl = template(`
                 </div>
             </div>
         </div>
+
+        <div bind="manageHost"></div>
 
         <div bind="dock" class="round-view__dock hidden">
             <div bind="holebar" class="round-hole hidden">
@@ -154,7 +150,7 @@ export class RoundComponent extends Component {
             & .round-view__head {
                 display: flex;
                 justify-content: space-between;
-                align-items: baseline;
+                align-items: center;
                 gap: ${s('md')};
 
                 & h1 {
@@ -165,6 +161,35 @@ export class RoundComponent extends Component {
                     letter-spacing: -0.02em;
                     color: ${t('text')};
                 }
+            }
+
+            /* Header chrome: the status badge and the "⋯" manage affordance,
+               which is the single entry point to every round-level management
+               action (edit / leave / finish / delete). It lives HERE, not in
+               the score panel, so it is reachable from both tabs. */
+            & .round-view__chrome {
+                display: flex;
+                align-items: center;
+                gap: ${s('xs')};
+                flex-shrink: 0;
+            }
+
+            & .round-view__manage {
+                &.hidden { display: none; }
+                width: 44px;
+                height: 44px;
+                flex-shrink: 0;
+                background: none;
+                border: none;
+                border-radius: ${t('radius-pill')};
+                font-family: inherit;
+                font-size: 1.5rem;
+                line-height: 1;
+                color: ${t('text-muted')};
+                cursor: pointer;
+
+                &:hover, &:active { background: ${t('surface-sunken')}; color: ${t('text')}; }
+                &:focus-visible { outline: 2px solid ${t('accent')}; outline-offset: 2px; }
             }
 
             & .round-view__status {
@@ -282,54 +307,6 @@ export class RoundComponent extends Component {
                     color: ${t('text-muted')};
                 }
             }
-
-            /* Finish / reopen: a secondary action above the danger zone. A
-               bordered ghost button in the neutral text tone — clearly an
-               action, but never competing with the primary Score/Board flow. */
-            & .round-view__finish {
-                width: 100%;
-                margin-top: ${s('2xl')};
-                padding: ${s('md')};
-                background: none;
-                border: 1px solid ${t('border')};
-                border-radius: ${t('radius')};
-                font-family: inherit;
-                font-size: 0.9rem;
-                font-weight: 700;
-                color: ${t('text')};
-                cursor: pointer;
-
-                &:hover, &:active { border-color: ${t('text-muted')}; }
-                &:focus-visible { outline: 2px solid ${t('accent')}; outline-offset: 2px; }
-                &:disabled { opacity: 0.5; cursor: default; }
-            }
-
-            /* Danger zone: last thing on the score panel, visually quiet —
-               a bordered ghost button in the error tone, never a filled CTA. */
-            & .round-view__delete {
-                width: 100%;
-                /* Sits right under Finish, so a tighter gap than the 2xl that
-                   used to separate it from the share card. */
-                margin-top: ${s('md')};
-                padding: ${s('md')};
-                background: none;
-                border: 1px solid ${t('border')};
-                border-radius: ${t('radius')};
-                font-family: inherit;
-                font-size: 0.9rem;
-                font-weight: 700;
-                color: ${t('error')};
-                cursor: pointer;
-
-                &:hover, &:active { border-color: ${t('error')}; }
-                &:focus-visible { outline: 2px solid ${t('error')}; outline-offset: 2px; }
-                &:disabled { opacity: 0.5; cursor: default; }
-            }
-        }
-
-        /* App-level accessibility override for the framework confirm dialog. */
-        @media (prefers-reduced-motion: reduce) {
-            .ui-confirm { transition: none; }
         }
 
         /* --- Pinned bottom dock: orange hole bar + Score/Leaderboard tabs --- */
@@ -426,12 +403,8 @@ export class RoundComponent extends Component {
 
     private hasRound = new Computed(() => this.svc.round.get() !== null);
     private hasScoring = new Computed(() => this.svc.balls.get().length > 0);
-    /** Delete-round confirmation dialog visibility. */
-    private deleteOpen = new Signal(false);
-    /** Finish/reopen confirmation dialog visibility. */
-    private finishOpen = new Signal(false);
-    /** True when the loaded round is finished (drives Finish ⇄ Reopen). */
-    private isComplete = new Computed(() => this.svc.round.get()?.status === 'complete');
+    /** "Manage round" sheet visibility — owned here, opened by the header "⋯". */
+    private manageOpen = new Signal(false);
 
     private shareUrl = new Computed(() => {
         const token = this.tokenQ.get();
@@ -719,14 +692,12 @@ export class RoundComponent extends Component {
             copy: {
                 onclick: () => void navigator.clipboard?.writeText(this.shareUrl.get()),
             },
-            finishBtn: {
-                textContent: () => (this.isComplete.get() ? 'Reopen round' : 'Finish round'),
-                onclick: () => this.finishOpen.set(true),
-                disabled: () => this.svc.finishing.get(),
-            },
-            deleteBtn: {
-                onclick: () => this.deleteOpen.set(true),
-                disabled: () => this.svc.deleting.get(),
+            // Header chrome only exists for a loaded round — the manage sheet
+            // has nothing to act on before that.
+            manageBtn: {
+                className: () =>
+                    this.hasRound.get() ? 'round-view__manage' : 'round-view__manage hidden',
+                onclick: () => this.manageOpen.set(true),
             },
 
             // Bottom dock — only meaningful once a round has loaded. Hidden
@@ -811,9 +782,6 @@ export class RoundComponent extends Component {
         // may release). Affordances render strictly from the server's policy
         // decision (`startList.viewer.claimSeat` / `.claimSeatAsGuest`).
         this.spawn(SeatCardComponent, this.ref(frag, 'seats'));
-        // Phase 3.5: the edit-round affordance — self-hiding unless the server's
-        // setup() says this round is editable (not-started/active, from a draft).
-        this.spawn(EditCardComponent, this.ref(frag, 'edit'));
         // Phase 3: the guest-claim affordance — self-hiding (logged-out /
         // no unclaimed guests / viewer already plays here ⇒ renders nothing).
         this.spawn(ClaimCardComponent, this.ref(frag, 'claim'));
@@ -822,61 +790,15 @@ export class RoundComponent extends Component {
         // nothing). Distinct action from claim above: claim flips an existing
         // guest row, join mints a brand new producer — both can show together.
         this.spawn(JoinCardComponent, this.ref(frag, 'join'));
-        // Phase 3.5: the leave-round affordance — the FIRST identity-gated,
-        // self-scoped mutation. Self-hiding (logged-out / viewer not a
-        // producer ⇒ renders nothing). Distinct from "Delete round" below:
-        // leave removes ONLY the caller's producer + ball + scores; delete
-        // destroys the whole round for everyone.
-        this.spawn(LeaveCardComponent, this.ref(frag, 'leave'));
 
-        // Delete-round confirmation. Same trust boundary as scoring — the
-        // token is the credential, so no identity gate. On success the round
-        // is gone for everyone; navigate home.
-        this.spawn(ConfirmComponent, this.ref(frag, 'confirmHost'), {
-            open: this.deleteOpen,
-            title: 'Delete round?',
-            message:
-                "This permanently removes the round and all its scores for everyone. This can't be undone.",
-            confirmLabel: 'Delete',
-            cancelLabel: 'Cancel',
-            danger: true,
-            onconfirm: () => {
-                void this.svc.deleteRound().then((ok) => {
-                    if (ok) this.router.navigate('/');
-                });
-            },
+        // "Manage round" (2026-07-29): edit / leave / finish-reopen / delete,
+        // with their confirmations and the inline failure line. It owns all of
+        // them, so this view keeps only the header button that opens it. Hosted
+        // outside the tab panels — it is header chrome, reachable from Score and
+        // Leaderboard alike.
+        this.spawn(ManageOverlayComponent, this.ref(frag, 'manageHost'), {
+            open: this.manageOpen,
         });
-
-        // Finish / reopen confirmation. Finish is PURELY ORGANIZATIONAL — the
-        // round stays editable + scorable; it just moves to "Recently finished".
-        // On a complete round the same control offers Reopen instead.
-        // One dialog serves both actions. `title`/`confirmLabel` are static
-        // (the framework reads them once), so they stay neutral; the reactive
-        // `message` carries the finish-vs-reopen wording, and the button that
-        // opened it already reads "Finish round" / "Reopen round".
-        this.spawn(ConfirmComponent, this.ref(frag, 'finishConfirmHost'), {
-            open: this.finishOpen,
-            title: 'Finish or reopen round',
-            message: () =>
-                this.isComplete.get()
-                    ? "Reopen this round? It'll move back to your ongoing rounds."
-                    : "Finish this round? It'll move to your finished rounds. You can still edit or reopen it any time.",
-            cancelLabel: 'Cancel',
-            onconfirm: () => {
-                // Snapshot which action before the round's status flips.
-                if (this.isComplete.get()) void this.svc.reopenRound();
-                else void this.svc.finishRound();
-            },
-        });
-
-        // Escape cancels either confirm dialog (backdrop click already cancels
-        // via the framework overlay).
-        const onKeydown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && this.deleteOpen.get()) this.deleteOpen.set(false);
-            if (e.key === 'Escape' && this.finishOpen.get()) this.finishOpen.set(false);
-        };
-        window.addEventListener('keydown', onKeydown);
-        this.track(() => window.removeEventListener('keydown', onKeydown));
 
         return frag;
     }

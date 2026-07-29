@@ -358,6 +358,65 @@ groups are pruned and everything else is untouched.
 
 ---
 
+## Part C — web adopts the manage sheet (owner ruling 2026-07-29)
+
+The iOS design won: management actions belong behind one "Manage round"
+affordance, not a card stack at the bottom of the score tab. The web round
+view adopts it. Behavior is unchanged — this is a relocation plus the iOS
+copy refinements.
+
+### C1. Entry point
+
+- The round view header gains a manage button ("⋯", `aria-label="Manage
+  round"`), rendered only once the round has loaded, visually aligned with
+  the existing header chrome. Reachable from both tabs (it is header chrome,
+  unlike the old score-panel stack).
+
+### C2. The manage overlay
+
+- Opens a modal overlay styled like the app's existing raised surfaces
+  (mobile-first: bottom-sheet feel is fine, a centered panel is fine —
+  match existing overlay idioms). Title **"Manage round"**, a close
+  affordance, backdrop click and Escape both close it.
+- Rows, in order, absent-not-disabled, each with title + muted subtitle
+  (adopt the iOS row copy):
+  1. **"Edit round"** — "Change the course, players or formats. Scores
+     already taken are kept." Shown iff the setup probe returned
+     `editable:true` (same probe the edit card uses today). Navigates to
+     `/create?token=` exactly as the old card did.
+  2. **"Remove me from this round"** (danger) — "Your scores here will be
+     deleted. Everyone else's stay." Shown per `canShowLeaveCard` — logic
+     and diagnostics rendering move here from the leave card.
+  3. **"Finish round"** / **"Reopen round"** — "Move it to your finished
+     rounds. Nothing is locked." / "Move it back to your ongoing rounds."
+  4. **"Delete round"** (danger) — "Removes the round and every score in
+     it, for everyone."
+
+### C3. Confirmations and effects
+
+- Reuse the existing `RoundViewService` methods and Confirm dialogs, with
+  the iOS split copy for finish/reopen: title **"Finish this round?"** /
+  **"Reopen this round?"**, messages as today's web sentences, confirm
+  labels **"Finish round"** / **"Reopen round"** (replacing the generic
+  "Confirm"). Delete and leave dialogs keep their current copy.
+- All post-action effects unchanged (device rounds, navigation, reload).
+- Action failures render as an inline error line in the overlay (adopt the
+  iOS improvement; finish/reopen failures are no longer silent).
+
+### C4. Removal
+
+- The old bottom-stack `edit`, `leave` cards and inline `finishBtn` /
+  `deleteBtn` (and their bindings) are removed from the score panel.
+  Share card, seats, claim and join cards stay where they are.
+
+### C5. Definition of done
+
+- `bun run check:client` + `bun run test:client` green; any tests naming
+  the removed bindings updated.
+- Verified in the browser, both themes, mobile viewport: overlay opens from
+  both tabs, rows gate correctly, finish/reopen/delete/leave flows work.
+- `public/` rebuilt and committed with the change (deploy artifact rule).
+
 ## Out of scope (do not build)
 
 - Seat claim/release UI (`claimSeat`/`releaseSeat`) — separate feature.
