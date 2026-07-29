@@ -143,6 +143,7 @@ struct ProfileView: View {
                 .accessibilityIdentifier("profile-refresh-error")
         }
         historySection(store)
+        statsSection(store)
     }
 
     /// Read-only, and the `@username` is the load-bearing half — two accounts
@@ -312,6 +313,114 @@ struct ProfileView: View {
         .accessibilityIdentifier("profile-history-row")
     }
 
+    // MARK: - Statistics
+
+    /// The stats configuration (spec §3): a master switch and the six modules
+    /// it governs.
+    ///
+    /// Every tap is a save — the endpoint is whole-config, so each toggle PUTs
+    /// the complete snapshot, exactly like the gender chips POST on tap. There
+    /// is no Save button to add: a switch that needs confirming is a switch
+    /// that answered its own question twice.
+    ///
+    /// The module rows are INDENTED under the master, because they are not six
+    /// more profile facts — they are the contents of the one above them, and
+    /// they are dead while it is off.
+    private func statsSection(_ store: ProfileStore) -> some View {
+        VStack(alignment: .leading, spacing: TapSpacing.sm) {
+            SectionHeader(title: "Statistics")
+            TapCard {
+                VStack(alignment: .leading, spacing: TapSpacing.md) {
+                    statsRow(
+                        store,
+                        title: "Track statistics",
+                        hint: ProfileCopy.statsHint,
+                        annotation: nil,
+                        isOn: store.statsConfig.enabled,
+                        isLocked: false,
+                        identifier: "profile-stats-master",
+                        change: { on in store.statsConfig.settingEnabled(on) })
+                    Rectangle()
+                        .fill(TapColors.border)
+                        .frame(height: 1)
+                    VStack(alignment: .leading, spacing: TapSpacing.md) {
+                        ForEach(StatsModule.allCases, id: \.self) { module in
+                            statsRow(
+                                store,
+                                title: module.title,
+                                hint: module.hint,
+                                annotation: store.statsConfig.annotation(module),
+                                isOn: store.statsConfig.isOn(module),
+                                isLocked: store.statsConfig.isLocked(module),
+                                identifier: "profile-stats-\(module.rawValue)",
+                                change: { on in store.statsConfig.setting(module, to: on) })
+                        }
+                    }
+                    .padding(.leading, TapSpacing.md)
+                    if let statsError = store.statsError {
+                        Text(statsError)
+                            .font(TapFont.ui(size: 13.6))
+                            .foregroundStyle(TapColors.danger)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("profile-stats-error")
+                    }
+                }
+                .padding(TapSpacing.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .accessibilityIdentifier("profile-stats")
+    }
+
+    /// One switch row. `change` returns the WHOLE next configuration rather
+    /// than a boolean, so the dependency cascade (turning putting off takes
+    /// short game with it) is decided in `StatsConfigForm` and never here.
+    ///
+    /// No manual `.opacity` for the disabled state, unlike the chips and the
+    /// dropdown above: `Toggle` is a system control and dims itself and its
+    /// label on `.disabled`. The custom `.plain` button styles are the ones
+    /// that need the hand-rolled dimming.
+    private func statsRow(
+        _ store: ProfileStore,
+        title: String,
+        hint: String,
+        annotation: String?,
+        isOn: Bool,
+        isLocked: Bool,
+        identifier: String,
+        change: @escaping (Bool) -> StatsConfigForm
+    ) -> some View {
+        Toggle(
+            isOn: Binding(
+                get: { isOn },
+                set: { on in Task { await store.saveStats(change(on)) } })
+        ) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: TapSpacing.sm) {
+                    Text(title)
+                        .font(TapFont.ui(size: 16, weight: .semibold))
+                        .foregroundStyle(TapColors.text)
+                    // The unmet dependency, in words — "Needs Putting". The
+                    // row is disabled either way; this is the half that says
+                    // which switch to move to get it back.
+                    if let annotation {
+                        Text(annotation)
+                            .font(TapFont.ui(size: 12.8))
+                            .foregroundStyle(TapColors.textMuted)
+                    }
+                }
+                Text(hint)
+                    .font(TapFont.ui(size: 12.8))
+                    .foregroundStyle(TapColors.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .tint(TapColors.accentStrong)
+        .disabled(isLocked || store.isSaving)
+        .accessibilityIdentifier(identifier)
+    }
+
     // MARK: - Card shell
 
     /// Label, control, hint, and the inline failure — the web's `.profile__card`
@@ -360,6 +469,12 @@ enum ProfileCopy {
         "Shown next to your name when someone searches for you — how they tell you from the other John Smith."
     static let handicapHint =
         "Maintained by you — each save is recorded below with its effective date."
+    /// The master switch's hint. It says the two things a player cannot infer
+    /// from a switch: that answering happens DURING a round, and that turning
+    /// it off keeps the module picks (spec §3 — the master exists so "off" is
+    /// not "start over").
+    static let statsHint =
+        "Adds a few taps per hole while you score — turn it off any time, your picks are kept."
     static let historyEmpty =
         "No entries yet — save an index to start the chain."
     static let notAuthorized =

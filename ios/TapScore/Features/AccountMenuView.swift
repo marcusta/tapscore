@@ -268,7 +268,7 @@ struct AccountSheetView: View {
     private var profileRow: some View {
         row(
             title: "Profile",
-            detail: "Gender, home club and handicap index",
+            detail: "Gender, home club, handicap index and statistics",
             identifier: "profile-row"
         ) { showsProfile = true }
     }

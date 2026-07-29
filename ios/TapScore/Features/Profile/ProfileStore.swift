@@ -33,13 +33,19 @@ final class ProfileStore {
         case failed(String)
     }
 
-    /// Which control has a save in flight. One value for all three, because the
-    /// UI disables ALL of them while any save runs (web parity) — two of these
-    /// at once would be two writes racing over the same `Player`.
+    /// Which control has a save in flight. One value for all of them, because
+    /// the UI disables ALL of them while any save runs (web parity) — two of
+    /// these at once would be two writes racing over the same `Player`.
+    ///
+    /// `stats` writes a different row than the other three (`player_stats_config`,
+    /// not `players`), but it joins the same lock rather than getting its own:
+    /// one screen, one save at a time is the rule the user can see, and a
+    /// second in-flight state would mean two spinners and two disabled sets.
     enum SaveTarget: Equatable {
         case gender
         case homeClub
         case handicap
+        case stats
     }
 
     /// The rejection copy for an out-of-range index, character for character the
@@ -64,6 +70,13 @@ final class ProfileStore {
     private(set) var history: [HandicapEntry] = []
     private(set) var clubs: [Club] = []
 
+    /// The Statistics section's server truth — what the last successful GET or
+    /// PUT returned. The section renders from THIS and never from a local
+    /// mirror of the switches, which is what makes a failed save revert: the
+    /// toggle is a computed view of the row the server holds, so a PUT that did
+    /// not land leaves it where it was.
+    private(set) var statsConfig: StatsConfigForm = .allOff
+
     private(set) var saving: SaveTarget?
 
     // Errors are PER SURFACE, unlike the web's single shared `saveError` string
@@ -73,6 +86,7 @@ final class ProfileStore {
     private(set) var genderError: String?
     private(set) var clubError: String?
     private(set) var handicapError: String?
+    private(set) var statsError: String?
 
     /// Set when a handicap save SUCCEEDED but the forced reload after it failed.
     /// A separate slot from `handicapError` because the two states demand
@@ -118,11 +132,19 @@ final class ProfileStore {
     func load() async {
         phase = .loading
         refreshError = nil
+        statsError = nil
         do {
             async let me = api.send(PlayersEndpoints.me)
             async let chain = api.send(PlayersEndpoints.myHandicapHistory)
             async let clubList = api.send(ClubsEndpoints.list)
-            let (loadedMe, loadedHistory, loadedClubs) = try await (me, chain, clubList)
+            // A fourth required read, on the same all-or-nothing terms as the
+            // other three. `GET /players/me/stats-config` answers for a player
+            // who has never configured anything — an absent row is the default
+            // "off, nothing chosen" config, not a 404 — so there is no
+            // never-configured branch to write here.
+            async let config = api.send(PlayerStatsEndpoints.myConfig)
+            let (loadedMe, loadedHistory, loadedClubs, loadedConfig) =
+                try await (me, chain, clubList, config)
             // `/players/me` answers `null` for a request the server could not
             // attribute to a player. There is no profile to show and no error
             // worth wording — it is the same "this session may not read this"
@@ -134,6 +156,7 @@ final class ProfileStore {
             player = loadedMe
             history = loadedHistory
             clubs = loadedClubs
+            statsConfig = StatsConfigForm(loadedConfig)
             phase = .ready
         } catch {
             phase = Self.phase(for: error)
@@ -262,6 +285,36 @@ final class ProfileStore {
                 player = patched
                 onProfileUpdated?(patched)
             }
+        }
+    }
+
+    // MARK: - Statistics
+
+    /// Save a whole stats configuration — one PUT per toggle tap, because the
+    /// endpoint replaces the row wholesale and there is no per-module write.
+    ///
+    /// Callers pass a form built with `setting(_:to:)` / `settingEnabled(_:)`,
+    /// which have already applied the dependency cascade, so a combination the
+    /// server would 409 never leaves this device.
+    ///
+    /// DOWNSTREAM, and deliberately not handled here: the capture prompts read
+    /// their modules LIVE from `GET /friendly-rounds/stats-configs` on the
+    /// round token (spec §3, "read live at prompt time"), never from this
+    /// screen's state. So a change made mid-round takes effect on the next
+    /// hole's step with no cache to invalidate and no message to pass — and
+    /// equally, nothing here can make an open round's step update on the spot.
+    func saveStats(_ next: StatsConfigForm) async {
+        guard saving == nil else { return }
+        saving = .stats
+        statsError = nil
+        defer { saving = nil }
+        do {
+            statsConfig = StatsConfigForm(
+                try await api.send(PlayerStatsEndpoints.putMyConfig, next.input))
+        } catch {
+            // `statsConfig` is untouched, so the switch the user just moved
+            // snaps back to the row the server still holds. That IS the revert.
+            statsError = APIErrorCopy.short(error)
         }
     }
 

@@ -55,12 +55,35 @@ final class ProfileStoreTests: XCTestCase {
     /// routed BEFORE `/players/me`, because the stub matches on path SUFFIX and
     /// the shorter path is a suffix of neither — but the ordering keeps the
     /// intent readable.
+    /// A stats config as the server writes it. The `absentConfig` a
+    /// never-configured player gets is this with every flag false — the GET has
+    /// no 404 branch, which is why the store has no never-configured branch.
+    private static func statsConfig(
+        enabled: Bool = false,
+        tee: Bool = false,
+        approach: Bool = false,
+        putting: Bool = false,
+        shortGame: Bool = false,
+        penalties: Bool = false,
+        recovery: Bool = false,
+        updatedAt: String? = nil
+    ) -> String {
+        let stamp = updatedAt.map { "\"\($0)\"" } ?? "null"
+        return """
+        {"playerId":"p-1","enabled":\(enabled),"tee":\(tee),"approach":\(approach),
+         "putting":\(putting),"shortGame":\(shortGame),"penalties":\(penalties),
+         "recovery":\(recovery),"updatedAt":\(stamp)}
+        """
+    }
+
     private func routeLoad(
         me: String = ProfileStoreTests.player(),
         history: String = "[]",
-        clubs: String = ProfileStoreTests.clubsJSON
+        clubs: String = ProfileStoreTests.clubsJSON,
+        stats: String = ProfileStoreTests.statsConfig()
     ) {
         RoundStubURLProtocol.route("/players/me/handicap-history", history)
+        RoundStubURLProtocol.route("/players/me/stats-config", method: "GET", stats)
         RoundStubURLProtocol.route("/players/me", method: "GET", me)
         RoundStubURLProtocol.route("/clubs", clubs)
     }
@@ -489,6 +512,195 @@ final class ProfileStoreTests: XCTestCase {
         await store.saveGender(.f)
 
         XCTAssertNil(box.player)
+    }
+
+    // MARK: - 6. Statistics configuration
+
+    /// The never-configured case, which the server answers rather than 404s:
+    /// every switch off, and nothing on screen that says "not set up yet".
+    @MainActor
+    func testANeverConfiguredPlayerReadsAsAllOff() async {
+        routeLoad()
+        let store = makeStore()
+
+        await store.load()
+
+        XCTAssertEqual(store.phase, .ready)
+        XCTAssertEqual(store.statsConfig, .allOff)
+        XCTAssertNil(store.statsError)
+    }
+
+    @MainActor
+    func testTheLoadedConfigIsWhatTheSectionDraws() async {
+        routeLoad(stats: Self.statsConfig(
+            enabled: true, tee: true, putting: true, shortGame: true,
+            updatedAt: "2026-07-29T09:00:00.000Z"))
+        let store = makeStore()
+
+        await store.load()
+
+        XCTAssertTrue(store.statsConfig.enabled)
+        XCTAssertTrue(store.statsConfig.isOn(.shortGame))
+        XCTAssertFalse(store.statsConfig.isOn(.approach))
+        // Recovery has its prerequisite (tee) — it is off, but it is not locked.
+        XCTAssertFalse(store.statsConfig.isLocked(.recovery))
+    }
+
+    /// The endpoint replaces the row wholesale, so one tap sends all seven
+    /// booleans — including the six the tap did not touch.
+    @MainActor
+    func testATogglePutsTheWholeSnapshot() async {
+        routeLoad(stats: Self.statsConfig(enabled: true, tee: true))
+        RoundStubURLProtocol.route(
+            "/players/me/stats-config", method: "PUT",
+            Self.statsConfig(enabled: true, tee: true, putting: true))
+        let store = makeStore()
+        await store.load()
+
+        await store.saveStats(store.statsConfig.setting(.putting, to: true))
+
+        let body = lastBody("/players/me/stats-config")
+        XCTAssertEqual(body?["enabled"] as? Bool, true)
+        XCTAssertEqual(body?["tee"] as? Bool, true)
+        XCTAssertEqual(body?["putting"] as? Bool, true)
+        XCTAssertEqual(body?["approach"] as? Bool, false)
+        XCTAssertEqual(body?["shortGame"] as? Bool, false)
+        XCTAssertEqual(body?["penalties"] as? Bool, false)
+        XCTAssertEqual(body?["recovery"] as? Bool, false)
+        // The response is adopted, not the optimistic value — the server is
+        // what this section renders.
+        XCTAssertTrue(store.statsConfig.isOn(.putting))
+        XCTAssertNil(store.statsError)
+    }
+
+    /// THE ASSERTION THIS TEST EXISTS FOR: `{shortGame: true, putting: false}`
+    /// is a 409 (`stats_module_dependency`), so the client must never send it.
+    /// Turning putting off carries short game down in the SAME request.
+    @MainActor
+    func testTurningOffAPrerequisiteTakesItsDependentInOnePut() async {
+        routeLoad(stats: Self.statsConfig(enabled: true, putting: true, shortGame: true))
+        RoundStubURLProtocol.route(
+            "/players/me/stats-config", method: "PUT", Self.statsConfig(enabled: true))
+        let store = makeStore()
+        await store.load()
+
+        await store.saveStats(store.statsConfig.setting(.putting, to: false))
+
+        let body = lastBody("/players/me/stats-config")
+        XCTAssertEqual(body?["putting"] as? Bool, false)
+        XCTAssertEqual(body?["shortGame"] as? Bool, false)
+        XCTAssertEqual(RoundStubURLProtocol.requests(for: "/players/me/stats-config").count, 2)
+    }
+
+    /// Same rule, other pair: recovery is only ever asked after a trouble tee
+    /// shot, so it cannot outlive the tee module.
+    @MainActor
+    func testTurningOffTeeTakesRecoveryWithIt() async {
+        routeLoad(stats: Self.statsConfig(enabled: true, tee: true, recovery: true))
+        RoundStubURLProtocol.route(
+            "/players/me/stats-config", method: "PUT", Self.statsConfig(enabled: true))
+        let store = makeStore()
+        await store.load()
+
+        await store.saveStats(store.statsConfig.setting(.tee, to: false))
+
+        let body = lastBody("/players/me/stats-config")
+        XCTAssertEqual(body?["tee"] as? Bool, false)
+        XCTAssertEqual(body?["recovery"] as? Bool, false)
+    }
+
+    /// Spec §3: the master switch exists so "completely off" is not "start
+    /// over". The PUT carries `enabled: false` with every module boolean
+    /// unchanged, and the server preserves them.
+    @MainActor
+    func testTheMasterSwitchPreservesTheModules() async {
+        routeLoad(stats: Self.statsConfig(
+            enabled: true, tee: true, putting: true, shortGame: true, recovery: true))
+        RoundStubURLProtocol.route(
+            "/players/me/stats-config", method: "PUT",
+            Self.statsConfig(
+                enabled: false, tee: true, putting: true, shortGame: true, recovery: true))
+        let store = makeStore()
+        await store.load()
+
+        await store.saveStats(store.statsConfig.settingEnabled(false))
+
+        let body = lastBody("/players/me/stats-config")
+        XCTAssertEqual(body?["enabled"] as? Bool, false)
+        XCTAssertEqual(body?["tee"] as? Bool, true)
+        XCTAssertEqual(body?["shortGame"] as? Bool, true)
+        XCTAssertEqual(body?["recovery"] as? Bool, true)
+        XCTAssertFalse(store.statsConfig.enabled)
+        // Off, but not forgotten — and every row now locked.
+        XCTAssertTrue(store.statsConfig.isOn(.shortGame))
+        XCTAssertTrue(StatsModule.allCases.allSatisfy(store.statsConfig.isLocked))
+    }
+
+    /// A refused save leaves the section showing what the server holds — there
+    /// is no local mirror to be stranded ahead of it — and says why.
+    @MainActor
+    func testAFailedStatsSaveRevertsToServerTruthAndSaysSo() async {
+        routeLoad(stats: Self.statsConfig(enabled: true))
+        RoundStubURLProtocol.route(
+            "/players/me/stats-config", method: "PUT", status: 500, "{\"error\":\"boom\"}")
+        let store = makeStore()
+        await store.load()
+
+        await store.saveStats(store.statsConfig.setting(.putting, to: true))
+
+        XCTAssertFalse(store.statsConfig.isOn(.putting), "the switch snaps back")
+        XCTAssertEqual(store.statsError, "boom (HTTP 500)")
+        XCTAssertNil(store.saving)
+    }
+
+    /// One save at a time across the WHOLE screen: the stats PUT joins the same
+    /// lock the three profile writes share, so a tap during a gender save is
+    /// dropped rather than raced.
+    @MainActor
+    func testAStatsSaveIsRefusedWhileAnotherSaveIsInFlight() async {
+        routeLoad()
+        let gate = RoundStubURLProtocol.gate("/players/me/profile")
+        RoundStubURLProtocol.route("/players/me/profile", Self.player(gender: "F"))
+        RoundStubURLProtocol.route(
+            "/players/me/stats-config", method: "PUT", Self.statsConfig(enabled: true))
+        let store = makeStore()
+        await store.load()
+
+        let gender = Task { await store.saveGender(.f) }
+        // Bounded, for the reason the sibling test spells out: an unbounded
+        // spin would hang the bundle instead of failing it.
+        for _ in 0..<5000 where !store.isSaving { await Task.yield() }
+        guard store.isSaving else {
+            gate.signal()
+            gender.cancel()
+            return XCTFail("timed out waiting for the gender save to go in flight")
+        }
+
+        await store.saveStats(store.statsConfig.settingEnabled(true))
+        gate.signal()
+        await gender.value
+
+        XCTAssertEqual(store.saving, nil)
+        XCTAssertFalse(store.statsConfig.enabled)
+        XCTAssertTrue(
+            RoundStubURLProtocol.requests(for: "/players/me/stats-config")
+                .allSatisfy { $0.method == "GET" },
+            "the dropped tap sent nothing")
+    }
+
+    /// The config read is session-scoped like the rest of the screen, so a dead
+    /// bearer on THAT endpoint is the same state, not a stats-only error.
+    @MainActor
+    func testAn401OnTheConfigReadIsTheNotAuthorizedPhase() async {
+        RoundStubURLProtocol.route("/players/me/handicap-history", "[]")
+        RoundStubURLProtocol.route("/players/me", method: "GET", Self.player())
+        RoundStubURLProtocol.route("/clubs", Self.clubsJSON)
+        RoundStubURLProtocol.route("/players/me/stats-config", method: "GET", status: 401, "{}")
+        let store = makeStore()
+
+        await store.load()
+
+        XCTAssertEqual(store.phase, .notAuthorized)
     }
 
     /// `AppEnvironment.apply(profile:)` replaces the player in place and does
