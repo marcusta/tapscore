@@ -1,6 +1,29 @@
 import Foundation
 @testable import TapScore
 
+// MARK: - Deterministic ids
+
+/// A monotonic id source for the offline queues — deterministic like a constant
+/// provider, but WITHOUT the constant provider's lie. Stat events are batched,
+/// so one flush mints several ids at once; a constant provider gives them all
+/// the same `clientEventId`, which the stub happily accepts and the real server
+/// rejects (`stat_duplicate_client_event_id`). Anything asserting on batch ids
+/// must therefore use this.
+func sequentialIDs(_ prefix: String) -> @Sendable () -> String {
+    final class Counter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var n = 0
+        func next() -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            n += 1
+            return n
+        }
+    }
+    let counter = Counter()
+    return { "\(prefix)-\(counter.next())" }
+}
+
 // MARK: - Routing stub
 
 /// A `URLProtocol` that answers per PATH rather than with one canned body.
@@ -535,6 +558,65 @@ enum RoundFixtures {
             "appliesWhen":{"minPar":4}}]}},
       "defaults":{"allowanceConfig":{"type":"flat","pct":100},"formatConfig":null},
       "metrics":[]}]
+    """
+
+    // MARK: - Player stats
+
+    /// `GET /friendly-rounds/stats-configs` — the promptable set. Only `p-1`
+    /// (ball-1's registered player) is ever in it; ball-2 is a guest, which is
+    /// exactly the "absence is the rule" case.
+    static func statsConfigs(
+        tee: Bool = true,
+        approach: Bool = true,
+        putting: Bool = true,
+        shortGame: Bool = true,
+        penalties: Bool = true,
+        recovery: Bool = true,
+        playerId: String = "p-1"
+    ) -> String {
+        """
+        [{"playerId":"\(playerId)","modules":{"tee":\(tee),"approach":\(approach),
+          "putting":\(putting),"shortGame":\(shortGame),"penalties":\(penalties),
+          "recovery":\(recovery)}}]
+        """
+    }
+
+    static let noStatsConfigs = "[]"
+
+    /// `GET /friendly-rounds/stats` — the projection. Every key defaults to
+    /// null, i.e. "not captured", so a test only spells out what it prefills.
+    static func statRows(
+        playHoleId: String = "ph-1",
+        playerId: String = "p-1",
+        teeResult: String? = nil,
+        gir: Bool? = nil,
+        firstPutt: String? = nil,
+        putts: Int? = nil,
+        shortGameDifficulty: String? = nil,
+        penalties: Int? = nil,
+        recoveryOk: Bool? = nil
+    ) -> String {
+        func text(_ v: String?) -> String { v.map { "\"\($0)\"" } ?? "null" }
+        func bool(_ v: Bool?) -> String { v.map { "\($0)" } ?? "null" }
+        func num(_ v: Int?) -> String { v.map { "\($0)" } ?? "null" }
+        return """
+        [{"roundId":"\(roundId)","playHoleId":"\(playHoleId)","playerId":"\(playerId)",
+          "teeResult":\(text(teeResult)),"gir":\(bool(gir)),
+          "firstPutt":\(text(firstPutt)),"putts":\(num(putts)),
+          "shortGameDifficulty":\(text(shortGameDifficulty)),
+          "penalties":\(num(penalties)),"recoveryOk":\(bool(recoveryOk))}]
+        """
+    }
+
+    static let noStatRows = "[]"
+
+    /// `POST /friendly-rounds/stat-events` — accepted. The store only checks
+    /// that it did not throw, so one appended event stands for the batch.
+    static let statEventsAccepted = """
+    {"events":[{"event":{"id":"se-1","roundId":"\(roundId)","playHoleId":"ph-1",
+      "playerId":"p-1","seq":1,"key":"gir","value":"1","recordedByPlayerId":null,
+      "recordedAt":"2026-07-27T09:05:00.000Z","clientEventId":"sid-1"},
+      "inserted":true}]}
     """
 
     static let formatsPlain = """

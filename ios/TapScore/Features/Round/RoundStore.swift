@@ -69,6 +69,10 @@ final class RoundStore {
     private let api: TapScoreAPI
     private let feed: any LiveResultFeeding
     private let queue: PendingScoreQueue
+    /// The stats capture queue — a separate file from `queue` because the two
+    /// carry different intents on different endpoints, and a stats failure must
+    /// never hold a score hostage (or the reverse).
+    private let statQueue: PendingStatEventsQueue
     private let cursors: ResultCursorStore
     private let scenePhase: ScenePhaseCoordinator?
     /// This device's recent-rounds list — the SHARED instance off
@@ -157,6 +161,36 @@ final class RoundStore {
     private(set) var pendingMeta: [String: Bool] = [:]
     private var lastMetaKey: String?
 
+    // MARK: - Player stats capture
+
+    /// Which modules each of the round's registered players tracks, from
+    /// `GET /friendly-rounds/stats-configs`. A player absent from this map is
+    /// never prompted — absence IS the rule, so guests, unclaimed seats and
+    /// players who never enabled stats need no special case anywhere.
+    private(set) var statModules: [String: StatModules] = [:]
+    /// The projected per-hole rows, for prefilling a revisited hole.
+    private(set) var statRows: [PlayerHoleStats] = []
+    /// This device's own answers, keyed `"playHoleId|playerId|key"`, with a nil
+    /// VALUE meaning an explicit clear. It shadows `statRows` until a load
+    /// re-reads them, so a hole answered a second ago prefills correctly even
+    /// though the projection has not been refetched.
+    private var statLocal: [String: String?] = [:]
+    /// For each shadowed key, the load generation at which its write was settled
+    /// with the server. A shadow outlives its ack by exactly one load — see
+    /// `dropConfirmedStatLocals`.
+    private var statConfirmedAt: [String: Int] = [:]
+    /// The open step, or nil when the ball under the cursor is not promptable.
+    private(set) var statStep: StatStep?
+    private var statCell: StatCell?
+    private var statFlushing = false
+
+    /// One capture subject: a hole and the single registered player whose ball
+    /// it is. Shared-stroke balls have no subject and therefore no step.
+    struct StatCell: Sendable, Equatable {
+        var playerId: String
+        var playHoleId: String
+    }
+
     // MARK: - Machinery
 
     private var loadSeq = 0
@@ -208,6 +242,7 @@ final class RoundStore {
         api: TapScoreAPI,
         feed: any LiveResultFeeding,
         queue: PendingScoreQueue,
+        statQueue: PendingStatEventsQueue,
         cursors: ResultCursorStore,
         scenePhase: ScenePhaseCoordinator? = nil,
         deviceRounds: DeviceRoundsStore? = nil,
@@ -218,6 +253,7 @@ final class RoundStore {
         self.api = api
         self.feed = feed
         self.queue = queue
+        self.statQueue = statQueue
         self.cursors = cursors
         self.scenePhase = scenePhase
         self.deviceRounds = deviceRounds
@@ -232,6 +268,7 @@ final class RoundStore {
             api: environment.api,
             feed: LiveResultFeed(configuration: environment.configuration),
             queue: PendingScoreQueue(),
+            statQueue: PendingStatEventsQueue(),
             cursors: ResultCursorStore(),
             scenePhase: environment.scenePhase,
             deviceRounds: environment.deviceRounds
@@ -281,6 +318,9 @@ final class RoundStore {
     /// Tears everything down: no orphaned stream, timer or scene hook survives
     /// leaving the screen.
     func stop() async {
+        // Leaving the screen is an exit path like any other: the draft only
+        // exists in this store, which is about to go away.
+        flushStats()
         hooksRegistered = false
         scenePhase?.unregister(key: "round:\(token)")
         cancelJump()
@@ -355,11 +395,42 @@ final class RoundStore {
         // refresh instead of at the next launch.
         async let editabilityResult = try? api.send(
             FriendlyRoundsEndpoints.setup, FriendlyRoundsByTokenInput(token: token))
-        let (loadedBalls, loadedCards, loadedEditability) = await (
-            ballsResult, cardsResult, editabilityResult
+        // Player-stats capture, in the same non-fatal fan-out: which of the
+        // round's players track which modules, and what has already been
+        // captured. Both `try?` — a deployment without the stats endpoints, or
+        // an anonymous 401, must degrade to "no stats prompts", never to a
+        // round that will not render.
+        async let statConfigsResult = try? api.send(
+            PlayerStatsEndpoints.configsByToken, FriendlyRoundsByTokenInput(token: token))
+        async let statRowsResult = try? api.send(
+            PlayerStatsEndpoints.byToken, FriendlyRoundsByTokenInput(token: token))
+        let (loadedBalls, loadedCards, loadedEditability, loadedConfigs, loadedStats) = await (
+            ballsResult, cardsResult, editabilityResult, statConfigsResult, statRowsResult
         )
         guard seq == loadSeq else { return }
         editability = loadedEditability
+        // Commit whatever the open step has accumulated BEFORE the stats state
+        // it was built from is replaced. A foreground refresh lands exactly when
+        // the network is flaky, and the in-memory draft is the only copy of
+        // those answers until this call puts them on disk.
+        flushStats()
+        // Keep-previous on failure, never wipe-to-empty. `try?` collapses "the
+        // round tracks nothing" and "the fetch failed" into the same value
+        // unless the optional is inspected: an empty map would make every
+        // player unpromptable, which tears the open step down mid-hole on a
+        // degraded refresh.
+        if let loadedConfigs {
+            statModules = Dictionary(
+                loadedConfigs.map { ($0.playerId, $0.modules) },
+                uniquingKeysWith: { _, last in last })
+        }
+        if let loadedStats {
+            statRows = loadedStats
+            // Server truth has landed for anything already acked before this
+            // load was issued, so this device's shadow copy steps aside — the
+            // point at which a correction made on another phone becomes visible.
+            dropConfirmedStatLocals(loadedAtSeq: seq)
+        }
         // Order matters, exactly as on the web: clear the optimistic overlay and
         // seat the scorecards BEFORE the balls that drive rendering.
         cells = [:]
@@ -371,6 +442,12 @@ final class RoundStore {
         // Each reuses its stored clientEventId, so an event that actually landed
         // dedupes server-side instead of double-counting.
         await flushPending()
+        // Same kill-recovery pass for captured stats, and then a re-read of the
+        // open step's durable half against what just landed. Reseeding does NOT
+        // touch an in-progress draft — a foreground refresh under an open stats
+        // step must not swallow answers the golfer is mid-way through.
+        await flushPendingStats()
+        refreshStatStep()
         updateLiveGate()
     }
 
@@ -867,6 +944,10 @@ final class RoundStore {
 
     private func handleBackground() {
         sceneActive = false
+        // Backgrounding is the likeliest moment for the process to be killed,
+        // and an open stats draft lives only in memory until it is flushed. The
+        // call is idempotent and costs nothing when there is nothing to send.
+        flushStats()
         updateLiveGate()
     }
 
@@ -1073,13 +1154,11 @@ final class RoundStore {
         }
     }
 
+    /// The predicate itself lives in `Domain/StatPrompts.swift` so the pure
+    /// prompt model evaluates the SAME rule (the par-3 tee gate is one of these
+    /// shapes) instead of a second, drifting copy.
     static func metadataApplies(_ a: MetadataApplies?, par: Double, hole: Double) -> Bool {
-        guard let a else { return true }
-        if let minPar = a.minPar, par < minPar { return false }
-        if let maxPar = a.maxPar, par > maxPar { return false }
-        if let pars = a.pars, !pars.contains(par) { return false }
-        if let holes = a.holes, !holes.contains(hole) { return false }
-        return true
+        MetadataAppliesRule.evaluate(a, par: par, hole: hole)
     }
 
     func metadataValue(ballId: String, playHoleId: String, key: String) -> Bool {
@@ -1118,6 +1197,283 @@ final class RoundStore {
         }
     }
 
+    // MARK: - Player stats capture
+    //
+    // The stats step asks ONE player about ONE hole. Everything answer-dependent
+    // (which prompts are on the card, what a de-selection means, what has to be
+    // sent) lives in the pure `StatStep`; this half only decides who the subject
+    // is, reads the durable inputs, and moves the batch onto the wire.
+    //
+    // Nothing posts per tap. Answers accumulate in the step and leave as one
+    // batch when it closes — through "Done", through the back chevron, and
+    // through a keypad dismissal, because a batch dropped on the way out is a
+    // hole of capture the golfer will never notice was lost.
+
+    /// The single registered player this ball captures for, if any. A ball
+    /// qualifies only when exactly one member holds it, that member is a
+    /// registered player (not a guest, not an unclaimed seat), and that player
+    /// tracks stats. Shared-stroke balls have no subject — a scramble score is
+    /// nobody's fairway.
+    func statSubject(of ball: RoundBall) -> String? {
+        guard !ball.pending, ball.players.count == 1, let member = ball.players.first else {
+            return nil
+        }
+        guard !member.pending, let playerId = member.playerId else { return nil }
+        return statModules[playerId] == nil ? nil : playerId
+    }
+
+    private var currentStatCell: StatCell? {
+        guard let ball = ballUnderCursor, let hole = currentPlayedHole else { return nil }
+        guard let playerId = statSubject(of: ball) else { return nil }
+        return StatCell(playerId: playerId, playHoleId: hole.playHoleId)
+    }
+
+    /// The prompts on the card right now, in shot order.
+    var statPrompts: [StatPrompt] { statStep?.prompts ?? [] }
+
+    func statValue(_ key: StatEventKey) -> String? { statStep?.value(of: key) }
+
+    /// A stepper's current number, floored at its minimum when unanswered — the
+    /// value the row displays before anyone has touched it.
+    func statStepperValue(_ key: StatEventKey, min: Int) -> Int {
+        statStep?.intValue(of: key) ?? min
+    }
+
+    func statIsAnswered(_ key: StatEventKey) -> Bool { statStep?.isAnswered(key) ?? false }
+
+    /// The FORMAT's own metadata toggles for this hole, minus any key the stats
+    /// step is already asking about. One control per question: when a format
+    /// wants GIR and the player tracks approach, the stats row renders it and
+    /// the answer is written to BOTH channels (see `answerStat`).
+    var formatMetadataInputsForStep: [MetadataInput] {
+        let asked = Set(statPrompts.map(\.key.rawValue))
+        return metadataInputsForCurrentHole.filter { !asked.contains($0.key) }
+    }
+
+    /// Answer (or, with `nil`, un-answer) one stats prompt. Nothing leaves the
+    /// device here — see `flushStats()`.
+    func answerStat(_ key: StatEventKey, value: String?) {
+        guard statStep != nil else { return }
+        statStep?.answer(key, value: value)
+        mirrorToFormatMetadata(key)
+    }
+
+    /// Nudge a stepper prompt. Any nudge answers it, so `-1` from untouched
+    /// records the floor rather than doing nothing.
+    func stepStat(_ key: StatEventKey, by delta: Int) {
+        guard statStep != nil else { return }
+        statStep?.step(key, by: delta)
+        mirrorToFormatMetadata(key)
+    }
+
+    /// The dual write: when a format declares an input under the same key, the
+    /// stats answer also drives the format's per-ball metadata, with the format
+    /// channel keeping its own explicit-boolean semantics. Formats that nobody
+    /// tracks stats for are untouched — those balls still render the plain
+    /// format toggle.
+    private func mirrorToFormatMetadata(_ key: StatEventKey) {
+        guard metadataInputsForCurrentHole.contains(where: { $0.key == key.rawValue }) else {
+            return
+        }
+        setMetadata(key: key.rawValue, value: statValue(key) == "1")
+    }
+
+    /// Rebuild the step when the (player, hole) under the cursor changes,
+    /// flushing whatever the previous cell had accumulated first.
+    private func seedStats() {
+        let cell = currentStatCell
+        guard cell != statCell else {
+            refreshStatStep()
+            return
+        }
+        flushStats()
+        setStatCell(cell, step: cell.flatMap(makeStatStep))
+    }
+
+    /// Re-read the durable half under the SAME cell, keeping the draft.
+    private func refreshStatStep() {
+        guard let cell = statCell else {
+            statStep = nil
+            return
+        }
+        guard statStep != nil, let modules = statModules[cell.playerId] else {
+            setStatCell(cell, step: makeStatStep(cell))
+            return
+        }
+        statStep?.refresh(modules: modules, persisted: persistedStats(for: cell))
+    }
+
+    /// The pair moves together: a cell with no buildable step is not a cell.
+    /// Keeping a `statCell` alive with `statStep == nil` used to leave a zombie
+    /// — `flushStats` and `answerStat` both bail on the nil step, so the cursor
+    /// pointed at a subject nothing could be written for.
+    private func setStatCell(_ cell: StatCell?, step: StatStep?) {
+        statCell = step == nil ? nil : cell
+        statStep = step
+    }
+
+    private func makeStatStep(_ cell: StatCell) -> StatStep? {
+        guard let modules = statModules[cell.playerId], let hole = currentPlayHole else {
+            return nil
+        }
+        return StatStep(
+            modules: modules,
+            par: hole.par,
+            holeNumber: hole.courseHoleNumber,
+            persisted: persistedStats(for: cell))
+    }
+
+    /// What is already stored for this cell: the server's projection, overridden
+    /// by anything this device wrote since the last load.
+    private func persistedStats(for cell: StatCell) -> [StatEventKey: String] {
+        var out =
+            statRows.first {
+                $0.playHoleId == cell.playHoleId && $0.playerId == cell.playerId
+            }.map(Self.storedValues) ?? [:]
+        for key in StatVocabulary.order {
+            guard let local = statLocal[Self.statLocalKey(cell, key)] else { continue }
+            out[key] = local
+        }
+        return out
+    }
+
+    /// The projection row, read back into the flat wire vocabulary the prompts
+    /// speak. Booleans are `"0"`/`"1"`, counts are decimal — the same strings
+    /// `StatVocabulary` offers and the server accepts.
+    static func storedValues(_ row: PlayerHoleStats) -> [StatEventKey: String] {
+        var out: [StatEventKey: String] = [:]
+        if let v = row.teeResult { out[.teeResult] = v.rawValue }
+        if let v = row.gir { out[.gir] = v ? "1" : "0" }
+        if let v = row.firstPutt { out[.firstPutt] = v.rawValue }
+        if let v = row.putts { out[.putts] = String(countInt(v)) }
+        if let v = row.shortGameDifficulty { out[.shortGameDifficulty] = v.rawValue }
+        if let v = row.penalties { out[.penalties] = String(countInt(v)) }
+        if let v = row.recoveryOk { out[.recoveryOk] = v ? "1" : "0" }
+        return out
+    }
+
+    private static func statLocalKey(_ cell: StatCell, _ key: StatEventKey) -> String {
+        "\(cell.playHoleId)|\(cell.playerId)|\(key.rawValue)"
+    }
+
+    /// Commit the open step: queue its answers on disk and post the round's
+    /// whole outstanding batch. Idempotent — a step with nothing new does
+    /// nothing, so calling it from every exit path is safe.
+    @discardableResult
+    func flushStats() -> Bool {
+        guard let cell = statCell, var step = statStep else { return false }
+        let batch = step.batch
+        guard !batch.isEmpty else { return false }
+        // Fold the draft in first: the step now shows what was sent and owes
+        // nothing, so a second exit path cannot re-queue the same answers.
+        step.commitDraft()
+        statStep = step
+        for item in batch { writeStatLocal(cell, item.key, item.value) }
+        Task { await self.persistStats(cell: cell, batch: batch) }
+        return true
+    }
+
+    /// This device's shadow value for one key. Writing one un-confirms it: the
+    /// key is dirty again and must survive until ITS event is settled, not the
+    /// previous one's.
+    private func writeStatLocal(_ cell: StatCell, _ key: StatEventKey, _ value: String?) {
+        let localKey = Self.statLocalKey(cell, key)
+        statLocal.updateValue(value, forKey: localKey)
+        statConfirmedAt.removeValue(forKey: localKey)
+    }
+
+    /// Marks the keys carried by `events` as settled with the server as of the
+    /// current load generation. Settled means "the server will not tell us
+    /// anything more about our write" — an ack, or a refusal that dropped it.
+    private func confirmStatLocals(_ events: [PendingStatEvent]) {
+        for event in events {
+            let cell = StatCell(playerId: event.playerId, playHoleId: event.playHoleId)
+            statConfirmedAt[Self.statLocalKey(cell, event.key)] = loadSeq
+        }
+    }
+
+    /// Retires shadow values whose events were settled BEFORE this load was
+    /// issued, so the projection it just delivered is authoritative for them.
+    ///
+    /// The seq comparison is the whole point: an ack is not enough on its own,
+    /// because a load already in flight when the ack happened cannot contain
+    /// the write. Only a strictly later load generation proves the server had
+    /// our event when it answered — after which a correction made on another
+    /// phone finally wins instead of being masked forever.
+    private func dropConfirmedStatLocals(loadedAtSeq seq: Int) {
+        for (localKey, confirmedSeq) in statConfirmedAt where seq > confirmedSeq {
+            statLocal.removeValue(forKey: localKey)
+            statConfirmedAt.removeValue(forKey: localKey)
+        }
+    }
+
+    private func persistStats(cell: StatCell, batch: [StatBatchItem]) async {
+        // On disk before the network, exactly as scores are.
+        _ = await statQueue.enqueue(
+            token: token,
+            playHoleId: cell.playHoleId,
+            playerId: cell.playerId,
+            batch: batch,
+            now: now())
+        await postStats()
+    }
+
+    /// Replay stat answers a previous launch never got acked, then post.
+    func flushPendingStats() async {
+        for event in await statQueue.pending(for: token) {
+            let cell = StatCell(playerId: event.playerId, playHoleId: event.playHoleId)
+            writeStatLocal(cell, event.key, event.value)
+        }
+        await postStats()
+    }
+
+    /// Drains the queue for this round as batched POSTs.
+    ///
+    /// A batch that failed in TRANSIT stays queued — every entry keeps its
+    /// `clientEventId`, so the retry dedupes server-side instead of appending a
+    /// second event. A batch the server REFUSED is dropped instead: it cannot
+    /// succeed however often it is replayed, and leaving it at the head of the
+    /// queue would block every later stat in the round behind one poison item.
+    ///
+    /// DECISION (stats v1): a drop is silent. There is deliberately no
+    /// user-visible failure surface for capture — the durable queue is the
+    /// mitigation, and a toast about a stat nobody can act on costs more
+    /// attention on the course than it is worth. Revisit when stats get a
+    /// review screen of their own.
+    private func postStats() async {
+        guard !statFlushing else { return }
+        statFlushing = true
+        defer { statFlushing = false }
+        // Loop rather than one pass: answers queued while a post is in flight
+        // would otherwise sit until the next exit, and the guard above means
+        // their own `postStats` returned immediately.
+        while true {
+            let pending = await statQueue.pending(for: token)
+            guard !pending.isEmpty else { return }
+            do {
+                _ = try await api.send(
+                    PlayerStatsEndpoints.appendEvents,
+                    PlayerStatsAppendEventsInput(token: token, items: pending.map(\.item)))
+                await statQueue.ack(pending.map(\.clientEventId))
+                confirmStatLocals(pending)
+            } catch {
+                guard Self.isRefusal(error) else { return }
+                await statQueue.ack(pending.map(\.clientEventId))
+                confirmStatLocals(pending)
+            }
+        }
+    }
+
+    /// A refusal is a verdict on the CONTENT: the server understood the batch
+    /// and said no. Transport failures (offline, DNS, timeout), 401s and
+    /// 5xx-class errors are all "not now" and keep their place in the queue;
+    /// 408 and 429 are 4xx by number but explicitly mean "try again".
+    private static func isRefusal(_ error: Error) -> Bool {
+        guard case let APIError.server(code, _) = error else { return false }
+        guard (400..<500).contains(code) else { return false }
+        return code != 408 && code != 429
+    }
+
     // MARK: - Navigation
 
     private func clampPosition() {
@@ -1140,19 +1496,23 @@ final class RoundStore {
         let clamped = min(max(index, 0), count - 1)
         cancelJump()
         statsOpen = false
+        flushStats()
         guard clamped != holeIndex else { return }
         holeIndex = clamped
         currentBallIndex = 0
         noteHoleEntered()
+        seedStats()
     }
 
     func selectGroup(index: Int) {
         guard groups.indices.contains(index) else { return }
         cancelJump()
+        flushStats()
         groupIndex = index
         holeIndex = 0
         currentBallIndex = 0
         noteHoleEntered()
+        seedStats()
     }
 
     var canPrevHole: Bool { holeIndex > 0 }
@@ -1175,10 +1535,14 @@ final class RoundStore {
         statsOpen = false
         noteHoleEntered()
         seedMetadata()
+        seedStats()
         keypadOpen = true
     }
 
     func closeKeypad() {
+        // A swipe-down on the sheet is an exit from the stats step like any
+        // other — the batch goes out before the state is torn down.
+        flushStats()
         keypadOpen = false
         statsOpen = false
         cancelJump()
@@ -1188,6 +1552,7 @@ final class RoundStore {
         guard ballsInGroup.indices.contains(index) else { return }
         currentBallIndex = index
         seedMetadata()
+        seedStats()
     }
 
     /// The snapshot the policy is allowed to know, read out of live state at
@@ -1209,7 +1574,11 @@ final class RoundStore {
             holeIndex: holeIndex,
             holeCount: playedOrder.count,
             holeCompleteOnEntry: holeCompleteOnEntry,
-            collectsStats: !metadataInputsForCurrentHole.isEmpty
+            // Either channel opens the step: a format that wants GIR, or a
+            // player who tracks their own stats. A round with no format
+            // metadata at all still gets a stats step for a player who asked
+            // for one.
+            collectsStats: !metadataInputsForCurrentHole.isEmpty || !statPrompts.isEmpty
         )
     }
 
@@ -1236,6 +1605,9 @@ final class RoundStore {
     /// so a sheet closed in reaction to the move would never close at all.
     func statsDone() {
         statsOpen = false
+        // Before the event: `.statsDone` can move the cursor, and the batch
+        // belongs to the ball it was answered for.
+        flushStats()
         apply(.statsDone)
     }
 
@@ -1247,8 +1619,15 @@ final class RoundStore {
     /// applied (each one persisted itself through `setMetadata`). The player is
     /// back on the keypad with the same ball under the cursor, free to re-enter
     /// the score they just typed.
+    ///
+    /// It DOES commit the captured stats, and that is not an exception to the
+    /// above: the format toggles persisted themselves on every tap, so "nothing
+    /// else happens" already meant "the answers you gave are kept". Stats batch
+    /// instead of posting per tap, so keeping them takes an explicit flush —
+    /// without it, backing out of the step would silently bin the hole.
     func statsBack() {
         statsOpen = false
+        flushStats()
     }
 
     private func apply(_ entry: EntryEvent) {
@@ -1296,6 +1675,7 @@ final class RoundStore {
         case .moveToBall(let ballIndex):
             currentBallIndex = ballIndex
             seedMetadata()
+            seedStats()
         case .openStats:
             statsOpen = true
         case .roundComplete(let toast):
@@ -1340,6 +1720,7 @@ final class RoundStore {
         currentBallIndex = 0
         noteHoleEntered()
         seedMetadata()
+        seedStats()
     }
 
     private func cancelJump() {

@@ -291,6 +291,9 @@ final class LeaderboardExpansionStoreTests: XCTestCase {
             api: RoundStubURLProtocol.makeAPI(),
             feed: FakeLiveFeed(),
             queue: PendingScoreQueue(fileURL: queueFile),
+            statQueue: PendingStatEventsQueue(
+                fileURL: queueFile.deletingLastPathComponent()
+                    .appendingPathComponent("pending-stat-events.v1.json")),
             cursors: ResultCursorStore(
                 defaults: UserDefaults(suiteName: "expansion-tests-\(UUID().uuidString)")!)
         )

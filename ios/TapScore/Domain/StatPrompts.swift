@@ -1,0 +1,331 @@
+import Foundation
+
+/// Player-stats capture, as pure value types (proposal `docs/proposals/player-stats.md` §1–2).
+///
+/// The rules live here so they can be tested without a store, a network, or a
+/// view: which prompts a hole asks, how an answer changes that set, and what
+/// leaves the device when the step closes. `StatsView` renders `prompts` and
+/// forwards taps; it decides nothing.
+
+// MARK: - Vocabulary
+
+/// One choice on a segmented row. `value` is the wire value the server's closed
+/// vocabulary accepts; `label` is what the golfer reads.
+struct StatOption: Equatable, Sendable, Identifiable {
+    var value: String
+    var label: String
+    var id: String { value }
+
+    init(_ value: String, _ label: String) {
+        self.value = value
+        self.label = label
+    }
+}
+
+/// How a prompt is answered. Deliberately tiny — two shapes cover all seven keys.
+enum StatControl: Equatable, Sendable {
+    /// 2–3 mutually exclusive options. Tapping the selected one deselects it.
+    case segments([StatOption])
+    /// A counter. `max == nil` means unbounded upward; the top value renders
+    /// as "n+" so `putts` can mean "3 or more".
+    case stepper(min: Int, max: Int?)
+}
+
+struct StatPrompt: Equatable, Sendable, Identifiable {
+    var key: StatEventKey
+    var label: String
+    var control: StatControl
+    var id: String { key.rawValue }
+}
+
+/// What the open step did to a key. Absent from the draft = untouched, which is
+/// NOT the same as answered-false: an untouched key emits no event at all.
+enum StatAnswer: Equatable, Sendable {
+    case set(String)
+    /// The golfer removed an answer that the server already holds. Emits
+    /// `value: null`, which the server reads as "clear this key".
+    case cleared
+}
+
+/// One item of the batch that leaves the device when the step closes.
+struct StatBatchItem: Equatable, Sendable {
+    var key: StatEventKey
+    /// `nil` is an explicit clear, not an omission.
+    var value: String?
+}
+
+// MARK: - The prompt catalogue
+
+/// The static half of the prompt set: which module owns a key, what it looks
+/// like, and any hole predicate it carries. Everything answer-dependent lives
+/// in `StatStep`.
+enum StatVocabulary {
+    /// Shot order, so the step reads the way the hole was played.
+    static let order: [StatEventKey] = [
+        .teeResult, .recoveryOk, .gir, .shortGameDifficulty, .firstPutt, .putts, .penalties,
+    ]
+
+    /// Par 3 has no tee shot worth grading — the same shape the format layer
+    /// uses for its own inputs, evaluated by the same rule.
+    static let teeApplies = MetadataApplies(minPar: 4)
+
+    static func label(for key: StatEventKey) -> String {
+        switch key {
+        case .teeResult: return "Tee shot"
+        case .recoveryOk: return "Recovery"
+        case .gir: return "Green in regulation"
+        case .shortGameDifficulty: return "Short game"
+        case .firstPutt: return "First putt"
+        case .putts: return "Putts"
+        case .penalties: return "Penalties"
+        }
+    }
+
+    static func control(for key: StatEventKey) -> StatControl {
+        switch key {
+        case .teeResult:
+            return .segments([
+                StatOption("fairway", "Fairway"),
+                StatOption("in_play", "In play"),
+                StatOption("trouble", "Trouble"),
+            ])
+        case .gir:
+            return .segments([StatOption("0", "Miss"), StatOption("1", "Hit")])
+        case .firstPutt:
+            return .segments([
+                StatOption("inside_2m", "<2 m"),
+                StatOption("2_to_6m", "2–6 m"),
+                StatOption("over_6m", ">6 m"),
+            ])
+        case .shortGameDifficulty:
+            return .segments([StatOption("standard", "Standard"), StatOption("hard", "Hard")])
+        case .recoveryOk:
+            return .segments([StatOption("0", "No"), StatOption("1", "Yes")])
+        case .putts:
+            return .stepper(min: 0, max: 3)
+        case .penalties:
+            return .stepper(min: 0, max: nil)
+        }
+    }
+
+    /// Display text for a stepper value: the top of a bounded range is open-ended.
+    static func stepperText(_ value: Int, max: Int?) -> String {
+        if let max, value >= max { return "\(value)+" }
+        return "\(value)"
+    }
+}
+
+/// The `appliesWhen` predicate, evaluated. Extracted from `RoundStore` so the
+/// pure model and the store share ONE reading of the shape: every present field
+/// must hold (AND), and an absent predicate always applies.
+enum MetadataAppliesRule {
+    static func evaluate(_ applies: MetadataApplies?, par: Double, hole: Double) -> Bool {
+        guard let applies else { return true }
+        if let minPar = applies.minPar, par < minPar { return false }
+        if let maxPar = applies.maxPar, par > maxPar { return false }
+        if let pars = applies.pars, !pars.contains(par) { return false }
+        if let holes = applies.holes, !holes.contains(hole) { return false }
+        return true
+    }
+}
+
+// MARK: - The step
+
+/// One (player, hole) capture step: the modules that player tracks, what the
+/// server already holds, and what this visit has touched.
+struct StatStep: Equatable, Sendable {
+    private(set) var modules: StatModules
+    private(set) var par: Double
+    private(set) var holeNumber: Double
+    /// Server rows plus this device's unsynced writes — the values the step
+    /// opens with. A key mapped here is "already answered". `private(set)` so
+    /// every write runs `prune()`: changing the durable half can hide a prompt,
+    /// and a hidden prompt must not keep an answer.
+    private(set) var persisted: [StatEventKey: String]
+    /// This visit's changes. Empty means the step has nothing to send.
+    private(set) var draft: [StatEventKey: StatAnswer] = [:]
+
+    init(
+        modules: StatModules,
+        par: Double,
+        holeNumber: Double,
+        persisted: [StatEventKey: String] = [:],
+        draft: [StatEventKey: StatAnswer] = [:]
+    ) {
+        self.modules = modules
+        self.par = par
+        self.holeNumber = holeNumber
+        self.persisted = persisted
+        self.draft = draft
+        prune()
+    }
+
+    /// Re-reads the durable half (a load landed, or a config changed) WITHOUT
+    /// touching the draft: a refresh under an open step must not throw away
+    /// answers the golfer has already tapped but not yet committed.
+    mutating func refresh(modules: StatModules, persisted: [StatEventKey: String]) {
+        self.modules = modules
+        self.persisted = persisted
+        prune()
+    }
+
+    // MARK: Visible prompts
+
+    var prompts: [StatPrompt] {
+        StatVocabulary.order.compactMap { key in
+            guard isVisible(key) else { return nil }
+            return StatPrompt(
+                key: key,
+                label: StatVocabulary.label(for: key),
+                control: StatVocabulary.control(for: key))
+        }
+    }
+
+    var isEmpty: Bool { prompts.isEmpty }
+
+    /// Why a prompt is (not) on the card. The two off-card reasons are NOT
+    /// interchangeable, and conflating them is what turns a config change into
+    /// data loss:
+    ///
+    /// - `.unreadable` — this player does not track the module, or the hole is
+    ///   the wrong shape for it (a par 3 has no tee-shot question). Nothing is
+    ///   being said about the value; a stored one stays stored.
+    /// - `.contradicted` — the prompt IS trackable and its precondition was
+    ///   answered the other way (GIR flipped to hit, so there was no short-game
+    ///   shot). That is a statement about the hole, so a stored value is now
+    ///   wrong and gets cleared.
+    private enum Visibility {
+        case visible
+        case unreadable
+        case contradicted
+    }
+
+    private func visibility(_ key: StatEventKey) -> Visibility {
+        switch key {
+        case .teeResult:
+            let applies = MetadataAppliesRule.evaluate(
+                StatVocabulary.teeApplies, par: par, hole: holeNumber)
+            return modules.tee && applies ? .visible : .unreadable
+        case .recoveryOk:
+            // Only meaningful after a tee shot that got into trouble — and only
+            // when the tee prompt itself is on the card to have answered it.
+            guard modules.recovery, visibility(.teeResult) == .visible else { return .unreadable }
+            return value(of: .teeResult) == "trouble" ? .visible : .contradicted
+        case .gir:
+            return modules.approach ? .visible : .unreadable
+        case .shortGameDifficulty:
+            // Answered-miss, not merely unanswered: an untouched GIR says
+            // nothing about whether there was a short-game shot.
+            guard modules.shortGame, visibility(.gir) == .visible else { return .unreadable }
+            return value(of: .gir) == "0" ? .visible : .contradicted
+        case .firstPutt, .putts:
+            return modules.putting ? .visible : .unreadable
+        case .penalties:
+            return modules.penalties ? .visible : .unreadable
+        }
+    }
+
+    private func isVisible(_ key: StatEventKey) -> Bool { visibility(key) == .visible }
+
+    // MARK: Reading
+
+    /// The answer in force: this visit's draft wins over what the server holds.
+    func value(of key: StatEventKey) -> String? {
+        switch draft[key] {
+        case .set(let v): return v
+        case .cleared: return nil
+        case nil: return persisted[key]
+        }
+    }
+
+    func intValue(of key: StatEventKey) -> Int? { value(of: key).flatMap(Int.init) }
+
+    /// Whether this key carries an answer (as opposed to being untouched-and-unset).
+    func isAnswered(_ key: StatEventKey) -> Bool { value(of: key) != nil }
+
+    // MARK: Writing
+
+    /// Sets or (with `nil`) removes an answer. Re-selecting the value the server
+    /// already holds drops the draft entry entirely — a revisit that changes
+    /// nothing sends nothing.
+    mutating func answer(_ key: StatEventKey, value newValue: String?) {
+        guard isVisible(key) else { return }
+        record(key, newValue)
+        prune()
+    }
+
+    /// Nudges a stepper. Any nudge answers the key, so a `-1` from unanswered
+    /// records the floor rather than doing nothing.
+    mutating func step(_ key: StatEventKey, by delta: Int) {
+        guard isVisible(key), case .stepper(let min, let max) = StatVocabulary.control(for: key)
+        else { return }
+        var next = (intValue(of: key) ?? min) + delta
+        if next < min { next = min }
+        if let max, next > max { next = max }
+        record(key, String(next))
+        prune()
+    }
+
+    private mutating func record(_ key: StatEventKey, _ newValue: String?) {
+        if let newValue {
+            if persisted[key] == newValue {
+                draft[key] = nil
+            } else {
+                draft[key] = .set(newValue)
+            }
+        } else {
+            draft[key] = persisted[key] == nil ? nil : .cleared
+        }
+    }
+
+    /// Drops answers for prompts that are no longer on the card.
+    ///
+    /// A `.contradicted` prompt is cleared on the server too, so a mis-tap that
+    /// revealed short game does not leave a ghost row behind. An `.unreadable`
+    /// one only loses its DRAFT: turning a module off, or opening the step on a
+    /// par 3, makes the question unaskable, not the stored answer wrong — and a
+    /// clear here would both destroy history and (for a value the server refuses
+    /// to clear) poison the queue with a batch that can never succeed.
+    private mutating func prune() {
+        // Discarding can hide further prompts, so run to a fixed point. The
+        // dependency chain is two deep, so this settles immediately.
+        for _ in 0..<StatVocabulary.order.count {
+            var changed = false
+            for key in StatVocabulary.order {
+                let before = draft[key]
+                switch visibility(key) {
+                case .visible: continue
+                case .contradicted: record(key, nil)
+                case .unreadable: draft[key] = nil
+                }
+                if draft[key] != before { changed = true }
+            }
+            if !changed { return }
+        }
+    }
+
+    // MARK: Committing
+
+    /// What the step owes the server, in prompt order so a batch is deterministic.
+    var batch: [StatBatchItem] {
+        StatVocabulary.order.compactMap { key in
+            switch draft[key] {
+            case .set(let v): return StatBatchItem(key: key, value: v)
+            case .cleared: return StatBatchItem(key: key, value: nil)
+            case nil: return nil
+            }
+        }
+    }
+
+    /// Folds the draft into `persisted` — call once the batch is queued, so the
+    /// step re-opens showing what was sent and owing nothing.
+    mutating func commitDraft() {
+        for (key, answer) in draft {
+            switch answer {
+            case .set(let v): persisted[key] = v
+            case .cleared: persisted[key] = nil
+            }
+        }
+        draft = [:]
+    }
+}

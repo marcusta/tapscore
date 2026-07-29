@@ -13,6 +13,7 @@ final class RoundManageActionsTests: XCTestCase {
     private var api: TapScoreAPI!
     private var feed: FakeLiveFeed!
     private var queue: PendingScoreQueue!
+    private var statQueue: PendingStatEventsQueue!
     private var cursors: ResultCursorStore!
     private var clock: TestClock!
     private var defaults: UserDefaults!
@@ -29,6 +30,10 @@ final class RoundManageActionsTests: XCTestCase {
             .appendingPathComponent("manage-tests-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("pending-scores.v1.json")
         queue = PendingScoreQueue(fileURL: queueFile, idProvider: { "cid-1" })
+        statQueue = PendingStatEventsQueue(
+            fileURL: queueFile.deletingLastPathComponent()
+                .appendingPathComponent("pending-stat-events.v1.json"),
+            idProvider: sequentialIDs("sid"))
         defaults = UserDefaults(suiteName: "manage-tests-\(UUID().uuidString)")!
         cursors = ResultCursorStore(defaults: defaults)
         deviceRounds = DeviceRoundsStore(defaults: defaults)
@@ -63,6 +68,7 @@ final class RoundManageActionsTests: XCTestCase {
             api: api,
             feed: feed,
             queue: queue,
+            statQueue: statQueue,
             cursors: cursors,
             deviceRounds: deviceRounds,
             sleeper: clock.sleeper,

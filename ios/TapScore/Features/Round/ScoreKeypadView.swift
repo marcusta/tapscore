@@ -308,7 +308,7 @@ struct KeypadView: View {
     private var extendedStepper: some View {
         VStack(spacing: TapSpacing.sm) {
             HStack(spacing: TapSpacing.xl) {
-                stepperButton("minus") { extendedValue = max(10, extendedValue - 1) }
+                KeypadStepperButton(system: "minus") { extendedValue = max(10, extendedValue - 1) }
                 Text("\(extendedValue)")
                     .font(TapFont.display(size: 41.6, weight: .bold, tabular: true))
                     .foregroundStyle(KeypadPalette.ink)
@@ -316,7 +316,7 @@ struct KeypadView: View {
                     // not a target, so the touch minimum does not apply — and
                     // tabular figures keep 10…99 from shifting the ± buttons.
                     .frame(width: 72)
-                stepperButton("plus") { extendedValue += 1 }
+                KeypadStepperButton(system: "plus") { extendedValue += 1 }
             }
             .frame(maxHeight: .infinity)
 
@@ -361,12 +361,21 @@ struct KeypadView: View {
         .background(KeypadPalette.pad)
     }
 
-    private func stepperButton(_ system: String, action: @escaping () -> Void) -> some View {
+}
+
+/// The round ± of the 10+ stepper, shared with the stats step's counters so
+/// both pads press the same way.
+struct KeypadStepperButton: View {
+    let system: String
+    var size: CGFloat = 60
+    let action: () -> Void
+
+    var body: some View {
         Button(action: action) {
             Image(systemName: system)
-                .font(.system(size: 24, weight: .medium))
+                .font(.system(size: size >= 60 ? 24 : 20, weight: .medium))
                 .foregroundStyle(KeypadPalette.ink)
-                .frame(width: 60, height: 60)
+                .frame(width: size, height: size)
         }
         .buttonStyle(
             KeypadPressStyle(
@@ -496,10 +505,25 @@ struct StatsView: View {
         VStack(spacing: 0) {
             header
             who
+            // A par 5 with every module on is seven prompts — this scrolls, and
+            // the footer stays put below it.
             ScrollView {
                 VStack(spacing: TapSpacing.xl) {
-                    ForEach(store.metadataInputsForCurrentHole, id: \.key) { input in
+                    // The format's own toggles first (what the round needs to
+                    // score), then the player's own stats (what they asked to
+                    // track). A key both channels want renders once, in the
+                    // stats half — see `formatMetadataInputsForStep`.
+                    ForEach(store.formatMetadataInputsForStep, id: \.key) { input in
                         group(input)
+                    }
+                    if !store.formatMetadataInputsForStep.isEmpty && !store.statPrompts.isEmpty {
+                        Rectangle()
+                            .fill(KeypadPalette.ruleSoft)
+                            .frame(height: 1)
+                            .padding(.horizontal, TapSpacing.xl)
+                    }
+                    ForEach(store.statPrompts) { prompt in
+                        statGroup(prompt)
                     }
                 }
                 .padding(.horizontal, TapSpacing.lg)
@@ -590,7 +614,61 @@ struct StatsView: View {
         }
     }
 
-    private enum SegmentTone { case miss, hit }
+    /// One player-stats prompt: the same centred label, over either a segmented
+    /// row (2–3 options) or a compact stepper. Which prompts exist, and what a
+    /// tap means, is `StatStep`'s answer — this only draws it.
+    @ViewBuilder
+    private func statGroup(_ prompt: StatPrompt) -> some View {
+        VStack(spacing: TapSpacing.sm) {
+            Text(prompt.label)
+                .font(TapFont.display(size: 16.8, weight: .bold))
+                .foregroundStyle(KeypadPalette.ink)
+                .multilineTextAlignment(.center)
+            switch prompt.control {
+            case .segments(let options):
+                HStack(spacing: TapSpacing.sm) {
+                    ForEach(options) { option in
+                        let selected = store.statValue(prompt.key) == option.value
+                        // Neutral, not green: a stat is an observation, and the
+                        // plate should not congratulate or scold one.
+                        segment(option.label, selected: selected, tone: .neutral) {
+                            // Tapping the selected option de-selects it — the
+                            // only way back to "did not answer", which is a
+                            // different fact from answering the low option.
+                            store.answerStat(prompt.key, value: selected ? nil : option.value)
+                        }
+                    }
+                }
+            case .stepper(let min, let max):
+                statStepper(prompt, min: min, max: max)
+            }
+        }
+    }
+
+    /// A one-tap counter. It shows its floor before anyone touches it, dimmed,
+    /// so an untouched row cannot be mistaken for an answered zero.
+    private func statStepper(_ prompt: StatPrompt, min: Int, max: Int?) -> some View {
+        let value = store.statStepperValue(prompt.key, min: min)
+        let answered = store.statIsAnswered(prompt.key)
+        return HStack(spacing: TapSpacing.xl) {
+            KeypadStepperButton(system: "minus", size: 52) {
+                store.stepStat(prompt.key, by: -1)
+            }
+            .accessibilityLabel("Fewer \(prompt.label)")
+            Text(StatVocabulary.stepperText(value, max: max))
+                .font(TapFont.display(size: 33.6, weight: .bold, tabular: true))
+                .foregroundStyle(answered ? KeypadPalette.ink : KeypadPalette.inkMuted)
+                .frame(width: 72)
+                .accessibilityLabel(
+                    answered ? "\(prompt.label) \(value)" : "\(prompt.label) not answered")
+            KeypadStepperButton(system: "plus", size: 52) {
+                store.stepStat(prompt.key, by: 1)
+            }
+            .accessibilityLabel("More \(prompt.label)")
+        }
+    }
+
+    private enum SegmentTone { case miss, hit, neutral }
 
     private func segment(
         _ title: String,
@@ -598,7 +676,8 @@ struct StatsView: View {
         tone: SegmentTone,
         action: @escaping () -> Void
     ) -> some View {
-        let fill: Color = selected
+        let fill: Color =
+            selected
             ? (tone == .hit ? TapColors.primary : KeypadPalette.segmentOn)
             : KeypadPalette.pad
         return Button(action: action) {
