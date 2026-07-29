@@ -388,6 +388,23 @@ final class AppEnvironment {
     /// flag again until another `created:true` response arrives.
     func dismissNewAccountNotice() { showsNewAccountNotice = false }
 
+    /// Replaces the `Player` the current session carries, after the profile
+    /// screen saved a new one.
+    ///
+    /// **This is not an auth change, and the distinction is load-bearing.** The
+    /// same human is still signed in; only their gender / home club / handicap
+    /// moved. `LandingLoader.key(_:)` identifies an auth state by the player's
+    /// ID for exactly this reason (see its doc comment) — so a profile edit
+    /// re-publishes `authState` without re-fetching the dashboard.
+    ///
+    /// A no-op unless a player is signed in: there is no state in which
+    /// `.anonymous` should acquire one from a profile save, and a save can only
+    /// have come from a session that had one.
+    func apply(profile: Player) {
+        guard case .signedIn = authState else { return }
+        authState = .signedIn(profile)
+    }
+
     /// Stores a freshly issued bearer and flips the session state — the single
     /// tail shared by every door (Apple, password, link).
     ///

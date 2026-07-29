@@ -196,6 +196,7 @@ struct AccountSheetView: View {
 
     @State private var showsServerSettings = false
     @State private var showsAdmin = false
+    @State private var showsProfile = false
 
     private var rows: AccountSheetRows {
         AccountSheetRows(
@@ -209,6 +210,7 @@ struct AccountSheetView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: TapSpacing.lg) {
                 identityRow
+                profileRow
 
                 if rows.showsAdmin { adminRow }
                 if rows.showsConnectApple { connectOffer }
@@ -249,6 +251,26 @@ struct AccountSheetView: View {
         .sheet(isPresented: $showsAdmin) {
             AdminHomeView()
         }
+        .sheet(isPresented: $showsProfile) {
+            ProfileView()
+        }
+    }
+
+    // MARK: - Profile
+
+    /// The player's own profile — the one row here that everybody gets.
+    ///
+    /// It sits directly under the identity line because it is the same subject:
+    /// the line says who this device is signed in as, and the row is where the
+    /// parts of that which are editable live. Unconditional, unlike the operator
+    /// rows — this sheet only ever renders for a signed-in player, and every
+    /// endpoint behind the row is session-scoped.
+    private var profileRow: some View {
+        row(
+            title: "Profile",
+            detail: "Gender, home club and handicap index",
+            identifier: "profile-row"
+        ) { showsProfile = true }
     }
 
     // MARK: - Header
