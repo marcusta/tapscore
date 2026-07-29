@@ -998,15 +998,24 @@ export class RoundService {
     /**
      * Transactional full teardown of a round and its entire FK graph.
      *
-     * RESTRICT rows go first, explicitly (migrations 020/025):
-     *   - score_events.ball_id      → balls            ON DELETE RESTRICT
-     *   - score_events.play_hole_id → round_play_holes ON DELETE RESTRICT
-     *   - scorecards.play_hole_id   → round_play_holes ON DELETE RESTRICT
+     * RESTRICT rows go first, explicitly (migrations 020/025/042):
+     *   - score_events.ball_id           → balls            ON DELETE RESTRICT
+     *   - score_events.play_hole_id      → round_play_holes ON DELETE RESTRICT
+     *   - scorecards.play_hole_id        → round_play_holes ON DELETE RESTRICT
+     *   - stat_events.play_hole_id       → round_play_holes ON DELETE RESTRICT
+     *   - stat_events.player_id          → players          ON DELETE RESTRICT
+     *   - player_hole_stats.play_hole_id → round_play_holes ON DELETE RESTRICT
+     *   - player_hole_stats.player_id    → players          ON DELETE RESTRICT
      * SQLite enforces RESTRICT immediately, even mid-cascade of the same
      * DELETE statement, so deleting the round row while these still exist
-     * would trip the FK. All score_events carry this round_id; every
-     * scorecard's ball belongs to this round — the two deletes below clear
-     * every RESTRICT dependent.
+     * would trip the FK. All score_events and stat_events carry this round_id;
+     * every scorecard's ball belongs to this round — the four deletes below
+     * clear every RESTRICT dependent.
+     *
+     * `player_hole_stats` is trigger-maintained (migration 042) but the
+     * trigger only ever INSERTs/UPDATEs — teardown is the one place the
+     * projection is deleted, and it must go before `stat_events` would
+     * otherwise be orphaned by the round cascade.
      *
      * Everything else is ON DELETE CASCADE off `rounds` (directly or
      * transitively) and falls to the final delete: friendly_rounds,
@@ -1034,6 +1043,14 @@ export class RoundService {
                     'in',
                     trx.selectFrom('balls').select('id').where('round_id', '=', id),
                 )
+                .execute();
+            await trx
+                .deleteFrom('player_hole_stats')
+                .where('round_id', '=', id)
+                .execute();
+            await trx
+                .deleteFrom('stat_events')
+                .where('round_id', '=', id)
                 .execute();
             await this.deleteById(id, trx).execute();
         });

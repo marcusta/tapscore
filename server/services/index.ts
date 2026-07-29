@@ -13,6 +13,7 @@ import { RoundService, type RoundServiceDeps } from './round.service';
 import { RoundEventsHub } from './round-events-hub';
 import { ScoreEventService } from './score-event.service';
 import { ScorecardService } from './scorecard.service';
+import { PlayerStatsService } from './player-stats.service';
 import { LeaderboardService } from './leaderboard.service';
 import { CorrectionService } from './correction.service';
 import { FormatActionService } from './format-action.service';
@@ -122,6 +123,11 @@ export function createServices(db: Kysely<Database>) {
     );
     const scoreEventService = new ScoreEventService(db, roundService);
     const scorecardService = new ScorecardService(db);
+    // Player statistics (docs/proposals/player-stats.md): its own aggregate —
+    // config + capture events + the trigger-maintained projection. No deps: it
+    // resolves nothing through sibling services, and the token front door
+    // reaches it through FriendlyRoundService, like scoring does.
+    const playerStatsService = new PlayerStatsService(db);
     const leaderboardService = new LeaderboardService(
         db,
         roundService,
@@ -147,6 +153,7 @@ export function createServices(db: Kysely<Database>) {
         scorecardService,
         leaderboardService,
         startListService,
+        playerStatsService,
         // Finish/reopen move `rounds.status` without moving the cursor; an open
         // SSE stream learns about them only through this hub.
         roundEventsHub,
@@ -171,7 +178,12 @@ export function createServices(db: Kysely<Database>) {
         startListService,
     );
     const roundLeaveService = new RoundLeaveService(db, roundService, correctionService);
-    const roundEditService = new RoundEditService(db, roundService, correctionService);
+    const roundEditService = new RoundEditService(
+        db,
+        roundService,
+        correctionService,
+        playerStatsService,
+    );
     const guestClaimService = new GuestClaimService(db);
     const competitionService = new CompetitionService(
         db,
@@ -225,6 +237,7 @@ export function createServices(db: Kysely<Database>) {
         roundService,
         scoreEventService,
         scorecardService,
+        playerStatsService,
         leaderboardService,
         correctionService,
         formatActionService,

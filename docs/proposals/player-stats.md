@@ -206,7 +206,7 @@ export interface StatEventsTable {
     round_id: string;
     play_hole_id: string;        // stable occurrence id, same as score_events
     player_id: string;           // FK players.id — never a guest
-    seq: number;                 // monotonic per round, same discipline as score_events.seq
+    seq: number;                 // global append-order + UNIQUE index, same discipline as score_events.seq (migration 030)
     key: StatKey;                // 'tee_result' | 'gir' | 'first_putt' | 'putts'
                                  // | 'short_game_difficulty' | 'penalties' | 'recovery_ok'
     value: string | null;        // enum text / '0'..'3+' / int as text; null = cleared
@@ -223,8 +223,10 @@ never lock, so stats stay editable after finish, exactly like scores.
 
 ### 4.2 `player_hole_stats` (projection)
 
-Maintained by the stat-event service on every append (reduce-latest, same
-pattern as the `scorecards` projection). One sparse row per
+Maintained by a DB trigger on `stat_events` insert (`AFTER INSERT … WHEN` no
+newer seq exists for the key, `ON CONFLICT DO UPDATE`) — the same mechanism as
+the `scorecards` projection trigger from migration 030, unbypassable and
+keeping the read service write-free. One sparse row per
 `(round_id, play_hole_id, player_id)`; every stat column nullable — NULL
 means "not recorded", never "no".
 
@@ -275,15 +277,20 @@ From the projection joined with scorecards, no new input:
 
 ## 6. API surface (sketch)
 
-- `GET/PUT /api/me/stats-config` — session-scoped profile config.
-- `POST /api/rounds/:token/stat-events` — append, token-authorized, batched
-  per hole commit (same shape discipline as score events). Server rejects
-  events for guests, for players without the module enabled, and for
-  shared-stroke balls.
+- `GET/PUT /api/players/me/stats-config` — session-scoped profile config
+  (`requireAuth()`, the `/players/me/*` convention).
+- `POST /api/friendly-rounds/stat-events` — append, token-authorized, batched
+  per hole commit (`Type.Array`, per-item `client_event_id` idempotency).
+  Server rejects events for guests, for players not in the target ball, for
+  players without the module enabled, and for shared-stroke balls.
+- `GET /api/friendly-rounds/stats` — token-authorized flat
+  `player_hole_stats` rows for the round, so the score-entry step can prefill
+  and correct. (A separate endpoint, not a widening of `ScorecardHole`: the
+  projection is keyed by player, scorecard holes by ball+source.)
 - `GET /api/players/:id/stats` — aggregates (backed by the views). **Open
   question below on visibility.**
-- Round detail responses gain the ball's current `player_hole_stats` rows so
-  the score-entry step can prefill and correct.
+- Stat appends do **not** bump `rounds.latest_event_id` or the result cursor
+  — they change no leaderboard. Prefill freshness rides the normal loads.
 
 ## 7. Out of scope (v1)
 
@@ -306,7 +313,10 @@ From the projection joined with scorecards, no new input:
 3. **`putts` vs `first_putt` consistency** — `putts = 0` (holed from off the
    green) with a `first_putt` value is contradictory. Service-level
    validation or trust the scorer? Leaning: validate the cheap
-   contradictions, silently accept the rest.
+   contradictions, silently accept the rest. **v1 ships with NO server-side
+   coherence validation** — each key is validated only against its own closed
+   vocabulary, so incoherent combinations are storable and the §4.3 views must
+   treat them as unrecorded rather than counting them.
 
 ## 9. Phasing
 

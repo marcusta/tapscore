@@ -30,6 +30,9 @@ export interface Database {
     slot_ball_teams: SlotBallTeamsTable;
     score_events: ScoreEventsTable;
     scorecards: ScorecardsTable;
+    player_stats_config: PlayerStatsConfigTable;
+    stat_events: StatEventsTable;
+    player_hole_stats: PlayerHoleStatsTable;
     setup_correction_events: SetupCorrectionEventsTable;
     allowance_override_events: AllowanceOverrideEventsTable;
     ruling_events: RulingEventsTable;
@@ -215,6 +218,105 @@ export interface ScorecardsTable {
      * at the read boundary; stored as TEXT.
      */
     metadata: string | null;
+}
+
+// --- Player statistics (migration 042; docs/proposals/player-stats.md) ------
+//
+// Same two-table architecture as scoring: an append-only event log
+// (`stat_events`) is the source of truth, a typed projection
+// (`player_hole_stats`) is what everything reads, and a DB trigger keeps them
+// in step. `player_stats_config` is per-PLAYER, never per-round: stats are a
+// player's longitudinal record, read live at prompt time.
+
+/** The closed capture vocabulary — one key per stat module question (spec §1). */
+export type StatKey =
+    | 'tee_result'
+    | 'gir'
+    | 'first_putt'
+    | 'putts'
+    | 'short_game_difficulty'
+    | 'penalties'
+    | 'recovery_ok';
+
+export type TeeResult = 'fairway' | 'in_play' | 'trouble';
+export type FirstPuttBucket = 'inside_2m' | '2_to_6m' | 'over_6m';
+export type ShortGameDifficulty = 'standard' | 'hard';
+
+/**
+ * One row per player who has ever enabled stats (migration 042). NO ROW =
+ * stats off — the absence is the default, not a seeded zero row. The FK to
+ * `players` (RESTRICT) is what makes guest stats structurally impossible.
+ */
+export interface PlayerStatsConfigTable {
+    player_id: string;
+    /** Master switch. 0 preserves the module choices below (spec §3). */
+    enabled: number;
+    tee: number;
+    approach: number;
+    putting: number;
+    /** Requires `putting = 1` — CHECK-enforced (migration 042) and validated in the service. */
+    short_game: number;
+    penalties: number;
+    /** Requires `tee = 1` — CHECK-enforced (migration 042) and validated in the service. */
+    recovery: number;
+    updated_at: Generated<string>;
+}
+
+/**
+ * Append-only stat capture (migration 042). Latest event per
+ * `(round_id, play_hole_id, player_id, key)` by `seq` wins; `value = null`
+ * CLEARS that key (distinct from never having recorded it).
+ */
+export interface StatEventsTable {
+    id: string;
+    round_id: string;
+    /** Stable play-hole occurrence id — the same subject `score_events` keys on. */
+    play_hole_id: string;
+    /** FK `players.id` — never a guest, by construction. */
+    player_id: string;
+    /**
+     * Monotonic append-order sequence (migration 042). Assigned in
+     * `player-stats.service.ts::appendEvents` as `COALESCE(MAX(seq),0)+1`,
+     * inside the write transaction. THE total order for stat_events, exactly
+     * as `score_events.seq` is for scores — the projection trigger gates on it
+     * instead of the wall-clock `recorded_at`.
+     */
+    seq: number;
+    key: StatKey;
+    /**
+     * One TEXT column serving seven keys: enum text, `'0'`/`'1'` for the two
+     * booleans, `'0'`..`'3'` for putts, decimal digits for penalties. Pinned
+     * per key by a CHECK constraint; typed into real columns by the projection.
+     * NULL = cleared.
+     */
+    value: string | null;
+    recorded_by_player_id: string | null;
+    recorded_at: Generated<string>;
+    /** Idempotency key, unique per round (migration 042). */
+    client_event_id: string;
+}
+
+/**
+ * Typed projection (migration 042), maintained solely by the
+ * `player_hole_stats_rebuild_on_event` trigger — the read service never
+ * writes here. One sparse row per `(round, play_hole, player)`; EVERY stat
+ * column is nullable and NULL means "not recorded", never "no". This is the
+ * queryable surface every aggregate groups over.
+ */
+export interface PlayerHoleStatsTable {
+    round_id: string;
+    play_hole_id: string;
+    player_id: string;
+    tee_result: TeeResult | null;
+    /** 0/1. */
+    gir: number | null;
+    first_putt: FirstPuttBucket | null;
+    /** 0..3, where 3 means "3 or more". */
+    putts: number | null;
+    short_game_difficulty: ShortGameDifficulty | null;
+    penalties: number | null;
+    /** 0/1. */
+    recovery_ok: number | null;
 }
 
 export interface RoleGrantsTable {

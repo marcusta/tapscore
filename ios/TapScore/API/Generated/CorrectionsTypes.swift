@@ -176,52 +176,52 @@ enum CorrectionsRulingInputRulingKind: String, Codable, Sendable, Equatable {
 struct CorrectionsRulingInput: Codable, Sendable, Equatable {
     var roundId: String
     var clientEventId: String
+    var value: JSONValue
     var target: CorrectionsRulingInputTarget
     var reason: String
     var targetId: String
     var rulingKind: CorrectionsRulingInputRulingKind
-    var value: JSONValue
 
     enum CodingKeys: String, CodingKey {
         case roundId = "roundId"
         case clientEventId = "clientEventId"
+        case value = "value"
         case target = "target"
         case reason = "reason"
         case targetId = "targetId"
         case rulingKind = "rulingKind"
-        case value = "value"
     }
 
-    init(roundId: String, clientEventId: String, target: CorrectionsRulingInputTarget, reason: String, targetId: String, rulingKind: CorrectionsRulingInputRulingKind, value: JSONValue) {
+    init(roundId: String, clientEventId: String, value: JSONValue, target: CorrectionsRulingInputTarget, reason: String, targetId: String, rulingKind: CorrectionsRulingInputRulingKind) {
         self.roundId = roundId
         self.clientEventId = clientEventId
+        self.value = value
         self.target = target
         self.reason = reason
         self.targetId = targetId
         self.rulingKind = rulingKind
-        self.value = value
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.roundId = try c.decode(String.self, forKey: .roundId)
         self.clientEventId = try c.decode(String.self, forKey: .clientEventId)
+        self.value = try c.decode(JSONValue.self, forKey: .value)
         self.target = try c.decode(CorrectionsRulingInputTarget.self, forKey: .target)
         self.reason = try c.decode(String.self, forKey: .reason)
         self.targetId = try c.decode(String.self, forKey: .targetId)
         self.rulingKind = try c.decode(CorrectionsRulingInputRulingKind.self, forKey: .rulingKind)
-        self.value = try c.decode(JSONValue.self, forKey: .value)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(roundId, forKey: .roundId)
         try c.encode(clientEventId, forKey: .clientEventId)
+        try c.encode(value, forKey: .value)
         try c.encode(target, forKey: .target)
         try c.encode(reason, forKey: .reason)
         try c.encode(targetId, forKey: .targetId)
         try c.encode(rulingKind, forKey: .rulingKind)
-        try c.encode(value, forKey: .value)
     }
 }
 

@@ -2,6 +2,10 @@ import type { Kysely } from 'kysely';
 
 import type { Database, RoundStatus } from '../db/schema';
 import type { CompilerDiagnostic } from '../domain/compiler/types';
+import {
+    isPlaceholderProducerDef,
+    type RoundDefinition,
+} from '../domain/round-definition';
 import { buildRoundDefinition } from '../domain/round-setup/builder';
 import {
     isIdentityProducer,
@@ -9,6 +13,7 @@ import {
     type RoundSetupDraft,
 } from '../domain/round-setup/draft';
 import type { CorrectionService } from './correction.service';
+import type { PlayerStatsService } from './player-stats.service';
 import type { Round, RoundService } from './round.service';
 
 /**
@@ -47,6 +52,18 @@ import type { Round, RoundService } from './round.service';
  *   - any other edit that would delete a scored ball (e.g. reshuffling a
  *     scored team's membership, which changes the ball's content-addressed
  *     id)                                   → `scored_ball_orphaned`.
+ *   - dropping a hole occurrence that carries player STATISTICS
+ *                                           → `stats_recorded_on_removed_hole`;
+ *     removing a producer who has them      → `producer_has_stats`.
+ *     Same FK reality one table over: `stat_events.play_hole_id` /
+ *     `player_hole_stats.play_hole_id` are `ON DELETE RESTRICT` (migration
+ *     042), so a route shrink over a hole with stats but NO scores used to
+ *     escape every guard here and abort the recompile with a raw FK error.
+ *     REFUSE, not cascade: stats are captured answers, indistinguishable in
+ *     kind from a score, and silently deleting a player's round data to let
+ *     someone else's edit through is the one outcome nobody can undo. The
+ *     player clears their own stats (an event with `value: null`) and the edit
+ *     then goes through.
  * Everything else stays open: add/remove (unscored) players, tee / index /
  * gender / name-row changes, add/remove/change formats and allowances, teams
  * and subjects, groups and start times.
@@ -82,6 +99,7 @@ export class RoundEditService {
         private db: Kysely<Database>,
         private rounds: RoundService,
         private corrections: CorrectionService,
+        private playerStats: PlayerStatsService,
     ) {}
 
     /** Token → round row, or null for an unknown token (API turns it into 404). */
@@ -204,15 +222,27 @@ export class RoundEditService {
         // --- Guard: no edit may orphan a scored ball or occurrence -----------
         // score_events.ball_id / play_hole_id are ON DELETE RESTRICT — without
         // this the recompile transaction would abort with a raw FK error.
+        const keptPlayHoleIds = new Set(compiled.compiled.playHoles.map((p) => p.id));
         if (scored) {
             const diags = await this.scoredSubjectDiagnostics(
                 roundId,
                 new Set(compiled.compiled.balls.map((b) => b.id)),
-                new Set(compiled.compiled.playHoles.map((p) => p.id)),
+                keptPlayHoleIds,
                 new Set(built.definition.producers.map((p) => p.id)),
             );
             if (diags.length > 0) return { ok: false, diagnostics: diags };
         }
+
+        // --- Guard: the same, for captured statistics ------------------------
+        // Stats live on (play_hole, player), not on a ball, and a round can
+        // carry them with ZERO score events — so this runs unconditionally,
+        // outside the `scored` branch.
+        const statDiags = await this.statSubjectDiagnostics(
+            roundId,
+            keptPlayHoleIds,
+            keptPlayerIds(built.definition.producers),
+        );
+        if (statDiags.length > 0) return { ok: false, diagnostics: statDiags };
 
         // --- Persist through the composed-correction path --------------------
         const nextDraftVersion = stored.version + 1;
@@ -381,9 +411,75 @@ export class RoundEditService {
         }
         return diags;
     }
+
+    /**
+     * The same orphan guard for captured statistics (migration 042).
+     *
+     * Two distinct refusals, because they are two distinct mistakes:
+     *   - the edit shrinks the route over an occurrence that carries stats
+     *     (`stat_events.play_hole_id` is RESTRICT → a raw FK abort otherwise);
+     *   - the edit removes a producer whose player carries stats. No FK stops
+     *     that one — `player_id` points at `players`, which survives — so the
+     *     rows would silently outlive the player's presence in the round:
+     *     still returned by `statsForRound`, no longer appendable. Refusing
+     *     keeps the round's stats and its roster describing the same thing.
+     *
+     * Distinct codes, not `edit_locked_course_route` / `producer_has_scores`:
+     * both clients rewrite those two into a "scores have been recorded"
+     * sentence, which would be a lie here. An unknown code falls through to
+     * this message verbatim on web and iOS alike.
+     */
+    private async statSubjectDiagnostics(
+        roundId: string,
+        keptPlayHoleIds: Set<string>,
+        keptPlayerIds: Set<string>,
+    ): Promise<CompilerDiagnostic[]> {
+        const subjects = await this.playerStats.recordedSubjects(roundId);
+        if (subjects.length === 0) return [];
+
+        const diags: CompilerDiagnostic[] = [];
+
+        if (subjects.some((s) => !keptPlayHoleIds.has(s.playHoleId))) {
+            diags.push({
+                code: 'stats_recorded_on_removed_hole',
+                message:
+                    'statistics have been recorded on holes this edit would remove — clear them first, or keep the route as it is',
+                path: 'route',
+            });
+        }
+
+        const droppedNames = [
+            ...new Set(
+                subjects
+                    .filter((s) => !keptPlayerIds.has(s.playerId))
+                    .map((s) => s.displayName),
+            ),
+        ];
+        if (droppedNames.length > 0) {
+            diags.push({
+                code: 'producer_has_stats',
+                message: `${droppedNames.join(', ')} has recorded statistics — clear them before removing the player from the round`,
+                path: 'producers',
+            });
+        }
+        return diags;
+    }
 }
 
 // --- Helpers -------------------------------------------------------------------
+
+/**
+ * Registered players the edited definition still carries. Placeholder seats and
+ * guests contribute nothing — neither can ever be a stats subject.
+ */
+function keptPlayerIds(producers: RoundDefinition['producers']): Set<string> {
+    const ids = new Set<string>();
+    for (const p of producers) {
+        if (isPlaceholderProducerDef(p)) continue;
+        if (p.playerRef.kind === 'player') ids.add(p.playerRef.id);
+    }
+    return ids;
+}
 
 function refuse(code: string, message: string, path?: string): EditRoundResult {
     return { ok: false, diagnostics: [{ code, message, ...(path !== undefined ? { path } : {}) }] };
