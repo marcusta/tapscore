@@ -9,7 +9,7 @@
         "check:client": "tsgo --noEmit",
         "check:server": "tsgo -p tsconfig.server.json --noEmit",
         "check:test": "tsgo -p tsconfig.test.json --noEmit",
-        "test": "bun ../mackans-client-fw/tools/assert-not-linked.ts && bun test",
+        "test": "bun scripts/fw.ts assert-not-linked && bun test",
         "test:server": "bun test server/",
         "test:client": "bun test tests/ src/",
         "test:scripts": "bun test scripts/",
@@ -29,8 +29,8 @@
         "grant:role": "bun ./scripts/grant-role.ts",
         "db:migrate": "bun ./scripts/migrate.ts",
         "db:health": "bun ./scripts/health.ts",
-        "fw:update": "bun ../mackans-client-fw/tools/update.ts",
-        "fw:check": "bun ../mackans-client-fw/tools/assert-not-linked.ts"
+        "fw:update": "bun scripts/fw.ts update",
+        "fw:check": "bun scripts/fw.ts assert-not-linked"
     },
     "dependencies": {
         "@basics/core": "file:./vendor/basics-core-1.2.1.tgz",
