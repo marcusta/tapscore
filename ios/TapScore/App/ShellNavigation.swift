@@ -1,5 +1,16 @@
 import Foundation
 
+/// The signed-in app's root-level destinations.
+///
+/// Home and Friends are the two dock items. Profile is reached from the
+/// account menu and intentionally leaves both dock items inactive, matching
+/// the web shell.
+enum ShellSection: Hashable, Sendable {
+    case home
+    case friends
+    case profile
+}
+
 /// A push target on the root stack.
 enum ShellDestination: Hashable, Sendable {
     /// The paste-a-link screen.

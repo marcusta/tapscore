@@ -273,7 +273,13 @@ final class StatPromptsTests: XCTestCase {
         }
         XCTAssertEqual(values(.teeResult), ["fairway", "in_play", "trouble"])
         XCTAssertEqual(values(.gir), ["0", "1"])
-        XCTAssertEqual(values(.firstPutt), ["inside_2m", "2_to_6m", "over_6m"])
+        XCTAssertEqual(
+            values(.firstPutt),
+            ["inside_1m", "1_to_2m", "2_to_4m", "4_to_8m", "over_8m"])
+        guard case .segments(let firstPutt) = StatVocabulary.control(for: .firstPutt) else {
+            return XCTFail("First putt must stay a segmented row")
+        }
+        XCTAssertEqual(firstPutt.map(\.label), ["< 1m", "1–2m", "2–4m", "4–8m", "> 8m"])
         XCTAssertEqual(values(.shortGameDifficulty), ["standard", "hard"])
         XCTAssertEqual(values(.recoveryOk), ["0", "1"])
         XCTAssertEqual(StatVocabulary.control(for: .putts), .stepper(min: 0, max: 3))

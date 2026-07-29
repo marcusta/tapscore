@@ -62,7 +62,7 @@ struct BottomTabBar<Item: Hashable>: View {
                 .accessibilityAddTraits(selection == tab.id ? [.isSelected] : [])
             }
         }
-        .background(TapColors.topbarBg)
+        .background(TapColors.topbarBg.ignoresSafeArea(edges: .bottom))
     }
 }
 

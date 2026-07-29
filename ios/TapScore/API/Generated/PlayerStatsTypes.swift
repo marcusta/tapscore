@@ -134,6 +134,11 @@ enum PlayerHoleStatsTeeResult: String, Codable, Sendable, Equatable {
 }
 
 enum PlayerHoleStatsFirstPutt: String, Codable, Sendable, Equatable {
+    case inside1m = "inside_1m"
+    case v1To2m = "1_to_2m"
+    case v2To4m = "2_to_4m"
+    case v4To8m = "4_to_8m"
+    case over8m = "over_8m"
     case inside2m = "inside_2m"
     case v2To6m = "2_to_6m"
     case over6m = "over_6m"
@@ -274,19 +279,25 @@ struct StatMeasures: Codable, Sendable, Equatable {
     var girRecorded: Double
     var girHits: Double
     var firstPuttRecorded: Double
-    var firstPuttInside2m: Double
-    var firstPutt2To6m: Double
-    var firstPuttOver6m: Double
-    var firstPuttInside2mResolved: Double
-    var firstPutt2To6mResolved: Double
-    var firstPuttOver6mResolved: Double
-    var onePuttInside2m: Double
-    var onePutt2To6m: Double
-    var onePuttOver6m: Double
+    var firstPuttInside1m: Double
+    var firstPutt1To2m: Double
+    var firstPutt2To4m: Double
+    var firstPutt4To8m: Double
+    var firstPuttOver8m: Double
+    var firstPuttInside1mResolved: Double
+    var firstPutt1To2mResolved: Double
+    var firstPutt2To4mResolved: Double
+    var firstPutt4To8mResolved: Double
+    var firstPuttOver8mResolved: Double
+    var onePuttInside1m: Double
+    var onePutt1To2m: Double
+    var onePutt2To4m: Double
+    var onePutt4To8m: Double
+    var onePuttOver8m: Double
     var puttsRecorded: Double
     var puttsTotal: Double
     var threePutts: Double
-    var threePuttsFromOver6m: Double
+    var threePuttsFromOver8m: Double
     var scrambleAttemptsStandard: Double
     var scrambleSuccessesStandard: Double
     var scrambleAttemptsHard: Double
@@ -328,19 +339,25 @@ struct StatMeasures: Codable, Sendable, Equatable {
         case girRecorded = "girRecorded"
         case girHits = "girHits"
         case firstPuttRecorded = "firstPuttRecorded"
-        case firstPuttInside2m = "firstPuttInside2m"
-        case firstPutt2To6m = "firstPutt2To6m"
-        case firstPuttOver6m = "firstPuttOver6m"
-        case firstPuttInside2mResolved = "firstPuttInside2mResolved"
-        case firstPutt2To6mResolved = "firstPutt2To6mResolved"
-        case firstPuttOver6mResolved = "firstPuttOver6mResolved"
-        case onePuttInside2m = "onePuttInside2m"
-        case onePutt2To6m = "onePutt2To6m"
-        case onePuttOver6m = "onePuttOver6m"
+        case firstPuttInside1m = "firstPuttInside1m"
+        case firstPutt1To2m = "firstPutt1To2m"
+        case firstPutt2To4m = "firstPutt2To4m"
+        case firstPutt4To8m = "firstPutt4To8m"
+        case firstPuttOver8m = "firstPuttOver8m"
+        case firstPuttInside1mResolved = "firstPuttInside1mResolved"
+        case firstPutt1To2mResolved = "firstPutt1To2mResolved"
+        case firstPutt2To4mResolved = "firstPutt2To4mResolved"
+        case firstPutt4To8mResolved = "firstPutt4To8mResolved"
+        case firstPuttOver8mResolved = "firstPuttOver8mResolved"
+        case onePuttInside1m = "onePuttInside1m"
+        case onePutt1To2m = "onePutt1To2m"
+        case onePutt2To4m = "onePutt2To4m"
+        case onePutt4To8m = "onePutt4To8m"
+        case onePuttOver8m = "onePuttOver8m"
         case puttsRecorded = "puttsRecorded"
         case puttsTotal = "puttsTotal"
         case threePutts = "threePutts"
-        case threePuttsFromOver6m = "threePuttsFromOver6m"
+        case threePuttsFromOver8m = "threePuttsFromOver8m"
         case scrambleAttemptsStandard = "scrambleAttemptsStandard"
         case scrambleSuccessesStandard = "scrambleSuccessesStandard"
         case scrambleAttemptsHard = "scrambleAttemptsHard"
@@ -375,7 +392,7 @@ struct StatMeasures: Codable, Sendable, Equatable {
         case strokesVsParTrouble = "strokesVsParTrouble"
     }
 
-    init(teeRecorded: Double, fairwayHits: Double, inPlayHits: Double, troubleCount: Double, girRecorded: Double, girHits: Double, firstPuttRecorded: Double, firstPuttInside2m: Double, firstPutt2To6m: Double, firstPuttOver6m: Double, firstPuttInside2mResolved: Double, firstPutt2To6mResolved: Double, firstPuttOver6mResolved: Double, onePuttInside2m: Double, onePutt2To6m: Double, onePuttOver6m: Double, puttsRecorded: Double, puttsTotal: Double, threePutts: Double, threePuttsFromOver6m: Double, scrambleAttemptsStandard: Double, scrambleSuccessesStandard: Double, scrambleAttemptsHard: Double, scrambleSuccessesHard: Double, scrambleFirstPuttStandard: Double, scrambleInside2mStandard: Double, scrambleFirstPuttHard: Double, scrambleInside2mHard: Double, penaltiesRecorded: Double, penaltiesTotal: Double, recoveryAttempts: Double, recoverySuccesses: Double, holesScored: Double, strokesTotal: Double, parTotal: Double, holesScoredPar3: Double, strokesPar3: Double, holesScoredPar4: Double, strokesPar4: Double, holesScoredPar5: Double, strokesPar5: Double, doubleBogeyPlus: Double, girHolesScored: Double, birdiesOnGir: Double, bounceBackOpportunities: Double, bounceBackSuccesses: Double, holesScoredFairway: Double, strokesVsParFairway: Double, holesScoredInPlay: Double, strokesVsParInPlay: Double, holesScoredTrouble: Double, strokesVsParTrouble: Double) {
+    init(teeRecorded: Double, fairwayHits: Double, inPlayHits: Double, troubleCount: Double, girRecorded: Double, girHits: Double, firstPuttRecorded: Double, firstPuttInside1m: Double, firstPutt1To2m: Double, firstPutt2To4m: Double, firstPutt4To8m: Double, firstPuttOver8m: Double, firstPuttInside1mResolved: Double, firstPutt1To2mResolved: Double, firstPutt2To4mResolved: Double, firstPutt4To8mResolved: Double, firstPuttOver8mResolved: Double, onePuttInside1m: Double, onePutt1To2m: Double, onePutt2To4m: Double, onePutt4To8m: Double, onePuttOver8m: Double, puttsRecorded: Double, puttsTotal: Double, threePutts: Double, threePuttsFromOver8m: Double, scrambleAttemptsStandard: Double, scrambleSuccessesStandard: Double, scrambleAttemptsHard: Double, scrambleSuccessesHard: Double, scrambleFirstPuttStandard: Double, scrambleInside2mStandard: Double, scrambleFirstPuttHard: Double, scrambleInside2mHard: Double, penaltiesRecorded: Double, penaltiesTotal: Double, recoveryAttempts: Double, recoverySuccesses: Double, holesScored: Double, strokesTotal: Double, parTotal: Double, holesScoredPar3: Double, strokesPar3: Double, holesScoredPar4: Double, strokesPar4: Double, holesScoredPar5: Double, strokesPar5: Double, doubleBogeyPlus: Double, girHolesScored: Double, birdiesOnGir: Double, bounceBackOpportunities: Double, bounceBackSuccesses: Double, holesScoredFairway: Double, strokesVsParFairway: Double, holesScoredInPlay: Double, strokesVsParInPlay: Double, holesScoredTrouble: Double, strokesVsParTrouble: Double) {
         self.teeRecorded = teeRecorded
         self.fairwayHits = fairwayHits
         self.inPlayHits = inPlayHits
@@ -383,19 +400,25 @@ struct StatMeasures: Codable, Sendable, Equatable {
         self.girRecorded = girRecorded
         self.girHits = girHits
         self.firstPuttRecorded = firstPuttRecorded
-        self.firstPuttInside2m = firstPuttInside2m
-        self.firstPutt2To6m = firstPutt2To6m
-        self.firstPuttOver6m = firstPuttOver6m
-        self.firstPuttInside2mResolved = firstPuttInside2mResolved
-        self.firstPutt2To6mResolved = firstPutt2To6mResolved
-        self.firstPuttOver6mResolved = firstPuttOver6mResolved
-        self.onePuttInside2m = onePuttInside2m
-        self.onePutt2To6m = onePutt2To6m
-        self.onePuttOver6m = onePuttOver6m
+        self.firstPuttInside1m = firstPuttInside1m
+        self.firstPutt1To2m = firstPutt1To2m
+        self.firstPutt2To4m = firstPutt2To4m
+        self.firstPutt4To8m = firstPutt4To8m
+        self.firstPuttOver8m = firstPuttOver8m
+        self.firstPuttInside1mResolved = firstPuttInside1mResolved
+        self.firstPutt1To2mResolved = firstPutt1To2mResolved
+        self.firstPutt2To4mResolved = firstPutt2To4mResolved
+        self.firstPutt4To8mResolved = firstPutt4To8mResolved
+        self.firstPuttOver8mResolved = firstPuttOver8mResolved
+        self.onePuttInside1m = onePuttInside1m
+        self.onePutt1To2m = onePutt1To2m
+        self.onePutt2To4m = onePutt2To4m
+        self.onePutt4To8m = onePutt4To8m
+        self.onePuttOver8m = onePuttOver8m
         self.puttsRecorded = puttsRecorded
         self.puttsTotal = puttsTotal
         self.threePutts = threePutts
-        self.threePuttsFromOver6m = threePuttsFromOver6m
+        self.threePuttsFromOver8m = threePuttsFromOver8m
         self.scrambleAttemptsStandard = scrambleAttemptsStandard
         self.scrambleSuccessesStandard = scrambleSuccessesStandard
         self.scrambleAttemptsHard = scrambleAttemptsHard
@@ -439,19 +462,25 @@ struct StatMeasures: Codable, Sendable, Equatable {
         self.girRecorded = try c.decode(Double.self, forKey: .girRecorded)
         self.girHits = try c.decode(Double.self, forKey: .girHits)
         self.firstPuttRecorded = try c.decode(Double.self, forKey: .firstPuttRecorded)
-        self.firstPuttInside2m = try c.decode(Double.self, forKey: .firstPuttInside2m)
-        self.firstPutt2To6m = try c.decode(Double.self, forKey: .firstPutt2To6m)
-        self.firstPuttOver6m = try c.decode(Double.self, forKey: .firstPuttOver6m)
-        self.firstPuttInside2mResolved = try c.decode(Double.self, forKey: .firstPuttInside2mResolved)
-        self.firstPutt2To6mResolved = try c.decode(Double.self, forKey: .firstPutt2To6mResolved)
-        self.firstPuttOver6mResolved = try c.decode(Double.self, forKey: .firstPuttOver6mResolved)
-        self.onePuttInside2m = try c.decode(Double.self, forKey: .onePuttInside2m)
-        self.onePutt2To6m = try c.decode(Double.self, forKey: .onePutt2To6m)
-        self.onePuttOver6m = try c.decode(Double.self, forKey: .onePuttOver6m)
+        self.firstPuttInside1m = try c.decode(Double.self, forKey: .firstPuttInside1m)
+        self.firstPutt1To2m = try c.decode(Double.self, forKey: .firstPutt1To2m)
+        self.firstPutt2To4m = try c.decode(Double.self, forKey: .firstPutt2To4m)
+        self.firstPutt4To8m = try c.decode(Double.self, forKey: .firstPutt4To8m)
+        self.firstPuttOver8m = try c.decode(Double.self, forKey: .firstPuttOver8m)
+        self.firstPuttInside1mResolved = try c.decode(Double.self, forKey: .firstPuttInside1mResolved)
+        self.firstPutt1To2mResolved = try c.decode(Double.self, forKey: .firstPutt1To2mResolved)
+        self.firstPutt2To4mResolved = try c.decode(Double.self, forKey: .firstPutt2To4mResolved)
+        self.firstPutt4To8mResolved = try c.decode(Double.self, forKey: .firstPutt4To8mResolved)
+        self.firstPuttOver8mResolved = try c.decode(Double.self, forKey: .firstPuttOver8mResolved)
+        self.onePuttInside1m = try c.decode(Double.self, forKey: .onePuttInside1m)
+        self.onePutt1To2m = try c.decode(Double.self, forKey: .onePutt1To2m)
+        self.onePutt2To4m = try c.decode(Double.self, forKey: .onePutt2To4m)
+        self.onePutt4To8m = try c.decode(Double.self, forKey: .onePutt4To8m)
+        self.onePuttOver8m = try c.decode(Double.self, forKey: .onePuttOver8m)
         self.puttsRecorded = try c.decode(Double.self, forKey: .puttsRecorded)
         self.puttsTotal = try c.decode(Double.self, forKey: .puttsTotal)
         self.threePutts = try c.decode(Double.self, forKey: .threePutts)
-        self.threePuttsFromOver6m = try c.decode(Double.self, forKey: .threePuttsFromOver6m)
+        self.threePuttsFromOver8m = try c.decode(Double.self, forKey: .threePuttsFromOver8m)
         self.scrambleAttemptsStandard = try c.decode(Double.self, forKey: .scrambleAttemptsStandard)
         self.scrambleSuccessesStandard = try c.decode(Double.self, forKey: .scrambleSuccessesStandard)
         self.scrambleAttemptsHard = try c.decode(Double.self, forKey: .scrambleAttemptsHard)
@@ -495,19 +524,25 @@ struct StatMeasures: Codable, Sendable, Equatable {
         try c.encode(girRecorded, forKey: .girRecorded)
         try c.encode(girHits, forKey: .girHits)
         try c.encode(firstPuttRecorded, forKey: .firstPuttRecorded)
-        try c.encode(firstPuttInside2m, forKey: .firstPuttInside2m)
-        try c.encode(firstPutt2To6m, forKey: .firstPutt2To6m)
-        try c.encode(firstPuttOver6m, forKey: .firstPuttOver6m)
-        try c.encode(firstPuttInside2mResolved, forKey: .firstPuttInside2mResolved)
-        try c.encode(firstPutt2To6mResolved, forKey: .firstPutt2To6mResolved)
-        try c.encode(firstPuttOver6mResolved, forKey: .firstPuttOver6mResolved)
-        try c.encode(onePuttInside2m, forKey: .onePuttInside2m)
-        try c.encode(onePutt2To6m, forKey: .onePutt2To6m)
-        try c.encode(onePuttOver6m, forKey: .onePuttOver6m)
+        try c.encode(firstPuttInside1m, forKey: .firstPuttInside1m)
+        try c.encode(firstPutt1To2m, forKey: .firstPutt1To2m)
+        try c.encode(firstPutt2To4m, forKey: .firstPutt2To4m)
+        try c.encode(firstPutt4To8m, forKey: .firstPutt4To8m)
+        try c.encode(firstPuttOver8m, forKey: .firstPuttOver8m)
+        try c.encode(firstPuttInside1mResolved, forKey: .firstPuttInside1mResolved)
+        try c.encode(firstPutt1To2mResolved, forKey: .firstPutt1To2mResolved)
+        try c.encode(firstPutt2To4mResolved, forKey: .firstPutt2To4mResolved)
+        try c.encode(firstPutt4To8mResolved, forKey: .firstPutt4To8mResolved)
+        try c.encode(firstPuttOver8mResolved, forKey: .firstPuttOver8mResolved)
+        try c.encode(onePuttInside1m, forKey: .onePuttInside1m)
+        try c.encode(onePutt1To2m, forKey: .onePutt1To2m)
+        try c.encode(onePutt2To4m, forKey: .onePutt2To4m)
+        try c.encode(onePutt4To8m, forKey: .onePutt4To8m)
+        try c.encode(onePuttOver8m, forKey: .onePuttOver8m)
         try c.encode(puttsRecorded, forKey: .puttsRecorded)
         try c.encode(puttsTotal, forKey: .puttsTotal)
         try c.encode(threePutts, forKey: .threePutts)
-        try c.encode(threePuttsFromOver6m, forKey: .threePuttsFromOver6m)
+        try c.encode(threePuttsFromOver8m, forKey: .threePuttsFromOver8m)
         try c.encode(scrambleAttemptsStandard, forKey: .scrambleAttemptsStandard)
         try c.encode(scrambleSuccessesStandard, forKey: .scrambleSuccessesStandard)
         try c.encode(scrambleAttemptsHard, forKey: .scrambleAttemptsHard)

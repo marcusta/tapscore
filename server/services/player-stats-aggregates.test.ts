@@ -141,12 +141,12 @@ async function fixture(
 /**
  * The worked example. Six holes, pars 4/4/3/5/4/4:
  *
- *  H1 par 4, 4 strokes — fairway, GIR, first putt 2-6m, 2 putts, 0 penalties
+ *  H1 par 4, 4 strokes — fairway, GIR, first putt 2-4m, 2 putts, 0 penalties
  *  H2 par 4, 6 strokes — trouble, recovery OK, missed green, STANDARD chip to
  *                        inside 2m, 1 putt, 1 penalty        → double bogey
  *  H3 par 3, 2 strokes — no tee question, missed green, HARD chip, 0 putts
  *                        (holed it), no first-putt bucket    → bounce-back
- *  H4 par 5, 6 strokes — in play, GIR, first putt over 6m, 3 putts
+ *  H4 par 5, 6 strokes — in play, GIR, first putt over 8m, 3 putts
  *  H5 par 4, 3 strokes — fairway, GIR, first putt inside 2m, 1 putt → birdie
  *  H6 par 4, 4 strokes — SCORED, nothing recorded at all
  */
@@ -154,7 +154,7 @@ async function workedExample() {
     const f = await fixture();
     await f.stat(1, 'tee_result', 'fairway');
     await f.stat(1, 'gir', '1');
-    await f.stat(1, 'first_putt', '2_to_6m');
+    await f.stat(1, 'first_putt', '2_to_4m');
     await f.stat(1, 'putts', '2');
     await f.stat(1, 'penalties', '0');
     await f.score(1, 4);
@@ -163,7 +163,7 @@ async function workedExample() {
     await f.stat(2, 'recovery_ok', '1');
     await f.stat(2, 'gir', '0');
     await f.stat(2, 'short_game_difficulty', 'standard');
-    await f.stat(2, 'first_putt', 'inside_2m');
+    await f.stat(2, 'first_putt', 'inside_1m');
     await f.stat(2, 'putts', '1');
     await f.stat(2, 'penalties', '1');
     await f.score(2, 6);
@@ -175,13 +175,13 @@ async function workedExample() {
 
     await f.stat(4, 'tee_result', 'in_play');
     await f.stat(4, 'gir', '1');
-    await f.stat(4, 'first_putt', 'over_6m');
+    await f.stat(4, 'first_putt', 'over_8m');
     await f.stat(4, 'putts', '3');
     await f.score(4, 6);
 
     await f.stat(5, 'tee_result', 'fairway');
     await f.stat(5, 'gir', '1');
-    await f.stat(5, 'first_putt', 'inside_2m');
+    await f.stat(5, 'first_putt', 'inside_1m');
     await f.stat(5, 'putts', '1');
     await f.score(5, 3);
 
@@ -212,21 +212,27 @@ test('the round view is the hand-computed arithmetic of the worked example', asy
 
         // H3 has putts but no bucket, so the two denominators differ.
         firstPuttRecorded: 4,
-        firstPuttInside2m: 2,
-        firstPutt2To6m: 1,
-        firstPuttOver6m: 1,
+        firstPuttInside1m: 2,
+        firstPutt1To2m: 0,
+        firstPutt2To4m: 1,
+        firstPutt4To8m: 0,
+        firstPuttOver8m: 1,
         // Every bucket here also has a putt count, so resolved == raw. The
         // test below is the one that pulls them apart.
-        firstPuttInside2mResolved: 2,
-        firstPutt2To6mResolved: 1,
-        firstPuttOver6mResolved: 1,
-        onePuttInside2m: 2,
-        onePutt2To6m: 0,
-        onePuttOver6m: 0,
+        firstPuttInside1mResolved: 2,
+        firstPutt1To2mResolved: 0,
+        firstPutt2To4mResolved: 1,
+        firstPutt4To8mResolved: 0,
+        firstPuttOver8mResolved: 1,
+        onePuttInside1m: 2,
+        onePutt1To2m: 0,
+        onePutt2To4m: 0,
+        onePutt4To8m: 0,
+        onePuttOver8m: 0,
         puttsRecorded: 5,
         puttsTotal: 7,
         threePutts: 1,
-        threePuttsFromOver6m: 1,
+        threePuttsFromOver8m: 1,
 
         // Two missed greens, one of each difficulty, both up-and-down.
         scrambleAttemptsStandard: 1,
@@ -342,13 +348,13 @@ test('an incoherent putting answer is treated as unrecorded, and only there', as
     await f.stat(1, 'gir', '0');
     await f.stat(1, 'short_game_difficulty', 'standard');
     await f.stat(1, 'putts', '0');
-    await f.stat(1, 'first_putt', 'inside_2m');
+    await f.stat(1, 'first_putt', 'inside_1m');
     await f.stat(1, 'penalties', '1');
 
     const { measures } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId)).rounds[0]!;
     expect(measures.puttsRecorded).toBe(0);
     expect(measures.firstPuttRecorded).toBe(0);
-    expect(measures.firstPuttInside2m).toBe(0);
+    expect(measures.firstPuttInside1m).toBe(0);
     expect(measures.scrambleAttemptsStandard).toBe(0);
     expect(measures.scrambleFirstPuttStandard).toBe(0);
     // The hole's OTHER answers are unaffected — one contradiction does not
@@ -362,28 +368,28 @@ test('an incoherent putting answer is treated as unrecorded, and only there', as
 
 test('a first-putt bucket without a putt count is distribution, not a missed putt', async () => {
     const f = await fixture();
-    // Two greens hit and left with a 2-6m putt. Only one of them has the
+    // Two greens hit and left with a 2-4m putt. Only one of them has the
     // outcome recorded, and that one was holed.
     await f.stat(1, 'gir', '1');
-    await f.stat(1, 'first_putt', '2_to_6m');
+    await f.stat(1, 'first_putt', '2_to_4m');
     await f.stat(1, 'putts', '1');
     await f.stat(2, 'gir', '1');
-    await f.stat(2, 'first_putt', '2_to_6m');
+    await f.stat(2, 'first_putt', '2_to_4m');
 
     const { measures } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId)).rounds[0]!;
     // The approach-quality distribution keeps both — it asks nothing of putts.
-    expect(measures.firstPutt2To6m).toBe(2);
+    expect(measures.firstPutt2To4m).toBe(2);
     // The make% denominator keeps only the resolved one, so the rate reads
     // 1/1 = 100%, not 1/2 = 50% off a hole with no recorded outcome.
-    expect(measures.firstPutt2To6mResolved).toBe(1);
-    expect(measures.onePutt2To6m).toBe(1);
+    expect(measures.firstPutt2To4mResolved).toBe(1);
+    expect(measures.onePutt2To4m).toBe(1);
     expect(measures.firstPuttRecorded).toBe(2);
     expect(measures.puttsRecorded).toBe(1);
 });
 
 test('totals are the sum of every round measure, newest round first', async () => {
     // Round A, pars 4/4/3:
-    //  H1 fairway, GIR, 2-6m, 1 putt, 3 strokes        → birdie on GIR
+    //  H1 fairway, GIR, 2-4m, 1 putt, 3 strokes        → birdie on GIR
     //  H2 trouble, recovery OK, missed green, HARD chip to inside 2m,
     //     2 putts, 1 penalty, 6 strokes                → double bogey
     //  H3 missed green, STANDARD chip, 1 putt, 3 strokes → bounce-back
@@ -391,7 +397,7 @@ test('totals are the sum of every round measure, newest round first', async () =
     const first = await fixture({ date: '2026-06-01' });
     await first.stat(1, 'tee_result', 'fairway');
     await first.stat(1, 'gir', '1');
-    await first.stat(1, 'first_putt', '2_to_6m');
+    await first.stat(1, 'first_putt', '2_to_4m');
     await first.stat(1, 'putts', '1');
     await first.score(1, 3);
 
@@ -399,7 +405,7 @@ test('totals are the sum of every round measure, newest round first', async () =
     await first.stat(2, 'recovery_ok', '1');
     await first.stat(2, 'gir', '0');
     await first.stat(2, 'short_game_difficulty', 'hard');
-    await first.stat(2, 'first_putt', 'inside_2m');
+    await first.stat(2, 'first_putt', 'inside_1m');
     await first.stat(2, 'putts', '2');
     await first.stat(2, 'penalties', '1');
     await first.score(2, 6);
@@ -410,8 +416,8 @@ test('totals are the sum of every round measure, newest round first', async () =
     await first.score(3, 3);
 
     // Round B, pars 4/4/5:
-    //  H1 in play, GIR, over 6m, 1 putt, 4 strokes     → a long one holed
-    //  H2 fairway, GIR, 2-6m, putt count NOT recorded, 4 strokes
+    //  H1 in play, GIR, over 8m, 1 putt, 4 strokes     → a long one holed
+    //  H2 fairway, GIR, 2-4m, putt count NOT recorded, 4 strokes
     //  H4 par 5, 0 penalties, 5 strokes
     const second = await fixture({
         ctx: first.ctx,
@@ -420,13 +426,13 @@ test('totals are the sum of every round measure, newest round first', async () =
     });
     await second.stat(1, 'tee_result', 'in_play');
     await second.stat(1, 'gir', '1');
-    await second.stat(1, 'first_putt', 'over_6m');
+    await second.stat(1, 'first_putt', 'over_8m');
     await second.stat(1, 'putts', '1');
     await second.score(1, 4);
 
     await second.stat(2, 'tee_result', 'fairway');
     await second.stat(2, 'gir', '1');
-    await second.stat(2, 'first_putt', '2_to_6m');
+    await second.stat(2, 'first_putt', '2_to_4m');
     await second.score(2, 4);
 
     await second.stat(4, 'penalties', '0');
@@ -447,21 +453,27 @@ test('totals are the sum of every round measure, newest round first', async () =
         girRecorded: 5,
         girHits: 3,
         firstPuttRecorded: 4,
-        firstPuttInside2m: 1,
-        firstPutt2To6m: 2,
-        firstPuttOver6m: 1,
+        firstPuttInside1m: 1,
+        firstPutt1To2m: 0,
+        firstPutt2To4m: 2,
+        firstPutt4To8m: 0,
+        firstPuttOver8m: 1,
         // B's H2 bucket has no putt count: it is in the distribution but not
         // in the make% denominator.
-        firstPuttInside2mResolved: 1,
-        firstPutt2To6mResolved: 1,
-        firstPuttOver6mResolved: 1,
-        onePuttInside2m: 0,
-        onePutt2To6m: 1,
-        onePuttOver6m: 1,
+        firstPuttInside1mResolved: 1,
+        firstPutt1To2mResolved: 0,
+        firstPutt2To4mResolved: 1,
+        firstPutt4To8mResolved: 0,
+        firstPuttOver8mResolved: 1,
+        onePuttInside1m: 0,
+        onePutt1To2m: 0,
+        onePutt2To4m: 1,
+        onePutt4To8m: 0,
+        onePuttOver8m: 1,
         puttsRecorded: 4,
         puttsTotal: 5,
         threePutts: 0,
-        threePuttsFromOver6m: 0,
+        threePuttsFromOver8m: 0,
         scrambleAttemptsStandard: 1,
         scrambleSuccessesStandard: 1,
         scrambleAttemptsHard: 1,

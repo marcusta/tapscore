@@ -2,9 +2,10 @@ import { sql, type Kysely, type Selectable } from 'kysely';
 import { ConflictError } from '@basics/core/server/auth';
 import type {
     Database,
-    FirstPuttBucket,
+    StoredFirstPuttBucket,
     PlayerHoleStatsTable,
-    PlayerStatMeasureColumns,
+    PlayerRoundStatsV2View,
+    PlayerStatTotalsV2View,
     PlayerStatsConfigTable,
     ShortGameDifficulty,
     StatEventsTable,
@@ -97,7 +98,7 @@ export interface PlayerHoleStats {
     playerId: string;
     teeResult: TeeResult | null;
     gir: boolean | null;
-    firstPutt: FirstPuttBucket | null;
+    firstPutt: StoredFirstPuttBucket | null;
     /** 0..3, where 3 means "3 or more". */
     putts: number | null;
     shortGameDifficulty: ShortGameDifficulty | null;
@@ -154,27 +155,33 @@ export interface StatMeasures {
 
     // Putting (spec §1.2).
     firstPuttRecorded: number;
-    firstPuttInside2m: number;
-    firstPutt2To6m: number;
-    firstPuttOver6m: number;
+    firstPuttInside1m: number;
+    firstPutt1To2m: number;
+    firstPutt2To4m: number;
+    firstPutt4To8m: number;
+    firstPuttOver8m: number;
     /**
      * The same buckets, minus holes whose putt count was never recorded — a
      * bucket with no outcome is not a missed putt. These are the make% and
      * 3-putt denominators; the raw counts above are the approach-quality
      * distribution (spec §1.4) and ask nothing of the putt count.
      */
-    firstPuttInside2mResolved: number;
-    firstPutt2To6mResolved: number;
-    firstPuttOver6mResolved: number;
+    firstPuttInside1mResolved: number;
+    firstPutt1To2mResolved: number;
+    firstPutt2To4mResolved: number;
+    firstPutt4To8mResolved: number;
+    firstPuttOver8mResolved: number;
     /** Make% numerators, each over its own `…Resolved` count. */
-    onePuttInside2m: number;
-    onePutt2To6m: number;
-    onePuttOver6m: number;
+    onePuttInside1m: number;
+    onePutt1To2m: number;
+    onePutt2To4m: number;
+    onePutt4To8m: number;
+    onePuttOver8m: number;
     puttsRecorded: number;
     puttsTotal: number;
     threePutts: number;
-    /** Over `firstPuttOver6mResolved`. */
-    threePuttsFromOver6m: number;
+    /** Over `firstPuttOver8mResolved`. */
+    threePuttsFromOver8m: number;
 
     // Short game (spec §1.3) — split by difficulty, which is the entire point.
     scrambleAttemptsStandard: number;
@@ -314,7 +321,7 @@ function toHoleStats(row: HoleStatsRow): PlayerHoleStats {
  * column names (migration 043), so per-round and career rows map through this
  * single function — a measure cannot mean two things.
  */
-function toMeasures(row: PlayerStatMeasureColumns): StatMeasures {
+function toMeasures(row: PlayerRoundStatsV2View | PlayerStatTotalsV2View): StatMeasures {
     return {
         teeRecorded: row.tee_recorded,
         fairwayHits: row.fairway_hits,
@@ -322,28 +329,34 @@ function toMeasures(row: PlayerStatMeasureColumns): StatMeasures {
         troubleCount: row.trouble_count,
         girRecorded: row.gir_recorded,
         girHits: row.gir_hits,
-        firstPuttRecorded: row.first_putt_recorded,
-        firstPuttInside2m: row.first_putt_inside_2m,
-        firstPutt2To6m: row.first_putt_2_to_6m,
-        firstPuttOver6m: row.first_putt_over_6m,
-        firstPuttInside2mResolved: row.first_putt_inside_2m_resolved,
-        firstPutt2To6mResolved: row.first_putt_2_to_6m_resolved,
-        firstPuttOver6mResolved: row.first_putt_over_6m_resolved,
-        onePuttInside2m: row.one_putt_inside_2m,
-        onePutt2To6m: row.one_putt_2_to_6m,
-        onePuttOver6m: row.one_putt_over_6m,
+        firstPuttRecorded: row.first_putt_recorded_v2,
+        firstPuttInside1m: row.first_putt_inside_1m,
+        firstPutt1To2m: row.first_putt_1_to_2m,
+        firstPutt2To4m: row.first_putt_2_to_4m,
+        firstPutt4To8m: row.first_putt_4_to_8m,
+        firstPuttOver8m: row.first_putt_over_8m,
+        firstPuttInside1mResolved: row.first_putt_inside_1m_resolved,
+        firstPutt1To2mResolved: row.first_putt_1_to_2m_resolved,
+        firstPutt2To4mResolved: row.first_putt_2_to_4m_resolved,
+        firstPutt4To8mResolved: row.first_putt_4_to_8m_resolved,
+        firstPuttOver8mResolved: row.first_putt_over_8m_resolved,
+        onePuttInside1m: row.one_putt_inside_1m,
+        onePutt1To2m: row.one_putt_1_to_2m,
+        onePutt2To4m: row.one_putt_2_to_4m,
+        onePutt4To8m: row.one_putt_4_to_8m,
+        onePuttOver8m: row.one_putt_over_8m,
         puttsRecorded: row.putts_recorded,
         puttsTotal: row.putts_total,
         threePutts: row.three_putts,
-        threePuttsFromOver6m: row.three_putts_from_over_6m,
+        threePuttsFromOver8m: row.three_putts_from_over_8m,
         scrambleAttemptsStandard: row.scramble_attempts_standard,
         scrambleSuccessesStandard: row.scramble_successes_standard,
         scrambleAttemptsHard: row.scramble_attempts_hard,
         scrambleSuccessesHard: row.scramble_successes_hard,
         scrambleFirstPuttStandard: row.scramble_first_putt_standard,
-        scrambleInside2mStandard: row.scramble_inside_2m_standard,
+        scrambleInside2mStandard: row.scramble_inside_2m_standard_v2,
         scrambleFirstPuttHard: row.scramble_first_putt_hard,
-        scrambleInside2mHard: row.scramble_inside_2m_hard,
+        scrambleInside2mHard: row.scramble_inside_2m_hard_v2,
         penaltiesRecorded: row.penalties_recorded,
         penaltiesTotal: row.penalties_total,
         recoveryAttempts: row.recovery_attempts,
@@ -389,19 +402,25 @@ function zeroMeasures(): StatMeasures {
         girRecorded: 0,
         girHits: 0,
         firstPuttRecorded: 0,
-        firstPuttInside2m: 0,
-        firstPutt2To6m: 0,
-        firstPuttOver6m: 0,
-        firstPuttInside2mResolved: 0,
-        firstPutt2To6mResolved: 0,
-        firstPuttOver6mResolved: 0,
-        onePuttInside2m: 0,
-        onePutt2To6m: 0,
-        onePuttOver6m: 0,
+        firstPuttInside1m: 0,
+        firstPutt1To2m: 0,
+        firstPutt2To4m: 0,
+        firstPutt4To8m: 0,
+        firstPuttOver8m: 0,
+        firstPuttInside1mResolved: 0,
+        firstPutt1To2mResolved: 0,
+        firstPutt2To4mResolved: 0,
+        firstPutt4To8mResolved: 0,
+        firstPuttOver8mResolved: 0,
+        onePuttInside1m: 0,
+        onePutt1To2m: 0,
+        onePutt2To4m: 0,
+        onePutt4To8m: 0,
+        onePuttOver8m: 0,
         puttsRecorded: 0,
         puttsTotal: 0,
         threePutts: 0,
-        threePuttsFromOver6m: 0,
+        threePuttsFromOver8m: 0,
         scrambleAttemptsStandard: 0,
         scrambleSuccessesStandard: 0,
         scrambleAttemptsHard: 0,
@@ -460,7 +479,7 @@ const BOOLEAN_VALUES = ['0', '1'];
 const ENUM_VALUES: Partial<Record<StatKey, readonly string[]>> = {
     tee_result: ['fairway', 'in_play', 'trouble'],
     gir: BOOLEAN_VALUES,
-    first_putt: ['inside_2m', '2_to_6m', 'over_6m'],
+    first_putt: ['inside_1m', '1_to_2m', '2_to_4m', '4_to_8m', 'over_8m'],
     putts: ['0', '1', '2', '3'],
     short_game_difficulty: ['standard', 'hard'],
     recovery_ok: BOOLEAN_VALUES,
@@ -604,7 +623,7 @@ export class PlayerStatsService {
      */
     private statTotalsByPlayer(playerId: string) {
         return this.db
-            .selectFrom('v_player_stat_totals')
+            .selectFrom('v_player_stat_totals_v2')
             .selectAll()
             .where('player_id', '=', playerId);
     }
@@ -615,7 +634,7 @@ export class PlayerStatsService {
      */
     private roundStatsByPlayer(playerId: string) {
         return this.db
-            .selectFrom('v_player_round_stats as v')
+            .selectFrom('v_player_round_stats_v2 as v')
             .innerJoin('rounds as r', 'r.id', 'v.round_id')
             .where('v.player_id', '=', playerId)
             .selectAll('v')

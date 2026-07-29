@@ -130,7 +130,16 @@ enum AccountAvatar {
 struct AccountAvatarButton: View {
     @Environment(AppEnvironment.self) private var environment
 
+    /// When supplied by the app shell, Profile becomes a root destination
+    /// behind the same Home/Friends dock as the web. Nil keeps this control
+    /// independently constructible for previews and focused tests.
+    var onOpenProfile: (() -> Void)?
+
     @State private var showsSheet = false
+
+    init(onOpenProfile: (() -> Void)? = nil) {
+        self.onOpenProfile = onOpenProfile
+    }
 
     /// The signed-in player, or nil in the states this button is never shown
     /// in. `RootView` already switches on `authState`; this is the belt to that
@@ -164,7 +173,7 @@ struct AccountAvatarButton: View {
             // `AppEnvironment.probeAccountIfNeeded()`.
             .task { await environment.probeAccountIfNeeded() }
             .sheet(isPresented: $showsSheet) {
-                AccountSheetView(player: player)
+                AccountSheetView(player: player, onOpenProfile: onOpenProfile)
             }
         }
     }
@@ -181,6 +190,7 @@ struct AccountSheetView: View {
     /// Passed in rather than re-read from the environment, so the sheet cannot
     /// render an identity that disagrees with the button that opened it.
     let player: Player
+    var onOpenProfile: (() -> Void)?
 
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
@@ -197,6 +207,11 @@ struct AccountSheetView: View {
     @State private var showsServerSettings = false
     @State private var showsAdmin = false
     @State private var showsProfile = false
+
+    init(player: Player, onOpenProfile: (() -> Void)? = nil) {
+        self.player = player
+        self.onOpenProfile = onOpenProfile
+    }
 
     private var rows: AccountSheetRows {
         AccountSheetRows(
@@ -270,7 +285,14 @@ struct AccountSheetView: View {
             title: "Profile",
             detail: "Gender, home club, handicap index and statistics",
             identifier: "profile-row"
-        ) { showsProfile = true }
+        ) {
+            if let onOpenProfile {
+                dismiss()
+                onOpenProfile()
+            } else {
+                showsProfile = true
+            }
+        }
     }
 
     // MARK: - Header

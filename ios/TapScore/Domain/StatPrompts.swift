@@ -24,7 +24,7 @@ struct StatOption: Equatable, Sendable, Identifiable {
 
 /// How a prompt is answered. Deliberately tiny — two shapes cover all seven keys.
 enum StatControl: Equatable, Sendable {
-    /// 2–3 mutually exclusive options. Tapping the selected one deselects it.
+    /// Mutually exclusive options. Tapping the selected one deselects it.
     case segments([StatOption])
     /// A counter. `max == nil` means unbounded upward; the top value renders
     /// as "n+" so `putts` can mean "3 or more".
@@ -93,9 +93,11 @@ enum StatVocabulary {
             return .segments([StatOption("0", "Miss"), StatOption("1", "Hit")])
         case .firstPutt:
             return .segments([
-                StatOption("inside_2m", "<2 m"),
-                StatOption("2_to_6m", "2–6 m"),
-                StatOption("over_6m", ">6 m"),
+                StatOption("inside_1m", "< 1m"),
+                StatOption("1_to_2m", "1–2m"),
+                StatOption("2_to_4m", "2–4m"),
+                StatOption("4_to_8m", "4–8m"),
+                StatOption("over_8m", "> 8m"),
             ])
         case .shortGameDifficulty:
             return .segments([StatOption("standard", "Standard"), StatOption("hard", "Hard")])

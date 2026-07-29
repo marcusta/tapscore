@@ -74,11 +74,12 @@ Asked on every hole where the player putted.
 
 | tag | values |
 |---|---|
-| `first_putt` | `inside_2m` \| `2_to_6m` \| `over_6m` |
+| `first_putt` | `inside_1m` \| `1_to_2m` \| `2_to_4m` \| `4_to_8m` \| `over_8m` |
 | `putts` | `0` \| `1` \| `2` \| `3+` (stepper; `0` = holed from off the green) |
 
-The bucket is what rescues putt count: make% inside 2 m, make% 2–6 m, and
-3-putt rate from 6 m+ are all meaningful because the starting length is known.
+The bucket is what rescues putt count: make% from <1 m, 1–2 m, 2–4 m, 4–8 m,
+and 8 m+, plus the 3-putt rate from 8 m+, are meaningful because the starting
+length is known.
 This is discretized strokes-gained putting.
 
 ### 1.3 `short_game` — scrambling, conditioned on difficulty
@@ -237,7 +238,13 @@ export interface PlayerHoleStatsTable {
     player_id: string;
     tee_result: 'fairway' | 'in_play' | 'trouble' | null;
     gir: number | null;                       // 0/1
-    first_putt: 'inside_2m' | '2_to_6m' | 'over_6m' | null;
+    first_putt:
+        | 'inside_1m'
+        | '1_to_2m'
+        | '2_to_4m'
+        | '4_to_8m'
+        | 'over_8m'
+        | null;
     putts: number | null;                     // 0..3 where 3 = "3+"
     short_game_difficulty: 'standard' | 'hard' | null;
     penalties: number | null;
@@ -273,8 +280,8 @@ column list:
 
    Where a measure's denominator is NARROWER than the obvious count, the narrow
    one ships too. Make% and the 3-putt rate need holes where the putt count was
-   actually recorded, so alongside the raw `first_putt_inside_2m` /
-   `_2_to_6m` / `_over_6m` buckets — which are the §1.4 approach-quality
+   actually recorded, so alongside the five raw `first_putt_*` buckets —
+   which are the §1.4 approach-quality
    distribution and ask nothing of the putt count — the views carry
    `first_putt_*_resolved` (bucket AND a coherent putt count). Pairing a make
    count with the raw bucket would score every bucket-only hole as a miss.
@@ -309,7 +316,8 @@ score can never be attributed to one member):
   not happen) has no single playing order, so the rotation is skipped for that
   player and round rather than invented from one of the starts.
 - Birdie conversion on GIR holes
-- Make% inside 2 m / 2–6 m / 6 m+; 3-putt rate from 6 m+ — all four over the
+- Make% from <1 m / 1–2 m / 2–4 m / 4–8 m / 8 m+; 3-putt rate from 8 m+ —
+  all six over the
   `first_putt_*_resolved` denominators, never the raw buckets
 - Up-and-down% and chip-to-inside-2m%, each split standard vs hard
 - Penalties per round; recovery%

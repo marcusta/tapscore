@@ -67,7 +67,8 @@ import { type Kysely, sql } from 'kysely';
  *
  * No `down` — the house style (001-042) is forward-only.
  */
-export async function up(db: Kysely<any>): Promise<void> {
+/** Exported so migration 044 can recreate the views after widening a table CHECK. */
+export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
     await sql`
         CREATE VIEW v_player_round_stats AS
         WITH
@@ -424,4 +425,8 @@ export async function up(db: Kysely<any>): Promise<void> {
         FROM v_player_round_stats
         GROUP BY player_id
     `.execute(db);
+}
+
+export async function up(db: Kysely<any>): Promise<void> {
+    await createPlayerStatsViews(db);
 }

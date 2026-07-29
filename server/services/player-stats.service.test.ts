@@ -228,7 +228,7 @@ test('a hole commit projects into one typed row per (hole, player)', async () =>
         items: [
             item({ playHoleId: h1, playerId: player.id, key: 'tee_result', value: 'trouble' }),
             item({ playHoleId: h1, playerId: player.id, key: 'gir', value: '0' }),
-            item({ playHoleId: h1, playerId: player.id, key: 'first_putt', value: '2_to_6m' }),
+            item({ playHoleId: h1, playerId: player.id, key: 'first_putt', value: '2_to_4m' }),
             item({ playHoleId: h1, playerId: player.id, key: 'putts', value: '2' }),
             item({ playHoleId: h1, playerId: player.id, key: 'short_game_difficulty', value: 'hard' }),
             item({ playHoleId: h1, playerId: player.id, key: 'penalties', value: '1' }),
@@ -250,7 +250,7 @@ test('a hole commit projects into one typed row per (hole, player)', async () =>
             playerId: player.id,
             teeResult: 'trouble',
             gir: false,
-            firstPutt: '2_to_6m',
+            firstPutt: '2_to_4m',
             putts: 2,
             shortGameDifficulty: 'hard',
             penalties: 1,
@@ -752,6 +752,26 @@ test('values outside the closed vocabulary are refused, and the whole batch is r
         }),
     );
     expect(putts).toMatchObject({ code: 'stat_invalid_value', key: 'putts' });
+
+    // Coarse pre-044 buckets remain readable in history, but new capture must
+    // never add data that cannot be assigned to one of the five precise bins.
+    const legacyFirstPutt = await refusal(() =>
+        ctx.playerStatsService.appendEvents({
+            roundId,
+            items: [
+                item({
+                    playHoleId: h1,
+                    playerId: player.id,
+                    key: 'first_putt',
+                    value: '2_to_6m',
+                }),
+            ],
+        }),
+    );
+    expect(legacyFirstPutt).toMatchObject({
+        code: 'stat_invalid_value',
+        key: 'first_putt',
+    });
 
     const unknownKey = await refusal(() =>
         ctx.playerStatsService.appendEvents({

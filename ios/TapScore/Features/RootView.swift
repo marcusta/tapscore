@@ -76,6 +76,11 @@ struct LandingChrome: Equatable {
 struct RootView: View {
     @Environment(AppEnvironment.self) private var environment
 
+    /// The signed-in shell destination. Unlike a `TabView`, this is the web
+    /// dock's small root-level router: pushed join/round destinations still
+    /// belong exclusively to `ShellNavigation`.
+    @State private var section: ShellSection
+
     /// Routing decisions live in a value type so they are testable without a
     /// UI harness — see `ShellNavigationTests`.
     @State private var navigation = ShellNavigation()
@@ -91,18 +96,17 @@ struct RootView: View {
     /// have. The toolbar keeps a way back to sign-in.
     @AppStorage("tapscore.sign-in-inset-dismissed.v1") private var signInDismissed = false
 
+    init(initialSection: ShellSection = LaunchShellSection.section()) {
+        _section = State(initialValue: initialSection)
+    }
+
     var body: some View {
         NavigationStack(path: $navigation.stack) {
-            RoundListView(
-                deviceRounds: deviceRounds,
-                onJoin: { navigation.openJoin() },
-                onOpen: { request in open(round: request) }
-            )
-            // Applied to the STACK ROOT, so the sign-in inset belongs to the
-            // landing only — a pushed round screen owns its own bottom
-            // furniture (`RoundView`'s `BottomTabBar`) and must not get a
-            // second one underneath it.
-            .safeAreaInset(edge: .bottom, spacing: 0) { authInset }
+            rootSection
+            // Applied to the STACK ROOT, so the app dock belongs to Home,
+            // Friends and Profile only. A pushed round owns its own
+            // Score/Leaderboard dock and must not get a second one.
+            .safeAreaInset(edge: .bottom, spacing: 0) { rootBottomInset }
             .toolbar { accountToolbar }
             .navigationDestination(for: ShellDestination.self) { destination in
                 switch destination {
@@ -119,7 +123,62 @@ struct RootView: View {
         // after it does (warm). Draining the environment's pending route on
         // appear and on change covers both with one path.
         .onChange(of: environment.pendingRoute) { _, _ in drainPendingRoute() }
+        .onChange(of: isSignedIn) { _, signedIn in
+            if !signedIn, section != .home { section = .home }
+        }
         .onAppear { drainPendingRoute() }
+    }
+
+    // MARK: - Root sections
+
+    @ViewBuilder
+    private var rootSection: some View {
+        switch section {
+        case .home:
+            RoundListView(
+                deviceRounds: deviceRounds,
+                onJoin: { navigation.openJoin() },
+                onOpen: { request in open(round: request) }
+            )
+        case .friends:
+            FriendsView()
+        case .profile:
+            ProfileView(showsHeader: false)
+        }
+    }
+
+    private var isSignedIn: Bool {
+        if case .signedIn = environment.authState { return true }
+        return false
+    }
+
+    private var dockSelection: Binding<ShellSection> {
+        Binding(
+            get: { section },
+            set: { destination in
+                navigation.popToRoot()
+                section = destination
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var rootBottomInset: some View {
+        VStack(spacing: 0) {
+            // The sign-in/fork notice belongs to Home. Friends and Profile are
+            // signed-in destinations and never duplicate it.
+            if section == .home { authInset }
+            if isSignedIn {
+                BottomTabBar(
+                    tabs: [
+                        .init(.home, title: "Home", systemImage: "house"),
+                        .init(.friends, title: "Friends", systemImage: "person.2"),
+                    ],
+                    selection: dockSelection
+                )
+                .accessibilityIdentifier("app-dock")
+            }
+        }
     }
 
     // MARK: - Opening a round
@@ -143,6 +202,7 @@ struct RootView: View {
 
     private func drainPendingRoute() {
         guard let route = environment.consumePendingRoute() else { return }
+        if route == .roundList { section = .home }
         // A deep link knows the token and nothing else; the row is recorded
         // now and enriched by the landing's next refresh.
         if let token = navigation.apply(route) {
@@ -151,14 +211,6 @@ struct RootView: View {
     }
 
     // MARK: - Auth affordances
-
-    // NO DOCK on the landing, deliberately. The web landing has one (Friends /
-    // Competitions / Profile), but none of those destinations exist natively
-    // yet, and the only route the shell can take — the paste-a-link screen —
-    // is already carried by the landing's single prominent "Join a round" CTA.
-    // A dock whose one live item duplicates the CTA is furniture, not
-    // navigation. Bring it back the moment a *second* real destination lands;
-    // `BottomTabBar` (used by `RoundView`) is the primitive to reach for.
 
     /// The auth inset, in both of its states.
     ///
@@ -233,7 +285,10 @@ struct RootView: View {
         ToolbarItem(placement: .topBarTrailing) {
             switch chrome.accountControl {
             case .avatar:
-                AccountAvatarButton()
+                AccountAvatarButton(onOpenProfile: {
+                    navigation.popToRoot()
+                    section = .profile
+                })
             case .signIn:
                 // The only way back to the inset once it has been dismissed.
                 Button("Sign in") { signInDismissed = false }
@@ -272,5 +327,39 @@ struct RoundOpenRequest: Equatable, Sendable {
         self.status = status
         self.completedAt = completedAt
         self.date = date
+    }
+}
+
+/// DEBUG-only root selection for repeatable, headless shell screenshots.
+///
+/// The Simulator cannot be driven with `simctl` taps, so visual verification
+/// would otherwise stop at Home. This is the shell equivalent of
+/// `-tapscoreGallery` and `-tapscoreDeepLink`: it changes only where the
+/// already-authenticated app starts, never auth, data, or routing rules.
+///
+/// Every launch still carries the mandatory localhost override:
+///
+/// ```
+/// xcrun simctl launch <udid> com.marcusandersson.tapscore \
+///   -apiBaseURL http://localhost:3030/api -tapscoreSection friends
+/// ```
+enum LaunchShellSection {
+    static let argument = "-tapscoreSection"
+
+    static func section(
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> ShellSection {
+        #if DEBUG
+        guard let index = arguments.firstIndex(of: argument),
+              index + 1 < arguments.count
+        else { return .home }
+        switch arguments[index + 1].lowercased() {
+        case "friends": return .friends
+        case "profile": return .profile
+        default: return .home
+        }
+        #else
+        return .home
+        #endif
     }
 }

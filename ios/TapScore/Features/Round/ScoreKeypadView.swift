@@ -615,7 +615,7 @@ struct StatsView: View {
     }
 
     /// One player-stats prompt: the same centred label, over either a segmented
-    /// row (2–3 options) or a compact stepper. Which prompts exist, and what a
+    /// row or a compact stepper. Which prompts exist, and what a
     /// tap means, is `StatStep`'s answer — this only draws it.
     @ViewBuilder
     private func statGroup(_ prompt: StatPrompt) -> some View {
@@ -683,6 +683,8 @@ struct StatsView: View {
         return Button(action: action) {
             Text(title)
                 .font(TapFont.ui(size: 16.8, weight: .bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
                 // Both `on-hit` and `on-miss` set `color: #fff`.
                 .foregroundStyle(selected ? KeypadPalette.ink : KeypadPalette.inkMuted)
                 .frame(maxWidth: .infinity)

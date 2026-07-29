@@ -157,11 +157,11 @@ final class PendingStatEventsQueueTests: XCTestCase {
         let queue = makeQueue()
         let event = await queue.enqueue(
             token: "tok-1", playHoleId: "ph-7", playerId: "p-9", key: .firstPutt,
-            value: "over_6m", now: now)
+            value: "over_8m", now: now)
         XCTAssertEqual(event.item.playHoleId, "ph-7")
         XCTAssertEqual(event.item.playerId, "p-9")
         XCTAssertEqual(event.item.key, .firstPutt)
-        XCTAssertEqual(event.item.value, "over_6m")
+        XCTAssertEqual(event.item.value, "over_8m")
         XCTAssertEqual(event.item.clientEventId, "id-1")
     }
 

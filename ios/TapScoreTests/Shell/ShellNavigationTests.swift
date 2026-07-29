@@ -9,6 +9,29 @@ import XCTest
 /// mid-bootstrap, because that is what makes tapscore usable by a friend who
 /// has never heard of it.
 final class ShellNavigationTests: XCTestCase {
+    func testTheDebugLaunchSectionRecognisesOnlyRootDestinations() {
+        XCTAssertEqual(
+            LaunchShellSection.section(arguments: ["app", "-tapscoreSection", "friends"]),
+            .friends
+        )
+        XCTAssertEqual(
+            LaunchShellSection.section(arguments: ["app", "-tapscoreSection", "profile"]),
+            .profile
+        )
+        XCTAssertEqual(
+            LaunchShellSection.section(arguments: ["app", "-tapscoreSection", "round"]),
+            .home
+        )
+        XCTAssertEqual(LaunchShellSection.section(arguments: ["app"]), .home)
+    }
+
+    func testTheDockSectionsKeepProfileOutsideTheTwoTabs() {
+        let dockSections: [ShellSection] = [.home, .friends]
+
+        XCTAssertFalse(dockSections.contains(.profile))
+        XCTAssertEqual(Set(dockSections), Set([.home, .friends]))
+    }
+
     func testTheStackStartsAtTheLanding() {
         let navigation = ShellNavigation()
 

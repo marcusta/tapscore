@@ -37,6 +37,10 @@ export interface Database {
     v_player_round_stats: PlayerRoundStatsView;
     /** VIEW (migration 043) — read-only; never an insert/update target. */
     v_player_stat_totals: PlayerStatTotalsView;
+    /** VIEW (migration 044) — migration-043 measures plus fine putting buckets. */
+    v_player_round_stats_v2: PlayerRoundStatsV2View;
+    /** VIEW (migration 044) — fine-grained career totals. */
+    v_player_stat_totals_v2: PlayerStatTotalsV2View;
     setup_correction_events: SetupCorrectionEventsTable;
     allowance_override_events: AllowanceOverrideEventsTable;
     ruling_events: RulingEventsTable;
@@ -243,7 +247,15 @@ export type StatKey =
     | 'recovery_ok';
 
 export type TeeResult = 'fairway' | 'in_play' | 'trouble';
-export type FirstPuttBucket = 'inside_2m' | '2_to_6m' | 'over_6m';
+export type FirstPuttBucket =
+    | 'inside_1m'
+    | '1_to_2m'
+    | '2_to_4m'
+    | '4_to_8m'
+    | 'over_8m';
+/** Values captured before migration 044; readable but no longer accepted for new events. */
+export type LegacyFirstPuttBucket = 'inside_2m' | '2_to_6m' | 'over_6m';
+export type StoredFirstPuttBucket = FirstPuttBucket | LegacyFirstPuttBucket;
 export type ShortGameDifficulty = 'standard' | 'hard';
 
 /**
@@ -314,7 +326,7 @@ export interface PlayerHoleStatsTable {
     tee_result: TeeResult | null;
     /** 0/1. */
     gir: number | null;
-    first_putt: FirstPuttBucket | null;
+    first_putt: StoredFirstPuttBucket | null;
     /** 0..3, where 3 means "3 or more". */
     putts: number | null;
     short_game_difficulty: ShortGameDifficulty | null;
@@ -423,6 +435,37 @@ export interface PlayerStatTotalsView extends PlayerStatMeasureColumns {
     player_id: string;
     rounds_with_stats: number;
 }
+
+/** Fine-grained putting columns layered over the stable migration-043 views. */
+export interface FineGrainedPuttingMeasureColumns {
+    first_putt_recorded_v2: number;
+    first_putt_inside_1m: number;
+    first_putt_1_to_2m: number;
+    first_putt_2_to_4m: number;
+    first_putt_4_to_8m: number;
+    first_putt_over_8m: number;
+    first_putt_inside_1m_resolved: number;
+    first_putt_1_to_2m_resolved: number;
+    first_putt_2_to_4m_resolved: number;
+    first_putt_4_to_8m_resolved: number;
+    first_putt_over_8m_resolved: number;
+    one_putt_inside_1m: number;
+    one_putt_1_to_2m: number;
+    one_putt_2_to_4m: number;
+    one_putt_4_to_8m: number;
+    one_putt_over_8m: number;
+    three_putts_from_over_8m: number;
+    scramble_inside_2m_standard_v2: number;
+    scramble_inside_2m_hard_v2: number;
+}
+
+export interface PlayerRoundStatsV2View
+    extends PlayerRoundStatsView,
+        FineGrainedPuttingMeasureColumns {}
+
+export interface PlayerStatTotalsV2View
+    extends PlayerStatTotalsView,
+        FineGrainedPuttingMeasureColumns {}
 
 export interface RoleGrantsTable {
     id: string;

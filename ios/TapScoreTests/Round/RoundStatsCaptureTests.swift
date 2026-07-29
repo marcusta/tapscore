@@ -276,10 +276,10 @@ final class RoundStatsCaptureTests: XCTestCase {
         store.commit(4)
         await waitUntil("the stats step to open") { store.statsOpen }
 
-        store.answerStat(.firstPutt, value: "over_6m")
+        store.answerStat(.firstPutt, value: "over_8m")
         store.closeKeypad()
         await waitUntil("the batch to post") { self.statRequests().count == 1 }
-        XCTAssertEqual(lastBatch().map { $0["value"] as? String }, ["over_6m"])
+        XCTAssertEqual(lastBatch().map { $0["value"] as? String }, ["over_8m"])
     }
 
     func testATouchedNothingStepPostsNothing() async {

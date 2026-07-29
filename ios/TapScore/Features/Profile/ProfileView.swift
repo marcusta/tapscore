@@ -22,6 +22,11 @@ struct ProfileView: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
 
+    /// False when Profile is a root shell destination. The navigation bar then
+    /// carries the account avatar and the Home/Friends dock is the way out,
+    /// exactly like the web route. The sheet fallback keeps its own Done bar.
+    var showsHeader = true
+
     /// Built in `.task`, not in a field initialiser — the store needs the
     /// environment's API actor, and it must survive re-renders.
     @State private var store: ProfileStore?
@@ -49,7 +54,14 @@ struct ProfileView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(TapColors.bg)
-        .safeAreaInset(edge: .top, spacing: 0) { header }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if showsHeader { header }
+        }
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbarBackground(TapColors.bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .accessibilityIdentifier("profile-sheet")
         .task {
             guard store == nil else { return }
