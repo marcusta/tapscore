@@ -39,7 +39,7 @@ export interface PlayerSlotPlayer {
     /**
      * Team grouping label. When set, all producers sharing the same label
      * end up in the same team. Used by better-ball / taliban / umbrella-4
-     * (own-ball team formats) and foursomes (alt-shot pair).
+     * (own-ball team formats) and `pairBalls` slots (alt-shot pairs).
      */
     team?: string;
 }
@@ -52,6 +52,14 @@ export interface CreateCompiledRoundInput {
         formatId: RoundFormatId;
         allowancePct?: number;
         formatConfig?: unknown;
+        /**
+         * Score this slot on alt-shot PAIR balls instead of own balls: one
+         * `team_ball` per `players[].team` label pair, CH = 50/50 of the two
+         * members' course handicaps (the post-ADR-0003 expression of the old
+         * foursomes alt-shot average). The slot format must be a
+         * `scoresAnyBall` format (e.g. `stroke_play_individual`).
+         */
+        pairBalls?: boolean;
         /**
          * Restrict this slot to a subset of producers by 1-based index into
          * `players[]`. Omit on single-slot rounds. When set on multi-slot
@@ -84,21 +92,21 @@ export type RoundFormatId =
     | 'match_play_individual'
     | 'kopenhamnare_individual'
     | 'umbrella_individual'
-    | 'stroke_play_foursomes'
     | 'stableford_better_ball'
     | 'match_play_better_ball'
     | 'taliban_better_ball'
     | 'umbrella_4_ball';
 
+// Own-ball team formats: composed own balls + slot-level team grouping.
+// Alt-shot pairs are NOT a format (ADR-0003 removed `stroke_play_foursomes`
+// and `alt_shot_pair`) — a pair is a `team_ball` composition, requested per
+// slot via `pairBalls: true`.
 const TEAM_FORMATS: RoundFormatId[] = [
-    'stroke_play_foursomes',
     'stableford_better_ball',
     'match_play_better_ball',
     'taliban_better_ball',
     'umbrella_4_ball',
 ];
-
-const PAIR_FORMATS: RoundFormatId[] = ['stroke_play_foursomes'];
 
 export interface CreateCompiledRoundResult {
     round: Round;
@@ -124,7 +132,7 @@ export async function createCompiledRound(
     registerBuiltInBallCreationStrategies();
     registerBuiltInFormats();
 
-    const usesPair = input.slots.some((s) => PAIR_FORMATS.includes(s.formatId));
+    const usesPair = input.slots.some((s) => s.pairBalls === true);
     const usesTeam = input.slots.some((s) => TEAM_FORMATS.includes(s.formatId));
 
     const producerDefIds = input.players.map((_, i) => `p${i + 1}`);
@@ -146,11 +154,9 @@ export async function createCompiledRound(
         slots: [],
     };
 
-    // Own-ball strategy — always present for individual + non-foursomes team
+    // Own-ball strategy — always present for individual + own-ball team
     // formats (better-ball / taliban / umbrella-4 all compose own-balls).
-    const needsOwnBall = input.slots.some(
-        (s) => !PAIR_FORMATS.includes(s.formatId),
-    );
+    const needsOwnBall = input.slots.some((s) => s.pairBalls !== true);
     if (needsOwnBall) {
         definition.ballStrategies.push({
             id: 'strat-own',
@@ -159,19 +165,29 @@ export async function createCompiledRound(
         });
     }
     if (usesPair) {
-        // Group pair producers by team. Every foursomes team is exactly 2
-        // producers sharing a `team` label.
+        // Group pair producers by team. Every pair is exactly 2 producers
+        // sharing a `team` label; 50/50 per-producer allowance reproduces the
+        // old foursomes alt-shot CH average.
         const pairsByLabel = new Map<string, string[]>();
+        const pcts: Record<string, number> = {};
         input.players.forEach((p, i) => {
             if (!p.team) return;
             const list = pairsByLabel.get(p.team) ?? [];
             list.push(producerDefIds[i]!);
             pairsByLabel.set(p.team, list);
+            pcts[producerDefIds[i]!] = 50;
         });
+        for (const [label, ids] of pairsByLabel) {
+            if (ids.length !== 2) {
+                throw new Error(
+                    `createCompiledRound: pairBalls team '${label}' needs exactly 2 producers (got ${ids.length})`,
+                );
+            }
+        }
         definition.ballStrategies.push({
             id: 'strat-pair',
-            strategyId: 'alt_shot_pair',
-            derivationConfig: { type: 'avg' },
+            strategyId: 'team_ball',
+            derivationConfig: { type: 'per_producer_pct', pcts },
             composition: {
                 teams: [...pairsByLabel.entries()].map(([label, ids]) => ({
                     label,
@@ -183,7 +199,7 @@ export async function createCompiledRound(
 
     // Slots.
     definition.slots = input.slots.map((s, i) => {
-        const isPair = PAIR_FORMATS.includes(s.formatId);
+        const isPair = s.pairBalls === true;
         const isTeamOwnBall = TEAM_FORMATS.includes(s.formatId) && !isPair;
         const ballSelector: { strategyDefIds: string[]; producerDefIds?: string[] } = {
             strategyDefIds: [isPair ? 'strat-pair' : 'strat-own'],
