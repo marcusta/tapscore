@@ -20,7 +20,7 @@ export interface Player {
 
 export interface AuthNativeApi {
     nativeLogin(input: { username: string; password: string }): Promise<{ user: AuthUser; token: string }>;
-    appleSignIn(input: { fullName?: null | string; nonce?: string; identityToken: string }): Promise<{ user: Player; token: string; created: boolean }>;
+    appleSignIn(input: { identityToken: string; fullName?: null | string; nonce?: string }): Promise<{ user: Player; token: string; created: boolean }>;
     credentials(): Promise<{ providers: ('password' | 'apple')[] }>;
     revoke(): Promise<{ ok: boolean; userId: string }>;
 }

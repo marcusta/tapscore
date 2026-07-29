@@ -175,24 +175,25 @@ struct AuthNativeNativeLoginOutput: Codable, Sendable, Equatable {
 }
 
 struct AuthNativeAppleSignInInput: Codable, Sendable, Equatable {
+    var identityToken: String
     var fullName: TriState<String>
     var nonce: String?
-    var identityToken: String
 
     enum CodingKeys: String, CodingKey {
+        case identityToken = "identityToken"
         case fullName = "fullName"
         case nonce = "nonce"
-        case identityToken = "identityToken"
     }
 
-    init(fullName: TriState<String> = .absent, nonce: String? = nil, identityToken: String) {
+    init(identityToken: String, fullName: TriState<String> = .absent, nonce: String? = nil) {
+        self.identityToken = identityToken
         self.fullName = fullName
         self.nonce = nonce
-        self.identityToken = identityToken
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.identityToken = try c.decode(String.self, forKey: .identityToken)
         if c.contains(.fullName) {
             self.fullName = try c.decodeNil(forKey: .fullName)
                 ? .null
@@ -201,18 +202,17 @@ struct AuthNativeAppleSignInInput: Codable, Sendable, Equatable {
             self.fullName = .absent
         }
         self.nonce = try c.decodeIfPresent(String.self, forKey: .nonce)
-        self.identityToken = try c.decode(String.self, forKey: .identityToken)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(identityToken, forKey: .identityToken)
         switch fullName {
         case .absent: break
         case .null: try c.encodeNil(forKey: .fullName)
         case .value(let v): try c.encode(v, forKey: .fullName)
         }
         try c.encodeIfPresent(nonce, forKey: .nonce)
-        try c.encode(identityToken, forKey: .identityToken)
     }
 }
 

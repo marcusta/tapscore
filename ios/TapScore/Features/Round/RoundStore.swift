@@ -416,7 +416,7 @@ final class RoundStore {
         do {
             let output = try await api.send(
                 FriendlyRoundsEndpoints.result,
-                FriendlyRoundsResultInput(cursor: nil, token: token)
+                FriendlyRoundsResultInput(token: token, cursor: nil)
             )
             guard seq == resultSeq else { return }
             apply(output)
@@ -436,7 +436,7 @@ final class RoundStore {
         do {
             let output = try await api.send(
                 FriendlyRoundsEndpoints.result,
-                FriendlyRoundsResultInput(cursor: resultCursor, token: token)
+                FriendlyRoundsResultInput(token: token, cursor: resultCursor)
             )
             guard seq == resultSeq else { return }
             apply(output)
@@ -1515,15 +1515,15 @@ final class RoundStore {
             _ = try await api.send(
                 FriendlyRoundsEndpoints.score,
                 FriendlyRoundsScoreInput(
-                    // A null blob carries nothing; send it as absent, exactly as
-                    // the web post does (`metadata != null`).
-                    metadata: write.metadata.value.map { .value($0) } ?? .absent,
                     token: token,
                     ballId: write.ballId,
                     playHoleId: write.playHoleId,
                     strokes: write.strokes,
                     eventType: write.eventType,
-                    clientEventId: write.clientEventId
+                    clientEventId: write.clientEventId,
+                    // A null blob carries nothing; send it as absent, exactly as
+                    // the web post does (`metadata != null`).
+                    metadata: write.metadata.value.map { .value($0) } ?? .absent
                 )
             )
             // Acked — drop the persisted copy, keyed on the exact id: a newer

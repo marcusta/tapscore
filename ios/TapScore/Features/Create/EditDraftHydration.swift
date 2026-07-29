@@ -41,7 +41,7 @@ enum EditDraftHydration {
         for producer in draft.producers {
             // A placeholder seat is refused before hydration ever runs (B3) —
             // there is no row shape for "nobody yet".
-            guard case .teeId(let p) = producer else { continue }
+            guard case .playerRef(let p) = producer else { continue }
             let id = UUID()
             rowIdByDefId[p.producerDefId] = id
             let isGuest = p.playerRef.kind == .guest

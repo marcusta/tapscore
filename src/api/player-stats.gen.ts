@@ -65,7 +65,7 @@ export interface StatEvent {
 export interface PlayerStatsApi {
     myConfig(): Promise<PlayerStatsConfig>;
     putMyConfig(input: { enabled: boolean; tee: boolean; approach: boolean; putting: boolean; shortGame: boolean; penalties: boolean; recovery: boolean }): Promise<PlayerStatsConfig>;
-    appendEvents(input: { token: string; items: ({ playerId: string; playHoleId: string; clientEventId: string; key: 'penalties' | 'tee_result' | 'gir' | 'first_putt' | 'putts' | 'short_game_difficulty' | 'recovery_ok'; value: null | string })[] }): Promise<AppendStatEventsResult>;
+    appendEvents(input: { token: string; items: ({ playHoleId: string; playerId: string; key: 'penalties' | 'tee_result' | 'gir' | 'first_putt' | 'putts' | 'short_game_difficulty' | 'recovery_ok'; value: null | string; clientEventId: string })[] }): Promise<AppendStatEventsResult>;
     byToken(input: { token: string }): Promise<PlayerHoleStats[]>;
     configsByToken(input: { token: string }): Promise<RoundPlayerStatModules[]>;
 }

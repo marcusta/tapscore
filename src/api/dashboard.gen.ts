@@ -60,7 +60,7 @@ export interface FormatSlot {
     scoringMode: 'custom' | 'stroke_play' | 'stableford' | 'match_play' | 'kopenhamnare' | 'taliban' | 'umbrella' | 'skins';
     teamShape: 'custom' | 'individual' | 'better_ball' | 'four_ball';
     allowancePct: number;
-    allowanceConfig: { type: 'flat'; pct: number } | { type: 'split'; bands: ({ pct: number; upToCh: null | number })[] };
+    allowanceConfig: { type: 'flat'; pct: number } | { type: 'split'; bands: ({ upToCh: null | number; pct: number })[] };
     formatConfig: unknown;
     ballMode: 'own' | 'team';
 }

@@ -62,7 +62,7 @@ final class EditDraftAssemblerTests: XCTestCase {
     /// band is what keeps opening the wizard from flattening the round.
     func testUntouchedSplitAllowanceIsCarriedNotFlattened() {
         let split = CompetitionDetailDefaultConfigSlotsItemAllowanceConfig.split(
-            .init(bands: [.init(pct: 90, upToCh: 18), .init(pct: 80)]))
+            .init(bands: [.init(upToCh: 18, pct: 90), .init(pct: 80)]))
         XCTAssertEqual(EditDraftAssembler.allowanceText(split), "90")
         XCTAssertEqual(EditDraftAssembler.allowance(split, text: "90"), split)
         XCTAssertEqual(
@@ -262,14 +262,14 @@ final class EditDraftAssemblerTests: XCTestCase {
     }
 
     private func group(_ members: [String]) -> CompetitionsCreateRoundOutputOkDraftPlayingGroupsItem {
-        .init(startTime: nil, startHole: 1, members: members)
+        .init(members: members, startTime: nil, startHole: 1)
     }
 
     private func team(
         _ id: String,
         members: [CompetitionsCreateRoundOutputOkDraftTeamsItemMembersItem]
     ) -> CompetitionsCreateRoundOutputOkDraftTeamsItem {
-        .init(label: "Team \(id)", kind: .multiBall, formation: "custom", id: id, members: members)
+        .init(id: id, label: "Team \(id)", formation: "custom", kind: .multiBall, members: members)
     }
 
     private func producers(_ ids: [String]) -> [EditDraftAssembler.Producer] {

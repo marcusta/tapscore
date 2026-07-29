@@ -3,49 +3,49 @@
 import Foundation
 
 struct SetupCourse: Codable, Sendable, Equatable {
-    var clubName: String
     var id: String
     var clubId: String
     var name: String
     var holeCount: Double
     var holes: [Hole]
+    var clubName: String
 
     enum CodingKeys: String, CodingKey {
-        case clubName = "clubName"
         case id = "id"
         case clubId = "clubId"
         case name = "name"
         case holeCount = "holeCount"
         case holes = "holes"
+        case clubName = "clubName"
     }
 
-    init(clubName: String, id: String, clubId: String, name: String, holeCount: Double, holes: [Hole]) {
-        self.clubName = clubName
+    init(id: String, clubId: String, name: String, holeCount: Double, holes: [Hole], clubName: String) {
         self.id = id
         self.clubId = clubId
         self.name = name
         self.holeCount = holeCount
         self.holes = holes
+        self.clubName = clubName
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.clubName = try c.decode(String.self, forKey: .clubName)
         self.id = try c.decode(String.self, forKey: .id)
         self.clubId = try c.decode(String.self, forKey: .clubId)
         self.name = try c.decode(String.self, forKey: .name)
         self.holeCount = try c.decode(Double.self, forKey: .holeCount)
         self.holes = try c.decode([Hole].self, forKey: .holes)
+        self.clubName = try c.decode(String.self, forKey: .clubName)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(clubName, forKey: .clubName)
         try c.encode(id, forKey: .id)
         try c.encode(clubId, forKey: .clubId)
         try c.encode(name, forKey: .name)
         try c.encode(holeCount, forKey: .holeCount)
         try c.encode(holes, forKey: .holes)
+        try c.encode(clubName, forKey: .clubName)
     }
 }
 

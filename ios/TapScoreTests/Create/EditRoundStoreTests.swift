@@ -364,7 +364,7 @@ final class EditRoundStoreTests: XCTestCase {
 
         let posted = try postedEditDraft()
         XCTAssertEqual(producerDefIds(posted), ["p1", "p2", "p3", "p4", "p-1"])
-        guard case .teeId(let fresh) = posted.producers[4] else { return XCTFail("placeholder") }
+        guard case .playerRef(let fresh) = posted.producers[4] else { return XCTFail("placeholder") }
         XCTAssertEqual(fresh.playerRef.id, "g-new")
         XCTAssertEqual(fresh.playerRef.kind, .guest)
         XCTAssertEqual(fresh.gender, .f)
@@ -390,7 +390,7 @@ final class EditRoundStoreTests: XCTestCase {
         let saved = await store.saveEdits()
         XCTAssertTrue(saved)
         let posted = try postedEditDraft()
-        guard case .teeId(let edited) = posted.producers[2] else { return XCTFail("placeholder") }
+        guard case .playerRef(let edited) = posted.producers[2] else { return XCTFail("placeholder") }
         XCTAssertEqual(edited.producerDefId, "p3", "scores are addressed by this")
         XCTAssertEqual(edited.handicapIndex, 11.2)
         XCTAssertEqual(edited.teeId, "tee-y")
@@ -407,7 +407,7 @@ final class EditRoundStoreTests: XCTestCase {
     private func producerDefIds(_ draft: CompetitionsCreateRoundOutputOkDraft) -> [String] {
         draft.producers.map { producer in
             switch producer {
-            case .teeId(let p): p.producerDefId
+            case .playerRef(let p): p.producerDefId
             case .placeholder(let p): p.producerDefId
             }
         }

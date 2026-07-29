@@ -8,7 +8,7 @@ export interface ConfigDiagnostic {
 }
 
 export interface FormatActionsApi {
-    append(input: { playHoleId?: null | string; sequence?: number; schemaVersion?: number; subjectBallId?: null | string; subjectProducerDefId?: null | string; supersedesActionId?: null | string; roundId: string; clientEventId: string; slotDefId: string; actionType: string; payload: unknown }): Promise<{ ok: true; id: string } | { ok: false; diagnostics: ConfigDiagnostic[] }>;
+    append(input: { roundId: string; slotDefId: string; playHoleId?: null | string; sequence?: number; actionType: string; schemaVersion?: number; subjectBallId?: null | string; subjectProducerDefId?: null | string; payload: unknown; supersedesActionId?: null | string; clientEventId: string }): Promise<{ ok: true; id: string } | { ok: false; diagnostics: ConfigDiagnostic[] }>;
 }
 
 export function createFormatActionsClient(baseUrl: string): FormatActionsApi {

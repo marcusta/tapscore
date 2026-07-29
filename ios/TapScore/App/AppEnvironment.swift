@@ -272,9 +272,9 @@ final class AppEnvironment {
         fullName: String? = nil
     ) async throws -> Player {
         let input = AuthNativeAppleSignInInput(
+            identityToken: identityToken,
             fullName: fullName.map { .value($0) } ?? .absent,
-            nonce: rawNonce,
-            identityToken: identityToken
+            nonce: rawNonce
         )
         let result = try await api.send(AuthNativeEndpoints.appleSignIn, input)
         let user = try await adoptSession(user: result.user, token: result.token)
@@ -354,11 +354,11 @@ final class AppEnvironment {
     /// `AppleLinkError.sessionNotRecognised` is thrown.
     func linkApple(identityToken: String, rawNonce: String?) async throws {
         let input = AuthNativeAppleSignInInput(
+            identityToken: identityToken,
             // No `fullName`: this player is already named, and the server
             // ignores the field outside the create branch anyway.
             fullName: .absent,
-            nonce: rawNonce,
-            identityToken: identityToken
+            nonce: rawNonce
         )
         // Read BEFORE the exchange: `adoptSession` overwrites the Keychain slot,
         // and after that the only copy of the outgoing token is gone.

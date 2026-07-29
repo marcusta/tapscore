@@ -413,13 +413,13 @@ struct CreateDraftBuilder: Sendable {
         let composition = compose(games: games, rosterCount: players.count)
 
         let producers = players.enumerated().map { index, p in
-            CompetitionsCreateRoundOutputOkDraftProducersItem.teeId(
+            CompetitionsCreateRoundOutputOkDraftProducersItem.playerRef(
                 .init(
-                    gender: p.gender,
-                    teeId: p.teeId,
-                    handicapIndex: p.handicapIndex,
                     producerDefId: defIds[index],
-                    playerRef: playerRef(p.ref)))
+                    playerRef: playerRef(p.ref),
+                    handicapIndex: p.handicapIndex,
+                    gender: p.gender,
+                    teeId: p.teeId))
         }
 
         // Only live teams reach the draft: a team ball needs at least a pair,
@@ -430,10 +430,10 @@ struct CreateDraftBuilder: Sendable {
         let live = composition.liveTeams
         let teams = composition.teams.enumerated().compactMap { index, team in
             live.contains(team) ? CompetitionsCreateRoundOutputOkDraftTeamsItem(
-                label: Self.teamLabel(index),
-                kind: team.kind,
-                formation: team.formation,
                 id: String(team.key),
+                label: Self.teamLabel(index),
+                formation: team.formation,
+                kind: team.kind,
                 members: team.members.map { member in
                     .producerDefId(.init(
                         producerDefId: defIds[member],
@@ -442,12 +442,12 @@ struct CreateDraftBuilder: Sendable {
         }
 
         return CompetitionsCreateRoundOutputOkDraft(
-            route: routeFields,
-            roundType: roundType,
-            teams: teams.isEmpty ? nil : teams,
             courseId: courseId,
             playedAt: playedAt,
+            roundType: roundType,
+            route: routeFields,
             producers: producers,
+            teams: teams.isEmpty ? nil : teams,
             // One slot per picked game, in pick order (spec §6.2 B6.3) — which
             // is also what makes `formatIndex` and `slotIndex` name the same
             // card in a refusal.
@@ -467,6 +467,7 @@ struct CreateDraftBuilder: Sendable {
         live: [Composition.Team]
     ) -> CompetitionDetailDefaultConfigSlotsItem {
         CompetitionDetailDefaultConfigSlotsItem(
+            formatId: game.formatId,
             allowanceConfig: .flat(.init(pct: game.allowancePct)),
             // Whatever knobs this format declared, verbatim — explicit even at
             // their defaults, so the draft states the rules it was created
@@ -475,8 +476,7 @@ struct CreateDraftBuilder: Sendable {
             formatConfig: game.config.isEmpty
                 ? nil
                 : .object(game.config.mapValues { .string($0) }),
-            subjects: subjects(game: game, per: per, defIds: defIds, live: live),
-            formatId: game.formatId)
+            subjects: subjects(game: game, per: per, defIds: defIds, live: live))
     }
 
     private func subjects(
@@ -504,10 +504,10 @@ struct CreateDraftBuilder: Sendable {
 
     private func playerRef(
         _ ref: Player.Ref
-    ) -> CompetitionsCreateRoundOutputOkDraftProducersItemTeeIdPlayerRef {
+    ) -> CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRefPlayerRef {
         switch ref {
-        case .player(let id): .init(id: id, kind: .player)
-        case .guest(let id): .init(id: id, kind: .guest)
+        case .player(let id): .init(kind: .player, id: id)
+        case .guest(let id): .init(kind: .guest, id: id)
         }
     }
 

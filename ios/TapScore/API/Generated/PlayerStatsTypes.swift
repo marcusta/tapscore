@@ -441,48 +441,48 @@ struct PlayerStatsPutMyConfigInput: Codable, Sendable, Equatable {
 }
 
 struct PlayerStatsAppendEventsInputItemsItem: Codable, Sendable, Equatable {
-    var playerId: String
     var playHoleId: String
-    var clientEventId: String
+    var playerId: String
     var key: StatEventKey
     var value: String?
+    var clientEventId: String
 
     enum CodingKeys: String, CodingKey {
-        case playerId = "playerId"
         case playHoleId = "playHoleId"
-        case clientEventId = "clientEventId"
+        case playerId = "playerId"
         case key = "key"
         case value = "value"
+        case clientEventId = "clientEventId"
     }
 
-    init(playerId: String, playHoleId: String, clientEventId: String, key: StatEventKey, value: String? = nil) {
-        self.playerId = playerId
+    init(playHoleId: String, playerId: String, key: StatEventKey, value: String? = nil, clientEventId: String) {
         self.playHoleId = playHoleId
-        self.clientEventId = clientEventId
+        self.playerId = playerId
         self.key = key
         self.value = value
+        self.clientEventId = clientEventId
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.playerId = try c.decode(String.self, forKey: .playerId)
         self.playHoleId = try c.decode(String.self, forKey: .playHoleId)
-        self.clientEventId = try c.decode(String.self, forKey: .clientEventId)
+        self.playerId = try c.decode(String.self, forKey: .playerId)
         self.key = try c.decode(StatEventKey.self, forKey: .key)
         self.value = try c.decodeIfPresent(String.self, forKey: .value)
+        self.clientEventId = try c.decode(String.self, forKey: .clientEventId)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(playerId, forKey: .playerId)
         try c.encode(playHoleId, forKey: .playHoleId)
-        try c.encode(clientEventId, forKey: .clientEventId)
+        try c.encode(playerId, forKey: .playerId)
         try c.encode(key, forKey: .key)
         if let value {
             try c.encode(value, forKey: .value)
         } else {
             try c.encodeNil(forKey: .value)
         }
+        try c.encode(clientEventId, forKey: .clientEventId)
     }
 }
 

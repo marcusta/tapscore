@@ -137,7 +137,7 @@ final class CreatePickerRowsTests: XCTestCase {
     // MARK: - Helpers
 
     private func course(_ id: String, club: String, name: String) -> SetupCourse {
-        SetupCourse(clubName: "Club", id: id, clubId: club, name: name, holeCount: 18, holes: [])
+        SetupCourse(id: id, clubId: club, name: name, holeCount: 18, holes: [], clubName: "Club")
     }
 
     private func tee(

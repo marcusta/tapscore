@@ -3,48 +3,47 @@
 import Foundation
 
 struct PlayerSearchResult: Codable, Sendable, Equatable {
-    var isFriend: Bool
     var id: String
     var username: String
     var displayName: String
     var gender: PlayerGender?
     var handicapIndex: Double?
     var homeClubName: String?
+    var isFriend: Bool
 
     enum CodingKeys: String, CodingKey {
-        case isFriend = "isFriend"
         case id = "id"
         case username = "username"
         case displayName = "displayName"
         case gender = "gender"
         case handicapIndex = "handicapIndex"
         case homeClubName = "homeClubName"
+        case isFriend = "isFriend"
     }
 
-    init(isFriend: Bool, id: String, username: String, displayName: String, gender: PlayerGender? = nil, handicapIndex: Double? = nil, homeClubName: String? = nil) {
-        self.isFriend = isFriend
+    init(id: String, username: String, displayName: String, gender: PlayerGender? = nil, handicapIndex: Double? = nil, homeClubName: String? = nil, isFriend: Bool) {
         self.id = id
         self.username = username
         self.displayName = displayName
         self.gender = gender
         self.handicapIndex = handicapIndex
         self.homeClubName = homeClubName
+        self.isFriend = isFriend
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.isFriend = try c.decode(Bool.self, forKey: .isFriend)
         self.id = try c.decode(String.self, forKey: .id)
         self.username = try c.decode(String.self, forKey: .username)
         self.displayName = try c.decode(String.self, forKey: .displayName)
         self.gender = try c.decodeIfPresent(PlayerGender.self, forKey: .gender)
         self.handicapIndex = try c.decodeIfPresent(Double.self, forKey: .handicapIndex)
         self.homeClubName = try c.decodeIfPresent(String.self, forKey: .homeClubName)
+        self.isFriend = try c.decode(Bool.self, forKey: .isFriend)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(isFriend, forKey: .isFriend)
         try c.encode(id, forKey: .id)
         try c.encode(username, forKey: .username)
         try c.encode(displayName, forKey: .displayName)
@@ -63,50 +62,54 @@ struct PlayerSearchResult: Codable, Sendable, Equatable {
         } else {
             try c.encodeNil(forKey: .homeClubName)
         }
+        try c.encode(isFriend, forKey: .isFriend)
     }
 }
 
 struct PlayersRegisterInput: Codable, Sendable, Equatable {
-    var gender: TriState<PlayerGender>
-    var handicapIndex: TriState<Double>
-    var homeClubId: TriState<String>
-    var displayName: String
     var username: String
     var password: String
+    var displayName: String
+    var handicapIndex: TriState<Double>
+    var gender: TriState<PlayerGender>
+    var homeClubId: TriState<String>
 
     enum CodingKeys: String, CodingKey {
-        case gender = "gender"
-        case handicapIndex = "handicapIndex"
-        case homeClubId = "homeClubId"
-        case displayName = "displayName"
         case username = "username"
         case password = "password"
+        case displayName = "displayName"
+        case handicapIndex = "handicapIndex"
+        case gender = "gender"
+        case homeClubId = "homeClubId"
     }
 
-    init(gender: TriState<PlayerGender> = .absent, handicapIndex: TriState<Double> = .absent, homeClubId: TriState<String> = .absent, displayName: String, username: String, password: String) {
-        self.gender = gender
-        self.handicapIndex = handicapIndex
-        self.homeClubId = homeClubId
-        self.displayName = displayName
+    init(username: String, password: String, displayName: String, handicapIndex: TriState<Double> = .absent, gender: TriState<PlayerGender> = .absent, homeClubId: TriState<String> = .absent) {
         self.username = username
         self.password = password
+        self.displayName = displayName
+        self.handicapIndex = handicapIndex
+        self.gender = gender
+        self.homeClubId = homeClubId
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        if c.contains(.gender) {
-            self.gender = try c.decodeNil(forKey: .gender)
-                ? .null
-                : .value(try c.decode(PlayerGender.self, forKey: .gender))
-        } else {
-            self.gender = .absent
-        }
+        self.username = try c.decode(String.self, forKey: .username)
+        self.password = try c.decode(String.self, forKey: .password)
+        self.displayName = try c.decode(String.self, forKey: .displayName)
         if c.contains(.handicapIndex) {
             self.handicapIndex = try c.decodeNil(forKey: .handicapIndex)
                 ? .null
                 : .value(try c.decode(Double.self, forKey: .handicapIndex))
         } else {
             self.handicapIndex = .absent
+        }
+        if c.contains(.gender) {
+            self.gender = try c.decodeNil(forKey: .gender)
+                ? .null
+                : .value(try c.decode(PlayerGender.self, forKey: .gender))
+        } else {
+            self.gender = .absent
         }
         if c.contains(.homeClubId) {
             self.homeClubId = try c.decodeNil(forKey: .homeClubId)
@@ -115,58 +118,55 @@ struct PlayersRegisterInput: Codable, Sendable, Equatable {
         } else {
             self.homeClubId = .absent
         }
-        self.displayName = try c.decode(String.self, forKey: .displayName)
-        self.username = try c.decode(String.self, forKey: .username)
-        self.password = try c.decode(String.self, forKey: .password)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        switch gender {
-        case .absent: break
-        case .null: try c.encodeNil(forKey: .gender)
-        case .value(let v): try c.encode(v, forKey: .gender)
-        }
+        try c.encode(username, forKey: .username)
+        try c.encode(password, forKey: .password)
+        try c.encode(displayName, forKey: .displayName)
         switch handicapIndex {
         case .absent: break
         case .null: try c.encodeNil(forKey: .handicapIndex)
         case .value(let v): try c.encode(v, forKey: .handicapIndex)
+        }
+        switch gender {
+        case .absent: break
+        case .null: try c.encodeNil(forKey: .gender)
+        case .value(let v): try c.encode(v, forKey: .gender)
         }
         switch homeClubId {
         case .absent: break
         case .null: try c.encodeNil(forKey: .homeClubId)
         case .value(let v): try c.encode(v, forKey: .homeClubId)
         }
-        try c.encode(displayName, forKey: .displayName)
-        try c.encode(username, forKey: .username)
-        try c.encode(password, forKey: .password)
     }
 }
 
 struct PlayersUpdateHandicapInput: Codable, Sendable, Equatable {
-    var effectiveDate: String?
     var handicapIndex: Double
+    var effectiveDate: String?
 
     enum CodingKeys: String, CodingKey {
-        case effectiveDate = "effectiveDate"
         case handicapIndex = "handicapIndex"
+        case effectiveDate = "effectiveDate"
     }
 
-    init(effectiveDate: String? = nil, handicapIndex: Double) {
-        self.effectiveDate = effectiveDate
+    init(handicapIndex: Double, effectiveDate: String? = nil) {
         self.handicapIndex = handicapIndex
+        self.effectiveDate = effectiveDate
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.effectiveDate = try c.decodeIfPresent(String.self, forKey: .effectiveDate)
         self.handicapIndex = try c.decode(Double.self, forKey: .handicapIndex)
+        self.effectiveDate = try c.decodeIfPresent(String.self, forKey: .effectiveDate)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(effectiveDate, forKey: .effectiveDate)
         try c.encode(handicapIndex, forKey: .handicapIndex)
+        try c.encodeIfPresent(effectiveDate, forKey: .effectiveDate)
     }
 }
 

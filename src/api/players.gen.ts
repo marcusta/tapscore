@@ -24,19 +24,19 @@ export interface HandicapEntry {
 }
 
 export interface PlayerSearchResult {
-    isFriend: boolean;
     id: string;
     username: string;
     displayName: string;
     gender: null | 'M' | 'F';
     handicapIndex: null | number;
     homeClubName: null | string;
+    isFriend: boolean;
 }
 
 export interface PlayersApi {
     me(): Promise<null | Player>;
-    register(input: { gender?: null | 'M' | 'F'; handicapIndex?: null | number; homeClubId?: null | string; displayName: string; username: string; password: string }): Promise<Player>;
-    updateHandicap(input: { effectiveDate?: string; handicapIndex: number }): Promise<HandicapEntry>;
+    register(input: { username: string; password: string; displayName: string; handicapIndex?: null | number; gender?: null | 'M' | 'F'; homeClubId?: null | string }): Promise<Player>;
+    updateHandicap(input: { handicapIndex: number; effectiveDate?: string }): Promise<HandicapEntry>;
     myHandicapHistory(): Promise<HandicapEntry[]>;
     updateProfile(input: { gender?: null | 'M' | 'F'; homeClubId?: null | string }): Promise<Player>;
     search(input: { q?: string }): Promise<PlayerSearchResult[]>;

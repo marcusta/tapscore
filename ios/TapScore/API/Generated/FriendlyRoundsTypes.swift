@@ -1711,29 +1711,29 @@ struct FriendlyRoundsByTokenOutput: Codable, Sendable, Equatable {
 }
 
 struct FriendlyRoundsResultInput: Codable, Sendable, Equatable {
-    var cursor: String?
     var token: String
+    var cursor: String?
 
     enum CodingKeys: String, CodingKey {
-        case cursor = "cursor"
         case token = "token"
+        case cursor = "cursor"
     }
 
-    init(cursor: String? = nil, token: String) {
-        self.cursor = cursor
+    init(token: String, cursor: String? = nil) {
         self.token = token
+        self.cursor = cursor
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.cursor = try c.decodeIfPresent(String.self, forKey: .cursor)
         self.token = try c.decode(String.self, forKey: .token)
+        self.cursor = try c.decodeIfPresent(String.self, forKey: .cursor)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(cursor, forKey: .cursor)
         try c.encode(token, forKey: .token)
+        try c.encodeIfPresent(cursor, forKey: .cursor)
     }
 }
 
@@ -1826,42 +1826,48 @@ enum FriendlyRoundsResultOutput: Codable, Sendable, Equatable {
 }
 
 struct FriendlyRoundsScoreInput: Codable, Sendable, Equatable {
-    var sourcePlayerId: TriState<String>
-    var sourceGuestPlayerId: TriState<String>
-    var metadata: TriState<[String: JSONValue]>
     var token: String
     var ballId: String
     var playHoleId: String
     var strokes: Double?
     var eventType: ScoreEventEventType
     var clientEventId: String
+    var sourcePlayerId: TriState<String>
+    var sourceGuestPlayerId: TriState<String>
+    var metadata: TriState<[String: JSONValue]>
 
     enum CodingKeys: String, CodingKey {
-        case sourcePlayerId = "sourcePlayerId"
-        case sourceGuestPlayerId = "sourceGuestPlayerId"
-        case metadata = "metadata"
         case token = "token"
         case ballId = "ballId"
         case playHoleId = "playHoleId"
         case strokes = "strokes"
         case eventType = "eventType"
         case clientEventId = "clientEventId"
+        case sourcePlayerId = "sourcePlayerId"
+        case sourceGuestPlayerId = "sourceGuestPlayerId"
+        case metadata = "metadata"
     }
 
-    init(sourcePlayerId: TriState<String> = .absent, sourceGuestPlayerId: TriState<String> = .absent, metadata: TriState<[String: JSONValue]> = .absent, token: String, ballId: String, playHoleId: String, strokes: Double? = nil, eventType: ScoreEventEventType, clientEventId: String) {
-        self.sourcePlayerId = sourcePlayerId
-        self.sourceGuestPlayerId = sourceGuestPlayerId
-        self.metadata = metadata
+    init(token: String, ballId: String, playHoleId: String, strokes: Double? = nil, eventType: ScoreEventEventType, clientEventId: String, sourcePlayerId: TriState<String> = .absent, sourceGuestPlayerId: TriState<String> = .absent, metadata: TriState<[String: JSONValue]> = .absent) {
         self.token = token
         self.ballId = ballId
         self.playHoleId = playHoleId
         self.strokes = strokes
         self.eventType = eventType
         self.clientEventId = clientEventId
+        self.sourcePlayerId = sourcePlayerId
+        self.sourceGuestPlayerId = sourceGuestPlayerId
+        self.metadata = metadata
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.token = try c.decode(String.self, forKey: .token)
+        self.ballId = try c.decode(String.self, forKey: .ballId)
+        self.playHoleId = try c.decode(String.self, forKey: .playHoleId)
+        self.strokes = try c.decodeIfPresent(Double.self, forKey: .strokes)
+        self.eventType = try c.decode(ScoreEventEventType.self, forKey: .eventType)
+        self.clientEventId = try c.decode(String.self, forKey: .clientEventId)
         if c.contains(.sourcePlayerId) {
             self.sourcePlayerId = try c.decodeNil(forKey: .sourcePlayerId)
                 ? .null
@@ -1883,16 +1889,20 @@ struct FriendlyRoundsScoreInput: Codable, Sendable, Equatable {
         } else {
             self.metadata = .absent
         }
-        self.token = try c.decode(String.self, forKey: .token)
-        self.ballId = try c.decode(String.self, forKey: .ballId)
-        self.playHoleId = try c.decode(String.self, forKey: .playHoleId)
-        self.strokes = try c.decodeIfPresent(Double.self, forKey: .strokes)
-        self.eventType = try c.decode(ScoreEventEventType.self, forKey: .eventType)
-        self.clientEventId = try c.decode(String.self, forKey: .clientEventId)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(token, forKey: .token)
+        try c.encode(ballId, forKey: .ballId)
+        try c.encode(playHoleId, forKey: .playHoleId)
+        if let strokes {
+            try c.encode(strokes, forKey: .strokes)
+        } else {
+            try c.encodeNil(forKey: .strokes)
+        }
+        try c.encode(eventType, forKey: .eventType)
+        try c.encode(clientEventId, forKey: .clientEventId)
         switch sourcePlayerId {
         case .absent: break
         case .null: try c.encodeNil(forKey: .sourcePlayerId)
@@ -1908,16 +1918,6 @@ struct FriendlyRoundsScoreInput: Codable, Sendable, Equatable {
         case .null: try c.encodeNil(forKey: .metadata)
         case .value(let v): try c.encode(v, forKey: .metadata)
         }
-        try c.encode(token, forKey: .token)
-        try c.encode(ballId, forKey: .ballId)
-        try c.encode(playHoleId, forKey: .playHoleId)
-        if let strokes {
-            try c.encode(strokes, forKey: .strokes)
-        } else {
-            try c.encodeNil(forKey: .strokes)
-        }
-        try c.encode(eventType, forKey: .eventType)
-        try c.encode(clientEventId, forKey: .clientEventId)
     }
 }
 
@@ -2026,34 +2026,34 @@ enum FriendlyRoundsSetupOutput: Codable, Sendable, Equatable {
 }
 
 struct FriendlyRoundsEditSetupInput: Codable, Sendable, Equatable {
-    var clientEventId: String?
-    var draft: CompetitionsCreateRoundOutputOkDraft
     var token: String
+    var draft: CompetitionsCreateRoundOutputOkDraft
+    var clientEventId: String?
 
     enum CodingKeys: String, CodingKey {
-        case clientEventId = "clientEventId"
-        case draft = "draft"
         case token = "token"
+        case draft = "draft"
+        case clientEventId = "clientEventId"
     }
 
-    init(clientEventId: String? = nil, draft: CompetitionsCreateRoundOutputOkDraft, token: String) {
-        self.clientEventId = clientEventId
-        self.draft = draft
+    init(token: String, draft: CompetitionsCreateRoundOutputOkDraft, clientEventId: String? = nil) {
         self.token = token
+        self.draft = draft
+        self.clientEventId = clientEventId
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.clientEventId = try c.decodeIfPresent(String.self, forKey: .clientEventId)
-        self.draft = try c.decode(CompetitionsCreateRoundOutputOkDraft.self, forKey: .draft)
         self.token = try c.decode(String.self, forKey: .token)
+        self.draft = try c.decode(CompetitionsCreateRoundOutputOkDraft.self, forKey: .draft)
+        self.clientEventId = try c.decodeIfPresent(String.self, forKey: .clientEventId)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(clientEventId, forKey: .clientEventId)
-        try c.encode(draft, forKey: .draft)
         try c.encode(token, forKey: .token)
+        try c.encode(draft, forKey: .draft)
+        try c.encodeIfPresent(clientEventId, forKey: .clientEventId)
     }
 }
 
@@ -2160,61 +2160,61 @@ struct FriendlyRoundsReopenOutput: Codable, Sendable, Equatable {
 }
 
 struct FriendlyRoundsJoinInput: Codable, Sendable, Equatable {
-    var groupChoice: String?
-    var teeId: String
     var token: String
+    var teeId: String
+    var groupChoice: String?
 
     enum CodingKeys: String, CodingKey {
-        case groupChoice = "groupChoice"
-        case teeId = "teeId"
         case token = "token"
+        case teeId = "teeId"
+        case groupChoice = "groupChoice"
     }
 
-    init(groupChoice: String? = nil, teeId: String, token: String) {
-        self.groupChoice = groupChoice
-        self.teeId = teeId
+    init(token: String, teeId: String, groupChoice: String? = nil) {
         self.token = token
+        self.teeId = teeId
+        self.groupChoice = groupChoice
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.groupChoice = try c.decodeIfPresent(String.self, forKey: .groupChoice)
-        self.teeId = try c.decode(String.self, forKey: .teeId)
         self.token = try c.decode(String.self, forKey: .token)
+        self.teeId = try c.decode(String.self, forKey: .teeId)
+        self.groupChoice = try c.decodeIfPresent(String.self, forKey: .groupChoice)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(groupChoice, forKey: .groupChoice)
-        try c.encode(teeId, forKey: .teeId)
         try c.encode(token, forKey: .token)
+        try c.encode(teeId, forKey: .teeId)
+        try c.encodeIfPresent(groupChoice, forKey: .groupChoice)
     }
 }
 
 struct FriendlyRoundsClaimGuestInput: Codable, Sendable, Equatable {
-    var guestPlayerId: String
     var token: String
+    var guestPlayerId: String
 
     enum CodingKeys: String, CodingKey {
-        case guestPlayerId = "guestPlayerId"
         case token = "token"
+        case guestPlayerId = "guestPlayerId"
     }
 
-    init(guestPlayerId: String, token: String) {
-        self.guestPlayerId = guestPlayerId
+    init(token: String, guestPlayerId: String) {
         self.token = token
+        self.guestPlayerId = guestPlayerId
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.guestPlayerId = try c.decode(String.self, forKey: .guestPlayerId)
         self.token = try c.decode(String.self, forKey: .token)
+        self.guestPlayerId = try c.decode(String.self, forKey: .guestPlayerId)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(guestPlayerId, forKey: .guestPlayerId)
         try c.encode(token, forKey: .token)
+        try c.encode(guestPlayerId, forKey: .guestPlayerId)
     }
 }
 
@@ -2240,38 +2240,38 @@ struct FriendlyRoundsClaimSeatInputIdentitySelf: Codable, Sendable, Equatable {
 }
 
 struct FriendlyRoundsClaimSeatInputIdentityGuest: Codable, Sendable, Equatable {
-    var name: String
-    var gender: PlayerGender
-    var handicapIndex: Double
     let kind: String = "guest"
+    var name: String
+    var handicapIndex: Double
+    var gender: PlayerGender
 
     enum CodingKeys: String, CodingKey {
-        case name = "name"
-        case gender = "gender"
-        case handicapIndex = "handicapIndex"
         case kind = "kind"
+        case name = "name"
+        case handicapIndex = "handicapIndex"
+        case gender = "gender"
     }
 
-    init(name: String, gender: PlayerGender, handicapIndex: Double) {
+    init(name: String, handicapIndex: Double, gender: PlayerGender) {
         self.name = name
-        self.gender = gender
         self.handicapIndex = handicapIndex
+        self.gender = gender
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.name = try c.decode(String.self, forKey: .name)
-        self.gender = try c.decode(PlayerGender.self, forKey: .gender)
-        self.handicapIndex = try c.decode(Double.self, forKey: .handicapIndex)
         _ = try c.decode(String.self, forKey: .kind)
+        self.name = try c.decode(String.self, forKey: .name)
+        self.handicapIndex = try c.decode(Double.self, forKey: .handicapIndex)
+        self.gender = try c.decode(PlayerGender.self, forKey: .gender)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(name, forKey: .name)
-        try c.encode(gender, forKey: .gender)
-        try c.encode(handicapIndex, forKey: .handicapIndex)
         try c.encode(kind, forKey: .kind)
+        try c.encode(name, forKey: .name)
+        try c.encode(handicapIndex, forKey: .handicapIndex)
+        try c.encode(gender, forKey: .gender)
     }
 }
 
@@ -2307,75 +2307,75 @@ enum FriendlyRoundsClaimSeatInputIdentity: Codable, Sendable, Equatable {
 }
 
 struct FriendlyRoundsClaimSeatInput: Codable, Sendable, Equatable {
-    var teeId: String?
     var token: String
-    var clientEventId: String
     var seatId: String
     var identity: FriendlyRoundsClaimSeatInputIdentity
+    var teeId: String?
+    var clientEventId: String
 
     enum CodingKeys: String, CodingKey {
-        case teeId = "teeId"
         case token = "token"
-        case clientEventId = "clientEventId"
         case seatId = "seatId"
         case identity = "identity"
+        case teeId = "teeId"
+        case clientEventId = "clientEventId"
     }
 
-    init(teeId: String? = nil, token: String, clientEventId: String, seatId: String, identity: FriendlyRoundsClaimSeatInputIdentity) {
-        self.teeId = teeId
+    init(token: String, seatId: String, identity: FriendlyRoundsClaimSeatInputIdentity, teeId: String? = nil, clientEventId: String) {
         self.token = token
-        self.clientEventId = clientEventId
         self.seatId = seatId
         self.identity = identity
+        self.teeId = teeId
+        self.clientEventId = clientEventId
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.teeId = try c.decodeIfPresent(String.self, forKey: .teeId)
         self.token = try c.decode(String.self, forKey: .token)
-        self.clientEventId = try c.decode(String.self, forKey: .clientEventId)
         self.seatId = try c.decode(String.self, forKey: .seatId)
         self.identity = try c.decode(FriendlyRoundsClaimSeatInputIdentity.self, forKey: .identity)
+        self.teeId = try c.decodeIfPresent(String.self, forKey: .teeId)
+        self.clientEventId = try c.decode(String.self, forKey: .clientEventId)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(teeId, forKey: .teeId)
         try c.encode(token, forKey: .token)
-        try c.encode(clientEventId, forKey: .clientEventId)
         try c.encode(seatId, forKey: .seatId)
         try c.encode(identity, forKey: .identity)
+        try c.encodeIfPresent(teeId, forKey: .teeId)
+        try c.encode(clientEventId, forKey: .clientEventId)
     }
 }
 
 struct FriendlyRoundsReleaseSeatInput: Codable, Sendable, Equatable {
     var token: String
-    var clientEventId: String
     var seatId: String
+    var clientEventId: String
 
     enum CodingKeys: String, CodingKey {
         case token = "token"
-        case clientEventId = "clientEventId"
         case seatId = "seatId"
+        case clientEventId = "clientEventId"
     }
 
-    init(token: String, clientEventId: String, seatId: String) {
+    init(token: String, seatId: String, clientEventId: String) {
         self.token = token
-        self.clientEventId = clientEventId
         self.seatId = seatId
+        self.clientEventId = clientEventId
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.token = try c.decode(String.self, forKey: .token)
-        self.clientEventId = try c.decode(String.self, forKey: .clientEventId)
         self.seatId = try c.decode(String.self, forKey: .seatId)
+        self.clientEventId = try c.decode(String.self, forKey: .clientEventId)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(token, forKey: .token)
-        try c.encode(clientEventId, forKey: .clientEventId)
         try c.encode(seatId, forKey: .seatId)
+        try c.encode(clientEventId, forKey: .clientEventId)
     }
 }

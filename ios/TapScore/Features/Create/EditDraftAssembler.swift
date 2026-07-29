@@ -120,18 +120,18 @@ struct EditDraftAssembler: Sendable {
         let loadedById = Self.producersById(loaded)
 
         let rebuiltProducers = producers.map { p in
-            CompetitionsCreateRoundOutputOkDraftProducersItem.teeId(
+            CompetitionsCreateRoundOutputOkDraftProducersItem.playerRef(
                 .init(
+                    producerDefId: p.producerDefId,
+                    playerRef: Self.playerRef(p.ref),
+                    handicapIndex: p.handicapIndex,
                     gender: p.gender,
+                    teeId: p.teeId,
                     // Fields no control in this flow surfaces. Re-attached by
                     // def-id rather than by position: the roster can be
                     // reordered under them.
                     category: loadedById[p.producerDefId]?.category,
-                    seat: loadedById[p.producerDefId]?.seat,
-                    teeId: p.teeId,
-                    handicapIndex: p.handicapIndex,
-                    producerDefId: p.producerDefId,
-                    playerRef: Self.playerRef(p.ref)))
+                    seat: loadedById[p.producerDefId]?.seat))
         }
 
         let carriedTeams = Self.prunedTeams(loaded.teams, liveIds: liveIds)
@@ -160,20 +160,20 @@ struct EditDraftAssembler: Sendable {
         let rebuilt = CreateDraftBuilder(catalog: catalog).routeFields(route)
 
         return CompetitionsCreateRoundOutputOkDraft(
-            route: carryRoute ? loaded.route : rebuilt.route,
-            roundType: carryRoute ? loaded.roundType : rebuilt.roundType,
-            venueType: loaded.venueType,
-            playingGroups: Self.prunedGroups(loaded.playingGroups, liveIds: liveIds),
-            // Nothing seeded and nothing survived ⇒ whatever the prune said,
-            // so a draft that stored no `teams` key still stores none.
-            teams: teams.isEmpty ? carriedTeams : teams,
-            startList: loaded.startList,
             courseId: courseId,
             // No date UI exists, so the date is the round's — never "today",
             // which is what a rebuild would quietly write (B5).
             playedAt: loaded.playedAt,
+            roundType: carryRoute ? loaded.roundType : rebuilt.roundType,
+            venueType: loaded.venueType,
+            route: carryRoute ? loaded.route : rebuilt.route,
             producers: rebuiltProducers,
-            formats: formats)
+            // Nothing seeded and nothing survived ⇒ whatever the prune said,
+            // so a draft that stored no `teams` key still stores none.
+            teams: teams.isEmpty ? carriedTeams : teams,
+            formats: formats,
+            playingGroups: Self.prunedGroups(loaded.playingGroups, liveIds: liveIds),
+            startList: loaded.startList)
     }
 
     // MARK: - Formats
@@ -191,13 +191,15 @@ struct EditDraftAssembler: Sendable {
         // by that strategy's own rules (B6.6).
         guard let source, source.formatId == slot.formatId else {
             return CompetitionDetailDefaultConfigSlotsItem(
+                formatId: slot.formatId,
                 allowanceConfig: .flat(.init(pct: slot.allowancePct)),
                 formatConfig: Self.configValue(slot.config),
-                subjects: freshSubjects(slot, order: order, teams: &teams),
-                formatId: slot.formatId)
+                subjects: freshSubjects(slot, order: order, teams: &teams))
         }
         return CompetitionDetailDefaultConfigSlotsItem(
+            formatId: slot.formatId,
             id: source.id,
+            allowanceConfig: Self.allowance(source.allowanceConfig, text: slot.allowanceText),
             producerDefIds: source.producerDefIds.map { $0.filter(liveIds.contains) },
             teams: source.teams.map { entries in
                 // A side format's entries are SIDES: one left holding a single
@@ -210,7 +212,6 @@ struct EditDraftAssembler: Sendable {
                     return ids.count < minimum ? nil : .init(label: entry.label, producerDefIds: ids)
                 }
             },
-            allowanceConfig: Self.allowance(source.allowanceConfig, text: slot.allowanceText),
             formatConfig: Self.formatConfig(source.formatConfig, config: slot.config),
             ballsFrom: source.ballsFrom,
             subjects: mergedSubjects(
@@ -218,8 +219,7 @@ struct EditDraftAssembler: Sendable {
                 slot: slot,
                 order: order,
                 liveIds: liveIds,
-                teamIds: teamIds),
-            formatId: slot.formatId)
+                teamIds: teamIds))
     }
 
     /// The loaded subject list, pruned and topped up.
@@ -339,12 +339,12 @@ struct EditDraftAssembler: Sendable {
             // `CreateDraftBuilder` refuses to ship, and it goes the same way.
             guard members.count >= 2 else { continue }
             let team = CompetitionsCreateRoundOutputOkDraftTeamsItem(
+                id: Self.freshTeamId(teams),
                 // The letter follows the round's full team list, exactly as a
                 // created round labels them.
                 label: CreateDraftBuilder.teamLabel(teams.count),
-                kind: .multiBall,
                 formation: "custom",
-                id: Self.freshTeamId(teams),
+                kind: .multiBall,
                 members: members.map {
                     .producerDefId(.init(producerDefId: order[$0], allowancePct: 100))
                 })
@@ -478,7 +478,7 @@ struct EditDraftAssembler: Sendable {
         let pruned = groups.compactMap { group -> CompetitionsCreateRoundOutputOkDraftPlayingGroupsItem? in
             let members = group.members.filter(liveIds.contains)
             guard !members.isEmpty else { return nil }
-            return .init(startTime: group.startTime, startHole: group.startHole, members: members)
+            return .init(members: members, startTime: group.startTime, startHole: group.startHole)
         }
         return pruned.isEmpty ? nil : pruned
     }
@@ -513,20 +513,20 @@ struct EditDraftAssembler: Sendable {
 
     private static func producersById(
         _ draft: CompetitionsCreateRoundOutputOkDraft
-    ) -> [String: CompetitionsCreateRoundOutputOkDraftProducersItemTeeId] {
-        var out: [String: CompetitionsCreateRoundOutputOkDraftProducersItemTeeId] = [:]
+    ) -> [String: CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRef] {
+        var out: [String: CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRef] = [:]
         for producer in draft.producers {
-            if case .teeId(let p) = producer { out[p.producerDefId] = p }
+            if case .playerRef(let p) = producer { out[p.producerDefId] = p }
         }
         return out
     }
 
     private static func playerRef(
         _ ref: CreateDraftBuilder.Player.Ref
-    ) -> CompetitionsCreateRoundOutputOkDraftProducersItemTeeIdPlayerRef {
+    ) -> CompetitionsCreateRoundOutputOkDraftProducersItemPlayerRefPlayerRef {
         switch ref {
-        case .player(let id): .init(id: id, kind: .player)
-        case .guest(let id): .init(id: id, kind: .guest)
+        case .player(let id): .init(kind: .player, id: id)
+        case .guest(let id): .init(kind: .guest, id: id)
         }
     }
 }

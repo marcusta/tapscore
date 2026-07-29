@@ -11,7 +11,7 @@ export interface GuestPlayer {
 }
 
 export interface GuestPlayersApi {
-    create(input: { handicapIndex?: null | number; displayName: string; gender: 'M' | 'F' }): Promise<GuestPlayer>;
+    create(input: { displayName: string; gender: 'M' | 'F'; handicapIndex?: null | number }): Promise<GuestPlayer>;
 }
 
 export function createGuestPlayersClient(baseUrl: string): GuestPlayersApi {
