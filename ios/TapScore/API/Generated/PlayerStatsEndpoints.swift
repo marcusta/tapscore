@@ -9,6 +9,10 @@ enum PlayerStatsEndpoints {
         method: .put,
         path: "/players/me/stats-config",
         pathParams: [])
+    static let myStats = APIEndpoint<EmptyInput, PlayerStatsSummary>(
+        method: .get,
+        path: "/players/me/stats",
+        pathParams: [])
     static let appendEvents = APIEndpoint<PlayerStatsAppendEventsInput, AppendStatEventsResult>(
         method: .post,
         path: "/friendly-rounds/stat-events",

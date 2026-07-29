@@ -4,6 +4,7 @@ import type {
     Database,
     FirstPuttBucket,
     PlayerHoleStatsTable,
+    PlayerStatMeasureColumns,
     PlayerStatsConfigTable,
     ShortGameDifficulty,
     StatEventsTable,
@@ -128,6 +129,113 @@ export interface RoundPlayerStatModules {
     modules: StatModules;
 }
 
+/**
+ * Every aggregate measure, for one scope (a round, or a career).
+ *
+ * Counts and sums only, never rates: a rate cannot be summed across rounds
+ * without weighting it, so each one ships as numerator + its own denominator
+ * (`fairwayHits` over `teeRecorded`, `girHits` over `girRecorded`, …) and the
+ * client divides. Unrecorded holes — and the one contradiction the views can
+ * detect, `putts: 0` alongside a first-putt bucket — count in neither half.
+ *
+ * Backed 1:1 by the migration-043 views (spec §4.3).
+ */
+export interface StatMeasures {
+    // Tee (spec §1.1).
+    teeRecorded: number;
+    fairwayHits: number;
+    /** Fairway OR in play — "the next shot was a normal one". */
+    inPlayHits: number;
+    troubleCount: number;
+
+    // Approach (spec §1.4).
+    girRecorded: number;
+    girHits: number;
+
+    // Putting (spec §1.2).
+    firstPuttRecorded: number;
+    firstPuttInside2m: number;
+    firstPutt2To6m: number;
+    firstPuttOver6m: number;
+    /**
+     * The same buckets, minus holes whose putt count was never recorded — a
+     * bucket with no outcome is not a missed putt. These are the make% and
+     * 3-putt denominators; the raw counts above are the approach-quality
+     * distribution (spec §1.4) and ask nothing of the putt count.
+     */
+    firstPuttInside2mResolved: number;
+    firstPutt2To6mResolved: number;
+    firstPuttOver6mResolved: number;
+    /** Make% numerators, each over its own `…Resolved` count. */
+    onePuttInside2m: number;
+    onePutt2To6m: number;
+    onePuttOver6m: number;
+    puttsRecorded: number;
+    puttsTotal: number;
+    threePutts: number;
+    /** Over `firstPuttOver6mResolved`. */
+    threePuttsFromOver6m: number;
+
+    // Short game (spec §1.3) — split by difficulty, which is the entire point.
+    scrambleAttemptsStandard: number;
+    scrambleSuccessesStandard: number;
+    scrambleAttemptsHard: number;
+    scrambleSuccessesHard: number;
+    /** Chip-to-inside-2m, over its own denominator. */
+    scrambleFirstPuttStandard: number;
+    scrambleInside2mStandard: number;
+    scrambleFirstPuttHard: number;
+    scrambleInside2mHard: number;
+
+    // Penalties + recovery (spec §1.5).
+    penaltiesRecorded: number;
+    penaltiesTotal: number;
+    recoveryAttempts: number;
+    recoverySuccesses: number;
+
+    // Scoring, from the scorecard join (spec §5).
+    holesScored: number;
+    strokesTotal: number;
+    /** Par of the SCORED holes: `strokesTotal - parTotal` is score vs par. */
+    parTotal: number;
+    holesScoredPar3: number;
+    strokesPar3: number;
+    holesScoredPar4: number;
+    strokesPar4: number;
+    holesScoredPar5: number;
+    strokesPar5: number;
+    doubleBogeyPlus: number;
+    girHolesScored: number;
+    birdiesOnGir: number;
+    bounceBackOpportunities: number;
+    bounceBackSuccesses: number;
+    holesScoredFairway: number;
+    strokesVsParFairway: number;
+    holesScoredInPlay: number;
+    strokesVsParInPlay: number;
+    holesScoredTrouble: number;
+    strokesVsParTrouble: number;
+}
+
+/** One round the player has stats in, with enough identity to list it. */
+export interface PlayerRoundStats {
+    roundId: string;
+    /** The round's play date (`rounds.date`). */
+    date: string;
+    /** Frozen at creation; null for rounds predating the snapshot. */
+    courseName: string | null;
+    measures: StatMeasures;
+}
+
+/** A player's whole statistical record: the career total plus its rounds. */
+export interface PlayerStatsSummary {
+    playerId: string;
+    roundsWithStats: number;
+    totals: StatMeasures;
+    /** Most recent round first. */
+    rounds: PlayerRoundStats[];
+}
+
 /** One (occurrence, player) pair the round holds statistics for. */
 export interface StatSubject {
     playHoleId: string;
@@ -201,6 +309,134 @@ function toHoleStats(row: HoleStatsRow): PlayerHoleStats {
     };
 }
 
+/**
+ * The one place a view column becomes a measure. Both views expose the same
+ * column names (migration 043), so per-round and career rows map through this
+ * single function — a measure cannot mean two things.
+ */
+function toMeasures(row: PlayerStatMeasureColumns): StatMeasures {
+    return {
+        teeRecorded: row.tee_recorded,
+        fairwayHits: row.fairway_hits,
+        inPlayHits: row.in_play_hits,
+        troubleCount: row.trouble_count,
+        girRecorded: row.gir_recorded,
+        girHits: row.gir_hits,
+        firstPuttRecorded: row.first_putt_recorded,
+        firstPuttInside2m: row.first_putt_inside_2m,
+        firstPutt2To6m: row.first_putt_2_to_6m,
+        firstPuttOver6m: row.first_putt_over_6m,
+        firstPuttInside2mResolved: row.first_putt_inside_2m_resolved,
+        firstPutt2To6mResolved: row.first_putt_2_to_6m_resolved,
+        firstPuttOver6mResolved: row.first_putt_over_6m_resolved,
+        onePuttInside2m: row.one_putt_inside_2m,
+        onePutt2To6m: row.one_putt_2_to_6m,
+        onePuttOver6m: row.one_putt_over_6m,
+        puttsRecorded: row.putts_recorded,
+        puttsTotal: row.putts_total,
+        threePutts: row.three_putts,
+        threePuttsFromOver6m: row.three_putts_from_over_6m,
+        scrambleAttemptsStandard: row.scramble_attempts_standard,
+        scrambleSuccessesStandard: row.scramble_successes_standard,
+        scrambleAttemptsHard: row.scramble_attempts_hard,
+        scrambleSuccessesHard: row.scramble_successes_hard,
+        scrambleFirstPuttStandard: row.scramble_first_putt_standard,
+        scrambleInside2mStandard: row.scramble_inside_2m_standard,
+        scrambleFirstPuttHard: row.scramble_first_putt_hard,
+        scrambleInside2mHard: row.scramble_inside_2m_hard,
+        penaltiesRecorded: row.penalties_recorded,
+        penaltiesTotal: row.penalties_total,
+        recoveryAttempts: row.recovery_attempts,
+        recoverySuccesses: row.recovery_successes,
+        holesScored: row.holes_scored,
+        strokesTotal: row.strokes_total,
+        parTotal: row.par_total,
+        holesScoredPar3: row.holes_scored_par3,
+        strokesPar3: row.strokes_par3,
+        holesScoredPar4: row.holes_scored_par4,
+        strokesPar4: row.strokes_par4,
+        holesScoredPar5: row.holes_scored_par5,
+        strokesPar5: row.strokes_par5,
+        doubleBogeyPlus: row.double_bogey_plus,
+        girHolesScored: row.gir_holes_scored,
+        birdiesOnGir: row.birdies_on_gir,
+        bounceBackOpportunities: row.bounce_back_opportunities,
+        bounceBackSuccesses: row.bounce_back_successes,
+        holesScoredFairway: row.holes_scored_fairway,
+        strokesVsParFairway: row.strokes_vs_par_fairway,
+        holesScoredInPlay: row.holes_scored_in_play,
+        strokesVsParInPlay: row.strokes_vs_par_in_play,
+        holesScoredTrouble: row.holes_scored_trouble,
+        strokesVsParTrouble: row.strokes_vs_par_trouble,
+    };
+}
+
+/**
+ * A player with no stats anywhere has no totals ROW (the view groups over the
+ * projection), which is an absence, not an error — the same shape `getConfig`
+ * gives an unconfigured player. Zeroes read correctly everywhere: every rate's
+ * denominator is 0, so no client can compute a misleading 0%.
+ */
+function zeroMeasures(): StatMeasures {
+    // Written out rather than synthesised: the return type makes the compiler
+    // the exhaustiveness check, so a measure added to `StatMeasures` and not
+    // zeroed here fails `check:server` instead of silently reading 0.
+    return {
+        teeRecorded: 0,
+        fairwayHits: 0,
+        inPlayHits: 0,
+        troubleCount: 0,
+        girRecorded: 0,
+        girHits: 0,
+        firstPuttRecorded: 0,
+        firstPuttInside2m: 0,
+        firstPutt2To6m: 0,
+        firstPuttOver6m: 0,
+        firstPuttInside2mResolved: 0,
+        firstPutt2To6mResolved: 0,
+        firstPuttOver6mResolved: 0,
+        onePuttInside2m: 0,
+        onePutt2To6m: 0,
+        onePuttOver6m: 0,
+        puttsRecorded: 0,
+        puttsTotal: 0,
+        threePutts: 0,
+        threePuttsFromOver6m: 0,
+        scrambleAttemptsStandard: 0,
+        scrambleSuccessesStandard: 0,
+        scrambleAttemptsHard: 0,
+        scrambleSuccessesHard: 0,
+        scrambleFirstPuttStandard: 0,
+        scrambleInside2mStandard: 0,
+        scrambleFirstPuttHard: 0,
+        scrambleInside2mHard: 0,
+        penaltiesRecorded: 0,
+        penaltiesTotal: 0,
+        recoveryAttempts: 0,
+        recoverySuccesses: 0,
+        holesScored: 0,
+        strokesTotal: 0,
+        parTotal: 0,
+        holesScoredPar3: 0,
+        strokesPar3: 0,
+        holesScoredPar4: 0,
+        strokesPar4: 0,
+        holesScoredPar5: 0,
+        strokesPar5: 0,
+        doubleBogeyPlus: 0,
+        girHolesScored: 0,
+        birdiesOnGir: 0,
+        bounceBackOpportunities: 0,
+        bounceBackSuccesses: 0,
+        holesScoredFairway: 0,
+        strokesVsParFairway: 0,
+        holesScoredInPlay: 0,
+        strokesVsParInPlay: 0,
+        holesScoredTrouble: 0,
+        strokesVsParTrouble: 0,
+    };
+}
+
 // --- Vocabulary (spec §1) ---
 //
 // Closed by construction: the DB pins the same sets in CHECK constraints
@@ -249,6 +485,11 @@ function refuse(code: string, message: string, extra: Record<string, unknown> = 
  * trigger-maintained projection). Nothing outside this service reads or writes
  * them, and the projection has no independent writer — migration 042's trigger
  * is its only one.
+ *
+ * The aggregate read (`summaryForPlayer`) adds no arithmetic of its own: the
+ * measures and their denominators live in the migration-043 views, so there is
+ * exactly one definition of "a scrambling attempt" in the system and it is
+ * reviewable as SQL. This service maps columns to names.
  *
  * Trust model: capture rides the ROUND's write credential, exactly like
  * scores. Whoever can score can enter stats for the ball. What the service
@@ -354,6 +595,31 @@ export class PlayerStatsService {
                 'ball_players.ball_id as ball_id',
                 'ball_players.player_id as player_id',
             ]);
+    }
+
+    /**
+     * The migration-043 aggregate views. They are ordinary read targets — the
+     * query-inventory rule applies to them exactly as to tables, which is why
+     * they live up here and not inside the summary method.
+     */
+    private statTotalsByPlayer(playerId: string) {
+        return this.db
+            .selectFrom('v_player_stat_totals')
+            .selectAll()
+            .where('player_id', '=', playerId);
+    }
+
+    /**
+     * Joined to `rounds` for the identity a list needs — the view carries
+     * measures only, deliberately: round metadata belongs to the round.
+     */
+    private roundStatsByPlayer(playerId: string) {
+        return this.db
+            .selectFrom('v_player_round_stats as v')
+            .innerJoin('rounds as r', 'r.id', 'v.round_id')
+            .where('v.player_id', '=', playerId)
+            .selectAll('v')
+            .select(['r.date as date', 'r.course_name_snapshot as course_name_snapshot']);
     }
 
     private playHoleIdsInRound(roundId: string, playHoleIds: string[]) {
@@ -614,6 +880,46 @@ export class PlayerStatsService {
                 },
             }))
             .sort((a, b) => a.playerId.localeCompare(b.playerId));
+    }
+
+    /**
+     * A player's whole statistical record: career totals plus the per-round
+     * rows behind them (spec §4.3 + §5).
+     *
+     * All the arithmetic is in the views, which is the point of having them —
+     * the service maps columns to names and joins the round identity a list
+     * needs. Rounds come back most recent first.
+     *
+     * A player with no stats gets zeroed totals and an empty list rather than
+     * a 404: "you have not recorded anything yet" is a legitimate answer with a
+     * shape the client can render, and it is the same absence-as-default
+     * `getConfig` returns.
+     *
+     * v1 returns EVERY round with stats, unbounded. A player records at most a
+     * few hundred rounds a decade, so the list is small in practice; if it ever
+     * is not, the fix is a limit + cursor on the round query (the totals row is
+     * independent of it and would not change).
+     */
+    async summaryForPlayer(playerId: string): Promise<PlayerStatsSummary> {
+        const totalsRow = await this.statTotalsByPlayer(playerId).executeTakeFirst();
+        // Date descending, then round id, so a player with two rounds on one
+        // day gets a stable order instead of SQLite's.
+        const roundRows = await this.roundStatsByPlayer(playerId)
+            .orderBy('r.date', 'desc')
+            .orderBy('v.round_id')
+            .execute();
+
+        return {
+            playerId,
+            roundsWithStats: totalsRow?.rounds_with_stats ?? 0,
+            totals: totalsRow ? toMeasures(totalsRow) : zeroMeasures(),
+            rounds: roundRows.map((row) => ({
+                roundId: row.round_id,
+                date: row.date,
+                courseName: row.course_name_snapshot,
+                measures: toMeasures(row),
+            })),
+        };
     }
 
     /**

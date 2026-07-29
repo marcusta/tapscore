@@ -250,30 +250,73 @@ export interface PlayerHoleStatsTable {
 This is the queryable surface: every aggregate is a GROUP BY over typed
 columns joined to `rounds` (date, course) and `round_play_holes` (par).
 
-### 4.3 Views (end state)
+### 4.3 Views (as built — migration 043)
 
-Ship the projection first; add SQLite views once the aggregate shapes settle,
-so profile queries stay one-liners:
+- `v_player_round_stats` — one row per `(player, round)` in which the player
+  recorded at least one stat. "Recorded" is checked column by column, not by
+  the mere existence of a projection row: clearing every answer on a hole
+  leaves the row behind with all seven columns NULL (§4.2 keeps it so the
+  event log's clears stay projectable), and such a round has no row here. A
+  round with no stats therefore produces NO row, so it cannot drag a career
+  average toward zero — nor feed its scores into career totals.
+- `v_player_stat_totals` — the same columns summed per player, plus
+  `rounds_with_stats`. The profile dashboard's source.
 
-- `v_player_round_stats` — per `(player, round)`: fairway%, in-play%, GIR%,
-  putts by bucket, 3-putt count from `over_6m`, scrambling% split by
-  difficulty, penalties, recovery%.
-- `v_player_stat_totals` — career/rolling aggregates per player, the profile
-  dashboard's source.
+Three rules the SELECTs follow, and the reason the two views can share one
+column list:
 
-Views are additive and cheap to iterate; the spec deliberately does not
-freeze their exact shape.
+1. **Counts, never rates.** Every column is a COUNT or a SUM, and every rate
+   ships with its own denominator beside it (`fairway_hits` + `tee_recorded`,
+   `scramble_successes_hard` + `scramble_attempts_hard`, …). Rates cannot be
+   summed across rounds without weighting, so the totals view only exists
+   because the round view is additive. Clients divide.
+
+   Where a measure's denominator is NARROWER than the obvious count, the narrow
+   one ships too. Make% and the 3-putt rate need holes where the putt count was
+   actually recorded, so alongside the raw `first_putt_inside_2m` /
+   `_2_to_6m` / `_over_6m` buckets — which are the §1.4 approach-quality
+   distribution and ask nothing of the putt count — the views carry
+   `first_putt_*_resolved` (bucket AND a coherent putt count). Pairing a make
+   count with the raw bucket would score every bucket-only hole as a miss.
+2. **NULL is "not recorded", and counts in neither half.** A player tracking
+   putting only must not read as having missed every fairway.
+3. **Detectably incoherent is also "not recorded".** `putts = 0` together with
+   a `first_putt` bucket asserts both that the player never putted and that
+   they did; that hole leaves every putting and short-game measure. A LONE
+   `putts = 0` is a chip-in and counts everywhere.
+
+Views stay additive and cheap to iterate — adding a measure is a new migration
+with DROP VIEW / CREATE VIEW and nothing else moves.
 
 ## 5. Derived stats — zero extra capture
 
-From the projection joined with scorecards, no new input:
+From the projection joined with scorecards, no new input. All of these are in
+`v_player_round_stats`, which joins the score back to the player through the
+one-member-ball rule (the same rule capture enforces, so a shared-stroke ball's
+score can never be attributed to one member):
 
-- Scoring average by par (3/4/5) and by tee state
-- Double-bogey avoidance; bounce-back rate after a double+
+- Scoring average by par (3/4/5) and by tee state — including cost of trouble,
+  as `strokes_vs_par_*` sums per tee state
+- Double-bogey avoidance; bounce-back rate after a double+ (SQLite `LAG` — "the
+  hole immediately before" is exactly what the window expresses, and doing it in
+  the service would mean shipping every hole out of SQL just to look at pairs).
+  The window orders by PLAYED order, not by the itinerary's ordinal: a shotgun
+  group starting on ordinal 10 plays 10..18 then 1..9, so the view rotates each
+  ordinal by that group's start — `(ordinal - start + hole_count) % hole_count`,
+  read off `playing_groups.start_play_hole_id`. Without it, canonical ordering
+  would pair the player's last hole into their first and miss the real 18→1
+  pair. A player whose balls sit in groups with different starts (which should
+  not happen) has no single playing order, so the rotation is skipped for that
+  player and round rather than invented from one of the starts.
 - Birdie conversion on GIR holes
-- Make% inside 2 m / 2–6 m; 3-putt rate from 6 m+
+- Make% inside 2 m / 2–6 m / 6 m+; 3-putt rate from 6 m+ — all four over the
+  `first_putt_*_resolved` denominators, never the raw buckets
 - Up-and-down% and chip-to-inside-2m%, each split standard vs hard
-- Penalties per round; recovery%; cost of trouble (score delta vs fairway holes)
+- Penalties per round; recovery%
+
+Note the scoring denominators are holes with a SCORE, independent of whether
+any stat was recorded on them; the stat denominators are holes with that stat.
+They differ on purpose.
 
 ## 6. API surface (sketch)
 
@@ -298,8 +341,14 @@ From the projection joined with scorecards, no new input:
   `player_hole_stats` rows for the round, so the score-entry step can prefill
   and correct. (A separate endpoint, not a widening of `ScorecardHole`: the
   projection is keyed by player, scorecard holes by ball+source.)
-- `GET /api/players/:id/stats` — aggregates (backed by the views). **Open
-  question below on visibility.**
+- `GET /api/players/me/stats` — the aggregates, backed by the §4.3 views:
+  `{ playerId, roundsWithStats, totals, rounds: [{ roundId, date, courseName,
+  measures }] }`, most recent round first. Zeroed totals and an empty list for
+  a player who has recorded nothing — an absence, not a 404.
+  **SELF-ONLY as shipped** (§8 q1): there is deliberately no
+  `/api/players/:id/stats`. The subject comes from the session and never from
+  the URL, so there is no cross-player read path to authorize in the first
+  place. Widening later is additive; narrowing would not be.
 - Stat appends do **not** bump `rounds.latest_event_id` or the result cursor
   — they change no leaderboard. Prefill freshness rides the normal loads.
 
@@ -317,7 +366,13 @@ From the projection joined with scorecards, no new input:
 1. **Visibility.** Reads are open by design elsewhere; are a player's stats
    public (anyone with the profile), friends-only, or self-only? Leaning
    self-only at first — it is personal performance data and nothing else in
-   the app depends on reading it.
+   the app depends on reading it. **Settled for v1: SELF-ONLY, as shipped.**
+   `GET /api/players/me/stats` is the only aggregate read; no
+   `/players/:id/stats` route exists, so the question is not "is the gate
+   right" but "should a cross-player path be added at all" — still open, and
+   answerable additively. The one thing a co-participant can see is WHICH
+   modules a player tracks, through the round's own token
+   (`/friendly-rounds/stats-configs`), because capture cannot work without it.
 2. **Competition rounds.** Capture works there by construction, but should
    competition organizers be able to *require* or *suggest* modules
    (e.g. GIR for everyone)? Deferred — profile config rules alone in v1.

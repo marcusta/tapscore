@@ -33,6 +33,10 @@ export interface Database {
     player_stats_config: PlayerStatsConfigTable;
     stat_events: StatEventsTable;
     player_hole_stats: PlayerHoleStatsTable;
+    /** VIEW (migration 043) — read-only; never an insert/update target. */
+    v_player_round_stats: PlayerRoundStatsView;
+    /** VIEW (migration 043) — read-only; never an insert/update target. */
+    v_player_stat_totals: PlayerStatTotalsView;
     setup_correction_events: SetupCorrectionEventsTable;
     allowance_override_events: AllowanceOverrideEventsTable;
     ruling_events: RulingEventsTable;
@@ -317,6 +321,107 @@ export interface PlayerHoleStatsTable {
     penalties: number | null;
     /** 0/1. */
     recovery_ok: number | null;
+}
+
+/**
+ * The measure columns both stats views expose (migration 043). Every one is a
+ * COUNT or a SUM: rates would not survive being summed across rounds, so each
+ * rate ships as numerator + its own denominator and the client divides. NULL
+ * (and detectably incoherent) stat rows count in neither.
+ *
+ * Identical column names in both views on purpose — one definition of every
+ * measure, one row mapper in `player-stats.service.ts`.
+ */
+export interface PlayerStatMeasureColumns {
+    // Tee (spec §1.1) — denominator `tee_recorded`.
+    tee_recorded: number;
+    fairway_hits: number;
+    /** Fairway OR in_play: "the next shot was a normal one". */
+    in_play_hits: number;
+    trouble_count: number;
+
+    // Approach (spec §1.4) — denominator `gir_recorded`.
+    gir_recorded: number;
+    gir_hits: number;
+
+    // Putting (spec §1.2) — denominators `first_putt_recorded` / `putts_recorded`.
+    first_putt_recorded: number;
+    first_putt_inside_2m: number;
+    first_putt_2_to_6m: number;
+    first_putt_over_6m: number;
+    /**
+     * The bucket counts again, minus holes where the putt count was never
+     * recorded. THESE are the denominators of make% and the 3-putt rate: a
+     * bucket without an outcome is not a miss.
+     */
+    first_putt_inside_2m_resolved: number;
+    first_putt_2_to_6m_resolved: number;
+    first_putt_over_6m_resolved: number;
+    /** Make% numerators, over the matching `_resolved` count. */
+    one_putt_inside_2m: number;
+    one_putt_2_to_6m: number;
+    one_putt_over_6m: number;
+    putts_recorded: number;
+    putts_total: number;
+    three_putts: number;
+    /** Over `first_putt_over_6m_resolved`. */
+    three_putts_from_over_6m: number;
+
+    // Short game (spec §1.3), split standard vs hard — the split IS the stat.
+    scramble_attempts_standard: number;
+    scramble_successes_standard: number;
+    scramble_attempts_hard: number;
+    scramble_successes_hard: number;
+    /** Chip-to-inside-2m: its own denominator, attempts with a bucket recorded. */
+    scramble_first_putt_standard: number;
+    scramble_inside_2m_standard: number;
+    scramble_first_putt_hard: number;
+    scramble_inside_2m_hard: number;
+
+    // Penalties + recovery (spec §1.5).
+    penalties_recorded: number;
+    penalties_total: number;
+    recovery_attempts: number;
+    recovery_successes: number;
+
+    // Scoring, from the scorecard join (spec §5) — denominator `holes_scored`.
+    holes_scored: number;
+    strokes_total: number;
+    /** Par of the SCORED holes, so `strokes_total - par_total` is vs-par. */
+    par_total: number;
+    holes_scored_par3: number;
+    strokes_par3: number;
+    holes_scored_par4: number;
+    strokes_par4: number;
+    holes_scored_par5: number;
+    strokes_par5: number;
+    double_bogey_plus: number;
+    gir_holes_scored: number;
+    birdies_on_gir: number;
+    bounce_back_opportunities: number;
+    bounce_back_successes: number;
+    holes_scored_fairway: number;
+    strokes_vs_par_fairway: number;
+    holes_scored_in_play: number;
+    strokes_vs_par_in_play: number;
+    holes_scored_trouble: number;
+    strokes_vs_par_trouble: number;
+}
+
+/**
+ * VIEW (migration 043). One row per (player, round) the player has at least
+ * one projection row in — a round with no stats produces NO row, never a row
+ * of zeroes.
+ */
+export interface PlayerRoundStatsView extends PlayerStatMeasureColumns {
+    player_id: string;
+    round_id: string;
+}
+
+/** VIEW (migration 043). The round view summed per player. */
+export interface PlayerStatTotalsView extends PlayerStatMeasureColumns {
+    player_id: string;
+    rounds_with_stats: number;
 }
 
 export interface RoleGrantsTable {

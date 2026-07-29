@@ -3,6 +3,8 @@
 //
 //   /players/me/stats-config   session-gated; the subject is the SESSION, never
 //                              a body field. 401 without one.
+//   /players/me/stats          session-gated too, and SELF-ONLY by decision
+//                              (spec §8 q1): no `/players/:id/stats` exists.
 //   /friendly-rounds/stat-*    NO session. The share token is the credential,
 //                              exactly as it is for scores — and an unknown
 //                              token is a 404, not an empty success.
@@ -154,6 +156,58 @@ test('two players keep separate configs — the subject is the session, not a bo
     await req(ctx.app, 'PUT', '/api/players/me/stats-config', ALL_ON, c1);
     const other = await (await req(ctx.app, 'GET', '/api/players/me/stats-config', undefined, c2)).json();
     expect(other.enabled).toBe(false);
+});
+
+// --- Aggregates (session, self-only) -------------------------------------------
+
+test('the stats summary needs a session', async () => {
+    const { ctx } = await setup();
+    expect((await req(ctx.app, 'GET', '/api/players/me/stats')).status).toBe(401);
+});
+
+test('the summary is the CALLER’s, and there is no path to anyone else’s', async () => {
+    const { ctx, courseId, teeId } = await setup();
+    const mine = await register(ctx, 'statsowner');
+    const other = await register(ctx, 'statsother');
+    await ctx.playerStatsService.putConfig(mine.id, ALL_ON);
+    await ctx.playerStatsService.putConfig(other.id, ALL_ON);
+
+    const { token, playHoleIds } = await roundFor(ctx, courseId, teeId, mine.id);
+    await req(ctx.app, 'POST', '/api/friendly-rounds/stat-events', {
+        token,
+        items: [
+            { playHoleId: playHoleIds[0]!, playerId: mine.id, key: 'gir', value: '1', clientEventId: 's-1' },
+            { playHoleId: playHoleIds[1]!, playerId: mine.id, key: 'gir', value: '0', clientEventId: 's-2' },
+        ],
+    });
+
+    const cookie = await loginAs(ctx.app, 'statsowner', 'password123');
+    const res = await req(ctx.app, 'GET', '/api/players/me/stats', undefined, cookie);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.playerId).toBe(mine.id);
+    expect(body.roundsWithStats).toBe(1);
+    expect(body.totals.girRecorded).toBe(2);
+    expect(body.totals.girHits).toBe(1);
+    expect(body.rounds).toHaveLength(1);
+
+    // The other player's session sees their own (empty) record, never mine —
+    // the subject comes from the session, so there is nothing to tamper with.
+    const otherCookie = await loginAs(ctx.app, 'statsother', 'password123');
+    const theirs = await (
+        await req(ctx.app, 'GET', '/api/players/me/stats', undefined, otherCookie)
+    ).json();
+    expect(theirs.playerId).toBe(other.id);
+    expect(theirs.roundsWithStats).toBe(0);
+
+    // v1 is self-only by decision (spec §8 q1): no `/players/:id/stats` exists
+    // to be authorized in the first place.
+    const byId = await req(ctx.app, 'GET', `/api/players/${mine.id}/stats`, undefined, cookie);
+    expect(byId.status).toBe(404);
+    const paths = Object.values(
+        createPlayerStatsApi(ctx.playerStatsService, ctx.friendlyRoundService),
+    ).map((endpoint) => endpoint.path);
+    expect(paths.filter((path) => path.includes('/stats') && path.includes(':'))).toEqual([]);
 });
 
 // --- Capture + read (token) ----------------------------------------------------

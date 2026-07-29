@@ -113,6 +113,17 @@ export function createPlayerStatsApi(svc: PlayerStatsService, rounds: FriendlyRo
             schema: StatsConfigInput,
             middleware: mw,
         },
+        // SELF-ONLY, v1 (spec §8 q1). There is deliberately no
+        // `/players/:id/stats`: performance data is personal, nothing else in
+        // the app needs to read it, and a self-scoped path cannot leak by
+        // accident — the subject comes from the session, never from the URL.
+        // Widening it later is additive; narrowing it would not be.
+        myStats: {
+            method: 'GET' as const,
+            path: '/players/me/stats',
+            fn: (c: Context) => svc.summaryForPlayer(requireUser(c).id),
+            middleware: mw,
+        },
         // An OPTIONAL session only ATTRIBUTES the capture (`recorded_by`) — it
         // never gates it, and it never names the SUBJECT: the subject is
         // `items[].playerId`, checked against the round's ball membership.
