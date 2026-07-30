@@ -14,10 +14,21 @@ import type {
     StartListView,
 } from '../api/friendly-rounds.gen';
 import type { MetadataApplies, MetadataInput } from '../api/setup.gen';
+import type { PlayerHoleStats } from '../api/player-stats.gen';
 import { strokesReceivedForStrokeIndex } from '../create/handicap';
 import { FormatCatalogService } from '../create/format-catalog.service';
 import { clampIndex } from './hole-carousel';
 import { PendingScoreQueue } from './pending-queue';
+import { PendingStatQueue, type PendingStatEvent } from './pending-stat-queue';
+import {
+    STAT_ORDER,
+    StatStep,
+    statApplies,
+    type StatBatchItem,
+    type StatEventKey,
+    type StatModules,
+    type StatPrompt,
+} from './stat-prompts';
 import { recordDeviceRound, removeDeviceRound } from '../landing/device-rounds';
 import { markSeen, forgetSeen } from '../landing/seen-rounds';
 import {
@@ -69,12 +80,60 @@ export function ballDisplayName(b: RoundBall): string {
  * evaluates it — no par/hole rule is hardcoded here.
  */
 export function metadataApplies(a: MetadataApplies | undefined, par: number, hole: number): boolean {
-    if (!a) return true;
-    if (a.minPar !== undefined && par < a.minPar) return false;
-    if (a.maxPar !== undefined && par > a.maxPar) return false;
-    if (a.pars && !a.pars.includes(par)) return false;
-    if (a.holes && !a.holes.includes(hole)) return false;
-    return true;
+    // One reading of the shape, shared with the pure player-stats model (which
+    // gates its tee prompt on the same predicate) — no second par rule.
+    return statApplies(a, par, hole);
+}
+
+/** One player-stats capture subject: a hole, and the player whose ball it is. */
+export interface StatCell {
+    playerId: string;
+    playHoleId: string;
+}
+
+/** Shadow-map key: one entry per (player, hole, stat key). */
+function statLocalKey(cell: StatCell, key: StatEventKey): string {
+    return `${cell.playHoleId}:${cell.playerId}:${key}`;
+}
+
+/**
+ * The server's projection of one cell, back in the step's wire vocabulary.
+ * Booleans and numbers become the same `'1'`/`'0'`/decimal strings the prompts
+ * emit, so `StatStep` never has to know a column type; `null` means unset and is
+ * simply absent from the map.
+ */
+export function storedStatValues(row: PlayerHoleStats): Map<StatEventKey, string> {
+    const out = new Map<StatEventKey, string>();
+    if (row.teeResult !== null) out.set('tee_result', row.teeResult);
+    if (row.recoveryOk !== null) out.set('recovery_ok', row.recoveryOk ? '1' : '0');
+    if (row.gir !== null) out.set('gir', row.gir ? '1' : '0');
+    if (row.shortGameDifficulty !== null)
+        out.set('short_game_difficulty', row.shortGameDifficulty);
+    if (row.firstPutt !== null) out.set('first_putt', row.firstPutt);
+    if (row.putts !== null) out.set('putts', String(row.putts));
+    if (row.penalties !== null) out.set('penalties', String(row.penalties));
+    return out;
+}
+
+/**
+ * A refusal is a verdict on the CONTENT: the server understood the batch and
+ * said no, so replaying it can never succeed and it must be dropped rather than
+ * left blocking every later stat in the round.
+ *
+ * Transport failures (offline, DNS, timeout), 401s and 5xx are all "not now" and
+ * keep their queue place; 408 and 429 are 4xx by number but explicitly mean "try
+ * again". 401 is the one exception inside the 4xx range that matters in practice:
+ * a session that lapsed mid-round (or an edge proxy that answers before the
+ * route, which today has no `requireAuth`) says nothing about the batch's
+ * content, and the whole point of the durable queue is that the hole survives to
+ * be replayed. iOS classifies it the same way — `APIError.unauthorized` is a
+ * separate case there and never reaches `RoundStore.isRefusal`'s 4xx check.
+ */
+export function isStatRefusal(err: unknown): boolean {
+    const status = (err as { status?: unknown } | null)?.status;
+    if (typeof status !== 'number') return false;
+    if (status < 400 || status >= 500) return false;
+    return status !== 401 && status !== 408 && status !== 429;
 }
 
 /**
@@ -106,6 +165,41 @@ export class RoundViewService {
     readonly scorecards = new Signal<Scorecard[]>([]);
     /** Optimistic per-cell overlay over the loaded scorecards. */
     readonly cells = new Signal<Map<string, CellState>>(new Map());
+
+    // --- Player stats capture (docs/proposals/player-stats.md §2) ---
+
+    /**
+     * Which modules each of the round's registered players tracks, from
+     * `GET /friendly-rounds/stats-configs`. A player absent from this map is
+     * never prompted — absence IS the rule, so guests, unclaimed seats and
+     * players who never enabled stats need no special case anywhere.
+     */
+    readonly statModules = new Signal<Map<string, StatModules>>(new Map());
+    /** The projected per-hole rows, for prefilling a revisited hole. */
+    readonly statRows = new Signal<PlayerHoleStats[]>([]);
+    /**
+     * Bumped on every change to the open step (built, refreshed, answered,
+     * committed). `StatStep` mutates in place — the Swift twin is a value type —
+     * so this is what reactive bindings subscribe to.
+     */
+    readonly statRev = new Signal(0);
+    /**
+     * This device's own answers, keyed `"playHoleId|playerId|key"`, with a `null`
+     * VALUE meaning an explicit clear. It shadows `statRows` until a load
+     * re-reads them, so a hole answered a second ago prefills correctly even
+     * though the projection has not been refetched.
+     */
+    private statLocal = new Map<string, string | null>();
+    /**
+     * For each shadowed key, the load generation at which its write was settled
+     * with the server. A shadow outlives its ack by exactly one load — see
+     * `dropConfirmedStatLocals`.
+     */
+    private statConfirmedAt = new Map<string, number>();
+    /** The open step, or null when the ball under the cursor is not promptable. */
+    private statStep: StatStep | null = null;
+    private statCell: StatCell | null = null;
+    private statPosting = false;
 
     /** Canonical section-driven result (M5) — fetched on demand for the leaderboard. */
     readonly result = new Signal<RoundResult | null>(null);
@@ -177,7 +271,10 @@ export class RoundViewService {
      */
     private pendingSlotIndex: number | null = null;
 
-    constructor(private readonly queue: PendingScoreQueue = new PendingScoreQueue()) {}
+    constructor(
+        private readonly queue: PendingScoreQueue = new PendingScoreQueue(),
+        private readonly statQueue: PendingStatQueue = new PendingStatQueue(),
+    ) {}
 
     async loadByToken(token: string, initial?: InitialPosition): Promise<void> {
         // Opening a different round resets on-course position + clears the stale
@@ -229,11 +326,36 @@ export class RoundViewService {
         }
         // Balls + current scores feed the score-entry grid. Failures here are
         // non-fatal — the round still renders; the grid just starts empty.
-        const [balls, cards] = await Promise.all([
+        // Player-stats capture rides in the same non-fatal fan-out: which of the
+        // round's players track which modules, and what has already been
+        // captured. Both swallow their failure to `null` — a deployment without
+        // the stats endpoints, or an anonymous 401, must degrade to "no stats
+        // prompts", never to a round that will not render. `null` (failed) and
+        // `[]` (the round tracks nothing) are deliberately DIFFERENT: see below.
+        const [balls, cards, statConfigs, statRows] = await Promise.all([
             api.friendlyRounds.balls({ token }).catch(() => [] as RoundBall[]),
             api.friendlyRounds.scorecard({ token }).catch(() => [] as Scorecard[]),
+            api.playerStats.configsByToken({ token }).catch(() => null),
+            api.playerStats.byToken({ token }).catch(() => null),
         ]);
         if (seq !== this.loadSeq || token !== this.token) return;
+        // Commit whatever the open step has accumulated BEFORE the stats state
+        // it was built from is replaced. A foreground refresh lands exactly when
+        // the network is flaky, and the in-memory draft is the only copy of
+        // those answers until this call puts them on disk.
+        this.flushStats();
+        // Keep-previous on failure, never wipe-to-empty: an empty map would make
+        // every player unpromptable, which tears an open step down mid-hole.
+        if (statConfigs) {
+            this.statModules.set(new Map(statConfigs.map((c) => [c.playerId, c.modules])));
+        }
+        if (statRows) {
+            this.statRows.set(statRows);
+            // Server truth has landed for anything already acked before this
+            // load was issued, so this device's shadow copy steps aside — the
+            // point at which a correction made on another phone becomes visible.
+            this.dropConfirmedStatLocals(seq);
+        }
         // Order matters: the row inputs are uncontrolled and seed their value
         // from `strokesFor` at render time, and rendering is driven by `balls`.
         // Set the scores (and clear the optimistic overlay) FIRST so the rows
@@ -245,6 +367,12 @@ export class RoundViewService {
         // Each reuses its stored clientEventId, so an event that actually landed
         // before the reload dedupes server-side instead of double-counting.
         await this.flushPending();
+        // Same kill-recovery pass for captured stats, then a re-read of the open
+        // step's durable half against what just landed. Reseeding does NOT touch
+        // an in-progress draft — a foreground refresh under an open stats step
+        // must not swallow answers the golfer is mid-way through.
+        await this.flushPendingStats();
+        this.refreshStatStep();
     }
 
     /**
@@ -721,6 +849,328 @@ export class RoundViewService {
         return strokesReceivedForStrokeIndex(ph, si, r.routeSi.allocationCycleSize);
     }
 
+    // --- Player stats capture ---
+    //
+    // The stats step asks ONE player about ONE hole. Everything answer-dependent
+    // (which prompts are on the card, what a de-selection means, what has to be
+    // sent) lives in the pure `StatStep`; this half only holds the durable
+    // inputs and moves the batch onto the wire.
+    //
+    // Nothing posts per tap. Answers accumulate in the step and leave as one
+    // batch when it closes — through "Done", through the back chevron, through a
+    // keypad dismissal, a hole/ball change and a page hide — because a batch
+    // dropped on the way out is a hole of capture the golfer will never notice
+    // was lost.
+
+    /**
+     * The single registered player this ball captures for, if any. A ball
+     * qualifies only when exactly one member holds it, that member is a
+     * registered player (not a guest, not an unclaimed seat), and that player
+     * tracks stats. Shared-stroke balls have no subject — a scramble score is
+     * nobody's fairway.
+     */
+    statSubject(ball: RoundBall): string | null {
+        if (ball.pending || ball.players.length !== 1) return null;
+        const member = ball.players[0];
+        if (!member || member.pending || member.playerId === null) return null;
+        return this.statModules.get().has(member.playerId) ? member.playerId : null;
+    }
+
+    /** The prompts on the card right now, in shot order. */
+    statPrompts(): StatPrompt[] {
+        this.statRev.get();
+        return this.statStep?.prompts ?? [];
+    }
+
+    statValue(key: StatEventKey): string | null {
+        this.statRev.get();
+        return this.statStep?.value(key) ?? null;
+    }
+
+    /**
+     * A stepper's current number, floored at its minimum when unanswered — the
+     * value the row displays before anyone has touched it.
+     */
+    statStepperValue(key: StatEventKey, min: number): number {
+        this.statRev.get();
+        return this.statStep?.intValue(key) ?? min;
+    }
+
+    statIsAnswered(key: StatEventKey): boolean {
+        this.statRev.get();
+        return this.statStep?.isAnswered(key) === true;
+    }
+
+    /** Answer (or, with `null`, un-answer) one prompt. Nothing leaves the device here. */
+    answerStat(key: StatEventKey, value: string | null): void {
+        if (!this.statStep) return;
+        this.statStep.answer(key, value);
+        this.bumpStatRev();
+    }
+
+    /**
+     * Nudge a stepper prompt. Any nudge answers it, so `-1` from untouched
+     * records the floor rather than doing nothing.
+     */
+    stepStat(key: StatEventKey, delta: number): void {
+        if (!this.statStep) return;
+        this.statStep.step(key, delta);
+        this.bumpStatRev();
+    }
+
+    /**
+     * Point the step at a (player, hole) cell. Same cell ⇒ only the durable half
+     * is re-read (the draft survives); a DIFFERENT cell flushes the old step's
+     * batch first, because the answers belong to the ball they were given for.
+     * Pass `null` when the cursor is on nothing promptable.
+     */
+    seedStatStep(cell: StatCell | null): void {
+        const cur = this.statCell;
+        const same =
+            cell !== null &&
+            cur !== null &&
+            cell.playerId === cur.playerId &&
+            cell.playHoleId === cur.playHoleId;
+        if (same) {
+            this.refreshStatStep();
+            return;
+        }
+        this.flushStats();
+        this.setStatCell(cell, cell ? this.makeStatStep(cell) : null);
+    }
+
+    /** Re-read the durable half under the SAME cell, keeping the draft. */
+    private refreshStatStep(): void {
+        const cell = this.statCell;
+        if (!cell) {
+            if (this.statStep !== null) this.setStatCell(null, null);
+            return;
+        }
+        const modules = this.statModules.get().get(cell.playerId);
+        if (!this.statStep || !modules) {
+            this.setStatCell(cell, this.makeStatStep(cell));
+            return;
+        }
+        this.statStep.refresh(modules, this.persistedStats(cell));
+        this.bumpStatRev();
+    }
+
+    /**
+     * The pair moves together: a cell with no buildable step is not a cell.
+     * Keeping a cell alive with a null step leaves a zombie — every write bails
+     * on the null step, so the cursor points at a subject nothing can be
+     * written for.
+     */
+    private setStatCell(cell: StatCell | null, step: StatStep | null): void {
+        const next = step === null ? null : cell;
+        // Idempotent: the seed effect re-runs on unrelated round state, and
+        // "still nothing under the cursor" must not bump the revision (which
+        // would rebuild the prompt list on every ball/score change).
+        if (this.statCell === next && this.statStep === step) return;
+        this.statCell = next;
+        this.statStep = step;
+        this.bumpStatRev();
+    }
+
+    private bumpStatRev(): void {
+        this.statRev.set(this.statRev.get() + 1);
+    }
+
+    private makeStatStep(cell: StatCell): StatStep | null {
+        const modules = this.statModules.get().get(cell.playerId);
+        const hole = this.playHoleById(cell.playHoleId);
+        if (!modules || !hole) return null;
+        return new StatStep(
+            modules,
+            hole.par,
+            hole.courseHoleNumber,
+            this.persistedStats(cell),
+        );
+    }
+
+    /**
+     * What is already stored for this cell: the server's projection, overridden
+     * by anything this device wrote since the last load.
+     */
+    private persistedStats(cell: StatCell): Map<StatEventKey, string> {
+        const row = this.statRows
+            .get()
+            .find((r) => r.playHoleId === cell.playHoleId && r.playerId === cell.playerId);
+        const out = row ? storedStatValues(row) : new Map<StatEventKey, string>();
+        for (const key of STAT_ORDER) {
+            const localKey = statLocalKey(cell, key);
+            if (!this.statLocal.has(localKey)) continue;
+            const local = this.statLocal.get(localKey) ?? null;
+            if (local === null) out.delete(key);
+            else out.set(key, local);
+        }
+        return out;
+    }
+
+    /**
+     * Commit the open step: queue its answers on disk and post the round's whole
+     * outstanding batch. Idempotent — a step with nothing new does nothing, so
+     * calling it from every exit path is safe. Returns true when something was
+     * actually handed over.
+     */
+    flushStats(): boolean {
+        const cell = this.statCell;
+        const step = this.statStep;
+        const token = this.token;
+        if (!cell || !step || !token) return false;
+        const batch = step.batch;
+        if (batch.length === 0) return false;
+        // Fold the draft in FIRST: the step now shows what was sent and owes
+        // nothing, so a second exit path (back chevron then keypad close) cannot
+        // re-queue the same answers.
+        step.commitDraft();
+        this.bumpStatRev();
+        for (const item of batch) this.writeStatLocal(cell, item.key, item.value);
+        this.statQueue.enqueueBatch(token, cell.playHoleId, cell.playerId, batch);
+        void this.postStats(token);
+        return true;
+    }
+
+    /**
+     * This device's shadow value for one key. Writing one un-confirms it: the key
+     * is dirty again and must survive until ITS event is settled, not the
+     * previous one's.
+     */
+    private writeStatLocal(cell: StatCell, key: StatEventKey, value: string | null): void {
+        const localKey = statLocalKey(cell, key);
+        this.statLocal.set(localKey, value);
+        this.statConfirmedAt.delete(localKey);
+    }
+
+    /**
+     * Marks the keys carried by `events` as settled with the server as of the
+     * current load generation. Settled means "the server will not tell us
+     * anything more about our write" — an ack, or a refusal that dropped it.
+     */
+    private confirmStatLocals(events: readonly PendingStatEvent[]): void {
+        for (const ev of events) {
+            const localKey = statLocalKey(
+                { playerId: ev.playerId, playHoleId: ev.playHoleId },
+                ev.key,
+            );
+            this.statConfirmedAt.set(localKey, this.loadSeq);
+        }
+    }
+
+    /**
+     * Retires shadow values whose events were settled BEFORE this load was
+     * issued, so the projection it just delivered is authoritative for them.
+     *
+     * The seq comparison is the whole point: an ack is not enough on its own,
+     * because a load already in flight when the ack happened cannot contain the
+     * write. Only a strictly later load generation proves the server had our
+     * event when it answered — after which a correction made on another phone
+     * finally wins instead of being masked forever.
+     */
+    private dropConfirmedStatLocals(seq: number): void {
+        for (const [localKey, confirmedSeq] of [...this.statConfirmedAt]) {
+            if (seq <= confirmedSeq) continue;
+            this.statLocal.delete(localKey);
+            this.statConfirmedAt.delete(localKey);
+        }
+    }
+
+    /** Replay stat answers a previous page load never got acked, then post. */
+    async flushPendingStats(): Promise<void> {
+        const token = this.token;
+        if (!token) return;
+        for (const ev of this.statQueue.entriesFor(token)) {
+            this.writeStatLocal(
+                { playerId: ev.playerId, playHoleId: ev.playHoleId },
+                ev.key,
+                ev.value,
+            );
+        }
+        await this.postStats(token);
+    }
+
+    /**
+     * Drains the queue for this round as batched POSTs.
+     *
+     * A batch that failed in TRANSIT stays queued — every entry keeps its
+     * `clientEventId`, so the retry dedupes server-side instead of appending a
+     * second event. A batch the server REFUSED is dropped instead: it cannot
+     * succeed however often it is replayed, and leaving it at the head of the
+     * queue would block every later stat in the round behind one poison item.
+     *
+     * A refusal drops ONLY what is actually refused. The server validates a
+     * batch all-or-nothing (`PlayerStatsService.appendEvents` refuses the lot on
+     * the first bad item), and the queue drains as one request per round — so
+     * acking the whole batch on a 4xx would let one poison item (a module the
+     * player turned off between capture and reconnect, say) destroy every other
+     * hole queued behind it. When a multi-item batch is refused it is retried
+     * item by item instead: each item that refuses ALONE is genuinely
+     * undeliverable and drops; the rest go through.
+     *
+     * DECISION (stats v1): a drop is silent. There is deliberately no
+     * user-visible failure surface for capture — the durable queue is the
+     * mitigation, and a toast about a stat nobody can act on costs more
+     * attention on the course than it is worth.
+     */
+    private async postStats(token: string): Promise<void> {
+        if (this.statPosting) return;
+        this.statPosting = true;
+        try {
+            // Loop rather than one pass: answers queued while a post is in
+            // flight would otherwise sit until the next exit, since their own
+            // `postStats` returned immediately on the guard above.
+            for (;;) {
+                const pending = this.statQueue.entriesFor(token);
+                if (pending.length === 0) return;
+                const outcome = await this.sendStatEvents(token, pending);
+                if (outcome === 'later') return;
+                if (outcome === 'ok' || pending.length === 1) {
+                    this.settleStatEvents(pending);
+                    continue;
+                }
+                // Refused as a batch: isolate. An item that only fails in
+                // company is deliverable on its own.
+                for (const entry of pending) {
+                    const single = await this.sendStatEvents(token, [entry]);
+                    if (single === 'later') return;
+                    this.settleStatEvents([entry]);
+                }
+            }
+        } finally {
+            this.statPosting = false;
+        }
+    }
+
+    /** One POST. `later` = keep the queue place; `refused` = the server said no. */
+    private async sendStatEvents(
+        token: string,
+        entries: readonly PendingStatEvent[],
+    ): Promise<'ok' | 'refused' | 'later'> {
+        try {
+            await api.playerStats.appendEvents({
+                token,
+                items: entries.map((e) => ({
+                    playHoleId: e.playHoleId,
+                    playerId: e.playerId,
+                    key: e.key,
+                    // Explicit null, never an omitted key: the server reads
+                    // null as "clear" and absence as "leave it".
+                    value: e.value,
+                    clientEventId: e.clientEventId,
+                })),
+            });
+            return 'ok';
+        } catch (err) {
+            return isStatRefusal(err) ? 'refused' : 'later';
+        }
+    }
+
+    /** Settled with the server — acked, or refused and dropped. */
+    private settleStatEvents(entries: readonly PendingStatEvent[]): void {
+        this.statQueue.ack(entries.map((e) => e.clientEventId));
+        this.confirmStatLocals(entries);
+    }
+
     // --- Per-hole metadata (umbrella GIR/fairway) ---
 
     /** Current value of one metadata key: optimistic overlay wins, else the loaded card. */
@@ -922,6 +1372,17 @@ export class RoundViewService {
         this.holeIdx.set(initial?.holeIdx ?? 0);
         this.groupIdx.set(initial?.groupIdx ?? 0);
         this.keypadOpen.set(false);
+        // Stats belong to a round: the modules, the projection and this device's
+        // shadow values are all token-scoped, and an open step points at a cell
+        // that no longer exists. The durable QUEUE is deliberately untouched —
+        // it is filtered by token and still owes those writes.
+        this.statModules.set(new Map());
+        this.statRows.set([]);
+        this.statLocal.clear();
+        this.statConfirmedAt.clear();
+        this.statStep = null;
+        this.statCell = null;
+        this.bumpStatRev();
         // A string is already a slotDefId (current URL form); a number is a
         // legacy positional index that can only be resolved once formatSlots
         // are loaded, so it's parked until loadByToken applies it.

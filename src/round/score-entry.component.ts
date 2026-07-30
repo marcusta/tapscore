@@ -13,6 +13,7 @@ import {
 } from './advance-policy';
 import type { RoundBall } from '../api/friendly-rounds.gen';
 import type { MetadataInput } from '../api/setup.gen';
+import { stepperText, type StatEventKey, type StatPrompt } from './stat-prompts';
 
 // One score column / carousel cell is SLOT wide. The carousel is a clipped
 // window that shows exactly two cells — the previous and current hole —
@@ -128,6 +129,45 @@ const chipTpl = template(`
         </div>
     </div>
 `);
+
+// One player-stats prompt: the same centred label as a format toggle, over a
+// segmented row whose options come from `StatStep`. Built once per prompt (a
+// key's option list is fixed), so only selection is reactive.
+const statSegTpl = template(`
+    <div class="se-stats__group">
+        <span bind="glabel" class="se-stats__group-label"></span>
+        <div bind="seg" class="se-stats__seg"></div>
+    </div>
+`);
+
+const segBtnTpl = template(`<button bind="btn" class="se-seg" type="button"></button>`);
+
+// A one-tap counter. It shows its floor before anyone touches it, dimmed, so an
+// untouched row cannot be mistaken for an answered zero.
+const statStepTpl = template(`
+    <div class="se-stats__group">
+        <span bind="glabel" class="se-stats__group-label"></span>
+        <div class="se-stats__step">
+            <button bind="minus" class="se-stats__step-btn" type="button">−</button>
+            <span bind="val" class="se-stats__step-val"></span>
+            <button bind="plus" class="se-stats__step-btn" type="button">+</button>
+        </div>
+    </div>
+`);
+
+// Hairline between the format's own toggles and the player's stats — drawn only
+// when both halves are non-empty.
+const statRuleTpl = template(`<div bind="rule" class="se-stats__rule"></div>`);
+
+/**
+ * One row of the stats body. A tagged union rather than two `$each` lists so the
+ * format half, the divider and the stats half keep ONE document order, and so a
+ * key asked by both channels cannot render twice.
+ */
+type StatBodyRow =
+    | { kind: 'meta'; key: string; input: MetadataInput }
+    | { kind: 'rule'; key: string }
+    | { kind: 'stat'; key: string; prompt: StatPrompt };
 
 interface PointerState {
     id: number;
@@ -370,6 +410,12 @@ export class ScoreEntryComponent extends Component {
             }
             & .se-stats__name { font-family: ${t('font-display')}; font-weight: 700; font-size: 1.4rem; }
             & .se-stats__score {
+                /* content-box, so the 8px sides ADD to the 44px minimum the way
+                   iOS stacks them — .frame(minWidth: 44) then .padding(.horizontal)
+                   outside it (ScoreKeypadView.swift:581-583). Under the app's
+                   border-box default a one-digit score collapses to 44x44 and
+                   reads as a circle instead of a capsule. */
+                box-sizing: content-box;
                 min-width: 44px; height: 44px; padding: 0 8px; border-radius: 999px;
                 display: inline-flex; align-items: center; justify-content: center;
                 background: ${t('primary')}; color: #fff;
@@ -393,6 +439,33 @@ export class ScoreEntryComponent extends Component {
             }
             & .se-stats__seg { display: flex; gap: ${s('sm')}; justify-content: center; }
 
+            /* Hairline between the format's own toggles (what the round needs to
+               score) and the player's own stats (what they asked to track). */
+            & .se-stats__rule {
+                height: 1px; background: rgba(255, 255, 255, 0.08);
+                margin: 0 ${s('xl')};
+            }
+
+            /* Stepper prompts (putts, penalties): the 10+ pad's round ± at a
+               slightly smaller size, sharing its palette. */
+            & .se-stats__step {
+                display: flex; align-items: center; justify-content: center; gap: ${s('xl')};
+            }
+            & .se-stats__step-btn {
+                width: 52px; height: 52px; border-radius: 999px; border: none; cursor: pointer;
+                background: #2a2a2a; color: #fff; font-size: 1.6rem; line-height: 1;
+                font-family: inherit;
+                &:active { background: #3a3a3a; }
+            }
+            & .se-stats__step-val {
+                width: 72px; text-align: center;
+                font-family: ${t('font-display')}; font-weight: 700; font-size: 2.1rem;
+                font-variant-numeric: tabular-nums;
+                color: #fff;
+                /* Dimmed until answered — an untouched counter is not a zero. */
+                &.unanswered { color: rgba(255, 255, 255, 0.55); }
+            }
+
             /* Two-option segmented control: the stored value is always the
                highlighted segment, so there's no implied/hidden state. */
             & .se-seg {
@@ -406,9 +479,17 @@ export class ScoreEntryComponent extends Component {
                 font-weight: 700;
                 padding: 18px 22px;
                 cursor: pointer;
+                min-width: 0;
+                white-space: nowrap;
                 &:active { background: rgba(255, 255, 255, 0.08); }
                 &.on-hit { background: ${t('primary')}; border-color: ${t('primary')}; color: #fff; }
                 &.on-miss { background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.45); color: #fff; }
+                /* Selected STAT segment: neutral, not green — a stat is an
+                   observation, and the plate should not congratulate or scold
+                   one. Same paint as on-miss, different meaning. */
+                &.on-neutral { background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.45); color: #fff; }
+                /* Four or five options (first putt) have to fit a 375px plate. */
+                &.tight { padding: 18px 4px; font-size: 0.9rem; }
             }
 
             & .se-stats__foot {
@@ -625,7 +706,13 @@ export class ScoreEntryComponent extends Component {
 
         const frag = this.wire(tpl, {
             root: { className: () => (this.hasScoring.get() ? 'se' : 'se hidden') },
-            close: { onclick: () => { this.statsOpen.set(false); this.modalOpen.set(false); } },
+            close: {
+                onclick: () => {
+                    this.statsOpen.set(false);
+                    this.modalOpen.set(false);
+                    this.svc.flushStats();
+                },
+            },
             modal: { className: () => (this.modalOpen.get() ? 'se-modal' : 'se-modal hidden') },
             modalTitle: () => {
                 const ph = this.currentHole();
@@ -657,7 +744,17 @@ export class ScoreEntryComponent extends Component {
             // The stats step (umbrella GIR/fairway today). Shown by `commit()`
             // after a real score on a stats hole; "Next" persists + advances.
             stats: { className: () => (this.statsOpen.get() ? 'se-stats' : 'se-stats hidden') },
-            statsBack: { onclick: () => this.statsOpen.set(false) },
+            // The back chevron dismisses the step and NOTHING else: no
+            // `statsDone`, so no write, no ball hop, no hole jump. It DOES
+            // commit the captured stats — the format toggles persisted
+            // themselves on every tap, and stats batch, so keeping them takes
+            // an explicit flush. Without it, backing out would bin the hole.
+            statsBack: {
+                onclick: () => {
+                    this.statsOpen.set(false);
+                    this.svc.flushStats();
+                },
+            },
             statsHole: () => {
                 const ph = this.currentHole();
                 return ph ? `Hole ${this.occLabel(ph.playHoleId)} · Par ${this.parFor(ph.playHoleId)}` : '';
@@ -676,6 +773,9 @@ export class ScoreEntryComponent extends Component {
                 textContent: () => (this.hasMoreUnscored() ? 'Next ›' : 'Done ›'),
                 onclick: () => {
                     this.statsOpen.set(false);
+                    // Before the event: `statsDone` can move the cursor, and the
+                    // batch belongs to the ball it was answered for.
+                    this.svc.flushStats();
                     this.apply({ kind: 'statsDone' });
                 },
             },
@@ -732,26 +832,36 @@ export class ScoreEntryComponent extends Component {
         keysHost.appendChild(this.specialKey('✕', 'clear', 'se-key clear', () => this.commit(null)));
         keysHost.appendChild(this.specialKey('0', 'pick up', 'se-key muted', () => this.commit(0)));
 
-        // Per-hole metadata toggles (umbrella GIR/fairway), declared by the
-        // format and scoped to the hole's par via `appliesWhen`. Rendered into
-        // the stats screen; absent for strokes-only rounds (no stats step).
+        // The stats body, in one list: the format's own per-hole toggles
+        // (umbrella GIR/fairway, scoped to the hole's par via `appliesWhen`),
+        // then a hairline, then the player's own stat prompts.
         this.$each(
             this.ref(frag, 'statsBody'),
-            new Computed(() => this.metaInputs()),
-            (mi, _i, track) => this.metaChip(mi, track),
-            (mi) => mi.key,
+            new Computed(() => this.statBodyRows()),
+            (row, _i, track) => this.statBodyRow(row, track),
+            (row) => row.key,
         );
         // Reseed the toggles from stored state whenever the open ball/hole
-        // changes (never on a same-hole cell update, so live toggles survive).
+        // changes (never on a same-hole cell update, so live toggles survive),
+        // and keep the stats step pointed at the same cell.
         this.track(
             effect(() => {
                 if (!this.modalOpen.get()) {
                     this.lastMetaKey = null;
+                    // Closing the keypad by any route (including a route change
+                    // that clears `keypadOpen`) commits what was captured.
+                    this.svc.seedStatStep(null);
                     return;
                 }
                 const ball = this.ballsInGroup()[this.currentBallIdx.get()];
                 const ph = this.currentHole();
                 if (!ball || !ph) return;
+                // Unconditional: a ball hop, a hole step and an auto-jump all
+                // land here, and `seedStatStep` is what flushes the cell being
+                // left. A same-cell call only re-reads the durable half, so a
+                // background load cannot swallow an in-progress draft.
+                const playerId = this.svc.statSubject(ball);
+                this.svc.seedStatStep(playerId ? { playerId, playHoleId: ph.playHoleId } : null);
                 const key = `${ball.id}|${ph.playHoleId}`;
                 if (key === this.lastMetaKey) return;
                 this.lastMetaKey = key;
@@ -761,6 +871,23 @@ export class ScoreEntryComponent extends Component {
                 this.pendingMeta.set(seed);
             }),
         );
+
+        // Stats batch instead of posting per tap, so a hole captured and then
+        // backgrounded (or killed from the app switcher) has to be handed over
+        // on the way out. `pagehide` is the reliable one on iOS Safari;
+        // `visibilitychange` catches an app switch that never unloads.
+        const onHide = () => {
+            if (document.visibilityState === 'hidden') this.svc.flushStats();
+        };
+        const onPageHide = () => this.svc.flushStats();
+        document.addEventListener('visibilitychange', onHide);
+        window.addEventListener('pagehide', onPageHide);
+        this.track(() => {
+            document.removeEventListener('visibilitychange', onHide);
+            window.removeEventListener('pagehide', onPageHide);
+            // Leaving the round view is an exit too.
+            this.svc.flushStats();
+        });
 
         return frag;
     }
@@ -950,7 +1077,10 @@ export class ScoreEntryComponent extends Component {
             holeIndex: this.holeIndex(),
             holeCount: this.playedOrder().length,
             holeCompleteOnEntry: this.holeCompleteOnEntry,
-            collectsStats: this.metaInputs().length > 0,
+            // Either channel opens the step: a format that wants GIR, or a
+            // player who tracks their own stats. A round with no format metadata
+            // at all still gets a stats step for a player who asked for one.
+            collectsStats: this.metaInputs().length > 0 || this.svc.statPrompts().length > 0,
         };
     }
 
@@ -974,6 +1104,9 @@ export class ScoreEntryComponent extends Component {
         }
         this.extendedOpen.set(false);
         this.statsOpen.set(false);
+        // The cell is about to change under the step; the reseed effect flushes
+        // too, but do it before the move so nothing depends on effect ordering.
+        this.svc.flushStats();
         if (dir < 0) this.svc.prevHole();
         else this.svc.nextHole();
         this.currentBallIdx.set(0);
@@ -1117,6 +1250,140 @@ export class ScoreEntryComponent extends Component {
             },
             track,
         );
+    }
+
+    /**
+     * The FORMAT's own toggles for this hole, minus any key the stats step is
+     * already asking about. One control per question: when a format wants GIR
+     * and the player tracks approach, the stats row renders it and the answer is
+     * written to BOTH channels (see `answerStat`).
+     */
+    private metaInputsForStep = (): MetadataInput[] => {
+        const asked = new Set<string>(this.svc.statPrompts().map((p) => p.key));
+        return this.metaInputs().filter((mi) => !asked.has(mi.key));
+    };
+
+    private statBodyRows = (): StatBodyRow[] => {
+        const metas = this.metaInputsForStep();
+        const prompts = this.svc.statPrompts();
+        const rows: StatBodyRow[] = metas.map((input) => ({
+            kind: 'meta',
+            key: `meta:${input.key}`,
+            input,
+        }));
+        if (metas.length > 0 && prompts.length > 0) rows.push({ kind: 'rule', key: 'rule' });
+        for (const prompt of prompts) rows.push({ kind: 'stat', key: `stat:${prompt.key}`, prompt });
+        return rows;
+    };
+
+    private statBodyRow(row: StatBodyRow, track: (d: () => void) => void): HTMLElement {
+        if (row.kind === 'meta') return this.metaChip(row.input, track);
+        if (row.kind === 'rule') return this.wireEl(statRuleTpl, {}, track);
+        return row.prompt.control.kind === 'segments'
+            ? this.statSegments(row.prompt, track)
+            : this.statStepper(row.prompt, track);
+    }
+
+    private statSegments(prompt: StatPrompt, track: (d: () => void) => void): HTMLElement {
+        const control = prompt.control;
+        const options = control.kind === 'segments' ? control.options : [];
+        // Four or five buckets (first putt) only fit a phone plate narrowed.
+        const tight = options.length >= 4 ? ' tight' : '';
+        const el = this.wireEl(statSegTpl, { glabel: { textContent: prompt.label } }, track);
+        const host = this.ref(el, 'seg');
+        for (const option of options) {
+            const btn = this.wireEl(
+                segBtnTpl,
+                {
+                    btn: {
+                        textContent: option.label,
+                        className: () =>
+                            `se-seg${tight}${
+                                this.svc.statValue(prompt.key) === option.value ? ' on-neutral' : ''
+                            }`,
+                        // Tapping the selected option de-selects it — the only
+                        // way back to "did not answer", which is a different
+                        // fact from answering the low option.
+                        onclick: () =>
+                            this.answerStat(
+                                prompt.key,
+                                this.svc.statValue(prompt.key) === option.value
+                                    ? null
+                                    : option.value,
+                            ),
+                    },
+                },
+                track,
+            );
+            host?.appendChild(btn);
+        }
+        return el;
+    }
+
+    private statStepper(prompt: StatPrompt, track: (d: () => void) => void): HTMLElement {
+        const control = prompt.control;
+        const min = control.kind === 'stepper' ? control.min : 0;
+        const max = control.kind === 'stepper' ? control.max : null;
+        return this.wireEl(
+            statStepTpl,
+            {
+                glabel: { textContent: prompt.label },
+                minus: {
+                    onclick: () => this.stepStat(prompt.key, -1),
+                    'aria-label': `Fewer ${prompt.label}`,
+                },
+                plus: {
+                    onclick: () => this.stepStat(prompt.key, 1),
+                    'aria-label': `More ${prompt.label}`,
+                },
+                val: {
+                    textContent: () =>
+                        stepperText(this.svc.statStepperValue(prompt.key, min), max),
+                    className: () =>
+                        this.svc.statIsAnswered(prompt.key)
+                            ? 'se-stats__step-val'
+                            : 'se-stats__step-val unanswered',
+                    // The dimmed floor vs an answered zero is the distinction
+                    // the styling carries visually; say it out loud too.
+                    'aria-label': () =>
+                        this.svc.statIsAnswered(prompt.key)
+                            ? `${prompt.label} ${this.svc.statStepperValue(prompt.key, min)}`
+                            : `${prompt.label} not answered`,
+                },
+            },
+            track,
+        );
+    }
+
+    /** Answer (or, with `null`, un-answer) one stats prompt, then mirror it. */
+    private answerStat(key: StatEventKey, value: string | null): void {
+        this.svc.answerStat(key, value);
+        this.mirrorStatToMeta(key);
+    }
+
+    private stepStat(key: StatEventKey, delta: number): void {
+        this.svc.stepStat(key, delta);
+        this.mirrorStatToMeta(key);
+    }
+
+    /**
+     * The dual write: when a format declares an input under the same key, the
+     * stats answer also drives the format's per-ball metadata, with the format
+     * channel keeping its own explicit-boolean semantics. Formats nobody tracks
+     * stats for are untouched — those balls still render the plain toggle.
+     *
+     * Only a DEFINITE answer is mirrored. De-selecting is the stats layer's way
+     * back to "did not answer" (proposal §2: an unanswered prompt stores NULL,
+     * not false), but the format channel has no third state — writing `false`
+     * there would turn "no statement" into a scoring-relevant miss and silently
+     * revoke, say, an Umbrella GIR point. Leaving the format's last explicit
+     * boolean in place is strictly safer; a real miss is one tap away.
+     */
+    private mirrorStatToMeta(key: StatEventKey): void {
+        if (!this.metaInputs().some((mi) => mi.key === key)) return;
+        const value = this.svc.statValue(key);
+        if (value === null) return;
+        this.setMeta(key, value === '1');
     }
 
     private flash(msg: string): void {

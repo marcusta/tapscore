@@ -60,6 +60,14 @@ const apiMock = {
             return { unchanged: false, cursor: current, result };
         }),
     },
+    // The stats fan-out rides along on every `loadByToken`. These rounds track
+    // nothing, so both reads answer empty and no capture surface appears; the
+    // mocks exist so the load resolves at all.
+    playerStats: {
+        configsByToken: mock(async (_input: { token: string }) => [] as unknown[]),
+        byToken: mock(async (_input: { token: string }) => [] as unknown[]),
+        appendEvents: mock(async (_input: { token: string; items: unknown[] }) => ({ events: [] })),
+    },
 };
 
 mock.module('../../src/api', () => ({ api: apiMock }));
@@ -131,6 +139,9 @@ beforeEach(() => {
     apiMock.friendlyRounds.balls.mockClear();
     apiMock.friendlyRounds.scorecard.mockClear();
     apiMock.friendlyRounds.result.mockClear();
+    apiMock.playerStats.configsByToken.mockClear();
+    apiMock.playerStats.byToken.mockClear();
+    apiMock.playerStats.appendEvents.mockClear();
 });
 
 test('switching share tokens clears the previous round state before the new load resolves', async () => {

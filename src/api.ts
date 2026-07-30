@@ -14,6 +14,7 @@ import { createDashboardClient } from './api/dashboard.gen';
 import { createSetupClient } from './api/setup.gen';
 import { createCompetitionsClient } from './api/competitions.gen';
 import { createAdminClient } from './api/admin.gen';
+import { createPlayerStatsClient } from './api/player-stats.gen';
 import { API_BASE } from './api-base';
 
 export { ApiError } from '@basics/core/client/api-error';
@@ -37,4 +38,5 @@ export const api = {
     setup: createSetupClient(API_BASE),
     competitions: createCompetitionsClient(API_BASE),
     admin: createAdminClient(API_BASE),
+    playerStats: createPlayerStatsClient(API_BASE),
 };

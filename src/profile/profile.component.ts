@@ -5,6 +5,19 @@ import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { ProfileService } from './profile.service';
 import { parseHandicapIndex, formatHandicapIndex } from '../create/hcp-input';
+import {
+    STATS_MASTER_HINT,
+    STATS_MASTER_TITLE,
+    STATS_MODULES,
+    statsAnnotation,
+    statsIsLocked,
+    statsIsOn,
+    statsModuleHint,
+    statsModuleTitle,
+    statsSetting,
+    statsSettingEnabled,
+    type StatsConfigForm,
+} from './stats-config-form';
 
 // Phase 3 profile — the logged-in side door's home: display name, the
 // manually maintained handicap index (edit → `players/me/handicap`), and the
@@ -59,6 +72,27 @@ const tpl = template(`
                 <div bind="historyEmpty" class="profile__empty">No entries yet — save an index to start the chain.</div>
                 <div bind="history" class="profile__history"></div>
             </section>
+
+            <!-- Last on the page, as on iOS (ProfileView.swift:157-158 orders
+                 historySection then statsSection): the facts above are what the
+                 profile IS, this is a preference about a different screen. -->
+            <section class="profile__section profile__stats">
+                <h2>Statistics</h2>
+                <div class="profile__card">
+                    <label class="statrow">
+                        <span class="statrow__text">
+                            <span class="statrow__head">
+                                <span bind="masterTitle" class="statrow__title"></span>
+                            </span>
+                            <span bind="masterHint" class="statrow__hint"></span>
+                        </span>
+                        <input bind="master" type="checkbox" role="switch" class="statrow__chk" />
+                    </label>
+                    <div class="statrow__rule"></div>
+                    <div bind="statModules" class="profile__statmods"></div>
+                    <p bind="statsErr" class="profile__err"></p>
+                </div>
+            </section>
         </div>
     </div>
 `);
@@ -69,6 +103,21 @@ const entryTpl = template(`
         <span bind="source" class="hcp-entry__source"></span>
         <span bind="date" class="hcp-entry__date"></span>
     </div>
+`);
+
+// One module switch. Same markup as the master row above it, so the two read as
+// one control and its contents rather than as two unrelated profile facts.
+const statRowTpl = template(`
+    <label bind="row" class="statrow">
+        <span class="statrow__text">
+            <span class="statrow__head">
+                <span bind="title" class="statrow__title"></span>
+                <span bind="ann" class="statrow__ann"></span>
+            </span>
+            <span bind="hint" class="statrow__hint"></span>
+        </span>
+        <input bind="chk" type="checkbox" role="switch" class="statrow__chk" />
+    </label>
 `);
 
 export class ProfileComponent extends Component {
@@ -164,6 +213,81 @@ export class ProfileComponent extends Component {
                         &:disabled { opacity: 0.5; cursor: default; }
                     }
                 }
+            }
+
+            /* Statistics: the master switch, a hairline, then the six modules
+               INDENTED under it — they are not six more profile facts, they are
+               the contents of the row above and dead while it is off. */
+            & .profile__statmods {
+                display: flex;
+                flex-direction: column;
+                gap: ${s('md')};
+                padding-left: ${s('md')};
+            }
+
+            & .statrow {
+                display: flex;
+                align-items: flex-start;
+                gap: ${s('md')};
+                cursor: pointer;
+
+                &.statrow--locked { cursor: default; opacity: 0.55; }
+
+                /* A pill switch, not a checkbox — iOS uses a SwiftUI Toggle
+                   tinted accentStrong (ProfileView.swift:431), and a tick box would
+                   read as "select this row" rather than "this is on". Drawn on
+                   the input itself so the label stays the hit target. */
+                & .statrow__chk {
+                    appearance: none;
+                    -webkit-appearance: none;
+                    position: relative;
+                    width: 51px; height: 31px;
+                    flex-shrink: 0;
+                    align-self: center;
+                    margin: 0;
+                    border-radius: ${t('radius-pill')};
+                    background: ${t('border')};
+                    cursor: inherit;
+                    transition: background 0.2s ease;
+
+                    &::after {
+                        content: '';
+                        position: absolute;
+                        top: 2px; left: 2px;
+                        width: 27px; height: 27px;
+                        border-radius: 50%;
+                        background: #fff;
+                        box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+                        transition: transform 0.2s ease;
+                    }
+
+                    &:checked {
+                        background: ${t('primary')};
+                        &::after { transform: translateX(20px); }
+                    }
+                }
+                /* Takes the slack so the switch sits hard against the trailing
+                   edge, as the label/control split does on iOS. */
+                & .statrow__text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+                & .statrow__head {
+                    display: flex; align-items: baseline; gap: ${s('sm')};
+                    flex-wrap: wrap;
+                }
+                & .statrow__title { font-size: 1rem; font-weight: 600; color: ${t('text')}; }
+                /* The unmet dependency, in words — "Needs Putting". The row is
+                   locked either way; this is the half that says which switch to
+                   move to get it back. */
+                & .statrow__ann {
+                    font-size: 0.8rem; color: ${t('text-muted')};
+                    &:empty { display: none; }
+                }
+                & .statrow__hint { font-size: 0.8rem; color: ${t('text-muted')}; }
+            }
+
+            & .statrow__rule {
+                height: 1px;
+                margin: ${s('md')} 0;
+                background: ${t('border')};
             }
 
             & .profile__section {
@@ -263,6 +387,22 @@ export class ProfileComponent extends Component {
             clubErr: {
                 textContent: () => this.svc.saveError.get()?.message || '',
             },
+            masterTitle: () => STATS_MASTER_TITLE,
+            masterHint: () => STATS_MASTER_HINT,
+            master: {
+                checked: () => this.svc.statsConfig.get().enabled,
+                // Any in-flight profile save, matching `saveStatsConfig`'s guard.
+                disabled: () => this.statsBusy(),
+                onchange: (e: Event) =>
+                    void this.saveStats(
+                        e,
+                        (f, on) => statsSettingEnabled(f, on),
+                        (f) => f.enabled,
+                    ),
+            },
+            statsErr: {
+                textContent: () => this.svc.statsError.get()?.message || '',
+            },
             historyEmpty: {
                 className: () =>
                     this.svc.history.get().length === 0
@@ -281,6 +421,47 @@ export class ProfileComponent extends Component {
                     date: () => h.effectiveDate,
                 }, track),
             (h) => h.id,
+        );
+
+        // The six module switches. Every tap is a save — the endpoint is
+        // whole-config, so each toggle PUTs the complete snapshot, exactly like
+        // the gender chips POST on tap. There is no Save button to add: a switch
+        // that needs confirming is a switch that answered its own question
+        // twice. The row list is static, so only the switch state is reactive.
+        this.$each(
+            this.ref(frag, 'statModules'),
+            () => [...STATS_MODULES],
+            (module, _i, track) => {
+                // `change` hands the pure module the WHOLE next configuration
+                // to build, so the dependency cascade (turning putting off takes
+                // short game with it) is decided there and never here.
+                const form = () => this.svc.statsConfig.get();
+                const locked = () => statsIsLocked(form(), module);
+                return this.wireEl(
+                    statRowTpl,
+                    {
+                        row: { className: () => (locked() ? 'statrow statrow--locked' : 'statrow') },
+                        title: () => statsModuleTitle(module),
+                        ann: () => statsAnnotation(form(), module) ?? '',
+                        hint: () => statsModuleHint(module),
+                        chk: {
+                            // A locked row keeps SHOWING its stored value — the
+                            // value is still what the server holds, only the tap
+                            // is unavailable.
+                            checked: () => statsIsOn(form(), module),
+                            disabled: () => locked() || this.statsBusy(),
+                            onchange: (e: Event) =>
+                                void this.saveStats(
+                                    e,
+                                    (f, on) => statsSetting(f, module, on),
+                                    (f) => statsIsOn(f, module),
+                                ),
+                        },
+                    },
+                    track,
+                );
+            },
+            (module) => module,
         );
 
         // Gender segmented control: M / F / Not set. Saves immediately on
@@ -341,5 +522,34 @@ export class ProfileComponent extends Component {
         this.track(() => select.destroy());
 
         return frag;
+    }
+
+    /**
+     * Whether a stats switch is currently unavailable. Mirrors
+     * `saveStatsConfig`'s guard, which covers any in-flight profile save (a
+     * handicap save ends in a reload that rewrites `statsConfig`), so a switch
+     * is never tappable while the service would silently refuse it.
+     */
+    private statsBusy(): boolean {
+        return this.svc.statsSaving.get() || this.svc.saving.get();
+    }
+
+    /**
+     * One stats switch tap: build the next whole configuration from the box's
+     * new state, PUT it, then reconcile the box with what the server holds.
+     *
+     * The reconcile is the revert. On success the signal changed and the
+     * `checked` binding already re-ran, but a REFUSED save leaves `statsConfig`
+     * untouched — and an unchanged signal re-runs nothing, so without this the
+     * box would sit in a state the server never accepted.
+     */
+    private async saveStats(
+        e: Event,
+        change: (form: StatsConfigForm, on: boolean) => StatsConfigForm,
+        read: (form: StatsConfigForm) => boolean,
+    ): Promise<void> {
+        const box = e.target as HTMLInputElement;
+        await this.svc.saveStatsConfig(change(this.svc.statsConfig.get(), box.checked));
+        box.checked = read(this.svc.statsConfig.get());
     }
 }

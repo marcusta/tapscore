@@ -36,6 +36,13 @@ const apiMock = {
             return { accepted: true };
         }),
     },
+    // Stats ride along on every load; this suite is about the SCORE queue, so
+    // the round tracks nothing and the stats queue stays empty.
+    playerStats: {
+        configsByToken: mock(async () => [] as unknown[]),
+        byToken: mock(async () => [] as unknown[]),
+        appendEvents: mock(async () => ({ events: [] })),
+    },
 };
 
 mock.module('../../src/api', () => ({ api: apiMock }));
