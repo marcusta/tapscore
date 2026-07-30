@@ -235,6 +235,7 @@ test('score-grid summary header never ellipsizes a short route label', async () 
     ).text();
 
     expect(component).toContain('& .lb-grid thead .lb-sum { overflow: visible; text-overflow: clip; }');
+    expect(component).toContain('& .lb-grid .lb-sum { width: 3em;');
 });
 
 test('cell markers render the presentation shape through the vocabulary', () => {
