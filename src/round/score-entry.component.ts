@@ -700,7 +700,7 @@ export class ScoreEntryComponent extends Component {
         this.track(
             effect(() => {
                 const n = this.ballsInGroup().length;
-                if (n > 0 && this.currentBallIdx.get() >= n) this.currentBallIdx.set(0);
+                if (n > 0 && this.currentBallIdx.get() >= n) this.selectBall(0);
             }),
         );
 
@@ -860,8 +860,7 @@ export class ScoreEntryComponent extends Component {
                 // land here, and `seedStatStep` is what flushes the cell being
                 // left. A same-cell call only re-reads the durable half, so a
                 // background load cannot swallow an in-progress draft.
-                const playerId = this.svc.statSubject(ball);
-                this.svc.seedStatStep(playerId ? { playerId, playHoleId: ph.playHoleId } : null);
+                this.seedStatStepForCursor();
                 const key = `${ball.id}|${ph.playHoleId}`;
                 if (key === this.lastMetaKey) return;
                 this.lastMetaKey = key;
@@ -997,7 +996,7 @@ export class ScoreEntryComponent extends Component {
             {
                 mrow: {
                     className: () => (this.currentBallIdx.get() === index ? 'se-mrow sel' : 'se-mrow'),
-                    onclick: () => this.currentBallIdx.set(index),
+                    onclick: () => this.selectBall(index),
                 },
                 mname: { textContent: this.ballName(ball) },
                 mhcp: { textContent: hcp },
@@ -1053,11 +1052,35 @@ export class ScoreEntryComponent extends Component {
 
     private openModalForBall(ballId: string): void {
         const idx = this.ballsInGroup().findIndex((b) => b.id === ballId);
-        this.currentBallIdx.set(idx < 0 ? 0 : idx);
+        this.selectBall(idx < 0 ? 0 : idx);
         this.extendedOpen.set(false);
         this.statsOpen.set(false);
         this.noteHoleEntered();
         this.modalOpen.set(true);
+    }
+
+    /**
+     * Move the keypad cursor and synchronously point the personal-stat step at
+     * the same ball. The reactive seeding effect below remains the backstop
+     * for external round changes, but an interaction must not wait for an
+     * effect before it can open the next player's detail sheet: Umbrella's
+     * format GIR belongs to every player, while personal prompts belong only
+     * to the opted-in player under the cursor.
+     *
+     * This is deliberately the web counterpart of iOS `selectBall`, which
+     * calls `seedStats()` in the same state transition.
+     */
+    private selectBall(index: number): void {
+        this.currentBallIdx.set(index);
+        this.seedStatStepForCursor();
+    }
+
+    /** Reconcile the service-held personal-stat cell to the current cursor. */
+    private seedStatStepForCursor(): void {
+        const ball = this.ballsInGroup()[this.currentBallIdx.get()];
+        const ph = this.currentHole();
+        const playerId = ball ? this.svc.statSubject(ball) : null;
+        this.svc.seedStatStep(playerId && ph ? { playerId, playHoleId: ph.playHoleId } : null);
     }
 
     /**
@@ -1109,7 +1132,7 @@ export class ScoreEntryComponent extends Component {
         this.svc.flushStats();
         if (dir < 0) this.svc.prevHole();
         else this.svc.nextHole();
-        this.currentBallIdx.set(0);
+        this.selectBall(0);
         this.noteHoleEntered();
     }
 
@@ -1151,7 +1174,7 @@ export class ScoreEntryComponent extends Component {
             case 'stay':
                 return;
             case 'moveToBall':
-                this.currentBallIdx.set(move.ballIndex);
+                this.selectBall(move.ballIndex);
                 return;
             case 'openStats':
                 this.statsOpen.set(true);
@@ -1177,7 +1200,7 @@ export class ScoreEntryComponent extends Component {
                     // during the 700ms pause while the keypad stayed put, which
                     // the clamp keeps in range rather than tries to follow.
                     this.holeIdx.set(clampIndex(move.toHoleIndex, this.playedOrder().length));
-                    this.currentBallIdx.set(0);
+                    this.selectBall(0);
                     // Arriving on the next hole is a fresh visit: normally
                     // unscored (entry mode), but a hole scored ahead of time
                     // flips to correction mode so the advance chain stops there.
