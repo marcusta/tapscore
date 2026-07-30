@@ -261,14 +261,33 @@ export class StatStep {
      * Re-reads the durable half (a load landed, or a config changed) WITHOUT
      * touching the draft: a refresh under an open step must not throw away
      * answers the golfer has already tapped but not yet committed.
+     *
+     * Returns whether anything a renderer can see actually moved, so a caller
+     * driven by unrelated round state can skip the rebuild. The seed effect
+     * re-runs on every ball, score and scorecard change and lands here with the
+     * same cell nearly every time.
      */
     refresh(
         modules: StatModules,
         persisted: ReadonlyMap<StatEventKey, string> | Partial<Record<StatEventKey, string>>,
-    ): void {
+    ): boolean {
+        const before = this.signature();
         this.modules = modules;
         this.persistedMap = toKeyMap(persisted);
         this.prune();
+        return this.signature() !== before;
+    }
+
+    /**
+     * Fingerprint of everything observable: which prompts are on the card (via
+     * visibility) and what each key reads. Draft bookkeeping that changes no
+     * visible value — prune recording an explicit clear for a key that was
+     * already blank — deliberately does not register.
+     */
+    private signature(): string {
+        let out = '';
+        for (const key of STAT_ORDER) out += `${key}:${this.visibility(key)}:${this.value(key) ?? ''};`;
+        return out;
     }
 
     // --- Visible prompts ---

@@ -369,3 +369,27 @@ test('visibility names why a prompt is off the card', () => {
     s.answer('gir', '0');
     expect(s.visibility('short_game_difficulty')).toBe('visible');
 });
+
+// --- Refresh change reporting ---------------------------------------------
+//
+// The service bumps its render revision off this boolean, so a refresh that
+// reports "changed" when nothing did rebuilds the prompt list on every
+// unrelated round update — and, when the caller is itself a tracked effect,
+// never terminates.
+
+test('refresh reports whether anything observable moved', () => {
+    const s = step(modules({ approach: true, putting: true }), { par: 4 });
+    expect(s.refresh(modules({ approach: true, putting: true }), {})).toBe(false);
+    // A durable answer landing is a change.
+    expect(s.refresh(modules({ approach: true, putting: true }), { gir: '1' })).toBe(true);
+    expect(s.refresh(modules({ approach: true, putting: true }), { gir: '1' })).toBe(false);
+    // So is a module going away, which takes its prompts off the card.
+    expect(s.refresh(modules({ approach: true }), { gir: '1' })).toBe(true);
+});
+
+test('refresh keeps an uncommitted draft and still reports no change', () => {
+    const s = step(modules({ approach: true }), { par: 4 });
+    s.answer('gir', '0');
+    expect(s.refresh(modules({ approach: true }), {})).toBe(false);
+    expect(s.value('gir')).toBe('0');
+});

@@ -1,3 +1,4 @@
+import { Signal, effect } from '@basics/core/client/core';
 import { beforeEach, expect, mock, test } from 'bun:test';
 import { PendingScoreQueue } from '../../src/round/pending-queue';
 import { PendingStatQueue } from '../../src/round/pending-stat-queue';
@@ -477,4 +478,63 @@ test('missing stats endpoints degrade to no prompts, not to a broken round', asy
     svc.seedStatStep(CELL);
     expect(svc.statPrompts()).toEqual([]);
     expect(svc.statSubject(svc.balls.get()[0]!)).toBeNull();
+});
+
+// --- Reactivity ------------------------------------------------------------
+//
+// The keypad seeds the step from a tracked effect that also renders off
+// `statRev`, so seeding is on a cycle with its own invalidation. Two rules keep
+// that cycle finite, and both were broken at once: the bump must not READ
+// `statRev` (that subscribes the seeding effect to the signal it is about to
+// write), and a same-cell reseed that changes nothing must not bump at all.
+
+test('reseeding the same cell with nothing changed does not bump the revision', async () => {
+    statRowsResponse = [statRow({ gir: true })];
+    const { svc } = makeService();
+    await svc.loadByToken('tok');
+    svc.seedStatStep(CELL);
+    const rev = svc.statRev.get();
+    svc.seedStatStep(CELL);
+    svc.seedStatStep(CELL);
+    expect(svc.statRev.get()).toBe(rev);
+    // Still bumps when the durable half actually moves.
+    svc.answerStat('gir', '0');
+    expect(svc.statRev.get()).toBeGreaterThan(rev);
+});
+
+test('a seeding effect does not recurse, and does not subscribe itself to the revision', async () => {
+    const { svc } = makeService();
+    await svc.loadByToken('tok');
+
+    // The keypad's two scopes, kept apart as they are in the component: one
+    // effect seeds from round state, a separate one renders off `statRev`.
+    const cell = new Signal(CELL);
+    let seedRuns = 0;
+    let renderRuns = 0;
+    const stopSeed = effect(() => {
+        seedRuns++;
+        svc.seedStatStep(cell.get());
+    });
+    const stopRender = effect(() => {
+        renderRuns++;
+        svc.statPrompts();
+    });
+    expect(seedRuns).toBe(1);
+
+    // A cell change with a draft in hand flushes on the way out, and flushing
+    // bumps — the one bump that lands inside the seeding effect's tracked run.
+    svc.answerStat('gir', '1');
+    cell.set({ playerId: 'p-1', playHoleId: 'ph-2' });
+    expect(seedRuns).toBe(2);
+
+    // The seeding effect must not have picked `statRev` up as a dependency from
+    // that bump: an answer is a render concern only.
+    const seedAfter = seedRuns;
+    const renderAfter = renderRuns;
+    svc.answerStat('gir', '0');
+    expect(renderRuns).toBeGreaterThan(renderAfter);
+    expect(seedRuns).toBe(seedAfter);
+
+    stopSeed?.();
+    stopRender?.();
 });

@@ -184,6 +184,15 @@ export class RoundViewService {
      */
     readonly statRev = new Signal(0);
     /**
+     * The counter behind `statRev`, kept OUTSIDE the signal on purpose: bumping
+     * must never read `statRev`. `seedStatStep` runs inside the keypad's tracked
+     * seed effect, so a `statRev.get()` on the bump path subscribes that effect
+     * to the signal it is about to write — the write re-notifies the effect, the
+     * effect seeds again, and the keypad dies with "Maximum call stack size
+     * exceeded" the moment a stats cell opens.
+     */
+    private statRevN = 0;
+    /**
      * This device's own answers, keyed `"playHoleId|playerId|key"`, with a `null`
      * VALUE meaning an explicit clear. It shadows `statRows` until a load
      * re-reads them, so a hole answered a second ago prefills correctly even
@@ -951,8 +960,10 @@ export class RoundViewService {
             this.setStatCell(cell, this.makeStatStep(cell));
             return;
         }
-        this.statStep.refresh(modules, this.persistedStats(cell));
-        this.bumpStatRev();
+        // Only on a real change, for the same reason `setStatCell` is
+        // idempotent: this runs from the keypad's seed effect on every unrelated
+        // round update, and a bump there rebuilds the whole prompt list.
+        if (this.statStep.refresh(modules, this.persistedStats(cell))) this.bumpStatRev();
     }
 
     /**
@@ -973,7 +984,7 @@ export class RoundViewService {
     }
 
     private bumpStatRev(): void {
-        this.statRev.set(this.statRev.get() + 1);
+        this.statRev.set(++this.statRevN);
     }
 
     private makeStatStep(cell: StatCell): StatStep | null {
