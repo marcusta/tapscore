@@ -213,18 +213,19 @@ test('score grid dispatches by category-matrix-grid component id', () => {
     expect(html).not.toContain('lb-diag');
 });
 
-test('category matrix mobile styles keep triple-digit umbrella point cells readable', async () => {
+test('category matrix scorecards use the shared fixed-width mobile grid', async () => {
     const component = await Bun.file(
         new URL('../../src/round/leaderboard.component.ts', import.meta.url),
     ).text();
 
-    expect(component).toContain('table-layout: auto');
-    expect(component).toContain('width: max-content');
-    expect(component).toContain('min-width: 100%');
+    expect(component).toMatch(
+        /& \.lb-card--category-matrix \.lb-grid \{[\s\S]*?font-size: 0\.72rem;[\s\S]*?table-layout: fixed;[\s\S]*?width: 100%;/,
+    );
+    expect(component).not.toContain('width: max-content');
     expect(component).toContain('& .lb-card--category-matrix .lb-grid .lb-rowlabel');
     expect(component).toContain('& .lb-card--category-matrix .lb-grid .lb-r-points td');
     expect(component).toContain('& .lb-card--category-matrix .lb-grid .lb-r-running td');
-    expect(component).toContain('min-width: 3.25em');
+    expect(component).not.toContain('min-width: 3.25em');
     expect(component).toContain('text-overflow: clip');
 });
 

@@ -285,9 +285,12 @@ export class LeaderboardComponent extends Component {
             }
             & .lb-card--category-matrix .lb-grid {
                 font-size: 0.72rem;
-                table-layout: auto;
-                width: max-content;
-                min-width: 100%;
+                /* Umbrella has the same nine-hole blocks as every other
+                   scorecard. Keep those blocks inside the card on a phone;
+                   intrinsic sizing here used the widest points cell to push
+                   the final holes beyond the viewport. */
+                table-layout: fixed;
+                width: 100%;
             }
             & .lb-card--category-matrix .lb-grid th,
             & .lb-card--category-matrix .lb-grid td {
@@ -295,12 +298,10 @@ export class LeaderboardComponent extends Component {
             }
             & .lb-card--category-matrix .lb-grid .lb-rowlabel {
                 width: 5.8em;
-                min-width: 5.8em;
                 text-overflow: clip;
             }
             & .lb-card--category-matrix .lb-grid .lb-sum {
                 width: 2.8em;
-                min-width: 2.8em;
             }
             & .lb-card--category-matrix .lb-grid .lb-r-cat td {
                 line-height: 1.1;
@@ -311,7 +312,6 @@ export class LeaderboardComponent extends Component {
             & .lb-card--category-matrix .lb-grid .lb-r-points td,
             & .lb-card--category-matrix .lb-grid .lb-r-running td {
                 font-size: 0.68rem;
-                min-width: 3.25em;
                 text-overflow: clip;
             }
             & .lb-card__head { margin-bottom: ${s('sm')}; }
