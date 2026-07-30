@@ -1232,6 +1232,38 @@ final class RoundStore {
         return statModules[playerId] == nil ? nil : playerId
     }
 
+    /// The ball a given player holds, across every group. nil when they are not
+    /// seated in this round at all — a spectator, or a phone scoring for others.
+    func ball(ofPlayerId playerId: String) -> RoundBall? {
+        balls.first { ball in ball.players.contains { $0.playerId == playerId } }
+    }
+
+    /// Holes on that player's own card with no score yet, or nil when they hold
+    /// no ball here.
+    ///
+    /// Zero is the DURABLE "their round is over". `AdvancePolicy`'s
+    /// `.roundComplete` is a toast — a moment — and a surface that only existed
+    /// during it would be gone by the time the player looked at the board.
+    func holesUnscored(forPlayerId playerId: String) -> Int? {
+        guard let ball = ball(ofPlayerId: playerId) else { return nil }
+        guard let group = groups.first(where: { $0.ballIds.contains(ball.id) }) else { return nil }
+        return group.playedOrder.filter {
+            strokes(ballId: ball.id, playHoleId: $0.playHoleId) == nil
+        }.count
+    }
+
+    /// Whether the round-end story (§4.1) may appear, for the signed-in player.
+    ///
+    /// The store deliberately holds no session — the round flow works logged
+    /// out — so the caller passes the player id in from the environment.
+    func storyEligibility(signedInPlayerId: String?) -> RoundStoryEligibility {
+        RoundStoryEligibility.evaluate(
+            signedInPlayerId: signedInPlayerId,
+            statConfigPlayerIds: Set(statModules.keys),
+            statRows: statRows,
+            holesUnscored: signedInPlayerId.flatMap { holesUnscored(forPlayerId: $0) })
+    }
+
     private var currentStatCell: StatCell? {
         guard let ball = ballUnderCursor, let hole = currentPlayedHole else { return nil }
         guard let playerId = statSubject(of: ball) else { return nil }

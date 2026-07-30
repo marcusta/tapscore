@@ -37,6 +37,12 @@ final class StatsDashboardStore {
     /// cursors cannot spin this into an unbounded fetch loop on a phone. At 50 a
     /// page it admits 2000 rounds — beyond any real history, and if a player
     /// ever passes it the window still renders, just over the rounds in hand.
+    ///
+    /// It is a BUDGET FOR THE STORE'S LIFETIME, not a per-call allowance. A
+    /// per-call counter caps one `extendIfNeeded` at 40 pages and then hands the
+    /// next window switch a fresh 40: a server whose cursor never ends turns
+    /// every tap of the preset picker into another 40 requests, forever. Spent
+    /// pages stay spent until `load()` starts over.
     static let maxPages = 40
 
     private(set) var phase: Phase = .loading
@@ -82,6 +88,10 @@ final class StatsDashboardStore {
 
     /// The keyset cursor for the next page, from the last page the server sent.
     private var cursor: String?
+
+    /// Pages spent against `maxPages` since the last full `load()`. Counts the
+    /// first page too — it is one request against the same phone.
+    private(set) var pagesFetched = 0
 
     init(
         api: TapScoreAPI,
@@ -135,6 +145,9 @@ final class StatsDashboardStore {
         loadedRounds = []
         roundsWithStats = nil
         hasMore = false
+        // The one place the budget is refilled: a deliberate reload is the
+        // player asking for the walk again.
+        pagesFetched = 0
         do {
             let page = try await fetch(cursor: nil)
             // Only the first page carries the aggregate — later ones answer null
@@ -161,7 +174,8 @@ final class StatsDashboardStore {
     }
 
     private func fetch(cursor: String?) async throws -> PlayerStatsSummary {
-        try await api.send(
+        pagesFetched += 1
+        return try await api.send(
             PlayerStatsEndpoints.myStats,
             PlayerStatsMyStatsInput(limit: Double(Self.pageSize), cursor: cursor))
     }
@@ -200,9 +214,7 @@ final class StatsDashboardStore {
         extendProblem = nil
         defer { isExtending = false }
 
-        var pages = 0
-        while needsMore, pages < Self.maxPages {
-            pages += 1
+        while needsMore, pagesFetched < Self.maxPages {
             do {
                 adopt(try await fetch(cursor: cursor))
             } catch {

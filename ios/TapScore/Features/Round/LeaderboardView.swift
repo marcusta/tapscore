@@ -68,6 +68,10 @@ struct LeaderboardView: View {
     @ViewBuilder
     private func content(_ result: RoundResult) -> some View {
         VStack(alignment: .leading, spacing: TapSpacing.xl) {
+            // The round-end story (§4.1) rides ABOVE the board rather than
+            // replacing anything in it: the results surface is untouched, and
+            // the card gates itself away for every reader it is not about.
+            RoundStoryEntry(store: store)
             if let slot = selectedSlot(result.slots) {
                 slotBody(slot, routeSections: result.routeSections)
             }

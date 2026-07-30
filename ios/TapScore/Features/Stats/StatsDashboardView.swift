@@ -116,10 +116,8 @@ struct StatsDashboardView: View {
         } else {
             priorities(model)
             trends(model)
-            ForEach(model.presentPanels, id: \.rawValue) { id in
-                panel(id, model)
-            }
-            roundList(model)
+            StatsPanelsView(model: model, expanded: $expanded)
+            roundList(model, history: store.loadedRounds)
         }
     }
 
@@ -297,297 +295,13 @@ struct StatsDashboardView: View {
         .accessibilityElement(children: .combine)
     }
 
-    // MARK: - Module panels
-
-    @ViewBuilder
-    private func panel(_ id: StatsPanelID, _ model: StatsDashboardModel) -> some View {
-        let isOpen = expanded.contains(id)
-        VStack(alignment: .leading, spacing: 0) {
-            TapCard {
-                VStack(alignment: .leading, spacing: TapSpacing.md) {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            if isOpen { expanded.remove(id) } else { expanded.insert(id) }
-                        }
-                    } label: {
-                        HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(id.title)
-                                    .font(TapFont.display(size: 16.8, weight: .semibold))
-                                    .foregroundStyle(TapColors.text)
-                                if let headline = Self.headline(id, model) {
-                                    Text(headline)
-                                        .font(TapFont.ui(size: 12.8))
-                                        .foregroundStyle(TapColors.textMuted)
-                                }
-                            }
-                            Spacer(minLength: 0)
-                            Text(isOpen ? "Less" : "More")
-                                .font(TapFont.ui(size: 12.8, weight: .bold))
-                                .foregroundStyle(TapColors.accent)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("stats-panel-\(id.rawValue)")
-
-                    if isOpen {
-                        detail(id, model)
-                    }
-                }
-                .padding(TapSpacing.md)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    /// The one figure the collapsed card carries. nil when the module's own
-    /// headline rate has no sample — the card still appears (the module WAS
-    /// recorded), it just has nothing to say until it is opened.
-    private static func headline(_ id: StatsPanelID, _ model: StatsDashboardModel) -> String? {
-        switch id {
-        case .tee:
-            return model.tee.flatMap { StatsFormat.rateWithSample($0.fairway) }
-                .map { "Fairways \($0)" }
-        case .approach:
-            return model.approach.flatMap { StatsFormat.rateWithSample($0.gir) }
-                .map { "Greens in regulation \($0)" }
-        case .putting:
-            return model.putting.flatMap { StatsFormat.average($0.puttsPerGirHole) }
-                .map { "\($0) putts per green hit" }
-        case .shortGame:
-            return model.shortGame.flatMap { StatsFormat.rateWithSample($0.scramble.overall) }
-                .map { "Scrambling \($0)" }
-        case .scoring:
-            return model.scoring.flatMap {
-                StatsFormat.average($0.doubleBogeyPlusPerRound)
-            }.map { "\($0) doubles or worse per round" }
-        }
-    }
-
-    @ViewBuilder
-    private func detail(_ id: StatsPanelID, _ model: StatsDashboardModel) -> some View {
-        switch id {
-        case .tee:
-            if let panel = model.tee { teeDetail(panel) }
-        case .approach:
-            if let panel = model.approach { approachDetail(panel) }
-        case .putting:
-            if let panel = model.putting { puttingDetail(panel) }
-        case .shortGame:
-            if let panel = model.shortGame { shortGameDetail(panel) }
-        case .scoring:
-            if let panel = model.scoring { scoringDetail(panel) }
-        }
-    }
-
-    // MARK: Tee
-
-    private func teeDetail(_ panel: StatsTeePanel) -> some View {
-        VStack(alignment: .leading, spacing: TapSpacing.md) {
-            StatsSplitBar(segments: [
-                .init(id: "fairway", share: panel.fairway.value ?? 0, color: TapColors.primary),
-                .init(id: "inPlay", share: panel.inPlayOnly.value ?? 0, color: TapColors.accent),
-                .init(id: "trouble", share: panel.trouble.value ?? 0, color: TapColors.danger),
-            ])
-            legend([
-                ("Fairway", TapColors.primary, StatsFormat.rate(panel.fairway)),
-                ("In play", TapColors.accent, StatsFormat.rate(panel.inPlayOnly)),
-                ("Trouble", TapColors.danger, StatsFormat.rate(panel.trouble)),
-            ])
-            figures([
-                ("Trouble tax", StatsFormat.average(panel.troubleTax, signed: true),
-                    StatsCopy.troubleTax),
-                ("Recovery", StatsFormat.rateWithSample(panel.recovery), StatsCopy.recovery),
-                ("Penalties", StatsFormat.average(panel.penaltiesPerRound), StatsCopy.penalties),
-            ])
-        }
-    }
-
-    // MARK: Approach
-
-    private func approachDetail(_ panel: StatsApproachPanel) -> some View {
-        VStack(alignment: .leading, spacing: TapSpacing.md) {
-            subhead("Greens hit, by where the tee shot finished")
-            miniBars([
-                ("From the fairway", panel.girByTee.fairway),
-                ("From in play", panel.girByTee.inPlay),
-                ("From trouble", panel.girByTee.trouble),
-            ])
-            subhead("First putt on greens hit")
-            Text(StatsCopy.proximityProxy)
-                .font(TapFont.ui(size: 12.0))
-                .foregroundStyle(TapColors.textMuted)
-                .fixedSize(horizontal: false, vertical: true)
-            miniBars(
-                PuttBucket.allCases.map {
-                    (StatsFormat.title($0), panel.girFirstPuttMix[$0] ?? Rate(value: nil, n: 0, d: 0))
-                })
-            figures([
-                ("Birdie conversion", StatsFormat.rateWithSample(panel.birdieConversion),
-                    StatsCopy.birdieConversion)
-            ])
-        }
-    }
-
-    // MARK: Putting
-
-    private func puttingDetail(_ panel: StatsPuttingPanel) -> some View {
-        VStack(alignment: .leading, spacing: TapSpacing.md) {
-            subhead("Holed on the first putt")
-            Text(StatsCopy.ladderBaseline)
-                .font(TapFont.ui(size: 12.0))
-                .foregroundStyle(TapColors.textMuted)
-                .fixedSize(horizontal: false, vertical: true)
-            ForEach(panel.ladder) { rung in
-                VStack(alignment: .leading, spacing: TapSpacing.xs) {
-                    HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
-                        Text(StatsFormat.title(rung.bucket))
-                            .font(TapFont.ui(size: 13.6))
-                            .foregroundStyle(TapColors.text)
-                        Spacer(minLength: 0)
-                        Text(StatsFormat.rate(rung.made) ?? StatsCopy.notRecorded)
-                            .font(TapFont.ui(size: 13.6, weight: .bold))
-                            .foregroundStyle(
-                                StatsFormat.rate(rung.made) == nil
-                                    ? TapColors.textMuted : TapColors.text)
-                    }
-                    StatsLadderRung(
-                        made: StatsFormat.isThin(rung.made) ? nil : rung.made.value,
-                        baseline: rung.baseline)
-                }
-                .accessibilityElement(children: .combine)
-            }
-            figures([
-                ("Three-putts", StatsFormat.rateWithSample(panel.threePutt), StatsCopy.threePutt),
-                ("Three-putts from over 8 m",
-                    StatsFormat.rateWithSample(panel.threePuttsFromOver8m), StatsCopy.longThreePutt),
-                ("Putts per green hit", StatsFormat.average(panel.puttsPerGirHole),
-                    StatsCopy.puttsPerGir),
-            ])
-        }
-    }
-
-    // MARK: Short game
-
-    private func shortGameDetail(_ panel: StatsShortGamePanel) -> some View {
-        VStack(alignment: .leading, spacing: TapSpacing.md) {
-            subhead("Scrambling")
-            miniBars([
-                ("Standard", panel.scramble.standard),
-                ("Hard", panel.scramble.hard),
-            ])
-            subhead("Chipped to inside 2 m")
-            miniBars([
-                ("Standard", panel.chipInside2m.standard),
-                ("Hard", panel.chipInside2m.hard),
-            ])
-            figures([
-                ("Holed from inside 2 m", StatsFormat.rateWithSample(panel.conversionInside2m),
-                    StatsCopy.conversionInside2m),
-                ("Chip-ins", StatsFormat.count(panel.chipIns), StatsCopy.chipIns),
-            ])
-        }
-    }
-
-    // MARK: Scoring
-
-    private func scoringDetail(_ panel: StatsScoringPanel) -> some View {
-        VStack(alignment: .leading, spacing: TapSpacing.md) {
-            subhead("Average vs par")
-            figures([
-                ("Par 3", StatsFormat.average(panel.avgVsParByParGroup.par3, signed: true), nil),
-                ("Par 4", StatsFormat.average(panel.avgVsParByParGroup.par4, signed: true), nil),
-                ("Par 5", StatsFormat.average(panel.avgVsParByParGroup.par5, signed: true), nil),
-                ("Doubles or worse", StatsFormat.average(panel.doubleBogeyPlusPerRound),
-                    StatsCopy.doubleBogeyPlus),
-                ("Bounce-back", StatsFormat.rateWithSample(panel.bounceBack), StatsCopy.bounceBack),
-            ])
-        }
-    }
-
-    // MARK: Detail primitives
-
-    private func subhead(_ text: String) -> some View {
-        Text(text)
-            .font(TapFont.ui(size: 11.2, weight: .bold))
-            .tracking(11.2 * 0.06)
-            .foregroundStyle(TapColors.textMuted)
-            .textCase(.uppercase)
-    }
-
-    private func legend(_ items: [(String, Color, String?)]) -> some View {
-        VStack(alignment: .leading, spacing: TapSpacing.xs) {
-            ForEach(items, id: \.0) { title, color, value in
-                HStack(spacing: TapSpacing.sm) {
-                    Circle().fill(color).frame(width: 8, height: 8)
-                    Text(title)
-                        .font(TapFont.ui(size: 13.6))
-                        .foregroundStyle(TapColors.text)
-                    Spacer(minLength: 0)
-                    Text(value ?? StatsCopy.notRecorded)
-                        .font(TapFont.ui(size: 13.6, weight: .bold))
-                        .foregroundStyle(value == nil ? TapColors.textMuted : TapColors.text)
-                }
-            }
-        }
-    }
-
-    /// Label / value / explanation rows. A `nil` value prints
-    /// "Not recorded" rather than a zero — the display policy's absent case.
-    private func figures(_ items: [(String, String?, String?)]) -> some View {
-        VStack(alignment: .leading, spacing: TapSpacing.sm) {
-            ForEach(items, id: \.0) { title, value, hint in
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
-                        Text(title)
-                            .font(TapFont.ui(size: 13.6))
-                            .foregroundStyle(TapColors.text)
-                        Spacer(minLength: 0)
-                        Text(value ?? StatsCopy.notRecorded)
-                            .font(TapFont.ui(size: 13.6, weight: .bold))
-                            .foregroundStyle(value == nil ? TapColors.textMuted : TapColors.text)
-                    }
-                    if let hint {
-                        Text(hint)
-                            .font(TapFont.ui(size: 12.0))
-                            .foregroundStyle(TapColors.textMuted)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .accessibilityElement(children: .combine)
-            }
-        }
-    }
-
-    private func miniBars(_ items: [(String, Rate)]) -> some View {
-        VStack(alignment: .leading, spacing: TapSpacing.xs) {
-            ForEach(items, id: \.0) { title, rate in
-                HStack(spacing: TapSpacing.sm) {
-                    Text(title)
-                        .font(TapFont.ui(size: 12.8))
-                        .foregroundStyle(TapColors.text)
-                        .frame(width: 116, alignment: .leading)
-                    // A bar is only drawn for a sample the display policy is
-                    // willing to express as a percentage. Below that the reading
-                    // is a fraction and a bar would give three attempts the same
-                    // visual weight as thirty.
-                    StatsMiniBar(share: StatsFormat.isThin(rate) ? nil : rate.value)
-                    Text(StatsFormat.rate(rate) ?? StatsCopy.notRecorded)
-                        .font(TapFont.ui(size: 12.8, weight: .bold))
-                        .foregroundStyle(
-                            StatsFormat.rate(rate) == nil ? TapColors.textMuted : TapColors.text
-                        )
-                        .frame(width: 68, alignment: .trailing)
-                }
-                .accessibilityElement(children: .combine)
-            }
-        }
-    }
-
     // MARK: - Round list
 
-    private func roundList(_ model: StatsDashboardModel) -> some View {
+    /// - Parameter history: every row the store has fetched — NOT just the
+    ///   window's. The drill-down's baseline is the rounds before the one tapped,
+    ///   which a narrow window (say "Last 5") does not contain but the store's
+    ///   full history often does.
+    private func roundList(_ model: StatsDashboardModel, history: [PlayerRoundStats]) -> some View {
         let magnitude =
             model.rounds
             .flatMap { row in
@@ -597,17 +311,33 @@ struct StatsDashboardView: View {
         return VStack(alignment: .leading, spacing: TapSpacing.sm) {
             SectionHeader(title: "Rounds", count: "\(model.rounds.count)")
             ForEach(model.rounds) { row in
-                roundRow(row, magnitude: magnitude)
+                roundRow(row, magnitude: magnitude, history: history)
             }
         }
         .accessibilityIdentifier("stats-rounds")
     }
 
-    // NAVIGATION SEAM: the per-round drill-down (proposal §4.4) attaches here —
-    // wrap this row in a Button/NavigationLink carrying `row.id`, which is all
-    // `PlayerStatsEndpoints.myRoundStats` needs. Left inert on purpose: a row
-    // that looks tappable and pushes nothing is worse than one that does not.
-    private func roundRow(_ row: StatsRoundRow, magnitude: Double) -> some View {
+    /// The per-round drill-down (§4.2) hangs off this row.
+    ///
+    /// The link carries `row.id` plus the history already in memory. It is NOT a
+    /// rendered model — the pushed screen still does its own hole read and still
+    /// builds its own figures, so nothing here can go stale behind it. What the
+    /// rows spare is the second walk back through `myStats` for pages this store
+    /// has already paid for, the same shortcut `RoundStoryCard` takes with
+    /// `preloaded:`.
+    private func roundRow(
+        _ row: StatsRoundRow, magnitude: Double, history: [PlayerRoundStats]
+    ) -> some View {
+        NavigationLink {
+            RoundStatsView(roundId: row.id, preloadedHistory: history)
+        } label: {
+            roundRowLabel(row, magnitude: magnitude)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("stats-round-row")
+    }
+
+    private func roundRowLabel(_ row: StatsRoundRow, magnitude: Double) -> some View {
         TapCard {
             HStack(alignment: .center, spacing: TapSpacing.md) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -640,7 +370,6 @@ struct StatsDashboardView: View {
             }
             .padding(TapSpacing.md)
         }
-        .accessibilityIdentifier("stats-round-row")
         .accessibilityElement(children: .combine)
     }
 }

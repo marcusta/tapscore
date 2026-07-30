@@ -12,7 +12,8 @@ import Foundation
 ///   the caller is expected to omit the row.
 ///
 /// Denominators are always printed beside the value, which is the whole reason
-/// the app can afford to show a rate over five attempts at all.
+/// the app can afford to show a rate over five attempts at all. Averages are
+/// held to the same bargain by `averageWithSample` — see the note there.
 enum StatsFormat {
     // MARK: Rates
 
@@ -50,6 +51,13 @@ enum StatsFormat {
     /// hole, strokes vs par, penalties per round. Same denominator floor, but
     /// the value is a quantity, not a share, so it never grows a `%`.
     ///
+    /// This is the BARE value, and on its own it escapes the display policy: a
+    /// percentage always arrives with its sample (either printed beside it or
+    /// spelled out as the fraction it degraded into), while "1.85" reads the
+    /// same over one hole and over forty. Use `averageWithSample` on any surface
+    /// a reader takes a number off; `average` is for callers that print the
+    /// sample themselves (`troubleTax`, whose own denominator is not one).
+    ///
     /// - Parameter signed: prepend `+` for positive values. What "over par"
     ///   needs and "putts per hole" does not.
     static func average(_ r: Rate, decimals: Int = 2, signed: Bool = false) -> String? {
@@ -58,8 +66,95 @@ enum StatsFormat {
             return nil
         case .fraction, .percentage:
             guard let value = r.value else { return nil }
-            return signed ? signedNumber(value, decimals: decimals) : number(value, decimals: decimals)
+            return signed
+                ? signedNumber(value, decimals: decimals) : number(value, decimals: decimals)
         }
+    }
+
+    /// The noun a sample is counted in, in both numbers.
+    ///
+    /// Spelled out rather than derived: "greens hit" and "holes from trouble"
+    /// do not pluralise at the end, and a wrong plural in a figure row is the
+    /// kind of thing that reads as a bug in the number beside it.
+    struct SampleUnit: Equatable, Sendable {
+        var one: String
+        var many: String
+
+        init(_ one: String, _ many: String) {
+            self.one = one
+            self.many = many
+        }
+
+        /// A regular noun, whose plural is just an `s`.
+        static func regular(_ one: String) -> SampleUnit { SampleUnit(one, one + "s") }
+
+        /// The three denominators every average on this screen is over. Kept
+        /// short on purpose — the sample sits inside the value column beside the
+        /// number, the same slot `rateWithSample` fills with "(14 of 24)".
+        static let rounds = SampleUnit.regular("round")
+        static let holes = SampleUnit.regular("hole")
+        static let greens = SampleUnit.regular("green")
+    }
+
+    /// What a thin sample is called, in words. The app's standing rule: an
+    /// annotation is a word, never a glyph.
+    static let thinSample = "thin sample"
+
+    /// The sample behind an average — "over 24 greens", and the same with the
+    /// thin note under the policy's floor.
+    ///
+    /// The floor is exactly `rateWithSample`'s; only the MARK differs, because
+    /// an average has no fraction to degrade into. A rate under five attempts
+    /// says it by reading "2 of 3"; an average has to say it outright.
+    ///
+    /// nil at `d == 0`, matching `average` — the caller omits the row.
+    static func averageSample(_ r: Rate, unit: SampleUnit) -> String? {
+        switch StatMeasuresMath.rateDisplay(r) {
+        case .absent:
+            return nil
+        case .fraction:
+            return "over \(quantity(r.d, unit)) — \(thinSample)"
+        case .percentage:
+            return "over \(quantity(r.d, unit))"
+        }
+    }
+
+    /// An average with its denominator beside it — the form every figure row on
+    /// this screen uses.
+    ///
+    /// - Parameter label: what the number MEASURES, placed between the value and
+    ///   the sample ("1.85 putts per green hit (over 24 greens)"). Panel
+    ///   headlines carry it; a figure row already has the label in its title.
+    static func averageWithSample(
+        _ r: Rate, decimals: Int = 2, signed: Bool = false, unit: SampleUnit,
+        label: String? = nil
+    ) -> String? {
+        guard let value = average(r, decimals: decimals, signed: signed) else { return nil }
+        let head = label.map { "\(value) \($0)" } ?? value
+        guard let sample = averageSample(r, unit: unit) else { return head }
+        return "\(head) (\(sample))"
+    }
+
+    /// The trouble tax's sample is its two SIDES, never its own `d`.
+    ///
+    /// `StatMeasuresMath.troubleTaxPerHole` puts a difference of two averages
+    /// over the CROSS-PRODUCT of their hole counts, and says in its own doc
+    /// comment that the result must not be fed to `rateDisplay` as a sample:
+    /// nine trouble holes against eleven fairway ones would print "over 99
+    /// holes", and four against two would clear the floor of five while resting
+    /// on four holes. The honest reading is both denominators, and either of
+    /// them being thin is what makes the difference unreliable.
+    static func troubleTaxSample(_ vsParByTee: ByTee<Rate>) -> String? {
+        let trouble = vsParByTee.trouble.d
+        let fairway = vsParByTee.fairway.d
+        guard trouble > 0, fairway > 0 else { return nil }
+        let reading =
+            "over \(quantity(trouble, SampleUnit("hole from trouble", "holes from trouble")))"
+            + " vs \(quantity(fairway, SampleUnit("from the fairway", "from the fairway")))"
+        let isThin =
+            trouble < StatMeasuresMath.minRateDenominator
+            || fairway < StatMeasuresMath.minRateDenominator
+        return isThin ? "\(reading) — \(thinSample)" : reading
     }
 
     /// True when a rate is thin enough that the reading is a fraction — the
@@ -76,6 +171,11 @@ enum StatsFormat {
     /// averages them.
     static func count(_ value: Double) -> String {
         value == value.rounded() ? String(Int(value.rounded())) : number(value, decimals: 1)
+    }
+
+    /// A count with its noun: "1 round", "12 rounds".
+    static func quantity(_ value: Double, _ unit: SampleUnit) -> String {
+        "\(count(value)) \(value == 1 ? unit.one : unit.many)"
     }
 
     static func number(_ value: Double, decimals: Int = 1) -> String {
@@ -174,15 +274,74 @@ enum StatsFormat {
         return dayPrinter.string(from: date)
     }
 
-    /// `yyyy-MM-dd` for the filter sheet's date pickers, in the same UTC
-    /// calendar the wire uses.
+    /// `yyyy-MM-dd` for an instant read in UTC — the wire's own reading of a
+    /// day, and the inverse of `date(fromISODay:)`.
+    ///
+    /// NOT for a `DatePicker`: see `isoDay(localDayOf:timeZone:)`.
     static func isoDay(_ date: Date) -> String {
         dayParser.string(from: date)
     }
 
-    /// Round-trips an `isoDay` back to a `Date` for a `DatePicker` binding.
+    /// Parses an `isoDay` to the instant of UTC midnight on it.
     static func date(fromISODay isoDay: String) -> Date? {
         dayParser.date(from: isoDay)
+    }
+
+    /// The Gregorian calendar in a given zone.
+    ///
+    /// Every day this app writes is a GREGORIAN day — `yyyy-MM-dd` is the wire
+    /// format — so no reading of one may go through `Calendar.current`, which on
+    /// a device set to the Buddhist calendar answers 2569 for this year and
+    /// matches no row the server ever wrote. The ZONE is the only thing the
+    /// device's own calendar gets to decide, because that is what says which day
+    /// "today" is.
+    static func gregorian(in timeZone: TimeZone) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar
+    }
+
+    /// The Gregorian year an instant falls in, as the reader's zone sees it.
+    static func gregorianYear(of date: Date, timeZone: TimeZone = .current) -> Int {
+        gregorian(in: timeZone).component(.year, from: date)
+    }
+
+    /// A `DatePicker`'s `Date` → the calendar day the reader SAW on it.
+    ///
+    /// A picker deals in local wall-clock time; `isoDay(_:)` above reads an
+    /// instant in UTC. Those are different days on either side of midnight, so
+    /// a bound committed through the UTC printer can name a day the picker never
+    /// showed — and because the sheet re-seeds its picker from the committed
+    /// value, the pair drifts a day on every open in a western zone. This takes
+    /// the year/month/day the DEVICE displays and prints exactly that.
+    static func isoDay(localDayOf date: Date, timeZone: TimeZone = .current) -> String {
+        let parts = gregorian(in: timeZone).dateComponents([.year, .month, .day], from: date)
+        guard let year = parts.year, let month = parts.month, let day = parts.day else {
+            return isoDay(date)
+        }
+        return String(format: "%04d-%02d-%02d", year, month, day)
+    }
+
+    /// An `isoDay` → local midnight, for a `DatePicker` binding.
+    ///
+    /// The exact inverse of `isoDay(localDayOf:timeZone:)` and tested as one: a
+    /// day that goes through both comes back unchanged in every zone. nil for
+    /// anything that is not a real `yyyy-MM-dd` — a rolled-over component
+    /// ("2026-13-40") resolves to a real instant that is not the day asked for,
+    /// so the round trip itself is the validation.
+    static func localDate(fromISODay iso: String, timeZone: TimeZone = .current) -> Date? {
+        let parts = iso.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0].count == 4, parts[1].count == 2, parts[2].count == 2,
+            let year = Int(parts[0]), let month = Int(parts[1]), let day = Int(parts[2])
+        else { return nil }
+        var components = DateComponents()
+        components.year = year
+        components.month = month
+        components.day = day
+        guard let date = gregorian(in: timeZone).date(from: components),
+            isoDay(localDayOf: date, timeZone: timeZone) == iso
+        else { return nil }
+        return date
     }
 
     /// Plain `static let`, no `nonisolated(unsafe)`: `DateFormatter` is

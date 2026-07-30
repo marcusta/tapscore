@@ -97,6 +97,14 @@ struct StatsTeePanel: Equatable, Sendable {
     /// Strokes over par per hole conceded from trouble, vs the round's own
     /// scoring from the fairway.
     var troubleTax: Rate
+    /// The two samples `troubleTax` is a DIFFERENCE of.
+    ///
+    /// Carried because `troubleTaxPerHole`'s own denominator is a cross-product
+    /// guard (trouble holes × fairway holes), not a sample size — printing it
+    /// would tell a player who has 9 trouble holes and 11 fairway holes that the
+    /// figure rests on 99 of them. The view prints these two instead, which is
+    /// what the math module's doc asks for.
+    var vsParByTee: ByTee<Rate>
     var recovery: Rate
     var penaltiesPerRound: Rate
 }
@@ -169,11 +177,8 @@ struct StatsRoundRow: Equatable, Sendable, Identifiable {
     var vsPar: Double?
     var waterfall: StrokesLost
 
-    // Navigation seam: a per-round drill-down (the proposal's §4.4 round view)
-    // hangs off this row. It carries `id`, which is all a
-    // `PlayerStatsEndpoints.myRoundStats` fetch needs. Deliberately not
-    // tappable yet — a row that pushes nothing is worse than a row that looks
-    // inert.
+    // `id` is the round id, and it is what the per-round drill-down (§4.2)
+    // travels on: `RoundStatsView(roundId:)` needs nothing else from this row.
 }
 
 // MARK: - The model
@@ -340,6 +345,7 @@ struct StatsDashboardModel: Equatable, Sendable {
             inPlayOnly: StatMeasuresMath.rate(m.inPlayHits - m.fairwayHits, m.teeRecorded),
             trouble: StatMeasuresMath.troubleRate(m),
             troubleTax: StatMeasuresMath.troubleTaxPerHole(m),
+            vsParByTee: StatMeasuresMath.strokesVsParByTee(m),
             recovery: StatMeasuresMath.recoveryRate(m),
             penaltiesPerRound: StatMeasuresMath.penaltiesPerRound(m, roundCount: roundCount))
     }

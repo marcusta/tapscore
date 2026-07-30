@@ -171,8 +171,16 @@ enum StatsWindow {
     }
 
     /// `"2026-"` — the string every round dated this calendar year starts with.
+    ///
+    /// The year is GREGORIAN, taken in the passed calendar's ZONE. Reading it
+    /// off the calendar itself is the trap: `Calendar.current` on a device set
+    /// to the Buddhist calendar answers 2569, and "2569-" matches no row the
+    /// server ever wrote — the window would come back empty AND
+    /// `needsMoreHistory` would never be satisfied, so every load would page to
+    /// the cap for nothing. Only the zone is the device's to decide, because
+    /// that is what says which day "today" is.
     static func yearPrefix(_ now: Date, calendar: Calendar = .current) -> String {
-        "\(calendar.component(.year, from: now))-"
+        "\(StatsFormat.gregorianYear(of: now, timeZone: calendar.timeZone))-"
     }
 
     /// Should the store ask the server for another page before it can honestly
@@ -207,11 +215,20 @@ enum StatsWindow {
         case .all:
             return true
         case .custom:
-            // A lower bound is the only criterion that can PROVE completeness
-            // from a newest-first feed: once a row older than `from` is in hand,
-            // no unfetched row can be inside the range. Every other criterion
-            // (course, venue, the checklist) is satisfiable only by the whole
-            // history, so it pages to the end.
+            // The contract, in order:
+            //
+            // - An EMPTY filter constrains nothing, so there is nothing to page
+            //   FOR. That is exactly what `.custom` looks like the moment it is
+            //   picked, before the sheet has even opened: falling through to the
+            //   unlimited case there drains a whole career to render the same
+            //   rows already on screen. It behaves like the loaded fallback
+            //   until a criterion exists.
+            // - A `from` bound is the one criterion a newest-first feed can
+            //   PROVE complete: once a row older than it is in hand, no
+            //   unfetched row can be inside the range.
+            // - Every other criterion (course, venue, the checklist) is
+            //   satisfiable only by the whole history, so it pages to the end.
+            if filter.isEmpty { return false }
             guard let from = filter.from else { return true }
             return !loaded.contains { $0.date < from }
         }

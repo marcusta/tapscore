@@ -76,19 +76,29 @@ struct StatsFilterSheet: View {
             draft = filter
             usesFrom = filter.from != nil
             usesTo = filter.to != nil
-            if let from = filter.from, let date = StatsFormat.date(fromISODay: from) {
+            // Local midnight, not UTC: a `DatePicker` shows the day its `Date`
+            // falls on in the DEVICE's zone, so seeding it from a UTC instant
+            // displays the day before the one that was committed anywhere west
+            // of Greenwich. Paired with `committed` below, which prints the day
+            // back out of the same zone.
+            if let from = filter.from, let date = StatsFormat.localDate(fromISODay: from) {
                 fromDate = date
             }
-            if let to = filter.to, let date = StatsFormat.date(fromISODay: to) { toDate = date }
+            if let to = filter.to, let date = StatsFormat.localDate(fromISODay: to) {
+                toDate = date
+            }
         }
     }
 
     /// The draft with the date switches folded in. A date picker holding a value
     /// its switch is off for must not reach the window.
+    ///
+    /// The wire format is unchanged (`yyyy-MM-dd`); what changed is WHOSE day it
+    /// is — the reader's, which is the only one they ever saw.
     private var committed: StatsRoundFilter {
         var next = draft
-        next.from = usesFrom ? StatsFormat.isoDay(fromDate) : nil
-        next.to = usesTo ? StatsFormat.isoDay(toDate) : nil
+        next.from = usesFrom ? StatsFormat.isoDay(localDayOf: fromDate) : nil
+        next.to = usesTo ? StatsFormat.isoDay(localDayOf: toDate) : nil
         return next
     }
 
@@ -210,7 +220,10 @@ struct StatsFilterSheet: View {
     private var checklist: some View {
         if !rounds.isEmpty {
             section("Rounds") {
-                VStack(alignment: .leading, spacing: 0) {
+                // LAZY: this is the one list here whose length is a career, not a
+                // menu — a player with 600 rounds gets 600 rows, and a plain
+                // `VStack` builds every one of them the instant the sheet opens.
+                LazyVStack(alignment: .leading, spacing: 0) {
                     Text(StatsFilterCopy.checklistHint)
                         .font(TapFont.ui(size: 12.0))
                         .foregroundStyle(TapColors.textMuted)

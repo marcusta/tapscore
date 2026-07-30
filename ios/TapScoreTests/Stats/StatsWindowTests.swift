@@ -111,6 +111,50 @@ final class StatsWindowTests: XCTestCase {
         XCTAssertEqual(windowed.map(\.roundId), ["c", "a"])
     }
 
+    /// The year in `yearPrefix` is the wire's, not the device's.
+    ///
+    /// A phone set to the Buddhist calendar answers 2569 for this year through
+    /// `Calendar.current`, and "2569-" matches no `yyyy-MM-dd` the server has
+    /// ever written: the window would come back empty AND `needsMoreHistory`
+    /// could never be satisfied, so every load would page to the cap for nothing.
+    func testThisYearIsGregorianWhateverCalendarTheDeviceUses() {
+        let rows = [row("a", date: "2026-07-30"), row("b", date: "2025-12-31")]
+
+        for identifier: Calendar.Identifier in [.buddhist, .japanese, .hebrew, .islamic] {
+            var calendar = Calendar(identifier: identifier)
+            calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+
+            XCTAssertEqual(
+                StatsWindow.yearPrefix(date("2026-07-30"), calendar: calendar), "2026-",
+                "\(identifier) must still produce the wire's Gregorian year")
+            XCTAssertEqual(
+                StatsWindow.apply(
+                    preset: .thisYear, filter: StatsRoundFilter(), to: rows,
+                    now: date("2026-07-30"), calendar: calendar
+                ).map(\.roundId),
+                ["a"])
+            // And the paging proof still lands, rather than never being satisfied.
+            XCTAssertFalse(
+                StatsWindow.needsMoreHistory(
+                    preset: .thisYear, filter: StatsRoundFilter(), loaded: rows,
+                    hasMore: true, now: date("2026-07-30"), calendar: calendar))
+        }
+    }
+
+    /// The ZONE is the device's to decide — it is what says which day "today" is.
+    /// UTC midnight on New Year's Day is still last year in Los Angeles.
+    func testThisYearTakesTheYearInTheCalendarsOwnZone() {
+        let newYearUTC = date("2026-01-01")
+
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(secondsFromGMT: 0)!
+        XCTAssertEqual(StatsWindow.yearPrefix(newYearUTC, calendar: utc), "2026-")
+
+        var pacific = Calendar(identifier: .gregorian)
+        pacific.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+        XCTAssertEqual(StatsWindow.yearPrefix(newYearUTC, calendar: pacific), "2025-")
+    }
+
     // MARK: - 4. Custom filter
 
     func testTheEmptyFilterAdmitsEverything() {
@@ -212,6 +256,25 @@ final class StatsWindowTests: XCTestCase {
             StatsWindow.needsMoreHistory(
                 preset: .all, filter: StatsRoundFilter(), loaded: history(200),
                 hasMore: true, now: date("2026-07-30")))
+    }
+
+    /// Picking "Custom" from the dropdown does not, on its own, demand a career.
+    ///
+    /// The filter is empty until the sheet applies one, and an empty filter
+    /// admits exactly what is already on screen — paging for it would drain the
+    /// whole history to render the rows the player is looking at.
+    func testAnEmptyCustomFilterDoesNotAskForMoreHistory() {
+        XCTAssertFalse(
+            StatsWindow.needsMoreHistory(
+                preset: .custom, filter: StatsRoundFilter(), loaded: history(5),
+                hasMore: true, now: date("2026-07-30")))
+
+        // One criterion is enough to change the answer: the checklist and the
+        // course list are only satisfiable by the whole history.
+        XCTAssertTrue(
+            StatsWindow.needsMoreHistory(
+                preset: .custom, filter: StatsRoundFilter(excludedRoundIDs: ["r-1"]),
+                loaded: history(5), hasMore: true, now: date("2026-07-30")))
     }
 
     func testACustomWindowStopsOnlyWhenALowerBoundIsPassed() {

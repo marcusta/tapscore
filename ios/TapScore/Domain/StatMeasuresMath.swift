@@ -223,7 +223,11 @@ struct StrokesLostDeltas: Equatable, Sendable {
 /// The raw values are the twin's ids verbatim — one template key set, two
 /// clients. Adding a rule means adding a case here, a case to `insightLines`,
 /// and a case to both test suites; the list is closed on purpose.
-enum InsightID: String, Equatable, Sendable {
+///
+/// `CaseIterable` is load-bearing, not convenience: `RoundStoryCopy` words every
+/// id in an exhaustive switch and a test walks `allCases` against it, so a rule
+/// added here fails the suite until somebody writes the sentence for it.
+enum InsightID: String, Equatable, Sendable, CaseIterable {
     case componentBestVsBaseline = "component_best_vs_baseline"
     case componentWorstVsBaseline = "component_worst_vs_baseline"
     case penaltiesSpike = "penalties_spike"

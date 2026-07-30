@@ -355,7 +355,57 @@ final class StatsDashboardStoreTests: XCTestCase {
         XCTAssertFalse(store.windowIsOverFiltered)
     }
 
-    // MARK: - 5. Course options
+    // MARK: - 5. The page budget
+
+    /// The cap is a budget for the STORE, not an allowance per call.
+    ///
+    /// A server whose cursor never ends (here: one row, always another page) is
+    /// the shape that matters — a per-call counter would hand every tap of the
+    /// window picker a fresh 40 requests, forever, for a window that can never be
+    /// satisfied.
+    @MainActor
+    func testThePageBudgetIsSpentOncePerStoreNotOncePerWindow() async {
+        RoundStubURLProtocol.route(
+            "/players/me/stats", method: "GET",
+            // The stub repeats its last response, so every page answers the same
+            // already-held round plus another cursor.
+            Self.page(rounds: Self.rounds(1), total: 5000, nextCursor: "cur-1"))
+        let store = makeStore(preset: .all)
+
+        await store.load()
+        XCTAssertEqual(statsRequests().count, StatsDashboardStore.maxPages)
+
+        await store.select(.thisYear)
+        XCTAssertEqual(statsRequests().count, StatsDashboardStore.maxPages)
+
+        await store.select(.last20)
+        await store.apply(filter: StatsRoundFilter(courseIDs: ["c1"]))
+        await store.clearFilter()
+        XCTAssertEqual(statsRequests().count, StatsDashboardStore.maxPages)
+
+        // The rows in hand still render — a spent budget shortens the window, it
+        // does not break the screen.
+        XCTAssertEqual(store.phase, .ready)
+        XCTAssertEqual(store.loadedCount, 1)
+    }
+
+    /// A deliberate reload is the player asking for the walk again.
+    @MainActor
+    func testAReloadRefillsTheBudget() async {
+        RoundStubURLProtocol.route(
+            "/players/me/stats", method: "GET",
+            Self.page(rounds: Self.rounds(1), total: 5000, nextCursor: "cur-1"))
+        let store = makeStore(preset: .all)
+        await store.load()
+        XCTAssertEqual(store.pagesFetched, StatsDashboardStore.maxPages)
+
+        await store.refresh()
+
+        XCTAssertEqual(store.pagesFetched, StatsDashboardStore.maxPages)
+        XCTAssertEqual(statsRequests().count, 2 * StatsDashboardStore.maxPages)
+    }
+
+    // MARK: - 6. Course options
 
     @MainActor
     func testCourseOptionsComeFromTheFetchedRowsOnly() async {
