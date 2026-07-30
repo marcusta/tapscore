@@ -513,6 +513,14 @@ export interface ConditionedCrossTabMeasureColumns {
     putts_total_2_to_4m_resolved: number;
     putts_total_4_to_8m_resolved: number;
     putts_total_over_8m_resolved: number;
+    /**
+     * Holed short-game shots (migration 047) — green missed, difficulty
+     * answered, `putts = 0`, no first-putt bucket. The one short-game outcome
+     * `scramble_first_putt_*` cannot see, because a hole-out has no first putt
+     * to bucket.
+     */
+    scramble_holed_standard: number;
+    scramble_holed_hard: number;
 }
 
 export interface PlayerRoundStatsV3View

@@ -88,6 +88,8 @@ export interface StatMeasures {
     scrambleInside2mStandard: number;
     scrambleFirstPuttHard: number;
     scrambleInside2mHard: number;
+    scrambleHoledStandard: number;
+    scrambleHoledHard: number;
     penaltiesRecorded: number;
     penaltiesTotal: number;
     recoveryAttempts: number;

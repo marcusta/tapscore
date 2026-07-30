@@ -22,6 +22,14 @@ import { type Kysely, sql } from 'kysely';
  *      over exactly the holes `first_putt_{bucket}_resolved` counts. Numerator
  *      and denominator of "average putts from this distance", which is what the
  *      client's expected-putts / strokes-lost math subtracts against.
+ *   5. HOLED SHORT-GAME SHOTS — `scramble_holed_{standard,hard}` (added by
+ *      migration 047, which drops these two views and re-runs this function).
+ *      The chip that went in: a missed green with a difficulty answer,
+ *      `putts = 0`, and NO first-putt bucket — the coherent lone-`putts = 0`
+ *      shape, as opposed to the contradiction the guard above throws away. It
+ *      is the one short-game outcome the `scramble_first_putt_*` family cannot
+ *      see (there is no bucket to record), and without it the client's
+ *      strokes-lost waterfall credits a hole-out to the LONG game.
  *
  * The two rules the 043/044 views already follow, restated because every column
  * below obeys them:
@@ -142,7 +150,19 @@ export async function createPlayerStatsV3Views(db: Kysely<any>): Promise<void> {
                      THEN putts END), 0) AS putts_total_4_to_8m_resolved,
                 COALESCE(SUM(CASE WHEN (putts IS NULL OR putts <> 0 OR first_putt IS NULL)
                      AND first_putt = 'over_8m'
-                     THEN putts END), 0) AS putts_total_over_8m_resolved
+                     THEN putts END), 0) AS putts_total_over_8m_resolved,
+
+                -- 5. Holed short-game shots (migration 047). The chip that went
+                -- in: green missed, difficulty answered, zero putts, no bucket.
+                -- 'first_putt IS NULL' satisfies the coherence guard on its own,
+                -- and it is what separates a hole-out from the contradiction
+                -- (a bucket AND zero putts) the other families discard.
+                COUNT(CASE WHEN gir = 0 AND short_game_difficulty = 'standard'
+                     AND putts = 0 AND first_putt IS NULL
+                     THEN 1 END) AS scramble_holed_standard,
+                COUNT(CASE WHEN gir = 0 AND short_game_difficulty = 'hard'
+                     AND putts = 0 AND first_putt IS NULL
+                     THEN 1 END) AS scramble_holed_hard
             FROM player_hole_stats
             GROUP BY round_id, player_id
         )
@@ -170,7 +190,11 @@ export async function createPlayerStatsV3Views(db: Kysely<any>): Promise<void> {
                COALESCE(context.putts_total_4_to_8m_resolved, 0)
                    AS putts_total_4_to_8m_resolved,
                COALESCE(context.putts_total_over_8m_resolved, 0)
-                   AS putts_total_over_8m_resolved
+                   AS putts_total_over_8m_resolved,
+               COALESCE(context.scramble_holed_standard, 0)
+                   AS scramble_holed_standard,
+               COALESCE(context.scramble_holed_hard, 0)
+                   AS scramble_holed_hard
         FROM v_player_round_stats_v2 base
         LEFT JOIN context
           ON context.round_id = base.round_id AND context.player_id = base.player_id
@@ -202,7 +226,9 @@ export async function createPlayerStatsV3Views(db: Kysely<any>): Promise<void> {
                SUM(rounds.putts_total_4_to_8m_resolved)
                    AS putts_total_4_to_8m_resolved,
                SUM(rounds.putts_total_over_8m_resolved)
-                   AS putts_total_over_8m_resolved
+                   AS putts_total_over_8m_resolved,
+               SUM(rounds.scramble_holed_standard) AS scramble_holed_standard,
+               SUM(rounds.scramble_holed_hard) AS scramble_holed_hard
         FROM v_player_stat_totals_v2 totals
         JOIN v_player_round_stats_v3 rounds ON rounds.player_id = totals.player_id
         GROUP BY totals.player_id

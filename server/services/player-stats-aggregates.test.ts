@@ -244,6 +244,11 @@ test('the round view is the hand-computed arithmetic of the worked example', asy
         // H3 was holed from off the green: no bucket, so no chip-close sample.
         scrambleFirstPuttHard: 0,
         scrambleInside2mHard: 0,
+        // …and it is counted HERE instead (migration 047): the hard chip that
+        // went in — gir 0, difficulty answered, putts 0, no bucket. H2's
+        // standard chip left a putt, so the standard column stays empty.
+        scrambleHoledStandard: 0,
+        scrambleHoledHard: 1,
 
         // A recorded 0 is a recorded answer.
         penaltiesRecorded: 2,
@@ -370,6 +375,11 @@ test('putts = 0 is a chip-in, not a missing answer', async () => {
     // Holing the chip is the best possible up-and-down.
     expect(measures.scrambleAttemptsHard).toBe(1);
     expect(measures.scrambleSuccessesHard).toBe(1);
+    // And it lands in the holed column, which is the only place the client can
+    // see it — there is no first putt to bucket, so `scrambleFirstPutt*` is 0.
+    expect(measures.scrambleFirstPuttHard).toBe(0);
+    expect(measures.scrambleHoledHard).toBe(1);
+    expect(measures.scrambleHoledStandard).toBe(0);
 });
 
 test('an incoherent putting answer is treated as unrecorded, and only there', async () => {
@@ -390,6 +400,10 @@ test('an incoherent putting answer is treated as unrecorded, and only there', as
     expect(measures.firstPuttInside1m).toBe(0);
     expect(measures.scrambleAttemptsStandard).toBe(0);
     expect(measures.scrambleFirstPuttStandard).toBe(0);
+    // Not a chip-in either: a hole-out has no first putt, so a bucket alongside
+    // `putts = 0` is the contradiction, not the hole-out shape.
+    expect(measures.scrambleHoledStandard).toBe(0);
+    expect(measures.scrambleHoledHard).toBe(0);
     // The hole's OTHER answers are unaffected — one contradiction does not
     // discredit the tee shot.
     expect(measures.teeRecorded).toBe(1);
@@ -516,6 +530,9 @@ test('totals are the sum of every round measure, newest round first', async () =
         scrambleInside2mStandard: 0,
         scrambleFirstPuttHard: 1,
         scrambleInside2mHard: 1,
+        // Neither round holed a chip — every chip here left a putt.
+        scrambleHoledStandard: 0,
+        scrambleHoledHard: 0,
         penaltiesRecorded: 2,
         penaltiesTotal: 1,
         recoveryAttempts: 1,
@@ -744,6 +761,76 @@ test('the middle buckets carry their own counts and their own putt totals', asyn
     expect(measures.puttsTotalInside1mResolved).toBe(0);
     expect(measures.puttsTotal2To4mResolved).toBe(0);
     expect(measures.puttsTotalOver8mResolved).toBe(0);
+});
+
+// --- The migration-047 holed-chip columns --------------------------------------
+
+test('the holed-chip columns count the hole-out and nothing that resembles it', async () => {
+    const f = await fixture();
+    //  H1 missed green, STANDARD, 0 putts, no bucket  → a holed standard chip
+    //  H2 missed green, HARD, 0 putts, no bucket      → a holed hard chip
+    //  H3 missed green, STANDARD, bucket + 1 putt     → a chip, not a hole-out
+    //  H4 GREEN HIT, 0 putts, no bucket               → not a short-game shot
+    //  H5 missed green, 0 putts, NO difficulty answer → no column to land in
+    //  H6 missed green, HARD, 0 putts AND a bucket    → the contradiction
+    await f.stat(1, 'gir', '0');
+    await f.stat(1, 'short_game_difficulty', 'standard');
+    await f.stat(1, 'putts', '0');
+
+    await f.stat(2, 'gir', '0');
+    await f.stat(2, 'short_game_difficulty', 'hard');
+    await f.stat(2, 'putts', '0');
+
+    await f.stat(3, 'gir', '0');
+    await f.stat(3, 'short_game_difficulty', 'standard');
+    await f.stat(3, 'first_putt', 'inside_1m');
+    await f.stat(3, 'putts', '1');
+
+    await f.stat(4, 'gir', '1');
+    await f.stat(4, 'putts', '0');
+
+    await f.stat(5, 'gir', '0');
+    await f.stat(5, 'putts', '0');
+
+    await f.stat(6, 'gir', '0');
+    await f.stat(6, 'short_game_difficulty', 'hard');
+    await f.stat(6, 'putts', '0');
+    await f.stat(6, 'first_putt', '1_to_2m');
+
+    const { measures } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId)).rounds[0]!;
+    expect(measures.scrambleHoledStandard).toBe(1);
+    expect(measures.scrambleHoledHard).toBe(1);
+    // Disjoint from the chip-close family by construction: a hole-out has no
+    // first putt, so the two never count the same hole.
+    expect(measures.scrambleFirstPuttStandard).toBe(1);
+    expect(measures.scrambleInside2mStandard).toBe(1);
+    expect(measures.scrambleFirstPuttHard).toBe(0);
+    // H1, H2, H3, H5 and H6 are all attempts; only the graded ones are here.
+    expect(measures.scrambleAttemptsStandard).toBe(2);
+    expect(measures.scrambleSuccessesStandard).toBe(2);
+});
+
+test('holed chips are additive across rounds, like every other column', async () => {
+    const first = await fixture({ date: '2026-06-01' });
+    await first.stat(1, 'gir', '0');
+    await first.stat(1, 'short_game_difficulty', 'hard');
+    await first.stat(1, 'putts', '0');
+
+    const second = await fixture({
+        ctx: first.ctx,
+        playerId: first.playerId,
+        date: '2026-06-08',
+    });
+    await second.stat(1, 'gir', '0');
+    await second.stat(1, 'short_game_difficulty', 'hard');
+    await second.stat(1, 'putts', '0');
+    await second.stat(2, 'gir', '0');
+    await second.stat(2, 'short_game_difficulty', 'standard');
+    await second.stat(2, 'putts', '0');
+
+    const summary = await first.ctx.playerStatsService.summaryForPlayer(first.playerId);
+    expect(summary.totals!.scrambleHoledHard).toBe(2);
+    expect(summary.totals!.scrambleHoledStandard).toBe(1);
 });
 
 // --- Round metadata and paging -------------------------------------------------

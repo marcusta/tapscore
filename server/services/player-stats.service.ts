@@ -195,6 +195,14 @@ export interface StatMeasures {
     scrambleInside2mStandard: number;
     scrambleFirstPuttHard: number;
     scrambleInside2mHard: number;
+    /**
+     * The chip that went in — `putts = 0` with no first-putt bucket, so it is
+     * invisible to `scrambleFirstPutt*`. Counted separately because the
+     * strokes-lost waterfall has to credit the hole-out to the short game;
+     * without it the gain lands in the long-game residual.
+     */
+    scrambleHoledStandard: number;
+    scrambleHoledHard: number;
 
     // Penalties + recovery (spec §1.5).
     penaltiesRecorded: number;
@@ -498,6 +506,8 @@ function toMeasures(row: PlayerRoundStatsV3View | PlayerStatTotalsV3View): StatM
         scrambleInside2mStandard: row.scramble_inside_2m_standard_v2,
         scrambleFirstPuttHard: row.scramble_first_putt_hard,
         scrambleInside2mHard: row.scramble_inside_2m_hard_v2,
+        scrambleHoledStandard: row.scramble_holed_standard,
+        scrambleHoledHard: row.scramble_holed_hard,
         penaltiesRecorded: row.penalties_recorded,
         penaltiesTotal: row.penalties_total,
         recoveryAttempts: row.recovery_attempts,
@@ -589,6 +599,8 @@ function zeroMeasures(): StatMeasures {
         scrambleInside2mStandard: 0,
         scrambleFirstPuttHard: 0,
         scrambleInside2mHard: 0,
+        scrambleHoledStandard: 0,
+        scrambleHoledHard: 0,
         penaltiesRecorded: 0,
         penaltiesTotal: 0,
         recoveryAttempts: 0,

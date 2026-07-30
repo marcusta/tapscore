@@ -1,0 +1,909 @@
+import Foundation
+import XCTest
+
+@testable import TapScore
+
+/// The client half of the stats story: the server's per-round COUNTS in, windows,
+/// rates and the strokes-lost waterfall out. The case-for-case twin of
+/// `tests/round/stat-measures.test.ts` — the two suites are the shared
+/// specification of the same pure module, so a change to one belongs in both.
+///
+/// The fixture below is deliberately not invented here: it is the exact row
+/// `server/services/player-stats-aggregates.test.ts` asserts for its worked
+/// example, so server counts → client rates → waterfall are one continuous,
+/// verified story. Change the fixture only when that server test changes.
+final class StatMeasuresMathTests: XCTestCase {
+
+    private func measures(_ mutate: (inout StatMeasures) -> Void = { _ in }) -> StatMeasures {
+        var m = StatMeasuresMath.zero
+        mutate(&m)
+        return m
+    }
+
+    /// The worked example, six holes, pars 4/4/3/5/4/4:
+    ///
+    ///  H1 par 4, 4 strokes — fairway, GIR, first putt 2-4m, 2 putts, 0 penalties
+    ///  H2 par 4, 6 strokes — trouble, recovery OK, missed green, STANDARD chip to
+    ///                        inside 2m, 1 putt, 1 penalty        → double bogey
+    ///  H3 par 3, 2 strokes — no tee question, missed green, HARD chip, 0 putts
+    ///                        (holed it), no first-putt bucket    → bounce-back
+    ///  H4 par 5, 6 strokes — in play, GIR, first putt over 8m, 3 putts
+    ///  H5 par 4, 3 strokes — fairway, GIR, first putt inside 2m, 1 putt → birdie
+    ///  H6 par 4, 4 strokes — SCORED, nothing recorded at all
+    private lazy var workedExample: StatMeasures = measures { m in
+        m.teeRecorded = 4
+        m.fairwayHits = 2
+        // Cumulative: the two fairways are also "in play".
+        m.inPlayHits = 3
+        m.troubleCount = 1
+        m.girRecorded = 5
+        m.girHits = 3
+        m.firstPuttRecorded = 4
+        m.firstPuttInside1m = 2
+        m.firstPutt2To4m = 1
+        m.firstPuttOver8m = 1
+        m.firstPuttInside1mResolved = 2
+        m.firstPutt2To4mResolved = 1
+        m.firstPuttOver8mResolved = 1
+        m.onePuttInside1m = 2
+        m.puttsRecorded = 5
+        m.puttsTotal = 7
+        m.threePutts = 1
+        m.threePuttsFromOver8m = 1
+        m.scrambleAttemptsStandard = 1
+        m.scrambleSuccessesStandard = 1
+        m.scrambleAttemptsHard = 1
+        m.scrambleSuccessesHard = 1
+        // H3 was holed from off the green: no bucket, so no chip-close sample —
+        // it is counted as a holed chip instead.
+        m.scrambleFirstPuttStandard = 1
+        m.scrambleInside2mStandard = 1
+        m.scrambleHoledHard = 1
+        m.penaltiesRecorded = 2
+        m.penaltiesTotal = 1
+        m.recoveryAttempts = 1
+        m.recoverySuccesses = 1
+        m.holesScored = 6
+        m.strokesTotal = 25
+        m.parTotal = 24
+        m.holesScoredPar3 = 1
+        m.strokesPar3 = 2
+        m.holesScoredPar4 = 4
+        m.strokesPar4 = 17
+        m.holesScoredPar5 = 1
+        m.strokesPar5 = 6
+        m.doubleBogeyPlus = 1
+        m.girHolesScored = 3
+        m.birdiesOnGir = 1
+        m.bounceBackOpportunities = 1
+        m.bounceBackSuccesses = 1
+        m.holesScoredFairway = 2
+        m.strokesVsParFairway = -1
+        m.holesScoredInPlay = 1
+        m.strokesVsParInPlay = 1
+        m.holesScoredTrouble = 1
+        m.strokesVsParTrouble = 2
+        m.girRecordedFairway = 2
+        m.girHitsFairway = 2
+        m.girRecordedInPlay = 1
+        m.girHitsInPlay = 1
+        m.girRecordedTrouble = 1
+        m.girHitsTrouble = 0
+        m.girFirstPuttRecorded = 3
+        m.girFirstPuttInside1m = 1
+        m.girFirstPutt2To4m = 1
+        m.girFirstPuttOver8m = 1
+        m.puttsRecordedGir = 3
+        m.puttsTotalGir = 6
+        m.puttsTotalInside1mResolved = 2
+        m.puttsTotal2To4mResolved = 2
+        m.puttsTotalOver8mResolved = 3
+    }
+
+    private func assertRate(
+        _ r: Rate,
+        _ value: Double?,
+        _ n: Double,
+        _ d: Double,
+        accuracy: Double = 1e-9,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        if let value {
+            guard let actual = r.value else {
+                return XCTFail("expected \(value), got nil", file: file, line: line)
+            }
+            XCTAssertEqual(actual, value, accuracy: accuracy, file: file, line: line)
+        } else {
+            XCTAssertNil(r.value, file: file, line: line)
+        }
+        XCTAssertEqual(r.n, n, file: file, line: line)
+        XCTAssertEqual(r.d, d, file: file, line: line)
+    }
+
+    private func assertClose(
+        _ actual: Double?,
+        _ expected: Double,
+        accuracy: Double = 1e-9,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let actual else {
+            return XCTFail("expected \(expected), got nil", file: file, line: line)
+        }
+        XCTAssertEqual(actual, expected, accuracy: accuracy, file: file, line: line)
+    }
+
+    // MARK: - Guarded rates
+
+    func testARateCarriesItsSampleAndAZeroDenominatorIsNilRatherThanZero() {
+        XCTAssertEqual(StatMeasuresMath.rate(3, 4), Rate(value: 0.75, n: 3, d: 4))
+        // Not 0, and not NaN: nothing was recorded, so there is nothing to render.
+        XCTAssertEqual(StatMeasuresMath.rate(0, 0), Rate(value: nil, n: 0, d: 0))
+        XCTAssertEqual(StatMeasuresMath.rate(0, 4).value, 0)
+        // Averages and signed differences share the shape; [0,1] is not a rule.
+        XCTAssertEqual(StatMeasuresMath.rate(-1, 2).value, -0.5)
+    }
+
+    func testDisplayPolicyPercentageAboveTheFloorRawFractionBelowItAbsentAtZero() {
+        XCTAssertEqual(StatMeasuresMath.minRateDenominator, 5)
+        XCTAssertEqual(StatMeasuresMath.rateDisplay(StatMeasuresMath.rate(0, 0)), .absent)
+        // One fairway from one hole is not "100% fairways".
+        XCTAssertEqual(StatMeasuresMath.rateDisplay(StatMeasuresMath.rate(1, 1)), .fraction)
+        XCTAssertEqual(StatMeasuresMath.rateDisplay(StatMeasuresMath.rate(4, 4)), .fraction)
+        XCTAssertEqual(StatMeasuresMath.rateDisplay(StatMeasuresMath.rate(3, 5)), .percentage)
+        // The floor is per-panel overridable.
+        XCTAssertEqual(
+            StatMeasuresMath.rateDisplay(StatMeasuresMath.rate(4, 4), minDen: 3), .percentage)
+        XCTAssertEqual(
+            StatMeasuresMath.rateDisplay(StatMeasuresMath.rate(3, 5), minDen: 10), .fraction)
+        XCTAssertEqual(
+            StatMeasuresMath.rateDisplay(StatMeasuresMath.rate(0, 0), minDen: 1), .absent)
+    }
+
+    // MARK: - Window summation
+
+    func testAnEmptyWindowIsAllZeroesAndOneRoundSumsToItself() {
+        XCTAssertEqual(StatMeasuresMath.sum([]), StatMeasuresMath.zero)
+        XCTAssertEqual(StatMeasuresMath.sum([workedExample]), workedExample)
+    }
+
+    /// Every field at a DISTINCT value — its 1-based position in the
+    /// declaration. Written out rather than generated so it is the same fixture
+    /// as the TypeScript twin's.
+    ///
+    /// The point of the distinct values: `workedExample` is full of zeroes and
+    /// repeated small counts, so `a.girHits + b.girHitsFairway` — a cross-wired
+    /// pair in `add` — would sum to the right number by luck. No two fields here
+    /// share a value, so a cross-wired pair cannot.
+    private lazy var sweep: StatMeasures = measures { m in
+        m.teeRecorded = 1
+        m.fairwayHits = 2
+        m.inPlayHits = 3
+        m.troubleCount = 4
+        m.girRecorded = 5
+        m.girHits = 6
+        m.firstPuttRecorded = 7
+        m.firstPuttInside1m = 8
+        m.firstPutt1To2m = 9
+        m.firstPutt2To4m = 10
+        m.firstPutt4To8m = 11
+        m.firstPuttOver8m = 12
+        m.firstPuttInside1mResolved = 13
+        m.firstPutt1To2mResolved = 14
+        m.firstPutt2To4mResolved = 15
+        m.firstPutt4To8mResolved = 16
+        m.firstPuttOver8mResolved = 17
+        m.onePuttInside1m = 18
+        m.onePutt1To2m = 19
+        m.onePutt2To4m = 20
+        m.onePutt4To8m = 21
+        m.onePuttOver8m = 22
+        m.puttsRecorded = 23
+        m.puttsTotal = 24
+        m.threePutts = 25
+        m.threePuttsFromOver8m = 26
+        m.scrambleAttemptsStandard = 27
+        m.scrambleSuccessesStandard = 28
+        m.scrambleAttemptsHard = 29
+        m.scrambleSuccessesHard = 30
+        m.scrambleFirstPuttStandard = 31
+        m.scrambleInside2mStandard = 32
+        m.scrambleFirstPuttHard = 33
+        m.scrambleInside2mHard = 34
+        m.scrambleHoledStandard = 35
+        m.scrambleHoledHard = 36
+        m.penaltiesRecorded = 37
+        m.penaltiesTotal = 38
+        m.recoveryAttempts = 39
+        m.recoverySuccesses = 40
+        m.holesScored = 41
+        m.strokesTotal = 42
+        m.parTotal = 43
+        m.holesScoredPar3 = 44
+        m.strokesPar3 = 45
+        m.holesScoredPar4 = 46
+        m.strokesPar4 = 47
+        m.holesScoredPar5 = 48
+        m.strokesPar5 = 49
+        m.doubleBogeyPlus = 50
+        m.girHolesScored = 51
+        m.birdiesOnGir = 52
+        m.bounceBackOpportunities = 53
+        m.bounceBackSuccesses = 54
+        m.holesScoredFairway = 55
+        m.strokesVsParFairway = 56
+        m.holesScoredInPlay = 57
+        m.strokesVsParInPlay = 58
+        m.holesScoredTrouble = 59
+        m.strokesVsParTrouble = 60
+        m.girRecordedFairway = 61
+        m.girHitsFairway = 62
+        m.girRecordedInPlay = 63
+        m.girHitsInPlay = 64
+        m.girRecordedTrouble = 65
+        m.girHitsTrouble = 66
+        m.girFirstPuttRecorded = 67
+        m.girFirstPuttInside1m = 68
+        m.girFirstPutt1To2m = 69
+        m.girFirstPutt2To4m = 70
+        m.girFirstPutt4To8m = 71
+        m.girFirstPuttOver8m = 72
+        m.puttsRecordedGir = 73
+        m.puttsTotalGir = 74
+        m.puttsTotalInside1mResolved = 75
+        m.puttsTotal1To2mResolved = 76
+        m.puttsTotal2To4mResolved = 77
+        m.puttsTotal4To8mResolved = 78
+        m.puttsTotalOver8mResolved = 79
+    }
+
+    func testEveryMeasureColumnIsAdditiveIncludingTheOnesNoRateReads() throws {
+        // Key-by-key rather than spot checks: a column missing from `add` would
+        // read as its first round's value forever, and only a full sweep sees
+        // it. The Codable encoding is the sweep — it names every column exactly
+        // once. (The TypeScript twin does the same sweep over `Object.keys`.)
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        let singleFields = try decoder.decode(
+            [String: Double].self, from: encoder.encode(sweep))
+        let doubledFields = try decoder.decode(
+            [String: Double].self, from: encoder.encode(StatMeasuresMath.sum([sweep, sweep])))
+        // The count is asserted (and mirrored in the TypeScript twin) so that a
+        // field added to the server's measure set and forgotten in the fixture
+        // is caught, rather than sweeping a smaller set and passing.
+        XCTAssertEqual(singleFields.count, 79)
+        XCTAssertEqual(Set(singleFields.values).count, 79)
+        for (key, single) in singleFields {
+            XCTAssertEqual(doubledFields[key], single * 2, "column \(key) is not additive")
+        }
+
+        // …and the worked example, whose values a reader can check against the
+        // server test, sums the same way.
+        let exampleFields = try decoder.decode(
+            [String: Double].self, from: encoder.encode(workedExample))
+        let doubledExample = try decoder.decode(
+            [String: Double].self,
+            from: encoder.encode(StatMeasuresMath.sum([workedExample, workedExample])))
+        XCTAssertEqual(exampleFields.count, 79)
+        for (key, single) in exampleFields {
+            XCTAssertEqual(doubledExample[key], single * 2, "column \(key) is not additive")
+        }
+    }
+
+    func testRatesOverAWindowAreTheWindowSumNotAnAverageOfRates() {
+        let window = StatMeasuresMath.sum([workedExample, workedExample])
+        // Doubling every count leaves every ratio where it was, but doubles the
+        // sample — which is what promotes fairway% out of fraction display.
+        assertClose(StatMeasuresMath.girRate(window).value, 0.6, accuracy: 1e-12)
+        XCTAssertEqual(
+            StatMeasuresMath.rateDisplay(StatMeasuresMath.fairwayRate(workedExample)), .fraction)
+        XCTAssertEqual(
+            StatMeasuresMath.rateDisplay(StatMeasuresMath.fairwayRate(window)), .percentage)
+        // Per-round figures need the caller's row count; the sum cannot know it.
+        XCTAssertEqual(StatMeasuresMath.penaltiesPerRound(window, roundCount: 2).value, 1)
+        XCTAssertEqual(StatMeasuresMath.doubleBogeyPlusPerRound(window, roundCount: 2).value, 1)
+    }
+
+    // MARK: - Derived metrics over the worked example
+
+    func testOffTheTeeRatesReadTheWorkedExampleByHand() {
+        // 2 fairways of 4 graded tee shots; in-play is cumulative (2 + 1), trouble 1.
+        assertRate(StatMeasuresMath.fairwayRate(workedExample), 0.5, 2, 4)
+        XCTAssertEqual(StatMeasuresMath.inPlayRate(workedExample).value, 0.75)
+        XCTAssertEqual(StatMeasuresMath.troubleRate(workedExample).value, 0.25)
+        XCTAssertEqual(StatMeasuresMath.recoveryRate(workedExample).value, 1)
+        XCTAssertEqual(StatMeasuresMath.penaltiesPerRound(workedExample, roundCount: 1).value, 1)
+    }
+
+    func testTroubleTaxIsTheDifferenceOfTwoGuardedAverages() {
+        let byTee = StatMeasuresMath.strokesVsParByTee(workedExample)
+        // Two fairway holes at -1 total; one trouble hole at +2.
+        XCTAssertEqual(byTee.fairway.value, -0.5)
+        XCTAssertEqual(byTee.trouble.value, 2)
+        XCTAssertEqual(byTee.inPlay.value, 1)
+        // 2 - (-0.5) = 2.5 strokes per hole. `d` is the cross-product guard.
+        XCTAssertEqual(StatMeasuresMath.troubleTaxPerHole(workedExample).value, 2.5)
+        XCTAssertEqual(StatMeasuresMath.troubleTaxPerHole(workedExample).d, 2)
+        // Either side missing means no comparison — not a zero tax.
+        let fairwayOnly = measures { m in
+            m.holesScoredFairway = 2
+            m.strokesVsParFairway = -1
+        }
+        XCTAssertNil(StatMeasuresMath.troubleTaxPerHole(fairwayOnly).value)
+    }
+
+    func testGIRByTeeUsesTheStrictTeeColumnsUnlikeCumulativeInPlay() {
+        assertRate(StatMeasuresMath.girRate(workedExample), 0.6, 3, 5, accuracy: 1e-12)
+        let byTee = StatMeasuresMath.girRateByTee(workedExample)
+        XCTAssertEqual(byTee.fairway.value, 1)
+        // Strict: the single in-play tee shot, NOT the three cumulative ones.
+        XCTAssertEqual(byTee.inPlay, Rate(value: 1, n: 1, d: 1))
+        XCTAssertEqual(byTee.trouble.value, 0)
+        // The par 3 has a GIR answer and no tee question, so the cross-tab
+        // denominators sum to 4 while girRecorded is 5.
+        XCTAssertEqual(byTee.fairway.d + byTee.inPlay.d + byTee.trouble.d, 4)
+        XCTAssertEqual(StatMeasuresMath.girRate(workedExample).d, 5)
+    }
+
+    func testApproachProximityAndBirdieConversion() {
+        assertRate(StatMeasuresMath.girFirstPuttMix(workedExample, .twoTo4m), 1.0 / 3.0, 1, 3)
+        // A share of a real sample: no green was left at 1-2m, which IS zero —
+        // the shared denominator is what makes the five buckets a distribution.
+        assertRate(StatMeasuresMath.girFirstPuttMix(workedExample, .oneTo2m), 0, 0, 3)
+        XCTAssertNil(StatMeasuresMath.girFirstPuttMix(StatMeasuresMath.zero, .oneTo2m).value)
+        // 1 birdie over the 3 greens hit that were also SCORED.
+        assertRate(StatMeasuresMath.birdieConversion(workedExample), 1.0 / 3.0, 1, 3)
+    }
+
+    func testPuttingRatesPairEveryNumeratorWithItsResolvedDenominator() {
+        // Both inside-1m putts were holed; the 2-4m and the >8m were not.
+        assertRate(StatMeasuresMath.onePuttRate(workedExample, .inside1m), 1, 2, 2)
+        XCTAssertEqual(StatMeasuresMath.onePuttRate(workedExample, .twoTo4m).value, 0)
+        // No sample in this bucket: nil, never 0%.
+        assertRate(StatMeasuresMath.onePuttRate(workedExample, .oneTo2m), nil, 0, 0)
+        assertRate(StatMeasuresMath.puttsPerFirstPutt(workedExample, .over8m), 3, 3, 1)
+        // Three-putts sit over the coherent putt count (5 holes), never over the
+        // first-putt denominator (4) — that mismatch is what makes ratios exceed 1.
+        assertRate(StatMeasuresMath.threePuttRate(workedExample), 0.2, 1, 5)
+        assertRate(StatMeasuresMath.threePuttsFromOver8mRate(workedExample), 1, 1, 1)
+        // 6 putts over the 3 greens hit, not 7 over 5 holes.
+        assertRate(StatMeasuresMath.puttsPerGirHole(workedExample), 2, 6, 3)
+    }
+
+    func testThePuttingRatiosStayInsideZeroToOneWhereACoarseDenominatorWouldNot() {
+        // The legacy-bucket asymmetry, staged: a v2 numerator over the COARSE
+        // `firstPuttRecorded` reads 2/1 = 200%. The resolved pair reads 1.
+        let skewed = measures { m in
+            m.firstPuttRecorded = 1
+            m.firstPuttInside1m = 2
+            m.firstPuttInside1mResolved = 2
+            m.onePuttInside1m = 2
+            m.puttsRecorded = 2
+            m.puttsTotalInside1mResolved = 2
+        }
+        XCTAssertEqual(StatMeasuresMath.onePuttRate(skewed, .inside1m).value, 1)
+        XCTAssertEqual(skewed.onePuttInside1m / skewed.firstPuttRecorded, 2)
+    }
+
+    func testScramblingSplitsByDifficultyAndChipProximityKeepsItsOwnDenominator() {
+        let scramble = StatMeasuresMath.scrambleRate(workedExample)
+        XCTAssertEqual(scramble.standard.value, 1)
+        XCTAssertEqual(scramble.hard.value, 1)
+        XCTAssertEqual(scramble.overall, Rate(value: 1, n: 2, d: 2))
+
+        let chips = StatMeasuresMath.chipInside2mRate(workedExample)
+        // The standard chip finished inside 2m. The hard one was HOLED, so it has
+        // no first-putt bucket and is outside this ratio — not a miss.
+        XCTAssertEqual(chips.standard, Rate(value: 1, n: 1, d: 1))
+        XCTAssertEqual(chips.hard, Rate(value: nil, n: 0, d: 0))
+        XCTAssertEqual(chips.overall, Rate(value: 1, n: 1, d: 1))
+        XCTAssertEqual(scramble.overall.d, 2)
+        XCTAssertEqual(chips.overall.d, 1)
+    }
+
+    func testScoringRatesSplitByParGroupAndCountBlowUpsPerRound() {
+        let byPar = StatMeasuresMath.avgVsParByParGroup(workedExample)
+        // Par 3: 2 strokes on one hole = -1. Par 4: 17 over 4 holes = +0.25.
+        // Par 5: 6 on one hole = +1.
+        XCTAssertEqual(byPar.par3.value, -1)
+        XCTAssertEqual(byPar.par4.value, 0.25)
+        XCTAssertEqual(byPar.par5.value, 1)
+        XCTAssertEqual(
+            StatMeasuresMath.doubleBogeyPlusPerRound(workedExample, roundCount: 1).value, 1)
+        XCTAssertEqual(StatMeasuresMath.bounceBackRate(workedExample), Rate(value: 1, n: 1, d: 1))
+    }
+
+    func testAWindowWithNothingInItRendersAsAbsentEverywhereNeverAsZeroes() {
+        let empty = StatMeasuresMath.zero
+        var rates: [Rate] = [
+            StatMeasuresMath.fairwayRate(empty),
+            StatMeasuresMath.inPlayRate(empty),
+            StatMeasuresMath.troubleRate(empty),
+            StatMeasuresMath.recoveryRate(empty),
+            StatMeasuresMath.girRate(empty),
+            StatMeasuresMath.girRateByTee(empty).fairway,
+            StatMeasuresMath.girRateByTee(empty).inPlay,
+            StatMeasuresMath.girRateByTee(empty).trouble,
+            StatMeasuresMath.birdieConversion(empty),
+            StatMeasuresMath.scrambleRate(empty).overall,
+            StatMeasuresMath.chipInside2mRate(empty).overall,
+            StatMeasuresMath.threePuttRate(empty),
+            StatMeasuresMath.threePuttsFromOver8mRate(empty),
+            StatMeasuresMath.puttsPerGirHole(empty),
+            StatMeasuresMath.avgVsParByParGroup(empty).par3,
+            StatMeasuresMath.avgVsParByParGroup(empty).par4,
+            StatMeasuresMath.avgVsParByParGroup(empty).par5,
+            StatMeasuresMath.bounceBackRate(empty),
+            StatMeasuresMath.troubleTaxPerHole(empty),
+            StatMeasuresMath.penaltiesPerRound(empty, roundCount: 0),
+            StatMeasuresMath.doubleBogeyPlusPerRound(empty, roundCount: 0),
+        ]
+        rates += PuttBucket.allCases.map { StatMeasuresMath.onePuttRate(empty, $0) }
+        rates += PuttBucket.allCases.map { StatMeasuresMath.puttsPerFirstPutt(empty, $0) }
+        rates += PuttBucket.allCases.map { StatMeasuresMath.girFirstPuttMix(empty, $0) }
+        for r in rates {
+            XCTAssertNil(r.value)
+            XCTAssertEqual(StatMeasuresMath.rateDisplay(r), .absent)
+        }
+    }
+
+    // MARK: - The strokes-lost waterfall
+
+    func testTheExpectedPuttsTablesAreFrozenAtTheirV1Values() {
+        XCTAssertEqual(
+            StatMeasuresMath.expectedPuttsV1,
+            ExpectedPuttsTable(
+                inside1m: 1.05, oneTo2m: 1.45, twoTo4m: 1.85, fourTo8m: 2.1, over8m: 2.4))
+        XCTAssertEqual(StatMeasuresMath.chipExpectedPuttsV1, 1.85)
+        XCTAssertEqual(
+            StatMeasuresMath.chipOutcomeExpectedPuttsV1,
+            ChipOutcomeExpectedPutts(inside2m: 1.25, outside2m: 2.12))
+        // Frozen by the language: `static let` over a value type, so a caller
+        // cannot retune history under the player's feet. (The TypeScript twin
+        // needs `Object.freeze` for the same guarantee, and asserts it.)
+        XCTAssertEqual(StatMeasuresMath.expectedPuttsV1[.over8m], 2.4)
+    }
+
+    func testTheWorkedExampleWaterfallIsTheHandComputedArithmetic() throws {
+        let w = StatMeasuresMath.strokesLost(workedExample)
+
+        // Putting: 7 putts taken over the resolved buckets (2 + 2 + 3) against
+        // 2×1.05 + 1×1.85 + 1×2.40 = 6.35 expected → +0.65 lost.
+        assertClose(w.putting, 0.65)
+        // Short game, two terms:
+        //   H2's standard chip finished inside 2m → 1 × (1.25 − 1.85) = −0.60
+        //   H3's hard chip was HOLED              → 1 × (1 − 2.85)    = −1.85
+        // giving −2.45. The hole-out has no first-putt bucket, so before
+        // migration 047 it contributed nothing here and its 1.85 sat in the
+        // long game.
+        assertClose(w.shortGame, -2.45)
+        XCTAssertEqual(w.penalties, 1)
+        // Total: 25 strokes over par 24 → +1.
+        XCTAssertEqual(w.total, 1)
+        // Long game is the residual: 1 − 0.65 − (−2.45) − 1 = +1.80.
+        assertClose(w.longGame, 1.8)
+        // …and the four parts add back to the total, which is the whole point.
+        let putting = try XCTUnwrap(w.putting)
+        let shortGame = try XCTUnwrap(w.shortGame)
+        let longGame = try XCTUnwrap(w.longGame)
+        assertClose(putting + shortGame + w.penalties + longGame, 1)
+        // 5 of 6 scored holes carry a putt count, clearing the residual's floor.
+        XCTAssertEqual(w.coverage, StrokesLost.Coverage(holesScored: 6, puttsRecorded: 5))
+    }
+
+    func testAHoledChipIsAShortGameGainNotALongGameOne() throws {
+        // The same round twice over, once with the chip holed and once with it
+        // simply never recorded, so the whole difference is the hole-out.
+        let base = measures { m in
+            m.holesScored = 9
+            m.strokesTotal = 40
+            m.parTotal = 36
+            m.puttsRecorded = 9
+            m.firstPuttInside1mResolved = 2
+            m.puttsTotalInside1mResolved = 2
+            m.scrambleFirstPuttStandard = 1
+            m.scrambleInside2mStandard = 1
+        }
+        var withHoleOut = base
+        withHoleOut.scrambleHoledHard = 1
+
+        let plain = StatMeasuresMath.strokesLost(base)
+        let holed = StatMeasuresMath.strokesLost(withHoleOut)
+        // −1.85 moves OUT of the residual and INTO the short game. The total is
+        // untouched: attribution changed, the score did not.
+        assertClose(try XCTUnwrap(holed.shortGame) - (try XCTUnwrap(plain.shortGame)), -1.85)
+        assertClose(try XCTUnwrap(holed.longGame) - (try XCTUnwrap(plain.longGame)), 1.85)
+        XCTAssertEqual(holed.total, plain.total)
+
+        // And a holed chip is a scramble signal on its own: no bucketed first
+        // putt anywhere, yet the short game is a number rather than nil.
+        let holeOutOnly = measures { m in m.scrambleHoledStandard = 1 }
+        assertClose(StatMeasuresMath.strokesLost(holeOutOnly).shortGame, -1.85)
+        // Neither signal → still nil, not 0.
+        XCTAssertNil(StatMeasuresMath.strokesLost(measures()).shortGame)
+    }
+
+    func testTheResidualIsNilWhenMostOfTheRoundHasNoPuttCount() {
+        // Three holes of putting recorded out of eighteen scored. `putting`
+        // claims only those three, so a residual would silently blame the long
+        // game for fifteen holes of putting nobody saw.
+        let sparse = measures { m in
+            m.holesScored = 18
+            m.strokesTotal = 90
+            m.parTotal = 72
+            m.puttsRecorded = 3
+            m.puttsTotal = 6
+            m.firstPuttInside1mResolved = 3
+            m.puttsTotalInside1mResolved = 6
+            m.scrambleFirstPuttStandard = 1
+            m.scrambleInside2mStandard = 1
+        }
+        let w = StatMeasuresMath.strokesLost(sparse)
+        // Every measured term still stands — coverage gates the RESIDUAL only.
+        assertClose(w.putting, 6 - 3 * 1.05)
+        assertClose(w.shortGame, -0.6)
+        XCTAssertEqual(w.total, 18)
+        XCTAssertNil(w.longGame)
+        XCTAssertEqual(
+            w.coverage, StrokesLost.Coverage(holesScored: 18, puttsRecorded: 3))
+
+        // Exactly at the floor (0.8 × 18 = 14.4, so 15 holes) it is reported
+        // again.
+        var covered = sparse
+        covered.puttsRecorded = 15
+        XCTAssertNotNil(StatMeasuresMath.strokesLost(covered).longGame)
+        // …and one hole below it, it is not.
+        var short = sparse
+        short.puttsRecorded = 14
+        XCTAssertNil(StatMeasuresMath.strokesLost(short).longGame)
+    }
+
+    func testAStatsOnlyRoundHasNoTotalAndNoResidualAndProducesNoNaN() throws {
+        // Answers recorded, scorecard empty — a real shape: holesScored 0 means
+        // strokesTotal - parTotal is 0 - 0, which is NOT a level-par round.
+        let statsOnly = measures { m in
+            m.firstPuttInside1mResolved = 1
+            m.puttsTotalInside1mResolved = 2
+            m.puttsRecorded = 1
+            m.puttsTotal = 2
+            m.scrambleFirstPuttStandard = 1
+            m.scrambleInside2mStandard = 1
+            m.penaltiesTotal = 1
+        }
+        let w = StatMeasuresMath.strokesLost(statsOnly)
+        // The measured terms still stand: 2 putts against 1.05 expected.
+        assertClose(w.putting, 0.95)
+        assertClose(w.shortGame, -0.6)
+        XCTAssertEqual(w.penalties, 1)
+        XCTAssertNil(w.total)
+        XCTAssertNil(w.longGame)
+        // Not just "not NaN": the unwrap is what makes a nil fail here too, and
+        // the TypeScript twin asserts the same two things separately.
+        XCTAssertEqual(try XCTUnwrap(w.putting).isNaN, false)
+        XCTAssertEqual(try XCTUnwrap(w.putting).isFinite, true)
+        XCTAssertEqual(try XCTUnwrap(w.shortGame).isNaN, false)
+        XCTAssertEqual(try XCTUnwrap(w.shortGame).isFinite, true)
+    }
+
+    func testAWaterfallComponentCanBeReadByNameTheSameWayTheDeltasCan() {
+        let w = StrokesLost(putting: 1, shortGame: -2, penalties: 3, longGame: nil, total: 2)
+        XCTAssertEqual(StrokesLostComponent.allCases.map { w[$0] }, [1, -2, 3, nil])
+        // The subscript and the field are the same value, for every component.
+        XCTAssertEqual(w[.putting], w.putting)
+        XCTAssertEqual(w[.shortGame], w.shortGame)
+        XCTAssertEqual(w[.penalties], w.penalties)
+        XCTAssertEqual(w[.longGame], w.longGame)
+    }
+
+    func testAnUnmeasuredTermNilsTheResidualInsteadOfChargingItToTheLongGame() {
+        // Scored, penalties known, no putting and no chip data at all.
+        let scoreOnly = measures { m in
+            m.holesScored = 18
+            m.strokesTotal = 90
+            m.parTotal = 72
+        }
+        let w = StatMeasuresMath.strokesLost(scoreOnly)
+        XCTAssertNil(w.putting)
+        XCTAssertNil(w.shortGame)
+        XCTAssertEqual(w.penalties, 0)
+        XCTAssertEqual(w.total, 18)
+        // +18 vs par is NOT 18 strokes of long game.
+        XCTAssertNil(w.longGame)
+
+        // Putting present, chips absent → still no residual.
+        let puttingOnly = measures { m in
+            m.holesScored = 18
+            m.strokesTotal = 90
+            m.parTotal = 72
+            m.firstPuttInside1mResolved = 1
+            m.puttsTotalInside1mResolved = 1
+        }
+        assertClose(StatMeasuresMath.strokesLost(puttingOnly).putting, -0.05)
+        XCTAssertNil(StatMeasuresMath.strokesLost(puttingOnly).shortGame)
+        XCTAssertNil(StatMeasuresMath.strokesLost(puttingOnly).longGame)
+    }
+
+    func testAChipLeftOutside2mChargesTheShortGameAChipLeftInsideCreditsIt() {
+        let far = measures { m in
+            m.scrambleFirstPuttHard = 4
+            m.scrambleInside2mHard = 1
+        }
+        // 1 × (1.25 − 1.85) + 3 × (2.12 − 1.85) = −0.60 + 0.81 = +0.21.
+        assertClose(StatMeasuresMath.strokesLost(far).shortGame, 0.21)
+        let close = measures { m in
+            m.scrambleFirstPuttStandard = 4
+            m.scrambleInside2mStandard = 4
+        }
+        assertClose(StatMeasuresMath.strokesLost(close).shortGame, -2.4)
+    }
+
+    func testTheWaterfallIsAdditiveSoAWindowSumsTheSameWayTheCountsDo() throws {
+        let single = StatMeasuresMath.strokesLost(workedExample)
+        let window = StatMeasuresMath.strokesLost(
+            StatMeasuresMath.sum([workedExample, workedExample]))
+        assertClose(window.putting, try XCTUnwrap(single.putting) * 2)
+        assertClose(window.shortGame, try XCTUnwrap(single.shortGame) * 2)
+        XCTAssertEqual(window.penalties, 2)
+        XCTAssertEqual(window.total, 2)
+        assertClose(window.longGame, try XCTUnwrap(single.longGame) * 2)
+    }
+
+    // MARK: - Personal baseline
+
+    private func waterfall(
+        putting: Double? = 0,
+        shortGame: Double? = 0,
+        penalties: Double = 0,
+        longGame: Double? = 0,
+        total: Double? = 0
+    ) -> StrokesLost {
+        StrokesLost(
+            putting: putting, shortGame: shortGame, penalties: penalties, longGame: longGame,
+            total: total)
+    }
+
+    func testTheMeanIgnoresAbsentEntriesRatherThanCountingThemAsZero() {
+        XCTAssertNil(StatMeasuresMath.meanOfPresent([]))
+        XCTAssertNil(StatMeasuresMath.meanOfPresent([nil, nil]))
+        XCTAssertEqual(StatMeasuresMath.meanOfPresent([2, nil, 4]), 3)
+    }
+
+    func testBaselineDeltasCompareARoundWithTheRoundsThatRecordedTheSameThing() {
+        let window = [
+            waterfall(putting: 2, shortGame: nil, penalties: 1, longGame: 3, total: 6),
+            waterfall(putting: 4, shortGame: 1, penalties: 1, longGame: 1, total: 7),
+            waterfall(putting: nil, shortGame: nil, penalties: 0, longGame: nil, total: 4),
+        ]
+        let round = waterfall(putting: 1, shortGame: 2, penalties: 3, longGame: 0, total: 6)
+        let d = StatMeasuresMath.baselineDeltas(round: round, window: window)
+        // Putting baseline is (2 + 4)/2 = 3 — the third round recorded none.
+        XCTAssertEqual(d.putting, -2)
+        // Short game has exactly ONE window sample, and one is enough.
+        XCTAssertEqual(d.shortGame, 1)
+        // Penalties are a count, so every round has one: (1 + 1 + 0)/3 = 0.666…
+        assertClose(d.penalties, 3 - 2.0 / 3.0)
+        XCTAssertEqual(d.longGame, -2)
+        assertClose(d.total, 6 - 17.0 / 3.0)
+    }
+
+    func testADeltaIsNilWhenEitherSideHasNoValueNeverZero() {
+        let noSample = StatMeasuresMath.baselineDeltas(round: waterfall(putting: 1), window: [])
+        for c in StrokesLostComponent.allCases { XCTAssertNil(noSample[c]) }
+        // The round itself recorded no putting: nothing to compare, even though
+        // the window is full of it.
+        let roundBlind = StatMeasuresMath.baselineDeltas(
+            round: waterfall(putting: nil),
+            window: [waterfall(putting: 2), waterfall(putting: 4)])
+        XCTAssertNil(roundBlind.putting)
+        XCTAssertEqual(roundBlind.longGame, 0)
+        // And the mirror: the window recorded none.
+        let windowBlind = StatMeasuresMath.baselineDeltas(
+            round: waterfall(putting: 1), window: [waterfall(putting: nil)])
+        XCTAssertNil(windowBlind.putting)
+    }
+
+    // MARK: - Insight lines
+
+    private func ids(_ lines: [InsightLine]) -> [InsightID] { lines.map(\.id) }
+
+    private func lines(
+        _ m: StatMeasures, _ w: StrokesLost, _ window: [StrokesLost], _ limit: Int
+    ) -> [InsightLine] {
+        StatMeasuresMath.insightLines(measures: m, waterfall: w, window: window, limit: limit)
+    }
+
+    private func number(_ p: InsightParam?) -> Double? {
+        if case .number(let v)? = p { return v }
+        return nil
+    }
+
+    /// A round that trips every rule at once, so the ORDER is what is under test.
+    private lazy var richMeasures: StatMeasures = measures { m in
+        m.penaltiesTotal = 3
+        m.scrambleAttemptsStandard = 2
+        m.scrambleSuccessesStandard = 2
+        m.scrambleAttemptsHard = 2
+        m.scrambleSuccessesHard = 1
+        m.puttsRecorded = 6
+        m.puttsTotal = 12
+        m.threePutts = 0
+        m.bounceBackOpportunities = 2
+        m.bounceBackSuccesses = 2
+    }
+
+    func testTheRankingIsDeltaMagnitudeFirstThenTheFixedRuleOrder() {
+        let richWaterfall = waterfall(
+            putting: -2, shortGame: 0, penalties: 3, longGame: 0.5, total: 1.5)
+        let richWindow = Array(
+            repeating: waterfall(putting: 1, shortGame: 0, penalties: 1, longGame: 0, total: 2),
+            count: 6)
+        // Deltas vs the window: putting -3 (best), penalties +2 (worst), long game
+        // +0.5 (under the 1.0 threshold, so no line).
+        XCTAssertEqual(
+            ids(lines(richMeasures, richWaterfall, richWindow, 10)),
+            [
+                .componentBestVsBaseline,
+                .componentWorstVsBaseline,
+                .penaltiesSpike,
+                .scrambleStreak,
+                .threePuttFree,
+                .bestPuttingRound,
+                .bounceBackPerfect,
+            ])
+        XCTAssertEqual(lines(richMeasures, richWaterfall, richWindow, 3).count, 3)
+        XCTAssertEqual(
+            ids(lines(richMeasures, richWaterfall, richWindow, 2)),
+            [.componentBestVsBaseline, .componentWorstVsBaseline])
+        XCTAssertEqual(lines(richMeasures, richWaterfall, richWindow, 0), [])
+    }
+
+    func testEqualMagnitudesBreakByRuleOrderInBothDirectionsOfTheInput() throws {
+        // Four rounds: enough for a baseline, one short of the "best putting
+        // round" window, so the two component rules are alone under test.
+        let window = Array(repeating: waterfall(), count: 4)
+        // putting -2 and long game +2: identical magnitude, opposite signs.
+        let round = waterfall(putting: -2, longGame: 2, total: 0)
+        let forward = ids(lines(measures(), round, window, 10))
+        XCTAssertEqual(
+            Array(forward.prefix(2)), [.componentBestVsBaseline, .componentWorstVsBaseline])
+        // Swapping which component is which does not swap the ORDER: "best" is
+        // rule 1 whatever component fills it.
+        let swapped = waterfall(putting: 2, longGame: -2, total: 0)
+        XCTAssertEqual(
+            Array(ids(lines(measures(), swapped, window, 10)).prefix(2)),
+            [.componentBestVsBaseline, .componentWorstVsBaseline])
+        let best = try XCTUnwrap(lines(measures(), swapped, window, 1).first)
+        XCTAssertEqual(
+            best.params, ["component": .component(.longGame), "delta": .number(-2)])
+    }
+
+    func testTheComponentRulesNeedAFullStrokeOfMovementEachWay() {
+        let window = Array(repeating: waterfall(), count: 4)
+        XCTAssertEqual(ids(lines(measures(), waterfall(putting: -0.99), window, 10)), [])
+        XCTAssertEqual(
+            ids(lines(measures(), waterfall(putting: -1), window, 10)), [.componentBestVsBaseline])
+        XCTAssertEqual(
+            ids(lines(measures(), waterfall(putting: 1), window, 10)), [.componentWorstVsBaseline])
+    }
+
+    func testEachThresholdRuleHoldsItsOwnLineBackUntilItsBarIsCleared() {
+        let window = Array(repeating: waterfall(), count: 4)
+
+        // Penalties: the mean is 0, so 2 is a spike and 1 is not.
+        XCTAssertEqual(
+            ids(lines(measures { $0.penaltiesTotal = 1 }, waterfall(), window, 10)), [])
+        XCTAssertEqual(
+            ids(lines(measures { $0.penaltiesTotal = 2 }, waterfall(), window, 10)),
+            [.penaltiesSpike])
+        // …and with no window there is no personal mean to spike above.
+        XCTAssertEqual(ids(lines(measures { $0.penaltiesTotal = 9 }, waterfall(), [], 10)), [])
+
+        // Scrambling: 3 of 4 clears the bar; 2 of 3 is the same rate on too small
+        // a sample; 2 of 4 is a big enough sample at too low a rate.
+        func scramble(_ attempts: Double, _ successes: Double) -> StatMeasures {
+            measures { m in
+                m.scrambleAttemptsStandard = attempts
+                m.scrambleSuccessesStandard = successes
+            }
+        }
+        XCTAssertEqual(
+            ids(lines(scramble(4, 3), waterfall(), window, 10)), [.scrambleStreak])
+        XCTAssertEqual(ids(lines(scramble(3, 2), waterfall(), window, 10)), [])
+        XCTAssertEqual(ids(lines(scramble(4, 2), waterfall(), window, 10)), [])
+
+        // Three-putt-free: 12 recorded putts is the floor, and one three-putt ends
+        // it however many putts there were.
+        func putts(_ total: Double, _ threePutts: Double) -> StatMeasures {
+            measures { m in
+                m.puttsTotal = total
+                m.puttsRecorded = 9
+                m.threePutts = threePutts
+            }
+        }
+        XCTAssertEqual(ids(lines(putts(12, 0), waterfall(), window, 10)), [.threePuttFree])
+        XCTAssertEqual(ids(lines(putts(11, 0), waterfall(), window, 10)), [])
+        XCTAssertEqual(ids(lines(putts(30, 1), waterfall(), window, 10)), [])
+
+        // Bounce-back: two chances taken, not one.
+        func bounce(_ opportunities: Double, _ successes: Double) -> StatMeasures {
+            measures { m in
+                m.bounceBackOpportunities = opportunities
+                m.bounceBackSuccesses = successes
+            }
+        }
+        XCTAssertEqual(ids(lines(bounce(2, 2), waterfall(), window, 10)), [.bounceBackPerfect])
+        XCTAssertEqual(ids(lines(bounce(1, 1), waterfall(), window, 10)), [])
+        XCTAssertEqual(ids(lines(bounce(3, 2), waterfall(), window, 10)), [])
+    }
+
+    func testBestPuttingRoundNeedsAWindowWorthTheClaimAndAStrictWin() {
+        let five = Array(
+            repeating: waterfall(putting: 1),
+            count: StatMeasuresMath.insightBestPuttingMinWindow)
+        // The round's own putting delta is -2, so the component line comes with it.
+        XCTAssertEqual(
+            ids(lines(measures(), waterfall(putting: -1), five, 10)),
+            [.componentBestVsBaseline, .bestPuttingRound])
+        // Four comparable rounds is not "your last five".
+        XCTAssertEqual(
+            ids(lines(measures(), waterfall(putting: -1), Array(five.prefix(4)), 10)),
+            [.componentBestVsBaseline])
+        // Rounds with no putting data do not pad the window.
+        let padded = Array(five.prefix(4)) + [waterfall(putting: nil)]
+        XCTAssertEqual(
+            ids(lines(measures(), waterfall(putting: -1), padded, 10)),
+            [.componentBestVsBaseline])
+        // A tie is not a win.
+        let tied = Array(five.prefix(4)) + [waterfall(putting: -1)]
+        XCTAssertEqual(
+            ids(lines(measures(), waterfall(putting: -1), tied, 10)), [.componentBestVsBaseline])
+        // And a round with no putting term of its own can never win.
+        XCTAssertEqual(ids(lines(measures(), waterfall(putting: nil), five, 10)), [])
+    }
+
+    func testTheWindowIsThePriorRoundsTheRoundUnderEvaluationIsNotInIt() {
+        // The documented contract, asserted rather than assumed: `window` is the
+        // player's earlier rounds, EXCLUDING this one. Nothing filters it here.
+        let prior = Array(
+            repeating: waterfall(putting: 1),
+            count: StatMeasuresMath.insightBestPuttingMinWindow)
+        let round = waterfall(putting: -1)
+        XCTAssertTrue(ids(lines(measures(), round, prior, 10)).contains(.bestPuttingRound))
+        // Pass the same round INSIDE the window — a self-inclusive call — and
+        // the rule can never fire, because no round is strictly better than
+        // itself. That is the contract failing loudly, not a bug in the rule.
+        XCTAssertFalse(
+            ids(lines(measures(), round, prior + [round], 10)).contains(.bestPuttingRound))
+        // The baseline moves too: the mean of six values including this round's
+        // own −1 is 4/6, not the 1 the five prior rounds give.
+        XCTAssertEqual(
+            StatMeasuresMath.baselineDeltas(round: round, window: prior).putting, -2)
+        assertClose(
+            StatMeasuresMath.baselineDeltas(round: round, window: prior + [round]).putting,
+            -1 - 4.0 / 6.0)
+    }
+
+    func testTheWorkedExampleEndToEndCountsInRankedLinesOut() throws {
+        // The same round the server test asserts, played against five flat rounds.
+        let window = Array(
+            repeating: waterfall(putting: 2, shortGame: 0, penalties: 0, longGame: 1, total: 3),
+            count: 5)
+        let w = StatMeasuresMath.strokesLost(workedExample)
+        let ranked = lines(workedExample, w, window, 3)
+        // Deltas vs the flat window: short game −2.45 − 0 = −2.45 (best, and it
+        // is the holed chip that puts it there); penalties 1 − 0 = +1 (worst);
+        // putting 0.65 − 2 = −1.35 and long game 1.80 − 1 = +0.80 lose to them.
+        // The round also putted better than all five, which is the third line.
+        XCTAssertEqual(
+            ids(ranked),
+            [.componentBestVsBaseline, .componentWorstVsBaseline, .bestPuttingRound])
+        XCTAssertEqual(ranked[0].params["component"], .component(.shortGame))
+        assertClose(number(ranked[0].params["delta"]), -2.45)
+        // "Worst" is a genuine regression here: +1 penalty stroke against a
+        // baseline of none. (It is only ever the component furthest ABOVE the
+        // baseline — which on a good round can still be a gain.)
+        XCTAssertEqual(ranked[1].params["component"], .component(.penalties))
+        XCTAssertEqual(number(ranked[1].params["delta"]), 1)
+    }
+}

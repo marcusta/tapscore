@@ -51,12 +51,41 @@ Per round:
   (roughly: <1m ≈ 1.05, 1–2m ≈ 1.45, 2–4m ≈ 1.85, 4–8m ≈ 2.10, >8m ≈ 2.40 —
   exact values tuned once, then frozen per version so history doesn't shift).
 - **Penalties** = penalty count (each penalty ≈ 1 stroke lost, directly).
-- **Short game** = on GIR-miss holes with short-game data: failed scrambles
-  beyond baseline scramble rate, valued at the putting-adjusted residual
-  (i.e. a missed up-and-down where the chip finished >8m charges short game,
-  not putting).
+- **Short game** = on GIR-miss holes whose chip left a recorded first putt:
+  each chip valued at (expected putts from where it finished − the baseline a
+  chip is scored against), so a chip that finishes close credits short game
+  and a chip that finishes far charges it, without double-charging putting.
+  The measure set has no per-bucket scramble first-putt column, so "where it
+  finished" has exactly two values — inside 2m vs outside 2m
+  (`scrambleInside2m*` vs the rest of `scrambleFirstPutt*`) — and the
+  implemented table (`CHIP_OUTCOME_EXPECTED_PUTTS_V1`, versioned and frozen
+  alongside the putting table) is derived from it: inside 2m = 1.25,
+  outside 2m = 2.12, baseline 1.85. Those two are the unweighted means of the
+  fine putting table (1.25 = mean of 1.05 and 1.45; 2.12 = mean of 1.85, 2.10
+  and 2.40) — a real resolution limit of the measure set, not a calibration:
+  the term cannot tell a 2m chip from an 8m one, so that part of the signal
+  flows into the long-game residual. Two outcomes also mean the term has a
+  break-even: a player whose chips finish inside 2m more than
+  (2.12 − 1.85)/(2.12 − 1.25) ≈ 31% of the time reads as gaining strokes with
+  the wedge, and below that as losing them.
+
+  **A holed chip is in the term too.** `scrambleHoled{Standard,Hard}`
+  (migration 047) counts the missed green whose chip went in — `putts = 0` with
+  no first-putt bucket, so `scrambleFirstPutt*` cannot see it — and values it at
+  1 − (1 + 1.85) = **−1.85**: one stroke taken where an average chip plus its
+  expected putts costs 2.85. Leaving it out did not make it disappear; it made
+  the residual absorb the whole 1.85, so holing a chip read as brilliant
+  approach play on a hole where the green was MISSED. The short-game term is
+  therefore non-null whenever there is any scramble signal — a bucketed first
+  putt or a hole-out.
 - **Long game (tee + approach)** = residual: (score − par) − putting −
-  penalties − short game.
+  penalties − short game. Being the residual, it silently absorbs the putting of
+  every hole with no putt count, so it is reported only when at least **80%** of
+  the scored holes carry one (`PUTTING_COVERAGE_FLOOR` /
+  `puttingCoverageFloor`); below that it is null, and `StrokesLost.coverage`
+  carries the `{holesScored, puttsRecorded}` pair a UI needs to say why. Three
+  recorded holes out of eighteen would otherwise be shown as a long-game number
+  that is mostly fifteen holes of putting nobody recorded.
 
 Two display modes:
 
@@ -97,7 +126,10 @@ Everything below is computable from existing measures unless marked **NEW**.
   hit it when you hit the green?). **NEW cross-tab columns**
   (`gir_first_putt_inside_1m` … ×5). The scramble twin
   (`scrambleFirstPutt*`) already exists.
-- Birdie conversion: `birdiesOnGir/girHits`.
+- Birdie conversion: `birdiesOnGir/girHolesScored` — greens hit that were also
+  SCORED, which is the denominator the server counts `birdies_on_gir` over. A
+  green hit on an unscored hole cannot become a birdie, so `girHits` would
+  push the rate down for a hole nobody recorded.
 
 ### Putting
 
@@ -115,10 +147,13 @@ Everything below is computable from existing measures unless marked **NEW**.
 
 - Scramble % overall + the standard/hard split (own difficulty rating makes
   the split honest: hard-scramble % is a different skill than standard).
-- **Chip proximity**: `scrambleInside2m* / scrambleAttempts*` — how often the
+- **Chip proximity**: `scrambleInside2m* / scrambleFirstPutt*` — how often the
   chip/pitch leaves a makeable putt. This is the *leading* indicator; scramble
   % is the lagging one. Show both: *"you get it inside 2m on 38% of chips;
-  when you do, you convert 71%"*.
+  when you do, you convert 71%"*. A holed chip records no first-putt bucket,
+  so it sits outside this ratio on BOTH sides — counting the best possible
+  outcome as a miss, or putting it in the denominator alone, is exactly the
+  numerator/denominator mismatch §1's coherence rule forbids.
 - Short-game strokes-lost term (§2).
 
 ### Scoring (always on — needs only the scorecard)
@@ -228,10 +263,25 @@ All plain counts, same coherence rules (`putting_coherent`, v2 buckets only),
 
 ### 5.4 Shared vocabulary additions (client twins, pure)
 
-`stat-measures.ts` / `StatMeasuresMath.swift`: rate helpers with denominator
-guards, window summation over per-round rows, expected-putts table
-(versioned), waterfall decomposition, insight-line ranking. Pure, zero-IO,
-property-tested like `stat-prompts`.
+`src/round/stat-measures.ts` / `ios/TapScore/Domain/StatMeasuresMath.swift`:
+rate helpers with denominator guards, window summation over per-round rows,
+expected-putts tables (versioned and frozen), waterfall decomposition,
+personal-baseline deltas, insight-line ranking. Pure, zero-IO, twinned like
+`stat-prompts`.
+
+**Built** (2026-07-30, uncommitted). Twin suites, 33 cases each, same numbers:
+`tests/round/stat-measures.test.ts` and
+`ios/TapScoreTests/Domain/StatMeasuresMathTests.swift`. Their fixture is the
+exact row `server/services/player-stats-aggregates.test.ts` asserts for its
+worked example, so server counts → client rates → waterfall are one continuous
+verified story; change the fixture only when that server test changes.
+
+Two things the modules settled that this doc's earlier prose left open, both
+resolved against the server's own SQL and corrected inline above: the birdie
+denominator is `girHolesScored`, and the chip-proximity denominator is
+`scrambleFirstPutt*`. The insight rules are a closed list of seven ids with the
+module owning SELECTION and the UI owning wording; the ranking is delta
+magnitude first, then a fixed rule order, so both clients pick the same lines.
 
 ## 6. Phasing
 
