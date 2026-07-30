@@ -353,6 +353,10 @@ export class LeaderboardComponent extends Component {
                 color: ${t('text-muted')};
                 font-weight: 700;
             }
+            /* The final cell carries a short route-section label (OUT / IN / TOT),
+               not arbitrary content. It may safely paint beyond its tight cell
+               instead of inheriting the generic header ellipsis. */
+            & .lb-grid thead .lb-sum { overflow: visible; text-overflow: clip; }
             & .lb-grid .lb-rowlabel {
                 text-align: left;
                 width: 6em;
