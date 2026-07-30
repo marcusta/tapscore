@@ -90,9 +90,24 @@ const {
 
 // `sessions` is captured so self-serve registration can issue a session
 // cookie exactly like login does (framework `issueSessionCookie`).
+/**
+ * Four weeks, sliding. A player's session has to survive the gap between
+ * rounds: the 24h default signed people out every time they came back to the
+ * course, and a re-login before a round is the one moment the app can least
+ * afford friction. Set here rather than left to `SESSION_TTL` because it is a
+ * product decision about how golf gets played, not a deployment knob — the
+ * deployed box should not be able to shorten it by forgetting an env var.
+ *
+ * Sliding, not fixed: `@basics/core` >= 1.3.0 pushes the expiry forward past
+ * the halfway mark AND re-sets the cookie when it does, so an active player is
+ * never signed out. Only four full weeks away from the app ends the session.
+ */
+const SESSION_TTL_MS = 28 * 24 * 60 * 60 * 1000;
+
 const { sessions } = await bootstrapAuth({
     verify: (u, p) => playerService.verify(u, p),
     findUser: (id) => playerService.findById(id),
+    sessionTtl: SESSION_TTL_MS,
 });
 
 mount(app, '/api', createPlayersApi(playerService, handicapService, friendService, sessions, config.sessionCookie));
