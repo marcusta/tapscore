@@ -846,6 +846,73 @@ final class CreateStoreTests: XCTestCase {
        "message":"hole 19 is not on this course","path":"route"}]}
     """
 
+    // MARK: - The pre-filled round name
+
+    /// The name a round opens with is localised in BOTH halves — the word and
+    /// the date — because a Swedish app that offers "Game Jul 30, 2026" is
+    /// half-translated in the one string the user reads first.
+    func testDefaultRoundNameFollowsTheLocale() {
+        let july30 = Self.date(2026, 7, 30)
+
+        XCTAssertEqual(
+            DefaultRoundName.make(on: july30, locale: Locale(identifier: "en_US")),
+            "Game Jul 30, 2026")
+        XCTAssertEqual(
+            DefaultRoundName.make(on: july30, locale: Locale(identifier: "sv_SE")),
+            "Spel 30 juli 2026")
+        // Anything that is not Swedish falls back to English rather than to
+        // the language's own word — two words is the whole vocabulary.
+        XCTAssertTrue(
+            DefaultRoundName.make(on: july30, locale: Locale(identifier: "de_DE"))
+                .hasPrefix("Game"))
+    }
+
+    /// Two rounds on one day must not read as one row in the list. The suffix
+    /// is cosmetic — nothing anywhere enforces that names are unique — so it
+    /// only steps past names the caller actually knows about.
+    func testDefaultRoundNameStepsPastNamesTheDeviceKnows() {
+        let july30 = Self.date(2026, 7, 30)
+        let en = Locale(identifier: "en_US")
+        let base = "Game Jul 30, 2026"
+
+        XCTAssertEqual(
+            DefaultRoundName.make(on: july30, locale: en, existing: ["Tisdagsbollen"]),
+            base,
+            "an unrelated name is not a collision")
+        XCTAssertEqual(
+            DefaultRoundName.make(on: july30, locale: en, existing: [base]),
+            "\(base) (2)")
+        // Case and stray whitespace are the same name to a reader, so they are
+        // the same name here.
+        XCTAssertEqual(
+            DefaultRoundName.make(on: july30, locale: en, existing: ["  game jul 30, 2026 ", "\(base) (2)"]),
+            "\(base) (3)")
+    }
+
+    /// Seeding is a starting point, never a correction: a name the user typed
+    /// (or one hydrated from the round being edited) survives.
+    @MainActor
+    func testSeedDefaultNameOnlyFillsAnEmptyField() {
+        let store = CreateStore(api: RoundStubURLProtocol.makeAPI())
+        store.seedDefaultName(existing: [], now: Self.date(2026, 7, 30), locale: Locale(identifier: "en_US"))
+        XCTAssertEqual(store.roundName, "Game Jul 30, 2026")
+
+        store.roundName = "Tisdagsbollen"
+        store.seedDefaultName(existing: [], now: Self.date(2026, 7, 30), locale: Locale(identifier: "en_US"))
+        XCTAssertEqual(store.roundName, "Tisdagsbollen")
+    }
+
+    private static func date(_ year: Int, _ month: Int, _ day: Int) -> Date {
+        var components = DateComponents()
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = 12
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar.date(from: components)!
+    }
+
     /// A real compiler refusal shape: structured coordinates, no parsing of
     /// `path` required to place it.
     private static let refusalJSON = """

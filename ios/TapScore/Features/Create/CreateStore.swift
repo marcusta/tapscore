@@ -207,6 +207,12 @@ final class CreateStore {
     // MARK: - Selections
 
     var step: Step = .course
+    /// What the organizer calls this round. The FIRST question of the flow,
+    /// pre-filled with `DefaultRoundName` so the common case is "accept it and
+    /// move on" — it is a LABEL for telling rounds apart in the list, never an
+    /// identifier, so it is neither required nor unique. Trimmed at the wire,
+    /// never here: trimming as the user types eats the space between two words.
+    var roundName = ""
     var courseSearch = ""
     private(set) var clubId: String?
     private(set) var courseId: String?
@@ -269,6 +275,7 @@ final class CreateStore {
         return RoundOpenRequest(
             token: createdToken,
             courseName: createdRound?.courseNameSnapshot ?? selectedCourse?.name,
+            name: createdRound?.name,
             status: createdRound.flatMap { DeviceRoundStatus(rawValue: $0.status.rawValue) } ?? .notStarted,
             completedAt: createdRound?.completedAt,
             date: createdRound?.date)
@@ -321,6 +328,18 @@ final class CreateStore {
         "Scores have been recorded — the course and route are locked for this round."
 
     // MARK: - Loading
+
+    /// Seeds the name field with today's default ("Game 30 Jul 2026" / "Spel
+    /// …"), stepped past whatever the caller already has on this device so two
+    /// rounds on one day do not read as the same round in the list.
+    ///
+    /// Create mode only, and only while the field is untouched: hydrating an
+    /// edit must show the round's stored name, and a user who typed one must
+    /// not have it replaced by a later call.
+    func seedDefaultName(existing: [String], now: Date = Date(), locale: Locale = .current) {
+        guard roundName.isEmpty else { return }
+        roundName = DefaultRoundName.make(on: now, locale: locale, existing: existing)
+    }
 
     /// Everything the flow needs before it can ask anything: the clubs, their
     /// courses, and the server's format catalog. One pass, because a create
@@ -1076,7 +1095,8 @@ final class CreateStore {
                 courseId: courseId,
                 route: route,
                 games: built,
-                players: players)
+                players: players,
+                name: roundName)
             let result = try await api.send(
                 FriendlyRoundsEndpoints.create,
                 FriendlyRoundsCreateInput(draft: draft))
@@ -1170,6 +1190,7 @@ final class CreateStore {
             let prefill = EditDraftHydration.prefill(draft: editable.draft) { defId in
                 nameByDefId[defId] ?? ""
             }
+            roundName = editable.draft.name ?? ""
             routePreset = prefill.preset
             startHole = prefill.startHole
             players = prefill.players
@@ -1284,7 +1305,8 @@ final class CreateStore {
                 courseId: courseId,
                 route: route,
                 producers: producers,
-                slots: slots)
+                slots: slots,
+                name: roundName)
 
             // The one shape the server rejects as a bare 400 rather than a
             // diagnostic (`subjects minItems 1`), caught here so it reads as a
@@ -1441,5 +1463,63 @@ final class CreateStore {
         case APIError.server(_, let message?): message
         default: fallback
         }
+    }
+}
+
+// MARK: - The default name
+
+/// The name a round gets when the organizer does not care to pick one:
+/// `"Game 30 Jul 2026"`, or `"Spel 30 juli 2026"` on a Swedish device.
+///
+/// Pure, so the two things that can be wrong about it — the localisation and
+/// the de-duplication — are testable without a view, a clock or a network.
+///
+/// Both halves follow the device locale: the word, because "Game" in a
+/// Swedish app is jarring, and the date, because `2026-07-30` and `Jul 30,
+/// 2026` are the same day written for different readers. Nothing about this
+/// travels to other viewers — the resulting name is stored as plain text, so
+/// a round named on a Swedish phone keeps its Swedish name everywhere, which
+/// is correct: it is what the organizer called it.
+enum DefaultRoundName {
+    /// The default for `date`, stepped with a `(2)`, `(3)`, … suffix until it
+    /// is not one of `existing`.
+    ///
+    /// The suffix is cosmetic. Round names are NOT unique and nothing enforces
+    /// it: `existing` is only the names this device happens to know about, and
+    /// two people creating rounds on the same day will happily land on the
+    /// same string. The suffix exists so a list of one player's own rounds
+    /// reads as distinct rows, nothing more.
+    static func make(on date: Date = Date(), locale: Locale = .current, existing: [String] = []) -> String {
+        let base = "\(prefix(for: locale)) \(formatted(date, locale: locale))"
+        let taken = Set(
+            existing
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty })
+        guard taken.contains(base.lowercased()) else { return base }
+        // Bounded: a device that somehow holds 99 same-day rounds gets a
+        // repeat rather than a hang.
+        for n in 2...99 {
+            let candidate = "\(base) (\(n))"
+            if !taken.contains(candidate.lowercased()) { return candidate }
+        }
+        return base
+    }
+
+    /// Swedish gets "Spel"; every other language falls back to English. Two
+    /// words is the whole vocabulary — this is a label, not a localisation
+    /// project, and a real `Localizable.strings` table can replace it the day
+    /// the app ships more languages.
+    static func prefix(for locale: Locale) -> String {
+        locale.language.languageCode?.identifier == "sv" ? "Spel" : "Game"
+    }
+
+    /// Medium style, matching the round header's date line, so the default
+    /// name and the header agree about how a date looks.
+    static func formatted(_ date: Date, locale: Locale) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
     }
 }

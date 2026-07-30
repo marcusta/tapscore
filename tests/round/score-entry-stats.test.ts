@@ -47,6 +47,7 @@ function fixture(service: RoundViewService) {
     service.round.set({
         id: 'round-1',
         courseId: 'course-1',
+        name: null,
         date: '2026-07-30',
         roundType: 'full_18',
         venueType: 'outdoor',

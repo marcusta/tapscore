@@ -13,11 +13,18 @@ export interface DeviceRound {
     token: string;
     /** Course name for the row label; '' when unknown at record time. */
     courseName: string;
+    /** The organizer's name for the round, when it has one. Absent/null ⇒ the
+     *  row labels itself with the course — what every entry written before
+     *  round names existed reads as. */
+    name?: string | null;
     /** The round's lifecycle status at last sighting — drives the partition. */
     status: 'not_started' | 'active' | 'complete';
     /** ISO time the round finished, when known (status complete). Lets the
      *  logged-out landing apply the same 14-day "recently finished" window. */
     completedAt?: string | null;
+    /** The round's date (`yyyy-MM-dd`), when known — the row's third line.
+     *  Absent on entries written before it was recorded. */
+    date?: string | null;
     /** ISO time this round was last created/opened on this device — the
      *  ongoing-sort key and the recency signal for the cap eviction. */
     lastSeenAt: string;

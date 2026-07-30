@@ -33,6 +33,12 @@ const tpl = template(`
         <div bind="blocked" class="setup__blocked hidden"></div>
 
         <section class="setup__section">
+            <h2>Name</h2>
+            <input bind="roundName" class="setup__name" type="text" maxlength="80" placeholder="Name this round" />
+            <p class="setup__hint">Just so you can tell your rounds apart — change it or leave it.</p>
+        </section>
+
+        <section class="setup__section">
             <h2>Course</h2>
             <div bind="course" class="setup__select"></div>
             <p bind="lockNote" class="setup__locknote hidden">Scores have been recorded — the course and route are locked for this round.</p>
@@ -370,6 +376,14 @@ export class CreateComponent extends Component {
                     font-size: 0.72rem; color: ${t('text-muted')}; line-height: 1.3;
                     &:empty { display: none; }
                 }
+            }
+
+            & .setup__name {
+                ${input()}
+                width: 100%;
+                padding: ${s('md')};
+                font-size: 1rem;
+                font-family: inherit;
             }
 
             & .setup__hint { margin: 0 0 ${s('md')}; color: ${t('text-muted')}; font-size: 0.82rem; }
@@ -767,6 +781,11 @@ export class CreateComponent extends Component {
                           : this.svc.editBlockedReason.get() === 'has_open_seats'
                             ? 'This round has open seats waiting to be claimed — the wizard cannot edit it yet.'
                             : '',
+            },
+            roundName: {
+                value: () => this.svc.roundName.get(),
+                oninput: (e: Event) =>
+                    this.svc.roundName.set((e.target as HTMLInputElement).value),
             },
             lockNote: {
                 className: () => (courseLocked() ? 'setup__locknote' : 'setup__locknote hidden'),

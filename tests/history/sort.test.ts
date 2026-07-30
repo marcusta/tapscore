@@ -9,6 +9,7 @@ function row(over: Partial<LandingRow> & { key: string }): LandingRow {
     return {
         token: over.key,
         roundId: null,
+        name: null,
         courseName: over.key,
         status: 'not_started',
         completedAt: null,

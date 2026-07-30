@@ -197,6 +197,14 @@ export const DraftRoute = Type.Object({
 export const RoundSetupDraft = Type.Object({
     courseId: Type.String({ minLength: 1 }),
     playedAt: Type.String({ minLength: 1 }),
+    /**
+     * What the organizer calls this round ("Tisdagsbollen"). Optional — absent
+     * ⇒ the UI falls back to the course name. It is round-level METADATA: it
+     * never reaches the compiler, it only populates `rounds.name`. Because it
+     * rides the draft it versions with the setup chain, so a wizard edit
+     * renames the round through the same correction path as everything else.
+     */
+    name: Type.Optional(Type.String()),
     roundType: Type.Optional(
         Type.Union([
             Type.Literal('full_18'),

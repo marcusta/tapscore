@@ -193,6 +193,7 @@ struct RootView: View {
         deviceRounds.recordOpen(
             token: request.token,
             courseName: request.courseName,
+            name: request.name,
             status: request.status,
             completedAt: request.completedAt,
             date: request.date
@@ -311,6 +312,7 @@ struct RootView: View {
 struct RoundOpenRequest: Equatable, Sendable {
     let token: String
     var courseName: String?
+    var name: String?
     var status: DeviceRoundStatus?
     var completedAt: String?
     var date: String?
@@ -318,12 +320,14 @@ struct RoundOpenRequest: Equatable, Sendable {
     init(
         token: String,
         courseName: String? = nil,
+        name: String? = nil,
         status: DeviceRoundStatus? = nil,
         completedAt: String? = nil,
         date: String? = nil
     ) {
         self.token = token
         self.courseName = courseName
+        self.name = name
         self.status = status
         self.completedAt = completedAt
         self.date = date

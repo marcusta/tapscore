@@ -193,40 +193,49 @@ struct RoundHeaderView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: TapSpacing.sm) {
+            // ONE band, not three. The back link, the title and the meta line
+            // used to stack, which spent ~110pt of a phone screen on chrome
+            // before the first score row. They are now one row — back, a title
+            // stack, the status — and the title itself is small (Golf GameBook's
+            // header, which the owner picked as the reference): the round's NAME
+            // at 19.2pt with the course and date under it at 12.8pt, rather than
+            // a 28.8pt course name and nothing else.
+            HStack(alignment: .center, spacing: TapSpacing.sm) {
                 Button(action: onBack) {
-                    Text("← Home")
-                        .font(TapFont.ui(size: 14.4, weight: .semibold))
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(TapColors.textMuted)
-                        .padding(.vertical, TapSpacing.xs)
+                        .frame(width: 36, height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                Spacer(minLength: 0)
-                manageButton
-            }
-            .padding(.horizontal, TapSpacing.lg)
+                .accessibilityLabel("Home")
 
-            HStack(alignment: .firstTextBaseline, spacing: TapSpacing.md) {
-                // 1.8rem Fraunces 600, -0.02em. Multi-line is fine: a long
-                // course name wraps rather than shrinking the title.
-                Text(store.round?.courseNameSnapshot ?? "Round")
-                    .font(TapFont.display(size: 28.8, weight: .semibold))
-                    .tracking(28.8 * -0.02)
-                    .foregroundStyle(TapColors.text)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 1) {
+                    // The round's own name when it has one, else the round's
+                    // DATE in the reader's locale. The fallback is computed at
+                    // render time rather than baked into `rounds.name` at
+                    // create time: the creator's locale is not the reader's,
+                    // and a round shared across a group must not show a Swedish
+                    // date to an American phone.
+                    Text(title)
+                        .font(TapFont.display(size: 19.2, weight: .semibold))
+                        .tracking(19.2 * -0.02)
+                        .foregroundStyle(TapColors.text)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    metaLine
+                }
+
                 Spacer(minLength: 0)
                 if store.loading {
                     ProgressView().controlSize(.small).tint(TapColors.accent)
                 }
                 statusBadge
+                manageButton
             }
-            .padding(.top, TapSpacing.sm)
-            .padding(.horizontal, TapSpacing.lg)
-
-            metaLine
-                .padding(.top, TapSpacing.xs)
-                .padding(.horizontal, TapSpacing.lg)
+            .padding(.leading, TapSpacing.sm)
+            .padding(.trailing, TapSpacing.xs)
 
             if let error = store.error {
                 Text(error)
@@ -273,18 +282,56 @@ struct RoundHeaderView: View {
         }
     }
 
+    /// The header's big line: the round's name, or — when it has none — its
+    /// date written the way this phone writes dates.
+    private var title: String {
+        if let name = store.round?.name?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !name.isEmpty {
+            return name
+        }
+        guard let round = store.round else { return "Round" }
+        return RoundHeaderView.localizedDate(round.date) ?? round.date
+    }
+
+    /// The small line under the title: the course, and the round's shape. The
+    /// DATE joins it only when the title is not already the date — the header
+    /// must not say the same thing twice in two sizes.
+    ///
     /// Web: two muted spans. The interpunct is the native equivalent of the
     /// flex gap — a phone header is too narrow for the space to read as one.
     @ViewBuilder
     private var metaLine: some View {
-        let date = store.round?.date ?? ""
-        let holes = store.round.map { "\($0.playHoles.count) holes" } ?? ""
-        let parts = [date, holes].filter { !$0.isEmpty }
-        if !parts.isEmpty {
-            Text(parts.joined(separator: " · "))
-                .font(TapFont.ui(size: 14.4))
+        // The COURSE, and nothing else. The title column shares its row with
+        // the status badge and the manage button, so a club name is already
+        // the whole width at 12.8pt; a date or a hole count only bought a
+        // "·…". Both are a tap away — the date is in the round list (and, for
+        // a round that kept its default name, in the title itself) and the
+        // hole strip is at the bottom of this very screen.
+        let course = store.round?.courseNameSnapshot ?? ""
+        if !course.isEmpty {
+            Text(course)
+                .font(TapFont.ui(size: 12.8))
                 .foregroundStyle(TapColors.textMuted)
+                .lineLimit(1)
         }
+    }
+
+    /// `2026-07-30` → the reader's own long-ish date. The round's date is a
+    /// PLAIN calendar date with no time zone in it, so it is read back in UTC
+    /// and rendered in UTC too — parsing it locally would shift a Swedish
+    /// evening round onto the previous day west of Greenwich.
+    static func localizedDate(_ isoDate: String) -> String? {
+        let parser = DateFormatter()
+        parser.calendar = Calendar(identifier: .gregorian)
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.timeZone = TimeZone(secondsFromGMT: 0)
+        parser.dateFormat = "yyyy-MM-dd"
+        guard let date = parser.date(from: isoDate) else { return nil }
+        let out = DateFormatter()
+        out.timeZone = TimeZone(secondsFromGMT: 0)
+        out.dateStyle = .medium
+        out.timeStyle = .none
+        return out.string(from: date)
     }
 
     /// Web: `.round-view__status` — one accent pill carrying the round's state.

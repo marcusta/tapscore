@@ -21,6 +21,10 @@ struct DeviceRound: Codable, Sendable, Equatable, Identifiable {
     /// cold deep-link tap knows the token and nothing else until the preview
     /// fetch lands).
     var courseName: String
+    /// The organizer's name for the round, when it has one. Nil ⇒ the row
+    /// labels itself with the course, which is what every entry written before
+    /// round names existed decodes as.
+    var name: String?
     /// Lifecycle status at last sighting — drives the landing partition.
     var status: DeviceRoundStatus
     /// ISO time the round finished, when known. Lets the anonymous landing
@@ -37,6 +41,7 @@ struct DeviceRound: Codable, Sendable, Equatable, Identifiable {
     init(
         token: String,
         courseName: String = "",
+        name: String? = nil,
         status: DeviceRoundStatus = .notStarted,
         completedAt: String? = nil,
         date: String? = nil,
@@ -44,6 +49,7 @@ struct DeviceRound: Codable, Sendable, Equatable, Identifiable {
     ) {
         self.token = token
         self.courseName = courseName
+        self.name = name
         self.status = status
         self.completedAt = completedAt
         self.date = date
@@ -145,6 +151,7 @@ final class DeviceRoundsStore: @unchecked Sendable {
     func recordOpen(
         token: String,
         courseName: String? = nil,
+        name: String? = nil,
         status: DeviceRoundStatus? = nil,
         completedAt: String? = nil,
         date: String? = nil,
@@ -160,6 +167,11 @@ final class DeviceRoundsStore: @unchecked Sendable {
         let entry = DeviceRound(
             token: token,
             courseName: courseName ?? existing?.courseName ?? "",
+            // Same enrich-never-blank rule as the course name: a caller that
+            // does not know the round's name keeps the one already stored.
+            // The cost is that clearing a name on another surface leaves this
+            // row labelled until the next sighting that knows better.
+            name: name ?? existing?.name,
             status: resolvedStatus,
             // A round that is no longer complete (reopened) must lose its
             // completion time, so an explicit non-complete status clears it.

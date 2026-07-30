@@ -4,7 +4,13 @@ import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import { t } from '../theme';
 import { s, btn, card } from '../css';
 import { LandingService } from './landing.service';
-import { landingRows, type LandingRow } from './rows';
+import {
+    formatRowDate,
+    landingRows,
+    rowCourseSubtitle,
+    rowLabel,
+    type LandingRow,
+} from './rows';
 import { partitionRounds, type Partitioned } from './partition';
 
 const tpl = template(`
@@ -57,10 +63,11 @@ const rowTpl = template(`
     <div class="round-row">
         <button bind="row" type="button" class="round-row__main">
             <div class="round-row__top">
-                <span bind="course" class="round-row__course"></span>
+                <span bind="title" class="round-row__title"></span>
                 <span bind="role" class="round-row__role"></span>
                 <span bind="status" class="round-row__status"></span>
             </div>
+            <span bind="course" class="round-row__course"></span>
             <div class="round-row__bottom">
                 <span bind="date"></span>
                 <span bind="formats" class="round-row__formats"></span>
@@ -228,10 +235,19 @@ export class LandingComponent extends Component {
                     align-items: baseline;
                     gap: ${s('md')};
                 }
-                & .round-row__course {
+                /* Three sizes, one hierarchy: what the round is CALLED, then
+                   where it was played, then when. An unnamed round is headed
+                   by its course and the sub-title hides. */
+                & .round-row__title {
                     font-weight: 700;
                     font-size: 1.05rem;
                     color: ${t('text')};
+                }
+                & .round-row__course {
+                    color: ${t('text-muted')};
+                    font-size: 0.9rem;
+
+                    &.hidden { display: none; }
                 }
                 & .round-row__status {
                     font-size: 0.7rem;
@@ -433,7 +449,12 @@ export class LandingComponent extends Component {
                         this.router.navigate('/round', { query: { token: row.token } });
                     },
                 },
-                course: () => row.courseName || 'Round',
+                title: () => rowLabel(row),
+                course: {
+                    textContent: () => rowCourseSubtitle(row) ?? '',
+                    className: () =>
+                        rowCourseSubtitle(row) ? 'round-row__course' : 'round-row__course hidden',
+                },
                 role: {
                     textContent: () => row.roleLabel ?? '',
                     className: () =>
@@ -443,14 +464,14 @@ export class LandingComponent extends Component {
                     textContent: () => STATUS_TEXT[row.status] ?? row.status,
                     className: () => `round-row__status s-${row.status}`,
                 },
-                date: () => row.date ?? '',
+                date: () => formatRowDate(row.date),
                 formats: () => row.formats ?? '',
                 del: {
                     className: () =>
                         row.token === null ? 'round-row__del hidden' : 'round-row__del',
                     onclick: () => {
                         if (row.token === null) return;
-                        this.askDelete(row.token, row.roundId ?? '', row.courseName || 'this round');
+                        this.askDelete(row.token, row.roundId ?? '', rowLabel(row));
                     },
                 },
             },

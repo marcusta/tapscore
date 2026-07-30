@@ -156,6 +156,8 @@ export interface Round {
     selfOrganize: boolean;
     status: RoundStatus;
     latestEventId: string | null;
+    /** Organizer-supplied round name; null ⇒ render `courseNameSnapshot`. */
+    name: string | null;
     courseNameSnapshot: string | null;
     /** ISO time the round was FINISHED; null until it is (drives the landing's
      *  "Recently finished" 14-day window). Set with `status='complete'`. */
@@ -334,6 +336,7 @@ function toRound(row: RoundRow, parts: RoundParts): Round {
         selfOrganize: row.self_organize === 1,
         status: row.status,
         latestEventId: row.latest_event_id,
+        name: row.name,
         courseNameSnapshot: row.course_name_snapshot,
         completedAt: row.completed_at,
         formatSlots: parts.formatSlots,
@@ -604,6 +607,7 @@ export class RoundService {
             window_end: string | null;
             self_organize: number;
             status: RoundStatus;
+            name?: string | null;
             course_name_snapshot?: string | null;
         },
         trx: Kysely<Database> = this.db,
@@ -945,6 +949,9 @@ export class RoundService {
                     window_end: def.windowEnd ?? null,
                     self_organize: def.selfOrganize ? 1 : 0,
                     status: 'not_started',
+                    // Draft-authored, so a definition-only create (admin /
+                    // fixtures) simply has none.
+                    name: originatingDraft?.name?.trim() || null,
                     course_name_snapshot: courseNameSnapshot,
                 },
                 trx,

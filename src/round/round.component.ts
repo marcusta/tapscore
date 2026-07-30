@@ -17,6 +17,7 @@ import { SeatCardComponent } from './seat-card.component';
 import { JoinCardComponent } from './join-card.component';
 import { ManageOverlayComponent } from './manage-overlay.component';
 import { formatLabelFromSlot } from './slot-labels';
+import { roundHeaderTitle } from './header-title';
 import { shouldPoll, shouldRefreshOnVisibility } from './poll-gate';
 import { startLiveResult, type LiveResultFeed } from './live-result';
 import type { FormatSlot } from '../api/rounds.gen';
@@ -45,16 +46,15 @@ const tpl = template(`
             <div bind="notfound" class="round-view__notfound">That share link didn't lead to a round.</div>
             <div bind="body" class="round-view__body">
                 <header class="round-view__head">
-                    <h1 bind="course"></h1>
+                    <div class="round-view__titles">
+                        <h1 bind="title"></h1>
+                        <span bind="course" class="round-view__course"></span>
+                    </div>
                     <div class="round-view__chrome">
                         <span bind="status" class="round-view__status"></span>
                         <button bind="manageBtn" class="round-view__manage" type="button" aria-label="Manage round">⋯</button>
                     </div>
                 </header>
-                <div class="round-view__meta">
-                    <span bind="date"></span>
-                    <span bind="route"></span>
-                </div>
                 <div class="round-view__formats" bind="formats"></div>
 
                 <div bind="scorePanel" class="round-view__panel">
@@ -147,19 +147,39 @@ export class RoundComponent extends Component {
             & .round-view__body.hidden { display: none; }
             & .round-view__panel.hidden { display: none; }
 
+            /* ONE band, not three. The title, the status and the manage
+               affordance used to stack over a separate meta row, which spent a
+               third of a phone screen on chrome before the first score. They
+               are one row now, and the title itself is small (Golf GameBook's
+               header, the owner's reference): the round's NAME with the course
+               under it, rather than a 1.8rem course name and nothing else. */
             & .round-view__head {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
                 gap: ${s('md')};
 
+                & .round-view__titles {
+                    min-width: 0;
+                }
+
                 & h1 {
                     margin: 0;
                     font-family: ${t('font-display')};
                     font-weight: 600;
-                    font-size: 1.8rem;
+                    font-size: 1.2rem;
                     letter-spacing: -0.02em;
                     color: ${t('text')};
+                }
+
+                /* The COURSE, and nothing else. The date is in the round list
+                   (and, for a round that kept its default name, in the title
+                   itself); the hole count is in the dock at the bottom of this
+                   very screen. */
+                & .round-view__course {
+                    display: block;
+                    color: ${t('text-muted')};
+                    font-size: 0.8rem;
                 }
             }
 
@@ -202,14 +222,6 @@ export class RoundComponent extends Component {
                 flex-shrink: 0;
                 background: ${t('accent-soft')};
                 color: ${t('accent')};
-            }
-
-            & .round-view__meta {
-                display: flex;
-                gap: ${s('md')};
-                margin-top: ${s('xs')};
-                color: ${t('text-muted')};
-                font-size: 0.9rem;
             }
 
             & .round-view__formats {
@@ -666,15 +678,11 @@ export class RoundComponent extends Component {
                 className: () =>
                     this.hasRound.get() ? 'round-view__body' : 'round-view__body hidden',
             },
-            course: () => this.svc.round.get()?.courseNameSnapshot ?? 'Round',
+            title: () => roundHeaderTitle(this.svc.round.get()),
+            course: () => this.svc.round.get()?.courseNameSnapshot ?? '',
             status: () => {
                 const st = this.svc.round.get()?.status ?? 'not_started';
                 return statusText[st] ?? st;
-            },
-            date: () => this.svc.round.get()?.date ?? '',
-            route: () => {
-                const r = this.svc.round.get();
-                return r ? `${r.playHoles.length} holes` : '';
             },
             scorePanel: {
                 className: () =>

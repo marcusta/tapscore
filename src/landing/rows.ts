@@ -19,6 +19,9 @@ export interface LandingRow {
     /** Round id for the delete list-prune; null for a device row (no id known
      *  device-side — delete keys off the token instead). */
     roundId: string | null;
+    /** The organizer's name for the round; null ⇒ the row is headed by its
+     *  course instead (see `rowLabel`). */
+    name: string | null;
     courseName: string;
     status: 'not_started' | 'active' | 'complete';
     completedAt: string | null;
@@ -37,6 +40,7 @@ function fromMyRounds(entries: readonly MyRoundEntry[]): LandingRow[] {
         key: e.round.id,
         token: e.token,
         roundId: e.round.id,
+        name: e.round.name,
         courseName: e.round.courseNameSnapshot ?? '',
         status: e.round.status,
         completedAt: e.round.completedAt,
@@ -54,15 +58,49 @@ function fromDeviceRounds(entries: readonly DeviceRound[]): LandingRow[] {
         key: e.token,
         token: e.token,
         roundId: null,
+        name: e.name ?? null,
         courseName: e.courseName,
         status: e.status,
         completedAt: e.completedAt ?? null,
         // Device rows carry a real last-seen timestamp — the natural sort key.
         lastActivityAt: e.lastSeenAt,
         roleLabel: null,
-        date: null,
+        date: e.date ?? null,
         formats: null,
     }));
+}
+
+/** The row's headline: the round's own name when it has one, else the course
+ *  (else a bare "Round" for a device row recorded before its preview landed). */
+export function rowLabel(row: Pick<LandingRow, 'name' | 'courseName'>): string {
+    const name = (row.name ?? '').trim();
+    if (name) return name;
+    return row.courseName || 'Round';
+}
+
+/** The course as a SUB-title — present only when the headline is the round's
+ *  own name. A row with no name is already headed by its course, and printing
+ *  it twice is worse than not printing it at all. */
+export function rowCourseSubtitle(
+    row: Pick<LandingRow, 'name' | 'courseName'>,
+): string | null {
+    if (!row.courseName) return null;
+    return rowLabel(row) === row.courseName ? null : row.courseName;
+}
+
+/** The row's date line, in the READER's locale. A round shared across a group
+ *  must not show a Swedish date to an American phone, so the `yyyy-MM-dd` is
+ *  formatted here rather than printed raw — parsed at UTC noon so no timezone
+ *  can shift it onto the day before. Anything unparseable passes through. */
+export function formatRowDate(
+    date: string | null,
+    locale: string = typeof navigator === 'undefined' ? 'en' : navigator.language,
+): string {
+    if (!date) return '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+    return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(
+        new Date(`${date}T12:00:00Z`),
+    );
 }
 
 export const landingRows = { fromMyRounds, fromDeviceRounds };

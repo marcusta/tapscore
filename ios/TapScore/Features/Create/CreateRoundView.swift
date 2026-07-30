@@ -43,6 +43,10 @@ struct CreateRoundView: View {
     @Environment(AppEnvironment.self) private var environment
 
     var mode: Mode = .create
+    /// Round names this device already knows about, so the pre-filled default
+    /// steps past them with a `(2)` suffix. Advisory: names are not unique and
+    /// this list is only what the landing happens to have loaded.
+    var existingRoundNames: [String] = []
     /// Dismiss without creating or saving anything.
     let onCancel: () -> Void
     /// The round was created — hand it to the shell to record and open.
@@ -90,7 +94,11 @@ struct CreateRoundView: View {
                     store.setOwner(nil)
                 }
                 switch mode {
-                case .create: await store.load()
+                case .create:
+                    // Seeded BEFORE the catalog lands so the field is never
+                    // briefly empty under the user's thumb.
+                    store.seedDefaultName(existing: existingRoundNames)
+                    await store.load()
                 // The hydrate REPLACES the starting roster, so the owner row
                 // above never survives into an edit — it is set purely so the
                 // friends path exists while editing.
@@ -317,7 +325,30 @@ struct CreateRoundView: View {
 
     @ViewBuilder
     private func courseStep(_ store: CreateStore) -> some View {
-        heading("Where are you playing?", subtitle: "Pick the course, the holes you're playing and the tees.")
+        @Bindable var store = store
+        heading(
+            "What are you playing?",
+            subtitle: "Name the round, then pick the course, the holes and the tees.")
+
+        // FIRST question of the flow, and the only one that arrives already
+        // answered: it opens holding today's default ("Game 30 Jul 2026"), so
+        // the common case is to walk straight past it. Never gates Next — the
+        // name is a label for the round list, not an identifier.
+        VStack(alignment: .leading, spacing: TapSpacing.sm) {
+            SectionHeader(title: "Round name")
+            TextField(
+                "",
+                text: $store.roundName,
+                prompt: tapFieldPrompt("Tisdagsbollen"))
+                .textInputAutocapitalization(.sentences)
+                .submitLabel(.done)
+                .tapField()
+                .accessibilityIdentifier("round-name-field")
+            Text("Just so you can tell your rounds apart — change it or leave it.")
+                .font(TapFont.ui(size: 12.8))
+                .foregroundStyle(TapColors.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
 
         // B4: a round with scores has settled its course and its route — the
         // balls are already addressed to them. The reason is stated ONCE, above

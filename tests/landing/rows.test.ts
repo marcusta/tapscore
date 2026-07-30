@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { landingRows } from '../../src/landing/rows';
+import { formatRowDate, landingRows, rowCourseSubtitle, rowLabel } from '../../src/landing/rows';
 import type { MyRoundEntry } from '../../src/landing/my-rounds';
 import type { DeviceRound } from '../../src/landing/device-rounds';
 import type { Round } from '../../src/api/friendly-rounds.gen';
@@ -77,4 +77,52 @@ test('fromDeviceRounds maps token as key + lastSeenAt as the activity key', () =
     expect(row!.roleLabel).toBeNull();
     expect(row!.date).toBeNull();
     expect(row!.formats).toBeNull();
+});
+
+// The card hierarchy: the round's own NAME is the headline when it has one,
+// and the course drops to a sub-title. An unnamed round is headed by its
+// course, and then the sub-title must stay away — one thing, printed once.
+test('a named row leads with its name and demotes the course', () => {
+    const named = { name: 'Friday four-ball', courseName: 'Linköping' };
+    expect(rowLabel(named)).toBe('Friday four-ball');
+    expect(rowCourseSubtitle(named)).toBe('Linköping');
+
+    const unnamed = { name: null, courseName: 'Linköping' };
+    expect(rowLabel(unnamed)).toBe('Linköping');
+    expect(rowCourseSubtitle(unnamed)).toBeNull();
+
+    // A blank/whitespace name is no name.
+    const blank = { name: '   ', courseName: 'Linköping' };
+    expect(rowLabel(blank)).toBe('Linköping');
+    expect(rowCourseSubtitle(blank)).toBeNull();
+
+    // Course unknown (a cold deep-link sighting): a label is still owed.
+    expect(rowLabel({ name: null, courseName: '' })).toBe('Round');
+    expect(rowCourseSubtitle({ name: 'Skins', courseName: '' })).toBeNull();
+});
+
+test('fromDeviceRounds carries the stored name through', () => {
+    const [row] = landingRows.fromDeviceRounds([
+        {
+            token: 't1',
+            courseName: 'Linköping',
+            name: 'Skins night',
+            status: 'active',
+            lastSeenAt: '2026-07-30T10:00:00Z',
+        },
+    ]);
+    expect(row.name).toBe('Skins night');
+    // An entry written before round names existed decodes with no name at all.
+    const [legacy] = landingRows.fromDeviceRounds([
+        { token: 't2', courseName: 'Linköping', status: 'active', lastSeenAt: '2026-07-30T10:00:00Z' },
+    ]);
+    expect(legacy.name).toBeNull();
+});
+
+test('the date line is formatted in the reader locale', () => {
+    expect(formatRowDate('2026-07-30', 'en-GB')).toBe('30 Jul 2026');
+    expect(formatRowDate('2026-07-30', 'sv-SE')).toBe('30 juli 2026');
+    expect(formatRowDate(null, 'en-GB')).toBe('');
+    // Not a yyyy-MM-dd — printed as-is rather than as "Invalid Date".
+    expect(formatRowDate('soon', 'en-GB')).toBe('soon');
 });

@@ -17,7 +17,8 @@ import {
     humanizeDiagnostic,
 } from './diagnostics';
 import { draftToForms, type StoredDraft } from './draft-to-forms';
-import { recordDeviceRound } from '../landing/device-rounds';
+import { getDeviceRounds, recordDeviceRound } from '../landing/device-rounds';
+import { defaultRoundName } from './default-round-name';
 
 export type Gender = 'M' | 'F';
 export type RoutePreset = 'full_18' | 'front_9' | 'back_9';
@@ -248,6 +249,13 @@ export class SetupService {
     readonly courses = new Signal<SetupCourse[]>([]);
     readonly tees = new Signal<Tee[]>([]);
 
+    /** What the organizer calls this round — the FIRST question of the form,
+     *  pre-filled with `defaultRoundName` so the common case is "leave it".
+     *  A label for telling rounds apart in the list, never an identifier: not
+     *  required, not unique. Trimmed at submit, never while typing (that eats
+     *  the space between two words). */
+    readonly roundName = new Signal<string>('');
+
     readonly courseId = new Signal<string>('');
     readonly preset = new Signal<RoutePreset>('full_18');
     readonly startHole = new Signal<number>(1);
@@ -322,6 +330,7 @@ export class SetupService {
     reset(): void {
         this.courses.set([]);
         this.tees.set([]);
+        this.roundName.set('');
         this.courseId.set('');
         this.preset.set('full_18');
         this.startHole.set(1);
@@ -348,6 +357,9 @@ export class SetupService {
     }
 
     async load(): Promise<void> {
+        // Seeded BEFORE the catalog request so the field is never briefly empty
+        // under the user's thumb.
+        this.seedDefaultName();
         // Catalog loads in parallel; the game cards render once it arrives and
         // the everyone-for-themselves card is picked so a round is valid out of
         // the box (M2 parity).
@@ -358,6 +370,21 @@ export class SetupService {
         if (!this.courseId.get() && data.length > 0) {
             await this.selectCourse(data[0].id);
         }
+    }
+
+    /**
+     * Pre-fill the name field, once. A name the user already typed is never
+     * overwritten. The de-dup source is this device's recent rounds — the best
+     * answer at hand to "is there already a round called that", and advisory
+     * only: names are not unique and a round created on another device is
+     * invisible here.
+     */
+    seedDefaultName(now: Date = new Date()): void {
+        if (this.roundName.get() !== '') return;
+        const existing = getDeviceRounds()
+            .map((r) => r.name ?? '')
+            .filter((n) => n !== '');
+        this.roundName.set(defaultRoundName(now, undefined, existing));
     }
 
     /**
@@ -397,6 +424,10 @@ export class SetupService {
         }
         this.hasScores.set(setup.hasScores);
         this.editPlayedAt = setup.draft.playedAt;
+        // An edit shows the stored name as-is — including the empty one. No
+        // default is seeded here: a round deliberately left unnamed must not
+        // acquire a name because someone opened its setup.
+        this.roundName.set(setup.draft.name ?? '');
 
         // Course catalog (for the course label) + this round's course tees.
         const courses = await request(this.loading, this.error, () => api.setup.courses());
@@ -2248,9 +2279,11 @@ export class SetupService {
             const { roundType, route } = this.buildRoute();
             const teams = this.buildTeams(roster, defIdByKey);
             const playingGroups = this.buildGroups(roster, defIdByKey);
+            const name = this.roundName.get().trim();
             const draft = {
                 courseId: this.courseId.get(),
                 playedAt: this.editPlayedAt ?? new Date().toISOString().slice(0, 10),
+                ...(name ? { name } : {}),
                 roundType,
                 ...(route ? { route } : {}),
                 producers,
@@ -2302,6 +2335,8 @@ export class SetupService {
             recordDeviceRound({
                 token: result.friendlyRound.shareToken,
                 courseName: result.round.courseNameSnapshot ?? '',
+                name: result.round.name,
+                date: result.round.date,
                 status: result.round.status,
                 completedAt: result.round.completedAt,
                 lastSeenAt: new Date().toISOString(),

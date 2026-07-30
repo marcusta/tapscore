@@ -104,6 +104,30 @@ test('snapshots the course name onto the created round', async () => {
     expect(result.round.courseNameSnapshot).toBe('Drafter');
 });
 
+test('carries the draft name onto the created round, and blank means none', async () => {
+    const ctx = await setup();
+    const base: RoundSetupDraft = {
+        courseId: ctx.courseId,
+        playedAt: '2026-06-01',
+        producers: roster(ctx.teeId, ctx.players),
+        formats: [{ formatId: 'stableford_individual' }],
+    };
+
+    const named = await ctx.roundService.createFromDraft({ ...base, name: '  Tisdagsbollen ' });
+    expect(named.ok).toBe(true);
+    if (named.ok) expect(named.round.name).toBe('Tisdagsbollen');
+
+    // Whitespace-only is NOT a name — the header would render an empty title
+    // and drop the course line it falls back to.
+    const blank = await ctx.roundService.createFromDraft({ ...base, name: '   ' });
+    expect(blank.ok).toBe(true);
+    if (blank.ok) expect(blank.round.name).toBeNull();
+
+    const absent = await ctx.roundService.createFromDraft(base);
+    expect(absent.ok).toBe(true);
+    if (absent.ok) expect(absent.round.name).toBeNull();
+});
+
 test('a named "10 + first 8" route template freezes into the created round', async () => {
     const ctx = await setup();
     const route: CourseRouteTemplateRoute = {

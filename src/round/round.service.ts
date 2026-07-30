@@ -313,6 +313,8 @@ export class RoundViewService {
         recordDeviceRound({
             token,
             courseName: data.round.courseNameSnapshot ?? '',
+            name: data.round.name,
+            date: data.round.date,
             status: data.round.status,
             completedAt: data.round.completedAt,
             lastSeenAt: new Date().toISOString(),
@@ -447,6 +449,8 @@ export class RoundViewService {
                 recordDeviceRound({
                     token,
                     courseName: r.courseNameSnapshot ?? '',
+                    name: r.name,
+                    date: r.date,
                     status: res.status,
                     completedAt: res.completedAt,
                     lastSeenAt: new Date().toISOString(),
@@ -473,6 +477,8 @@ export class RoundViewService {
                 recordDeviceRound({
                     token,
                     courseName: r.courseNameSnapshot ?? '',
+                    name: r.name,
+                    date: r.date,
                     status: res.status,
                     completedAt: null,
                     lastSeenAt: new Date().toISOString(),
@@ -669,6 +675,8 @@ export class RoundViewService {
             recordDeviceRound({
                 token,
                 courseName: r.courseNameSnapshot ?? '',
+                name: r.name,
+                date: r.date,
                 status: event.status,
                 completedAt,
                 lastSeenAt: new Date().toISOString(),

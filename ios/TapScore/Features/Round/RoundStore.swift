@@ -874,6 +874,7 @@ final class RoundStore {
         deviceRounds.recordOpen(
             token: token,
             courseName: r.courseNameSnapshot,
+            name: r.name,
             status: Self.deviceStatus(r.status),
             completedAt: r.completedAt,
             date: r.date,

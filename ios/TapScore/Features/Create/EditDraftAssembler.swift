@@ -113,7 +113,8 @@ struct EditDraftAssembler: Sendable {
         courseId: String,
         route: CreateDraftBuilder.Route,
         producers: [Producer],
-        slots: [Slot]
+        slots: [Slot],
+        name: String = ""
     ) -> CompetitionsCreateRoundOutputOkDraft {
         let liveIds = Set(producers.map(\.producerDefId))
         let order = producers.map(\.producerDefId)
@@ -159,11 +160,16 @@ struct EditDraftAssembler: Sendable {
             && Self.route(from: loaded) == (preset: route.preset, startHole: route.startHole)
         let rebuilt = CreateDraftBuilder(catalog: catalog).routeFields(route)
 
+        // The name IS edited by this flow, so it is rebuilt from the field
+        // rather than carried off `loaded` — clearing it must actually clear it.
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+
         return CompetitionsCreateRoundOutputOkDraft(
             courseId: courseId,
             // No date UI exists, so the date is the round's — never "today",
             // which is what a rebuild would quietly write (B5).
             playedAt: loaded.playedAt,
+            name: trimmedName.isEmpty ? nil : trimmedName,
             roundType: carryRoute ? loaded.roundType : rebuilt.roundType,
             venueType: loaded.venueType,
             route: carryRoute ? loaded.route : rebuilt.route,

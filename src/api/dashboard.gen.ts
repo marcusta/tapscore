@@ -28,6 +28,7 @@ export interface Round {
     selfOrganize: boolean;
     status: 'active' | 'not_started' | 'complete';
     latestEventId: null | string;
+    name: null | string;
     courseNameSnapshot: null | string;
     completedAt: null | string;
     formatSlots: FormatSlot[];

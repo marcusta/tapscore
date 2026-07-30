@@ -443,6 +443,25 @@ test('course change IS allowed before any score (rounds row follows)', async () 
     expect(ivar.courseHandicap).toBe(7);
 });
 
+test('a setup edit renames the round, and clearing the name restores the fallback', async () => {
+    const { ctx, draft } = await setup();
+    const { token } = await createRound(ctx, { ...draft, name: 'Tisdagsbollen' });
+
+    const renamed = await ctx.roundEditService.editByToken({
+        token,
+        draft: { ...draft, name: 'Onsdagsbollen' },
+    });
+    expect(renamed!.ok).toBe(true);
+    if (renamed!.ok) expect(renamed!.round.name).toBe('Onsdagsbollen');
+
+    const cleared = await ctx.roundEditService.editByToken({
+        token,
+        draft: { ...draft, name: '' },
+    });
+    expect(cleared!.ok).toBe(true);
+    if (cleared!.ok) expect(cleared!.round.name).toBeNull();
+});
+
 test('LOCK: removing a producer whose ball has scores → producer_has_scores; unscored removal is fine', async () => {
     const { ctx, draft } = await setup();
     const { token, round } = await createRound(ctx, draft);

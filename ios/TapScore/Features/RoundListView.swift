@@ -100,6 +100,11 @@ struct RoundListView: View {
         // roster gets lost.
         .fullScreenCover(isPresented: $isCreating) {
             CreateRoundView(
+                // What this landing has loaded is the best available answer to
+                // "does this player already have a round called that today" —
+                // enough to de-dupe the pre-filled default, and never treated
+                // as authoritative.
+                existingRoundNames: loader.rows.compactMap(\.name),
                 onCancel: { isCreating = false },
                 // Hand the new round to the SHELL's open path — the same
                 // closure a row uses — so the device-recent recording and the
@@ -258,6 +263,7 @@ struct RoundListView: View {
             RoundOpenRequest(
                 token: token,
                 courseName: row.courseName.isEmpty ? nil : row.courseName,
+                name: row.name,
                 status: row.status,
                 completedAt: row.completedAt,
                 date: row.date
@@ -401,7 +407,7 @@ private struct RoundRow: View {
                             // wordmark), and a course name is content. Two
                             // clients disagreeing about which face a round row
                             // wears is a divergence with nothing to buy it.
-                            Text(row.courseName.isEmpty ? "Round" : row.courseName)
+                            Text(row.label)
                                 .font(TapFont.ui(size: 16.8, weight: .bold))
                                 .foregroundStyle(TapColors.text)
                                 .multilineTextAlignment(.leading)
@@ -410,10 +416,25 @@ private struct RoundRow: View {
                                 // column around for no gain.
                                 .lineLimit(2)
                                 .fixedSize(horizontal: false, vertical: true)
-                            if let date = row.displayDate {
-                                // Web `.round-row__bottom` — muted 0.85rem.
-                                Text(date)
+                            // Three sizes, one hierarchy: what the round is
+                            // CALLED, then where it was played, then when.
+                            // The course only appears when the headline is a
+                            // name — otherwise the course IS the headline and
+                            // this would repeat it.
+                            if let course = row.courseSubtitle {
+                                Text(course)
                                     .font(TapFont.ui(size: 13.6))
+                                    .foregroundStyle(TapColors.textMuted)
+                                    .multilineTextAlignment(.leading)
+                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            if let date = row.displayDate {
+                                // Web `.round-row__bottom` — muted, and a step
+                                // smaller again: the date is the last thing
+                                // anyone scans a row for.
+                                Text(date)
+                                    .font(TapFont.ui(size: 12))
                                     .foregroundStyle(TapColors.textMuted)
                             }
                         }
@@ -506,6 +527,10 @@ struct LandingRow: Identifiable, Equatable, Sendable {
     /// produced round with no friendly wrapper).
     let token: String?
     let courseName: String
+    /// The organizer's name for the round, when it has one. The row labels
+    /// itself with this and demotes the course to the meta line; nil ⇒ the
+    /// course IS the label, exactly as before names existed.
+    var name: String?
     let status: DeviceRoundStatus
     let completedAt: String?
     /// Ongoing-sort key — most-recently-active first.
@@ -531,6 +556,7 @@ struct LandingRow: Identifiable, Equatable, Sendable {
                 id: entry.token,
                 token: entry.token,
                 courseName: entry.courseName,
+                name: entry.name,
                 status: entry.status,
                 completedAt: entry.completedAt,
                 // Device rows carry a real last-seen timestamp — the natural
@@ -570,6 +596,7 @@ struct LandingRow: Identifiable, Equatable, Sendable {
                     id: entry.round.id,
                     token: entry.token,
                     courseName: entry.round.courseNameSnapshot ?? "",
+                    name: entry.round.name,
                     status: DeviceRoundStatus(rawValue: entry.round.status.rawValue) ?? .notStarted,
                     completedAt: entry.round.completedAt,
                     // No per-round activity timestamp on the payload; the round
@@ -633,6 +660,7 @@ struct LandingRow: Identifiable, Equatable, Sendable {
             id: id,
             token: token,
             courseName: courseName.isEmpty ? entry.courseName : courseName,
+            name: name ?? entry.name,
             status: entry.status,
             completedAt: entry.completedAt,
             lastActivityAt: entry.lastSeenAt,
@@ -690,6 +718,23 @@ struct LandingRow: Identifiable, Equatable, Sendable {
     var displayDate: String? {
         guard let date, let parsed = Self.parse(date) else { return date }
         return parsed.formatted(.dateTime.day().month(.abbreviated).year())
+    }
+
+    /// The round's own name when it has one, else the course — the same
+    /// name-over-course fallback the round header applies, so a round is
+    /// called the same thing in the list and on its own screen.
+    var label: String {
+        let named = (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !named.isEmpty { return named }
+        return courseName.isEmpty ? "Round" : courseName
+    }
+
+    /// The course, as a SUB-title — present only when the headline is the
+    /// round's own name. A row with no name is already headed by its course,
+    /// and printing it twice is worse than not printing it at all.
+    var courseSubtitle: String? {
+        guard label != courseName, !courseName.isEmpty else { return nil }
+        return courseName
     }
 
     // MARK: Time helpers

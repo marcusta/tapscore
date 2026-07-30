@@ -406,6 +406,7 @@ struct CreateDraftBuilder: Sendable {
         route: Route,
         games: [Game],
         players: [Player],
+        name: String = "",
         playedAt: String = CreateDraftBuilder.today()
     ) -> CompetitionsCreateRoundOutputOkDraft {
         let defIds = (0..<players.count).map { "p\($0 + 1)" }
@@ -441,9 +442,15 @@ struct CreateDraftBuilder: Sendable {
                 }) : nil
         }
 
+        // Trimmed HERE, at the wire, and omitted entirely when it is empty —
+        // an unnamed round must not ship a `name: ""` the server would have to
+        // decide about (it stores null; the header falls back to the course).
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+
         return CompetitionsCreateRoundOutputOkDraft(
             courseId: courseId,
             playedAt: playedAt,
+            name: trimmedName.isEmpty ? nil : trimmedName,
             roundType: roundType,
             route: routeFields,
             producers: producers,

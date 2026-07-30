@@ -71,6 +71,9 @@ export interface RoundsTable {
     self_organize: number;
     status: RoundStatus;
     latest_event_id: string | null;
+    /** Organizer-supplied round name (migration 045). Null ⇒ the UI falls back
+     *  to `course_name_snapshot`. Authored in `RoundSetupDraft.name`. */
+    name: string | null;
     course_name_snapshot: string | null;
     /** Wall-clock time the round was FINISHED (status→complete); null until then.
      *  Set/cleared together with `status` by RoundService.finish/reopenByToken. */

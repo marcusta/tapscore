@@ -278,6 +278,7 @@ export class RoundEditService {
                         date: resolved.playedAt,
                         round_type: resolved.roundType ?? 'full_18',
                         venue_type: resolved.venueType ?? 'outdoor',
+                        name: resolved.name?.trim() || null,
                         course_name_snapshot: courseName?.name ?? null,
                     })
                     .where('id', '=', roundId)

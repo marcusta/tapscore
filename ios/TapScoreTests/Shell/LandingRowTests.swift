@@ -44,6 +44,7 @@ final class LandingRowTests: XCTestCase {
     private func device(
         _ token: String,
         course: String = "",
+        name: String? = nil,
         status: DeviceRoundStatus = .active,
         seenAt: String,
         completedAt: String? = nil
@@ -51,10 +52,40 @@ final class LandingRowTests: XCTestCase {
         DeviceRound(
             token: token,
             courseName: course,
+            name: name,
             status: status,
             completedAt: completedAt,
             lastSeenAt: seenAt
         )
+    }
+
+    // MARK: - What a row is called
+
+    /// The row's hierarchy: the round's own name is the headline and the
+    /// course drops to a sub-title. Without a name the course IS the headline
+    /// — and then it must not also be printed underneath itself.
+    func testANamedRowLeadsWithItsNameAndDemotesTheCourse() {
+        let named = LandingRow.fromDevice([
+            device("a", course: "Linköpings Golfklubb 1-18", name: "Tisdagsbollen", seenAt: "2026-07-30T10:00:00Z")
+        ])[0]
+        XCTAssertEqual(named.label, "Tisdagsbollen")
+        XCTAssertEqual(named.courseSubtitle, "Linköpings Golfklubb 1-18")
+
+        let unnamed = LandingRow.fromDevice([
+            device("b", course: "North", seenAt: "2026-07-30T10:00:00Z")
+        ])[0]
+        XCTAssertEqual(unnamed.label, "North")
+        XCTAssertNil(unnamed.courseSubtitle, "the headline already says it")
+
+        // A blank name is no name, and a row that knows neither still says
+        // something rather than rendering an empty headline.
+        let blank = LandingRow.fromDevice([
+            device("c", course: "North", name: "   ", seenAt: "2026-07-30T10:00:00Z")
+        ])[0]
+        XCTAssertEqual(blank.label, "North")
+        XCTAssertEqual(
+            LandingRow.fromDevice([device("d", seenAt: "2026-07-30T10:00:00Z")])[0].label,
+            "Round")
     }
 
     // MARK: - Merge
