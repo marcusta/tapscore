@@ -38,6 +38,7 @@ import { CompetitionAuthz } from './api/competition-authz';
 import { createAdminApi } from './api/admin.api';
 import { registerFriendlyRoundEvents } from './api/friendly-rounds-events';
 import { AdminAuthz } from './api/admin-authz';
+import { fetchWithSseIdleTimeout } from './sse-timeout';
 import { seedDev } from './db/seeds/dev';
 import { registerBuiltInBallCreationStrategies } from './domain/strategies/ball-creation';
 import { registerBuiltInFormats } from './domain/formats';
@@ -177,6 +178,11 @@ if (process.env.NODE_ENV !== 'production') {
 // still overrides via PORT=3030.
 const port = Number(process.env.PORT ?? 3737);
 
-export default { port, fetch: app.fetch };
+export default {
+    port,
+    fetch(request: Request, server: Bun.Server<undefined>) {
+        return fetchWithSseIdleTimeout(request, server, (nextRequest) => app.fetch(nextRequest));
+    },
+};
 
 log.info({ msg: 'server started', port });
