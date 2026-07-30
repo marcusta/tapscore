@@ -1,16 +1,18 @@
-import { sql, type Kysely, type Selectable } from 'kysely';
+import { sql, type Kysely, type Selectable, type SqlBool } from 'kysely';
 import { ConflictError } from '@basics/core/server/auth';
 import type {
     Database,
     StoredFirstPuttBucket,
     PlayerHoleStatsTable,
-    PlayerRoundStatsV2View,
-    PlayerStatTotalsV2View,
+    PlayerRoundStatsV3View,
+    PlayerStatTotalsV3View,
     PlayerStatsConfigTable,
+    RoundType,
     ShortGameDifficulty,
     StatEventsTable,
     StatKey,
     TeeResult,
+    VenueType,
 } from '../db/schema';
 import { toIsoUtc } from '../domain/time';
 
@@ -222,25 +224,113 @@ export interface StatMeasures {
     strokesVsParInPlay: number;
     holesScoredTrouble: number;
     strokesVsParTrouble: number;
+
+    // Conditioned cross-tabs (migration 046; presentation §5.3). A cross-tab is
+    // not derivable from the margins above — "GIR% after a trouble tee shot"
+    // needs the two answers paired on the hole, not two independent totals.
+    /** GIR by tee state: what drive quality buys the approach. */
+    girRecordedFairway: number;
+    girHitsFairway: number;
+    /** WARNING: `in_play` here is STRICT — the tee_result value alone, disjoint
+     *  from fairway — unlike the cumulative `inPlayHits` (fairway OR in play). */
+    girRecordedInPlay: number;
+    girHitsInPlay: number;
+    girRecordedTrouble: number;
+    girHitsTrouble: number;
+    /** Proximity proxy: the first-putt spread on greens HIT. */
+    girFirstPuttRecorded: number;
+    girFirstPuttInside1m: number;
+    girFirstPutt1To2m: number;
+    girFirstPutt2To4m: number;
+    girFirstPutt4To8m: number;
+    girFirstPuttOver8m: number;
+    /** Putts per green hit — putts per ROUND is polluted by chip-ins. */
+    puttsRecordedGir: number;
+    puttsTotalGir: number;
+    /**
+     * Putts summed over exactly the holes the matching `…Resolved` bucket
+     * counts, so the pair divides into average putts from that distance — the
+     * input to the client's expected-putts / strokes-lost math.
+     */
+    puttsTotalInside1mResolved: number;
+    puttsTotal1To2mResolved: number;
+    puttsTotal2To4mResolved: number;
+    puttsTotal4To8mResolved: number;
+    puttsTotalOver8mResolved: number;
 }
 
-/** One round the player has stats in, with enough identity to list it. */
+/**
+ * One round the player has stats in, with enough identity to list it — and to
+ * FILTER it: windowing (last N, this year, this course, indoor only) is
+ * client-side over these rows (presentation §4.3), so the metadata a filter
+ * needs travels with the measures rather than costing a second round-trip.
+ */
 export interface PlayerRoundStats {
     roundId: string;
     /** The round's play date (`rounds.date`). */
     date: string;
     /** Frozen at creation; null for rounds predating the snapshot. */
     courseName: string | null;
+    /** Live course FK — the stable key a course filter groups on. */
+    courseId: string;
+    roundType: RoundType;
+    venueType: VenueType;
+    /** Organizer-supplied round name (migration 045); null falls back to the course. */
+    name: string | null;
+    /** Occurrences in the itinerary — 18, 9, or whatever the route compiled to. */
+    holeCount: number;
     measures: StatMeasures;
 }
 
 /** A player's whole statistical record: the career total plus its rounds. */
 export interface PlayerStatsSummary {
     playerId: string;
-    roundsWithStats: number;
-    totals: StatMeasures;
-    /** Most recent round first. */
+    /**
+     * Whole-history round count — and NULL on a cursored page, where it is not
+     * computed at all. See `totals`.
+     */
+    roundsWithStats: number | null;
+    /**
+     * Whole-history totals, computed on the FIRST page only (no cursor) and
+     * NULL on every page after it. They never were page subtotals, so paying
+     * for the whole totals view again on page two bought the client nothing.
+     */
+    totals: StatMeasures | null;
+    /** Most recent round first. A PAGE of them when `limit` was given. */
     rounds: PlayerRoundStats[];
+    /**
+     * Feed back as `cursor` for the next page. Null = this page reached the end
+     * of the player's history.
+     */
+    nextCursor: string | null;
+}
+
+/** Newest-first page over the per-round rows. Totals ignore it (see `summaryForPlayer`). */
+export interface PlayerStatsSummaryOptions {
+    /** Rounds per page. Omitted = the whole history, the pre-pagination shape. */
+    limit?: number;
+    /** `nextCursor` from the previous page. */
+    cursor?: string;
+}
+
+/**
+ * One occurrence of a round, from the player's own point of view: the stat row
+ * plus the context needed to READ it (presentation §5.2). Length and score are
+ * nullable because neither is guaranteed — a course may carry no tee lengths,
+ * and a hole may not be scored yet.
+ */
+export interface PlayerRoundHoleStats {
+    playHoleId: string;
+    /** 1..N canonical itinerary order (NOT rotated for a shotgun start). */
+    ordinal: number;
+    courseHoleNumber: number;
+    par: number;
+    /** From the player's own tee, when the round carries tee lengths. */
+    lengthM: number | null;
+    /** The player's own strokes, under the same one-member-ball rule the views use. */
+    score: number | null;
+    /** All-NULL columns where nothing was recorded on the hole. */
+    stats: PlayerHoleStats;
 }
 
 /** One (occurrence, player) pair the round holds statistics for. */
@@ -317,11 +407,62 @@ function toHoleStats(row: HoleStatsRow): PlayerHoleStats {
 }
 
 /**
+ * The stand-in for an occurrence the player has no projection row on. Every
+ * answer is NULL, which is exactly what the row would hold — rule 2: nothing
+ * recorded, not a zero.
+ */
+function absentHoleStats(roundId: string, playHoleId: string, playerId: string): HoleStatsRow {
+    return {
+        round_id: roundId,
+        play_hole_id: playHoleId,
+        player_id: playerId,
+        tee_result: null,
+        gir: null,
+        first_putt: null,
+        putts: null,
+        short_game_difficulty: null,
+        penalties: null,
+        recovery_ok: null,
+    };
+}
+
+/**
+ * The `stat_players` test from migration 043, in TypeScript: a projection row
+ * survives its own clearing with all seven answers NULL, and such a row means
+ * the player recorded nothing.
+ */
+function hasRecordedStat(row: HoleStatsRow): boolean {
+    return (
+        row.tee_result !== null ||
+        row.gir !== null ||
+        row.first_putt !== null ||
+        row.putts !== null ||
+        row.short_game_difficulty !== null ||
+        row.penalties !== null ||
+        row.recovery_ok !== null
+    );
+}
+
+/**
+ * `date|roundId`, the shape `summaryForPlayer` hands out. Anything else is
+ * treated as no cursor at all: a malformed cursor can only come from a client
+ * that mangled an opaque token, and answering with the first page is more
+ * useful than a 400 nobody can act on. The round id is opaque, so only the
+ * FIRST separator splits.
+ */
+function parseCursor(cursor: string | undefined): { date: string; roundId: string } | null {
+    if (!cursor) return null;
+    const at = cursor.indexOf('|');
+    if (at <= 0 || at === cursor.length - 1) return null;
+    return { date: cursor.slice(0, at), roundId: cursor.slice(at + 1) };
+}
+
+/**
  * The one place a view column becomes a measure. Both views expose the same
  * column names (migration 043), so per-round and career rows map through this
  * single function — a measure cannot mean two things.
  */
-function toMeasures(row: PlayerRoundStatsV2View | PlayerStatTotalsV2View): StatMeasures {
+function toMeasures(row: PlayerRoundStatsV3View | PlayerStatTotalsV3View): StatMeasures {
     return {
         teeRecorded: row.tee_recorded,
         fairwayHits: row.fairway_hits,
@@ -381,6 +522,25 @@ function toMeasures(row: PlayerRoundStatsV2View | PlayerStatTotalsV2View): StatM
         strokesVsParInPlay: row.strokes_vs_par_in_play,
         holesScoredTrouble: row.holes_scored_trouble,
         strokesVsParTrouble: row.strokes_vs_par_trouble,
+        girRecordedFairway: row.gir_recorded_fairway,
+        girHitsFairway: row.gir_hits_fairway,
+        girRecordedInPlay: row.gir_recorded_in_play,
+        girHitsInPlay: row.gir_hits_in_play,
+        girRecordedTrouble: row.gir_recorded_trouble,
+        girHitsTrouble: row.gir_hits_trouble,
+        girFirstPuttRecorded: row.gir_first_putt_recorded,
+        girFirstPuttInside1m: row.gir_first_putt_inside_1m,
+        girFirstPutt1To2m: row.gir_first_putt_1_to_2m,
+        girFirstPutt2To4m: row.gir_first_putt_2_to_4m,
+        girFirstPutt4To8m: row.gir_first_putt_4_to_8m,
+        girFirstPuttOver8m: row.gir_first_putt_over_8m,
+        puttsRecordedGir: row.putts_recorded_gir,
+        puttsTotalGir: row.putts_total_gir,
+        puttsTotalInside1mResolved: row.putts_total_inside_1m_resolved,
+        puttsTotal1To2mResolved: row.putts_total_1_to_2m_resolved,
+        puttsTotal2To4mResolved: row.putts_total_2_to_4m_resolved,
+        puttsTotal4To8mResolved: row.putts_total_4_to_8m_resolved,
+        puttsTotalOver8mResolved: row.putts_total_over_8m_resolved,
     };
 }
 
@@ -453,6 +613,25 @@ function zeroMeasures(): StatMeasures {
         strokesVsParInPlay: 0,
         holesScoredTrouble: 0,
         strokesVsParTrouble: 0,
+        girRecordedFairway: 0,
+        girHitsFairway: 0,
+        girRecordedInPlay: 0,
+        girHitsInPlay: 0,
+        girRecordedTrouble: 0,
+        girHitsTrouble: 0,
+        girFirstPuttRecorded: 0,
+        girFirstPuttInside1m: 0,
+        girFirstPutt1To2m: 0,
+        girFirstPutt2To4m: 0,
+        girFirstPutt4To8m: 0,
+        girFirstPuttOver8m: 0,
+        puttsRecordedGir: 0,
+        puttsTotalGir: 0,
+        puttsTotalInside1mResolved: 0,
+        puttsTotal1To2mResolved: 0,
+        puttsTotal2To4mResolved: 0,
+        puttsTotal4To8mResolved: 0,
+        puttsTotalOver8mResolved: 0,
     };
 }
 
@@ -617,28 +796,41 @@ export class PlayerStatsService {
     }
 
     /**
-     * The migration-043 aggregate views. They are ordinary read targets — the
-     * query-inventory rule applies to them exactly as to tables, which is why
-     * they live up here and not inside the summary method.
+     * The migration-043/044/046 aggregate views. They are ordinary read targets
+     * — the query-inventory rule applies to them exactly as to tables, which is
+     * why they live up here and not inside the summary method. Always the
+     * NEWEST layer: every earlier layer's columns are carried forward by it, so
+     * reading v3 is reading v1+v2+v3 with one definition of each measure.
      */
     private statTotalsByPlayer(playerId: string) {
         return this.db
-            .selectFrom('v_player_stat_totals_v2')
+            .selectFrom('v_player_stat_totals_v3')
             .selectAll()
             .where('player_id', '=', playerId);
     }
 
     /**
      * Joined to `rounds` for the identity a list needs — the view carries
-     * measures only, deliberately: round metadata belongs to the round.
+     * measures only, deliberately: round metadata belongs to the round. The
+     * hole count is a correlated count over the itinerary rather than a join,
+     * so it cannot multiply the measure row.
      */
     private roundStatsByPlayer(playerId: string) {
         return this.db
-            .selectFrom('v_player_round_stats_v2 as v')
+            .selectFrom('v_player_round_stats_v3 as v')
             .innerJoin('rounds as r', 'r.id', 'v.round_id')
             .where('v.player_id', '=', playerId)
             .selectAll('v')
-            .select(['r.date as date', 'r.course_name_snapshot as course_name_snapshot']);
+            .select([
+                'r.date as date',
+                'r.course_name_snapshot as course_name_snapshot',
+                'r.course_id as course_id',
+                'r.round_type as round_type',
+                'r.venue_type as venue_type',
+                'r.name as name',
+                sql<number>`(SELECT COUNT(*) FROM round_play_holes rph
+                             WHERE rph.round_id = v.round_id)`.as('hole_count'),
+            ]);
     }
 
     private playHoleIdsInRound(roundId: string, playHoleIds: string[]) {
@@ -647,6 +839,91 @@ export class PlayerStatsService {
             .select('id')
             .where('round_id', '=', roundId)
             .where('id', 'in', playHoleIds);
+    }
+
+    /** The round's itinerary — the row driver for the per-hole read. */
+    private playHolesInRound(roundId: string) {
+        return this.db
+            .selectFrom('round_play_holes')
+            .where('round_id', '=', roundId)
+            .select(['id', 'ordinal', 'course_hole_number', 'par'])
+            .orderBy('ordinal');
+    }
+
+    /** The player's own projection rows for one round. */
+    private holeStatsByRoundPlayer(roundId: string, playerId: string) {
+        return this.holeStats()
+            .where('round_id', '=', roundId)
+            .where('player_id', '=', playerId);
+    }
+
+    /**
+     * Occurrence lengths from the player's OWN tee.
+     *
+     * Joined on `tee_name_snapshot` — the frozen tee identity BOTH sides carry
+     * (migrations 022 and 039) — and deliberately not on any live FK. The
+     * obvious join, `round_play_tee_holes.tee_ref = ball_players.tee_id`, looks
+     * durable because `tee_ref` is immutable, but immutability on one side buys
+     * nothing: `ball_players.tee_id` is `ON DELETE SET NULL`, so deleting the
+     * tee nulls the BALL side of the key and every historical hole silently
+     * loses its length, even though `round_play_tee_holes` still holds it.
+     * The name snapshot is written at compile time on both sides and is never
+     * nulled, so the lengths survive the delete.
+     *
+     * `tee_ref` still comes back: it is the deterministic tie-break key the
+     * caller picks with when a player sits on two balls off two different tees.
+     */
+    private teeHoleLengthsForPlayer(roundId: string, playerId: string) {
+        return this.db
+            .selectFrom('ball_players as bp')
+            .innerJoin('balls as b', 'b.id', 'bp.ball_id')
+            .innerJoin(
+                'round_play_tee_holes as rpth',
+                'rpth.tee_name_snapshot',
+                'bp.tee_name_snapshot',
+            )
+            .innerJoin('round_play_holes as rph', 'rph.id', 'rpth.round_play_hole_id')
+            .where('b.round_id', '=', roundId)
+            .where('rph.round_id', '=', roundId)
+            .where('bp.player_id', '=', playerId)
+            .select([
+                'rpth.round_play_hole_id as round_play_hole_id',
+                'rpth.tee_ref as tee_ref',
+                'rpth.length_m as length_m',
+            ]);
+    }
+
+    /**
+     * The player's own strokes per occurrence — migration 043's `hole_scores`
+     * CTE, restated as a parameterised query so the per-hole read resolves a
+     * score by exactly the same rule the aggregate measures do: one-member
+     * balls only, either scorecard shape, latest `seq` wins.
+     */
+    private holeScoresForPlayer(roundId: string, playerId: string) {
+        return this.db
+            .selectFrom('ball_players as bp')
+            .innerJoin('balls as b', 'b.id', 'bp.ball_id')
+            .innerJoin('scorecards as sc', 'sc.ball_id', 'bp.ball_id')
+            .where('b.round_id', '=', roundId)
+            .where('bp.player_id', '=', playerId)
+            .where('sc.strokes', 'is not', null)
+            .where(
+                sql<SqlBool>`(sc.source_player_id IS NULL OR sc.source_player_id = bp.player_id)`,
+            )
+            .where(
+                sql<SqlBool>`(SELECT COUNT(*) FROM ball_players m
+                              WHERE m.ball_id = bp.ball_id) = 1`,
+            )
+            .where(
+                sql<SqlBool>`sc.seq = (
+                    SELECT MAX(s2.seq) FROM scorecards s2
+                    WHERE s2.ball_id = sc.ball_id
+                      AND s2.play_hole_id = sc.play_hole_id
+                      AND (s2.source_player_id IS NULL
+                           OR s2.source_player_id = bp.player_id)
+                )`,
+            )
+            .select(['sc.play_hole_id as play_hole_id', 'sc.strokes as strokes']);
     }
 
     // --- Queries (write) ---
@@ -914,31 +1191,126 @@ export class PlayerStatsService {
      * shape the client can render, and it is the same absence-as-default
      * `getConfig` returns.
      *
-     * v1 returns EVERY round with stats, unbounded. A player records at most a
-     * few hundred rounds a decade, so the list is small in practice; if it ever
-     * is not, the fix is a limit + cursor on the round query (the totals row is
-     * independent of it and would not change).
+     * PAGINATION is over the ROUND LIST ONLY (presentation §5.1). `totals` and
+     * `roundsWithStats` are WHOLE-HISTORY figures and are computed on the FIRST
+     * page only — a request carrying a `cursor` gets `null` for both. They come
+     * from the totals view, which has no notion of the cursor, so recomputing
+     * it per page would re-aggregate the player's entire history to hand back
+     * numbers the client already had. A client walking the pages reads them
+     * once, off page one, and never sums them across pages. Omitting `limit`
+     * keeps the original unbounded shape, so every existing caller is
+     * unaffected.
+     *
+     * The cursor is opaque and positional: `date|roundId` of the last row
+     * handed out, applied against the same `(date DESC, round_id ASC)` order.
+     * Keyset rather than offset, so a round recorded between two page fetches
+     * cannot shift a row across the boundary and hide it.
      */
-    async summaryForPlayer(playerId: string): Promise<PlayerStatsSummary> {
-        const totalsRow = await this.statTotalsByPlayer(playerId).executeTakeFirst();
+    async summaryForPlayer(
+        playerId: string,
+        options: PlayerStatsSummaryOptions = {},
+    ): Promise<PlayerStatsSummary> {
+        // Page one only. The totals view re-aggregates every round the player
+        // has ever recorded, and its answer does not move as the cursor walks —
+        // so a cursored page skips the query entirely rather than paying for a
+        // number the caller was already given.
+        const withTotals = options.cursor === undefined;
+        const totalsRow = withTotals
+            ? await this.statTotalsByPlayer(playerId).executeTakeFirst()
+            : undefined;
         // Date descending, then round id, so a player with two rounds on one
         // day gets a stable order instead of SQLite's.
-        const roundRows = await this.roundStatsByPlayer(playerId)
+        let query = this.roundStatsByPlayer(playerId)
             .orderBy('r.date', 'desc')
-            .orderBy('v.round_id')
-            .execute();
+            .orderBy('v.round_id');
+
+        const after = parseCursor(options.cursor);
+        if (after) {
+            query = query.where(
+                sql<SqlBool>`(r.date < ${after.date}
+                              OR (r.date = ${after.date}
+                                  AND v.round_id > ${after.roundId}))`,
+            );
+        }
+        // One row past the page: its existence IS "there is a next page", and
+        // it costs one row rather than a second COUNT query.
+        if (options.limit !== undefined) query = query.limit(options.limit + 1);
+
+        const fetched = await query.execute();
+        const hasMore = options.limit !== undefined && fetched.length > options.limit;
+        const roundRows = hasMore ? fetched.slice(0, options.limit) : fetched;
+        const last = roundRows[roundRows.length - 1];
 
         return {
             playerId,
-            roundsWithStats: totalsRow?.rounds_with_stats ?? 0,
-            totals: totalsRow ? toMeasures(totalsRow) : zeroMeasures(),
+            roundsWithStats: withTotals ? (totalsRow?.rounds_with_stats ?? 0) : null,
+            totals: withTotals ? (totalsRow ? toMeasures(totalsRow) : zeroMeasures()) : null,
             rounds: roundRows.map((row) => ({
                 roundId: row.round_id,
                 date: row.date,
                 courseName: row.course_name_snapshot,
+                courseId: row.course_id,
+                roundType: row.round_type,
+                venueType: row.venue_type,
+                name: row.name,
+                holeCount: row.hole_count,
                 measures: toMeasures(row),
             })),
+            nextCursor: hasMore && last ? `${last.date}|${last.round_id}` : null,
         };
+    }
+
+    /**
+     * One round, hole by hole, from the player's own point of view
+     * (presentation §5.2) — the read behind the per-round stats view.
+     *
+     * Driven by the ITINERARY, like the views' `hole` CTE: the client's hole
+     * strip wants all N cells, and a hole nothing was recorded on comes back as
+     * an all-NULL stat row rather than as a gap the client has to reconstruct.
+     *
+     * Returns null when the player has no RECORDED stat in the round — the same
+     * "at least one non-NULL column" test the views' `stat_players` CTE applies,
+     * so this endpoint exists for exactly the rounds the summary lists. The
+     * caller turns that into a 404; a cleared-to-empty round is not a round with
+     * stats.
+     */
+    async roundHoleStatsForPlayer(
+        roundId: string,
+        playerId: string,
+    ): Promise<PlayerRoundHoleStats[] | null> {
+        const statRows = await this.holeStatsByRoundPlayer(roundId, playerId).execute();
+        if (!statRows.some(hasRecordedStat)) return null;
+
+        const [holes, lengths, scores] = await Promise.all([
+            this.playHolesInRound(roundId).execute(),
+            this.teeHoleLengthsForPlayer(roundId, playerId).execute(),
+            this.holeScoresForPlayer(roundId, playerId).execute(),
+        ]);
+
+        const statByHole = new Map(statRows.map((row) => [row.play_hole_id, row]));
+        const scoreByHole = new Map(scores.map((row) => [row.play_hole_id, row.strokes]));
+        // A player on two balls could in principle sit on two tees; pick the
+        // lexicographically first `tee_ref` so the answer is deterministic
+        // rather than whatever SQLite returned first.
+        const teeRef = lengths
+            .map((row) => row.tee_ref)
+            .sort()
+            .at(0);
+        const lengthByHole = new Map(
+            lengths
+                .filter((row) => row.tee_ref === teeRef)
+                .map((row) => [row.round_play_hole_id, row.length_m]),
+        );
+
+        return holes.map((hole) => ({
+            playHoleId: hole.id,
+            ordinal: hole.ordinal,
+            courseHoleNumber: hole.course_hole_number,
+            par: hole.par,
+            lengthM: lengthByHole.get(hole.id) ?? null,
+            score: scoreByHole.get(hole.id) ?? null,
+            stats: toHoleStats(statByHole.get(hole.id) ?? absentHoleStats(roundId, hole.id, playerId)),
+        }));
     }
 
     /**

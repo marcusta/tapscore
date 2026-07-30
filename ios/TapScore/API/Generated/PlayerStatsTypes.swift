@@ -70,38 +70,115 @@ struct PlayerStatsConfig: Codable, Sendable, Equatable {
 
 struct PlayerStatsSummary: Codable, Sendable, Equatable {
     var playerId: String
-    var roundsWithStats: Double
-    var totals: StatMeasures
+    var roundsWithStats: Double?
+    var totals: StatMeasures?
     var rounds: [PlayerRoundStats]
+    var nextCursor: String?
 
     enum CodingKeys: String, CodingKey {
         case playerId = "playerId"
         case roundsWithStats = "roundsWithStats"
         case totals = "totals"
         case rounds = "rounds"
+        case nextCursor = "nextCursor"
     }
 
-    init(playerId: String, roundsWithStats: Double, totals: StatMeasures, rounds: [PlayerRoundStats]) {
+    init(playerId: String, roundsWithStats: Double? = nil, totals: StatMeasures? = nil, rounds: [PlayerRoundStats], nextCursor: String? = nil) {
         self.playerId = playerId
         self.roundsWithStats = roundsWithStats
         self.totals = totals
         self.rounds = rounds
+        self.nextCursor = nextCursor
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.playerId = try c.decode(String.self, forKey: .playerId)
-        self.roundsWithStats = try c.decode(Double.self, forKey: .roundsWithStats)
-        self.totals = try c.decode(StatMeasures.self, forKey: .totals)
+        self.roundsWithStats = try c.decodeIfPresent(Double.self, forKey: .roundsWithStats)
+        self.totals = try c.decodeIfPresent(StatMeasures.self, forKey: .totals)
         self.rounds = try c.decode([PlayerRoundStats].self, forKey: .rounds)
+        self.nextCursor = try c.decodeIfPresent(String.self, forKey: .nextCursor)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(playerId, forKey: .playerId)
-        try c.encode(roundsWithStats, forKey: .roundsWithStats)
-        try c.encode(totals, forKey: .totals)
+        if let roundsWithStats {
+            try c.encode(roundsWithStats, forKey: .roundsWithStats)
+        } else {
+            try c.encodeNil(forKey: .roundsWithStats)
+        }
+        if let totals {
+            try c.encode(totals, forKey: .totals)
+        } else {
+            try c.encodeNil(forKey: .totals)
+        }
         try c.encode(rounds, forKey: .rounds)
+        if let nextCursor {
+            try c.encode(nextCursor, forKey: .nextCursor)
+        } else {
+            try c.encodeNil(forKey: .nextCursor)
+        }
+    }
+}
+
+struct PlayerRoundHoleStats: Codable, Sendable, Equatable {
+    var playHoleId: String
+    var ordinal: Double
+    var courseHoleNumber: Double
+    var par: Double
+    var lengthM: Double?
+    var score: Double?
+    var stats: PlayerHoleStats
+
+    enum CodingKeys: String, CodingKey {
+        case playHoleId = "playHoleId"
+        case ordinal = "ordinal"
+        case courseHoleNumber = "courseHoleNumber"
+        case par = "par"
+        case lengthM = "lengthM"
+        case score = "score"
+        case stats = "stats"
+    }
+
+    init(playHoleId: String, ordinal: Double, courseHoleNumber: Double, par: Double, lengthM: Double? = nil, score: Double? = nil, stats: PlayerHoleStats) {
+        self.playHoleId = playHoleId
+        self.ordinal = ordinal
+        self.courseHoleNumber = courseHoleNumber
+        self.par = par
+        self.lengthM = lengthM
+        self.score = score
+        self.stats = stats
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.playHoleId = try c.decode(String.self, forKey: .playHoleId)
+        self.ordinal = try c.decode(Double.self, forKey: .ordinal)
+        self.courseHoleNumber = try c.decode(Double.self, forKey: .courseHoleNumber)
+        self.par = try c.decode(Double.self, forKey: .par)
+        self.lengthM = try c.decodeIfPresent(Double.self, forKey: .lengthM)
+        self.score = try c.decodeIfPresent(Double.self, forKey: .score)
+        self.stats = try c.decode(PlayerHoleStats.self, forKey: .stats)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(playHoleId, forKey: .playHoleId)
+        try c.encode(ordinal, forKey: .ordinal)
+        try c.encode(courseHoleNumber, forKey: .courseHoleNumber)
+        try c.encode(par, forKey: .par)
+        if let lengthM {
+            try c.encode(lengthM, forKey: .lengthM)
+        } else {
+            try c.encodeNil(forKey: .lengthM)
+        }
+        if let score {
+            try c.encode(score, forKey: .score)
+        } else {
+            try c.encodeNil(forKey: .score)
+        }
+        try c.encode(stats, forKey: .stats)
     }
 }
 
@@ -330,6 +407,25 @@ struct StatMeasures: Codable, Sendable, Equatable {
     var strokesVsParInPlay: Double
     var holesScoredTrouble: Double
     var strokesVsParTrouble: Double
+    var girRecordedFairway: Double
+    var girHitsFairway: Double
+    var girRecordedInPlay: Double
+    var girHitsInPlay: Double
+    var girRecordedTrouble: Double
+    var girHitsTrouble: Double
+    var girFirstPuttRecorded: Double
+    var girFirstPuttInside1m: Double
+    var girFirstPutt1To2m: Double
+    var girFirstPutt2To4m: Double
+    var girFirstPutt4To8m: Double
+    var girFirstPuttOver8m: Double
+    var puttsRecordedGir: Double
+    var puttsTotalGir: Double
+    var puttsTotalInside1mResolved: Double
+    var puttsTotal1To2mResolved: Double
+    var puttsTotal2To4mResolved: Double
+    var puttsTotal4To8mResolved: Double
+    var puttsTotalOver8mResolved: Double
 
     enum CodingKeys: String, CodingKey {
         case teeRecorded = "teeRecorded"
@@ -390,9 +486,28 @@ struct StatMeasures: Codable, Sendable, Equatable {
         case strokesVsParInPlay = "strokesVsParInPlay"
         case holesScoredTrouble = "holesScoredTrouble"
         case strokesVsParTrouble = "strokesVsParTrouble"
+        case girRecordedFairway = "girRecordedFairway"
+        case girHitsFairway = "girHitsFairway"
+        case girRecordedInPlay = "girRecordedInPlay"
+        case girHitsInPlay = "girHitsInPlay"
+        case girRecordedTrouble = "girRecordedTrouble"
+        case girHitsTrouble = "girHitsTrouble"
+        case girFirstPuttRecorded = "girFirstPuttRecorded"
+        case girFirstPuttInside1m = "girFirstPuttInside1m"
+        case girFirstPutt1To2m = "girFirstPutt1To2m"
+        case girFirstPutt2To4m = "girFirstPutt2To4m"
+        case girFirstPutt4To8m = "girFirstPutt4To8m"
+        case girFirstPuttOver8m = "girFirstPuttOver8m"
+        case puttsRecordedGir = "puttsRecordedGir"
+        case puttsTotalGir = "puttsTotalGir"
+        case puttsTotalInside1mResolved = "puttsTotalInside1mResolved"
+        case puttsTotal1To2mResolved = "puttsTotal1To2mResolved"
+        case puttsTotal2To4mResolved = "puttsTotal2To4mResolved"
+        case puttsTotal4To8mResolved = "puttsTotal4To8mResolved"
+        case puttsTotalOver8mResolved = "puttsTotalOver8mResolved"
     }
 
-    init(teeRecorded: Double, fairwayHits: Double, inPlayHits: Double, troubleCount: Double, girRecorded: Double, girHits: Double, firstPuttRecorded: Double, firstPuttInside1m: Double, firstPutt1To2m: Double, firstPutt2To4m: Double, firstPutt4To8m: Double, firstPuttOver8m: Double, firstPuttInside1mResolved: Double, firstPutt1To2mResolved: Double, firstPutt2To4mResolved: Double, firstPutt4To8mResolved: Double, firstPuttOver8mResolved: Double, onePuttInside1m: Double, onePutt1To2m: Double, onePutt2To4m: Double, onePutt4To8m: Double, onePuttOver8m: Double, puttsRecorded: Double, puttsTotal: Double, threePutts: Double, threePuttsFromOver8m: Double, scrambleAttemptsStandard: Double, scrambleSuccessesStandard: Double, scrambleAttemptsHard: Double, scrambleSuccessesHard: Double, scrambleFirstPuttStandard: Double, scrambleInside2mStandard: Double, scrambleFirstPuttHard: Double, scrambleInside2mHard: Double, penaltiesRecorded: Double, penaltiesTotal: Double, recoveryAttempts: Double, recoverySuccesses: Double, holesScored: Double, strokesTotal: Double, parTotal: Double, holesScoredPar3: Double, strokesPar3: Double, holesScoredPar4: Double, strokesPar4: Double, holesScoredPar5: Double, strokesPar5: Double, doubleBogeyPlus: Double, girHolesScored: Double, birdiesOnGir: Double, bounceBackOpportunities: Double, bounceBackSuccesses: Double, holesScoredFairway: Double, strokesVsParFairway: Double, holesScoredInPlay: Double, strokesVsParInPlay: Double, holesScoredTrouble: Double, strokesVsParTrouble: Double) {
+    init(teeRecorded: Double, fairwayHits: Double, inPlayHits: Double, troubleCount: Double, girRecorded: Double, girHits: Double, firstPuttRecorded: Double, firstPuttInside1m: Double, firstPutt1To2m: Double, firstPutt2To4m: Double, firstPutt4To8m: Double, firstPuttOver8m: Double, firstPuttInside1mResolved: Double, firstPutt1To2mResolved: Double, firstPutt2To4mResolved: Double, firstPutt4To8mResolved: Double, firstPuttOver8mResolved: Double, onePuttInside1m: Double, onePutt1To2m: Double, onePutt2To4m: Double, onePutt4To8m: Double, onePuttOver8m: Double, puttsRecorded: Double, puttsTotal: Double, threePutts: Double, threePuttsFromOver8m: Double, scrambleAttemptsStandard: Double, scrambleSuccessesStandard: Double, scrambleAttemptsHard: Double, scrambleSuccessesHard: Double, scrambleFirstPuttStandard: Double, scrambleInside2mStandard: Double, scrambleFirstPuttHard: Double, scrambleInside2mHard: Double, penaltiesRecorded: Double, penaltiesTotal: Double, recoveryAttempts: Double, recoverySuccesses: Double, holesScored: Double, strokesTotal: Double, parTotal: Double, holesScoredPar3: Double, strokesPar3: Double, holesScoredPar4: Double, strokesPar4: Double, holesScoredPar5: Double, strokesPar5: Double, doubleBogeyPlus: Double, girHolesScored: Double, birdiesOnGir: Double, bounceBackOpportunities: Double, bounceBackSuccesses: Double, holesScoredFairway: Double, strokesVsParFairway: Double, holesScoredInPlay: Double, strokesVsParInPlay: Double, holesScoredTrouble: Double, strokesVsParTrouble: Double, girRecordedFairway: Double, girHitsFairway: Double, girRecordedInPlay: Double, girHitsInPlay: Double, girRecordedTrouble: Double, girHitsTrouble: Double, girFirstPuttRecorded: Double, girFirstPuttInside1m: Double, girFirstPutt1To2m: Double, girFirstPutt2To4m: Double, girFirstPutt4To8m: Double, girFirstPuttOver8m: Double, puttsRecordedGir: Double, puttsTotalGir: Double, puttsTotalInside1mResolved: Double, puttsTotal1To2mResolved: Double, puttsTotal2To4mResolved: Double, puttsTotal4To8mResolved: Double, puttsTotalOver8mResolved: Double) {
         self.teeRecorded = teeRecorded
         self.fairwayHits = fairwayHits
         self.inPlayHits = inPlayHits
@@ -451,6 +566,25 @@ struct StatMeasures: Codable, Sendable, Equatable {
         self.strokesVsParInPlay = strokesVsParInPlay
         self.holesScoredTrouble = holesScoredTrouble
         self.strokesVsParTrouble = strokesVsParTrouble
+        self.girRecordedFairway = girRecordedFairway
+        self.girHitsFairway = girHitsFairway
+        self.girRecordedInPlay = girRecordedInPlay
+        self.girHitsInPlay = girHitsInPlay
+        self.girRecordedTrouble = girRecordedTrouble
+        self.girHitsTrouble = girHitsTrouble
+        self.girFirstPuttRecorded = girFirstPuttRecorded
+        self.girFirstPuttInside1m = girFirstPuttInside1m
+        self.girFirstPutt1To2m = girFirstPutt1To2m
+        self.girFirstPutt2To4m = girFirstPutt2To4m
+        self.girFirstPutt4To8m = girFirstPutt4To8m
+        self.girFirstPuttOver8m = girFirstPuttOver8m
+        self.puttsRecordedGir = puttsRecordedGir
+        self.puttsTotalGir = puttsTotalGir
+        self.puttsTotalInside1mResolved = puttsTotalInside1mResolved
+        self.puttsTotal1To2mResolved = puttsTotal1To2mResolved
+        self.puttsTotal2To4mResolved = puttsTotal2To4mResolved
+        self.puttsTotal4To8mResolved = puttsTotal4To8mResolved
+        self.puttsTotalOver8mResolved = puttsTotalOver8mResolved
     }
 
     init(from decoder: any Decoder) throws {
@@ -513,6 +647,25 @@ struct StatMeasures: Codable, Sendable, Equatable {
         self.strokesVsParInPlay = try c.decode(Double.self, forKey: .strokesVsParInPlay)
         self.holesScoredTrouble = try c.decode(Double.self, forKey: .holesScoredTrouble)
         self.strokesVsParTrouble = try c.decode(Double.self, forKey: .strokesVsParTrouble)
+        self.girRecordedFairway = try c.decode(Double.self, forKey: .girRecordedFairway)
+        self.girHitsFairway = try c.decode(Double.self, forKey: .girHitsFairway)
+        self.girRecordedInPlay = try c.decode(Double.self, forKey: .girRecordedInPlay)
+        self.girHitsInPlay = try c.decode(Double.self, forKey: .girHitsInPlay)
+        self.girRecordedTrouble = try c.decode(Double.self, forKey: .girRecordedTrouble)
+        self.girHitsTrouble = try c.decode(Double.self, forKey: .girHitsTrouble)
+        self.girFirstPuttRecorded = try c.decode(Double.self, forKey: .girFirstPuttRecorded)
+        self.girFirstPuttInside1m = try c.decode(Double.self, forKey: .girFirstPuttInside1m)
+        self.girFirstPutt1To2m = try c.decode(Double.self, forKey: .girFirstPutt1To2m)
+        self.girFirstPutt2To4m = try c.decode(Double.self, forKey: .girFirstPutt2To4m)
+        self.girFirstPutt4To8m = try c.decode(Double.self, forKey: .girFirstPutt4To8m)
+        self.girFirstPuttOver8m = try c.decode(Double.self, forKey: .girFirstPuttOver8m)
+        self.puttsRecordedGir = try c.decode(Double.self, forKey: .puttsRecordedGir)
+        self.puttsTotalGir = try c.decode(Double.self, forKey: .puttsTotalGir)
+        self.puttsTotalInside1mResolved = try c.decode(Double.self, forKey: .puttsTotalInside1mResolved)
+        self.puttsTotal1To2mResolved = try c.decode(Double.self, forKey: .puttsTotal1To2mResolved)
+        self.puttsTotal2To4mResolved = try c.decode(Double.self, forKey: .puttsTotal2To4mResolved)
+        self.puttsTotal4To8mResolved = try c.decode(Double.self, forKey: .puttsTotal4To8mResolved)
+        self.puttsTotalOver8mResolved = try c.decode(Double.self, forKey: .puttsTotalOver8mResolved)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -575,6 +728,25 @@ struct StatMeasures: Codable, Sendable, Equatable {
         try c.encode(strokesVsParInPlay, forKey: .strokesVsParInPlay)
         try c.encode(holesScoredTrouble, forKey: .holesScoredTrouble)
         try c.encode(strokesVsParTrouble, forKey: .strokesVsParTrouble)
+        try c.encode(girRecordedFairway, forKey: .girRecordedFairway)
+        try c.encode(girHitsFairway, forKey: .girHitsFairway)
+        try c.encode(girRecordedInPlay, forKey: .girRecordedInPlay)
+        try c.encode(girHitsInPlay, forKey: .girHitsInPlay)
+        try c.encode(girRecordedTrouble, forKey: .girRecordedTrouble)
+        try c.encode(girHitsTrouble, forKey: .girHitsTrouble)
+        try c.encode(girFirstPuttRecorded, forKey: .girFirstPuttRecorded)
+        try c.encode(girFirstPuttInside1m, forKey: .girFirstPuttInside1m)
+        try c.encode(girFirstPutt1To2m, forKey: .girFirstPutt1To2m)
+        try c.encode(girFirstPutt2To4m, forKey: .girFirstPutt2To4m)
+        try c.encode(girFirstPutt4To8m, forKey: .girFirstPutt4To8m)
+        try c.encode(girFirstPuttOver8m, forKey: .girFirstPuttOver8m)
+        try c.encode(puttsRecordedGir, forKey: .puttsRecordedGir)
+        try c.encode(puttsTotalGir, forKey: .puttsTotalGir)
+        try c.encode(puttsTotalInside1mResolved, forKey: .puttsTotalInside1mResolved)
+        try c.encode(puttsTotal1To2mResolved, forKey: .puttsTotal1To2mResolved)
+        try c.encode(puttsTotal2To4mResolved, forKey: .puttsTotal2To4mResolved)
+        try c.encode(puttsTotal4To8mResolved, forKey: .puttsTotal4To8mResolved)
+        try c.encode(puttsTotalOver8mResolved, forKey: .puttsTotalOver8mResolved)
     }
 }
 
@@ -582,19 +754,34 @@ struct PlayerRoundStats: Codable, Sendable, Equatable {
     var roundId: String
     var date: String
     var courseName: String?
+    var courseId: String
+    var roundType: RoundRoundType
+    var venueType: RoundVenueType
+    var name: String?
+    var holeCount: Double
     var measures: StatMeasures
 
     enum CodingKeys: String, CodingKey {
         case roundId = "roundId"
         case date = "date"
         case courseName = "courseName"
+        case courseId = "courseId"
+        case roundType = "roundType"
+        case venueType = "venueType"
+        case name = "name"
+        case holeCount = "holeCount"
         case measures = "measures"
     }
 
-    init(roundId: String, date: String, courseName: String? = nil, measures: StatMeasures) {
+    init(roundId: String, date: String, courseName: String? = nil, courseId: String, roundType: RoundRoundType, venueType: RoundVenueType, name: String? = nil, holeCount: Double, measures: StatMeasures) {
         self.roundId = roundId
         self.date = date
         self.courseName = courseName
+        self.courseId = courseId
+        self.roundType = roundType
+        self.venueType = venueType
+        self.name = name
+        self.holeCount = holeCount
         self.measures = measures
     }
 
@@ -603,6 +790,11 @@ struct PlayerRoundStats: Codable, Sendable, Equatable {
         self.roundId = try c.decode(String.self, forKey: .roundId)
         self.date = try c.decode(String.self, forKey: .date)
         self.courseName = try c.decodeIfPresent(String.self, forKey: .courseName)
+        self.courseId = try c.decode(String.self, forKey: .courseId)
+        self.roundType = try c.decode(RoundRoundType.self, forKey: .roundType)
+        self.venueType = try c.decode(RoundVenueType.self, forKey: .venueType)
+        self.name = try c.decodeIfPresent(String.self, forKey: .name)
+        self.holeCount = try c.decode(Double.self, forKey: .holeCount)
         self.measures = try c.decode(StatMeasures.self, forKey: .measures)
     }
 
@@ -615,6 +807,15 @@ struct PlayerRoundStats: Codable, Sendable, Equatable {
         } else {
             try c.encodeNil(forKey: .courseName)
         }
+        try c.encode(courseId, forKey: .courseId)
+        try c.encode(roundType, forKey: .roundType)
+        try c.encode(venueType, forKey: .venueType)
+        if let name {
+            try c.encode(name, forKey: .name)
+        } else {
+            try c.encodeNil(forKey: .name)
+        }
+        try c.encode(holeCount, forKey: .holeCount)
         try c.encode(measures, forKey: .measures)
     }
 }
@@ -827,6 +1028,33 @@ struct PlayerStatsPutMyConfigInput: Codable, Sendable, Equatable {
         try c.encode(shortGame, forKey: .shortGame)
         try c.encode(penalties, forKey: .penalties)
         try c.encode(recovery, forKey: .recovery)
+    }
+}
+
+struct PlayerStatsMyStatsInput: Codable, Sendable, Equatable {
+    var limit: Double?
+    var cursor: String?
+
+    enum CodingKeys: String, CodingKey {
+        case limit = "limit"
+        case cursor = "cursor"
+    }
+
+    init(limit: Double? = nil, cursor: String? = nil) {
+        self.limit = limit
+        self.cursor = cursor
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.limit = try c.decodeIfPresent(Double.self, forKey: .limit)
+        self.cursor = try c.decodeIfPresent(String.self, forKey: .cursor)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(limit, forKey: .limit)
+        try c.encodeIfPresent(cursor, forKey: .cursor)
     }
 }
 

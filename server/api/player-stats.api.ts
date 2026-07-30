@@ -54,6 +54,26 @@ const StatEventsInput = Type.Object({
 
 const ByTokenInput = Type.Object({ token: Type.String({ minLength: 1 }) });
 
+/**
+ * A page over the ROUND LIST only (presentation §5.1). Both params are
+ * optional and omitting them keeps the pre-pagination shape — the whole
+ * history in one response.
+ *
+ * `cursor` is opaque: it is `nextCursor` from the previous page, fed straight
+ * back. Clients must not construct or parse it.
+ */
+const MyStatsInput = Type.Object({
+    // INTEGER, not Number. A fractional `limit` passes a Number bound untouched
+    // and then reaches SQLite as `LIMIT 2.5` — a datatype mismatch, i.e. a 500
+    // for what is a client's malformed request. `Value.Convert` truncates a
+    // query string to a whole number for an Integer schema, so the value that
+    // reaches the query is an integer by construction.
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+    cursor: Type.Optional(Type.String({ minLength: 1 })),
+});
+
+const RoundStatsInput = Type.Object({ roundId: Type.String({ minLength: 1 }) });
+
 // --- API descriptor ---
 //
 // Two authorization models, deliberately different, because the two surfaces
@@ -96,6 +116,16 @@ async function statsConfigsOr404(rounds: FriendlyRoundService, token: string) {
     return res;
 }
 
+async function roundHoleStatsOr404(
+    svc: PlayerStatsService,
+    roundId: string,
+    playerId: string,
+) {
+    const res = await svc.roundHoleStatsForPlayer(roundId, playerId);
+    if (res === null) throw new NotFoundError('no stats in that round');
+    return res;
+}
+
 export function createPlayerStatsApi(svc: PlayerStatsService, rounds: FriendlyRoundService) {
     const mw = [requireAuth()];
     return {
@@ -118,10 +148,31 @@ export function createPlayerStatsApi(svc: PlayerStatsService, rounds: FriendlyRo
         // the app needs to read it, and a self-scoped path cannot leak by
         // accident — the subject comes from the session, never from the URL.
         // Widening it later is additive; narrowing it would not be.
+        //
+        // `limit`/`cursor` page the ROUND LIST. TOTALS COVER THE WHOLE HISTORY
+        // AND ARE ONLY COMPUTED ON THE FIRST PAGE: `totals` and
+        // `roundsWithStats` come back populated when no `cursor` is supplied,
+        // and `null` on every cursored page. They were never page subtotals to
+        // begin with — recomputing the whole totals view once per page bought
+        // the client nothing but latency. Read them off page one and keep them.
         myStats: {
             method: 'GET' as const,
             path: '/players/me/stats',
-            fn: (c: Context) => svc.summaryForPlayer(requireUser(c).id),
+            fn: (input: Static<typeof MyStatsInput>, c: Context) =>
+                svc.summaryForPlayer(requireUser(c).id, input),
+            schema: MyStatsInput,
+            middleware: mw,
+        },
+        // Same self-only rule one level down: the round is named in the path,
+        // the PLAYER never is. A 404 covers both "no such round" and "you
+        // recorded nothing there" — the caller can tell neither apart, which is
+        // the point.
+        myRoundStats: {
+            method: 'GET' as const,
+            path: '/players/me/rounds/:roundId/stats',
+            fn: (input: Static<typeof RoundStatsInput>, c: Context) =>
+                roundHoleStatsOr404(svc, input.roundId, requireUser(c).id),
+            schema: RoundStatsInput,
             middleware: mw,
         },
         // An OPTIONAL session only ATTRIBUTES the capture (`recorded_by`) — it

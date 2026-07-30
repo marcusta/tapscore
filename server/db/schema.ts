@@ -41,6 +41,10 @@ export interface Database {
     v_player_round_stats_v2: PlayerRoundStatsV2View;
     /** VIEW (migration 044) — fine-grained career totals. */
     v_player_stat_totals_v2: PlayerStatTotalsV2View;
+    /** VIEW (migration 046) — v2 measures plus the conditioned cross-tabs. */
+    v_player_round_stats_v3: PlayerRoundStatsV3View;
+    /** VIEW (migration 046) — cross-tab career totals. THE summary read target. */
+    v_player_stat_totals_v3: PlayerStatTotalsV3View;
     setup_correction_events: SetupCorrectionEventsTable;
     allowance_override_events: AllowanceOverrideEventsTable;
     ruling_events: RulingEventsTable;
@@ -469,6 +473,55 @@ export interface PlayerRoundStatsV2View
 export interface PlayerStatTotalsV2View
     extends PlayerStatTotalsView,
         FineGrainedPuttingMeasureColumns {}
+
+/**
+ * Conditioned cross-tabs layered over the v2 views (migration 046) — the
+ * columns the presentation slice needs and could not derive from the flat
+ * measures, because a cross-tab is not a sum of its margins.
+ *
+ * Same rules as everything above: counts and sums only, the fine bucket
+ * vocabulary only, and the `putts = 0` + bucket contradiction excluded wherever
+ * a putting answer is involved.
+ */
+export interface ConditionedCrossTabMeasureColumns {
+    /** GIR by tee state — both answers required on the hole. */
+    gir_recorded_fairway: number;
+    gir_hits_fairway: number;
+    /** WARNING: `in_play` here is STRICT — the tee_result value alone, disjoint
+     *  from fairway — unlike the cumulative `in_play_hits` (fairway OR in play). */
+    gir_recorded_in_play: number;
+    gir_hits_in_play: number;
+    gir_recorded_trouble: number;
+    gir_hits_trouble: number;
+    /** Proximity proxy: the first-putt spread on greens HIT. */
+    gir_first_putt_recorded: number;
+    gir_first_putt_inside_1m: number;
+    gir_first_putt_1_to_2m: number;
+    gir_first_putt_2_to_4m: number;
+    gir_first_putt_4_to_8m: number;
+    gir_first_putt_over_8m: number;
+    /** Putts per green hit — putts per ROUND is polluted by chip-ins. */
+    putts_recorded_gir: number;
+    putts_total_gir: number;
+    /**
+     * Putts summed over exactly the holes `first_putt_{bucket}_resolved`
+     * counts, so the pair is average putts from that distance — the input to
+     * the client's expected-putts math.
+     */
+    putts_total_inside_1m_resolved: number;
+    putts_total_1_to_2m_resolved: number;
+    putts_total_2_to_4m_resolved: number;
+    putts_total_4_to_8m_resolved: number;
+    putts_total_over_8m_resolved: number;
+}
+
+export interface PlayerRoundStatsV3View
+    extends PlayerRoundStatsV2View,
+        ConditionedCrossTabMeasureColumns {}
+
+export interface PlayerStatTotalsV3View
+    extends PlayerStatTotalsV2View,
+        ConditionedCrossTabMeasureColumns {}
 
 export interface RoleGrantsTable {
     id: string;

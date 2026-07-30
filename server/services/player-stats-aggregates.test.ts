@@ -273,6 +273,39 @@ test('the round view is the hand-computed arithmetic of the worked example', asy
         strokesVsParInPlay: 1,
         holesScoredTrouble: 1,
         strokesVsParTrouble: 2,
+
+        // GIR by tee state (migration 046). Both answers needed on the hole,
+        // so the par 3 (GIR, no tee question) is in none of the three columns
+        // and the three recorded counts add to 4, not to girRecorded's 5.
+        girRecordedFairway: 2,
+        girHitsFairway: 2,
+        girRecordedInPlay: 1,
+        girHitsInPlay: 1,
+        girRecordedTrouble: 1,
+        // The trouble tee shot is the only green missed off the tee.
+        girHitsTrouble: 0,
+
+        // Proximity proxy: H1 2-4m, H4 over 8m, H5 inside 1m. The two missed
+        // greens are the scramble family's business, not this one's.
+        girFirstPuttRecorded: 3,
+        girFirstPuttInside1m: 1,
+        girFirstPutt1To2m: 0,
+        girFirstPutt2To4m: 1,
+        girFirstPutt4To8m: 0,
+        girFirstPuttOver8m: 1,
+
+        // Putts on greens hit: 2 + 3 + 1. Half of puttsTotal's 7 came from
+        // holes where the green was missed or nothing was asked.
+        puttsRecordedGir: 3,
+        puttsTotalGir: 6,
+
+        // Putts per bucket, over exactly the `*Resolved` holes: inside 1m is
+        // H2 and H5 (1 each), 2-4m is H1's 2, over 8m is H4's 3.
+        puttsTotalInside1mResolved: 2,
+        puttsTotal1To2mResolved: 0,
+        puttsTotal2To4mResolved: 2,
+        puttsTotal4To8mResolved: 0,
+        puttsTotalOver8mResolved: 3,
     });
 });
 
@@ -507,11 +540,311 @@ test('totals are the sum of every round measure, newest round first', async () =
         strokesVsParInPlay: 0,
         holesScoredTrouble: 1,
         strokesVsParTrouble: 2,
+        // A's H1 and B's H2 are fairway greens hit; B's H1 is the in-play one;
+        // A's H2 is the trouble hole, green missed.
+        girRecordedFairway: 2,
+        girHitsFairway: 2,
+        girRecordedInPlay: 1,
+        girHitsInPlay: 1,
+        girRecordedTrouble: 1,
+        girHitsTrouble: 0,
+        // B's H2 has no putt count, which this distribution does not ask for.
+        girFirstPuttRecorded: 3,
+        girFirstPuttInside1m: 0,
+        girFirstPutt1To2m: 0,
+        girFirstPutt2To4m: 2,
+        girFirstPutt4To8m: 0,
+        girFirstPuttOver8m: 1,
+        // …and putts-per-green-hit DOES ask: 2 holes, 1 putt each.
+        puttsRecordedGir: 2,
+        puttsTotalGir: 2,
+        // A's H2 (inside 1m, 2 putts) is a missed green — the bucket totals are
+        // about the putt, not the approach. B's H2 contributes nothing: no
+        // putt count, so it is out of both this SUM and its `*Resolved` count.
+        puttsTotalInside1mResolved: 2,
+        puttsTotal1To2mResolved: 0,
+        puttsTotal2To4mResolved: 1,
+        puttsTotal4To8mResolved: 0,
+        puttsTotalOver8mResolved: 1,
     });
 
     // And the per-round split behind them.
     expect(summary.rounds[0]!.measures.strokesTotal).toBe(13);
     expect(summary.rounds[1]!.measures.strokesTotal).toBe(12);
+});
+
+// --- The migration-046 cross-tabs ----------------------------------------------
+
+test('the GIR cross-tab counts only holes carrying BOTH answers', async () => {
+    const f = await fixture();
+    // H1 both answers. H2 a tee result and no GIR question. H3 a GIR answer off
+    // a par 3, where the tee question is never asked at all.
+    await f.stat(1, 'tee_result', 'fairway');
+    await f.stat(1, 'gir', '1');
+    await f.stat(2, 'tee_result', 'in_play');
+    await f.stat(3, 'gir', '0');
+
+    const { measures } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId)).rounds[0]!;
+    expect(measures.girRecorded).toBe(2);
+    expect(measures.teeRecorded).toBe(2);
+    // Only H1 is in the cross-tab: the other two answered half the question.
+    expect(measures.girRecordedFairway).toBe(1);
+    expect(measures.girHitsFairway).toBe(1);
+    // Not "a green missed from in play" — no GIR answer was ever recorded.
+    expect(measures.girRecordedInPlay).toBe(0);
+    expect(measures.girHitsInPlay).toBe(0);
+    expect(measures.girRecordedTrouble).toBe(0);
+});
+
+test('a legacy first-putt bucket is out of the GIR distribution and the putt totals', async () => {
+    const f = await fixture();
+    await f.stat(1, 'gir', '1');
+    await f.stat(1, 'putts', '2');
+    // Pre-044 capture: the fine vocabulary did not exist, so the stored answer
+    // is a coarse bucket. The service cannot write one any more, and the v2/v3
+    // columns must not promote it into a fine bucket it never meant.
+    await f.ctx.db
+        .insertInto('stat_events')
+        .values({
+            id: crypto.randomUUID(),
+            round_id: f.roundId,
+            play_hole_id: f.hole(1),
+            player_id: f.playerId,
+            seq: 8001,
+            key: 'first_putt',
+            value: 'inside_2m',
+            recorded_by_player_id: null,
+            client_event_id: 'legacy-bucket-1',
+        })
+        .execute();
+
+    const { measures } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId)).rounds[0]!;
+    // `firstPuttRecorded` is already the v2 (fine-only) column, so the coarse
+    // answer is invisible there — and the 046 families inherit that rule
+    // rather than inventing a second, wider reading of the same hole.
+    expect(measures.firstPuttRecorded).toBe(0);
+    expect(measures.girFirstPuttRecorded).toBe(0);
+    expect(measures.girFirstPuttInside1m).toBe(0);
+    expect(measures.girFirstPutt1To2m).toBe(0);
+    expect(measures.puttsTotalInside1mResolved).toBe(0);
+    expect(measures.puttsTotal1To2mResolved).toBe(0);
+    // Putts on the green hit ask nothing of the bucket, so they still count.
+    expect(measures.puttsRecordedGir).toBe(1);
+    expect(measures.puttsTotalGir).toBe(2);
+});
+
+test('an incoherent putting answer drops out of the GIR putting columns too', async () => {
+    const f = await fixture();
+    // Green hit, "never putted", and a bucket saying otherwise (spec §8 q3).
+    await f.stat(1, 'gir', '1');
+    await f.stat(1, 'putts', '0');
+    await f.stat(1, 'first_putt', '2_to_4m');
+    // A second green hit, coherently chipped in from off the green: putts = 0
+    // with no bucket is a real answer and must survive.
+    await f.stat(2, 'gir', '1');
+    await f.stat(2, 'putts', '0');
+
+    const { measures } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId)).rounds[0]!;
+    expect(measures.girRecorded).toBe(2);
+    expect(measures.girFirstPuttRecorded).toBe(0);
+    expect(measures.girFirstPutt2To4m).toBe(0);
+    expect(measures.puttsTotal2To4mResolved).toBe(0);
+    // H2 only — one hole, zero putts.
+    expect(measures.puttsRecordedGir).toBe(1);
+    expect(measures.puttsTotalGir).toBe(0);
+});
+
+test('putts per bucket pair with exactly the resolved denominator', async () => {
+    const f = await fixture();
+    // Three 2-4m first putts: holed, two-putted, and one with no outcome
+    // recorded. The average must read 3/2, never 3/3 or 4/3.
+    await f.stat(1, 'first_putt', '2_to_4m');
+    await f.stat(1, 'putts', '1');
+    await f.stat(2, 'first_putt', '2_to_4m');
+    await f.stat(2, 'putts', '2');
+    await f.stat(3, 'first_putt', '2_to_4m');
+
+    const { measures } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId)).rounds[0]!;
+    expect(measures.firstPutt2To4m).toBe(3);
+    expect(measures.firstPutt2To4mResolved).toBe(2);
+    expect(measures.puttsTotal2To4mResolved).toBe(3);
+    // Every other bucket's pair stays empty rather than borrowing this one's.
+    expect(measures.puttsTotalInside1mResolved).toBe(0);
+    expect(measures.puttsTotalOver8mResolved).toBe(0);
+});
+
+test('the middle buckets carry their own counts and their own putt totals', async () => {
+    const f = await fixture();
+    // The two buckets every other fixture here leaves at zero, so a column
+    // wired to the wrong bucket cannot hide behind a 0 === 0.
+    //
+    //  H1 GIR, first putt 1-2m, 1 putt   → holed from close range
+    //  H2 GIR, first putt 1-2m, 2 putts  → missed it
+    //  H3 GIR, first putt 4-8m, 2 putts
+    //  H4 GIR, first putt 4-8m, 3 putts  → a three-putt from range
+    //  H5 first putt 4-8m, 2 putts, GREEN MISSED — in the bucket totals, out
+    //     of every gir_* column
+    //  H6 GIR, first putt 1-2m, NO putt count — in the distribution, out of
+    //     the resolved pair
+    await f.stat(1, 'gir', '1');
+    await f.stat(1, 'first_putt', '1_to_2m');
+    await f.stat(1, 'putts', '1');
+
+    await f.stat(2, 'gir', '1');
+    await f.stat(2, 'first_putt', '1_to_2m');
+    await f.stat(2, 'putts', '2');
+
+    await f.stat(3, 'gir', '1');
+    await f.stat(3, 'first_putt', '4_to_8m');
+    await f.stat(3, 'putts', '2');
+
+    await f.stat(4, 'gir', '1');
+    await f.stat(4, 'first_putt', '4_to_8m');
+    await f.stat(4, 'putts', '3');
+
+    await f.stat(5, 'gir', '0');
+    await f.stat(5, 'first_putt', '4_to_8m');
+    await f.stat(5, 'putts', '2');
+
+    await f.stat(6, 'gir', '1');
+    await f.stat(6, 'first_putt', '1_to_2m');
+
+    const { measures } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId)).rounds[0]!;
+
+    // Distribution on greens HIT: H1, H2, H6 at 1-2m; H3, H4 at 4-8m. H5 is a
+    // missed green, so it is in neither — and it asks nothing of the putt
+    // count, so H6 counts despite having none.
+    expect(measures.girFirstPutt1To2m).toBe(3);
+    expect(measures.girFirstPutt4To8m).toBe(2);
+    expect(measures.girFirstPuttRecorded).toBe(5);
+
+    // Putts per bucket, over exactly the `*Resolved` holes — which DO need the
+    // putt count, and do NOT care whether the green was hit.
+    // 1-2m resolved: H1 + H2 = 2 holes, 1 + 2 = 3 putts (H6 has no count).
+    expect(measures.firstPutt1To2mResolved).toBe(2);
+    expect(measures.puttsTotal1To2mResolved).toBe(3);
+    // 4-8m resolved: H3 + H4 + H5 = 3 holes, 2 + 3 + 2 = 7 putts.
+    expect(measures.firstPutt4To8mResolved).toBe(3);
+    expect(measures.puttsTotal4To8mResolved).toBe(7);
+
+    // Make% and three-putts read off those same pairs: 1 of 2 from 1-2m, and
+    // H4's three-putt is the only one in the round.
+    expect(measures.onePutt1To2m).toBe(1);
+    expect(measures.onePutt4To8m).toBe(0);
+    expect(measures.threePutts).toBe(1);
+
+    // Putts on greens hit: H1, H2, H3, H4 = 1 + 2 + 2 + 3 = 8 over 4 holes.
+    // H5's 2 putts came off a missed green and H6 has no count.
+    expect(measures.puttsRecordedGir).toBe(4);
+    expect(measures.puttsTotalGir).toBe(8);
+
+    // The neighbouring buckets stay empty rather than borrowing these.
+    expect(measures.girFirstPuttInside1m).toBe(0);
+    expect(measures.girFirstPutt2To4m).toBe(0);
+    expect(measures.puttsTotalInside1mResolved).toBe(0);
+    expect(measures.puttsTotal2To4mResolved).toBe(0);
+    expect(measures.puttsTotalOver8mResolved).toBe(0);
+});
+
+// --- Round metadata and paging -------------------------------------------------
+
+test('each round row carries the metadata a client-side filter needs', async () => {
+    const f = await fixture({ date: '2026-06-02' });
+    await f.stat(1, 'gir', '1');
+
+    const summary = await f.ctx.playerStatsService.summaryForPlayer(f.playerId);
+    const round = summary.rounds[0]!;
+    const stored = await f.ctx.db
+        .selectFrom('rounds')
+        .where('id', '=', f.roundId)
+        .select(['course_id', 'round_type', 'venue_type', 'name'])
+        .executeTakeFirstOrThrow();
+
+    expect(round.courseId).toBe(stored.course_id);
+    expect(round.roundType).toBe(stored.round_type);
+    expect(round.venueType).toBe(stored.venue_type);
+    expect(round.name).toBe(stored.name);
+    // The fixture course is 18 holes and the round plays all of them.
+    expect(round.holeCount).toBe(18);
+});
+
+test('limit pages the round list newest-first; totals come with page one only', async () => {
+    const first = await fixture({ date: '2026-06-01' });
+    await first.stat(1, 'gir', '1');
+    await first.score(1, 4);
+
+    const middle = await fixture({
+        ctx: first.ctx,
+        playerId: first.playerId,
+        date: '2026-06-08',
+    });
+    await middle.stat(1, 'gir', '1');
+    await middle.score(1, 4);
+
+    const last = await fixture({
+        ctx: first.ctx,
+        playerId: first.playerId,
+        date: '2026-06-15',
+    });
+    await last.stat(1, 'gir', '1');
+    await last.score(1, 4);
+
+    const svc = first.ctx.playerStatsService;
+    const page1 = await svc.summaryForPlayer(first.playerId, { limit: 2 });
+    expect(page1.rounds.map((r) => r.roundId)).toEqual([last.roundId, middle.roundId]);
+    // Career figures are read off the totals view, which the cursor never
+    // touches: page one describes all three rounds, not its own two.
+    expect(page1.roundsWithStats).toBe(3);
+    expect(page1.totals!.holesScored).toBe(3);
+    expect(page1.nextCursor).not.toBeNull();
+
+    const page2 = await svc.summaryForPlayer(first.playerId, {
+        limit: 2,
+        cursor: page1.nextCursor!,
+    });
+    expect(page2.rounds.map((r) => r.roundId)).toEqual([first.roundId]);
+    // A cursor means the caller already holds the totals, so page two does not
+    // re-aggregate the whole history to repeat them — it returns null, which no
+    // client can mistake for a page subtotal of 0.
+    expect(page2.roundsWithStats).toBeNull();
+    expect(page2.totals).toBeNull();
+    // The page came back short of the limit, so there is nothing after it.
+    expect(page2.nextCursor).toBeNull();
+
+    // An exact-fit page reports NO cursor: the probe row is what says "there is
+    // more", so the walk ends here rather than on an extra empty request.
+    const exact = await svc.summaryForPlayer(first.playerId, { limit: 3 });
+    expect(exact.rounds).toHaveLength(3);
+    expect(exact.nextCursor).toBeNull();
+    // Still page one: a limit alone is no cursor.
+    expect(exact.totals!.holesScored).toBe(3);
+
+    // Omitting the limit is the pre-pagination shape.
+    const all = await svc.summaryForPlayer(first.playerId);
+    expect(all.rounds).toHaveLength(3);
+    expect(all.roundsWithStats).toBe(3);
+    expect(all.totals!.holesScored).toBe(3);
+    expect(all.nextCursor).toBeNull();
+});
+
+test('the cursor breaks ties within a date instead of dropping a round', async () => {
+    const a = await fixture({ date: '2026-06-01' });
+    await a.stat(1, 'gir', '1');
+    const b = await fixture({ ctx: a.ctx, playerId: a.playerId, date: '2026-06-01' });
+    await b.stat(1, 'gir', '1');
+
+    const svc = a.ctx.playerStatsService;
+    const page1 = await svc.summaryForPlayer(a.playerId, { limit: 1 });
+    const page2 = await svc.summaryForPlayer(a.playerId, {
+        limit: 1,
+        cursor: page1.nextCursor!,
+    });
+    const walked = [...page1.rounds, ...page2.rounds].map((r) => r.roundId);
+
+    // Two rounds on one day: the order is by round id within the date, and
+    // both are handed out exactly once.
+    expect(walked.sort()).toEqual([a.roundId, b.roundId].sort());
+    expect(page2.nextCursor).toBeNull();
 });
 
 test('a round with scores but no stats produces no row at all', async () => {
@@ -530,7 +863,7 @@ test('a round with scores but no stats produces no row at all', async () => {
     // round is the honest shape.
     expect(summary.rounds.map((r) => r.roundId)).toEqual([withStats.roundId]);
     expect(summary.roundsWithStats).toBe(1);
-    expect(summary.totals.holesScored).toBe(0);
+    expect(summary.totals!.holesScored).toBe(0);
 });
 
 test('a round whose every answer was cleared drops back out of the summary', async () => {
@@ -548,7 +881,7 @@ test('a round whose every answer was cleared drops back out of the summary', asy
     const summary = await f.ctx.playerStatsService.summaryForPlayer(f.playerId);
     expect(summary.rounds).toEqual([]);
     expect(summary.roundsWithStats).toBe(0);
-    expect(summary.totals.holesScored).toBe(0);
+    expect(summary.totals!.holesScored).toBe(0);
 });
 
 test('a hole scored in two shapes reports the newer strokes, not the smaller', async () => {
@@ -729,8 +1062,8 @@ test('a player who has never recorded a stat gets zeroes, not an error', async (
         roundsWithStats: 0,
         rounds: [],
     });
-    expect(summary.totals.teeRecorded).toBe(0);
-    expect(summary.totals.strokesTotal).toBe(0);
+    expect(summary.totals!.teeRecorded).toBe(0);
+    expect(summary.totals!.strokesTotal).toBe(0);
     // Every denominator is zero, so no client can render a misleading 0%.
-    expect(Object.values(summary.totals).every((v) => v === 0)).toBe(true);
+    expect(Object.values(summary.totals!).every((v) => v === 0)).toBe(true);
 });

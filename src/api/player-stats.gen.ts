@@ -15,9 +15,20 @@ export interface PlayerStatsConfig {
 
 export interface PlayerStatsSummary {
     playerId: string;
-    roundsWithStats: number;
-    totals: StatMeasures;
+    roundsWithStats: null | number;
+    totals: null | StatMeasures;
     rounds: PlayerRoundStats[];
+    nextCursor: null | string;
+}
+
+export interface PlayerRoundHoleStats {
+    playHoleId: string;
+    ordinal: number;
+    courseHoleNumber: number;
+    par: number;
+    lengthM: null | number;
+    score: null | number;
+    stats: PlayerHoleStats;
 }
 
 export interface AppendStatEventsResult {
@@ -101,12 +112,36 @@ export interface StatMeasures {
     strokesVsParInPlay: number;
     holesScoredTrouble: number;
     strokesVsParTrouble: number;
+    girRecordedFairway: number;
+    girHitsFairway: number;
+    girRecordedInPlay: number;
+    girHitsInPlay: number;
+    girRecordedTrouble: number;
+    girHitsTrouble: number;
+    girFirstPuttRecorded: number;
+    girFirstPuttInside1m: number;
+    girFirstPutt1To2m: number;
+    girFirstPutt2To4m: number;
+    girFirstPutt4To8m: number;
+    girFirstPuttOver8m: number;
+    puttsRecordedGir: number;
+    puttsTotalGir: number;
+    puttsTotalInside1mResolved: number;
+    puttsTotal1To2mResolved: number;
+    puttsTotal2To4mResolved: number;
+    puttsTotal4To8mResolved: number;
+    puttsTotalOver8mResolved: number;
 }
 
 export interface PlayerRoundStats {
     roundId: string;
     date: string;
     courseName: null | string;
+    courseId: string;
+    roundType: 'full_18' | 'front_9' | 'back_9' | 'custom_holes';
+    venueType: 'outdoor' | 'indoor';
+    name: null | string;
+    holeCount: number;
     measures: StatMeasures;
 }
 
@@ -140,7 +175,8 @@ export interface StatEvent {
 export interface PlayerStatsApi {
     myConfig(): Promise<PlayerStatsConfig>;
     putMyConfig(input: { enabled: boolean; tee: boolean; approach: boolean; putting: boolean; shortGame: boolean; penalties: boolean; recovery: boolean }): Promise<PlayerStatsConfig>;
-    myStats(): Promise<PlayerStatsSummary>;
+    myStats(input: { limit?: number; cursor?: string }): Promise<PlayerStatsSummary>;
+    myRoundStats(input: { roundId: string }): Promise<PlayerRoundHoleStats[]>;
     appendEvents(input: { token: string; items: ({ playHoleId: string; playerId: string; key: 'penalties' | 'tee_result' | 'gir' | 'first_putt' | 'putts' | 'short_game_difficulty' | 'recovery_ok'; value: null | string; clientEventId: string })[] }): Promise<AppendStatEventsResult>;
     byToken(input: { token: string }): Promise<PlayerHoleStats[]>;
     configsByToken(input: { token: string }): Promise<RoundPlayerStatModules[]>;
@@ -154,8 +190,20 @@ export function createPlayerStatsClient(baseUrl: string): PlayerStatsApi {
         async putMyConfig(input) {
             return apiFetch({ method: 'PUT', url: `${baseUrl}/players/me/stats-config`, body: input });
         },
-        async myStats() {
-            return apiFetch({ method: 'GET', url: `${baseUrl}/players/me/stats` });
+        async myStats(input) {
+            const params = new URLSearchParams();
+            for (const [k, v] of Object.entries(input as any))
+                if (v !== undefined) params.set(k, String(v));
+            const qs = params.toString();
+            return apiFetch({ method: 'GET', url: `${baseUrl}/players/me/stats${qs ? '?' + qs : ''}` });
+        },
+        async myRoundStats(input) {
+            const pathParams = new Set(['roundId']);
+            const params = new URLSearchParams();
+            for (const [k, v] of Object.entries(input as any))
+                if (!pathParams.has(k) && v !== undefined) params.set(k, String(v));
+            const qs = params.toString();
+            return apiFetch({ method: 'GET', url: `${baseUrl}/players/me/rounds/${input.roundId}/stats${qs ? '?' + qs : ''}` });
         },
         async appendEvents(input) {
             return apiFetch({ method: 'POST', url: `${baseUrl}/friendly-rounds/stat-events`, body: input });
