@@ -77,6 +77,18 @@ final class ProfileStore {
     /// not land leaves it where it was.
     private(set) var statsConfig: StatsConfigForm = .allOff
 
+    /// How many rounds have statistics recorded — the gate on the dashboard
+    /// entry point, and nothing else.
+    ///
+    /// A number, not a boolean, because "you have none yet" and "we could not
+    /// tell" both need to be the same benign outcome here: nil. The probe is
+    /// non-fatal (see `load`), so a stats service having a bad day hides one row
+    /// rather than blanking the profile.
+    private(set) var roundsWithStats: Int?
+
+    /// Whether the Statistics section offers the dashboard.
+    var hasStatsToShow: Bool { (roundsWithStats ?? 0) > 0 }
+
     private(set) var saving: SaveTarget?
 
     // Errors are PER SURFACE, unlike the web's single shared `saveError` string
@@ -133,6 +145,16 @@ final class ProfileStore {
         phase = .loading
         refreshError = nil
         statsError = nil
+        roundsWithStats = nil
+        // A FIFTH read, and the only optional one: a one-row probe of
+        // `GET /players/me/stats` purely to learn whether there is a dashboard
+        // worth linking to. `try?` on purpose — this decides the visibility of
+        // one row, and a stats service that is down must not take the profile
+        // (gender, club, handicap chain) down with it. `limit: 1` because the
+        // rows are thrown away; only `roundsWithStats` is read, and only the
+        // first page carries it.
+        async let statsProbe = try? await api.send(
+            PlayerStatsEndpoints.myStats, PlayerStatsMyStatsInput(limit: 1, cursor: nil))
         do {
             async let me = api.send(PlayersEndpoints.me)
             async let chain = api.send(PlayersEndpoints.myHandicapHistory)
@@ -157,8 +179,13 @@ final class ProfileStore {
             history = loadedHistory
             clubs = loadedClubs
             statsConfig = StatsConfigForm(loadedConfig)
+            roundsWithStats = await statsProbe?.roundsWithStats.map { Int($0) }
             phase = .ready
         } catch {
+            // The probe is still awaited so the task cannot outlive this call.
+            // Its value is irrelevant on a failed load — there is no screen to
+            // put a Statistics row on.
+            _ = await statsProbe
             phase = Self.phase(for: error)
         }
     }

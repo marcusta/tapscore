@@ -31,6 +31,10 @@ struct ProfileView: View {
     /// environment's API actor, and it must survive re-renders.
     @State private var store: ProfileStore?
     @State private var padOpen = false
+    /// A sheet, not a `NavigationLink`: this view is drawn both inside the
+    /// shell's `NavigationStack` and inside a plain `.sheet` from
+    /// `AccountSheetView`, and a link would be inert in the second.
+    @State private var dashboardOpen = false
 
     var body: some View {
         ScrollView {
@@ -98,6 +102,9 @@ struct ProfileView: View {
                     }
                 )
             }
+        }
+        .sheet(isPresented: $dashboardOpen) {
+            StatsDashboardView()
         }
     }
 
@@ -341,6 +348,7 @@ struct ProfileView: View {
     private func statsSection(_ store: ProfileStore) -> some View {
         VStack(alignment: .leading, spacing: TapSpacing.sm) {
             SectionHeader(title: "Statistics")
+            dashboardEntry(store)
             TapCard {
                 VStack(alignment: .leading, spacing: TapSpacing.md) {
                     statsRow(
@@ -382,6 +390,55 @@ struct ProfileView: View {
             }
         }
         .accessibilityIdentifier("profile-stats")
+    }
+
+    /// The way in to the dashboard, above the switches that feed it.
+    ///
+    /// It sits INSIDE the Statistics section rather than beside it: the
+    /// configuration and the numbers it produces are one subject, and a second
+    /// top-level section called something else would split it. The toggles stay
+    /// exactly where they were, underneath.
+    ///
+    /// A player with nothing recorded gets a sentence instead of a dead button —
+    /// a dashboard of five absent modules teaches nothing, and the sentence says
+    /// what to do about it. `roundsWithStats` is nil both when the probe failed
+    /// and when there is genuinely nothing, and both deserve the same quiet
+    /// outcome.
+    @ViewBuilder
+    private func dashboardEntry(_ store: ProfileStore) -> some View {
+        if store.hasStatsToShow {
+            TapCard {
+                Button {
+                    dashboardOpen = true
+                } label: {
+                    HStack(alignment: .center, spacing: TapSpacing.md) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Your statistics")
+                                .font(TapFont.ui(size: 16, weight: .semibold))
+                                .foregroundStyle(TapColors.text)
+                            Text(ProfileCopy.dashboardHint(store.roundsWithStats ?? 0))
+                                .font(TapFont.ui(size: 12.8))
+                                .foregroundStyle(TapColors.textMuted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(TapFont.ui(size: 12.8, weight: .bold))
+                            .foregroundStyle(TapColors.accent)
+                    }
+                    .padding(TapSpacing.md)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .accessibilityIdentifier("profile-stats-dashboard")
+        } else {
+            Text(ProfileCopy.dashboardEmpty)
+                .font(TapFont.ui(size: 12.8))
+                .foregroundStyle(TapColors.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("profile-stats-dashboard-empty")
+        }
     }
 
     /// One switch row. `change` returns the WHOLE next configuration rather
@@ -489,6 +546,19 @@ enum ProfileCopy {
         "Adds a few taps per hole while you score — turn it off any time, your picks are kept."
     static let historyEmpty =
         "No entries yet — save an index to start the chain."
+    /// Shown in place of the dashboard link when nothing has been recorded, and
+    /// also when the probe for it failed — a row nobody can use is worse than a
+    /// sentence saying why there is none.
+    static let dashboardEmpty =
+        "Your dashboard appears here once you have played a round with statistics on."
+
+    /// The dashboard link's sub-line. The sample size is the qualifier on every
+    /// number behind the link, so it leads.
+    static func dashboardHint(_ rounds: Int) -> String {
+        rounds == 1
+            ? "1 round recorded — practice priorities, trends and every module."
+            : "\(rounds) rounds recorded — practice priorities, trends and every module."
+    }
     static let notAuthorized =
         "This session can no longer read your profile. Sign in again."
 }

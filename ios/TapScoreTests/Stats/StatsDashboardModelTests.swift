@@ -1,0 +1,331 @@
+import Foundation
+import XCTest
+
+@testable import TapScore
+
+/// The reduction from a window of rounds to a screen: which panels exist, how
+/// the priorities rank, and when a sparkline earns the right to be drawn.
+///
+/// The arithmetic itself is `StatMeasuresMathTests`' subject and is not
+/// re-asserted here. What this suite defends is the layer above it — the
+/// proposal's module gating (a module with no data is ABSENT, not zeroed) and
+/// the ordering that turns four numbers into a practice instruction.
+final class StatsDashboardModelTests: XCTestCase {
+
+    // MARK: - Fixtures
+
+    private func measures(_ mutate: (inout StatMeasures) -> Void = { _ in }) -> StatMeasures {
+        var m = StatMeasuresMath.zero
+        mutate(&m)
+        return m
+    }
+
+    private func row(
+        _ id: String, date: String, _ measures: StatMeasures = StatMeasuresMath.zero
+    ) -> PlayerRoundStats {
+        PlayerRoundStats(
+            roundId: id, date: date, courseName: "Linköpings GK", courseId: "c1",
+            roundType: .full18, venueType: .outdoor, name: nil, holeCount: 18,
+            measures: measures)
+    }
+
+    /// A round with a full putting record: 18 holes scored, 18 putt counts, and
+    /// resolved buckets on every one. Enough for the waterfall to produce all
+    /// four terms, which is what the priorities ranking needs.
+    private func fullRound(strokes: Double, putts: Double, penalties: Double = 0) -> StatMeasures {
+        measures {
+            $0.holesScored = 18
+            $0.strokesTotal = strokes
+            $0.parTotal = 72
+            $0.puttsRecorded = 18
+            $0.puttsTotal = putts
+            $0.firstPutt2To4mResolved = 18
+            $0.puttsTotal2To4mResolved = putts
+            $0.penaltiesTotal = penalties
+            $0.penaltiesRecorded = 18
+            // One measured chip, so the short-game term is non-nil.
+            $0.scrambleAttemptsStandard = 1
+            $0.scrambleFirstPuttStandard = 1
+            $0.scrambleInside2mStandard = 1
+        }
+    }
+
+    // MARK: - 1. Shape
+
+    func testAnEmptyWindowIsTheEmptyModel() {
+        let model = StatsDashboardModel.build(rows: [])
+
+        XCTAssertTrue(model.isEmpty)
+        XCTAssertEqual(model.roundCount, 0)
+        XCTAssertTrue(model.presentPanels.isEmpty)
+        XCTAssertTrue(model.trends.isEmpty)
+    }
+
+    func testRoundsComeBackNewestFirstRegardlessOfInputOrder() {
+        let model = StatsDashboardModel.build(rows: [
+            row("a", date: "2026-07-01"),
+            row("c", date: "2026-07-20"),
+            row("b", date: "2026-07-10"),
+        ])
+
+        XCTAssertEqual(model.rounds.map(\.id), ["c", "b", "a"])
+    }
+
+    func testTotalsAreTheSumOfTheWindow() {
+        let model = StatsDashboardModel.build(rows: [
+            row("a", date: "2026-07-02", measures { $0.teeRecorded = 14; $0.fairwayHits = 7 }),
+            row("b", date: "2026-07-01", measures { $0.teeRecorded = 14; $0.fairwayHits = 5 }),
+        ])
+
+        XCTAssertEqual(model.totals.teeRecorded, 28)
+        XCTAssertEqual(model.totals.fairwayHits, 12)
+        XCTAssertEqual(model.tee?.fairway.value, 12.0 / 28.0)
+    }
+
+    /// A stats-only round — answers recorded, no scorecard — must not report a
+    /// level-par score it never had.
+    func testARoundWithNoScorecardHasNoStrokesAndNoVsPar() {
+        let model = StatsDashboardModel.build(rows: [
+            row("a", date: "2026-07-02", measures { $0.teeRecorded = 9; $0.fairwayHits = 4 })
+        ])
+
+        XCTAssertNil(model.rounds.first?.strokes)
+        XCTAssertNil(model.rounds.first?.vsPar)
+    }
+
+    // MARK: - 2. Module gating
+
+    /// The proposal's rule: a module that was never recorded is ABSENT. A panel
+    /// full of zeros is a claim about the player; no panel is a fact about the
+    /// data.
+    func testOnlyModulesWithDataProducePanels() {
+        let model = StatsDashboardModel.build(rows: [
+            row("a", date: "2026-07-02", measures { $0.teeRecorded = 14; $0.fairwayHits = 7 })
+        ])
+
+        XCTAssertNotNil(model.tee)
+        XCTAssertNil(model.approach)
+        XCTAssertNil(model.putting)
+        XCTAssertNil(model.shortGame)
+        XCTAssertNil(model.scoring)
+        XCTAssertEqual(model.presentPanels, [.tee])
+    }
+
+    /// The gate is the RECORDED counter, never the numerator: a player who took
+    /// ten tee shots and hit no fairways recorded the module and deserves a
+    /// panel that says 0%.
+    func testAModuleRecordedWithAZeroNumeratorStillGetsItsPanel() {
+        let model = StatsDashboardModel.build(rows: [
+            row("a", date: "2026-07-02", measures { $0.teeRecorded = 10; $0.fairwayHits = 0 })
+        ])
+
+        XCTAssertNotNil(model.tee)
+        XCTAssertEqual(model.tee?.fairway.value, 0)
+    }
+
+    func testEachModulesOwnGate() {
+        func panels(_ mutate: (inout StatMeasures) -> Void) -> [StatsPanelID] {
+            StatsDashboardModel.build(rows: [row("a", date: "2026-07-02", measures(mutate))])
+                .presentPanels
+        }
+
+        XCTAssertEqual(panels { $0.girRecorded = 12 }, [.approach])
+        XCTAssertEqual(panels { $0.puttsRecorded = 18 }, [.putting])
+        // A first-putt bucket with no putt count is still a putting record.
+        XCTAssertEqual(panels { $0.firstPuttRecorded = 5 }, [.putting])
+        XCTAssertEqual(panels { $0.scrambleAttemptsHard = 3 }, [.shortGame])
+        XCTAssertEqual(panels { $0.holesScored = 18 }, [.scoring])
+    }
+
+    func testPanelsComeBackInReadingOrderTeeToScorecard() {
+        let model = StatsDashboardModel.build(rows: [
+            row(
+                "a", date: "2026-07-02",
+                measures {
+                    $0.teeRecorded = 14
+                    $0.girRecorded = 18
+                    $0.puttsRecorded = 18
+                    $0.scrambleAttemptsStandard = 4
+                    $0.holesScored = 18
+                })
+        ])
+
+        XCTAssertEqual(model.presentPanels, [.tee, .approach, .putting, .shortGame, .scoring])
+    }
+
+    // MARK: - 3. Per-round denominators
+
+    /// "Per round" means per round played, not per notional eighteen. A season
+    /// of nines must not be reported as half as many rounds as it was.
+    func testPerRoundFiguresDivideByRoundsPlayedNotHoles() {
+        let nine = measures {
+            $0.holesScored = 9
+            $0.strokesTotal = 45
+            $0.parTotal = 36
+            $0.teeRecorded = 7
+            $0.penaltiesRecorded = 9
+            $0.penaltiesTotal = 2
+            $0.doubleBogeyPlus = 1
+        }
+        let model = StatsDashboardModel.build(rows: [
+            row("a", date: "2026-07-02", nine),
+            row("b", date: "2026-07-01", nine),
+        ])
+
+        // 4 penalties over 2 rounds, not over 1 notional eighteen.
+        XCTAssertEqual(model.tee?.penaltiesPerRound.value, 2)
+        XCTAssertEqual(model.scoring?.doubleBogeyPlusPerRound.value, 1)
+    }
+
+    // MARK: - 4. Priorities
+
+    func testPrioritiesRankWorstFirst() {
+        let waterfalls = [
+            StrokesLost(putting: 2, shortGame: 0.5, penalties: 1, longGame: 3),
+            StrokesLost(putting: 2, shortGame: 0.5, penalties: 1, longGame: 3),
+        ]
+
+        let ranked = StatsDashboardModel.priorities(perRound: waterfalls)
+
+        XCTAssertEqual(ranked.map(\.component), [.longGame, .putting, .penalties, .shortGame])
+        XCTAssertEqual(ranked.first?.perRound, 3)
+    }
+
+    /// A gain is a NEGATIVE cost and must sort below every loss — the list is
+    /// "what to work on", so a strength cannot lead it.
+    func testAGainedComponentSinksBelowTheLostOnes() {
+        let ranked = StatsDashboardModel.priorities(perRound: [
+            StrokesLost(putting: -1.2, shortGame: 0.1, penalties: 0, longGame: 2)
+        ])
+
+        XCTAssertEqual(ranked.map(\.component), [.longGame, .shortGame, .penalties, .putting])
+    }
+
+    /// The mean is over the rounds that HAVE the component, not over the window.
+    /// Dividing by rounds that never recorded a putt would pull every estimate
+    /// toward zero and flatten the ranking.
+    func testTheMeanIgnoresRoundsWithNoValueForTheComponent() {
+        let ranked = StatsDashboardModel.priorities(perRound: [
+            StrokesLost(putting: 3, penalties: 0),
+            StrokesLost(putting: nil, penalties: 0),
+        ])
+
+        let putting = ranked.first { $0.component == .putting }
+        XCTAssertEqual(putting?.perRound, 3)
+        XCTAssertEqual(putting?.roundsCovered, 1)
+        XCTAssertEqual(putting?.roundsInWindow, 2)
+    }
+
+    /// A component nobody recorded is nil, never 0. A zero-length bar in a
+    /// ranked list reads as "exactly average", which the data does not say.
+    func testAnUnrecordedComponentIsAbsentNotZero() {
+        let ranked = StatsDashboardModel.priorities(perRound: [
+            StrokesLost(putting: nil, shortGame: nil, penalties: 1, longGame: nil)
+        ])
+
+        XCTAssertEqual(ranked.first?.component, .penalties)
+        for row in ranked where row.component != .penalties {
+            XCTAssertNil(row.perRound)
+            XCTAssertFalse(row.hasData)
+            XCTAssertEqual(row.roundsCovered, 0)
+        }
+        // Absent rows sink, and do so in a stable canonical order.
+        XCTAssertEqual(ranked.map(\.component).dropFirst(), [.longGame, .putting, .shortGame])
+    }
+
+    func testEveryComponentAlwaysGetsARow() {
+        let ranked = StatsDashboardModel.priorities(perRound: [])
+
+        XCTAssertEqual(ranked.count, StrokesLostComponent.allCases.count)
+        XCTAssertTrue(ranked.allSatisfy { $0.perRound == nil })
+    }
+
+    // MARK: - 5. Trends
+
+    /// Two dots are a line segment, not a trend.
+    func testASparklineNeedsThreeRounds() {
+        func trendIDs(_ count: Int) -> [String] {
+            let rows = (0..<count).map { index in
+                row(
+                    "r-\(index)", date: String(format: "2026-07-%02d", index + 1),
+                    measures { $0.teeRecorded = 14; $0.fairwayHits = 7 })
+            }
+            return StatsDashboardModel.build(rows: rows).trends.map(\.id)
+        }
+
+        XCTAssertEqual(trendIDs(2), [])
+        XCTAssertEqual(trendIDs(3), ["fairway"])
+    }
+
+    func testTrendPointsRunOldestToNewest() {
+        let rows = [
+            row("a", date: "2026-07-03", measures { $0.teeRecorded = 10; $0.fairwayHits = 3 }),
+            row("b", date: "2026-07-02", measures { $0.teeRecorded = 10; $0.fairwayHits = 2 }),
+            row("c", date: "2026-07-01", measures { $0.teeRecorded = 10; $0.fairwayHits = 1 }),
+        ]
+
+        let fairway = StatsDashboardModel.build(rows: rows).trends.first { $0.id == "fairway" }
+
+        XCTAssertEqual(fairway?.points, [0.1, 0.2, 0.3])
+        XCTAssertEqual(fairway?.kind, .percentage)
+    }
+
+    /// A round without the measure is a SKIP, not a zero — a zero would draw a
+    /// collapse the player never had.
+    func testARoundMissingTheMeasureIsSkippedNotZeroed() {
+        let rows = [
+            row("a", date: "2026-07-04", measures { $0.teeRecorded = 10; $0.fairwayHits = 5 }),
+            row("b", date: "2026-07-03", measures { $0.girRecorded = 10; $0.girHits = 5 }),
+            row("c", date: "2026-07-02", measures { $0.teeRecorded = 10; $0.fairwayHits = 6 }),
+            row("d", date: "2026-07-01", measures { $0.teeRecorded = 10; $0.fairwayHits = 7 }),
+        ]
+
+        let fairway = StatsDashboardModel.build(rows: rows).trends.first { $0.id == "fairway" }
+
+        XCTAssertEqual(fairway?.points, [0.7, 0.6, 0.5])
+    }
+
+    func testPuttingTrendsOnStrokesLostAndFallsWithImprovement() {
+        let rows = (0..<3).map { index in
+            row(
+                "r-\(index)", date: String(format: "2026-07-%02d", index + 1),
+                fullRound(strokes: 76, putts: 34 - Double(index)))
+        }
+
+        let putting = StatsDashboardModel.build(rows: rows).trends.first { $0.id == "putting" }
+
+        XCTAssertEqual(putting?.kind, .strokesLost)
+        XCTAssertEqual(putting?.points.count, 3)
+        // Oldest round took the most putts, so the series falls.
+        XCTAssertGreaterThan(putting![points: 0], putting![points: 2])
+    }
+
+    // MARK: - 6. Short game conversion
+
+    /// The chip "conversion pair" is the coherent v2 putting rate from inside
+    /// 2 m — the app records no chip × inside-2m × holed cross-tab, and this
+    /// must not silently become one.
+    func testInside2mConversionUsesTheResolvedPuttingBuckets() {
+        let model = StatsDashboardModel.build(rows: [
+            row(
+                "a", date: "2026-07-02",
+                measures {
+                    $0.scrambleAttemptsStandard = 6
+                    $0.scrambleSuccessesStandard = 3
+                    $0.firstPuttInside1mResolved = 8
+                    $0.onePuttInside1m = 8
+                    $0.firstPutt1To2mResolved = 4
+                    $0.onePutt1To2m = 2
+                })
+        ])
+
+        XCTAssertEqual(model.shortGame?.conversionInside2m.n, 10)
+        XCTAssertEqual(model.shortGame?.conversionInside2m.d, 12)
+    }
+}
+
+/// Sugar so a trend assertion reads as a point lookup rather than an index
+/// dance. Test-only.
+extension StatsTrend {
+    fileprivate subscript(points index: Int) -> Double { points[index] }
+}
