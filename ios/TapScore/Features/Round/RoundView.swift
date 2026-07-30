@@ -382,7 +382,7 @@ struct RoundHeaderView: View {
                             isSelected: store.selectedSlotDefId == slot.slotDefId,
                             tone: .primary
                         ) {
-                            store.selectedSlot = slot.slotDefId
+                            store.showLeaderboard(for: slot.slotDefId)
                         }
                     }
                 }

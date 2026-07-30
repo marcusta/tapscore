@@ -604,6 +604,15 @@ final class RoundStore {
         if tab == .leaderboard, result == nil { Task { await loadResult() } }
     }
 
+    /// The header's format chips are navigation: choose the slot, then show its
+    /// board. Keeping both writes here prevents a chip from looking selected
+    /// while the score tab remains on screen.
+    func showLeaderboard(for slotDefId: String) {
+        guard round?.formatSlots.contains(where: { $0.slotDefId == slotDefId }) == true else { return }
+        selectedSlot = slotDefId
+        setTab(.leaderboard)
+    }
+
     /// The single place the stream/poll decision is made — re-run on every load,
     /// scene change and status change, exactly like the web effect. (Tab
     /// switches no longer re-run it; the tab is not an input.)

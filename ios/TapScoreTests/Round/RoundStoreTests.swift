@@ -166,6 +166,19 @@ final class RoundStoreTests: XCTestCase {
         XCTAssertEqual(store.par(of: "ph-1"), 4)
     }
 
+    func testSelectingAFormatFromScoreShowsThatFormatsLeaderboard() async {
+        routeHappyPath()
+        RoundStubURLProtocol.route("/friendly-rounds/result", RoundFixtures.result(cursor: "c1"))
+        let store = makeStore()
+        await store.load()
+
+        store.showLeaderboard(for: "slot-0")
+
+        XCTAssertEqual(store.selectedSlot, "slot-0")
+        XCTAssertEqual(store.tab, .leaderboard)
+        await waitUntil("the selected format's board to load") { self.resultRequests() == 1 }
+    }
+
     /// Balls and scorecards are non-fatal: a round that loaded still renders,
     /// because the alternative is a blank screen over a secondary endpoint.
     func testLoadSurvivesBallsFailure() async {
