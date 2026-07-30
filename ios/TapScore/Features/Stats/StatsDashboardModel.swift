@@ -297,6 +297,12 @@ struct StatsDashboardModel: Equatable, Sendable {
     /// A gap is a SKIP, not a zero and not an interpolation: the line connects
     /// the rounds where you recorded the thing. A series shorter than
     /// `StatsTrend.minPoints` is omitted entirely rather than drawn short.
+    ///
+    /// Percentage points also follow the display policy's denominator floor: a
+    /// rate the panels would refuse to print as a percentage (fewer than five
+    /// recorded, e.g. a one-hole partial round) is not plotted and cannot
+    /// become the tile's headline — a 1-of-1 round would otherwise front the
+    /// fairway tile as "100%" with the authority of a full round.
     static func trends(rows: [PlayerRoundStats]) -> [StatsTrend] {
         // Oldest first — time runs left to right.
         let chrono = Array(rows.reversed())
@@ -310,18 +316,23 @@ struct StatsDashboardModel: Equatable, Sendable {
             return StatsTrend(id: id, title: title, kind: kind, points: points)
         }
 
+        // Rate → plotted value, nil unless it clears the percentage floor.
+        func solid(_ r: Rate) -> Double? {
+            StatMeasuresMath.rateDisplay(r) == .percentage ? r.value : nil
+        }
+
         return [
             series("fairway", "Fairways", .percentage) {
-                StatMeasuresMath.fairwayRate($0).value
+                solid(StatMeasuresMath.fairwayRate($0))
             },
             series("gir", "Greens", .percentage) {
-                StatMeasuresMath.girRate($0).value
+                solid(StatMeasuresMath.girRate($0))
             },
             series("putting", "Putting", .strokesLost) {
                 StatMeasuresMath.strokesLost($0).putting
             },
             series("scramble", "Scrambling", .percentage) {
-                StatMeasuresMath.scrambleRate($0).overall.value
+                solid(StatMeasuresMath.scrambleRate($0).overall)
             },
         ].compactMap { $0 }
     }

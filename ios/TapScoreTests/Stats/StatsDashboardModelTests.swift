@@ -285,6 +285,34 @@ final class StatsDashboardModelTests: XCTestCase {
         XCTAssertEqual(fairway?.points, [0.7, 0.6, 0.5])
     }
 
+    /// The display policy's denominator floor reaches the sparkline: a rate the
+    /// panels would print as a fraction (d < 5) is not plotted, so a one-hole
+    /// partial round can never front the tile as "100%" (or "0%") with the
+    /// authority of a full round.
+    func testAThinRoundCannotBecomeTheTrendHeadline() {
+        let rows = [
+            // Newest: a one-hole partial — 1 of 1 fairways, 0 of 1 greens.
+            row(
+                "thin", date: "2026-07-05",
+                measures {
+                    $0.teeRecorded = 1
+                    $0.fairwayHits = 1
+                    $0.girRecorded = 1
+                }),
+            row("a", date: "2026-07-03", measures { $0.teeRecorded = 10; $0.fairwayHits = 3 }),
+            row("b", date: "2026-07-02", measures { $0.teeRecorded = 10; $0.fairwayHits = 2 }),
+            row("c", date: "2026-07-01", measures { $0.teeRecorded = 10; $0.fairwayHits = 1 }),
+        ]
+
+        let trends = StatsDashboardModel.build(rows: rows).trends
+        let fairway = trends.first { $0.id == "fairway" }
+
+        // The thin round's 1.0 is absent; the newest plotted point is round "a".
+        XCTAssertEqual(fairway?.points, [0.1, 0.2, 0.3])
+        // Greens had ONLY the thin round — no series at all, not a "0%" tile.
+        XCTAssertNil(trends.first { $0.id == "gir" })
+    }
+
     func testPuttingTrendsOnStrokesLostAndFallsWithImprovement() {
         let rows = (0..<3).map { index in
             row(
