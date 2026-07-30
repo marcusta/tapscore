@@ -35,6 +35,7 @@ test('GET /api/players/me with session returns Player from descriptor', async ()
         homeClubId: null,
         handicapIndex: null,
         gender: null,
+        handicapConfirmedAt: null,
         deletedAt: null,
     });
 });
@@ -141,6 +142,87 @@ test('POST /api/players/me/handicap updates the live index AND appends history',
 
     const alice = await playerService.getById(entry.playerId);
     expect(alice!.handicapIndex).toBe(20.9);
+});
+
+// --- Handicap check-in (migration 048) ---
+
+test('POST /api/players/me/handicap/confirm without session returns 401', async () => {
+    const { app } = await setup();
+    const res = await req(app, 'POST', '/api/players/me/handicap/confirm');
+    expect(res.status).toBe(401);
+});
+
+test('confirming stamps handicapConfirmedAt and appends NO history row', async () => {
+    const { app } = await setup();
+    const cookie = await loginAs(app, 'alice', 'password123');
+    await req(app, 'POST', '/api/players/me/handicap', { handicapIndex: 18.4 }, cookie);
+
+    const res = await req(app, 'POST', '/api/players/me/handicap/confirm', undefined, cookie);
+    expect(res.status).toBe(200);
+    const player = await res.json();
+    expect(player.handicapConfirmedAt).toEqual(expect.any(String));
+    // The index is untouched — confirming is not an edit.
+    expect(player.handicapIndex).toBe(18.4);
+
+    // THE point of a separate endpoint: history stays the record of CHANGES.
+    // The one row is the edit above; the confirmation added nothing.
+    const hist = await req(app, 'GET', '/api/players/me/handicap-history', undefined, cookie);
+    expect(await hist.json()).toHaveLength(1);
+});
+
+test('confirming is idempotent and moves the timestamp forward', async () => {
+    const { app } = await setup();
+    const cookie = await loginAs(app, 'alice', 'password123');
+
+    const first = await req(app, 'POST', '/api/players/me/handicap/confirm', undefined, cookie);
+    const firstAt = (await first.json()).handicapConfirmedAt as string;
+
+    await new Promise((r) => setTimeout(r, 5));
+    const second = await req(app, 'POST', '/api/players/me/handicap/confirm', undefined, cookie);
+    const secondAt = (await second.json()).handicapConfirmedAt as string;
+
+    expect(new Date(secondAt).getTime()).toBeGreaterThan(new Date(firstAt).getTime());
+
+    // Alice has no index at all — confirming "I still have none" is a valid
+    // answer and must quiet the prompt exactly like any other.
+    const me = await req(app, 'GET', '/api/players/me', undefined, cookie);
+    const player = await me.json();
+    expect(player.handicapIndex).toBeNull();
+    expect(player.handicapConfirmedAt).toBe(secondAt);
+});
+
+test('editing the index also counts as a confirmation', async () => {
+    const { app } = await setup();
+    const cookie = await loginAs(app, 'alice', 'password123');
+
+    // Fresh account: never confirmed.
+    const before = await req(app, 'GET', '/api/players/me', undefined, cookie);
+    expect((await before.json()).handicapConfirmedAt).toBeNull();
+
+    // Typing an index IS affirming it — the player must not be asked to
+    // confirm the number they just entered on their way into the next round.
+    await req(app, 'POST', '/api/players/me/handicap', { handicapIndex: 12.0 }, cookie);
+    const after = await req(app, 'GET', '/api/players/me', undefined, cookie);
+    expect((await after.json()).handicapConfirmedAt).toEqual(expect.any(String));
+});
+
+test('registering WITH an index starts the check-in clock; without one leaves it null', async () => {
+    const { app } = await setup();
+
+    const withIndex = await req(app, 'POST', '/api/players/register', {
+        username: 'carol',
+        password: 'password123',
+        displayName: 'Carol Carlsson',
+        handicapIndex: 24.1,
+    });
+    expect((await withIndex.json()).handicapConfirmedAt).toEqual(expect.any(String));
+
+    const without = await req(app, 'POST', '/api/players/register', {
+        username: 'dave',
+        password: 'password123',
+        displayName: 'Dave Davidsson',
+    });
+    expect((await without.json()).handicapConfirmedAt).toBeNull();
 });
 
 test('GET /api/players/me/handicap-history without session returns 401', async () => {

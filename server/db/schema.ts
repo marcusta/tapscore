@@ -1020,6 +1020,13 @@ export interface PlayersTable {
     home_club_id: string | null;
     handicap_index: number | null;
     /**
+     * When the player last affirmed `handicap_index` — by confirming it on the
+     * way into a round, or by editing it (migration 048). Null = never asked,
+     * which reads as stale. Not a `handicap_history` join: confirming an
+     * unchanged index appends no history row.
+     */
+    handicap_confirmed_at: string | null;
+    /**
      * Nullable registration/profile field (migration 033, PHASES.md
      * 2026-07-03 friends-list request). Missing gender stays editable on a
      * roster row — unlike `guest_players.gender`, which is NOT NULL.

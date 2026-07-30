@@ -30,7 +30,7 @@ import {
     type StatPrompt,
 } from './stat-prompts';
 import { recordDeviceRound, removeDeviceRound } from '../landing/device-rounds';
-import { markSeen, forgetSeen } from '../landing/seen-rounds';
+import { isSeen, markSeen, forgetSeen } from '../landing/seen-rounds';
 import {
     forgetResultCursor,
     getResultCursor,
@@ -162,6 +162,16 @@ export class RoundViewService {
      */
     readonly startList = new Signal<StartListView | null>(null);
     readonly balls = new Signal<RoundBall[]>([]);
+    /**
+     * Is this the first time THIS device has opened THIS round? Captured from
+     * the seen-rounds set on the first load of a given round id, BEFORE
+     * `markSeen` writes it, and then held for the rest of the visit — later
+     * refetches (a join, a claim, a poll) must not retract it, or the handicap
+     * check-in would vanish the instant the player self-joined into the round
+     * it was waiting to ask about.
+     */
+    readonly firstOpen = new Signal(false);
+    private firstOpenRoundId: string | null = null;
     readonly scorecards = new Signal<Scorecard[]>([]);
     /** Optimistic per-cell overlay over the loaded scorecards. */
     readonly cells = new Signal<Map<string, CellState>>(new Map());
@@ -324,6 +334,13 @@ export class RoundViewService {
         // logged in (the strip is gated on identity); a logged-out open has no
         // strip to affect. Keyed by round id (the strip's dashboard entries
         // are id-keyed), device-local.
+        // Read seen-state BEFORE marking, and only on the first load of this
+        // round id — `loadByToken` runs again after a join/claim/edit, by which
+        // point the round is always "seen".
+        if (this.firstOpenRoundId !== data.round.id) {
+            this.firstOpenRoundId = data.round.id;
+            this.firstOpen.set(!isSeen(data.round.id));
+        }
         if (di.get(AuthService).currentUser.get()) markSeen(data.round.id);
         // A legacy numeric `?slot=` index can only be translated to a
         // slotDefId once the round's formatSlots are known. Consume it once —

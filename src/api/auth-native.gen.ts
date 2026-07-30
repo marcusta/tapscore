@@ -15,6 +15,7 @@ export interface Player {
     homeClubId: null | string;
     handicapIndex: null | number;
     gender: null | 'M' | 'F';
+    handicapConfirmedAt: null | string;
     deletedAt: null | string;
 }
 

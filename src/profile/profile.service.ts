@@ -101,6 +101,21 @@ export class ProfileService {
     }
 
     /**
+     * Record that the player looked at their index and it is still theirs.
+     * Deliberately NOT a `saveIndex` with the same number: nothing changed, so
+     * `handicap_history` must not gain a row. Only the "asked recently" stamp
+     * moves — which is what the round check-in reads to stay rare.
+     */
+    async confirmHandicap(): Promise<boolean> {
+        const saved = await request(this.saving, this.saveError, () =>
+            api.players.confirmHandicap(),
+        );
+        if (!saved) return false;
+        this.player.set(saved);
+        return true;
+    }
+
+    /**
      * Save gender (M / F / null-to-clear) via the profile endpoint. The
      * create flow's "Add me"/friends rows read `player.gender` to prefill +
      * lock their gender control, so refresh `player` from the response

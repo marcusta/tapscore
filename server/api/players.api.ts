@@ -102,6 +102,12 @@ export function createPlayersApi(
             schema: UpdateHandicapInput,
             middleware: mw,
         },
+        confirmHandicap: {
+            method: 'POST' as const,
+            path: '/players/me/handicap/confirm',
+            fn: (c: Context) => svc.confirmHandicap(requireUser(c).id),
+            middleware: mw,
+        },
         myHandicapHistory: {
             method: 'GET' as const,
             path: '/players/me/handicap-history',

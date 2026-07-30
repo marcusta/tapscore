@@ -10,6 +10,7 @@ export interface Player {
     homeClubId: null | string;
     handicapIndex: null | number;
     gender: null | 'M' | 'F';
+    handicapConfirmedAt: null | string;
     deletedAt: null | string;
 }
 
@@ -37,6 +38,7 @@ export interface PlayersApi {
     me(): Promise<null | Player>;
     register(input: { username: string; password: string; displayName: string; handicapIndex?: null | number; gender?: null | 'M' | 'F'; homeClubId?: null | string }): Promise<Player>;
     updateHandicap(input: { handicapIndex: number; effectiveDate?: string }): Promise<HandicapEntry>;
+    confirmHandicap(): Promise<Player>;
     myHandicapHistory(): Promise<HandicapEntry[]>;
     updateProfile(input: { gender?: null | 'M' | 'F'; homeClubId?: null | string }): Promise<Player>;
     search(input: { q?: string }): Promise<PlayerSearchResult[]>;
@@ -52,6 +54,9 @@ export function createPlayersClient(baseUrl: string): PlayersApi {
         },
         async updateHandicap(input) {
             return apiFetch({ method: 'POST', url: `${baseUrl}/players/me/handicap`, body: input });
+        },
+        async confirmHandicap() {
+            return apiFetch({ method: 'POST', url: `${baseUrl}/players/me/handicap/confirm`, body: {} });
         },
         async myHandicapHistory() {
             return apiFetch({ method: 'GET', url: `${baseUrl}/players/me/handicap-history` });

@@ -20,6 +20,13 @@ export interface Player {
      * roster-drop feature). Missing gender stays editable on a roster row.
      */
     gender: Gender | null;
+    /**
+     * When the player last affirmed `handicapIndex` — confirmed it on the way
+     * into a round, or edited it (migration 048). Null = never. The client
+     * decides from this whether to ask again; the staleness rule is a product
+     * decision that lives in one pure client module, not spread across the API.
+     */
+    handicapConfirmedAt: string | null;
     /** Soft-delete tombstone (§17). Null = active. */
     deletedAt: string | null;
 }
@@ -93,6 +100,7 @@ function toPlayer(row: PlayerRow): Player {
         homeClubId: row.home_club_id,
         handicapIndex: row.handicap_index,
         gender: row.gender,
+        handicapConfirmedAt: row.handicap_confirmed_at,
         deletedAt: row.deleted_at,
     };
 }
@@ -302,6 +310,11 @@ export class PlayerService {
             home_club_id: input.homeClubId ?? null,
             handicap_index: input.handicapIndex ?? null,
             gender: input.gender ?? null,
+            // An index typed at registration is one the player just affirmed,
+            // so the check-in clock starts here rather than at zero. Signing up
+            // WITHOUT one leaves this null — "never confirmed" — which is the
+            // honest state and gets them asked on their first round.
+            handicap_confirmed_at: input.handicapIndex == null ? null : new Date().toISOString(),
         };
 
         // Identity row + its password credential land together: a player
@@ -324,6 +337,7 @@ export class PlayerService {
             homeClubId: values.home_club_id,
             handicapIndex: values.handicap_index,
             gender: values.gender,
+            handicapConfirmedAt: values.handicap_confirmed_at,
             deletedAt: null,
         };
     }
@@ -370,7 +384,13 @@ export class PlayerService {
         const row = await this.byId(playerId).executeTakeFirst();
         if (!row || row.deleted_at !== null) throw new NotFoundError('player not found');
 
-        await this.updatePlayerById(playerId).set({ handicap_index: handicapIndex }).execute();
+        // Setting the index IS an affirmation of it, so the check-in clock
+        // restarts here too — otherwise a player who just typed their new
+        // index would be asked to confirm it on the way into the very next
+        // round.
+        await this.updatePlayerById(playerId)
+            .set({ handicap_index: handicapIndex, handicap_confirmed_at: new Date().toISOString() })
+            .execute();
         return this.handicaps.record({
             playerId,
             handicapIndex,
@@ -378,6 +398,32 @@ export class PlayerService {
             effectiveDate: effectiveDate ?? todayIsoDate(),
             enteredByPlayerId: playerId,
         });
+    }
+
+    /**
+     * "Yes, that handicap is still mine" — the no-change half of the check-in
+     * the app runs on the way into a round.
+     *
+     * Deliberately NOT `updateHandicapIndex(playerId, currentIndex)`: that
+     * appends to `handicap_history`, and a confirmation is not a change. Every
+     * fortnightly "still 18.4" would otherwise land as a history row and turn
+     * the index-over-time read into a flat line of duplicates. Only the
+     * timestamp moves.
+     *
+     * Confirming with no index set is allowed and meaningful — it is the
+     * player answering "I still don't have one", which should quiet the prompt
+     * for the same period as any other answer.
+     */
+    async confirmHandicap(playerId: string): Promise<Player> {
+        const row = await this.byId(playerId).executeTakeFirst();
+        if (!row || row.deleted_at !== null) throw new NotFoundError('player not found');
+
+        await this.updatePlayerById(playerId)
+            .set({ handicap_confirmed_at: new Date().toISOString() })
+            .execute();
+
+        const updated = await this.byId(playerId).executeTakeFirst();
+        return toPlayer(updated!);
     }
 
     /**
@@ -556,6 +602,9 @@ export class PlayerService {
                     homeClubId: null,
                     handicapIndex: null,
                     gender: null,
+                    // Apple sign-in mints an index-less player — onboarding
+                    // asks for the handicap next. Never confirmed, correctly.
+                    handicapConfirmedAt: null,
                     deletedAt: null,
                 },
                 created: true,

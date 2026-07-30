@@ -15,6 +15,7 @@ import { LeaderboardComponent } from './leaderboard.component';
 import { ClaimCardComponent } from './claim-card.component';
 import { SeatCardComponent } from './seat-card.component';
 import { JoinCardComponent } from './join-card.component';
+import { HandicapCheckinComponent } from './handicap-checkin.component';
 import { ManageOverlayComponent } from './manage-overlay.component';
 import { formatLabelFromSlot } from './slot-labels';
 import { roundHeaderTitle } from './header-title';
@@ -58,6 +59,7 @@ const tpl = template(`
                 <div class="round-view__formats" bind="formats"></div>
 
                 <div bind="scorePanel" class="round-view__panel">
+                    <div bind="hcpCheckin"></div>
                     <div bind="groupTabs" class="round-view__groups hidden"></div>
                     <div bind="scoring"></div>
 
@@ -783,6 +785,9 @@ export class RoundComponent extends Component {
         // section-driven leaderboard. Both share the RoundViewService singleton;
         // tab visibility is toggled via the panel classes above (kept mounted so
         // carousel/keypad state survives a tab switch).
+        // "Is this still your handicap?" — self-hiding, and only on the first
+        // open of this round on this device by someone who plays in it.
+        this.spawn(HandicapCheckinComponent, this.ref(frag, 'hcpCheckin'));
         this.spawn(ScoreEntryComponent, this.ref(frag, 'scoring'));
         this.spawn(LeaderboardComponent, this.ref(frag, 'leaderboard'));
         // Phase 5.5: the "Who's playing?" seat card — self-hiding unless the
