@@ -489,6 +489,25 @@ test('a cookie session is untouched by /auth/revoke and cannot use it', async ()
     expect((await req(ctx.app, 'GET', '/api/auth/me', undefined, cookie)).status).toBe(200);
 });
 
+test('sign out everywhere reaches BOTH deliveries of one account', async () => {
+    // The reason `/auth/logout-all` revokes by user and not by token: a player
+    // who loses their phone signs out from the web and the iOS bearer session
+    // dies with it. `/auth/revoke` deliberately cannot do this — it ends only
+    // the token presented.
+    const ctx = await setup();
+    const cookie = await loginAs(ctx.app, 'alice', 'password123');
+    // Linking the Apple credential to the signed-in player is what makes both
+    // sessions belong to one account.
+    const { token } = await (await signIn(ctx.app, { sub: 'alice-phone' }, { cookie })).json();
+    expect((await bearer(ctx.app, 'GET', '/api/auth/me', token)).status).toBe(200);
+
+    const res = await req(ctx.app, 'POST', '/api/auth/logout-all', {}, cookie);
+    expect(res.status).toBe(200);
+
+    expect((await req(ctx.app, 'GET', '/api/auth/me', undefined, cookie)).status).toBe(401);
+    expect((await bearer(ctx.app, 'GET', '/api/auth/me', token)).status).toBe(401);
+});
+
 test('POST /api/auth/revoke without any session is a 401', async () => {
     const ctx = await setup();
     expect((await req(ctx.app, 'POST', '/api/auth/revoke')).status).toBe(401);

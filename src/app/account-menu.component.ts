@@ -6,8 +6,15 @@ import { ProfileService } from '../profile/profile.service';
 import { FriendsService } from '../friends/friends.service';
 import { AdminService } from '../admin/admin.service';
 import { LandingService } from '../landing/landing.service';
+import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import { signOutSequence } from '../auth/sign-out';
-import { accountControl, accountInitials, accountMenuKinds, type AccountMenuState } from './account-menu';
+import {
+    accountControl,
+    accountInitials,
+    accountMenuKinds,
+    type AccountMenuRowKind,
+    type AccountMenuState,
+} from './account-menu';
 
 // The app's top-right account surface. Signed out it is a "Sign in" button;
 // signed in it is an initials avatar that opens a small popover: who you are,
@@ -37,8 +44,10 @@ const tpl = template(`
                 <button bind="profile" class="acct__row" type="button">Profile</button>
                 <button bind="admin" class="acct__row" type="button">Admin</button>
                 <button bind="signout" class="acct__row acct__row--quiet" type="button">Sign out</button>
+                <button bind="signoutAll" class="acct__row acct__row--quiet" type="button">Sign out everywhere</button>
             </div>
         </div>
+        <div bind="confirmHost"></div>
     </div>
 `);
 
@@ -170,13 +179,30 @@ export class AccountMenuComponent extends Component {
         isSuperAdmin: this.admins.isSuperAdmin(),
     }));
 
-    private has(kind: 'identity' | 'profile' | 'admin' | 'signout'): boolean {
+    private signOutAllOpen = new Signal(false);
+
+    private has(kind: AccountMenuRowKind): boolean {
         return accountMenuKinds(this.state.get()).includes(kind);
     }
 
-    private rowClass(kind: 'profile' | 'admin' | 'signout', extra = ''): string {
+    private rowClass(kind: AccountMenuRowKind, extra = ''): string {
         const base = `acct__row${extra}`;
         return this.has(kind) ? base : `${base} hidden`;
+    }
+
+    /** The one teardown, whether it ends this session or all of them. */
+    private async signOut(opts: { everywhere?: boolean } = {}): Promise<void> {
+        await signOutSequence(
+            {
+                auth: this.auth,
+                profile: this.profile,
+                friends: this.friends,
+                admins: this.admins,
+                landing: this.landing,
+                navigate: (path) => this.router.navigate(path),
+            },
+            opts,
+        );
     }
 
     render(): DocumentFragment {
@@ -238,18 +264,32 @@ export class AccountMenuComponent extends Component {
             },
             signout: {
                 className: () => this.rowClass('signout', ' acct__row--quiet'),
-                onclick: async () => {
+                onclick: () => {
                     this.open.set(false);
-                    await signOutSequence({
-                        auth: this.auth,
-                        profile: this.profile,
-                        friends: this.friends,
-                        admins: this.admins,
-                        landing: this.landing,
-                        navigate: (path) => this.router.navigate(path),
-                    });
+                    void this.signOut();
                 },
             },
+            signoutAll: {
+                className: () => this.rowClass('signout-all', ' acct__row--quiet'),
+                // Confirmed, unlike plain Sign out: this one reaches devices
+                // the user isn't holding, and it cannot be undone by signing
+                // back in here.
+                onclick: () => {
+                    this.open.set(false);
+                    this.signOutAllOpen.set(true);
+                },
+            },
+        });
+
+        this.spawn(ConfirmComponent, this.ref(frag, 'confirmHost'), {
+            open: this.signOutAllOpen,
+            title: 'Sign out everywhere?',
+            message:
+                'Every device signed in to this account is signed out, including this one. '
+                + 'Rounds and scores are untouched — you can sign back in with your password.',
+            confirmLabel: 'Sign out everywhere',
+            cancelLabel: 'Cancel',
+            onconfirm: () => void this.signOut({ everywhere: true }),
         });
 
         // Dismissal, self-contained (the app's Escape handling is hand-rolled

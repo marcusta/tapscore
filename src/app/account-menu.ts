@@ -2,7 +2,7 @@
 // rows the popover shows. Kept out of the component so the composition per
 // auth/role state is testable without a DOM (same split as `rows`/`partition`).
 
-export type AccountMenuRowKind = 'identity' | 'profile' | 'admin' | 'signout';
+export type AccountMenuRowKind = 'identity' | 'profile' | 'admin' | 'signout' | 'signout-all';
 
 export interface AccountMenuIdentity {
     kind: 'identity';
@@ -11,7 +11,7 @@ export interface AccountMenuIdentity {
 }
 
 export interface AccountMenuAction {
-    kind: 'profile' | 'admin' | 'signout';
+    kind: 'profile' | 'admin' | 'signout' | 'signout-all';
     label: string;
 }
 
@@ -47,6 +47,9 @@ export function accountMenuRows(state: AccountMenuState): AccountMenuRow[] {
     ];
     if (state.isSuperAdmin) rows.push({ kind: 'admin', label: 'Admin' });
     rows.push({ kind: 'signout', label: 'Sign out' });
+    // Last, and never adjacent to Profile/Admin: a mis-tap here signs the
+    // account out of the phone in someone's bag as well as this browser.
+    rows.push({ kind: 'signout-all', label: 'Sign out everywhere' });
     return rows;
 }
 

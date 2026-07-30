@@ -12,7 +12,11 @@ export interface Clearable {
 }
 
 export interface SignOutContext {
-    auth: { logout(): Promise<void> };
+    auth: {
+        logout(): Promise<void>;
+        /** Revokes every session on the account — see `everywhere` below. */
+        logoutEverywhere(): Promise<number | null>;
+    };
     /** Loaded profile / handicap history. */
     profile: Clearable;
     /** Friend list + search state. */
@@ -32,9 +36,18 @@ export interface SignOutContext {
  * Log out, drop every cached slice of the signed-in identity, and return to the
  * landing. Await it — the clears must not run before the server has dropped the
  * session, or an in-flight load could repopulate them.
+ *
+ * `everywhere` swaps the first step for a revoke-all: sessions live a month, so
+ * a lost or borrowed phone needs an off switch reachable from any device the
+ * user still has. Everything after it is identical — the local teardown is the
+ * same teardown whether one session ended or five did.
  */
-export async function signOutSequence(ctx: SignOutContext): Promise<void> {
-    await ctx.auth.logout();
+export async function signOutSequence(
+    ctx: SignOutContext,
+    opts: { everywhere?: boolean } = {},
+): Promise<void> {
+    if (opts.everywhere) await ctx.auth.logoutEverywhere();
+    else await ctx.auth.logout();
     ctx.profile.clear();
     ctx.friends.clear();
     ctx.admins.clear();

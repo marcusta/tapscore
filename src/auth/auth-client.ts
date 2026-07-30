@@ -33,3 +33,11 @@ export function meRequest(): Promise<AuthUser> {
 export function logoutRequest(): Promise<{ ok: boolean }> {
     return apiFetch({ method: 'POST', url: `${API_BASE}/auth/logout`, body: {} });
 }
+
+/**
+ * Sign out on every device — revokes all of this account's sessions, not just
+ * this browser's. Same base-path reasoning as `loginRequest`.
+ */
+export function logoutAllRequest(): Promise<{ ok: boolean; revoked: number }> {
+    return apiFetch({ method: 'POST', url: `${API_BASE}/auth/logout-all`, body: {} });
+}

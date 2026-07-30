@@ -14,6 +14,10 @@ function ctx() {
             logout: async () => {
                 log.push('logout');
             },
+            logoutEverywhere: async () => {
+                log.push('logout-everywhere');
+                return 2;
+            },
         },
         profile: clearable('profile'),
         friends: clearable('friends'),
@@ -44,6 +48,22 @@ test('the landing is cleared — a sign-out from / must not leave stale state', 
     // …and only after the session is actually gone, so an in-flight load can't
     // repopulate what we just cleared.
     expect(log.indexOf('landing')).toBeGreaterThan(log.indexOf('logout'));
+});
+
+test('everywhere: revokes all sessions, then the same teardown', async () => {
+    // The local clear-down is identical whether one session ended or five did —
+    // only the first step differs.
+    const { c, log } = ctx();
+    await signOutSequence(c, { everywhere: true });
+    expect(log).toEqual([
+        'logout-everywhere',
+        'profile',
+        'friends',
+        'admins',
+        'landing',
+        'navigate /',
+    ]);
+    expect(log).not.toContain('logout');
 });
 
 test('nothing is cleared before logout resolves', async () => {

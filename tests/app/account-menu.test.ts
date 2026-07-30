@@ -25,7 +25,7 @@ test('signed out: the control is Sign in and there is no menu', () => {
 
 test('signed in: avatar control, identity + Profile + Sign out (no Admin)', () => {
     expect(accountControl(signedIn)).toBe('avatar');
-    expect(accountMenuKinds(signedIn)).toEqual(['identity', 'profile', 'signout']);
+    expect(accountMenuKinds(signedIn)).toEqual(['identity', 'profile', 'signout', 'signout-all']);
 
     const [identity] = accountMenuRows(signedIn);
     expect(identity).toEqual({
@@ -37,7 +37,9 @@ test('signed in: avatar control, identity + Profile + Sign out (no Admin)', () =
 
 test('unscoped super_admin: Admin sits between Profile and Sign out', () => {
     const state = { ...signedIn, isSuperAdmin: true };
-    expect(accountMenuKinds(state)).toEqual(['identity', 'profile', 'admin', 'signout']);
+    expect(accountMenuKinds(state)).toEqual([
+        'identity', 'profile', 'admin', 'signout', 'signout-all',
+    ]);
     // The whole ordered list, not just the kinds — labels and identity are part
     // of the contract the component binds on.
     expect(accountMenuRows(state)).toEqual([
@@ -45,6 +47,8 @@ test('unscoped super_admin: Admin sits between Profile and Sign out', () => {
         { kind: 'profile', label: 'Profile' },
         { kind: 'admin', label: 'Admin' },
         { kind: 'signout', label: 'Sign out' },
+        // Last on purpose — see `accountMenuRows`.
+        { kind: 'signout-all', label: 'Sign out everywhere' },
     ]);
 });
 

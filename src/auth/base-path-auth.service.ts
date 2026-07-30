@@ -1,6 +1,6 @@
 import { AuthService } from '@basics/core/client/auth';
 import { ApiError } from '@basics/core/client/api-error';
-import { loginRequest, meRequest, logoutRequest } from './auth-client';
+import { loginRequest, meRequest, logoutRequest, logoutAllRequest } from './auth-client';
 
 /**
  * `AuthService` with the deploy base path applied.
@@ -73,6 +73,33 @@ export class BasePathAuthService extends AuthService {
             } else {
                 this.error.set({ message: 'Cannot reach the server.', code: 'network' });
             }
+        } finally {
+            this.loading.set(false);
+        }
+    }
+
+    /**
+     * Sign out on every device. Same base-path and same failure rules as
+     * `logout` — a request that never got an answer leaves the user signed in
+     * here, because the sessions may well all still be alive.
+     *
+     * Returns the number of sessions revoked, or null when the call failed.
+     */
+    override async logoutEverywhere(): Promise<number | null> {
+        this.loading.set(true);
+        try {
+            const res = await logoutAllRequest();
+            this.currentUser.set(null);
+            this.error.set(null);
+            return res.revoked;
+        } catch (err) {
+            if (err instanceof ApiError && err.status === 401) {
+                this.currentUser.set(null);
+                this.error.set(null);
+            } else {
+                this.error.set({ message: 'Cannot reach the server.', code: 'network' });
+            }
+            return null;
         } finally {
             this.loading.set(false);
         }
