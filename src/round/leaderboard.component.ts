@@ -362,7 +362,9 @@ export class LeaderboardComponent extends Component {
                 font-weight: 600;
                 color: ${t('text')};
             }
-            & .lb-grid .lb-sum { width: 2.4em; font-weight: 700; background: ${t('surface-sunken')}; }
+            /* Route section labels such as OUT must fit whole; the shared cell
+               padding otherwise leaves too little usable width and ellipsizes it. */
+            & .lb-grid .lb-sum { width: 2.8em; font-weight: 700; background: ${t('surface-sunken')}; }
             & .lb-grid .lb-r-dim td, & .lb-grid .lb-r-dim th { color: ${t('text-muted')}; }
             & .lb-grid .lb-c-si { color: ${t('text-muted')}; font-size: 0.7rem; }
             & .lb-grid .lb-r-cat th { font-weight: 400; color: ${t('text-muted')}; }

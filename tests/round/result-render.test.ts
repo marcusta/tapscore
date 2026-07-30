@@ -228,6 +228,14 @@ test('category matrix mobile styles keep triple-digit umbrella point cells reada
     expect(component).toContain('text-overflow: clip');
 });
 
+test('score-grid summary header reserves enough width for a three-letter route label', async () => {
+    const component = await Bun.file(
+        new URL('../../src/round/leaderboard.component.ts', import.meta.url),
+    ).text();
+
+    expect(component).toContain('& .lb-grid .lb-sum { width: 2.8em;');
+});
+
 test('cell markers render the presentation shape through the vocabulary', () => {
     const grid: ScoreGridSection = {
         kind: 'score_grid',
