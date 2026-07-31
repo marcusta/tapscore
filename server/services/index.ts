@@ -27,6 +27,7 @@ import { RoundEditService } from './round-edit.service';
 import { GuestClaimService } from './guest-claim.service';
 import { FriendService } from './friend.service';
 import { FriendsActivityService } from './friends-activity.service';
+import { FriendProfileService } from './friend-profile.service';
 import { SpectateService } from './spectate.service';
 import { CompetitionService } from './competition.service';
 import { CompetitionRoundService } from './competition-round.service';
@@ -191,6 +192,11 @@ export function createServices(db: Kysely<Database>) {
     // the one visibility rule the spectate path is gated on — both live here so
     // "who may see this round" has a single implementation.
     const friendsActivityService = new FriendsActivityService(db, friendService);
+    // The friend detail page: the same mutual-edge gate, asked about a PLAYER
+    // rather than a round. Its own service because the visibility rule is
+    // different in a way the feed must never inherit — private rounds are
+    // counted but never listed (see the class doc).
+    const friendProfileService = new FriendProfileService(db, friendService, playerService);
     const spectateService = new SpectateService(
         db,
         friendsActivityService,
@@ -262,6 +268,7 @@ export function createServices(db: Kysely<Database>) {
         roundEditService,
         guestClaimService,
         friendsActivityService,
+        friendProfileService,
         spectateService,
         competitionService,
         competitionRoundService,

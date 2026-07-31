@@ -364,25 +364,87 @@ export class FriendsActivityService {
      * (their own plus a shared team ball); those balls carry different scores,
      * and summing them would report a nonsense "Thru 36". The ball with the
      * most scored holes is the one they are actually playing.
+     *
+     * ## Why the inner subquery, and why the source filter
+     *
+     * `scorecards` is uniquely keyed on `(ball_id, play_hole_id, source_key)`
+     * where `source_key = COALESCE(source_player_id, source_guest_player_id,
+     * '')` — SEVERAL rows per (ball, hole) is a designed shape, not an anomaly
+     * (see the class doc on `ScorecardService`). Counting ROWS and summing over
+     * all of them is therefore wrong twice over:
+     *
+     *  - one ball serving both an individual slot (untagged row) and a
+     *    better-ball slot (row tagged with `source_player_id`) DOUBLES both
+     *    numbers — three holes scored render as "Thru 6";
+     *  - on a single-ball foursomes team, the OTHER player's tagged rows land
+     *    in this friend's own score-to-par.
+     *
+     * So: keep only rows attributable to the friend the row is ABOUT — a
+     * correlated comparison against `bp.player_id`, not a constant, because
+     * this query answers for a whole player set at once — or to nobody in
+     * particular (the untagged row an individual/foursomes slot writes). Then
+     * reduce to ONE row per (ball, play_hole) before counting or summing.
+     * `MIN(sc.strokes)` is that reduction: after the source filter, several
+     * surviving rows for one hole mean the same entry recorded through more
+     * than one format slot, so they carry the same strokes and any pick returns
+     * the same number; MIN is chosen because it is deterministic, so repeated
+     * reads agree, and because where they ever DID disagree it reports the
+     * better score rather than inventing a worse one.
+     *
+     * Note the GUEST half of the untagged arm. `source_key` coalesces BOTH
+     * source columns, so a guest sharing the friend's ball writes rows with
+     * `source_player_id IS NULL` and their identity in `source_guest_player_id`
+     * — the foursomes failure mode again, wearing the untagged row's clothes.
+     * Requiring both columns null is what makes "untagged" mean "nobody's in
+     * particular, therefore the ball's". A guest who later claims their account
+     * keeps their holes: `GuestClaimService.claimGuest` rewrites
+     * `source_guest_player_id` into `source_player_id`, which the first arm
+     * then matches.
      */
     private async progressRows(roundIds: string[], playerIds: string[]) {
         if (roundIds.length === 0 || playerIds.length === 0) return [];
         return this.db
-            .selectFrom('scorecards as sc')
-            .innerJoin('balls as b', 'b.id', 'sc.ball_id')
-            .innerJoin('ball_players as bp', 'bp.ball_id', 'sc.ball_id')
-            .innerJoin('round_play_holes as ph', 'ph.id', 'sc.play_hole_id')
-            .where('b.round_id', 'in', roundIds)
-            .where('bp.player_id', 'in', playerIds)
-            .where('sc.strokes', 'is not', null)
+            .selectFrom((eb) =>
+                eb
+                    .selectFrom('scorecards as sc')
+                    .innerJoin('balls as b', 'b.id', 'sc.ball_id')
+                    .innerJoin('ball_players as bp', 'bp.ball_id', 'sc.ball_id')
+                    .where('b.round_id', 'in', roundIds)
+                    .where('bp.player_id', 'in', playerIds)
+                    .where('sc.strokes', 'is not', null)
+                    .where((w) =>
+                        w.or([
+                            w('sc.source_player_id', '=', w.ref('bp.player_id')),
+                            w.and([
+                                w('sc.source_player_id', 'is', null),
+                                w('sc.source_guest_player_id', 'is', null),
+                            ]),
+                        ]),
+                    )
+                    .select([
+                        'b.round_id as roundId',
+                        'bp.player_id as playerId',
+                        'sc.ball_id as ballId',
+                        'sc.play_hole_id as playHoleId',
+                        sql<number>`MIN(sc.strokes)`.as('strokes'),
+                    ])
+                    .groupBy([
+                        'b.round_id',
+                        'bp.player_id',
+                        'sc.ball_id',
+                        'sc.play_hole_id',
+                    ])
+                    .as('hole'),
+            )
+            .innerJoin('round_play_holes as ph', 'ph.id', 'hole.playHoleId')
             .select([
-                'b.round_id as roundId',
-                'bp.player_id as playerId',
-                'sc.ball_id as ballId',
+                'hole.roundId as roundId',
+                'hole.playerId as playerId',
+                'hole.ballId as ballId',
                 (eb) => eb.fn.countAll<number>().as('holesPlayed'),
-                sql<number | null>`SUM(sc.strokes - ph.par)`.as('scoreToPar'),
+                sql<number | null>`SUM(hole.strokes - ph.par)`.as('scoreToPar'),
             ])
-            .groupBy(['b.round_id', 'bp.player_id', 'sc.ball_id'])
+            .groupBy(['hole.roundId', 'hole.playerId', 'hole.ballId'])
             .execute();
     }
 

@@ -102,6 +102,9 @@ decision, not a routing detail:
    - `GET /spectate/rounds/:roundId`, `GET /api/spectate/events` —
      `spectate.service.ts` (`canView` is the single authority; the share token
      is stripped from the payload, because it is a WRITE credential)
+   - `GET /friends/:playerId/{profile,rounds,courses}` — `friend-profile.service.ts`
+     (aggregates count private and `link` rounds; lists show only
+     `visibility = 'friends'`)
 
 Rules for any new cross-player read:
 

@@ -154,6 +154,34 @@ async function score(
     });
 }
 
+/**
+ * Score a hole through a PER-PLAYER format slot — the write a better-ball /
+ * Taliban / Umbrella entry makes. The event carries `sourcePlayerId`, so the
+ * trigger lands it in its own `scorecards` row: the table is keyed on
+ * `(ball_id, play_hole_id, source_key)`, and several rows per (ball, hole) is
+ * the designed shape, not corruption.
+ */
+async function scoreForSource(
+    cast: Cast,
+    round: Awaited<ReturnType<typeof createRound>>,
+    ballId: string,
+    holeIndex: number,
+    strokes: number,
+    sourcePlayerId: string,
+    recordedAt: string,
+) {
+    await cast.ctx.scoreEventService.append({
+        roundId: round.roundId,
+        ballId,
+        playHoleId: round.playHoleIds[holeIndex]!,
+        strokes,
+        eventType: 'score_entered',
+        clientEventId: `${ballId}-${holeIndex}-${sourcePlayerId}`,
+        recordedAt,
+        sourcePlayerId,
+    });
+}
+
 /** Make the edge mutual in both directions. */
 async function befriend(cast: Cast, a: string, b: string) {
     await cast.ctx.friendService.add(a, b);
@@ -441,6 +469,103 @@ test('score to par is the friend\'s own strokes over their scored holes', async 
     const body = await cast.ctx.friendsActivityService.activityFor(cast.alice, now);
     expect(body.live[0]!.friends).toEqual([
         { playerId: cast.bob, displayName: 'Bob Bengtsson', holesPlayed: 3, scoreToPar: 3 },
+    ]);
+});
+
+// `scorecards` holds one row per (ball, play_hole, source_key), so a ball that
+// serves BOTH an individual slot (untagged row) and a per-player team slot
+// (tagged row) carries two rows for one hole. Counting rows and summing over all
+// of them double-counted: three holes read back as "Thru 6" on an 18-hole card,
+// with score-to-par doubled to match.
+test("a ball scored through two format slots does not double a friend's progress", async () => {
+    const cast = await setup();
+    const round = await createRound(cast, { producers: [cast.bob] });
+    await befriend(cast, cast.alice, cast.bob);
+    const now = '2026-07-30T18:00:00.000Z';
+    const ball = round.ballFor(cast.bob);
+
+    // The individual slot's writes: 5, 4, 6 on three par-4s → +3 thru 3.
+    await score(cast, round, ball, 0, 5, now);
+    await score(cast, round, ball, 1, 4, now);
+    await score(cast, round, ball, 2, 6, now);
+    // The same three entries again, through a per-player team slot on the same
+    // ball. Same strokes — one entry, recorded twice by the format layer.
+    await scoreForSource(cast, round, ball, 0, 5, cast.bob, now);
+    await scoreForSource(cast, round, ball, 1, 4, cast.bob, now);
+    await scoreForSource(cast, round, ball, 2, 6, cast.bob, now);
+
+    const body = await cast.ctx.friendsActivityService.activityFor(cast.alice, now);
+    expect(body.live[0]!.friends).toEqual([
+        { playerId: cast.bob, displayName: 'Bob Bengtsson', holesPlayed: 3, scoreToPar: 3 },
+    ]);
+});
+
+// The single-ball team shape (foursomes and friends): one ball, rows tagged per
+// player. The friend's line must read only their own rows.
+test("a team-mate's rows on the same ball stay out of a friend's score", async () => {
+    const cast = await setup();
+    const round = await createRound(cast, { producers: [cast.bob] });
+    await befriend(cast, cast.alice, cast.bob);
+    const now = '2026-07-30T18:00:00.000Z';
+    const ball = round.ballFor(cast.bob);
+
+    // Bob: 4, 4 on par-4s → level thru 2.
+    await scoreForSource(cast, round, ball, 0, 4, cast.bob, now);
+    await scoreForSource(cast, round, ball, 1, 4, cast.bob, now);
+    // Carin shares the ball and is having a day. Her rows are tagged with HER
+    // id and must not touch his line.
+    await scoreForSource(cast, round, ball, 0, 9, cast.carin, now);
+    await scoreForSource(cast, round, ball, 1, 9, cast.carin, now);
+
+    const body = await cast.ctx.friendsActivityService.activityFor(cast.alice, now);
+    expect(body.live[0]!.friends).toEqual([
+        { playerId: cast.bob, displayName: 'Bob Bengtsson', holesPlayed: 2, scoreToPar: 0 },
+    ]);
+});
+
+test("a GUEST team-mate's rows on the same ball stay out of a friend's score", async () => {
+    const cast = await setup();
+    const round = await createRound(cast, { producers: [cast.bob] });
+    await befriend(cast, cast.alice, cast.bob);
+    const now = '2026-07-30T18:00:00.000Z';
+    const ball = round.ballFor(cast.bob);
+    const guest = await cast.ctx.guestPlayerService.create({
+        displayName: 'Gunnar',
+        gender: 'M',
+        handicapIndex: 20,
+    });
+
+    // Bob: 4, 4 on par-4s → level thru 2.
+    await scoreForSource(cast, round, ball, 0, 4, cast.bob, now);
+    await scoreForSource(cast, round, ball, 1, 4, cast.bob, now);
+    // Gunnar shares the ball. A guest's rows leave `source_player_id` NULL —
+    // the identity is in the other half of `source_key` — so an untagged-arm
+    // filter that only checks `source_player_id IS NULL` reads his strokes as
+    // Bob's, including a hole Bob never played.
+    await cast.ctx.scoreEventService.append({
+        roundId: round.roundId,
+        ballId: ball,
+        playHoleId: round.playHoleIds[0]!,
+        strokes: 2,
+        eventType: 'score_entered',
+        clientEventId: `${ball}-0-guest`,
+        recordedAt: now,
+        sourceGuestPlayerId: guest.id,
+    });
+    await cast.ctx.scoreEventService.append({
+        roundId: round.roundId,
+        ballId: ball,
+        playHoleId: round.playHoleIds[2]!,
+        strokes: 3,
+        eventType: 'score_entered',
+        clientEventId: `${ball}-2-guest`,
+        recordedAt: now,
+        sourceGuestPlayerId: guest.id,
+    });
+
+    const body = await cast.ctx.friendsActivityService.activityFor(cast.alice, now);
+    expect(body.live[0]!.friends).toEqual([
+        { playerId: cast.bob, displayName: 'Bob Bengtsson', holesPlayed: 2, scoreToPar: 0 },
     ]);
 });
 

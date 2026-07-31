@@ -33,6 +33,7 @@ import { createCourseRouteTemplatesApi } from './api/course-route-templates.api'
 import { createFriendlyRoundsApi } from './api/friendly-rounds.api';
 import { createDashboardApi } from './api/dashboard.api';
 import { createSpectateApi } from './api/spectate.api';
+import { createFriendProfileApi } from './api/friend-profile.api';
 import { registerSpectateEvents } from './api/spectate-events';
 import { createSetupApi } from './api/setup.api';
 import { createCompetitionsApi } from './api/competitions.api';
@@ -79,6 +80,7 @@ const {
     guestClaimService,
     dashboardService,
     friendsActivityService,
+    friendProfileService,
     spectateService,
     correctionService,
     formatActionService,
@@ -135,6 +137,10 @@ mount(
     ),
 );
 mount(app, '/api', createFriendsApi(friendService));
+// A friend's detail page, gated on the same derived mutual edge as the feed
+// (docs/proposals/friends-activity.md). Session-scoped: the viewer is the
+// session, the subject is the path param.
+mount(app, '/api', createFriendProfileApi(friendProfileService));
 mount(app, '/api', createClubsApi(clubService));
 mount(app, '/api', createCoursesApi(courseService));
 mount(app, '/api', createTeesApi(teeService));

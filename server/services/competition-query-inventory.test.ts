@@ -11,6 +11,7 @@ const FILES = [
     // Not a competition service, but governed by the identical server-guide
     // rule — keeping one enforcement mechanism beats a second copy of it.
     'player-stats.service.ts',
+    'friend-profile.service.ts',
 ] as const;
 
 const TABLE_OPERATION = /\.(?:selectFrom|insertInto|updateTable|deleteFrom)\s*\(/g;
