@@ -331,6 +331,25 @@ final class LandingRowTests: XCTestCase {
         XCTAssertEqual(LandingRow.partition(onCutoff, now: now).finished.map(\.token), ["edge"])
     }
 
+    func testANilWindowKeepsEveryFinishedRound() {
+        // `AllRoundsView`'s whole job: the same split, no cutoff. A round the
+        // landing has aged out of is still one the player played.
+        let rows = LandingRow.fromDevice([
+            device("recent", status: .complete, seenAt: "2026-07-20T10:00:00Z", completedAt: "2026-07-20T10:00:00Z"),
+            device("ancient", status: .complete, seenAt: "2024-05-01T10:00:00Z", completedAt: "2024-05-01T10:00:00Z"),
+            device("active", status: .active, seenAt: "2026-07-27T10:00:00Z"),
+        ])
+
+        let partition = LandingRow.partition(rows, now: now, windowDays: nil)
+
+        XCTAssertEqual(
+            partition.finished.map(\.token),
+            ["recent", "ancient"],
+            "No cutoff, and still newest-completion first."
+        )
+        XCTAssertEqual(partition.ongoing.map(\.token), ["active"])
+    }
+
     // MARK: - Time parsing
 
     func testBothTimestampSpellingsParse() {

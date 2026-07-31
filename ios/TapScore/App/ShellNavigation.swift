@@ -40,6 +40,11 @@ enum ShellDestination: Hashable, Sendable {
     /// `displayName` is carried from the tapped row so the screen has a name
     /// before the payload lands. Presentation only.
     case friendProfile(playerId: String, displayName: String)
+    /// The viewer's own full round list — every loaded row, with no
+    /// recently-finished window. Carries no payload: the rows are the shell's
+    /// `LandingLoader`, the same object Home renders, so a screen addressed by
+    /// value would only be able to go stale.
+    case allRounds
     /// The friend's full paged round list, pushed from their profile.
     case friendRounds(playerId: String, displayName: String)
     /// The friend's courses list, pushed from their profile.
@@ -91,6 +96,14 @@ struct ShellNavigation: Equatable, Sendable {
     mutating func openSpectate(roundId: String, friendName: String? = nil) -> Bool {
         if case let .spectate(openId, _)? = top, openId == roundId { return false }
         stack.append(.spectate(roundId: roundId, friendName: friendName))
+        return true
+    }
+
+    /// Pushes the viewer's own full round list, unless it is already on top.
+    @discardableResult
+    mutating func openAllRounds() -> Bool {
+        guard top != .allRounds else { return false }
+        stack.append(.allRounds)
         return true
     }
 

@@ -106,6 +106,10 @@ struct DesignGalleryView: View {
             Button("Disabled") {}
                 .buttonStyle(.tapSecondary)
                 .disabled(true)
+            // The dock's raised action — reviewed here because its two greens
+            // sit close in light appearance and only the screenshots catch a
+            // pill that reads as a bump in the bar.
+            PlayPill {}
         }
     }
 

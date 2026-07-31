@@ -91,6 +91,24 @@ struct RootView: View {
     /// two must be the same object (see `AppEnvironment.deviceRounds`).
     private var deviceRounds: DeviceRoundsStore { environment.deviceRounds }
 
+    /// The landing's rows, owned HERE because the create flow is now the dock's
+    /// action rather than the home screen's button — and create needs the
+    /// loaded rows to de-dupe the name it pre-fills. `RoundListView` is handed
+    /// the same object and keeps every load decision it already made (see
+    /// `LandingLoader`); only ownership moved.
+    @State private var loader = LandingLoader()
+
+    /// True while the create flow is up. Shell state: the pill is reachable
+    /// from Home and from Friends, so the cover cannot belong to either.
+    @State private var isCreating = false
+
+    /// Set when the create screen's "Have a code?" link is tapped, and read in
+    /// the cover's `onDismiss`. Pushing `openJoin()` in the same state update
+    /// that dismisses the cover races the dismissal — SwiftUI may coalesce the
+    /// two and drop the push — so the intent parks here until the cover is
+    /// actually gone.
+    @State private var joinAfterCreate = false
+
     /// Set once the user has said "Continue without an account". Persisted:
     /// asking again on every cold launch is exactly the wall this app does not
     /// have. The toolbar keeps a way back to sign-in.
@@ -141,6 +159,15 @@ struct RootView: View {
                             )
                         }
                     )
+                case .allRounds:
+                    // Handed the shell's loader rather than its own: this is
+                    // Home's list without the window, and two loaders would be
+                    // two answers to "which rounds do I have".
+                    AllRoundsView(
+                        deviceRounds: deviceRounds,
+                        loader: loader,
+                        onOpen: { request in open(round: request) }
+                    )
                 case let .friendRounds(playerId, displayName):
                     FriendRoundsListView(
                         playerId: playerId,
@@ -153,6 +180,41 @@ struct RootView: View {
                     FriendCoursesListView(playerId: playerId, displayName: displayName)
                 }
             }
+        }
+        // Full-screen rather than a sheet: creating a round is a three-step
+        // task, and a card that can be swiped away mid-roster is how a typed
+        // roster gets lost. Attached to the STACK so the pill opens the same
+        // flow from Home and from Friends.
+        .fullScreenCover(
+            isPresented: $isCreating,
+            onDismiss: {
+                guard joinAfterCreate else { return }
+                joinAfterCreate = false
+                navigation.openJoin()
+            }
+        ) {
+            CreateRoundView(
+                // What the landing has loaded is the best available answer to
+                // "does this player already have a round called that today" —
+                // enough to de-dupe the pre-filled default, and never treated
+                // as authoritative.
+                existingRoundNames: loader.rows.compactMap(\.name),
+                onCancel: { isCreating = false },
+                // The join door moved onto the create screen: someone who came
+                // here holding a code says so, and lands on the paste screen —
+                // after the cover has finished dismissing (see `joinAfterCreate`).
+                onJoinWithCode: {
+                    joinAfterCreate = true
+                    isCreating = false
+                },
+                // Hand the new round to the shell's open path — the same
+                // closure a landing row uses — so the device-recent recording
+                // and the push into the round screen stay in one place.
+                onCreated: { request in
+                    isCreating = false
+                    open(round: request)
+                }
+            )
         }
         // Deep links arrive both before this view exists (cold start) and
         // after it does (warm). Draining the environment's pending route on
@@ -172,11 +234,15 @@ struct RootView: View {
         case .home:
             RoundListView(
                 deviceRounds: deviceRounds,
-                onJoin: { navigation.openJoin() },
+                loader: loader,
                 onOpen: { request in open(round: request) },
                 onSpectate: { roundId, friendName in
                     navigation.openSpectate(roundId: roundId, friendName: friendName)
-                }
+                },
+                // The identity strip is the account sheet's profile entry in a
+                // second place, so it lands in the same section.
+                onOpenProfile: { openProfile() },
+                onSeeAllRounds: { navigation.openAllRounds() }
             )
         case .friends:
             FriendsView(onOpenProfile: { friend in
@@ -199,7 +265,23 @@ struct RootView: View {
             get: { section },
             set: { destination in
                 navigation.popToRoot()
+                // Coming BACK to Home refetches the dashboard. Before the
+                // loader was hoisted here, the section switch rebuilt
+                // `RoundListView` and with it a fresh loader whose first
+                // `.task` always fetched; the hoisted loader outlives the
+                // switch and its dedupe would quietly turn every return into
+                // "device list only". Same trigger, made explicit.
+                let returningHome = destination == .home && section != .home
                 section = destination
+                if returningHome {
+                    Task {
+                        await loader.load(
+                            auth: environment.authState,
+                            api: environment.api,
+                            device: deviceRounds.all(),
+                            force: true)
+                    }
+                }
             }
         )
     }
@@ -210,7 +292,24 @@ struct RootView: View {
             // The sign-in/fork notice belongs to Home. Friends and Profile are
             // signed-in destinations and never duplicate it.
             if section == .home { authInset }
-            if isSignedIn {
+            dock
+        }
+    }
+
+    /// The dock: the Play pill, and — signed in — the two tabs under it.
+    ///
+    /// The pill is NOT part of the tab bar. Signed out there is no bar at all
+    /// (the tabs lead to signed-in destinations), and starting a round is
+    /// exactly what an anonymous viewer is here to do — so the pill stands on
+    /// its own, above the home indicator, and the bar joins it later.
+    ///
+    /// Signed in, the bar is pushed down by half a pill so the pill can hang
+    /// over its top edge with real layout room rather than an overlay that
+    /// spills outside its parent and stops taking taps.
+    @ViewBuilder
+    private var dock: some View {
+        if isSignedIn {
+            ZStack(alignment: .top) {
                 BottomTabBar(
                     tabs: [
                         .init(.home, title: "Home", systemImage: "house"),
@@ -219,7 +318,17 @@ struct RootView: View {
                     selection: dockSelection
                 )
                 .accessibilityIdentifier("app-dock")
+                .padding(.top, PlayPill.overlap)
+
+                PlayPill { isCreating = true }
+                    // The pill is THE action; the tabs are where you already
+                    // are. VoiceOver should meet them in that order, not in
+                    // ZStack declaration order.
+                    .accessibilitySortPriority(1)
             }
+        } else {
+            PlayPill { isCreating = true }
+                .padding(.bottom, TapSpacing.md)
         }
     }
 
@@ -241,6 +350,14 @@ struct RootView: View {
             date: request.date
         )
         navigation.openRound(token: request.token)
+    }
+
+    /// The one way into Profile — the account sheet's entry and the home
+    /// identity strip both come here, so "profile" is one destination reached
+    /// from one place in the code.
+    private func openProfile() {
+        navigation.popToRoot()
+        section = .profile
     }
 
     private func drainPendingRoute() {
@@ -328,10 +445,7 @@ struct RootView: View {
         ToolbarItem(placement: .topBarTrailing) {
             switch chrome.accountControl {
             case .avatar:
-                AccountAvatarButton(onOpenProfile: {
-                    navigation.popToRoot()
-                    section = .profile
-                })
+                AccountAvatarButton(onOpenProfile: { openProfile() })
             case .signIn:
                 // The only way back to the inset once it has been dismissed.
                 Button("Sign in") { signInDismissed = false }

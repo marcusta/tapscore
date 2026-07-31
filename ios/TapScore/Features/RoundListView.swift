@@ -16,17 +16,17 @@ import SwiftUI
 /// a `now` — so it is tested rather than eyeballed.
 ///
 /// **Presentation is the web's `.landing`** (`src/landing/landing.component.ts`):
-/// a paper page, not a grouped `List`. Wordmark header, one full-width primary
-/// call to action, then serif section headers over `card()` rows. The system
-/// `List` chrome was placeholder — it painted the app in iOS grey on a client
-/// whose whole identity is the scorecard palette, and every colour here now
-/// comes from `ThemeTokens`.
+/// a paper page, not a grouped `List`. Wordmark header, then serif section
+/// headers over `card()` rows. The system `List` chrome was placeholder — it
+/// painted the app in iOS grey on a client whose whole identity is the
+/// scorecard palette, and every colour here now comes from `ThemeTokens`.
 ///
-/// The call to action is the web's hierarchy, now that iOS has a create flow:
-/// "+ Create round" is THE elevated full-width primary button (`.landing__create`),
-/// with "Join a round" directly under it as the secondary tier. Starting a round
-/// is what people come here to do; opening someone else's link is the answer to
-/// a link they already have.
+/// **The calls to action are gone from the page.** Starting a round is the
+/// shell's Play pill (`PlayPill`, in the dock), reachable from every root
+/// section rather than from this screen only, and the join door moved onto the
+/// create screen where someone holding a code will look for it. A screen with
+/// two stacked buttons at the top pushed the rounds — the thing people came to
+/// read — below the fold.
 struct RoundListView: View {
     @Environment(AppEnvironment.self) private var environment
 
@@ -34,8 +34,16 @@ struct RoundListView: View {
     /// that *records* an open is the same one that reads it back.
     let deviceRounds: DeviceRoundsStore
 
-    /// Pushes the paste-a-link screen.
-    let onJoin: () -> Void
+    /// Rows, failure copy and the server count — owned by a loader rather than
+    /// by `@State` on the view, because the one thing this screen gets wrong is
+    /// WHEN it loads, and "when" is not something a view body can be tested on.
+    /// See `LandingLoader`.
+    ///
+    /// Injected by `RootView` rather than constructed here: the create flow
+    /// hangs off the shell's Play pill now and needs these rows to de-dupe the
+    /// name it pre-fills. The load-keying below is unchanged — this screen is
+    /// still the only thing that decides when the loader runs.
+    let loader: LandingLoader
 
     /// Asks the shell to open a round. The shell records the sighting; this
     /// screen never writes to the device list except on an explicit delete.
@@ -49,16 +57,32 @@ struct RoundListView: View {
     /// additive for every other call site.
     var onSpectate: (String, String?) -> Void = { _, _ in }
 
-    /// Rows, failure copy and the server count — owned by a loader rather than
-    /// by `@State` on the view, because the one thing this screen gets wrong is
-    /// WHEN it loads, and "when" is not something a view body can be tested on.
-    /// See `LandingLoader`.
-    @State private var loader = LandingLoader()
+    /// Asks the shell to switch to the Profile section — the identity strip's
+    /// only job, and the same destination the account sheet's profile entry
+    /// reaches. Defaulted so the screen stays constructible in isolation.
+    var onOpenProfile: () -> Void = {}
+
+    /// Asks the shell to push `AllRoundsView`. The recently-finished card shows
+    /// three rows and this is the door to the rest; the screen itself owns no
+    /// navigation.
+    var onSeeAllRounds: () -> Void = {}
 
     /// The friends-activity feed behind the "Out now" strip. Owned here rather
     /// than by the shell because this is the only screen that renders it, and a
     /// failed load is a strip that silently does not appear.
     @State private var activity: FriendsActivityStore?
+
+    /// One page of the player's stats, behind the statistics card. Owned here
+    /// for the same reason the activity feed is: this is the only screen that
+    /// renders it, and a failed load is a card that silently does not appear.
+    @State private var stats: HomeStatsStore?
+
+    /// True while the full stats dashboard is up. A SHEET rather than a push
+    /// because `StatsDashboardView` carries its own `NavigationStack` and a
+    /// "Done" button — it is presented exactly this way from `ProfileView`, and
+    /// spec item 23 asks for the same destination, not a second presentation of
+    /// it.
+    @State private var dashboardOpen = false
 
     /// The row whose trash was tapped, parked while the confirmation is up.
     ///
@@ -68,26 +92,40 @@ struct RoundListView: View {
     /// round: the trash sits a few points from the row's own tap target.
     @State private var pendingRemoval: LandingRow?
 
-    /// True while the create flow is up.
-    @State private var isCreating = false
-
     var body: some View {
         ScrollView {
             let partition = LandingRow.partition(loader.rows, now: Date())
 
+            // Order (home redesign, spec item 12): who you are, what you are
+            // playing, who else is out, what you just played. Every section is
+            // invisible when empty, so the page shortens rather than
+            // explaining itself.
             VStack(alignment: .leading, spacing: TapSpacing.xl) {
-                wordmark
-                callsToAction
-                outNow
+                header
 
                 if let loadFailure = loader.loadFailure {
                     failureNotice(loadFailure)
                 }
 
                 section("Ongoing", rows: partition.ongoing)
-                section("Recently finished", rows: partition.finished)
+                outNow
+                finishedCard(partition.finished)
 
-                if partition.ongoing.isEmpty && partition.finished.isEmpty {
+                if partition.finished.isEmpty && !loader.rows.isEmpty {
+                    // Nothing finished inside the window, but there are rounds
+                    // to look back at — the web's `.landing__history` link.
+                    // Gated on the LOADED rows, not the partition: a viewer
+                    // whose rounds have all aged past the window still owns
+                    // them, and this link is then the only door to the list.
+                    allRoundsLink
+                }
+
+                statsCard
+
+                if loader.rows.isEmpty {
+                    // Only a genuinely empty list may say so — rounds that
+                    // aged out of the window above are still rounds, and the
+                    // link above is already on screen for them.
                     emptyNotice
                 }
             }
@@ -109,26 +147,6 @@ struct RoundListView: View {
         // An explicit pull always refetches — the dedupe below is about not
         // fetching when nobody asked, never about refusing when they did.
         .refreshable { await load(force: true) }
-        // Full-screen rather than a sheet: creating a round is a three-step
-        // task, and a card that can be swiped away mid-roster is how a typed
-        // roster gets lost.
-        .fullScreenCover(isPresented: $isCreating) {
-            CreateRoundView(
-                // What this landing has loaded is the best available answer to
-                // "does this player already have a round called that today" —
-                // enough to de-dupe the pre-filled default, and never treated
-                // as authoritative.
-                existingRoundNames: loader.rows.compactMap(\.name),
-                onCancel: { isCreating = false },
-                // Hand the new round to the SHELL's open path — the same
-                // closure a row uses — so the device-recent recording and the
-                // push into the round screen stay in one place.
-                onCreated: { request in
-                    isCreating = false
-                    onOpen(request)
-                }
-            )
-        }
         // `onAppear` rather than `task`: coming back from a round must re-read
         // the device list, and `task` would not re-run on a pop. It *merges*
         // rather than reseeds — rebuilding the list from the device entries
@@ -146,29 +164,85 @@ struct RoundListView: View {
         // of those being exactly one transition and therefore exactly one
         // fetch. `LandingLoader` dedupes anything that is not a transition.
         .task(id: LandingLoader.key(environment.authState)) { await load() }
-        .confirmationDialog(
-            "Remove this round from this device?",
-            isPresented: Binding(
-                get: { pendingRemoval != nil },
-                set: { if !$0 { pendingRemoval = nil } }
-            ),
-            titleVisibility: .visible,
-            presenting: pendingRemoval
-        ) { row in
-            Button("Remove", role: .destructive) {
-                if let token = row.token { remove(token: token) }
-                pendingRemoval = nil
+        .roundRemovalDialog(pending: $pendingRemoval) { token in remove(token: token) }
+        .sheet(
+            isPresented: $dashboardOpen,
+            onDismiss: {
+                // The dashboard persists a new window preset the moment it is
+                // picked; the card underneath must not keep narrating the old
+                // one. One forced page re-read picks the preference up.
+                Task { await loadStats(force: true) }
             }
-            Button("Cancel", role: .cancel) { pendingRemoval = nil }
-        } message: { row in
-            // Says the one thing that makes this safe to confirm — and it is
-            // why the copy is "Remove", not the web's "Delete": nothing leaves
-            // the server.
-            Text("\(row.courseName.isEmpty ? "This round" : row.courseName) stays on the server. Its share link brings it back.")
+        ) {
+            StatsDashboardView()
         }
     }
 
     // MARK: - Rendering
+
+    /// The page head, in its two states.
+    ///
+    /// Signed in, the wordmark has done its job — the app has been installed,
+    /// opened and signed into, and the top of the screen is better spent
+    /// saying who it thinks you are (and offering the way to change that).
+    /// Signed out it is the front door and stays exactly as it was.
+    @ViewBuilder
+    private var header: some View {
+        if case let .signedIn(player) = environment.authState {
+            identityStrip(player)
+        } else {
+            wordmark
+        }
+    }
+
+    /// Avatar, name, and — only when there is one — the handicap index.
+    ///
+    /// The whole strip is the button, because the target people aim at is the
+    /// face, and a 44pt-tall row is a better target than a 40pt circle.
+    private func identityStrip(_ player: Player) -> some View {
+        Button(action: onOpenProfile) {
+            HStack(spacing: TapSpacing.md) {
+                TapAvatar(
+                    playerId: player.id,
+                    avatarVersion: player.avatarVersion,
+                    displayName: player.displayName,
+                    username: player.username,
+                    size: 48,
+                    fontSize: 17.6,
+                    background: TapColors.accentSoft,
+                    foreground: TapColors.accentStrong
+                )
+                VStack(alignment: .leading, spacing: TapSpacing.xs) {
+                    Text(player.displayName)
+                        .font(TapFont.display(size: 22.4, weight: .semibold))
+                        .foregroundStyle(TapColors.text)
+                        .lineLimit(1)
+                    if let pill = HomeIdentity.handicapPill(player.handicapIndex) {
+                        Text(pill)
+                            .font(TapFont.ui(size: 12.8, weight: .bold))
+                            .foregroundStyle(TapColors.accentStrong)
+                            .padding(.vertical, 2)
+                            .padding(.horizontal, 9)
+                            .background(Capsule().fill(TapColors.accentSoft))
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // An explicit label rather than `.combine`: combining ON a Button
+        // synthesizes a new element and can drop the button trait, which would
+        // leave VoiceOver a strip it cannot activate. The words are the same —
+        // name, then the pill's own text.
+        .accessibilityLabel(
+            HomeIdentity.handicapPill(player.handicapIndex)
+                .map { "\(player.displayName), \($0)" } ?? player.displayName
+        )
+        .accessibilityHint("Opens your profile")
+        .accessibilityIdentifier("home-identity-strip")
+    }
 
     /// Web: `.landing__head` — flag glyph, 2.2rem Fraunces 600 wordmark at
     /// -0.02em, muted 0.9rem tagline, all centred.
@@ -189,31 +263,6 @@ struct RoundListView: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// Web: `.landing__create` (the one elevated, full-width, `--primary`
-    /// button on the page) with the join door beneath it in the secondary tier.
-    /// Two tiers, not two primaries: the page must have exactly one obvious
-    /// next tap.
-    private var callsToAction: some View {
-        VStack(spacing: TapSpacing.sm) {
-            Button { isCreating = true } label: {
-                HStack(spacing: TapSpacing.sm) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 17.6, weight: .bold))
-                    Text("Create round")
-                }
-            }
-            .buttonStyle(.tap(.primary, size: .prominent, fillsWidth: true))
-
-            Button(action: onJoin) {
-                HStack(spacing: TapSpacing.sm) {
-                    Image(systemName: "link")
-                    Text("Join a round")
-                }
-            }
-            .buttonStyle(.tap(.secondary, fillsWidth: true))
-        }
-    }
-
     /// Friends currently on the course — see `OutNowStrip`.
     ///
     /// Nothing renders when the feed is empty, still loading, or failed. The
@@ -227,6 +276,18 @@ struct RoundListView: View {
                 chips: activity.chips,
                 onOpen: { chip in onSpectate(chip.roundId, chip.displayName) }
             )
+        }
+    }
+
+    /// The statistics glance — see `HomeStatsCard`.
+    ///
+    /// Absent whenever the store has no card, which is every failure as well as
+    /// every honest "nothing to show". Same rule as the strip above it: this
+    /// card may only ADD to the landing.
+    @ViewBuilder
+    private var statsCard: some View {
+        if let card = stats?.card {
+            HomeStatsCard(card: card, onOpen: { dashboardOpen = true })
         }
     }
 
@@ -247,6 +308,74 @@ struct RoundListView: View {
                 }
             }
         }
+    }
+
+    /// Recently finished, as ONE card rather than a card per round.
+    ///
+    /// Home is about the round you are playing; the ones you have played are a
+    /// glance and a door. So the rows are compact (no role label, no trash —
+    /// removing a round is a deliberate act and it belongs on the screen that
+    /// lists them all), they are capped at three, and the card ends in the
+    /// footer that opens the rest. The count in the header still names how many
+    /// are in the window, so "3 of 7" is legible without a sentence saying so.
+    @ViewBuilder
+    private func finishedCard(_ rows: [LandingRow]) -> some View {
+        if !rows.isEmpty {
+            TapCard {
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionHeader(title: "Recently finished", count: String(rows.count))
+                        .padding(.horizontal, TapSpacing.lg)
+                        .padding(.top, TapSpacing.md)
+                        .padding(.bottom, TapSpacing.sm)
+                    ForEach(rows.prefix(HomeIdentity.finishedPreviewLimit)) { row in
+                        hairline
+                        FinishedRow(row: row, onOpen: { open(row) })
+                    }
+                    hairline
+                    Button(action: onSeeAllRounds) {
+                        HStack(spacing: TapSpacing.xs) {
+                            Text("All rounds \u{2192}")
+                                .font(TapFont.ui(size: 13.6, weight: .semibold))
+                                .foregroundStyle(TapColors.accentStrong)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, TapSpacing.lg)
+                        // minHeight, not height: the label scales with Dynamic
+                        // Type and must grow the row, not clip against it.
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    // The arrow is decoration; VoiceOver gets the words alone.
+                    .accessibilityLabel("All rounds")
+                    .accessibilityIdentifier("home-all-rounds")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    /// The same door, standing on its own when there is no card to put it in —
+    /// the web's `.landing__history` link.
+    private var allRoundsLink: some View {
+        Button(action: onSeeAllRounds) {
+            Text("All rounds \u{2192}")
+                .font(TapFont.ui(size: 13.6, weight: .semibold))
+                .foregroundStyle(TapColors.accentStrong)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("All rounds")
+        .accessibilityIdentifier("home-all-rounds")
+    }
+
+    /// A 1px rule between rows inside a card — the card's own border continued
+    /// inwards, so the rows read as one object rather than four.
+    private var hairline: some View {
+        Rectangle()
+            .fill(TapColors.border)
+            .frame(height: 1)
     }
 
     /// Web: `.landing__empty` — but split in two, because the two empties mean
@@ -309,7 +438,21 @@ struct RoundListView: View {
             api: environment.api,
             device: deviceRounds.all(),
             force: force)
-        await loadActivity(force: force)
+        // Concurrently — the two are independent requests whose failure mode
+        // is silence, and a pull-to-refresh spinner should hold for the
+        // slowest of them, not the sum.
+        async let activityLoad: Void = loadActivity(force: force)
+        async let statsLoad: Void = loadStats(force: force)
+        _ = await (activityLoad, statsLoad)
+    }
+
+    /// The stats page behind the card. Signed-in only and keyed on the same auth
+    /// state as everything else on this screen — the store's own dedupe is what
+    /// keeps one appearance from becoming two requests.
+    private func loadStats(force: Bool) async {
+        let store = stats ?? HomeStatsStore(api: environment.api)
+        if stats == nil { stats = store }
+        await store.load(auth: environment.authState, force: force)
     }
 
     /// The friends feed. Signed-in only — it is a friends-of-this-account
@@ -433,7 +576,10 @@ final class LandingLoader {
 /// it is offered on exactly the same rows the swipe was: device-local ones. A
 /// server row this device never opened has nothing local to remove, and a
 /// control that did nothing would read as a broken delete.
-private struct RoundRow: View {
+/// Internal rather than fileprivate: `AllRoundsView` is the same list without
+/// the window, and a second copy of this row is how the two screens would start
+/// disagreeing about what a round looks like.
+struct RoundRow: View {
     let row: LandingRow
     let onOpen: () -> Void
     let onRemove: () -> Void
@@ -523,6 +669,98 @@ private struct RoundRow: View {
             }
             .frame(maxWidth: .infinity)
         }
+    }
+}
+
+/// The remove confirmation, in one place for both round lists.
+///
+/// The web ALWAYS confirms before a row leaves the landing (`askDelete` in
+/// `src/landing/landing.component.ts`) and does it with one shared dialog. Home
+/// and `AllRoundsView` are the same list at two lengths, so they say the same
+/// sentence — a second copy of this copy is how one of them ends up claiming
+/// the round is deleted.
+private struct RoundRemovalDialog: ViewModifier {
+    @Binding var pending: LandingRow?
+    let onRemove: (String) -> Void
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(
+            "Remove this round from this device?",
+            isPresented: Binding(
+                get: { pending != nil },
+                set: { if !$0 { pending = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pending
+        ) { row in
+            Button("Remove", role: .destructive) {
+                if let token = row.token { onRemove(token) }
+                pending = nil
+            }
+            Button("Cancel", role: .cancel) { pending = nil }
+        } message: { row in
+            // Says the one thing that makes this safe to confirm — and it is
+            // why the copy is "Remove", not the web's "Delete": nothing leaves
+            // the server.
+            Text("\(row.courseName.isEmpty ? "This round" : row.courseName) stays on the server. Its share link brings it back.")
+        }
+    }
+}
+
+extension View {
+    /// Attaches the shared "remove from this device" confirmation, driven by the
+    /// row whose trash was tapped.
+    func roundRemovalDialog(
+        pending: Binding<LandingRow?>,
+        onRemove: @escaping (String) -> Void
+    ) -> some View {
+        modifier(RoundRemovalDialog(pending: pending, onRemove: onRemove))
+    }
+}
+
+/// A finished round inside the recently-finished card: what it was called,
+/// where and when, and how it ended.
+///
+/// The compact sibling of `RoundRow` — no card of its own (the card is around
+/// all three of them), no role label, and no trash column. It is a summary and
+/// a way in; the management verbs live on `AllRoundsView`.
+private struct FinishedRow: View {
+    let row: LandingRow
+    let onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(alignment: .top, spacing: TapSpacing.md) {
+                VStack(alignment: .leading, spacing: TapSpacing.xs) {
+                    Text(row.label)
+                        .font(TapFont.ui(size: 15.2, weight: .bold))
+                        .foregroundStyle(TapColors.text)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(1)
+                    if let course = row.courseSubtitle {
+                        Text(course)
+                            .font(TapFont.ui(size: 12.8))
+                            .foregroundStyle(TapColors.textMuted)
+                            .lineLimit(1)
+                    }
+                    if let date = row.displayDate {
+                        Text(date)
+                            .font(TapFont.ui(size: 12))
+                            .foregroundStyle(TapColors.textMuted)
+                    }
+                }
+                Spacer(minLength: TapSpacing.sm)
+                StatusChip(status: RoundStatusTone(row.status))
+            }
+            .padding(.vertical, TapSpacing.md)
+            .padding(.horizontal, TapSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // A produced round with no friendly wrapper has no token, so it renders
+        // but cannot be opened — same rule as `RoundRow`.
+        .disabled(row.token == nil)
     }
 }
 
@@ -734,16 +972,25 @@ struct LandingRow: Identifiable, Equatable, Sendable {
     /// A complete round with no parseable `completedAt` cannot be windowed but
     /// is plainly done, so it is always kept; a round finished before the
     /// cutoff drops off the landing entirely (it lives in history).
+    ///
+    /// - Parameter windowDays: nil keeps **every** finished round, which is
+    ///   what `AllRoundsView` is for. The sort and the ongoing/finished split
+    ///   are identical either way — the window is the only difference between
+    ///   the two screens, so it is a parameter rather than a second function.
     static func partition(
         _ rows: [LandingRow],
         now: Date,
-        windowDays: Int = recentFinishedDays
+        windowDays: Int? = recentFinishedDays
     ) -> Partitioned {
-        let cutoff = now.addingTimeInterval(-Double(windowDays) * 86_400)
+        let cutoff = windowDays.map { now.addingTimeInterval(-Double($0) * 86_400) }
         var result = Partitioned()
         for row in rows {
             guard row.status == .complete else {
                 result.ongoing.append(row)
+                continue
+            }
+            guard let cutoff else {
+                result.finished.append(row)
                 continue
             }
             guard let at = parse(row.completedAt) else {
@@ -834,6 +1081,29 @@ struct LandingRow: Identifiable, Equatable, Sendable {
                 return ordering == 0 ? lhs.offset < rhs.offset : ordering < 0
             }
             .map(\.element)
+    }
+}
+
+/// The home head's small string rules, out of the view so the one that is easy
+/// to get wrong is assertable.
+enum HomeIdentity {
+    /// How many finished rounds the home card shows before "All rounds →" is
+    /// the rest of the answer.
+    static let finishedPreviewLimit = 3
+
+    /// The handicap pill's text, or **nil when there is no index**.
+    ///
+    /// Nil is the difference between this and `ProfileFormat.index`, which owes
+    /// a value to a card that always draws one and answers with an en dash. A
+    /// pill reading "HCP –" states nothing and takes a line to do it, so a
+    /// player who has never entered an index simply has no pill.
+    ///
+    /// The notation is `ProfileFormat.index`'s: the domain stores a plus
+    /// handicap negative, so −2.0 reads "+2.0" here exactly as it does on the
+    /// profile screen.
+    static func handicapPill(_ handicapIndex: Double?) -> String? {
+        guard let handicapIndex else { return nil }
+        return "HCP " + ProfileFormat.index(handicapIndex)
     }
 }
 

@@ -185,6 +185,26 @@ final class ShellNavigationTests: XCTestCase {
         )
     }
 
+    // MARK: - The viewer's own rounds
+
+    func testAllRoundsPushesOnceAndPopsBackToHome() {
+        var navigation = ShellNavigation()
+
+        XCTAssertTrue(navigation.openAllRounds())
+        XCTAssertFalse(
+            navigation.openAllRounds(),
+            "A second tap on the card's footer must not stack two identical lists."
+        )
+        XCTAssertEqual(navigation.stack, [.allRounds])
+
+        // A round opened from the full list is a normal round push on top of it.
+        XCTAssertTrue(navigation.openRound(token: "t1"))
+        XCTAssertEqual(navigation.stack, [.allRounds, .round(token: "t1")])
+
+        navigation.popToRoot()
+        XCTAssertEqual(navigation.stack, [])
+    }
+
     // MARK: - End-to-end with the parser
 
     /// The whole inbound path in one assertion: URL → `DeepLinkRouter` →

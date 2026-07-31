@@ -49,6 +49,11 @@ struct CreateRoundView: View {
     var existingRoundNames: [String] = []
     /// Dismiss without creating or saving anything.
     let onCancel: () -> Void
+    /// Leave for the paste-a-link screen — the join door, which lives here
+    /// because the dock's one action is "Play golf" and someone who already
+    /// holds a code arrives on this screen looking for the other answer. Nil ⇒
+    /// no such offer (edit mode, and any caller that has nowhere to send them).
+    var onJoinWithCode: (() -> Void)?
     /// The round was created — hand it to the shell to record and open.
     var onCreated: (RoundOpenRequest) -> Void = { _ in }
     /// An edit was accepted by the server.
@@ -329,6 +334,19 @@ struct CreateRoundView: View {
         heading(
             "What are you playing?",
             subtitle: "Name the round, then pick the course, the holes and the tees.")
+
+        // The other door, above the fold on the first step: a viewer holding
+        // someone else's code is not creating anything, and the cheapest place
+        // to say so is before they have answered a single question. A worded
+        // link, in the quiet tier — it must not compete with the flow it sits
+        // at the top of.
+        if !mode.isEditing, let onJoinWithCode {
+            Button("Have a code? Join a round", action: onJoinWithCode)
+                .buttonStyle(.plain)
+                .font(TapFont.ui(size: 14.4, weight: .semibold))
+                .foregroundStyle(TapColors.textMuted)
+                .accessibilityIdentifier("create-join-link")
+        }
 
         // FIRST question of the flow, and the only one that arrives already
         // answered: it opens holding today's default ("Game 30 Jul 2026"), so
