@@ -17,23 +17,43 @@ struct FriendsView: View {
     @AppStorage("tapscore.friends.sort.v1") private var storedSort = FriendSortMode.suggested.rawValue
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: TapSpacing.xl) {
-                heading
-                if let store {
-                    searchSection(store)
-                    friendsSection(store)
-                } else {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, TapSpacing.xl)
-                }
+        List {
+            heading
+                .listRowInsets(
+                    EdgeInsets(
+                        top: TapSpacing.xl,
+                        leading: TapSpacing.lg,
+                        bottom: TapSpacing.xl,
+                        trailing: TapSpacing.lg
+                    )
+                )
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+
+            if let store {
+                searchSection(store)
+                    .listRowInsets(
+                        EdgeInsets(
+                            top: 0,
+                            leading: TapSpacing.lg,
+                            bottom: TapSpacing.xl,
+                            trailing: TapSpacing.lg
+                        )
+                    )
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                friendsSection(store)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, TapSpacing.xl)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             }
-            .padding(.horizontal, TapSpacing.lg)
-            .padding(.top, TapSpacing.xl)
-            .padding(.bottom, TapSpacing.xxl)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
         .background(TapColors.bg)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
@@ -124,7 +144,76 @@ struct FriendsView: View {
 
     @ViewBuilder
     private func friendsSection(_ store: FriendsStore) -> some View {
-        VStack(alignment: .leading, spacing: TapSpacing.md) {
+        Section {
+            if store.loading, !store.loaded {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, TapSpacing.lg)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            } else if let error = store.loadError {
+                VStack(alignment: .leading, spacing: TapSpacing.sm) {
+                    errorText(error)
+                    Button("Try again") { Task { await store.load(force: true) } }
+                        .buttonStyle(.tap(.secondary))
+                }
+                .listRowInsets(
+                    EdgeInsets(
+                        top: 0,
+                        leading: TapSpacing.lg,
+                        bottom: TapSpacing.sm,
+                        trailing: TapSpacing.lg
+                    )
+                )
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            } else if store.loaded, store.friends.isEmpty {
+                hint("No friends yet — search above to add the people you play with.")
+                    .padding(.vertical, TapSpacing.sm)
+                    .listRowInsets(
+                        EdgeInsets(
+                            top: 0,
+                            leading: TapSpacing.lg,
+                            bottom: TapSpacing.sm,
+                            trailing: TapSpacing.lg
+                        )
+                    )
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            } else {
+                ForEach(
+                    FriendListModel.sorted(store.friends, mode: sortMode),
+                    id: \.id
+                ) { friend in
+                    friendRow(friend, store: store)
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 0,
+                                leading: TapSpacing.lg,
+                                bottom: TapSpacing.sm,
+                                trailing: TapSpacing.lg
+                            )
+                        )
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
+            }
+
+            if let error = store.mutationError {
+                errorText(error)
+                    .listRowInsets(
+                        EdgeInsets(
+                            top: 0,
+                            leading: TapSpacing.lg,
+                            bottom: TapSpacing.sm,
+                            trailing: TapSpacing.lg
+                        )
+                    )
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+        } header: {
             HStack(spacing: TapSpacing.md) {
                 Text("My friends")
                     .font(TapFont.display(size: 19.2, weight: .semibold))
@@ -132,35 +221,10 @@ struct FriendsView: View {
                 Spacer(minLength: 0)
                 if !store.friends.isEmpty { sortToggle }
             }
-
-            if store.loading, !store.loaded {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, TapSpacing.lg)
-            } else if let error = store.loadError {
-                VStack(alignment: .leading, spacing: TapSpacing.sm) {
-                    errorText(error)
-                    Button("Try again") { Task { await store.load(force: true) } }
-                        .buttonStyle(.tap(.secondary))
-                }
-            } else if store.loaded, store.friends.isEmpty {
-                hint("No friends yet — search above to add the people you play with.")
-                    .padding(.vertical, TapSpacing.sm)
-            } else {
-                VStack(spacing: TapSpacing.sm) {
-                    ForEach(
-                        FriendListModel.sorted(store.friends, mode: sortMode),
-                        id: \.id
-                    ) { friend in
-                        friendRow(friend, store: store)
-                    }
-                }
-            }
-
-            if let error = store.mutationError {
-                errorText(error)
-            }
+            .padding(.top, TapSpacing.xs)
+            .padding(.bottom, TapSpacing.xs)
         }
+        .textCase(nil)
     }
 
     private var sortMode: FriendSortMode {
@@ -270,29 +334,23 @@ struct FriendsView: View {
                 }
                 Spacer(minLength: 0)
                 handicap(friend.handicapIndex)
-                Button {
-                    Task { await store.remove(friend.id) }
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12.8, weight: .medium))
-                        .foregroundStyle(TapColors.textMuted)
-                        .frame(width: 34, height: 34)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: TapRadius.btnRadius, style: .continuous)
-                                .strokeBorder(TapColors.border, lineWidth: 1)
-                        )
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(store.mutationInFlight)
-                .opacity(store.mutationInFlight ? 0.5 : 1)
-                .accessibilityLabel("Remove \(friend.displayName)")
             }
             .padding(.vertical, TapSpacing.md)
             .padding(.leading, TapSpacing.lg)
             .padding(.trailing, TapSpacing.sm)
         }
+        // SwiftUI's native trailing swipe action keeps removal discoverable
+        // without reserving permanent space in every friend card.
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                Task { await store.remove(friend.id) }
+            } label: {
+                Label("Remove", systemImage: "trash")
+            }
+            .disabled(store.mutationInFlight)
+            .tint(TapColors.danger)
+        }
+        .accessibilityHint("Swipe left to reveal the remove action")
         .accessibilityIdentifier("friend-row")
     }
 
