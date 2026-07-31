@@ -194,14 +194,22 @@ export async function apply(s: Scenario): Promise<void> {
     );
 }
 
-/** Register (get-or-create) and record a handicap index. */
+/**
+ * Register (get-or-create) with a handicap index that actually shows up.
+ *
+ * `scenario.player({ handicap })` appends to `handicap_history` only, but the
+ * friends list reads the live `players.handicap_index` column — so a player
+ * seeded that way renders a "–" pill next to their name. `updateHandicapIndex`
+ * writes both.
+ */
 async function person(
     s: Scenario,
     username: string,
     displayName: string,
     handicap: number,
 ): Promise<Person> {
-    const p = await s.player(username, { displayName, handicap, password: LOGIN_PASSWORD });
+    const p = await s.player(username, { displayName, password: LOGIN_PASSWORD });
+    await s.services.playerService.updateHandicapIndex(p.id, handicap);
     return { id: p.id, displayName: p.displayName };
 }
 
