@@ -3,13 +3,17 @@ import { AuthService } from '@basics/core/client/auth';
 import { t } from '../theme';
 import { s, btn, card } from '../css';
 import { MARKER_TOKENS } from '../round/marker-tokens';
-import { STROKES_LOST_COMPONENTS, deltaComponent } from '../round/stat-measures';
+import {
+    STROKES_LOST_COMPONENTS,
+    deltaComponent,
+    strokesLostComponent,
+} from '../round/stat-measures';
 import { RoundStatsService } from './round-stats.service';
 import { EMPTY_DASHBOARD_MODEL, waterfallMagnitude } from './stats-dashboard-model';
-import { renderSignedBar, renderWaterfallStrip } from './stats-charts';
+import { renderSignedBar, toneColor, toneForStrokesLost } from './stats-charts';
 import { STATS_COLORS } from './stats-palette';
 import { StatsPanelsComponent } from './stats-panels.component';
-import { componentTitle } from './stats-format';
+import { componentTitle, signedNumber } from './stats-format';
 import {
     cellHasPenalty,
     roundStatsTitle,
@@ -18,7 +22,6 @@ import {
 } from './round-stats-model';
 import {
     baselineDeltaSentence,
-    baselineHeading,
     cellLabel,
     cellScoreText,
     holeDetailRows,
@@ -74,9 +77,7 @@ const tpl = template(`
 
             <section class="roundstats__section">
                 <h2 bind="wfHeading"></h2>
-                <span bind="wfBar" class="roundstats__wfbar"></span>
                 <p bind="wfHint" class="roundstats__hint"></p>
-                <h3 bind="deltaHeading" class="roundstats__subhead"></h3>
                 <div bind="deltas" class="roundstats__deltas"></div>
             </section>
 
@@ -116,6 +117,7 @@ const deltaTpl = template(`
             <span bind="title" class="delta__title"></span>
             <span bind="sentence" class="delta__sentence"></span>
         </div>
+        <span bind="value" class="delta__value"></span>
         <span bind="bar" class="delta__bar"></span>
     </div>
 `);
@@ -268,8 +270,6 @@ export class RoundStatsComponent extends Component {
                 }
             }
 
-            & .roundstats__wfbar { display: block; & svg { width: 100%; display: block; } }
-
             & .roundstats__deltas { display: flex; flex-direction: column; gap: ${s('sm')}; }
             & .delta {
                 ${card()}
@@ -278,7 +278,14 @@ export class RoundStatsComponent extends Component {
 
                 & .delta__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
                 & .delta__title { font-weight: 600; font-size: 0.98rem; }
-                & .delta__sentence { color: ${t('text-muted')}; font-size: 0.8rem; }
+                & .delta__sentence {
+                    color: ${t('text-muted')}; font-size: 0.8rem;
+                    &:empty { display: none; }
+                }
+                & .delta__value {
+                    font-weight: 700; font-variant-numeric: tabular-nums;
+                    flex-shrink: 0;
+                }
                 & .delta__bar { width: 84px; flex-shrink: 0; & svg { width: 100%; display: block; } }
             }
 
@@ -337,22 +344,7 @@ export class RoundStatsComponent extends Component {
                         : 'roundstats__section hidden',
             },
             wfHeading: () => ROUND_STATS_COPY.waterfallHeading,
-            wfBar: {
-                innerHTML: () => {
-                    const m = model();
-                    if (m === null) return '';
-                    return renderWaterfallStrip(
-                        m.waterfall,
-                        waterfallMagnitude([m.waterfall]),
-                        this.colors,
-                    );
-                },
-            },
             wfHint: () => ROUND_STATS_COPY.waterfallHint,
-            deltaHeading: () => {
-                const m = model();
-                return m === null || m.deltas === null ? '' : baselineHeading(m.windowCount);
-            },
             legendHeading: () => ROUND_STATS_COPY.legendHeading,
             detail: {
                 className: () => (this.selected() === null ? 'holedetail hidden' : 'holedetail'),
@@ -443,18 +435,20 @@ export class RoundStatsComponent extends Component {
             (row) => row.key,
         );
 
-        // --- Personal baseline ----------------------------------------------
+        // --- Where the round went -------------------------------------------
         //
-        // One row per component the player has a baseline for. A component with
-        // no prior data is omitted rather than shown at zero: "the same as
-        // usual" and "we have no idea" are different statements.
+        // One row per component this round has a value for: the fixed-baseline
+        // number and its bar, with the personal-baseline sentence underneath
+        // when a window exists (iOS's RoundWaterfallSection, row for row). A
+        // component with no reading is omitted rather than shown at zero:
+        // "level" and "we have no idea" are different statements.
         this.$each(
             this.ref(frag, 'deltas'),
             () => {
                 const m = model();
-                if (m === null || m.deltas === null) return [];
+                if (m === null) return [];
                 return STROKES_LOST_COMPONENTS.filter(
-                    (c) => deltaComponent(m.deltas!, c) !== null,
+                    (c) => strokesLostComponent(m.waterfall, c) !== null,
                 );
             },
             (component, _i, track) =>
@@ -468,13 +462,28 @@ export class RoundStatsComponent extends Component {
                             const d = deltaComponent(m.deltas, component);
                             return d === null ? '' : baselineDeltaSentence(d, m.windowCount);
                         },
+                        value: {
+                            textContent: () => {
+                                const v = this.componentValue(component);
+                                return v === null ? '' : signedNumber(v);
+                            },
+                            style: () => {
+                                const v = this.componentValue(component);
+                                return v === null
+                                    ? ''
+                                    : `color:${toneColor(toneForStrokesLost(v), this.colors)}`;
+                            },
+                        },
                         bar: {
                             innerHTML: () => {
                                 const m = model();
-                                if (m === null || m.deltas === null) return '';
-                                const d = deltaComponent(m.deltas, component);
-                                if (d === null) return '';
-                                return renderSignedBar(d, this.deltaMagnitude(), this.colors);
+                                const v = this.componentValue(component);
+                                if (m === null || v === null) return '';
+                                return renderSignedBar(
+                                    v,
+                                    waterfallMagnitude([m.waterfall]),
+                                    this.colors,
+                                );
                             },
                         },
                     },
@@ -535,16 +544,10 @@ export class RoundStatsComponent extends Component {
         }
     }
 
-    /** The shared scale the delta bars are drawn against — the largest of them. */
-    private deltaMagnitude(): number {
+    /** This round's fixed-baseline reading for one waterfall component. */
+    private componentValue(component: (typeof STROKES_LOST_COMPONENTS)[number]): number | null {
         const m = this.svc.model.get();
-        if (m === null || m.deltas === null) return 0;
-        let max = 0;
-        for (const c of STROKES_LOST_COMPONENTS) {
-            const d = deltaComponent(m.deltas, c);
-            if (d !== null) max = Math.max(max, Math.abs(d));
-        }
-        return max;
+        return m === null ? null : strokesLostComponent(m.waterfall, component);
     }
 
     // --- Copy ----------------------------------------------------------------

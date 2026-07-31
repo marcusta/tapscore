@@ -4,8 +4,7 @@ import { t } from '../theme';
 import { s, btn, card } from '../css';
 import { RoundViewService } from '../round/round.service';
 import { RoundStatsService } from './round-stats.service';
-import { waterfallMagnitude } from './stats-dashboard-model';
-import { renderWaterfallStrip, toneColor, toneForStrokesLost } from './stats-charts';
+import { toneColor, toneForStrokesLost } from './stats-charts';
 import { STATS_COLORS } from './stats-palette';
 import { STATS_COPY } from './stats-panel-blocks';
 import { componentTitle, signedNumber } from './stats-format';
@@ -52,7 +51,6 @@ const tpl = template(`
             <span bind="title" class="story__title"></span>
             <span bind="score" class="story__score"></span>
         </div>
-        <span bind="bar" class="story__bar"></span>
         <ul bind="values" class="story__values"></ul>
         <p bind="hint" class="story__hint"></p>
         <ul bind="lines" class="story__lines"></ul>
@@ -92,10 +90,10 @@ export class RoundStoryComponent extends Component {
                 font-variant-numeric: tabular-nums;
                 &:empty { display: none; }
             }
-            & .story__bar { display: block; & svg { width: 100%; display: block; } }
-            /* The strip above is aria-hidden decoration; THIS is where the four
-               terms are actually stated. Two-up on a phone, tabular numerals so
-               the signs line up. */
+            /* The four terms, stated in text. Two-up on a phone, tabular
+               numerals so the signs line up. (There used to be an aria-hidden
+               waterfall strip above — stretched to card width it read as a
+               broken divider, and the rows already say everything it drew.) */
             & .story__values {
                 margin: 0; padding: 0; list-style: none;
                 display: grid; grid-template-columns: repeat(2, 1fr);
@@ -158,17 +156,6 @@ export class RoundStoryComponent extends Component {
                 const m = model();
                 return m === null ? '' : (totalScoreLine(m.strokes, m.vsPar) ?? '');
             },
-            bar: {
-                innerHTML: () => {
-                    const m = model();
-                    if (m === null) return '';
-                    return renderWaterfallStrip(
-                        m.waterfall,
-                        waterfallMagnitude([m.waterfall]),
-                        this.colors,
-                    );
-                },
-            },
             hint: () => (model() === null ? '' : this.hint()),
             open: {
                 textContent: () => ROUND_STORY_COPY.seeWholeRound,
@@ -181,12 +168,9 @@ export class RoundStoryComponent extends Component {
 
         // --- The four terms, in words ---------------------------------------
         //
-        // The strip above is `aria-hidden` SVG, so without these rows the card
-        // shows four coloured blocks and says none of their values — the same
-        // failure the whole slice avoids elsewhere ("a colour is a reminder of a
-        // word, never the only carrier of it"). iOS states them the same way
-        // (`RoundWaterfallSection`, `showsHint: false`). The colour is a second
-        // channel only: the sign is in the text.
+        // iOS states them the same way (`RoundWaterfallSection`,
+        // `showsHint: false`). The colour is a second channel only: the sign
+        // is in the text.
         const componentValue = (c: StrokesLostComponent): number | null => {
             const m = model();
             return m === null ? null : strokesLostComponent(m.waterfall, c);
