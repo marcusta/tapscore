@@ -21,6 +21,12 @@ export interface SignOutContext {
     profile: Clearable;
     /** Friend list + search state. */
     friends: Clearable;
+    /** The friends-activity feed (Out now / Recently). */
+    activity: Clearable;
+    /** A friend's profile card + paged lists — another player's data. */
+    friendProfile: Clearable;
+    /** The read-only spectate view — another player's round. */
+    spectate: Clearable;
     /** Role grants and the admin console's cached reads. */
     admins: Clearable;
     /**
@@ -50,6 +56,9 @@ export async function signOutSequence(
     else await ctx.auth.logout();
     ctx.profile.clear();
     ctx.friends.clear();
+    ctx.activity.clear();
+    ctx.friendProfile.clear();
+    ctx.spectate.clear();
     ctx.admins.clear();
     ctx.landing.clear();
     ctx.navigate('/');

@@ -4,6 +4,9 @@ import { t } from '../theme';
 import { s } from '../css';
 import { ProfileService } from '../profile/profile.service';
 import { FriendsService } from '../friends/friends.service';
+import { FriendsActivityService } from '../friends/friends-activity.service';
+import { FriendProfileService } from '../friends/friend-profile.service';
+import { SpectateService } from '../spectate/spectate.service';
 import { AdminService } from '../admin/admin.service';
 import { LandingService } from '../landing/landing.service';
 import { ConfirmComponent } from '@basics/core/client/ui/confirm';
@@ -164,6 +167,9 @@ export class AccountMenuComponent extends Component {
     private auth = this.inject(AuthService);
     private profile = this.inject(ProfileService);
     private friends = this.inject(FriendsService);
+    private activity = this.inject(FriendsActivityService);
+    private friendProfile = this.inject(FriendProfileService);
+    private spectate = this.inject(SpectateService);
     // Presentation only — /api/admin/* is gated server-side on the grant.
     private admins = this.inject(AdminService);
     // Sign-out has to reset the landing too — signing out while on '/' never
@@ -199,6 +205,9 @@ export class AccountMenuComponent extends Component {
                 auth: this.auth,
                 profile: this.profile,
                 friends: this.friends,
+                activity: this.activity,
+                friendProfile: this.friendProfile,
+                spectate: this.spectate,
                 admins: this.admins,
                 landing: this.landing,
                 navigate: (path) => this.router.navigate(path),

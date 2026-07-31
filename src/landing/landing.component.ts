@@ -12,6 +12,20 @@ import {
     type LandingRow,
 } from './rows';
 import { partitionRounds, type Partitioned } from './partition';
+import { FriendsActivityService } from '../friends/friends-activity.service';
+import {
+    chipLabel,
+    outNowChips,
+    outNowContext,
+    recentRows,
+    type OutNowChip,
+    type RecentRow,
+} from '../friends/friends-activity-model';
+import {
+    avatarBadgeBindings,
+    avatarBadgeCss,
+    avatarBadgeMarkup,
+} from '../app/avatar-badge';
 
 const tpl = template(`
     <div class="landing">
@@ -23,6 +37,17 @@ const tpl = template(`
         <button bind="createBtn" class="landing__create" type="button">
             <span class="landing__create-plus">+</span> Create round
         </button>
+
+        <div bind="outNowSection" class="landing__section-block landing__outnow">
+            <div class="landing__section">
+                <span class="landing__live-dot" aria-hidden="true"></span>
+                <!-- Deliberately NOT landing__section-title: this is a quiet
+                     muted context line, and the section-title rule's higher
+                     specificity would repaint it as a display-face heading. -->
+                <span bind="outNowContext" class="landing__outnow-title"></span>
+            </div>
+            <div bind="outNowList" class="landing__outnow-chips"></div>
+        </div>
 
         <div bind="newSection" class="landing__section-block landing__new">
             <div class="landing__section">
@@ -50,6 +75,16 @@ const tpl = template(`
 
         <div bind="empty" class="landing__empty">No rounds yet — create one to tee off.</div>
 
+        <!-- "From your friends", not "Recently": the screen already has a
+             "Recently finished" section for YOUR rounds, and two headings one
+             word apart with nothing saying whose is a coin-flip. -->
+        <div bind="recentlySection" class="landing__section-block landing__recently">
+            <div class="landing__section">
+                <span class="landing__section-title">From your friends</span>
+            </div>
+            <div bind="recentlyList" class="landing__list"></div>
+        </div>
+
         <button bind="history" class="landing__history" type="button">See all rounds →</button>
         <div bind="confirmHost"></div>
     </div>
@@ -75,6 +110,36 @@ const rowTpl = template(`
         </button>
         <button bind="del" type="button" class="round-row__del" aria-label="Delete round">${trashSvg}</button>
     </div>
+`);
+
+// One "Out now" chip: a friend's live round. Holes played and score to par,
+// nothing finer — a friend's individual bad hole is never legible from the
+// landing (docs/proposals/friends-activity.md, "Surfaces"). The whole chip is
+// the tap target; it opens the read-only spectate view by round id.
+const chipTpl = template(`
+    <button bind="chip" type="button" class="outnow-chip">
+        <span class="outnow-chip__badge-wrap">
+            ${avatarBadgeMarkup('outnow-chip__badge')}
+            <span class="outnow-chip__dot" aria-hidden="true"></span>
+        </span>
+        <span class="outnow-chip__text">
+            <span bind="who" class="outnow-chip__who"></span>
+            <span bind="line" class="outnow-chip__line"></span>
+        </span>
+    </button>
+`);
+
+// A quiet "Recently" row — who, what the round was, when. Deliberately no
+// score: the feed's recent half is retrospective browsing, and the round's
+// own screen is one tap away.
+const recentTpl = template(`
+    <button bind="row" type="button" class="recent-row">
+        <span class="recent-row__text">
+            <span bind="who" class="recent-row__who"></span>
+            <span bind="what" class="recent-row__what"></span>
+        </span>
+        <span bind="when" class="recent-row__when"></span>
+    </button>
 `);
 
 export const STATUS_TEXT: Record<string, string> = {
@@ -134,6 +199,87 @@ export class LandingComponent extends Component {
             & .landing__section-block {
                 margin-bottom: ${s('xl')};
                 &.hidden { display: none; }
+            }
+
+            /* "Out now" — friends on the course right now. Renders only when
+               non-empty ("empty means invisible"): it must never occupy the
+               opening screen to say nothing is happening. A horizontal chip
+               row rather than a list, so however sociable the viewer's
+               friends are they cannot push the viewer's own rounds off
+               screen. */
+            & .landing__live-dot {
+                width: 8px; height: 8px; border-radius: 50%;
+                background: ${t('accent')};
+                flex-shrink: 0; align-self: center;
+            }
+            & .landing__outnow-title { font-size: 0.9rem; color: ${t('text-muted')}; }
+            & .landing__outnow-chips {
+                display: flex; gap: ${s('sm')};
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                /* Chips scroll to the screen edge instead of stopping short
+                   of it and looking clipped. */
+                margin: 0 -${s('lg')};
+                padding: 2px ${s('lg')};
+                scrollbar-width: none;
+                &::-webkit-scrollbar { display: none; }
+            }
+            & .outnow-chip {
+                ${card({ hover: true })}
+                display: flex; align-items: center; gap: ${s('sm')};
+                flex-shrink: 0; max-width: 85%;
+                padding: ${s('sm')} ${s('md')};
+                font-family: inherit; text-align: left; cursor: pointer;
+
+                & .outnow-chip__badge-wrap { position: relative; flex-shrink: 0; }
+                & .outnow-chip__badge {
+                    ${avatarBadgeCss(36, '0.8rem')}
+                    background: ${t('primary')}; color: ${t('primary-text')};
+                }
+                /* The live marker rides the avatar: the chip is already
+                   "who + how far", and a third text fragment is a wall of
+                   words at four chips wide. No animation — motion in the
+                   corner of the eye on every app open is worse than none. */
+                & .outnow-chip__dot {
+                    position: absolute; right: -1px; bottom: -1px;
+                    width: 10px; height: 10px; border-radius: 50%;
+                    background: ${t('accent')};
+                    border: 2px solid ${t('surface')};
+                }
+                & .outnow-chip__text {
+                    display: flex; flex-direction: column; gap: 1px; min-width: 0;
+                }
+                & .outnow-chip__who {
+                    font-weight: 600; font-size: 0.95rem; color: ${t('text')};
+                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                }
+                & .outnow-chip__line {
+                    font-weight: 600; font-size: 0.8rem; color: ${t('accent')};
+                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                }
+            }
+
+            /* "Recently" — the feed's retrospective half, kept quiet: muted
+               rows at the bottom, below the viewer's own rounds. */
+            & .recent-row {
+                ${card({ hover: true })}
+                display: flex; align-items: center; gap: ${s('md')};
+                width: 100%;
+                padding: ${s('sm')} ${s('lg')};
+                font-family: inherit; text-align: left; cursor: pointer;
+
+                & .recent-row__text {
+                    flex: 1; min-width: 0;
+                    display: flex; flex-direction: column; gap: 1px;
+                }
+                & .recent-row__who { font-weight: 600; font-size: 0.9rem; color: ${t('text')}; }
+                & .recent-row__what {
+                    color: ${t('text-muted')}; font-size: 0.8rem;
+                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                }
+                & .recent-row__when {
+                    flex-shrink: 0; color: ${t('text-muted')}; font-size: 0.8rem;
+                }
             }
 
             /* The "New — you were added" strip reads as a highlight: its count
@@ -303,6 +449,7 @@ export class LandingComponent extends Component {
     `;
 
     private svc = this.inject(LandingService);
+    private activity = this.inject(FriendsActivityService);
     private auth = this.inject(AuthService);
     private router = this.inject(Router);
 
@@ -329,6 +476,16 @@ export class LandingComponent extends Component {
         this.loggedIn.get() ? landingRows.fromMyRounds(this.svc.newRounds.get()) : [],
     );
 
+    // The friends-activity halves — chips and recent rows. Both are [] when
+    // signed out or when the feed failed/never landed (feed null), so the
+    // sections are absent entirely rather than an empty shell.
+    private chips = new Computed<OutNowChip[]>(() =>
+        this.loggedIn.get() ? outNowChips(this.activity.feed.get()?.live ?? []) : [],
+    );
+    private recents = new Computed<RecentRow[]>(() =>
+        this.loggedIn.get() ? recentRows(this.activity.feed.get()?.recent ?? []) : [],
+    );
+
     // Delete confirmation: one shared dialog; the tapped row parks its target
     // here and opens it.
     private deleteOpen = new Signal(false);
@@ -344,8 +501,13 @@ export class LandingComponent extends Component {
     render(): DocumentFragment {
         // Logged in: fetch the dashboard halves. Logged out: read the device
         // recent list from localStorage. Either way the partition is reactive.
-        if (this.loggedIn.get()) void this.svc.loadMine();
-        else this.svc.loadDevice();
+        if (this.loggedIn.get()) {
+            void this.svc.loadMine();
+            // Best-effort: a failed feed read leaves both sections absent.
+            void this.activity.load();
+        } else {
+            this.svc.loadDevice();
+        }
 
         const anyRows = () => this.rows.get().length > 0;
 
@@ -354,6 +516,19 @@ export class LandingComponent extends Component {
             history: {
                 className: () => (anyRows() ? 'landing__history' : 'landing__history hidden'),
                 onclick: () => this.router.navigate('/history'),
+            },
+            outNowSection: {
+                className: () =>
+                    this.chips.get().length > 0
+                        ? 'landing__section-block landing__outnow'
+                        : 'landing__section-block landing__outnow hidden',
+            },
+            outNowContext: () => outNowContext(this.activity.feed.get()?.live ?? []) ?? '',
+            recentlySection: {
+                className: () =>
+                    this.recents.get().length > 0
+                        ? 'landing__section-block landing__recently'
+                        : 'landing__section-block landing__recently hidden',
             },
             newSection: {
                 className: () =>
@@ -389,6 +564,69 @@ export class LandingComponent extends Component {
                 className: () => (anyRows() ? 'landing__empty hidden' : 'landing__empty'),
             },
         });
+
+        // Chip/row taps go by round id to the read-only spectate view — the
+        // feed payload carries no share token, by design.
+        this.$each(
+            this.ref(frag, 'outNowList'),
+            this.chips,
+            (chip, _i, track) =>
+                this.wireEl(
+                    chipTpl,
+                    {
+                        chip: {
+                            // One utterance, and the only place the course is
+                            // named — the visible chip is person + progress.
+                            'aria-label': () => chipLabel(chip),
+                            onclick: () =>
+                                this.router.navigate('/spectate', {
+                                    query: { id: chip.roundId, name: chip.displayName },
+                                }),
+                        },
+                        // The LIVE chip, not the closed-over one — see the
+                        // getter note in `avatarBadgeBindings`.
+                        ...avatarBadgeBindings(() => {
+                            const live =
+                                this.chips.get().find((c) => c.roundId === chip.roundId) ?? chip;
+                            return {
+                                id: live.playerId,
+                                avatarVersion: live.avatarVersion,
+                                displayName: live.displayName,
+                            };
+                        }),
+                        who: () => chip.title,
+                        // Progress only — the round's name is the organizer's
+                        // private label and the course lives in the a11y
+                        // label, matching the iOS chip.
+                        line: () => chip.progress,
+                    },
+                    track,
+                ),
+            (chip) => chip.roundId,
+        );
+        this.$each(
+            this.ref(frag, 'recentlyList'),
+            this.recents,
+            (row, _i, track) =>
+                this.wireEl(
+                    recentTpl,
+                    {
+                        row: {
+                            // The LEAD name, not the "Anna + 1" label — the
+                            // spectate header hangs a possessive on this.
+                            onclick: () =>
+                                this.router.navigate('/spectate', {
+                                    query: { id: row.roundId, name: row.displayName },
+                                }),
+                        },
+                        who: () => row.friendLabel,
+                        what: () => row.title,
+                        when: () => formatRowDate(row.date),
+                    },
+                    track,
+                ),
+            (row) => row.roundId,
+        );
 
         this.$each(
             this.ref(frag, 'newList'),

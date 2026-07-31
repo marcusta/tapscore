@@ -10,6 +10,10 @@ import { RoundComponent } from '../round/round.component';
 import { CreateComponent } from '../create/create.component';
 import { LoginComponent } from '../auth/login.component';
 import { FriendsComponent } from '../friends/friends.component';
+import { FriendProfileComponent } from '../friends/friend-profile.component';
+import { FriendRoundsComponent } from '../friends/friend-rounds.component';
+import { FriendCoursesComponent } from '../friends/friend-courses.component';
+import { SpectateComponent } from '../spectate/spectate.component';
 import { ProfileComponent } from '../profile/profile.component';
 import { StatsDashboardComponent } from '../stats/stats-dashboard.component';
 import { RoundStatsComponent } from '../stats/round-stats.component';
@@ -92,6 +96,14 @@ export class AppComponent extends Component {
             '/create': CreateComponent,
             '/login': LoginComponent,
             '/friends': FriendsComponent,
+            // The friend-profile family: subject rides as `?id=` (+ `name` for
+            // presentation before the payload lands), same idiom as /round-stats.
+            '/friend': FriendProfileComponent,
+            '/friend-rounds': FriendRoundsComponent,
+            '/friend-courses': FriendCoursesComponent,
+            // Read-only watching of a friend's round, by round id — never by
+            // share token (a spectator never holds one).
+            '/spectate': SpectateComponent,
             '/profile': ProfileComponent,
             // Reached from the profile's Statistics section, not the dock: it is
             // a read-only surface about your own play, not a fifth destination.

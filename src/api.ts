@@ -15,6 +15,8 @@ import { createSetupClient } from './api/setup.gen';
 import { createCompetitionsClient } from './api/competitions.gen';
 import { createAdminClient } from './api/admin.gen';
 import { createPlayerStatsClient } from './api/player-stats.gen';
+import { createFriendProfileClient } from './api/friend-profile.gen';
+import { createSpectateClient } from './api/spectate.gen';
 import { API_BASE } from './api-base';
 
 export { ApiError } from '@basics/core/client/api-error';
@@ -39,4 +41,6 @@ export const api = {
     competitions: createCompetitionsClient(API_BASE),
     admin: createAdminClient(API_BASE),
     playerStats: createPlayerStatsClient(API_BASE),
+    friendProfile: createFriendProfileClient(API_BASE),
+    spectate: createSpectateClient(API_BASE),
 };

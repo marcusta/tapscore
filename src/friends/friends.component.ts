@@ -67,13 +67,19 @@ const resultTpl = template(`
     </div>
 `);
 
+// The row's main area is a BUTTON into the friend's profile — but only a
+// MUTUAL row: visibility flows on the mutual edge, so a one-way "hasn't added
+// you back" row has no profile to open and stays inert (disabled, no hover,
+// no chevron — the affordance is absent, not broken).
 const friendTpl = template(`
     <div class="friend-row">
-        ${avatarBadgeMarkup('friend-row__badge')}
-        <span class="friend-row__who">
-            <span bind="name" class="friend-row__name"></span>
-            <span bind="subtitle" class="friend-row__subtitle"></span>
-        </span>
+        <button bind="open" type="button" class="friend-row__main">
+            ${avatarBadgeMarkup('friend-row__badge')}
+            <span class="friend-row__who">
+                <span bind="name" class="friend-row__name"></span>
+                <span bind="subtitle" class="friend-row__subtitle"></span>
+            </span>
+        </button>
         <span bind="hcp" class="friend-row__hcp"></span>
         <button bind="remove" class="friend-row__remove" type="button" aria-label="Remove friend">✕</button>
     </div>
@@ -180,6 +186,21 @@ export class FriendsComponent extends Component {
                 padding: ${s('md')} ${s('lg')};
                 ${card()}
 
+                /* Pointer affordance for the tappable (mutual) rows — the
+                   disabled one-way rows keep the flat card. */
+                &:has(.friend-row__main:not(:disabled):hover) {
+                    background: ${t('hover-bg')};
+                }
+
+                & .friend-row__main {
+                    flex: 1; min-width: 0;
+                    display: flex; align-items: center; gap: ${s('md')};
+                    padding: 0; margin: 0;
+                    background: none; border: none;
+                    font-family: inherit; font-size: inherit; color: inherit;
+                    text-align: left; cursor: pointer;
+                    &:disabled { cursor: default; }
+                }
                 & .friend-row__badge {
                     ${avatarBadgeCss(40)}
                     background: ${t('primary')}; color: ${t('primary-text')};
@@ -340,6 +361,18 @@ export class FriendsComponent extends Component {
                         ...avatarBadgeBindings(
                             () => this.svc.friends.get().find((x) => x.id === f.id) ?? f,
                         ),
+                        // Only a MUTUAL row opens the profile (the live row
+                        // decides — mutuality can arrive without a remount).
+                        open: {
+                            disabled: () => !this.liveFriend(f).isMutual,
+                            onclick: () => {
+                                const live = this.liveFriend(f);
+                                if (!live.isMutual) return;
+                                this.router.navigate('/friend', {
+                                    query: { id: f.id, name: live.displayName },
+                                });
+                            },
+                        },
                         name: () => f.displayName,
                         subtitle: () => {
                             const live = this.svc.friends.get().find((x) => x.id === f.id) ?? f;
@@ -357,6 +390,11 @@ export class FriendsComponent extends Component {
         );
 
         return frag;
+    }
+
+    /** The LIVE friend row for a closed-over one (see the `$each` notes). */
+    private liveFriend(f: FriendProfile): FriendProfile {
+        return this.svc.friends.get().find((x) => x.id === f.id) ?? f;
     }
 
     /** isFriend for a result id, tracking the live results signal. */
