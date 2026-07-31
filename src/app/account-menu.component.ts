@@ -9,6 +9,7 @@ import { FriendProfileService } from '../friends/friend-profile.service';
 import { SpectateService } from '../spectate/spectate.service';
 import { AdminService } from '../admin/admin.service';
 import { LandingService } from '../landing/landing.service';
+import { HomeStatsService } from '../landing/home-stats.service';
 import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import { signOutSequence } from '../auth/sign-out';
 import { avatarBadgeBindings, avatarBadgeCss, avatarBadgeMarkup } from './avatar-badge';
@@ -174,6 +175,8 @@ export class AccountMenuComponent extends Component {
     private admins = this.inject(AdminService);
     // Sign-out has to reset the landing too — signing out while on '/' never
     // remounts it. See `signOutSequence`.
+    // The landing's statistics card — another slice of the signed-in identity.
+    private homeStats = this.inject(HomeStatsService);
     private landing = this.inject(LandingService);
     private router = this.inject(Router);
 
@@ -209,6 +212,7 @@ export class AccountMenuComponent extends Component {
                 friendProfile: this.friendProfile,
                 spectate: this.spectate,
                 admins: this.admins,
+                homeStats: this.homeStats,
                 landing: this.landing,
                 navigate: (path) => this.router.navigate(path),
             },

@@ -25,6 +25,7 @@ function ctx() {
         friendProfile: clearable('friendProfile'),
         spectate: clearable('spectate'),
         admins: clearable('admins'),
+        homeStats: clearable('homeStats'),
         landing: clearable('landing'),
         navigate: (path) => void log.push(`navigate ${path}`),
     };
@@ -42,6 +43,7 @@ test('logs out, clears every service, then lands on /', async () => {
         'friendProfile',
         'spectate',
         'admins',
+        'homeStats',
         'landing',
         'navigate /',
     ]);
@@ -69,6 +71,7 @@ test('everywhere: revokes all sessions, then the same teardown', async () => {
         'friendProfile',
         'spectate',
         'admins',
+        'homeStats',
         'landing',
         'navigate /',
     ]);
@@ -86,5 +89,5 @@ test('nothing is cleared before logout resolves', async () => {
     expect(log).toEqual([]);
     release();
     await done;
-    expect(log).toEqual(['profile', 'friends', 'activity', 'friendProfile', 'spectate', 'admins', 'landing', 'navigate /']);
+    expect(log).toEqual(['profile', 'friends', 'activity', 'friendProfile', 'spectate', 'admins', 'homeStats', 'landing', 'navigate /']);
 });

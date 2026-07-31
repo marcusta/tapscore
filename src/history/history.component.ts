@@ -18,7 +18,7 @@ const tpl = template(`
     <div class="history">
         <button bind="back" class="history__back" type="button">← Home</button>
         <h1 class="history__title">All rounds</h1>
-        <div bind="empty" class="history__empty">No rounds yet — create one to tee off.</div>
+        <div bind="empty" class="history__empty">No rounds yet — tap Play golf to tee off.</div>
         <div bind="list" class="history__list"></div>
         <div bind="confirmHost"></div>
     </div>
@@ -47,7 +47,9 @@ const rowTpl = template(`
 export class HistoryComponent extends Component {
     static styles = `
         .history {
-            padding: ${s('xl')} ${s('lg')} ${s('2xl')};
+            /* Same Play-pill allowance as the landing: the docked pill hangs
+               22px into this screen's bottom edge. */
+            padding: ${s('xl')} ${s('lg')} calc(${s('2xl')} + 76px);
 
             & .history__back {
                 background: none;

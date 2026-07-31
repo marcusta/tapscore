@@ -20,6 +20,10 @@ test('clear() drops the signed-in lists', () => {
     expect(svc.mineError.get()).toBeNull();
 });
 
+// The identity strip binds `ProfileService.player` — the shell's one copy of
+// the signed-in player, cleared by the profile service's own sign-out path —
+// so there is deliberately no landing-owned player state to test here.
+
 test('clear() re-reads the device list, so the anonymous landing has rows again', () => {
     const svc = new LandingService();
     // Stale value from a previous logged-out session, now out of date.

@@ -29,6 +29,8 @@ export interface SignOutContext {
     spectate: Clearable;
     /** Role grants and the admin console's cached reads. */
     admins: Clearable;
+    /** The landing statistics card's one page of `players/me/stats`. */
+    homeStats: Clearable;
     /**
      * The landing's own state. Required: signing out from '/' does NOT remount
      * the landing (the route signal doesn't change), so the logged-in lists
@@ -60,6 +62,7 @@ export async function signOutSequence(
     ctx.friendProfile.clear();
     ctx.spectate.clear();
     ctx.admins.clear();
+    ctx.homeStats.clear();
     ctx.landing.clear();
     ctx.navigate('/');
 }

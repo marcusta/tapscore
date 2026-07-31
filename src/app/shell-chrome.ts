@@ -24,3 +24,15 @@ export function showsAccountMenu(route: string): boolean {
 export function showsDock(route: string, signedIn: boolean): boolean {
     return signedIn && showsAccountMenu(route);
 }
+
+/**
+ * The dock's one raised action, "Play golf".
+ *
+ * Deliberately NOT a function of the session: anonymous play is core, so the
+ * pill renders signed out too, where there is no tab bar under it. The one
+ * screen it stands down on is `/create` itself — a door into the room you are
+ * already standing in.
+ */
+export function showsPlayPill(route: string): boolean {
+    return showsAccountMenu(route) && route !== '/create';
+}

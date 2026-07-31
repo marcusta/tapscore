@@ -1,4 +1,6 @@
-# iOS home redesign — dock FAB, identity strip, recent card, stats card
+# Home redesign — dock FAB, identity strip, recent card, stats card
+
+(iOS shipped first; the web contract is at the bottom, "Web mirror".)
 
 Owner-approved design (2026-07-31, session decisions). iOS first; the web
 landing mirrors this in a later pass. This document is the contract for the
@@ -120,6 +122,63 @@ Files: new `ios/TapScore/Features/Stats/HomeStatsCard.swift` (+ small store),
 24. The card contains NO settings, toggles, or window pickers.
 25. Title row: "Statistics" in the section-header face + the window label
     (e.g. "Last 20 rounds") muted.
+
+## Post-ship refinements (owner, 2026-07-31, shipped on iOS in a09e4a4)
+
+26. WHEN more than four ongoing rounds exist, THEN home shows the first four
+    and a "Show all →" link to the all-rounds list; at four or fewer the link
+    is absent. The header count still names the full number. The standalone
+    all-rounds link never stacks with this one.
+27. WHEN the statistics card renders, THEN it ends in a visible
+    "All statistics →" footer row (hairline above it) — the whole card stays
+    tappable, but the affordance must be legible without tapping.
+
+## Web mirror
+
+The web landing (`src/landing/landing.component.ts`) adopts the same design.
+Web-only sections survive; iOS-only affordances that have no web equivalent
+are recorded as deviations, not invented.
+
+W1. WHEN the dock (`src/app/nav.component.ts`) renders for a signed-in
+    viewer, THEN it is `Home | Play golf | Friends` — the Play control a
+    raised text pill (`font-display`, `--primary` fill, `--primary-text`
+    ink, pill radius, elevated shadow, **no icon/glyph/emoji**) riding the
+    bar's top edge, navigating to `/create`.
+W2. WHEN the viewer is signed out on the landing, THEN the Play pill still
+    renders (fixed to the bottom of the viewport, safe-area padded) even
+    though the tab bar stays hidden — anonymous play is core. The landing's
+    full-width "+ Create round" hero button is removed in both auth states.
+W3. WHEN signed in, THEN the landing header is the identity strip: avatar
+    badge, display name, and an "HCP n.n" pill only when the index exists
+    (stored negative index reads `+2.0`; nil ⇒ no pill). Tap → `/profile`.
+    Signed out keeps today's wordmark + tagline. If `currentUser` does not
+    carry the handicap, fetch `players/me` once from the landing service —
+    do not spin up the whole profile service for one number.
+W4. WHEN sections render (signed in), THEN the order is: identity strip →
+    "New — you were added" (web-only, unchanged) → Ongoing (capped per item
+    26, "Show all →" → `/history`) → out-now strip → Recently finished CARD
+    (3 compact rows, no trash, "All rounds →" footer → `/history`) →
+    "From your friends" (web-only, unchanged) → statistics card. Empty means
+    invisible throughout.
+W5. WHEN rows exist but both partitions are empty (all aged out), THEN the
+    empty notice must NOT claim "no rounds" and a quiet "All rounds →" link
+    still reaches `/history` — the same loaded-rows gates iOS ships
+    (`RoundListView.swift` items 14/26).
+W6. WHEN the statistics card renders, THEN it follows spec items 18–25 plus
+    26–27 and the deviations table: one `myStats` page (limit 20, no
+    paging), the persisted web window preset over rows in hand, tiles
+    vs-par-per-hole (thin-sample note under the display-policy floor) /
+    FIR% / GIR%, priority line only when the leader costs > 0, truthful
+    "— newest N" only when the window is provably incomplete, and an
+    "All statistics →" footer. Whole card → `/stats`.
+W7. Join-by-code: N/A on the web — a share link IS the join path in a
+    browser, so the create page gains no code affordance. Recorded here as
+    the web's deviation from item 6.
+W8. Delete stays on the full `/history` list and on Ongoing rows, exactly
+    like iOS: the finished card's compact rows carry no trash.
+W9. After any web client change: `bun run check:client`, `bun run test`,
+    rebuild the committed `public/` bundle, and commit it together with the
+    source change (deploy serves `public/` as-is).
 
 ## Verification
 
