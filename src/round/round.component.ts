@@ -17,6 +17,7 @@ import { SeatCardComponent } from './seat-card.component';
 import { JoinCardComponent } from './join-card.component';
 import { HandicapCheckinComponent } from './handicap-checkin.component';
 import { ManageOverlayComponent } from './manage-overlay.component';
+import { RoundStoryComponent } from '../stats/round-story.component';
 import { formatLabelFromSlot } from './slot-labels';
 import { roundHeaderTitle } from './header-title';
 import { shouldPoll, shouldRefreshOnVisibility } from './poll-gate';
@@ -78,6 +79,7 @@ const tpl = template(`
                 </div>
 
                 <div bind="lbPanel" class="round-view__panel hidden">
+                    <div bind="story"></div>
                     <div bind="leaderboard"></div>
                 </div>
             </div>
@@ -789,6 +791,10 @@ export class RoundComponent extends Component {
         // open of this round on this device by someone who plays in it.
         this.spawn(HandicapCheckinComponent, this.ref(frag, 'hcpCheckin'));
         this.spawn(ScoreEntryComponent, this.ref(frag, 'scoring'));
+        // Player stats §4.1: the round-end story, above the board. Entirely
+        // self-hiding — signed out, no stats of your own, or a card still in
+        // play and it renders nothing and reads nothing.
+        this.spawn(RoundStoryComponent, this.ref(frag, 'story'));
         this.spawn(LeaderboardComponent, this.ref(frag, 'leaderboard'));
         // Phase 5.5: the "Who's playing?" seat card — self-hiding unless the
         // round has unclaimed placeholder seats (or a claimed seat this viewer

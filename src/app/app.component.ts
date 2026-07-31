@@ -11,6 +11,8 @@ import { CreateComponent } from '../create/create.component';
 import { LoginComponent } from '../auth/login.component';
 import { FriendsComponent } from '../friends/friends.component';
 import { ProfileComponent } from '../profile/profile.component';
+import { StatsDashboardComponent } from '../stats/stats-dashboard.component';
+import { RoundStatsComponent } from '../stats/round-stats.component';
 import { AdminComponent } from '../admin/admin.component';
 import { CompetitionsComponent } from '../competition/competitions.component';
 import { CompetitionDetailComponent } from '../competition/competition-detail.component';
@@ -91,6 +93,12 @@ export class AppComponent extends Component {
             '/login': LoginComponent,
             '/friends': FriendsComponent,
             '/profile': ProfileComponent,
+            // Reached from the profile's Statistics section, not the dock: it is
+            // a read-only surface about your own play, not a fifth destination.
+            '/stats': StatsDashboardComponent,
+            // The per-round drill-down. Routes here are static, so the round
+            // travels as `?id=` and the screen reads it reactively.
+            '/round-stats': RoundStatsComponent,
             // Always routed — the gate is the server's super_admin check, not
             // the absence of a route. Non-admins reaching /admin see a refusal.
             '/admin': AdminComponent,

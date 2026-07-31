@@ -1,4 +1,5 @@
 import { beforeEach, expect, mock, test } from 'bun:test';
+import { ApiError } from '@basics/core/client/api-error';
 import type { FormatDescriptor, SetupCourse, Tee } from '../../src/api/setup.gen';
 
 // Game cards (format-templates Phase C) — the card layer that turns "what are
@@ -13,8 +14,6 @@ import type { FormatDescriptor, SetupCourse, Tee } from '../../src/api/setup.gen
 let nextGuestId = 0;
 let lastDraft: any = null;
 let createResult: any = null;
-
-class ApiError extends Error {}
 
 const apiMock = {
     setup: {

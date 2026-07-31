@@ -94,6 +94,17 @@ const tpl = template(`
             <section class="profile__section profile__stats">
                 <h2>Statistics</h2>
                 <div class="profile__card">
+                    <!-- The way in to /stats. Above the switches because it is
+                         what the section is FOR — the toggles below decide what
+                         the dashboard will have to show next time. -->
+                    <button bind="toStats" class="statlink" type="button">
+                        <span class="statlink__text">
+                            <span class="statlink__title">Your statistics</span>
+                            <span class="statlink__hint">Fairways, greens, putting and scoring over a window of rounds.</span>
+                        </span>
+                        <span class="statlink__chev" aria-hidden="true"></span>
+                    </button>
+                    <div bind="statlinkRule" class="statrow__rule"></div>
                     <label class="statrow">
                         <span class="statrow__text">
                             <span class="statrow__head">
@@ -347,6 +358,36 @@ export class ProfileComponent extends Component {
                 height: 1px;
                 margin: ${s('md')} 0;
                 background: ${t('border')};
+                &.hidden { display: none; }
+            }
+
+            /* The dashboard link. A row, not a button-looking control: it goes
+               somewhere, and the chevron is the only affordance it needs. */
+            & .statlink {
+                ${btn()}
+                display: flex;
+                align-items: center;
+                gap: ${s('md')};
+                width: 100%;
+                padding: 0;
+                font-family: inherit;
+                text-align: left;
+                background: transparent;
+                border: none;
+                border-radius: 0;
+
+                &.hidden { display: none; }
+
+                & .statlink__text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+                & .statlink__title { font-size: 1rem; font-weight: 600; color: ${t('text')}; }
+                & .statlink__hint { font-size: 0.8rem; color: ${t('text-muted')}; }
+                & .statlink__chev {
+                    flex-shrink: 0;
+                    width: 0; height: 0;
+                    border-top: 5px solid transparent;
+                    border-bottom: 5px solid transparent;
+                    border-left: 6px solid ${t('text-muted')};
+                }
             }
 
             & .profile__section {
@@ -487,6 +528,18 @@ export class ProfileComponent extends Component {
             },
             clubErr: {
                 textContent: () => this.svc.saveError.get()?.message || '',
+            },
+            // Offered only once a round has stats on it — a link into a screen
+            // that can only say "nothing yet" is a dead end, and the switches
+            // below already explain how to start filling it.
+            toStats: {
+                className: () =>
+                    this.svc.hasRecordedStats.get() ? 'statlink' : 'statlink hidden',
+                onclick: () => this.router.navigate('/stats'),
+            },
+            statlinkRule: {
+                className: () =>
+                    this.svc.hasRecordedStats.get() ? 'statrow__rule' : 'statrow__rule hidden',
             },
             masterTitle: () => STATS_MASTER_TITLE,
             masterHint: () => STATS_MASTER_HINT,

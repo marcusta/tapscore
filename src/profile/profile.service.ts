@@ -48,6 +48,17 @@ export class ProfileService {
     readonly statsError = new Signal<RequestError | null>(null);
 
     /**
+     * Whether any round has stats recorded — the gate on the dashboard link in
+     * the Statistics section.
+     *
+     * A one-row PROBE, not a count: the profile needs to know "is there anything
+     * to look at", and the dashboard does its own paging from scratch. False
+     * whenever the probe fails, so a link is never offered into a screen that
+     * cannot load.
+     */
+    readonly hasRecordedStats = new Signal(false);
+
+    /**
      * The profile photo. Its own pair for the same reason the stats config has
      * one — a failed upload belongs under the photo, not under the gender chips
      * and the club picker and the handicap field at once.
@@ -76,14 +87,19 @@ export class ProfileService {
                 // the server answers the all-off default — so the null branch
                 // here really only covers a 4xx/5xx.
                 api.playerStats.myConfig().catch(() => null),
+                // Same terms as the config read, and for the same reason: this
+                // only decides whether the dashboard link is offered, so a
+                // failure costs a link, never the profile.
+                api.playerStats.myStats({ limit: 1 }).catch(() => null),
             ]),
         );
         if (!data) return;
-        const [me, history, clubs, config] = data;
+        const [me, history, clubs, config, statsProbe] = data;
         this.player.set(me);
         this.history.set(history);
         this.clubs.set(clubs);
         this.statsConfig.set(config ? statsFormFromConfig(config) : STATS_ALL_OFF);
+        this.hasRecordedStats.set((statsProbe?.rounds.length ?? 0) > 0);
     }
 
     /** Forget the loaded profile (sign-out). */
@@ -94,6 +110,7 @@ export class ProfileService {
         this.saveError.set(null);
         this.statsConfig.set(STATS_ALL_OFF);
         this.statsError.set(null);
+        this.hasRecordedStats.set(false);
         this.avatarError.set(null);
     }
 

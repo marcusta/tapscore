@@ -1,0 +1,515 @@
+// The stats dashboard's view model: `(window rows) -> everything the screen
+// draws`.
+//
+// One pure function, `buildDashboardModel`, with no service, no network and no
+// DOM in sight. Every number on the screen comes from
+// `src/round/stat-measures.ts`; this file decides only WHAT is asked and
+// WHETHER a panel appears, never how a rate is computed. A component that does
+// arithmetic is a bug — the math module is the single place the display policy
+// and the null rules live, and duplicating a division into a view is how the
+// two drift.
+//
+// The module-gating rule from the proposal (§1) is the reason this is a build
+// step at all: a module with no data must be ABSENT, not zeroed. `null` panels
+// here mean "you never recorded this", which is a different sentence from "you
+// recorded it and it was 0%".
+//
+// Twin of `ios/TapScore/Features/Stats/StatsDashboardModel.swift`, decision for
+// decision.
+
+import {
+    avgVsParByParGroup,
+    birdieConversion,
+    bounceBackRate,
+    chipInside2mRate,
+    doubleBogeyPlusPerRound,
+    EXPECTED_PUTTS_V1,
+    fairwayRate,
+    girFirstPuttMix,
+    girRate,
+    girRateByTee,
+    meanOfPresent,
+    onePuttRate,
+    penaltiesPerRound,
+    PUTT_BUCKETS,
+    puttsPerGirHole,
+    rate,
+    rateDisplay,
+    recoveryRate,
+    scrambleRate,
+    STROKES_LOST_COMPONENTS,
+    strokesLost,
+    strokesLostComponent,
+    strokesVsParByTee,
+    sumMeasures,
+    threePuttRate,
+    threePuttsFromOver8mRate,
+    troubleRate,
+    troubleTaxPerHole,
+    ZERO_MEASURES,
+    type ByDifficulty,
+    type ByParGroup,
+    type ByTee,
+    type PuttBucket,
+    type Rate,
+    type StrokesLost,
+    type StrokesLostComponent,
+} from '../round/stat-measures';
+import { sortRows } from './stats-window';
+// `StatMeasures` is the wire row itself — `stat-measures.ts` consumes it and
+// does not re-export it, so it comes from the generated client, as there.
+import type { PlayerRoundStats, StatMeasures } from '../api/player-stats.gen';
+
+// --- Identity ----------------------------------------------------------------
+
+/**
+ * The dashboard's panels. Not the profile's stats CONFIG toggles: that
+ * vocabulary answers "what will we ask you on the course" and includes
+ * `penalties` and `recovery`, which surface here as lines inside the tee panel
+ * rather than as panels of their own. Scoring has no toggle at all — a
+ * scorecard is always there.
+ */
+export type StatsPanelId = 'tee' | 'approach' | 'putting' | 'shortGame' | 'scoring';
+
+/** Reading order: tee to green, then the scorecard. */
+export const STATS_PANEL_IDS: readonly StatsPanelId[] = [
+    'tee',
+    'approach',
+    'putting',
+    'shortGame',
+    'scoring',
+];
+
+export function panelTitle(id: StatsPanelId): string {
+    switch (id) {
+        case 'tee':
+            return 'Off the tee';
+        case 'approach':
+            return 'Approach';
+        case 'putting':
+            return 'Putting';
+        case 'shortGame':
+            return 'Short game';
+        case 'scoring':
+            return 'Scoring';
+    }
+}
+
+// --- Practice priorities -----------------------------------------------------
+
+/**
+ * One component of the fixed-baseline waterfall, averaged per round.
+ *
+ * `perRound` is null when NO round in the window produced the component. That
+ * is the "not enough data" row — printed as a sentence, never as a bar at zero,
+ * because a zero-length bar in a ranked list reads as "this part of your game
+ * is exactly average", which is a claim the data does not make.
+ */
+export interface StatsPriority {
+    component: StrokesLostComponent;
+    /** Mean strokes lost per round. Positive = lost, negative = gained. */
+    perRound: number | null;
+    /** How many rounds in the window contributed a value. */
+    roundsCovered: number;
+    /** How many rounds are in the window at all. */
+    roundsInWindow: number;
+}
+
+// --- Trends ------------------------------------------------------------------
+
+/**
+ * What a sparkline is plotting. Fixes the y-axis semantics, which differ: a
+ * percentage goes up when you improve, strokes-lost goes DOWN.
+ */
+export type StatsTrendKind = 'percentage' | 'strokesLost';
+
+export interface StatsTrend {
+    id: string;
+    title: string;
+    kind: StatsTrendKind;
+    /**
+     * Oldest first — a trend line reads left-to-right in time, the opposite of
+     * every list on this screen.
+     */
+    points: number[];
+}
+
+/**
+ * The proposal's floor: two dots are not a trend, they are a line segment
+ * between two rounds, and drawing it invites reading noise as direction.
+ */
+export const TREND_MIN_POINTS = 3;
+
+// --- Panels ------------------------------------------------------------------
+
+export interface StatsTeePanel {
+    fairway: Rate;
+    /**
+     * In play but NOT on the fairway — the split bar's middle segment.
+     * `inPlayRate` is cumulative (a fairway hit is in play), so it cannot be a
+     * segment as-is without double-counting.
+     */
+    inPlayOnly: Rate;
+    trouble: Rate;
+    /**
+     * Strokes over par per hole conceded from trouble, vs the round's own
+     * scoring from the fairway.
+     */
+    troubleTax: Rate;
+    /**
+     * The two samples `troubleTax` is a DIFFERENCE of.
+     *
+     * Carried because `troubleTaxPerHole`'s own denominator is a cross-product
+     * guard (trouble holes × fairway holes), not a sample size — printing it
+     * would tell a player who has 9 trouble holes and 11 fairway holes that the
+     * figure rests on 99 of them. The view prints these two instead, which is
+     * what the math module's doc asks for.
+     */
+    vsParByTee: ByTee<Rate>;
+    recovery: Rate;
+    penaltiesPerRound: Rate;
+}
+
+export interface StatsApproachPanel {
+    gir: Rate;
+    girByTee: ByTee<Rate>;
+    /**
+     * Where the first putt was on greens hit — the proximity proxy. Shares of
+     * `girFirstPuttRecorded`, so they sum to 1 across buckets.
+     */
+    girFirstPuttMix: Record<PuttBucket, Rate>;
+    birdieConversion: Rate;
+}
+
+/** One rung of the make-% ladder. */
+export interface StatsLadderRung {
+    bucket: PuttBucket;
+    made: Rate;
+    /**
+     * The make % the EXPECTED_PUTTS table implies for this distance.
+     *
+     * Presentation-only, and a rough inversion: a bucket that expects `E` putts
+     * holes out in one `2 − E` of the time IF every miss leaves a tap-in. It
+     * floors at 0 for the long buckets (4–8 m expects 2.10, >8 m 2.40), where
+     * the honest reading is "the table expects you to two-putt", not "you should
+     * hole none of these". The view says so.
+     */
+    baseline: number;
+}
+
+export interface StatsPuttingPanel {
+    ladder: StatsLadderRung[];
+    threePutt: Rate;
+    threePuttsFromOver8m: Rate;
+    puttsPerGirHole: Rate;
+}
+
+export interface StatsShortGamePanel {
+    scramble: ByDifficulty<Rate>;
+    chipInside2m: ByDifficulty<Rate>;
+    /**
+     * The conversion half of the chip pair: how often a putt from inside 2 m
+     * goes in.
+     *
+     * NOT a scramble × inside-2m × holed cross-tab — no such column exists, and
+     * inventing one is off the table. This is the coherent v2 putting rate over
+     * the two buckets that make up "inside 2 m", across ALL holes rather than
+     * only chipped ones. It answers "when you leave it that close, do you hole
+     * it" with the sample the schema actually has.
+     */
+    conversionInside2m: Rate;
+    /**
+     * Chips holed outright. A count, not a rate: there is no attempt denominator
+     * that would make a "chip-in %" mean anything.
+     */
+    chipIns: number;
+}
+
+export interface StatsScoringPanel {
+    avgVsParByParGroup: ByParGroup<Rate>;
+    doubleBogeyPlusPerRound: Rate;
+    bounceBack: Rate;
+}
+
+// --- Round rows --------------------------------------------------------------
+
+/** One round in the window's list. */
+export interface StatsRoundRow {
+    /**
+     * The round id — and what the per-round drill-down (§4.2) travels on; that
+     * screen needs nothing else from this row.
+     */
+    id: string;
+    date: string;
+    courseName: string | null;
+    name: string | null;
+    holeCount: number;
+    /** Null for a stats-only round (answers recorded, no scorecard). */
+    strokes: number | null;
+    vsPar: number | null;
+    waterfall: StrokesLost;
+}
+
+// --- The model ---------------------------------------------------------------
+
+export interface StatsDashboardModel {
+    /** Rounds in the window, newest first. */
+    rounds: StatsRoundRow[];
+    /** `sumMeasures` over the window — the denominator of every rate on screen. */
+    totals: StatMeasures;
+    /** The summed window's own waterfall, for the "over these N rounds" total. */
+    waterfall: StrokesLost;
+    priorities: StatsPriority[];
+    trends: StatsTrend[];
+    tee: StatsTeePanel | null;
+    approach: StatsApproachPanel | null;
+    putting: StatsPuttingPanel | null;
+    shortGame: StatsShortGamePanel | null;
+    scoring: StatsScoringPanel | null;
+}
+
+export const EMPTY_DASHBOARD_MODEL: StatsDashboardModel = {
+    rounds: [],
+    totals: ZERO_MEASURES,
+    waterfall: strokesLost(ZERO_MEASURES),
+    priorities: [],
+    trends: [],
+    tee: null,
+    approach: null,
+    putting: null,
+    shortGame: null,
+    scoring: null,
+};
+
+/** The panels that have data, in reading order. */
+export function presentPanels(model: StatsDashboardModel): StatsPanelId[] {
+    return STATS_PANEL_IDS.filter((id) => model[id] !== null);
+}
+
+/**
+ * Reduce a window of rounds to a screen.
+ *
+ * `rows` may arrive in any order; they are sorted newest-first here so a caller
+ * cannot get the round list backwards.
+ */
+export function buildDashboardModel(rows: readonly PlayerRoundStats[]): StatsDashboardModel {
+    const ordered = sortRows(rows);
+    if (ordered.length === 0) return EMPTY_DASHBOARD_MODEL;
+
+    const totals = sumMeasures(ordered.map((r) => r.measures));
+    const perRound = ordered.map((r) => strokesLost(r.measures));
+    const roundCount = ordered.length;
+
+    return {
+        rounds: ordered.map((row, i) => {
+            const waterfall = perRound[i]!;
+            return {
+                id: row.roundId,
+                date: row.date,
+                courseName: row.courseName,
+                name: row.name,
+                holeCount: row.holeCount,
+                strokes: row.measures.holesScored === 0 ? null : row.measures.strokesTotal,
+                vsPar: waterfall.total,
+                waterfall,
+            };
+        }),
+        totals,
+        waterfall: strokesLost(totals),
+        priorities: buildPriorities(perRound),
+        trends: buildTrends(ordered),
+        tee: teePanel(totals, roundCount),
+        approach: approachPanel(totals),
+        putting: puttingPanel(totals),
+        shortGame: shortGamePanel(totals),
+        scoring: scoringPanel(totals, roundCount),
+    };
+}
+
+// --- Priorities --------------------------------------------------------------
+
+/**
+ * Worst first: the component costing the most strokes per round leads.
+ *
+ * Averaged PER ROUND rather than taken from the summed window so the list says
+ * "putting costs you 1.8 shots a round", which is a practice instruction,
+ * rather than "putting has cost you 21.6 shots", which is a number you have to
+ * divide before it means anything. The mean is over the rounds that HAVE the
+ * component (`meanOfPresent`), not over the window — dividing by rounds that
+ * never recorded a putt would dilute the estimate toward zero and flatten the
+ * ranking.
+ */
+export function buildPriorities(perRound: readonly StrokesLost[]): StatsPriority[] {
+    const rows = STROKES_LOST_COMPONENTS.map((component): StatsPriority => {
+        const values = perRound.map((w) => strokesLostComponent(w, component));
+        return {
+            component,
+            perRound: meanOfPresent(values),
+            roundsCovered: values.filter((v) => v !== null).length,
+            roundsInWindow: perRound.length,
+        };
+    });
+    // Present components rank by cost, descending. Absent ones sink to the
+    // bottom in their canonical order — they are not "best", they are unknown,
+    // and sorting them among the numbers would imply otherwise.
+    const canonical = (c: StrokesLostComponent): number => STROKES_LOST_COMPONENTS.indexOf(c);
+    return rows.sort((l, r) => {
+        if (l.perRound !== null && r.perRound !== null) {
+            return l.perRound === r.perRound
+                ? canonical(l.component) - canonical(r.component)
+                : r.perRound - l.perRound;
+        }
+        if (l.perRound !== null) return -1;
+        if (r.perRound !== null) return 1;
+        return canonical(l.component) - canonical(r.component);
+    });
+}
+
+// --- Trends ------------------------------------------------------------------
+
+/**
+ * A rate → its plotted value, null unless it clears the percentage floor.
+ *
+ * Percentage points follow the display policy's denominator floor: a rate the
+ * panels would refuse to print as a percentage (fewer than five recorded, e.g.
+ * a one-hole partial round) is not plotted and cannot become the tile's
+ * headline — a 1-of-1 round would otherwise front the fairway tile as "100%"
+ * with the authority of a full round.
+ */
+function solid(r: Rate): number | null {
+    return rateDisplay(r) === 'percentage' ? r.value : null;
+}
+
+/**
+ * The four module headlines, oldest to newest, dropping rounds that have no
+ * value for the measure.
+ *
+ * A gap is a SKIP, not a zero and not an interpolation: the line connects the
+ * rounds where you recorded the thing. A series shorter than
+ * `TREND_MIN_POINTS` is omitted entirely rather than drawn short.
+ */
+export function buildTrends(rows: readonly PlayerRoundStats[]): StatsTrend[] {
+    // Oldest first — time runs left to right.
+    const chrono = [...rows].reverse();
+
+    const series = (
+        id: string,
+        title: string,
+        kind: StatsTrendKind,
+        value: (m: StatMeasures) => number | null,
+    ): StatsTrend | null => {
+        const points: number[] = [];
+        for (const row of chrono) {
+            const v = value(row.measures);
+            if (v !== null) points.push(v);
+        }
+        return points.length >= TREND_MIN_POINTS ? { id, title, kind, points } : null;
+    };
+
+    return [
+        series('fairway', 'Fairways', 'percentage', (m) => solid(fairwayRate(m))),
+        series('gir', 'Greens', 'percentage', (m) => solid(girRate(m))),
+        series('putting', 'Putting', 'strokesLost', (m) => strokesLost(m).putting),
+        series('scramble', 'Scrambling', 'percentage', (m) => solid(scrambleRate(m).overall)),
+    ].filter((t): t is StatsTrend => t !== null);
+}
+
+// --- Panel gating ------------------------------------------------------------
+//
+// Each `…Panel` returns null when the module was never recorded in this window.
+// The gate is always the module's own RECORDED counter, never a derived
+// numerator: a player who took ten tee shots and hit no fairways has
+// `teeRecorded === 10, fairwayHits === 0` and deserves a panel that says 0%.
+
+/**
+ * `roundCount` is the window's row count — the honest denominator for a "per
+ * round" figure. Derived from the row count, not from `holesScored / 18`: a
+ * nine-hole round is one round the player played, and rounding holes into
+ * notional eighteens would report a season of nines as half as many rounds as
+ * it was.
+ */
+export function teePanel(m: StatMeasures, roundCount: number): StatsTeePanel | null {
+    if (m.teeRecorded <= 0) return null;
+    return {
+        fairway: fairwayRate(m),
+        inPlayOnly: rate(m.inPlayHits - m.fairwayHits, m.teeRecorded),
+        trouble: troubleRate(m),
+        troubleTax: troubleTaxPerHole(m),
+        vsParByTee: strokesVsParByTee(m),
+        recovery: recoveryRate(m),
+        penaltiesPerRound: penaltiesPerRound(m, roundCount),
+    };
+}
+
+export function approachPanel(m: StatMeasures): StatsApproachPanel | null {
+    if (m.girRecorded <= 0) return null;
+    const mix = {} as Record<PuttBucket, Rate>;
+    for (const bucket of PUTT_BUCKETS) mix[bucket] = girFirstPuttMix(m, bucket);
+    return {
+        gir: girRate(m),
+        girByTee: girRateByTee(m),
+        girFirstPuttMix: mix,
+        birdieConversion: birdieConversion(m),
+    };
+}
+
+export function puttingPanel(m: StatMeasures): StatsPuttingPanel | null {
+    if (m.puttsRecorded <= 0 && m.firstPuttRecorded <= 0) return null;
+    return {
+        ladder: PUTT_BUCKETS.map((bucket) => ({
+            bucket,
+            made: onePuttRate(m, bucket),
+            baseline: Math.max(0, 2 - EXPECTED_PUTTS_V1[bucket]),
+        })),
+        threePutt: threePuttRate(m),
+        threePuttsFromOver8m: threePuttsFromOver8mRate(m),
+        puttsPerGirHole: puttsPerGirHole(m),
+    };
+}
+
+export function shortGamePanel(m: StatMeasures): StatsShortGamePanel | null {
+    const attempts = m.scrambleAttemptsStandard + m.scrambleAttemptsHard;
+    if (attempts <= 0) return null;
+    // The two buckets that together mean "inside 2 m", v2-resolved on both
+    // sides so numerator and denominator cover the same holes.
+    const made = m.onePuttInside1m + m.onePutt1To2m;
+    const faced = m.firstPuttInside1mResolved + m.firstPutt1To2mResolved;
+    return {
+        scramble: scrambleRate(m),
+        chipInside2m: chipInside2mRate(m),
+        conversionInside2m: rate(made, faced),
+        chipIns: m.scrambleHoledStandard + m.scrambleHoledHard,
+    };
+}
+
+export function scoringPanel(m: StatMeasures, roundCount: number): StatsScoringPanel | null {
+    if (m.holesScored <= 0) return null;
+    return {
+        avgVsParByParGroup: avgVsParByParGroup(m),
+        doubleBogeyPlusPerRound: doubleBogeyPlusPerRound(m, roundCount),
+        bounceBack: bounceBackRate(m),
+    };
+}
+
+/**
+ * The largest single-term magnitude across a list of waterfalls — the shared
+ * scale the round list's mini-strips are drawn against. Zero when nothing is
+ * measurable, which the chart reads as "draw no bars".
+ */
+export function waterfallMagnitude(waterfalls: readonly StrokesLost[]): number {
+    let max = 0;
+    for (const w of waterfalls) {
+        for (const component of STROKES_LOST_COMPONENTS) {
+            const value = strokesLostComponent(w, component);
+            if (value !== null) max = Math.max(max, Math.abs(value));
+        }
+    }
+    return max;
+}
+
+/** The same, for the practice-priorities list's shared scale. */
+export function priorityMagnitude(priorities: readonly StatsPriority[]): number {
+    let max = 0;
+    for (const p of priorities) if (p.perRound !== null) max = Math.max(max, Math.abs(p.perRound));
+    return max;
+}

@@ -1,4 +1,5 @@
 import { beforeEach, expect, mock, test } from 'bun:test';
+import { ApiError } from '@basics/core/client/api-error';
 import type { FormatDescriptor, SetupCourse, Tee } from '../../src/api/setup.gen';
 import type { StoredDraft } from '../../src/create/draft-to-forms';
 
@@ -21,8 +22,6 @@ import type { StoredDraft } from '../../src/create/draft-to-forms';
 let nextGuestId = 0;
 let editedDraft: any = null;
 let editResult: any = null;
-
-class ApiError extends Error {}
 
 const apiMock = {
     setup: {
