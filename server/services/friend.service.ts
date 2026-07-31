@@ -24,6 +24,15 @@ export interface FriendProfile extends PlayerProfile {
     sharedRoundCount: number;
     lastPlayedAt: string | null;
     frecency: number;
+    /**
+     * True when this friend has added the caller BACK — the derived mutual
+     * edge (docs/proposals/friends-activity.md). Contacts stay unilateral;
+     * mutuality is what carries round visibility, and it is computed from the
+     * two `friendships` rows rather than stored, so removing either side
+     * withdraws the visibility with no cleanup step. The UI reads this as
+     * quiet connection status, never as an error state.
+     */
+    isMutual: boolean;
 }
 
 // --- Row mapping ---
@@ -72,6 +81,32 @@ export class FriendService {
 
     private byPlayer(playerId: string) {
         return this.friendships().where('player_id', '=', playerId);
+    }
+
+    /**
+     * The caller's MUTUAL edges: rows the caller wrote, self-joined against the
+     * reverse row. One query, and it stays a query rather than a stored flag —
+     * see `FriendProfile.isMutual` for why. Soft-deleted friends are dropped
+     * here (not by the caller) because every consumer of this set is a
+     * visibility decision, and a dead account must never keep granting one.
+     *
+     * THE mutuality implementation — there is deliberately no second one.
+     * `listFor` stamps `isMutual` from this same set rather than re-deriving
+     * the reverse row inline: mutuality is an authorization input (it carries
+     * round visibility), and two implementations of an authorization predicate
+     * can drift apart without any test noticing.
+     */
+    private mutualEdges(playerId: string) {
+        return this.db
+            .selectFrom('friendships as mine')
+            .innerJoin('friendships as theirs', (join) =>
+                join
+                    .onRef('theirs.player_id', '=', 'mine.friend_player_id')
+                    .onRef('theirs.friend_player_id', '=', 'mine.player_id'),
+            )
+            .innerJoin('players', 'players.id', 'mine.friend_player_id')
+            .where('mine.player_id', '=', playerId)
+            .where('players.deleted_at', 'is', null);
     }
 
     private activePlayerById(id: string) {
@@ -128,6 +163,18 @@ export class FriendService {
      */
     async friendIdsFor(playerId: string): Promise<Set<string>> {
         const rows = await this.byPlayer(playerId).select('friend_player_id').execute();
+        return new Set(rows.map((r) => r.friend_player_id));
+    }
+
+    /**
+     * The ids of players on the caller's mutual edge — THE input to every
+     * round-visibility check (`FriendsActivityService`). Deliberately a bare id
+     * set, like `friendIdsFor`: a visibility decision needs membership, not
+     * profiles, and materialising profiles for it would put a display concern
+     * inside an authorization path.
+     */
+    async mutualFriendIdsFor(playerId: string): Promise<Set<string>> {
+        const rows = await this.mutualEdges(playerId).select('mine.friend_player_id').execute();
         return new Set(rows.map((r) => r.friend_player_id));
     }
 
@@ -191,6 +238,10 @@ export class FriendService {
             .orderBy('players.display_name')
             .execute();
 
+        // The reverse edge comes from `mutualEdges` (via `mutualFriendIdsFor`),
+        // the one place mutuality is derived — see the note there.
+        const mutual = await this.mutualFriendIdsFor(playerId);
+
         // One pass over the caller's co-production map, bucketed by friend.
         const byFriend = new Map<string, { playedAt: string }[]>();
         for (const s of await this.sharedRounds(playerId)) {
@@ -210,6 +261,7 @@ export class FriendService {
                 sharedRoundCount,
                 lastPlayedAt,
                 frecency,
+                isMutual: mutual.has(row.id),
             };
         });
     }

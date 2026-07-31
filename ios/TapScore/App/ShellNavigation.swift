@@ -18,6 +18,21 @@ enum ShellDestination: Hashable, Sendable {
     /// The round screen. `token` is the share token — the round's write
     /// credential, so it is never logged or put in an analytics event.
     case round(token: String)
+    /// The read-only spectate screen for a friend's round.
+    ///
+    /// Addressed by round ID, never by token — the whole point of the spectate
+    /// path is that the viewer is authorized by their SESSION (participation,
+    /// round visibility, a mutual friend edge) and never holds the round's
+    /// write credential. A `.spectate` route can therefore never be turned
+    /// into a `.round` one.
+    ///
+    /// `friendName` is who the viewer thinks they are watching, carried from
+    /// the surface they tapped so the header can state the relationship
+    /// ("Watching · Anna's round at Linköping"). It is presentation only: the
+    /// spectate payload lists a round's balls, not which of its players is a
+    /// friend of the caller, and the screen degrades to "Watching this round"
+    /// without it rather than guessing.
+    case spectate(roundId: String, friendName: String?)
 }
 
 /// The navigation stack as a **value**, with the routing rules as pure
@@ -57,6 +72,14 @@ struct ShellNavigation: Equatable, Sendable {
     mutating func openRound(token: String) -> Bool {
         guard openRoundToken != token else { return false }
         stack.append(.round(token: token))
+        return true
+    }
+
+    /// Pushes the spectate screen for `roundId`, unless it is already on top.
+    @discardableResult
+    mutating func openSpectate(roundId: String, friendName: String? = nil) -> Bool {
+        if case let .spectate(openId, _)? = top, openId == roundId { return false }
+        stack.append(.spectate(roundId: roundId, friendName: friendName))
         return true
     }
 

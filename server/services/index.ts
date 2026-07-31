@@ -26,6 +26,8 @@ import { RoundLeaveService } from './round-leave.service';
 import { RoundEditService } from './round-edit.service';
 import { GuestClaimService } from './guest-claim.service';
 import { FriendService } from './friend.service';
+import { FriendsActivityService } from './friends-activity.service';
+import { SpectateService } from './spectate.service';
 import { CompetitionService } from './competition.service';
 import { CompetitionRoundService } from './competition-round.service';
 import { CompetitionLeaderboardService } from './competition-leaderboard.service';
@@ -185,6 +187,16 @@ export function createServices(db: Kysely<Database>) {
         playerStatsService,
     );
     const guestClaimService = new GuestClaimService(db);
+    // Friends on the course (docs/proposals/friends-activity.md): the feed AND
+    // the one visibility rule the spectate path is gated on — both live here so
+    // "who may see this round" has a single implementation.
+    const friendsActivityService = new FriendsActivityService(db, friendService);
+    const spectateService = new SpectateService(
+        db,
+        friendsActivityService,
+        roundService,
+        leaderboardService,
+    );
     const competitionService = new CompetitionService(
         db,
         playerService,
@@ -249,6 +261,8 @@ export function createServices(db: Kysely<Database>) {
         roundLeaveService,
         roundEditService,
         guestClaimService,
+        friendsActivityService,
+        spectateService,
         competitionService,
         competitionRoundService,
         competitionLeaderboardService,

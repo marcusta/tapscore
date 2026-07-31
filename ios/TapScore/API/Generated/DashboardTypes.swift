@@ -89,6 +89,33 @@ struct FriendlyRound: Codable, Sendable, Equatable {
     }
 }
 
+struct FriendsActivity: Codable, Sendable, Equatable {
+    var live: [FriendsActivityEntry]
+    var recent: [FriendsActivityEntry]
+
+    enum CodingKeys: String, CodingKey {
+        case live = "live"
+        case recent = "recent"
+    }
+
+    init(live: [FriendsActivityEntry], recent: [FriendsActivityEntry]) {
+        self.live = live
+        self.recent = recent
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.live = try c.decode([FriendsActivityEntry].self, forKey: .live)
+        self.recent = try c.decode([FriendsActivityEntry].self, forKey: .recent)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(live, forKey: .live)
+        try c.encode(recent, forKey: .recent)
+    }
+}
+
 struct DashboardSlotEntry: Codable, Sendable, Equatable {
     var slotDefId: String
     var slotIndex: Double?
@@ -186,6 +213,116 @@ struct DashboardSlotEntry: Codable, Sendable, Equatable {
             try c.encode(metricLabel, forKey: .metricLabel)
         } else {
             try c.encodeNil(forKey: .metricLabel)
+        }
+    }
+}
+
+struct FriendsActivityEntry: Codable, Sendable, Equatable {
+    var roundId: String
+    var name: String?
+    var courseName: String?
+    var date: String
+    var status: AdminRoundSummaryStatus
+    var holeCount: Double
+    var lastActivityAt: String?
+    var friends: [FriendsActivityFriend]
+
+    enum CodingKeys: String, CodingKey {
+        case roundId = "roundId"
+        case name = "name"
+        case courseName = "courseName"
+        case date = "date"
+        case status = "status"
+        case holeCount = "holeCount"
+        case lastActivityAt = "lastActivityAt"
+        case friends = "friends"
+    }
+
+    init(roundId: String, name: String? = nil, courseName: String? = nil, date: String, status: AdminRoundSummaryStatus, holeCount: Double, lastActivityAt: String? = nil, friends: [FriendsActivityFriend]) {
+        self.roundId = roundId
+        self.name = name
+        self.courseName = courseName
+        self.date = date
+        self.status = status
+        self.holeCount = holeCount
+        self.lastActivityAt = lastActivityAt
+        self.friends = friends
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.roundId = try c.decode(String.self, forKey: .roundId)
+        self.name = try c.decodeIfPresent(String.self, forKey: .name)
+        self.courseName = try c.decodeIfPresent(String.self, forKey: .courseName)
+        self.date = try c.decode(String.self, forKey: .date)
+        self.status = try c.decode(AdminRoundSummaryStatus.self, forKey: .status)
+        self.holeCount = try c.decode(Double.self, forKey: .holeCount)
+        self.lastActivityAt = try c.decodeIfPresent(String.self, forKey: .lastActivityAt)
+        self.friends = try c.decode([FriendsActivityFriend].self, forKey: .friends)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(roundId, forKey: .roundId)
+        if let name {
+            try c.encode(name, forKey: .name)
+        } else {
+            try c.encodeNil(forKey: .name)
+        }
+        if let courseName {
+            try c.encode(courseName, forKey: .courseName)
+        } else {
+            try c.encodeNil(forKey: .courseName)
+        }
+        try c.encode(date, forKey: .date)
+        try c.encode(status, forKey: .status)
+        try c.encode(holeCount, forKey: .holeCount)
+        if let lastActivityAt {
+            try c.encode(lastActivityAt, forKey: .lastActivityAt)
+        } else {
+            try c.encodeNil(forKey: .lastActivityAt)
+        }
+        try c.encode(friends, forKey: .friends)
+    }
+}
+
+struct FriendsActivityFriend: Codable, Sendable, Equatable {
+    var playerId: String
+    var displayName: String
+    var holesPlayed: Double
+    var scoreToPar: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case playerId = "playerId"
+        case displayName = "displayName"
+        case holesPlayed = "holesPlayed"
+        case scoreToPar = "scoreToPar"
+    }
+
+    init(playerId: String, displayName: String, holesPlayed: Double, scoreToPar: Double? = nil) {
+        self.playerId = playerId
+        self.displayName = displayName
+        self.holesPlayed = holesPlayed
+        self.scoreToPar = scoreToPar
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.playerId = try c.decode(String.self, forKey: .playerId)
+        self.displayName = try c.decode(String.self, forKey: .displayName)
+        self.holesPlayed = try c.decode(Double.self, forKey: .holesPlayed)
+        self.scoreToPar = try c.decodeIfPresent(Double.self, forKey: .scoreToPar)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(playerId, forKey: .playerId)
+        try c.encode(displayName, forKey: .displayName)
+        try c.encode(holesPlayed, forKey: .holesPlayed)
+        if let scoreToPar {
+            try c.encode(scoreToPar, forKey: .scoreToPar)
+        } else {
+            try c.encodeNil(forKey: .scoreToPar)
         }
     }
 }

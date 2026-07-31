@@ -25,6 +25,7 @@ function repeatedRound(): Round {
         id: 'r1',
         courseId: 'c1',
         name: null,
+        visibility: 'friends',
         date: '2026-07-01',
         roundType: 'custom_holes',
         venueType: 'outdoor',

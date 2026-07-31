@@ -32,6 +32,8 @@ import { createFormatsApi } from './api/formats.api';
 import { createCourseRouteTemplatesApi } from './api/course-route-templates.api';
 import { createFriendlyRoundsApi } from './api/friendly-rounds.api';
 import { createDashboardApi } from './api/dashboard.api';
+import { createSpectateApi } from './api/spectate.api';
+import { registerSpectateEvents } from './api/spectate-events';
 import { createSetupApi } from './api/setup.api';
 import { createCompetitionsApi } from './api/competitions.api';
 import { CompetitionAuthz } from './api/competition-authz';
@@ -76,6 +78,8 @@ const {
     roundEditService,
     guestClaimService,
     dashboardService,
+    friendsActivityService,
+    spectateService,
     correctionService,
     formatActionService,
     roleService,
@@ -147,7 +151,10 @@ mount(app, '/api', createLeaderboardsApi(leaderboardService));
 mount(app, '/api', createFormatsApi());
 mount(app, '/api', createCourseRouteTemplatesApi(courseRouteTemplateService));
 mount(app, '/api', createFriendlyRoundsApi(friendlyRoundService, guestClaimService, roundJoinService, roundEditService, roundLeaveService, seatClaimService));
-mount(app, '/api', createDashboardApi(dashboardService, friendlyRoundService));
+mount(app, '/api', createDashboardApi(dashboardService, friendlyRoundService, friendsActivityService));
+// Watching a friend's round: session + visibility scoped, read-only, and
+// deliberately token-free (docs/proposals/friends-activity.md).
+mount(app, '/api', createSpectateApi(spectateService));
 mount(app, '/api', createSetupApi(courseService, teeService, clubService));
 mount(app, '/api', createCorrectionsApi(correctionService));
 mount(app, '/api', createFormatActionsApi(formatActionService));
@@ -169,6 +176,9 @@ mount(app, '/api', createAdminApi(adminService, roleService, new AdminAuthz(role
 // Streaming has no descriptor shape (Phase 9a) — a raw Hono route, registered
 // with the other /api routes so it precedes the static fallthrough.
 registerFriendlyRoundEvents(app, friendlyRoundService, roundEventsHub);
+// The same stream for a spectator, authorized by session + visibility instead
+// of by share token.
+registerSpectateEvents(app, spectateService, roundEventsHub);
 
 // --- Static client ---
 

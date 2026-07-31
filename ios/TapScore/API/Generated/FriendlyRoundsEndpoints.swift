@@ -45,6 +45,10 @@ enum FriendlyRoundsEndpoints {
         method: .post,
         path: "/friendly-rounds/reopen",
         pathParams: [])
+    static let setVisibility = APIEndpoint<FriendlyRoundsSetVisibilityInput, FriendlyRoundsSetVisibilityOutput>(
+        method: .post,
+        path: "/friendly-rounds/visibility",
+        pathParams: [])
     static let join = APIEndpoint<FriendlyRoundsJoinInput, FriendlyRoundsEditSetupOutput>(
         method: .post,
         path: "/friendly-rounds/join",

@@ -41,11 +41,24 @@ struct RoundListView: View {
     /// screen never writes to the device list except on an explicit delete.
     let onOpen: (RoundOpenRequest) -> Void
 
+    /// Asks the shell to open the read-only spectate screen for a round id.
+    ///
+    /// Deliberately separate from `onOpen`: that path carries a share token —
+    /// the round's WRITE credential — and records the round as one this device
+    /// plays. Watching a friend is neither. Defaulted so the parameter is
+    /// additive for every other call site.
+    var onSpectate: (String, String?) -> Void = { _, _ in }
+
     /// Rows, failure copy and the server count — owned by a loader rather than
     /// by `@State` on the view, because the one thing this screen gets wrong is
     /// WHEN it loads, and "when" is not something a view body can be tested on.
     /// See `LandingLoader`.
     @State private var loader = LandingLoader()
+
+    /// The friends-activity feed behind the "Out now" strip. Owned here rather
+    /// than by the shell because this is the only screen that renders it, and a
+    /// failed load is a strip that silently does not appear.
+    @State private var activity: FriendsActivityStore?
 
     /// The row whose trash was tapped, parked while the confirmation is up.
     ///
@@ -65,6 +78,7 @@ struct RoundListView: View {
             VStack(alignment: .leading, spacing: TapSpacing.xl) {
                 wordmark
                 callsToAction
+                outNow
 
                 if let loadFailure = loader.loadFailure {
                     failureNotice(loadFailure)
@@ -200,6 +214,22 @@ struct RoundListView: View {
         }
     }
 
+    /// Friends currently on the course — see `OutNowStrip`.
+    ///
+    /// Nothing renders when the feed is empty, still loading, or failed. The
+    /// strip is a bonus on someone else's screen, so it may only ever ADD to
+    /// the landing, never explain itself there.
+    @ViewBuilder
+    private var outNow: some View {
+        if let activity, let contextLine = activity.contextLine {
+            OutNowStrip(
+                contextLine: contextLine,
+                chips: activity.chips,
+                onOpen: { chip in onSpectate(chip.roundId, chip.displayName) }
+            )
+        }
+    }
+
     @ViewBuilder
     private func section(_ title: String, rows sectionRows: [LandingRow]) -> some View {
         if !sectionRows.isEmpty {
@@ -279,6 +309,21 @@ struct RoundListView: View {
             api: environment.api,
             device: deviceRounds.all(),
             force: force)
+        await loadActivity(force: force)
+    }
+
+    /// The friends feed. Signed-in only — it is a friends-of-this-account
+    /// query, and an anonymous device has no account to have friends on. A
+    /// sign-out therefore has to CLEAR it, or the previous account's friends
+    /// keep glowing on the landing of a device nobody is signed into.
+    private func loadActivity(force: Bool) async {
+        guard case .signedIn = environment.authState else {
+            activity = nil
+            return
+        }
+        let store = activity ?? FriendsActivityStore(api: environment.api)
+        if activity == nil { activity = store }
+        await store.load(force: force)
     }
 
     private func remove(token: String) {

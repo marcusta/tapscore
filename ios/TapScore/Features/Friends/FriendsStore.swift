@@ -104,6 +104,13 @@ final class FriendsStore {
                 sharedRoundCount: 0,
                 lastPlayedAt: nil,
                 frecency: 0,
+                // Optimistically FALSE, which is the honest default: adding
+                // somebody creates one edge, and only they can create the
+                // other. If they had already added us the server knows it, and
+                // the reload below corrects the row within a moment — erring
+                // the other way would flash "you're mutual friends" at somebody
+                // who is not.
+                isMutual: false,
                 id: player.id,
                 username: player.username,
                 displayName: player.displayName,
@@ -119,6 +126,12 @@ final class FriendsStore {
                 copy.isFriend = true
                 return copy
             }
+            // NOT reloaded. Local mutations deliberately never refetch the
+            // whole list (pinned by `FriendsStoreTests`), so the optimistic
+            // `isMutual: false` above stands until the next natural load. The
+            // visible consequence is at most one quiet "hasn't added you back"
+            // subtitle on somebody who had already added us — the honest
+            // direction to be wrong in, and self-correcting on the next open.
         } catch {
             mutationError = Self.message(for: error, fallback: "Couldn't add that friend.")
         }

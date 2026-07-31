@@ -62,6 +62,11 @@ export type RoundType = 'full_18' | 'front_9' | 'back_9' | 'custom_holes';
 export type VenueType = 'outdoor' | 'indoor';
 export type StartListMode = 'structured' | 'fixed_slots' | 'open_window';
 export type RoundStatus = 'not_started' | 'active' | 'complete';
+/** Who may DISCOVER a round (migration 049). Governs the friends-activity feed
+ *  and the session-scoped spectate path ONLY — id/token-addressed reads stay
+ *  open. `link` widens spectate to any signed-in caller holding the round id
+ *  but is never a feed channel. */
+export type RoundVisibility = 'private' | 'friends' | 'link';
 
 export interface RoundsTable {
     id: string;
@@ -78,6 +83,10 @@ export interface RoundsTable {
     /** Organizer-supplied round name (migration 045). Null ⇒ the UI falls back
      *  to `course_name_snapshot`. Authored in `RoundSetupDraft.name`. */
     name: string | null;
+    /** Discovery scope (migration 049), CHECK-constrained, defaults to
+     *  'friends'. Read by the friends-activity feed and the spectate gate;
+     *  nothing else may branch on it. */
+    visibility: Generated<RoundVisibility>;
     course_name_snapshot: string | null;
     /** Wall-clock time the round was FINISHED (status→complete); null until then.
      *  Set/cleared together with `status` by RoundService.finish/reopenByToken. */

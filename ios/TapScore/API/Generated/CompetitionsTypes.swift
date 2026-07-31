@@ -962,6 +962,12 @@ enum RoundStartListMode: String, Codable, Sendable, Equatable {
     case openWindow = "open_window"
 }
 
+enum RoundVisibility: String, Codable, Sendable, Equatable {
+    case `private` = "private"
+    case friends = "friends"
+    case link = "link"
+}
+
 struct Round: Codable, Sendable, Equatable {
     var id: String
     var courseId: String
@@ -975,6 +981,7 @@ struct Round: Codable, Sendable, Equatable {
     var status: AdminRoundSummaryStatus
     var latestEventId: String?
     var name: String?
+    var visibility: RoundVisibility
     var courseNameSnapshot: String?
     var completedAt: String?
     var formatSlots: [FormatSlot]
@@ -997,6 +1004,7 @@ struct Round: Codable, Sendable, Equatable {
         case status = "status"
         case latestEventId = "latestEventId"
         case name = "name"
+        case visibility = "visibility"
         case courseNameSnapshot = "courseNameSnapshot"
         case completedAt = "completedAt"
         case formatSlots = "formatSlots"
@@ -1007,7 +1015,7 @@ struct Round: Codable, Sendable, Equatable {
         case playingGroups = "playingGroups"
     }
 
-    init(id: String, courseId: String, date: String, roundType: RoundRoundType, venueType: RoundVenueType, startListMode: RoundStartListMode, windowStart: String? = nil, windowEnd: String? = nil, selfOrganize: Bool, status: AdminRoundSummaryStatus, latestEventId: String? = nil, name: String? = nil, courseNameSnapshot: String? = nil, completedAt: String? = nil, formatSlots: [FormatSlot], playHoles: [RoundPlayHole], routeSi: RoundRouteSi, routeHandicapPolicy: RoundRoutePolicy, routeSections: [RoundRouteSection], playingGroups: [RoundPlayingGroup]) {
+    init(id: String, courseId: String, date: String, roundType: RoundRoundType, venueType: RoundVenueType, startListMode: RoundStartListMode, windowStart: String? = nil, windowEnd: String? = nil, selfOrganize: Bool, status: AdminRoundSummaryStatus, latestEventId: String? = nil, name: String? = nil, visibility: RoundVisibility, courseNameSnapshot: String? = nil, completedAt: String? = nil, formatSlots: [FormatSlot], playHoles: [RoundPlayHole], routeSi: RoundRouteSi, routeHandicapPolicy: RoundRoutePolicy, routeSections: [RoundRouteSection], playingGroups: [RoundPlayingGroup]) {
         self.id = id
         self.courseId = courseId
         self.date = date
@@ -1020,6 +1028,7 @@ struct Round: Codable, Sendable, Equatable {
         self.status = status
         self.latestEventId = latestEventId
         self.name = name
+        self.visibility = visibility
         self.courseNameSnapshot = courseNameSnapshot
         self.completedAt = completedAt
         self.formatSlots = formatSlots
@@ -1044,6 +1053,7 @@ struct Round: Codable, Sendable, Equatable {
         self.status = try c.decode(AdminRoundSummaryStatus.self, forKey: .status)
         self.latestEventId = try c.decodeIfPresent(String.self, forKey: .latestEventId)
         self.name = try c.decodeIfPresent(String.self, forKey: .name)
+        self.visibility = try c.decode(RoundVisibility.self, forKey: .visibility)
         self.courseNameSnapshot = try c.decodeIfPresent(String.self, forKey: .courseNameSnapshot)
         self.completedAt = try c.decodeIfPresent(String.self, forKey: .completedAt)
         self.formatSlots = try c.decode([FormatSlot].self, forKey: .formatSlots)
@@ -1084,6 +1094,7 @@ struct Round: Codable, Sendable, Equatable {
         } else {
             try c.encodeNil(forKey: .name)
         }
+        try c.encode(visibility, forKey: .visibility)
         if let courseNameSnapshot {
             try c.encode(courseNameSnapshot, forKey: .courseNameSnapshot)
         } else {

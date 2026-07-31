@@ -15,6 +15,18 @@ import { EventType } from './score-events.api';
 const CreateInput = Type.Object({ draft: RoundSetupDraft });
 const ByTokenInput = Type.Object({ token: Type.String() });
 
+// Round discovery scope (migration 049). The three values are closed by design
+// and mirror the column's CHECK, so an invalid value is a 400 at the edge
+// rather than an opaque constraint failure in SQLite.
+const SetVisibilityInput = Type.Object({
+    token: Type.String(),
+    visibility: Type.Union([
+        Type.Literal('private'),
+        Type.Literal('friends'),
+        Type.Literal('link'),
+    ]),
+});
+
 // Result read with the OPTIONAL Phase 3.5 polling cursor. Omitted cursor =
 // the pre-cursor client — it always gets the full result envelope.
 const ResultInput = Type.Object({
@@ -224,6 +236,15 @@ async function reopenOr404(svc: FriendlyRoundService, token: string) {
     return res;
 }
 
+async function setVisibilityOr404(
+    svc: FriendlyRoundService,
+    input: Static<typeof SetVisibilityInput>,
+) {
+    const res = await svc.setVisibilityByToken(input.token, input.visibility);
+    if (res === null) throw new NotFoundError('friendly round not found');
+    return res;
+}
+
 async function setupOr404(edits: RoundEditService, token: string) {
     const res = await edits.setupByToken(token);
     if (res === null) throw new NotFoundError('friendly round not found');
@@ -280,6 +301,13 @@ export function createFriendlyRoundsApi(
         // `completed_at`; the client never supplies it.
         finish:    { method: 'POST' as const, path: '/friendly-rounds/finish', fn: (input: Static<typeof ByTokenInput>) => finishOr404(svc, input.token), schema: ByTokenInput },
         reopen:    { method: 'POST' as const, path: '/friendly-rounds/reopen', fn: (input: Static<typeof ByTokenInput>) => reopenOr404(svc, input.token), schema: ByTokenInput },
+        // Discovery scope (docs/proposals/friends-activity.md). NO auth, like
+        // the rest of the token front door: holding the token IS the
+        // participation test this app has, and it already buys every score in
+        // the round — choosing whether the round shows up in friends' feeds is
+        // strictly less than that. The write takes effect immediately, open
+        // spectate streams included (see `setVisibilityByToken`).
+        setVisibility: { method: 'POST' as const, path: '/friendly-rounds/visibility', fn: (input: Static<typeof SetVisibilityInput>) => setVisibilityOr404(svc, input), schema: SetVisibilityInput },
         // Auth REQUIRED: the caller's profile IS the join payload (identity,
         // name, index, gender). 409s (already started / already in) surface via
         // ConflictError; profile/tee/slot refusals are structured diagnostics.

@@ -243,6 +243,41 @@ final class LiveResultFeedTests: XCTestCase {
         XCTAssertEqual(state, .degraded, "A degraded feed has nothing to suspend.")
     }
 
+    // MARK: - Endpoints
+
+    /// The two streams differ in exactly one thing: the URL and the credential
+    /// riding in it. A spectator is authorized by their SESSION and never holds
+    /// the round's write credential, so their stream key is the round id.
+    func testTheSpectateStreamIsKeyedByRoundIdNotByToken() {
+        let feed = LiveResultFeed(
+            configuration: .dev,
+            endpoint: .spectateRoundId,
+            cursors: ResultCursorStore(defaults: defaults))
+
+        let url = feed.url(token: "round-1", since: nil)
+
+        XCTAssertEqual(url.path.hasSuffix("/spectate/events"), true, url.absoluteString)
+        XCTAssertEqual(url.query, "roundId=round-1")
+        XCTAssertFalse(
+            url.absoluteString.contains("token"),
+            "a share token is a write credential and must never key the watcher's stream")
+    }
+
+    /// The spectate read is uncursored — the watcher refetches the whole view —
+    /// so a `since` must be dropped rather than promising a resume the server
+    /// does not implement. The participant stream keeps it.
+    func testSinceRidesOnlyTheStreamThatCanResume() {
+        let cursors = ResultCursorStore(defaults: defaults)
+        let spectate = LiveResultFeed(
+            configuration: .dev, endpoint: .spectateRoundId, cursors: cursors)
+        let participant = LiveResultFeed(
+            configuration: .dev, endpoint: .friendlyRoundToken, cursors: cursors)
+
+        XCTAssertEqual(spectate.url(token: "round-1", since: "c1").query, "roundId=round-1")
+        XCTAssertEqual(
+            participant.url(token: "tok", since: "c1").query, "token=tok&since=c1")
+    }
+
     func testStopIsIdempotentAndFinishesTheStream() async throws {
         let transport = FakeSSETransport([.openStream])
         let feed = makeFeed(transport, cursors: ResultCursorStore(defaults: defaults))

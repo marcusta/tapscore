@@ -91,6 +91,12 @@ final class RoundStore {
     private(set) var error: String?
     private(set) var friendlyRound: FriendlyRound?
     private(set) var round: Round?
+    /// True when this token's round rides the competition wrapper. Read by the
+    /// manage sheet to withhold settings that are INERT on such a round — the
+    /// friends-feed toggle writes a column both discovery paths ignore for a
+    /// competition round, so offering it there would be a switch whose "on"
+    /// copy is false. Defaults to false, which is what an unloaded round is.
+    private(set) var isCompetitionRound = false
     private(set) var startList: StartListView?
     private(set) var balls: [RoundBall] = []
     private(set) var scorecards: [Scorecard] = []
@@ -362,6 +368,7 @@ final class RoundStore {
             friendlyRound = data.friendlyRound
             round = data.round
             startList = data.startList
+            isCompetitionRound = data.isCompetitionRound
             // Remember this round on THIS device, now that there is something
             // worth remembering. The shell already recorded the bare token when
             // it pushed the screen; this is the enrichment pass — course name

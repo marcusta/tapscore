@@ -18,7 +18,11 @@ beforeEach(() => {
 
 async function setup() {
     const ctx: RouteTestContext = await setupRoutes([seedPlayer]);
-    mount(ctx.app, '/api', createDashboardApi(ctx.dashboardService, ctx.friendlyRoundService));
+    mount(
+        ctx.app,
+        '/api',
+        createDashboardApi(ctx.dashboardService, ctx.friendlyRoundService, ctx.friendsActivityService),
+    );
     mount(ctx.app, '/api', createFriendlyRoundsApi(ctx.friendlyRoundService, ctx.guestClaimService, ctx.roundJoinService, ctx.roundEditService, ctx.roundLeaveService, ctx.seatClaimService));
 
     const club = await ctx.clubService.create({ name: 'Dash GC' });

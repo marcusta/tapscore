@@ -59,6 +59,46 @@ struct LiveResultEvent: Codable, Sendable, Equatable {
 }
 
 actor LiveResultFeed {
+    /// WHICH stream this feed connects to. The wire contract, the degrade
+    /// policy and the completion policy above are identical for both — the only
+    /// difference is the URL and the credential riding in it, which is exactly
+    /// why this is one actor with two endpoints rather than two actors.
+    ///
+    /// - `.friendlyRoundToken` — `/friendly-rounds/events?token=…`, the
+    ///   participant's stream, authorized by the round's WRITE credential.
+    /// - `.spectateRoundId` — `/spectate/events?roundId=…`, the spectator's
+    ///   stream, authorized by the session plus the round's visibility
+    ///   (docs/proposals/friends-activity.md). A watcher never holds a share
+    ///   token, so the key in the URL is the round id and nothing about this
+    ///   stream can be turned into a write.
+    ///
+    /// `start(token:)`'s parameter is therefore the stream KEY, whichever of the
+    /// two it is. The name stays for the participant path, which is every
+    /// existing caller.
+    enum Endpoint: Sendable, Equatable {
+        case friendlyRoundToken
+        case spectateRoundId
+
+        var path: String {
+            switch self {
+            case .friendlyRoundToken: "friendly-rounds/events"
+            case .spectateRoundId: "spectate/events"
+            }
+        }
+
+        var keyName: String {
+            switch self {
+            case .friendlyRoundToken: "token"
+            case .spectateRoundId: "roundId"
+            }
+        }
+
+        /// The spectate read is uncursored — the spectator refetches the whole
+        /// view — so a `since` on that URL would promise a resume the server
+        /// does not implement.
+        var acceptsSince: Bool { self == .friendlyRoundToken }
+    }
+
     /// What a consumer of `start()` sees. `.degraded` is terminal and always
     /// the last element.
     enum Update: Sendable, Equatable {
@@ -90,6 +130,7 @@ actor LiveResultFeed {
     static let fallbackPollInterval: TimeInterval = 20
 
     private let configuration: APIConfiguration
+    private let endpoint: Endpoint
     private let transport: any SSETransport
     private let cursors: ResultCursorStore
     private let clientConfiguration: SSEClient.Configuration
@@ -109,6 +150,7 @@ actor LiveResultFeed {
 
     init(
         configuration: APIConfiguration,
+        endpoint: Endpoint = .friendlyRoundToken,
         transport: any SSETransport = URLSessionSSETransport(),
         cursors: ResultCursorStore = ResultCursorStore(),
         clientConfiguration: SSEClient.Configuration = SSEClient.Configuration(),
@@ -116,6 +158,7 @@ actor LiveResultFeed {
         idleSleeper: @escaping SSEClient.Sleeper = { try await Task.sleep(for: $0) }
     ) {
         self.configuration = configuration
+        self.endpoint = endpoint
         self.transport = transport
         self.cursors = cursors
         self.clientConfiguration = clientConfiguration
@@ -177,16 +220,16 @@ actor LiveResultFeed {
     /// The URL the feed connects to. Exposed for tests and for the poll
     /// fallback's sibling code to stay in step with the query shape.
     nonisolated func url(token: String, since: String?) -> URL {
-        var components = URLComponents(
-            url: configuration.baseURL.appendingPathComponent("friendly-rounds/events"),
-            resolvingAgainstBaseURL: false
-        )
-        var items = [URLQueryItem(name: "token", value: token)]
-        if let since { items.append(URLQueryItem(name: "since", value: since)) }
+        let base = configuration.baseURL.appendingPathComponent(endpoint.path)
+        var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        var items = [URLQueryItem(name: endpoint.keyName, value: token)]
+        if let since, endpoint.acceptsSince {
+            items.append(URLQueryItem(name: "since", value: since))
+        }
         components?.queryItems = items
         // The base URL is a compile-time constant plus a fixed path, so this
         // cannot fail in practice; falling back keeps the API non-optional.
-        return components?.url ?? configuration.baseURL.appendingPathComponent("friendly-rounds/events")
+        return components?.url ?? base
     }
 
     // MARK: - Internals

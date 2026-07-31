@@ -184,7 +184,8 @@ final class JoinLinkTests: XCTestCase {
                 "id": "r1", "courseId": "c1", "date": "2026-07-27",
                 "roundType": "full_18", "venueType": "outdoor",
                 "startListMode": "structured", "selfOrganize": true,
-                "status": "\(status)", "courseNameSnapshot": "Linköpings GK",
+                "status": "\(status)", "visibility": "friends",
+                "courseNameSnapshot": "Linköpings GK",
                 "completedAt": \(completed),
                 "formatSlots": [], "playHoles": [],
                 "routeSi": {"mode": "official", "allocationCycleSize": 18},
@@ -205,7 +206,8 @@ final class JoinLinkTests: XCTestCase {
                   {"seatId":"s2","label":"Player 2","ballId":"b2"}
                 ],
                 "claimedSeats": \(claimedSeats)
-              }
+              },
+              "isCompetitionRound": false
             }
             """.utf8
         )

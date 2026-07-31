@@ -5,6 +5,7 @@ export interface FriendProfile {
     sharedRoundCount: number;
     lastPlayedAt: null | string;
     frecency: number;
+    isMutual: boolean;
     id: string;
     username: string;
     displayName: string;

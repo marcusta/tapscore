@@ -4,6 +4,7 @@ import XCTest
 final class FriendsStoreTests: XCTestCase {
     private static let friend = """
     {"sharedRoundCount":2,"lastPlayedAt":"2026-07-28T12:00:00.000Z","frecency":4,
+     "isMutual":true,
      "id":"p1","username":"johana","displayName":"Johana","gender":"F",
      "handicapIndex":0.9,"homeClubName":"Linköpings GK"}
     """

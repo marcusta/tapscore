@@ -6,6 +6,7 @@ struct FriendProfile: Codable, Sendable, Equatable {
     var sharedRoundCount: Double
     var lastPlayedAt: String?
     var frecency: Double
+    var isMutual: Bool
     var id: String
     var username: String
     var displayName: String
@@ -17,6 +18,7 @@ struct FriendProfile: Codable, Sendable, Equatable {
         case sharedRoundCount = "sharedRoundCount"
         case lastPlayedAt = "lastPlayedAt"
         case frecency = "frecency"
+        case isMutual = "isMutual"
         case id = "id"
         case username = "username"
         case displayName = "displayName"
@@ -25,10 +27,11 @@ struct FriendProfile: Codable, Sendable, Equatable {
         case homeClubName = "homeClubName"
     }
 
-    init(sharedRoundCount: Double, lastPlayedAt: String? = nil, frecency: Double, id: String, username: String, displayName: String, gender: PlayerGender? = nil, handicapIndex: Double? = nil, homeClubName: String? = nil) {
+    init(sharedRoundCount: Double, lastPlayedAt: String? = nil, frecency: Double, isMutual: Bool, id: String, username: String, displayName: String, gender: PlayerGender? = nil, handicapIndex: Double? = nil, homeClubName: String? = nil) {
         self.sharedRoundCount = sharedRoundCount
         self.lastPlayedAt = lastPlayedAt
         self.frecency = frecency
+        self.isMutual = isMutual
         self.id = id
         self.username = username
         self.displayName = displayName
@@ -42,6 +45,7 @@ struct FriendProfile: Codable, Sendable, Equatable {
         self.sharedRoundCount = try c.decode(Double.self, forKey: .sharedRoundCount)
         self.lastPlayedAt = try c.decodeIfPresent(String.self, forKey: .lastPlayedAt)
         self.frecency = try c.decode(Double.self, forKey: .frecency)
+        self.isMutual = try c.decode(Bool.self, forKey: .isMutual)
         self.id = try c.decode(String.self, forKey: .id)
         self.username = try c.decode(String.self, forKey: .username)
         self.displayName = try c.decode(String.self, forKey: .displayName)
@@ -59,6 +63,7 @@ struct FriendProfile: Codable, Sendable, Equatable {
             try c.encodeNil(forKey: .lastPlayedAt)
         }
         try c.encode(frecency, forKey: .frecency)
+        try c.encode(isMutual, forKey: .isMutual)
         try c.encode(id, forKey: .id)
         try c.encode(username, forKey: .username)
         try c.encode(displayName, forKey: .displayName)

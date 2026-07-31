@@ -5,4 +5,8 @@ enum DashboardEndpoints {
         method: .get,
         path: "/dashboard/my-rounds",
         pathParams: [])
+    static let friendsActivity = APIEndpoint<EmptyInput, FriendsActivity>(
+        method: .get,
+        path: "/dashboard/friends-activity",
+        pathParams: [])
 }

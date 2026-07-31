@@ -346,7 +346,7 @@ final class CreateRosterStartTests: XCTestCase {
         await store.load()
 
         let friend = FriendProfile(
-            sharedRoundCount: 3, lastPlayedAt: nil, frecency: 3, id: "p-bert",
+            sharedRoundCount: 3, lastPlayedAt: nil, frecency: 3, isMutual: true, id: "p-bert",
             username: "bert", displayName: "Bert", gender: .f, handicapIndex: 18.4,
             homeClubName: nil)
         store.addFriend(friend)
@@ -369,7 +369,7 @@ final class CreateRosterStartTests: XCTestCase {
         let store = CreateStore(api: RoundStubURLProtocol.makeAPI())
         await store.load()
         store.addFriend(FriendProfile(
-            sharedRoundCount: 0, lastPlayedAt: nil, frecency: 0, id: "p-x",
+            sharedRoundCount: 0, lastPlayedAt: nil, frecency: 0, isMutual: true, id: "p-x",
             username: "x", displayName: "X", gender: nil, handicapIndex: nil,
             homeClubName: nil))
         let row = store.players.last!

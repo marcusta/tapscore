@@ -85,6 +85,7 @@ export interface Round {
     status: 'active' | 'not_started' | 'complete';
     latestEventId: null | string;
     name: null | string;
+    visibility: 'private' | 'friends' | 'link';
     courseNameSnapshot: null | string;
     completedAt: null | string;
     formatSlots: FormatSlot[];

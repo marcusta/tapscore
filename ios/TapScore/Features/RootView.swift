@@ -116,6 +116,10 @@ struct RootView: View {
                     // BOUNDARY: the round feature owns this screen entirely.
                     // The shell hands it a token and reads nothing back.
                     RoundView(token: token)
+                case let .spectate(roundId, friendName):
+                    // Read-only by construction: the spectate feature is
+                    // handed an ID and has no way to obtain a share token.
+                    SpectateRoundView(roundId: roundId, friendName: friendName)
                 }
             }
         }
@@ -138,7 +142,10 @@ struct RootView: View {
             RoundListView(
                 deviceRounds: deviceRounds,
                 onJoin: { navigation.openJoin() },
-                onOpen: { request in open(round: request) }
+                onOpen: { request in open(round: request) },
+                onSpectate: { roundId, friendName in
+                    navigation.openSpectate(roundId: roundId, friendName: friendName)
+                }
             )
         case .friends:
             FriendsView()

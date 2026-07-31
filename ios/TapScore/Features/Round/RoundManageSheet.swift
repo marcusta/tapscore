@@ -53,6 +53,22 @@ struct RoundManageSheet: View {
                 // opens a screen the server will refuse is worse than no row.
 
                 if rows.showsEdit { editRow }
+                // Between "edit the round" and the rows that remove things:
+                // it is a setting, not an action, and it is not destructive.
+                //
+                // It appears only once the round has actually loaded (a switch
+                // that cannot read its own state has nothing honest to show)
+                // and never on a COMPETITION round: the write is inert there by
+                // design — the feed and the spectate path exclude competition
+                // rounds whatever the column says — so its "on" copy, which
+                // promises friends can watch, would simply be false.
+                if let visibility = store.round?.visibility, !store.isCompetitionRound {
+                    RoundVisibilityRow(
+                        token: store.token,
+                        visibility: visibility,
+                        api: environment.api
+                    )
+                }
                 if rows.showsLeave { leaveRow }
                 if rows.showsFinish { finishRow }
                 if rows.showsDelete { deleteRow }

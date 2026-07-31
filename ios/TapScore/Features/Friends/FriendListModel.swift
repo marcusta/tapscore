@@ -51,6 +51,19 @@ enum FriendListModel {
         value.map { String(format: "%.1f", $0) } ?? "–"
     }
 
+    /// The quiet line under a friend's name when the connection is one-way.
+    ///
+    /// Nil for a mutual friend — a working relationship gets NO annotation at
+    /// all. Only the asymmetric case says anything, and it says it as a fact
+    /// about the other person rather than as a problem with this row: no
+    /// warning colour, no icon, nothing that reads as an error. Adding somebody
+    /// who has not added you back is a perfectly ordinary state, and it is also
+    /// the reason their live rounds do not appear in your feed — which is why
+    /// it is worth one line of explanation rather than silence.
+    static func connectionNote(_ friend: FriendProfile) -> String? {
+        friend.isMutual ? nil : "hasn't added you back"
+    }
+
     static func subtitle(_ friend: FriendProfile, now: Date) -> String {
         guard friend.sharedRoundCount > 0 else { return "never played" }
         let count = Int(friend.sharedRoundCount)

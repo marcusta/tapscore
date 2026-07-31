@@ -101,6 +101,10 @@ export class FriendsService {
                 sharedRoundCount: 0,
                 lastPlayedAt: null,
                 frecency: 0,
+                // One edge exists (ours); only they can create the other, so
+                // the optimistic row claims the weaker of the two states and
+                // the next server load corrects it.
+                isMutual: false,
             }),
         );
         this.results.set(markIsFriend(this.results.get(), p.id, true));

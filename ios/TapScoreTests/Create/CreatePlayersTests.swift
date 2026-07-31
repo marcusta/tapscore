@@ -133,6 +133,7 @@ final class CreateFriendsPickerTests: XCTestCase {
             sharedRoundCount: frecency,
             lastPlayedAt: lastPlayedAt,
             frecency: frecency,
+            isMutual: true,
             id: id,
             username: username ?? id,
             displayName: name,

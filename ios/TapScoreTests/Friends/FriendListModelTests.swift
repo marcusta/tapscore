@@ -8,15 +8,27 @@ final class FriendListModelTests: XCTestCase {
         name: String,
         count: Double = 0,
         last: String? = nil,
-        frecency: Double = 0
+        frecency: Double = 0,
+        isMutual: Bool = true
     ) -> FriendProfile {
         FriendProfile(
             sharedRoundCount: count,
             lastPlayedAt: last,
             frecency: frecency,
+            isMutual: isMutual,
             id: id,
             username: id,
             displayName: name
+        )
+    }
+
+    func testOnlyOneWayConnectionsAreAnnotated() {
+        // A working friendship says nothing at all — the absence of copy IS
+        // the design; annotating every row would make "friend" look conditional.
+        XCTAssertNil(FriendListModel.connectionNote(friend("a", name: "Anna")))
+        XCTAssertEqual(
+            FriendListModel.connectionNote(friend("b", name: "Bert", isMutual: false)),
+            "hasn't added you back"
         )
     }
 

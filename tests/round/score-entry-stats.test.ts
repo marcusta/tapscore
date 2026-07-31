@@ -48,6 +48,7 @@ function fixture(service: RoundViewService) {
         id: 'round-1',
         courseId: 'course-1',
         name: null,
+        visibility: 'friends',
         date: '2026-07-30',
         roundType: 'full_18',
         venueType: 'outdoor',

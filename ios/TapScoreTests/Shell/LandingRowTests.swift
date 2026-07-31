@@ -26,6 +26,7 @@ final class LandingRowTests: XCTestCase {
             startListMode: .structured,
             selfOrganize: true,
             status: status,
+            visibility: .friends,
             courseNameSnapshot: course,
             completedAt: completedAt,
             formatSlots: [],

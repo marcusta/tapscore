@@ -43,6 +43,7 @@ struct Player: Codable, Sendable, Equatable {
     var homeClubId: String?
     var handicapIndex: Double?
     var gender: PlayerGender?
+    var handicapConfirmedAt: String?
     var deletedAt: String?
 
     enum CodingKeys: String, CodingKey {
@@ -54,10 +55,11 @@ struct Player: Codable, Sendable, Equatable {
         case homeClubId = "homeClubId"
         case handicapIndex = "handicapIndex"
         case gender = "gender"
+        case handicapConfirmedAt = "handicapConfirmedAt"
         case deletedAt = "deletedAt"
     }
 
-    init(id: String, username: String, displayName: String, nickname: String? = nil, avatarUrl: String? = nil, homeClubId: String? = nil, handicapIndex: Double? = nil, gender: PlayerGender? = nil, deletedAt: String? = nil) {
+    init(id: String, username: String, displayName: String, nickname: String? = nil, avatarUrl: String? = nil, homeClubId: String? = nil, handicapIndex: Double? = nil, gender: PlayerGender? = nil, handicapConfirmedAt: String? = nil, deletedAt: String? = nil) {
         self.id = id
         self.username = username
         self.displayName = displayName
@@ -66,6 +68,7 @@ struct Player: Codable, Sendable, Equatable {
         self.homeClubId = homeClubId
         self.handicapIndex = handicapIndex
         self.gender = gender
+        self.handicapConfirmedAt = handicapConfirmedAt
         self.deletedAt = deletedAt
     }
 
@@ -79,6 +82,7 @@ struct Player: Codable, Sendable, Equatable {
         self.homeClubId = try c.decodeIfPresent(String.self, forKey: .homeClubId)
         self.handicapIndex = try c.decodeIfPresent(Double.self, forKey: .handicapIndex)
         self.gender = try c.decodeIfPresent(PlayerGender.self, forKey: .gender)
+        self.handicapConfirmedAt = try c.decodeIfPresent(String.self, forKey: .handicapConfirmedAt)
         self.deletedAt = try c.decodeIfPresent(String.self, forKey: .deletedAt)
     }
 
@@ -111,6 +115,11 @@ struct Player: Codable, Sendable, Equatable {
             try c.encode(gender, forKey: .gender)
         } else {
             try c.encodeNil(forKey: .gender)
+        }
+        if let handicapConfirmedAt {
+            try c.encode(handicapConfirmedAt, forKey: .handicapConfirmedAt)
+        } else {
+            try c.encodeNil(forKey: .handicapConfirmedAt)
         }
         if let deletedAt {
             try c.encode(deletedAt, forKey: .deletedAt)

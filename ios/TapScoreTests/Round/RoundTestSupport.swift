@@ -339,12 +339,19 @@ enum RoundFixtures {
     ///   the client doing anything. That is the itinerary-changed-under-you
     ///   case the pending jump's fire-time `fromHoleId` check exists for, and a
     ///   reload is the one path that reaches it without cancelling the jump.
+    ///   - visibility: the round's own discovery scope, which the manage
+    ///     sheet's toggle now reads instead of guessing from a device-local
+    ///     cache.
+    ///   - isCompetitionRound: the flag that hides participant-only settings
+    ///     (the visibility toggle) on a round a competition owns.
     static func byToken(
         status: String = "active",
         holes: Int = 2,
         reversedOrder: Bool = false,
         par: Int = 4,
-        teeStrokeIndex: Int? = nil
+        teeStrokeIndex: Int? = nil,
+        visibility: String = "friends",
+        isCompetitionRound: Bool = false
     ) -> String {
         let playHoles = (1...holes)
             .map {
@@ -367,7 +374,8 @@ enum RoundFixtures {
          "round":{"id":"\(roundId)","courseId":"course-1","date":"2026-07-27",
           "roundType":"full_18","venueType":"outdoor","startListMode":"open_window",
           "windowStart":null,"windowEnd":null,"selfOrganize":true,"status":"\(status)",
-          "latestEventId":null,"courseNameSnapshot":"Test GK","completedAt":null,
+          "latestEventId":null,"visibility":"\(visibility)",
+          "courseNameSnapshot":"Test GK","completedAt":null,
           "formatSlots":[{"slotIndex":0,"slotDefId":"slot-0","formatId":"stableford_individual",
             "scoringMode":"stableford","teamShape":"individual","allowancePct":100,
             "allowanceConfig":{"type":"flat","pct":100},"formatConfig":null,
@@ -383,7 +391,8 @@ enum RoundFixtures {
             "hittingBay":null,"startPlayHoleId":"ph-1","startOrdinal":1,
             "endPlayHoleId":"ph-\(holes)","endOrdinal":\(holes),
             "ballIds":["ball-1","ball-2"],"playedOrder":[\(played)]}]},
-         "startList":\(startList)}
+         "startList":\(startList),
+         "isCompetitionRound":\(isCompetitionRound)}
         """
     }
 

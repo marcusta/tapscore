@@ -87,6 +87,86 @@ test('GET /friendly-rounds/by-token reaches the round in a fresh session, no coo
     expect(body.friendlyRound.shareToken).toBe(token);
 });
 
+// The READ half of the visibility toggle. Without it the control on the round
+// settings sheet can only guess from device-local state keyed by the SHARE
+// TOKEN — which every participant holds — so one participant's fresh phone
+// would show the switch on for a round somebody else set to `private`, and a
+// tap would silently undo the opt-out.
+test('GET /friendly-rounds/by-token carries the round\'s own visibility, at its default and after a write', async () => {
+    const { ctx, draft } = await setup();
+    const created = await (
+        await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })
+    ).json();
+    const token = created.friendlyRound.shareToken;
+
+    const fresh = await (
+        await req(ctx.app, 'GET', `/api/friendly-rounds/by-token?token=${token}`)
+    ).json();
+    expect(fresh.round.visibility).toBe('friends');
+
+    // The same write path the toggle uses.
+    const flipped = await req(ctx.app, 'POST', '/api/friendly-rounds/visibility', {
+        token,
+        visibility: 'private',
+    });
+    expect(flipped.status).toBe(200);
+
+    const after = await (
+        await req(ctx.app, 'GET', `/api/friendly-rounds/by-token?token=${token}`)
+    ).json();
+    expect(after.round.visibility).toBe('private');
+
+    // `link` is a distinct third state, not a synonym for either — the feed
+    // never carries a `link` round, so the toggle must be able to tell it from
+    // `friends`.
+    await req(ctx.app, 'POST', '/api/friendly-rounds/visibility', { token, visibility: 'link' });
+    const linked = await (
+        await req(ctx.app, 'GET', `/api/friendly-rounds/by-token?token=${token}`)
+    ).json();
+    expect(linked.round.visibility).toBe('link');
+});
+
+// The visibility write is INERT on a competition round (both discovery paths
+// exclude them whatever the column says), so the client needs to know not to
+// offer the control there — an "on" that promises friends can watch would be
+// false.
+test('GET /friendly-rounds/by-token flags a competition round, so inert settings are not offered on it', async () => {
+    const { ctx, draft } = await setup();
+    const created = await (
+        await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })
+    ).json();
+    const token = created.friendlyRound.shareToken;
+
+    const plain = await (
+        await req(ctx.app, 'GET', `/api/friendly-rounds/by-token?token=${token}`)
+    ).json();
+    expect(plain.isCompetitionRound).toBe(false);
+
+    const owner = (await ctx.playerService.listActive())[0]!;
+    const comp = await ctx.competitionService.create({
+        name: 'Klubbmästerskapet',
+        ownerPlayerId: owner.id,
+    });
+    await ctx.db
+        .insertInto('competition_rounds')
+        .values({
+            id: crypto.randomUUID(),
+            competition_id: comp.id,
+            round_id: created.round.id,
+            round_number: 1,
+        })
+        .execute();
+
+    const wrapped = await (
+        await req(ctx.app, 'GET', `/api/friendly-rounds/by-token?token=${token}`)
+    ).json();
+    expect(wrapped.isCompetitionRound).toBe(true);
+    // Still the same round, reached the same way — the flag is a fact about the
+    // round, not a competition identity.
+    expect(wrapped.round.id).toBe(created.round.id);
+    expect(wrapped.competitionId).toBeUndefined();
+});
+
 test('GET /friendly-rounds/by-token returns 404 for an unknown token', async () => {
     const { ctx } = await setup();
     const res = await req(ctx.app, 'GET', '/api/friendly-rounds/by-token?token=nope');

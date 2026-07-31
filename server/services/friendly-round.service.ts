@@ -1,5 +1,10 @@
 import { sql, type Kysely, type Selectable } from 'kysely';
-import type { Database, FriendlyRoundsTable, RoundStatus } from '../db/schema';
+import type {
+    Database,
+    FriendlyRoundsTable,
+    RoundStatus,
+    RoundVisibility,
+} from '../db/schema';
 import type { CompilerDiagnostic } from '../domain/compiler/types';
 import type { RoundSetupDraft } from '../domain/round-setup/draft';
 import type { Round, RoundBall, RoundService } from './round.service';
@@ -154,11 +159,27 @@ export class FriendlyRoundService {
      * client uses to render (or hide) the self-join card and group picker, so
      * an organized round never leaks an open join affordance. The read itself
      * stays token-scoped and identity-free.
+     *
+     * `isCompetitionRound` says whether this token's round rides the
+     * competition wrapper. It exists because settings that are INERT on such a
+     * round must not be offered on it: `setVisibilityByToken` writes the column
+     * but the feed and the spectate path exclude competition rounds whatever it
+     * says, so a visibility control there would be a switch whose "on" copy is
+     * false. It is a boolean about the round, not a competition identity — no
+     * competition id, name or admin travels this token path.
      */
     async findByToken(
         token: string,
         viewerPlayerId: string | null = null,
-    ): Promise<{ friendlyRound: FriendlyRound; round: Round; startList: StartListView } | null> {
+    ): Promise<
+        | {
+              friendlyRound: FriendlyRound;
+              round: Round;
+              startList: StartListView;
+              isCompetitionRound: boolean;
+          }
+        | null
+    > {
         const row = await this.db
             .selectFrom('friendly_rounds')
             .selectAll()
@@ -168,7 +189,17 @@ export class FriendlyRoundService {
         const round = await this.rounds.getById(row.round_id);
         if (!round) return null;
         const startList = await this.startLists.viewForRound(round.id, viewerPlayerId);
-        return { friendlyRound: toFriendlyRound(row), round, startList };
+        const competitionRound = await this.db
+            .selectFrom('competition_rounds')
+            .select('id')
+            .where('round_id', '=', row.round_id)
+            .executeTakeFirst();
+        return {
+            friendlyRound: toFriendlyRound(row),
+            round,
+            startList,
+            isCompetitionRound: competitionRound !== undefined,
+        };
     }
 
     /**
@@ -471,6 +502,52 @@ export class FriendlyRoundService {
         // `row` is guaranteed here (the token resolved to it); complete rounds
         // always carry a completed_at (set on the transition above or a prior one).
         return { status: row!.status, completedAt: row!.completed_at ?? now };
+    }
+
+    /**
+     * Set the token's round `visibility` — the write half of migration 049
+     * (docs/proposals/friends-activity.md). A default nobody can change is not
+     * a default, it is a policy; this is the endpoint behind the round-settings
+     * toggle that takes a player out of their friends' feeds on the day they
+     * are shooting 112.
+     *
+     * Trust boundary: SAME as finish/reopen/delete — the share token is the
+     * only credential, and it is exactly the "participant" test this app has
+     * (holding it already buys every score in the round). Deliberately NOT
+     * session-gated: a friendly round has no owner, and gating discovery on
+     * login would leave the no-login front door unable to opt out at all.
+     *
+     * Takes effect IMMEDIATELY, including on open spectate streams: those
+     * re-authorize on every emit, and the `notify` below is what makes the
+     * flip an emit — without it a viewer whose access just ended would keep
+     * the stream until the next score. The cursor is passed UNCHANGED (it
+     * means "the result changed", and visibility changes none), matching
+     * finish/reopen.
+     *
+     * Setting it on a competition round is inert rather than refused: those
+     * are excluded from the feed and the spectate path regardless of the
+     * value (`FriendsActivityService`).
+     *
+     * Unknown token → `null` (the API turns it into a 404).
+     */
+    async setVisibilityByToken(
+        token: string,
+        visibility: RoundVisibility,
+    ): Promise<{ visibility: RoundVisibility } | null> {
+        const roundId = await this.roundIdForToken(token);
+        if (roundId === null) return null;
+        await this.updateRoundVisibility(roundId, visibility).execute();
+        const row = await this.db
+            .selectFrom('rounds')
+            .select(['visibility', 'latest_event_id'])
+            .where('id', '=', roundId)
+            .executeTakeFirst();
+        this.events?.notify(roundId, row!.latest_event_id);
+        return { visibility: row!.visibility };
+    }
+
+    private updateRoundVisibility(roundId: string, visibility: RoundVisibility) {
+        return this.db.updateTable('rounds').set({ visibility }).where('id', '=', roundId);
     }
 
     /**

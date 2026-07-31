@@ -115,6 +115,47 @@ final class ShellNavigationTests: XCTestCase {
         XCTAssertEqual(navigation.stack, [.round(token: "t1"), .join])
     }
 
+    // MARK: - Spectate
+
+    func testOpenSpectatePushesTheWatcherScreenWithItsSubject() {
+        var navigation = ShellNavigation()
+
+        XCTAssertTrue(navigation.openSpectate(roundId: "r1", friendName: "Anna"))
+        XCTAssertEqual(navigation.stack, [.spectate(roundId: "r1", friendName: "Anna")])
+        // A spectate route is addressed by round id and carries no token, so it
+        // can never be turned into a scoring screen.
+        XCTAssertNil(navigation.openRoundToken)
+    }
+
+    /// Two taps on the same chip (or a foreground redelivery) must not stack two
+    /// identical watcher screens — the back button would look broken.
+    func testReopeningTheRoundAlreadyBeingWatchedIsANoOp() {
+        var navigation = ShellNavigation()
+        XCTAssertTrue(navigation.openSpectate(roundId: "r1", friendName: "Anna"))
+
+        XCTAssertFalse(navigation.openSpectate(roundId: "r1", friendName: "Anna"))
+        // Same round, different subject: still the same screen, still no push.
+        XCTAssertFalse(navigation.openSpectate(roundId: "r1", friendName: nil))
+        XCTAssertEqual(navigation.stack, [.spectate(roundId: "r1", friendName: "Anna")])
+
+        // A DIFFERENT round is a different screen.
+        XCTAssertTrue(navigation.openSpectate(roundId: "r2", friendName: "Bo"))
+        XCTAssertEqual(
+            navigation.stack,
+            [.spectate(roundId: "r1", friendName: "Anna"), .spectate(roundId: "r2", friendName: "Bo")]
+        )
+    }
+
+    func testSpectateIsPushableOnTopOfARoundAndTheRoundStaysReachable() {
+        var navigation = ShellNavigation(stack: [.round(token: "t1")])
+
+        XCTAssertTrue(navigation.openSpectate(roundId: "r1"))
+        XCTAssertEqual(
+            navigation.stack, [.round(token: "t1"), .spectate(roundId: "r1", friendName: nil)])
+        // A share link still reaches score entry from inside a watcher screen.
+        XCTAssertEqual(navigation.apply(.round(token: "t2")), "t2")
+    }
+
     // MARK: - End-to-end with the parser
 
     /// The whole inbound path in one assertion: URL → `DeepLinkRouter` →

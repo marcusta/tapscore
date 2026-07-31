@@ -1714,17 +1714,20 @@ struct FriendlyRoundsByTokenOutput: Codable, Sendable, Equatable {
     var friendlyRound: FriendlyRound
     var round: Round
     var startList: StartListView
+    var isCompetitionRound: Bool
 
     enum CodingKeys: String, CodingKey {
         case friendlyRound = "friendlyRound"
         case round = "round"
         case startList = "startList"
+        case isCompetitionRound = "isCompetitionRound"
     }
 
-    init(friendlyRound: FriendlyRound, round: Round, startList: StartListView) {
+    init(friendlyRound: FriendlyRound, round: Round, startList: StartListView, isCompetitionRound: Bool) {
         self.friendlyRound = friendlyRound
         self.round = round
         self.startList = startList
+        self.isCompetitionRound = isCompetitionRound
     }
 
     init(from decoder: any Decoder) throws {
@@ -1732,6 +1735,7 @@ struct FriendlyRoundsByTokenOutput: Codable, Sendable, Equatable {
         self.friendlyRound = try c.decode(FriendlyRound.self, forKey: .friendlyRound)
         self.round = try c.decode(Round.self, forKey: .round)
         self.startList = try c.decode(StartListView.self, forKey: .startList)
+        self.isCompetitionRound = try c.decode(Bool.self, forKey: .isCompetitionRound)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -1739,6 +1743,7 @@ struct FriendlyRoundsByTokenOutput: Codable, Sendable, Equatable {
         try c.encode(friendlyRound, forKey: .friendlyRound)
         try c.encode(round, forKey: .round)
         try c.encode(startList, forKey: .startList)
+        try c.encode(isCompetitionRound, forKey: .isCompetitionRound)
     }
 }
 
@@ -2188,6 +2193,55 @@ struct FriendlyRoundsReopenOutput: Codable, Sendable, Equatable {
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(status, forKey: .status)
+    }
+}
+
+struct FriendlyRoundsSetVisibilityInput: Codable, Sendable, Equatable {
+    var token: String
+    var visibility: RoundVisibility
+
+    enum CodingKeys: String, CodingKey {
+        case token = "token"
+        case visibility = "visibility"
+    }
+
+    init(token: String, visibility: RoundVisibility) {
+        self.token = token
+        self.visibility = visibility
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.token = try c.decode(String.self, forKey: .token)
+        self.visibility = try c.decode(RoundVisibility.self, forKey: .visibility)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(token, forKey: .token)
+        try c.encode(visibility, forKey: .visibility)
+    }
+}
+
+struct FriendlyRoundsSetVisibilityOutput: Codable, Sendable, Equatable {
+    var visibility: RoundVisibility
+
+    enum CodingKeys: String, CodingKey {
+        case visibility = "visibility"
+    }
+
+    init(visibility: RoundVisibility) {
+        self.visibility = visibility
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.visibility = try c.decode(RoundVisibility.self, forKey: .visibility)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(visibility, forKey: .visibility)
     }
 }
 

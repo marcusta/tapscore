@@ -13,6 +13,10 @@ enum PlayersEndpoints {
         method: .post,
         path: "/players/me/handicap",
         pathParams: [])
+    static let confirmHandicap = APIEndpoint<EmptyInput, Player>(
+        method: .post,
+        path: "/players/me/handicap/confirm",
+        pathParams: [])
     static let myHandicapHistory = APIEndpoint<EmptyInput, [HandicapEntry]>(
         method: .get,
         path: "/players/me/handicap-history",

@@ -21,6 +21,7 @@ function profile(id: string, displayName: string): FriendProfile {
         gender: null,
         handicapIndex: null,
         homeClubName: null,
+        isMutual: false,
         sharedRoundCount: 0,
         lastPlayedAt: null,
         frecency: 0,

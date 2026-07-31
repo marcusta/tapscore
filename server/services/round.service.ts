@@ -8,6 +8,7 @@ import type {
     VenueType,
     StartListMode,
     RoundStatus,
+    RoundVisibility,
     ScoringMode,
     TeamShape,
 } from '../db/schema';
@@ -158,6 +159,21 @@ export interface Round {
     latestEventId: string | null;
     /** Organizer-supplied round name; null ⇒ render `courseNameSnapshot`. */
     name: string | null;
+    /**
+     * Discovery scope (migration 049). The READ half of the participant-gated
+     * write at `POST /friendly-rounds/visibility` — a control that cannot read
+     * its own state is not a control: every participant holds the share token,
+     * so a device-local guess lets one of them silently undo another's opt-out.
+     *
+     * It rides the plain round payload, which means the spectate view carries
+     * it too (`SpectateView` embeds `Round`). That is deliberate and is the
+     * boundary: a spectator may learn a round they can already see is a
+     * `friends` round — the same fact their being able to see it implies —
+     * and nothing here reports a settings CHANGE to a non-participant. The
+     * spectate stream's payload (`SpectateLiveState`) stays cursor + status,
+     * and a flip to `private` reaches a watcher only as loss of access.
+     */
+    visibility: RoundVisibility;
     courseNameSnapshot: string | null;
     /** ISO time the round was FINISHED; null until it is (drives the landing's
      *  "Recently finished" 14-day window). Set with `status='complete'`. */
@@ -337,6 +353,7 @@ function toRound(row: RoundRow, parts: RoundParts): Round {
         status: row.status,
         latestEventId: row.latest_event_id,
         name: row.name,
+        visibility: row.visibility,
         courseNameSnapshot: row.course_name_snapshot,
         completedAt: row.completed_at,
         formatSlots: parts.formatSlots,

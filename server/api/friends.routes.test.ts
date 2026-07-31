@@ -73,6 +73,9 @@ test('POST /api/friends adds a friend; GET /api/friends returns the profile shap
             sharedRoundCount: 0,
             lastPlayedAt: null,
             frecency: 0,
+            // Derived connection status: Bob has not added Alice back, so the
+            // edge is one-way and carries no round visibility.
+            isMutual: false,
         },
     ]);
 });

@@ -29,6 +29,7 @@ export interface Round {
     status: 'active' | 'not_started' | 'complete';
     latestEventId: null | string;
     name: null | string;
+    visibility: 'private' | 'friends' | 'link';
     courseNameSnapshot: null | string;
     completedAt: null | string;
     formatSlots: FormatSlot[];
@@ -37,6 +38,11 @@ export interface Round {
     routeHandicapPolicy: RoundRoutePolicy;
     routeSections: RoundRouteSection[];
     playingGroups: RoundPlayingGroup[];
+}
+
+export interface FriendsActivity {
+    live: FriendsActivityEntry[];
+    recent: FriendsActivityEntry[];
 }
 
 export interface DashboardSlotEntry {
@@ -109,6 +115,17 @@ export interface RoundPlayingGroup {
     playedOrder: RoundGroupPlayedHole[];
 }
 
+export interface FriendsActivityEntry {
+    roundId: string;
+    name: null | string;
+    courseName: null | string;
+    date: string;
+    status: 'active' | 'not_started' | 'complete';
+    holeCount: number;
+    lastActivityAt: null | string;
+    friends: FriendsActivityFriend[];
+}
+
 export interface RoundPlayHoleTee {
     teeRef: string;
     teeName: string;
@@ -123,14 +140,25 @@ export interface RoundGroupPlayedHole {
     groupRelativeOrder: number;
 }
 
+export interface FriendsActivityFriend {
+    playerId: string;
+    displayName: string;
+    holesPlayed: number;
+    scoreToPar: null | number;
+}
+
 export interface DashboardApi {
     myRounds(): Promise<{ produced: DashboardRoundEntry[]; created: { friendlyRound: FriendlyRound; round: Round }[] }>;
+    friendsActivity(): Promise<FriendsActivity>;
 }
 
 export function createDashboardClient(baseUrl: string): DashboardApi {
     return {
         async myRounds() {
             return apiFetch({ method: 'GET', url: `${baseUrl}/dashboard/my-rounds` });
+        },
+        async friendsActivity() {
+            return apiFetch({ method: 'GET', url: `${baseUrl}/dashboard/friends-activity` });
         },
     };
 }
