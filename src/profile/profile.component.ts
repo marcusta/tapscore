@@ -442,6 +442,12 @@ export class ProfileComponent extends Component {
 
         const loggedIn = () => this.auth.currentUser.get() !== null;
 
+        // Resolved once, below, and closed over by the pick button's handler.
+        // `this.ref(frag, …)` only works while the fragment still owns its
+        // nodes: mounting MOVES them into the document and leaves `frag`
+        // empty, so the same lookup at click time finds nothing.
+        let photoFileEl: HTMLInputElement | null = null;
+
         const frag = this.wire(tpl, {
             anon: { className: () => (loggedIn() ? 'profile__anon hidden' : 'profile__anon') },
             toLogin: { onclick: () => this.router.navigate('/login', { query: { next: '/profile' } }) },
@@ -474,7 +480,7 @@ export class ProfileComponent extends Component {
                           ? 'Change photo'
                           : 'Add photo',
                 disabled: () => this.svc.avatarSaving.get(),
-                onclick: () => (this.ref(frag, 'photoFile') as HTMLInputElement).click(),
+                onclick: () => photoFileEl?.click(),
             },
             photoRemove: {
                 textContent: () => 'Remove',
@@ -674,6 +680,8 @@ export class ProfileComponent extends Component {
         });
         select.mount(this.ref(frag, 'club'));
         this.track(() => select.destroy());
+
+        photoFileEl = this.ref(frag, 'photoFile') as HTMLInputElement;
 
         return frag;
     }
