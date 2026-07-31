@@ -271,6 +271,15 @@ struct HomeStatsCard: View {
                             .foregroundStyle(TapColors.textMuted)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    // The visible way in. The whole card still opens the
+                    // dashboard, but a card that only reveals it on a tap is
+                    // invisibly clickable — this row is the affordance.
+                    Rectangle()
+                        .fill(TapColors.border)
+                        .frame(height: 1)
+                    Text("All statistics \u{2192}")
+                        .font(TapFont.ui(size: 13.6, weight: .semibold))
+                        .foregroundStyle(TapColors.accentStrong)
                 }
                 .padding(TapSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)

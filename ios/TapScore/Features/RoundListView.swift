@@ -107,16 +107,20 @@ struct RoundListView: View {
                     failureNotice(loadFailure)
                 }
 
-                section("Ongoing", rows: partition.ongoing)
+                ongoingSection(partition.ongoing)
                 outNow
                 finishedCard(partition.finished)
 
-                if partition.finished.isEmpty && !loader.rows.isEmpty {
+                if partition.finished.isEmpty && !loader.rows.isEmpty
+                    && partition.ongoing.count <= HomeIdentity.ongoingPreviewLimit
+                {
                     // Nothing finished inside the window, but there are rounds
                     // to look back at — the web's `.landing__history` link.
                     // Gated on the LOADED rows, not the partition: a viewer
                     // whose rounds have all aged past the window still owns
                     // them, and this link is then the only door to the list.
+                    // An overflowing Ongoing section already carries its own
+                    // "Show all →" to the same screen, so the two never stack.
                     allRoundsLink
                 }
 
@@ -291,20 +295,36 @@ struct RoundListView: View {
         }
     }
 
+    /// Ongoing, capped like the finished card: the header still counts them
+    /// all, at most four full rows render, and past four a "Show all →" link
+    /// (same door, `AllRoundsView`) carries the rest. At four or fewer there is
+    /// no link — it would open a list identical to the one on screen.
     @ViewBuilder
-    private func section(_ title: String, rows sectionRows: [LandingRow]) -> some View {
+    private func ongoingSection(_ sectionRows: [LandingRow]) -> some View {
         if !sectionRows.isEmpty {
             VStack(alignment: .leading, spacing: TapSpacing.sm) {
-                SectionHeader(title: title, count: String(sectionRows.count))
+                SectionHeader(title: "Ongoing", count: String(sectionRows.count))
                 // Web `.landing__list` — a `s('sm')` gapped column of cards.
                 VStack(spacing: TapSpacing.sm) {
-                    ForEach(sectionRows) { row in
+                    ForEach(sectionRows.prefix(HomeIdentity.ongoingPreviewLimit)) { row in
                         RoundRow(
                             row: row,
                             onOpen: { open(row) },
                             onRemove: { pendingRemoval = row }
                         )
                     }
+                }
+                if sectionRows.count > HomeIdentity.ongoingPreviewLimit {
+                    Button(action: onSeeAllRounds) {
+                        Text("Show all \u{2192}")
+                            .font(TapFont.ui(size: 13.6, weight: .semibold))
+                            .foregroundStyle(TapColors.accentStrong)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Show all ongoing rounds")
+                    .accessibilityIdentifier("home-show-all-ongoing")
                 }
             }
         }
@@ -1090,6 +1110,11 @@ enum HomeIdentity {
     /// How many finished rounds the home card shows before "All rounds →" is
     /// the rest of the answer.
     static let finishedPreviewLimit = 3
+
+    /// How many ongoing rounds the home shows before "Show all →" takes over.
+    /// At or under the limit the link is absent — a door that leads to exactly
+    /// what is already on screen is furniture.
+    static let ongoingPreviewLimit = 4
 
     /// The handicap pill's text, or **nil when there is no index**.
     ///
