@@ -73,11 +73,10 @@ two small gates, never scattered `if`s:
 - `server/api/competition-authz.ts` — owner-or-`competition_admin`, scoped to
   one competition; gates competition mutations.
 - `server/api/admin-authz.ts` — the unscoped `super_admin` grant; gates every
-  `/api/admin/*` route (`admin.api.ts`), the app's ONLY cross-player read path.
-  Read-only by design: an operator sees rounds/players/activity and administers
-  grants, and nothing else. `GET /api/me/roles` is caller-scoped (session only)
-  so the client can decide whether to show the entry point — presentation, not
-  the gate.
+  `/api/admin/*` route (`admin.api.ts`). Read-only by design: an operator sees
+  rounds/players/activity and administers grants, and nothing else.
+  `GET /api/me/roles` is caller-scoped (session only) so the client can decide
+  whether to show the entry point — presentation, not the gate.
 
 The first `super_admin` is minted with `bun run grant:role` on the box holding
 the DB. There is deliberately no network path to bootstrap one, and no env-var
@@ -87,6 +86,33 @@ Ordinary rules are unchanged: reads are open, round writes are token-scoped.
 Note that `/api/admin/rounds` returns share tokens — the token is a round's
 write credential, so an operator can act on any round the same way a
 participant can. That is the front door's trust model, not a new privilege.
+
+### Cross-player reads
+
+A **cross-player read** returns another player's data to an ordinary caller.
+There are two authorization models for it, and adding a third is a design
+decision, not a routing detail:
+
+1. **Role-gated, unscoped** — `/api/admin/*`, above. An operator, all players.
+2. **Mutual-edge-gated, session-scoped** — the friends surfaces. Visibility
+   flows only along the DERIVED mutual friendship (both `friendships` rows
+   exist) and is further narrowed by `rounds.visibility`. See
+   [docs/proposals/friends-activity.md](docs/proposals/friends-activity.md).
+   - `GET /dashboard/friends-activity` — `friends-activity.service.ts`
+   - `GET /spectate/rounds/:roundId`, `GET /api/spectate/events` —
+     `spectate.service.ts` (`canView` is the single authority; the share token
+     is stripped from the payload, because it is a WRITE credential)
+
+Rules for any new cross-player read:
+
+- The mutual edge is **derived, never stored** — `FriendService.mutualEdges()`
+  is the one implementation. Do not re-inline an `EXISTS` check.
+- Competition rounds are excluded from friends surfaces whatever their
+  `visibility` says; competition discovery stays admin-gated.
+- Never return a share token to a caller who is not a participant.
+- Keep the check in the service, one function, callable by both the route and
+  the SSE stream. A stream must re-authorize on every emit, not once at
+  subscribe.
 
 ## Theme and CSS
 
