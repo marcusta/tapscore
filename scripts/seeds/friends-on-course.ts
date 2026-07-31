@@ -58,6 +58,24 @@ interface LiveRoundSpec {
     daysAgo?: number;
     /** Who created it (the `friendly_rounds` creator). Defaults to the first player. */
     creator?: Person;
+    /**
+     * Mark the round complete. Score events are always stamped at wall-clock
+     * now, so a round dated weeks back is still "just scored" — finishing it is
+     * what keeps a history round out of the Ongoing list and out of presence.
+     */
+    finish?: boolean;
+}
+
+/**
+ * A full 18 for `n` players, one stroke off par apiece so nobody in the
+ * history rounds posts an identical card. Exact numbers do not matter here —
+ * these rounds exist to populate `sharedRoundCount` and `lastPlayedAt`.
+ */
+function full18(playerCount: number): number[][] {
+    const pars = [4, 4, 3, 5, 3, 5, 3, 4, 4, 5, 3, 4, 4, 5, 4, 3, 4, 4];
+    return Array.from({ length: playerCount }, (_, i) =>
+        pars.map((par, hole) => par + ((hole + i) % 3 === 0 ? 1 : 0)),
+    );
 }
 
 export async function apply(s: Scenario): Promise<void> {
@@ -156,6 +174,19 @@ export async function apply(s: Scenario): Promise<void> {
         scores: [[4, 5, 4, 5, 4]],
     });
 
+    // --- Shared history ---
+    //
+    // The Friends list sorts on frecency and subtitles each row with the
+    // rounds you played TOGETHER — `sharedRoundCount` counts rounds where both
+    // the caller and the friend produced a ball. Without these, every row
+    // reads "never played" no matter how much golf the friend has played, and
+    // the sort has nothing to order on. Elin and David are left out
+    // deliberately: one row that genuinely has no shared history is what makes
+    // the populated ones legible.
+    await mk({ name: null, players: [marcus, anna, bjorn], scores: full18(3), daysAgo: 4, finish: true });
+    await mk({ name: null, players: [marcus, anna], scores: full18(2), daysAgo: 11, finish: true });
+    await mk({ name: null, players: [marcus, cecilia], scores: full18(2), daysAgo: 26, finish: true });
+
     // eslint-disable-next-line no-console
     console.log(
         `seed: friends-on-course ready — sign in as ${LOGIN_USERNAME}/${LOGIN_PASSWORD}. ` +
@@ -244,6 +275,13 @@ async function seedRound(
         await s.services.friendlyRoundService.setVisibilityByToken(
             friendlyRound.shareToken,
             spec.visibility,
+        );
+    }
+
+    if (spec.finish) {
+        await s.services.friendlyRoundService.finishByToken(
+            friendlyRound.shareToken,
+            new Date().toISOString(),
         );
     }
 
