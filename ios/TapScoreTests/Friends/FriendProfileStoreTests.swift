@@ -106,6 +106,56 @@ final class FriendProfileStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testPresenceComesFromTheFeedAndNamesTheRound() async {
+        RoundStubURLProtocol.route(
+            "/friends/p2/profile", FriendProfileFixtures.profile(recentRounds: [])
+        )
+        // The feed is the ONE presence authority. The subject is out now in
+        // round r9; another friend's round must not be mistaken for hers.
+        RoundStubURLProtocol.route(
+            "/dashboard/friends-activity",
+            """
+            {"live":[
+              {"roundId":"r8","name":null,"courseName":null,"date":"2026-07-31",
+               "status":"active","holeCount":18,"lastActivityAt":null,
+               "friends":[{"playerId":"other","displayName":"Björn",
+                 "avatarVersion":null,"holesPlayed":12,"scoreToPar":-1}]},
+              {"roundId":"r9","name":null,"courseName":null,"date":"2026-07-31",
+               "status":"active","holeCount":18,"lastActivityAt":null,
+               "friends":[{"playerId":"p2","displayName":"Anna",
+                 "avatarVersion":null,"holesPlayed":7,"scoreToPar":3}]}
+            ],"recent":[]}
+            """
+        )
+
+        let store = FriendProfileStore(playerId: "p2", api: RoundStubURLProtocol.makeAPI())
+        await store.load()
+
+        XCTAssertEqual(
+            store.presence,
+            FriendProfilePresence(roundId: "r9", holesPlayed: 7, scoreToPar: 3)
+        )
+    }
+
+    @MainActor
+    func testAFailedFeedLeavesTheProfileIntactAndPresenceNil() async {
+        RoundStubURLProtocol.route(
+            "/friends/p2/profile", FriendProfileFixtures.profile(recentRounds: [])
+        )
+        RoundStubURLProtocol.route(
+            "/dashboard/friends-activity", status: 500, "{\"error\":\"boom\"}"
+        )
+
+        let store = FriendProfileStore(playerId: "p2", api: RoundStubURLProtocol.makeAPI())
+        await store.load()
+
+        // Presence is decoration; the profile read is the gate.
+        XCTAssertNotNil(store.profile)
+        XCTAssertNil(store.presence)
+        XCTAssertNil(store.loadError)
+    }
+
+    @MainActor
     func testForbiddenIsItsOwnStateNotAnError() async {
         RoundStubURLProtocol.route(
             "/friends/p2/profile", status: 403, "{\"error\":\"forbidden\"}"

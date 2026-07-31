@@ -111,49 +111,70 @@ struct FriendProfileScreen: View {
 
     // MARK: - Profile card
 
+    /// The header is the screen's one moment of ceremony: a soft band of
+    /// `accentSoft` behind a large centered avatar, the name in the display
+    /// face, one muted identity line, and — when the feed says they are out
+    /// right now — a live line in the accent, tappable into the round. No
+    /// imagery: the band gives the header a place to breathe without faking a
+    /// cover photo nobody uploaded, and the live line is the thing a photo
+    /// could never be.
     private func profileCard(_ profile: FriendProfileView) -> some View {
         TapCard {
-            VStack(alignment: .leading, spacing: TapSpacing.lg) {
-                HStack(spacing: TapSpacing.md) {
+            VStack(spacing: 0) {
+                ZStack(alignment: .top) {
+                    // The band ends mid-avatar, so the portrait straddles it
+                    // the way a clubhouse portrait hangs over the wainscot.
+                    VStack(spacing: 0) {
+                        Rectangle()
+                            .fill(TapColors.accentSoft)
+                            .frame(height: 72)
+                        Color.clear.frame(height: 48)
+                    }
                     TapAvatar(
                         playerId: profile.player.id,
                         avatarVersion: profile.player.avatarVersion,
                         displayName: profile.player.displayName,
                         username: profile.player.username,
-                        size: 56,
-                        fontSize: 19.2
+                        size: 96,
+                        fontSize: 32
                     )
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(profile.player.displayName)
-                            .font(TapFont.display(size: 20.8, weight: .semibold))
-                            .foregroundStyle(TapColors.text)
-                            .lineLimit(1)
-                        Text("@\(profile.player.username)")
-                            .font(TapFont.ui(size: 12.8))
+                    .padding(.top, TapSpacing.lg)
+                }
+
+                VStack(spacing: TapSpacing.xs) {
+                    Text(profile.player.displayName)
+                        .font(TapFont.display(size: 24, weight: .semibold))
+                        .foregroundStyle(TapColors.text)
+                        .lineLimit(1)
+                    Text("@\(profile.player.username)")
+                        .font(TapFont.ui(size: 12.8))
+                        .foregroundStyle(TapColors.textMuted)
+                        .lineLimit(1)
+                    // Absent halves are omitted, never dashed; both absent
+                    // drops the line.
+                    if let identity = FriendProfileModel.identityLine(
+                        handicapIndex: profile.player.handicapIndex,
+                        homeClubName: profile.player.homeClubName
+                    ) {
+                        Text(identity)
+                            .font(TapFont.ui(size: 14.4))
                             .foregroundStyle(TapColors.textMuted)
                             .lineLimit(1)
-                        // Nullable, so absent — never a dash.
-                        if let club = profile.player.homeClubName, !club.isEmpty {
-                            Text(club)
-                                .font(TapFont.ui(size: 12.8))
-                                .foregroundStyle(TapColors.textMuted)
-                                .lineLimit(1)
-                        }
                     }
-                    Spacer(minLength: 0)
-                    // Same rule as the club: no handicap, no element.
-                    if let handicap = profile.player.handicapIndex {
-                        Text(FriendListModel.handicap(handicap))
-                            .font(TapFont.ui(size: 13.6, weight: .bold))
-                            .foregroundStyle(TapColors.accent)
-                            .padding(.vertical, 2)
-                            .padding(.horizontal, 10)
-                            .background(Capsule().fill(TapColors.accentSoft))
-                            .accessibilityLabel(
-                                "Handicap \(FriendListModel.handicap(handicap))"
-                            )
+                    if let presence = store?.presence {
+                        Button {
+                            onOpenRound(presence.roundId)
+                        } label: {
+                            Text(FriendProfileModel.presenceLine(presence))
+                                .font(TapFont.ui(size: 13.6, weight: .bold))
+                                .foregroundStyle(TapColors.accent)
+                                .padding(.top, 2)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Opens this round read-only")
                     }
                 }
+                .padding(.horizontal, TapSpacing.lg)
 
                 // The aggregates — the one place the full counts belong. They
                 // include rounds the lists below will not show, by design.
@@ -162,16 +183,17 @@ struct FriendProfileScreen: View {
                     stat(Int(profile.roundsThisYear), label: "This year")
                     stat(Int(profile.coursesTotal), label: "Courses")
                 }
+                .padding(.top, TapSpacing.lg)
+                .padding(.bottom, TapSpacing.lg)
             }
-            .padding(TapSpacing.lg)
         }
     }
 
     private func stat(_ value: Int, label: String) -> some View {
         VStack(spacing: 1) {
             Text("\(value)")
-                .font(TapFont.display(size: 19.2, weight: .semibold))
-                .foregroundStyle(TapColors.text)
+                .font(TapFont.display(size: 24, weight: .semibold))
+                .foregroundStyle(TapColors.primary)
             Text(label)
                 .font(TapFont.ui(size: 12))
                 .foregroundStyle(TapColors.textMuted)

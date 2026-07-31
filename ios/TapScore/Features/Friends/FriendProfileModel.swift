@@ -119,6 +119,31 @@ enum FriendProfileModel {
         total == 1 ? "1 course played" : "\(total) courses played"
     }
 
+    /// The header's identity line — "Hcp 9.0 · Linköpings GK" — with absent
+    /// halves omitted, never dashed. Nil when both are absent, so the header
+    /// can drop the line entirely.
+    static func identityLine(handicapIndex: Double?, homeClubName: String?) -> String? {
+        var parts: [String] = []
+        if let handicap = handicapIndex {
+            parts.append("Hcp \(FriendListModel.handicap(handicap))")
+        }
+        if let club = homeClubName, !club.isEmpty {
+            parts.append(club)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The live line under the header — presence is the feed's call (activity
+    /// recency), this only words it. Progress rides along when there is any;
+    /// a live friend with no scored hole yet is teeing off, same as the strip.
+    static func presenceLine(_ presence: FriendProfilePresence) -> String {
+        guard presence.holesPlayed > 0 else { return "On the course now · Teeing off" }
+        guard let toPar = presence.scoreToPar else {
+            return "On the course now · Thru \(presence.holesPlayed)"
+        }
+        return "On the course now · Thru \(presence.holesPlayed) · \(FriendsActivityModel.scoreToPar(toPar))"
+    }
+
     /// Stitches the next page onto what is already shown, dropping any round
     /// the list already carries. The keyset cursor cannot duplicate rows on a
     /// stable server, but a round created between two page reads can shift the

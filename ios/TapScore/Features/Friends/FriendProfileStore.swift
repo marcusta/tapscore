@@ -15,12 +15,25 @@ import Observation
 /// only `visibility = 'friends'` (see `FriendProfileService`'s class doc). The
 /// store carries both verbatim and the views keep them apart: counts belong to
 /// the profile card, lists are just lists.
+/// The friend's live presence, when they are on the course right now.
+/// Extracted from the friends-activity feed — the ONE presence authority
+/// (activity recency, not a status column) — never derived from the profile's
+/// round list, whose `active` status means only "friendly rounds never lock".
+struct FriendProfilePresence: Equatable {
+    let roundId: String
+    let holesPlayed: Int
+    let scoreToPar: Int?
+}
+
 @MainActor
 @Observable
 final class FriendProfileStore {
     let playerId: String
 
     private(set) var profile: FriendProfileView?
+    /// Non-nil while the friend is out on the course. Best-effort decoration:
+    /// a failed feed read leaves it nil and the profile intact.
+    private(set) var presence: FriendProfilePresence?
     private(set) var loaded = false
     private(set) var loading = false
     private(set) var loadError: String?
@@ -41,6 +54,7 @@ final class FriendProfileStore {
         loading = true
         loadError = nil
         defer { loading = false }
+        async let liveLine = loadPresence()
         do {
             profile = try await api.send(
                 FriendProfileEndpoints.profile,
@@ -48,6 +62,7 @@ final class FriendProfileStore {
             )
             loaded = true
             unavailable = nil
+            presence = await liveLine
         } catch {
             if error is CancellationError { return }
             if let refusal = FriendProfileModel.unavailability(for: error) {
@@ -56,6 +71,7 @@ final class FriendProfileStore {
                 // longer see.
                 unavailable = refusal
                 profile = nil
+                presence = nil
                 loaded = false
             } else if case APIError.unauthorized = error {
                 loadError = "Your session expired — sign in again."
@@ -63,5 +79,24 @@ final class FriendProfileStore {
                 loadError = "Couldn't load this profile."
             }
         }
+    }
+
+    /// The friends-activity feed, reduced to this one friend. Any failure —
+    /// including a refusal — yields nil rather than an error: the live line is
+    /// decoration on the profile, and the profile read is the gate.
+    private func loadPresence() async -> FriendProfilePresence? {
+        guard let activity = try? await api.send(DashboardEndpoints.friendsActivity) else {
+            return nil
+        }
+        for entry in activity.live {
+            if let friend = entry.friends.first(where: { $0.playerId == playerId }) {
+                return FriendProfilePresence(
+                    roundId: entry.roundId,
+                    holesPlayed: Int(friend.holesPlayed),
+                    scoreToPar: friend.scoreToPar.map(Int.init)
+                )
+            }
+        }
+        return nil
     }
 }
