@@ -12,6 +12,8 @@
 //   friendly-round   — 4-participant stroke-play × individual round on
 //                      Linköping, partial scoring, one DNP + one pickup
 //   match-play-better-ball-round — sample 2v2 plain net better-ball match
+//   player-stats-marcus — 25 realistic full rounds + per-hole statistics for
+//                         the dev player marcus (1.0 handicap)
 //
 // Assumes the dev server has booted at least once (to apply migrations +
 // create data/app.sqlite + the default dev fixture).
