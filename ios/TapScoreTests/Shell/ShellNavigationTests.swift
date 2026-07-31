@@ -156,6 +156,35 @@ final class ShellNavigationTests: XCTestCase {
         XCTAssertEqual(navigation.apply(.round(token: "t2")), "t2")
     }
 
+    // MARK: - Friend profile
+
+    func testFriendProfilePushesAndDeduplicatesOnItsPlayer() {
+        var navigation = ShellNavigation()
+
+        XCTAssertTrue(navigation.openFriendProfile(playerId: "p1", displayName: "Anna"))
+        // A second tap on the same row must not stack a second profile.
+        XCTAssertFalse(navigation.openFriendProfile(playerId: "p1", displayName: "Anna"))
+        XCTAssertEqual(navigation.stack, [.friendProfile(playerId: "p1", displayName: "Anna")])
+
+        // The profile's two sub-lists stack on top, each deduplicating too.
+        XCTAssertTrue(navigation.openFriendRounds(playerId: "p1", displayName: "Anna"))
+        XCTAssertFalse(navigation.openFriendRounds(playerId: "p1", displayName: "Anna"))
+        XCTAssertTrue(navigation.openFriendCourses(playerId: "p1", displayName: "Anna"))
+        XCTAssertFalse(navigation.openFriendCourses(playerId: "p1", displayName: "Anna"))
+
+        // And a tapped round rides the SAME spectate destination the feed uses.
+        XCTAssertTrue(navigation.openSpectate(roundId: "r1", friendName: "Anna"))
+        XCTAssertEqual(
+            navigation.stack,
+            [
+                .friendProfile(playerId: "p1", displayName: "Anna"),
+                .friendRounds(playerId: "p1", displayName: "Anna"),
+                .friendCourses(playerId: "p1", displayName: "Anna"),
+                .spectate(roundId: "r1", friendName: "Anna"),
+            ]
+        )
+    }
+
     // MARK: - End-to-end with the parser
 
     /// The whole inbound path in one assertion: URL → `DeepLinkRouter` →

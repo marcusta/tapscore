@@ -33,6 +33,17 @@ enum ShellDestination: Hashable, Sendable {
     /// friend of the caller, and the screen degrades to "Watching this round"
     /// without it rather than guessing.
     case spectate(roundId: String, friendName: String?)
+    /// A mutual friend's profile. Addressed by player ID; the server's mutual
+    /// edge is the gate, so a one-way contact tapping their way here would get
+    /// the 403 state — which is why `FriendsView` only navigates mutual rows.
+    ///
+    /// `displayName` is carried from the tapped row so the screen has a name
+    /// before the payload lands. Presentation only.
+    case friendProfile(playerId: String, displayName: String)
+    /// The friend's full paged round list, pushed from their profile.
+    case friendRounds(playerId: String, displayName: String)
+    /// The friend's courses list, pushed from their profile.
+    case friendCourses(playerId: String, displayName: String)
 }
 
 /// The navigation stack as a **value**, with the routing rules as pure
@@ -80,6 +91,30 @@ struct ShellNavigation: Equatable, Sendable {
     mutating func openSpectate(roundId: String, friendName: String? = nil) -> Bool {
         if case let .spectate(openId, _)? = top, openId == roundId { return false }
         stack.append(.spectate(roundId: roundId, friendName: friendName))
+        return true
+    }
+
+    /// Pushes a mutual friend's profile, unless it is already on top.
+    @discardableResult
+    mutating func openFriendProfile(playerId: String, displayName: String) -> Bool {
+        if case let .friendProfile(topId, _)? = top, topId == playerId { return false }
+        stack.append(.friendProfile(playerId: playerId, displayName: displayName))
+        return true
+    }
+
+    /// Pushes a friend's full round list, unless it is already on top.
+    @discardableResult
+    mutating func openFriendRounds(playerId: String, displayName: String) -> Bool {
+        if case let .friendRounds(topId, _)? = top, topId == playerId { return false }
+        stack.append(.friendRounds(playerId: playerId, displayName: displayName))
+        return true
+    }
+
+    /// Pushes a friend's courses list, unless it is already on top.
+    @discardableResult
+    mutating func openFriendCourses(playerId: String, displayName: String) -> Bool {
+        if case let .friendCourses(topId, _)? = top, topId == playerId { return false }
+        stack.append(.friendCourses(playerId: playerId, displayName: displayName))
         return true
     }
 

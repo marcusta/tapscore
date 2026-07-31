@@ -64,28 +64,6 @@ struct HandicapEntry: Codable, Sendable, Equatable {
     }
 }
 
-struct HandicapLatestInput: Codable, Sendable, Equatable {
-    var playerId: String
-
-    enum CodingKeys: String, CodingKey {
-        case playerId = "playerId"
-    }
-
-    init(playerId: String) {
-        self.playerId = playerId
-    }
-
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.playerId = try c.decode(String.self, forKey: .playerId)
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(playerId, forKey: .playerId)
-    }
-}
-
 struct HandicapRecordInput: Codable, Sendable, Equatable {
     var playerId: String
     var handicapIndex: Double

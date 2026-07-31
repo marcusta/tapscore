@@ -120,6 +120,37 @@ struct RootView: View {
                     // Read-only by construction: the spectate feature is
                     // handed an ID and has no way to obtain a share token.
                     SpectateRoundView(roundId: roundId, friendName: friendName)
+                case let .friendProfile(playerId, displayName):
+                    // Same trust shape as spectate: an ID, session-authorized
+                    // reads, no token anywhere. A tapped round routes through
+                    // the SAME spectate destination the feed uses.
+                    FriendProfileScreen(
+                        playerId: playerId,
+                        displayName: displayName,
+                        onOpenRound: { roundId in
+                            navigation.openSpectate(roundId: roundId, friendName: displayName)
+                        },
+                        onSeeAllRounds: {
+                            navigation.openFriendRounds(
+                                playerId: playerId, displayName: displayName
+                            )
+                        },
+                        onSeeCourses: {
+                            navigation.openFriendCourses(
+                                playerId: playerId, displayName: displayName
+                            )
+                        }
+                    )
+                case let .friendRounds(playerId, displayName):
+                    FriendRoundsListView(
+                        playerId: playerId,
+                        displayName: displayName,
+                        onOpenRound: { roundId in
+                            navigation.openSpectate(roundId: roundId, friendName: displayName)
+                        }
+                    )
+                case let .friendCourses(playerId, displayName):
+                    FriendCoursesListView(playerId: playerId, displayName: displayName)
                 }
             }
         }
@@ -148,7 +179,11 @@ struct RootView: View {
                 }
             )
         case .friends:
-            FriendsView()
+            FriendsView(onOpenProfile: { friend in
+                navigation.openFriendProfile(
+                    playerId: friend.id, displayName: friend.displayName
+                )
+            })
         case .profile:
             ProfileView(showsHeader: false)
         }

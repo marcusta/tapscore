@@ -8,6 +8,12 @@ import SwiftUI
 struct FriendsView: View {
     @Environment(AppEnvironment.self) private var environment
 
+    /// Opens a friend's profile. Only MUTUAL rows call it — a one-way contact
+    /// would just meet the server's 403, so their row does not navigate at all
+    /// (the "hasn't added you back" line is the explanation the row carries
+    /// instead).
+    var onOpenProfile: (FriendProfile) -> Void = { _ in }
+
     @State private var store: FriendsStore?
     /// Drives the live dot on a friend who is on the course right now. Its own
     /// store, shared in kind (not in instance) with the landing's "Out now"
@@ -296,6 +302,39 @@ struct FriendsView: View {
     }
 
     private func friendRow(_ friend: FriendProfile, store: FriendsStore) -> some View {
+        Group {
+            if friend.isMutual {
+                Button {
+                    onOpenProfile(friend)
+                } label: {
+                    friendCard(friend)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens their profile. Swipe left to reveal the remove action")
+            } else {
+                // One-way contacts do not navigate: the profile behind this
+                // row is not shared with us yet, and a tap that opens a
+                // refusal screen is worse than a row that plainly is not a
+                // door.
+                friendCard(friend)
+                    .accessibilityHint("Swipe left to reveal the remove action")
+            }
+        }
+        // SwiftUI's native trailing swipe action keeps removal discoverable
+        // without reserving permanent space in every friend card.
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                Task { await store.remove(friend.id) }
+            } label: {
+                Label("Remove", systemImage: "trash")
+            }
+            .disabled(store.mutationInFlight)
+            .tint(TapColors.danger)
+        }
+        .accessibilityIdentifier("friend-row")
+    }
+
+    private func friendCard(_ friend: FriendProfile) -> some View {
         let isLive = activity?.liveFriendIds.contains(friend.id) ?? false
         return TapCard {
             HStack(spacing: TapSpacing.md) {
@@ -339,19 +378,7 @@ struct FriendsView: View {
             .padding(.leading, TapSpacing.lg)
             .padding(.trailing, TapSpacing.sm)
         }
-        // SwiftUI's native trailing swipe action keeps removal discoverable
-        // without reserving permanent space in every friend card.
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                Task { await store.remove(friend.id) }
-            } label: {
-                Label("Remove", systemImage: "trash")
-            }
-            .disabled(store.mutationInFlight)
-            .tint(TapColors.danger)
-        }
-        .accessibilityHint("Swipe left to reveal the remove action")
-        .accessibilityIdentifier("friend-row")
+        .contentShape(Rectangle())
     }
 
     private func handicap(_ value: Double?) -> some View {
