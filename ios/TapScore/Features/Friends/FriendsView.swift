@@ -197,7 +197,12 @@ struct FriendsView: View {
     private func searchRow(_ player: PlayerSearchResult, store: FriendsStore) -> some View {
         TapCard {
             HStack(spacing: TapSpacing.md) {
-                avatar(player.displayName)
+                TapAvatar(
+                    playerId: player.id,
+                    avatarVersion: player.avatarVersion,
+                    displayName: player.displayName,
+                    username: player.username
+                )
                 VStack(alignment: .leading, spacing: 1) {
                     Text(player.displayName)
                         .font(TapFont.ui(size: 16, weight: .semibold))
@@ -230,7 +235,12 @@ struct FriendsView: View {
         let isLive = activity?.liveFriendIds.contains(friend.id) ?? false
         return TapCard {
             HStack(spacing: TapSpacing.md) {
-                avatar(friend.displayName)
+                TapAvatar(
+                    playerId: friend.id,
+                    avatarVersion: friend.avatarVersion,
+                    displayName: friend.displayName,
+                    username: friend.username
+                )
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: TapSpacing.sm) {
                         Text(friend.displayName)
@@ -284,14 +294,6 @@ struct FriendsView: View {
             .padding(.trailing, TapSpacing.sm)
         }
         .accessibilityIdentifier("friend-row")
-    }
-
-    private func avatar(_ name: String) -> some View {
-        Text(FriendListModel.initials(name))
-            .font(TapFont.ui(size: 13.6, weight: .bold))
-            .foregroundStyle(TapColors.primaryText)
-            .frame(width: 40, height: 40)
-            .background(Circle().fill(TapColors.primary))
     }
 
     private func handicap(_ value: Double?) -> some View {

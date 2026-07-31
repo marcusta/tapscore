@@ -7,6 +7,7 @@ export interface Player {
     displayName: string;
     nickname: null | string;
     avatarUrl: null | string;
+    avatarVersion: null | string;
     homeClubId: null | string;
     handicapIndex: null | number;
     gender: null | 'M' | 'F';
@@ -31,6 +32,7 @@ export interface PlayerSearchResult {
     gender: null | 'M' | 'F';
     handicapIndex: null | number;
     homeClubName: null | string;
+    avatarVersion: null | string;
     isFriend: boolean;
 }
 

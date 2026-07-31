@@ -8,11 +8,13 @@ final class FriendsActivityModelTests: XCTestCase {
         _ id: String,
         _ name: String,
         holes: Double,
-        toPar: Double? = nil
+        toPar: Double? = nil,
+        avatarVersion: String? = nil
     ) -> FriendsActivityFriend {
         FriendsActivityFriend(
             playerId: id,
             displayName: name,
+            avatarVersion: avatarVersion,
             holesPlayed: holes,
             scoreToPar: toPar
         )
@@ -63,13 +65,18 @@ final class FriendsActivityModelTests: XCTestCase {
 
     func testChipCarriesHolesAndScoreToParAndNothingFiner() {
         let chips = FriendsActivityModel.chips([
-            entry("r1", friends: [friend("p1", "Anna Lind", holes: 7, toPar: 3)])
+            entry("r1", friends: [
+                friend("p1", "Anna Lind", holes: 7, toPar: 3, avatarVersion: "abc123")
+            ])
         ])
         XCTAssertEqual(chips.count, 1)
         XCTAssertEqual(chips[0].roundId, "r1")
         XCTAssertEqual(chips[0].title, "Anna Lind")
-        XCTAssertEqual(chips[0].initials, "AL")
         XCTAssertEqual(chips[0].progress, "Thru 7 · +3")
+        // Who the chip is about, in the form the avatar needs: the id and the
+        // photo version, carried from the lead friend rather than re-derived.
+        XCTAssertEqual(chips[0].playerId, "p1")
+        XCTAssertEqual(chips[0].avatarVersion, "abc123")
     }
 
     func testSeveralFriendsInOneRoundCollapseToLeadPlusCount() {

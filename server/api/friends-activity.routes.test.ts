@@ -227,7 +227,7 @@ test('a one-way contact grants nothing; the reverse row makes the round visible'
     expect(body.live[0].roundId).toBe(round.roundId);
     expect(body.live[0].name).toBe("Bob's round");
     expect(body.live[0].friends).toEqual([
-        { playerId: cast.bob, displayName: 'Bob Bengtsson', holesPlayed: 1, scoreToPar: 0 },
+        { playerId: cast.bob, displayName: 'Bob Bengtsson', avatarVersion: null, holesPlayed: 1, scoreToPar: 0 },
     ]);
 });
 
@@ -449,7 +449,7 @@ test('a never-scored round is recent, not live', async () => {
         lastActivityAt: null,
         holeCount: 18,
         friends: [
-            { playerId: cast.bob, displayName: 'Bob Bengtsson', holesPlayed: 0, scoreToPar: null },
+            { playerId: cast.bob, displayName: 'Bob Bengtsson', avatarVersion: null, holesPlayed: 0, scoreToPar: null },
         ],
     });
 });
@@ -468,7 +468,7 @@ test('score to par is the friend\'s own strokes over their scored holes', async 
 
     const body = await cast.ctx.friendsActivityService.activityFor(cast.alice, now);
     expect(body.live[0]!.friends).toEqual([
-        { playerId: cast.bob, displayName: 'Bob Bengtsson', holesPlayed: 3, scoreToPar: 3 },
+        { playerId: cast.bob, displayName: 'Bob Bengtsson', avatarVersion: null, holesPlayed: 3, scoreToPar: 3 },
     ]);
 });
 
@@ -496,7 +496,7 @@ test("a ball scored through two format slots does not double a friend's progress
 
     const body = await cast.ctx.friendsActivityService.activityFor(cast.alice, now);
     expect(body.live[0]!.friends).toEqual([
-        { playerId: cast.bob, displayName: 'Bob Bengtsson', holesPlayed: 3, scoreToPar: 3 },
+        { playerId: cast.bob, displayName: 'Bob Bengtsson', avatarVersion: null, holesPlayed: 3, scoreToPar: 3 },
     ]);
 });
 
@@ -519,7 +519,7 @@ test("a team-mate's rows on the same ball stay out of a friend's score", async (
 
     const body = await cast.ctx.friendsActivityService.activityFor(cast.alice, now);
     expect(body.live[0]!.friends).toEqual([
-        { playerId: cast.bob, displayName: 'Bob Bengtsson', holesPlayed: 2, scoreToPar: 0 },
+        { playerId: cast.bob, displayName: 'Bob Bengtsson', avatarVersion: null, holesPlayed: 2, scoreToPar: 0 },
     ]);
 });
 
@@ -565,7 +565,7 @@ test("a GUEST team-mate's rows on the same ball stay out of a friend's score", a
 
     const body = await cast.ctx.friendsActivityService.activityFor(cast.alice, now);
     expect(body.live[0]!.friends).toEqual([
-        { playerId: cast.bob, displayName: 'Bob Bengtsson', holesPlayed: 2, scoreToPar: 0 },
+        { playerId: cast.bob, displayName: 'Bob Bengtsson', avatarVersion: null, holesPlayed: 2, scoreToPar: 0 },
     ]);
 });
 

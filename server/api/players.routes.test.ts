@@ -32,6 +32,7 @@ test('GET /api/players/me with session returns Player from descriptor', async ()
         displayName: 'Alice Andersson',
         nickname: null,
         avatarUrl: null,
+        avatarVersion: null,
         homeClubId: null,
         handicapIndex: null,
         gender: null,

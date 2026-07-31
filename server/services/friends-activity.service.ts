@@ -16,6 +16,9 @@ import type { FriendService } from './friend.service';
 export interface FriendsActivityFriend {
     playerId: string;
     displayName: string;
+    /** Content hash of their photo, null when they have none (migration 050).
+     *  The feed's chips draw a face where there is one, initials otherwise. */
+    avatarVersion: string | null;
     /** Holes with a recorded score on this friend's ball. */
     holesPlayed: number;
     /** Strokes minus par over exactly those holes; null before the first one. */
@@ -272,12 +275,22 @@ export class FriendsActivityService {
             .select(['r.visibility as visibility', 'cr.id as competitionRoundId']);
     }
 
-    /** Display names for a known player set — the feed's only display read. */
-    private displayNamesFor(playerIds: string[]) {
+    /**
+     * How a known player set is DRAWN — the feed's only display read. Name and
+     * photo version travel together because they are the same question asked
+     * once: what does this chip render? The BLOB is not selected; `version` is
+     * all a chip needs to decide between a face and initials.
+     */
+    private identitiesFor(playerIds: string[]) {
         return this.db
             .selectFrom('players')
-            .select(['id', 'display_name'])
-            .where('id', 'in', playerIds);
+            .leftJoin('player_avatars', 'player_avatars.player_id', 'players.id')
+            .select([
+                'players.id as id',
+                'players.display_name as display_name',
+                'player_avatars.version as avatarVersion',
+            ])
+            .where('players.id', 'in', playerIds);
     }
 
     // --- Queries (round facts) ---
@@ -489,8 +502,11 @@ export class FriendsActivityService {
         // Everything below aggregates PER ROUND over `roundIds`, which is why
         // the bound is above it and not at the end (see `CANDIDATE_LIMIT`).
         const facts = await this.factsForRounds(roundIds);
-        const names = new Map(
-            (await this.displayNamesFor(mutualIds).execute()).map((p) => [p.id, p.display_name]),
+        const identities = new Map(
+            (await this.identitiesFor(mutualIds).execute()).map((p) => [
+                p.id,
+                { displayName: p.display_name, avatarVersion: p.avatarVersion ?? null },
+            ]),
         );
 
         // Best ball per (round, friend) — see `progressRows`. Ties break on
@@ -521,9 +537,11 @@ export class FriendsActivityService {
             const friends: FriendsActivityFriend[] = [];
             for (const friendId of byRound.get(roundId) ?? []) {
                 const progress = best.get(`${roundId}|${friendId}`);
+                const identity = identities.get(friendId);
                 friends.push({
                     playerId: friendId,
-                    displayName: names.get(friendId) ?? '',
+                    displayName: identity?.displayName ?? '',
+                    avatarVersion: identity?.avatarVersion ?? null,
                     holesPlayed: progress?.holesPlayed ?? 0,
                     scoreToPar: progress === undefined ? null : progress.scoreToPar,
                 });

@@ -7,6 +7,7 @@ import { log } from '@basics/core/server/logger';
 import { createServices } from './services/index';
 import { mount } from '@basics/core/server/mount';
 import { createPlayersApi } from './api/players.api';
+import { registerPlayerAvatarRoutes } from './api/player-avatar';
 import { createAuthNativeApi } from './api/auth-native.api';
 import {
     AppleJwksCache,
@@ -60,6 +61,7 @@ const { app, db, bootstrapAuth } = await createApp<Database>(
 const services = createServices(db);
 const {
     playerService,
+    playerAvatarService,
     friendService,
     clubService,
     courseService,
@@ -185,6 +187,9 @@ registerFriendlyRoundEvents(app, friendlyRoundService, roundEventsHub);
 // The same stream for a spectator, authorized by session + visibility instead
 // of by share token.
 registerSpectateEvents(app, spectateService, roundEventsHub);
+// Profile photos — raw routes for the same reason the streams are: the bytes
+// in and the bytes out are an image, not JSON (see the file header).
+registerPlayerAvatarRoutes(app, playerAvatarService);
 
 // --- Static client ---
 

@@ -8,6 +8,8 @@ import {
     statsFormFromConfig,
     type StatsConfigForm,
 } from './stats-config-form';
+import { AvatarFileError, prepareAvatarBlob } from './avatar-file';
+import { deleteAvatar, putAvatar } from './avatar-api';
 
 /**
  * The logged-in player's own profile: identity + manual handicap maintenance
@@ -44,6 +46,14 @@ export class ProfileService {
     readonly statsConfig = new Signal<StatsConfigForm>(STATS_ALL_OFF);
     readonly statsSaving = new Signal(false);
     readonly statsError = new Signal<RequestError | null>(null);
+
+    /**
+     * The profile photo. Its own pair for the same reason the stats config has
+     * one — a failed upload belongs under the photo, not under the gender chips
+     * and the club picker and the handicap field at once.
+     */
+    readonly avatarSaving = new Signal(false);
+    readonly avatarError = new Signal<RequestError | null>(null);
 
     /**
      * Load `me` + the append-only history. Load-once per session unless
@@ -84,6 +94,7 @@ export class ProfileService {
         this.saveError.set(null);
         this.statsConfig.set(STATS_ALL_OFF);
         this.statsError.set(null);
+        this.avatarError.set(null);
     }
 
     /**
@@ -172,6 +183,57 @@ export class ProfileService {
         if (!saved) return false;
         this.statsConfig.set(statsFormFromConfig(saved));
         return true;
+    }
+
+    /**
+     * Set the profile photo from a file the user picked: crop and downscale it
+     * here, upload the result, then write the returned version onto `player`.
+     *
+     * That last step is what makes the new face appear everywhere at once — the
+     * account control, the profile header and any friends row rendering the
+     * signed-in player all build their URL from `avatarVersion`, so one signal
+     * write is the whole refresh. No reload, and no window where the header
+     * shows the new photo and the top-right corner shows the old one.
+     *
+     * The preparation failure (an unreadable file) is reported as `validation`
+     * rather than thrown: it is the same class of thing to the user as the
+     * server refusing the bytes, and it renders in the same slot.
+     */
+    async saveAvatar(file: File): Promise<boolean> {
+        this.avatarError.set(null);
+        let blob: Blob;
+        try {
+            blob = await prepareAvatarBlob(file);
+        } catch (err) {
+            this.avatarError.set({
+                code: 'validation',
+                message:
+                    err instanceof AvatarFileError
+                        ? err.message
+                        : 'That image could not be prepared.',
+            });
+            return false;
+        }
+
+        const saved = await request(this.avatarSaving, this.avatarError, () => putAvatar(blob));
+        if (!saved) return false;
+        this.patchAvatarVersion(saved.avatarVersion);
+        return true;
+    }
+
+    /** Remove the profile photo; every surface falls back to initials. */
+    async removeAvatar(): Promise<boolean> {
+        const done = await request(this.avatarSaving, this.avatarError, () =>
+            deleteAvatar().then(() => true),
+        );
+        if (!done) return false;
+        this.patchAvatarVersion(null);
+        return true;
+    }
+
+    private patchAvatarVersion(avatarVersion: string | null): void {
+        const p = this.player.get();
+        if (p) this.player.set({ ...p, avatarVersion });
     }
 
     /** The loaded club's name for the current `homeClubId`, or null. */

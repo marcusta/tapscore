@@ -12,9 +12,12 @@ import type { PlayerService } from './player.service';
  * column — the same "current value" convention `PlayerProfile` documents, not a
  * `handicap_history` join.
  *
- * There is no avatar field and no stats field, and neither is an oversight:
- * both were explicitly deferred by the owner. A nullable placeholder would be
- * worse than nothing — a client would bind to it and the shape would ship.
+ * There is no stats field, and that is not an oversight: it was explicitly
+ * deferred by the owner. A nullable placeholder would be worse than nothing —
+ * a client would bind to it and the shape would ship.
+ *
+ * `avatarVersion` was deferred on the same grounds and is no longer: photos
+ * exist now (migration 050), so the field carries a real value or a real null.
  */
 export interface FriendProfileIdentity {
     id: string;
@@ -22,6 +25,9 @@ export interface FriendProfileIdentity {
     displayName: string;
     handicapIndex: number | null;
     homeClubName: string | null;
+    /** Content hash of the subject's photo, null when they have none. The
+     *  client builds `/api/players/<id>/avatar?v=<version>` from it. */
+    avatarVersion: string | null;
 }
 
 /**
@@ -495,12 +501,13 @@ export class FriendProfileService {
 
     // --- Queries (identity) ---
 
-    /** The profile card's identity read. `clubs` is LEFT-joined: a player need
-     *  not have a home club. */
+    /** The profile card's identity read. `clubs` and `player_avatars` are both
+     *  LEFT-joined: a player need not have a home club, or a photo. */
     private identity(playerId: string) {
         return this.db
             .selectFrom('players')
             .leftJoin('clubs', 'clubs.id', 'players.home_club_id')
+            .leftJoin('player_avatars', 'player_avatars.player_id', 'players.id')
             .where('players.id', '=', playerId)
             .select([
                 'players.id as id',
@@ -508,6 +515,7 @@ export class FriendProfileService {
                 'players.display_name as displayName',
                 'players.handicap_index as handicapIndex',
                 'clubs.name as homeClubName',
+                'player_avatars.version as avatarVersion',
             ]);
     }
 
@@ -639,6 +647,7 @@ export class FriendProfileService {
                     displayName: player.displayName,
                     handicapIndex: player.handicapIndex,
                     homeClubName: player.homeClubName ?? null,
+                    avatarVersion: player.avatarVersion ?? null,
                 },
                 roundsTotal: Number(totals?.roundsTotal ?? 0),
                 roundsThisYear: Number(totals?.roundsThisYear ?? 0),

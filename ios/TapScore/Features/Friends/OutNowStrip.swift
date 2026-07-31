@@ -62,11 +62,12 @@ private struct OutNowChipView: View {
             TapCard {
                 HStack(spacing: TapSpacing.sm) {
                     ZStack(alignment: .bottomTrailing) {
-                        Text(chip.initials)
-                            .font(TapFont.ui(size: 13.6, weight: .bold))
-                            .foregroundStyle(TapColors.primaryText)
-                            .frame(width: 36, height: 36)
-                            .background(Circle().fill(TapColors.primary))
+                        TapAvatar(
+                            playerId: chip.playerId,
+                            avatarVersion: chip.avatarVersion,
+                            displayName: chip.displayName,
+                            size: 36
+                        )
                         // The live marker rides the avatar rather than sitting
                         // in the text: the row is already "who + how far", and
                         // a third text fragment per chip is a wall of words at

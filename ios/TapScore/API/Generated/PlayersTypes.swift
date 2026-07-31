@@ -9,6 +9,7 @@ struct PlayerSearchResult: Codable, Sendable, Equatable {
     var gender: PlayerGender?
     var handicapIndex: Double?
     var homeClubName: String?
+    var avatarVersion: String?
     var isFriend: Bool
 
     enum CodingKeys: String, CodingKey {
@@ -18,16 +19,18 @@ struct PlayerSearchResult: Codable, Sendable, Equatable {
         case gender = "gender"
         case handicapIndex = "handicapIndex"
         case homeClubName = "homeClubName"
+        case avatarVersion = "avatarVersion"
         case isFriend = "isFriend"
     }
 
-    init(id: String, username: String, displayName: String, gender: PlayerGender? = nil, handicapIndex: Double? = nil, homeClubName: String? = nil, isFriend: Bool) {
+    init(id: String, username: String, displayName: String, gender: PlayerGender? = nil, handicapIndex: Double? = nil, homeClubName: String? = nil, avatarVersion: String? = nil, isFriend: Bool) {
         self.id = id
         self.username = username
         self.displayName = displayName
         self.gender = gender
         self.handicapIndex = handicapIndex
         self.homeClubName = homeClubName
+        self.avatarVersion = avatarVersion
         self.isFriend = isFriend
     }
 
@@ -39,6 +42,7 @@ struct PlayerSearchResult: Codable, Sendable, Equatable {
         self.gender = try c.decodeIfPresent(PlayerGender.self, forKey: .gender)
         self.handicapIndex = try c.decodeIfPresent(Double.self, forKey: .handicapIndex)
         self.homeClubName = try c.decodeIfPresent(String.self, forKey: .homeClubName)
+        self.avatarVersion = try c.decodeIfPresent(String.self, forKey: .avatarVersion)
         self.isFriend = try c.decode(Bool.self, forKey: .isFriend)
     }
 
@@ -61,6 +65,11 @@ struct PlayerSearchResult: Codable, Sendable, Equatable {
             try c.encode(homeClubName, forKey: .homeClubName)
         } else {
             try c.encodeNil(forKey: .homeClubName)
+        }
+        if let avatarVersion {
+            try c.encode(avatarVersion, forKey: .avatarVersion)
+        } else {
+            try c.encodeNil(forKey: .avatarVersion)
         }
         try c.encode(isFriend, forKey: .isFriend)
     }

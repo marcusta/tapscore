@@ -64,22 +64,9 @@ export function accountControl(state: AccountMenuState): 'signin' | 'avatar' {
 }
 
 /**
- * Avatar initials: first letter of the first and last word of the display
- * name, upper-cased. Falls back to the username's first letter, then to a
- * neutral glyph so the circle is never empty mid-load.
+ * Avatar initials. The implementation moved to `src/avatar.ts` when photos
+ * arrived — the account control and a friend row must letter a name the same
+ * way, or the same person reads as two people across two screens. Re-exported
+ * under the old name so this module's callers and tests stay put.
  */
-export function accountInitials(displayName?: string | null, username?: string | null): string {
-    const words = (displayName ?? '').trim().split(/\s+/).filter((w) => w.length > 0);
-    if (words.length >= 2) {
-        return (first(words[0]!) + first(words[words.length - 1]!)).toUpperCase();
-    }
-    if (words.length === 1) return first(words[0]!).toUpperCase();
-    const user = (username ?? '').trim();
-    if (user.length > 0) return first(user).toUpperCase();
-    return '•';
-}
-
-/** First CODE POINT, so an emoji or astral-plane name doesn't split in half. */
-function first(word: string): string {
-    return [...word][0] ?? '';
-}
+export { avatarInitials as accountInitials } from '../avatar';

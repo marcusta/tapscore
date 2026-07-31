@@ -8,9 +8,9 @@ import { AdminService } from '../admin/admin.service';
 import { LandingService } from '../landing/landing.service';
 import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import { signOutSequence } from '../auth/sign-out';
+import { avatarBadgeBindings, avatarBadgeCss, avatarBadgeMarkup } from './avatar-badge';
 import {
     accountControl,
-    accountInitials,
     accountMenuKinds,
     type AccountMenuRowKind,
     type AccountMenuState,
@@ -33,7 +33,9 @@ import {
 const tpl = template(`
     <div class="acct" bind="root">
         <button bind="signin" class="acct__signin" type="button">Sign in</button>
-        <button bind="avatar" class="acct__avatar" type="button" aria-label="Account"></button>
+        <button bind="avatar" class="acct__avatar" type="button" aria-label="Account">
+            ${avatarBadgeMarkup('acct__badge')}
+        </button>
         <div bind="menu" class="acct__menu">
             <div class="acct__identity">
                 <span class="acct__identity-label">Signed in as</span>
@@ -74,25 +76,25 @@ export class AccountMenuComponent extends Component {
             }
 
             & .acct__avatar {
-                width: 38px;
-                height: 38px;
                 display: flex;
-                align-items: center;
-                justify-content: center;
                 padding: 0;
-                background: ${t('primary')};
-                color: ${t('primary-text')};
+                background: none;
                 border: none;
                 border-radius: ${t('radius-pill')};
-                font-family: inherit;
-                font-size: 0.9rem;
-                font-weight: 800;
-                letter-spacing: 0.02em;
                 cursor: pointer;
                 box-shadow: ${t('shadow')};
 
                 &:focus-visible { outline: 2px solid ${t('accent')}; outline-offset: 2px; }
                 &.hidden { display: none; }
+
+                & .acct__badge {
+                    ${avatarBadgeCss(38, '0.9rem')}
+                    background: ${t('primary')};
+                    color: ${t('primary-text')};
+                    font-family: inherit;
+                    font-weight: 800;
+                    letter-spacing: 0.02em;
+                }
             }
 
             & .acct__menu {
@@ -224,15 +226,23 @@ export class AccountMenuComponent extends Component {
                     this.router.navigate('/login');
                 },
             },
+            // The player's own face, from the profile the menu already loads.
+            // Photo-less is the majority state and stays initials — the same
+            // letters, from the same rule, as every friend row.
+            ...avatarBadgeBindings(() => {
+                const player = this.profile.player.get();
+                return {
+                    id: player?.id ?? '',
+                    avatarVersion: player?.avatarVersion ?? null,
+                    displayName: this.state.get().displayName,
+                    username: this.state.get().username,
+                };
+            }),
             avatar: {
                 className: () =>
                     accountControl(this.state.get()) === 'avatar'
                         ? 'acct__avatar'
                         : 'acct__avatar hidden',
-                textContent: () => {
-                    const st = this.state.get();
-                    return accountInitials(st.displayName, st.username);
-                },
                 'aria-expanded': () => (this.open.get() ? 'true' : 'false'),
                 onclick: () => this.open.set(!this.open.get()),
             },

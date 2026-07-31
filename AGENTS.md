@@ -90,7 +90,7 @@ participant can. That is the front door's trust model, not a new privilege.
 ### Cross-player reads
 
 A **cross-player read** returns another player's data to an ordinary caller.
-There are two authorization models for it, and adding a third is a design
+There are three authorization models for it, and adding a fourth is a design
 decision, not a routing detail:
 
 1. **Role-gated, unscoped** — `/api/admin/*`, above. An operator, all players.
@@ -105,6 +105,17 @@ decision, not a routing detail:
    - `GET /friends/:playerId/{profile,rounds,courses}` — `friend-profile.service.ts`
      (aggregates count private and `link` rounds; lists show only
      `visibility = 'friends'`)
+3. **Session-gated, unscoped** — profile photos, and so far only those.
+   `GET /api/players/:playerId/avatar` (`player-avatar.ts`) serves any player's
+   photo to any signed-in caller. The mutual edge is deliberately NOT the gate:
+   a face has to appear in SEARCH results, which is the step before a friendship
+   exists, so an edge-gated avatar would be invisible exactly where it is most
+   useful. What bounds the exposure instead is what the photo is — a picture the
+   player chose to publish under their own name, with no round, score or
+   schedule attached — and the session requirement, which keeps it off the open
+   internet. `avatarVersion` (a content hash, null when there is no photo) rides
+   on every payload that already carries the player, so a list decides
+   face-or-initials without one request per row.
 
 Rules for any new cross-player read:
 

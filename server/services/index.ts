@@ -1,6 +1,7 @@
 import type { Kysely } from 'kysely';
 import type { Database } from '../db/schema';
 import { PlayerService } from './player.service';
+import { PlayerAvatarService } from './player-avatar.service';
 import { ClubService } from './club.service';
 import { CourseService } from './course.service';
 import { CourseRouteTemplateService } from './course-route-template.service';
@@ -101,6 +102,10 @@ export function createServices(db: Kysely<Database>) {
     // maintenance append to handicap_history through it (Phase 3).
     const handicapService = new HandicapService(db);
     const playerService = new PlayerService(db, handicapService);
+    // Separate from PlayerService on purpose: it is the ONLY holder of
+    // `player_avatars.bytes`, and keeping it apart is what makes "no other
+    // query selects the BLOB" a checkable claim rather than a convention.
+    const playerAvatarService = new PlayerAvatarService(db);
     const friendService = new FriendService(db);
     const clubService = new ClubService(db);
     const courseService = new CourseService(db);
@@ -243,6 +248,7 @@ export function createServices(db: Kysely<Database>) {
         db,
         roundEventsHub,
         playerService,
+        playerAvatarService,
         friendService,
         clubService,
         courseService,

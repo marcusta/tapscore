@@ -116,7 +116,12 @@ final class FriendsStore {
                 displayName: player.displayName,
                 gender: player.gender,
                 handicapIndex: player.handicapIndex,
-                homeClubName: player.homeClubName
+                homeClubName: player.homeClubName,
+                // Carried over from the search row, not left nil: the list is
+                // deliberately not refetched after an add, so a dropped field
+                // here is wrong until the next launch. A face that was on
+                // screen a tap ago must not turn back into letters.
+                avatarVersion: player.avatarVersion
             )
             friends.removeAll { $0.id == player.id }
             friends.append(added)

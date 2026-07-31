@@ -101,6 +101,12 @@ final class AppEnvironment {
     /// point for tests in one place.
     let deviceRounds: DeviceRoundsStore
 
+    /// Profile photos, cached for the process. One shared instance for the same
+    /// reason `deviceRounds` is: the friends list, the "Out now" strip and the
+    /// profile screen all draw the same faces, and per-screen caches would mean
+    /// the same image fetched once per screen that shows it.
+    let avatars: AvatarStore
+
     // MARK: Observable state
 
     private(set) var authState: AuthState = .unknown
@@ -209,11 +215,13 @@ final class AppEnvironment {
         // copy, so a logout or a token refresh takes effect on the next request
         // with no re-wiring.
         let kc = keychain
-        self.api = TapScoreAPI(
+        let client = TapScoreAPI(
             configuration: configuration,
             session: session,
             tokenProvider: { kc.loadToken() }
         )
+        self.api = client
+        self.avatars = AvatarStore(api: client)
     }
 
     /// Production environment.
@@ -467,6 +475,10 @@ final class AppEnvironment {
             credentials = .unknown
             didProbeCredentials = false
             isProbingCredentials = false
+            // Faces of the friends the departing account could see. The next
+            // sign-in on this device is possibly a different human, and the
+            // photos are exactly the part of a cache that is recognisable.
+            avatars.clear()
         }
         _ = try? await api.send(AuthNativeEndpoints.revoke)
     }

@@ -11,7 +11,7 @@ final class FriendsStoreTests: XCTestCase {
 
     private static let result = """
     {"id":"p2","username":"johan","displayName":"Johan J","gender":"M",
-     "handicapIndex":3.9,"homeClubName":null,"isFriend":false}
+     "handicapIndex":3.9,"homeClubName":null,"avatarVersion":"abc123","isFriend":false}
     """
 
     override func setUp() {
@@ -55,6 +55,14 @@ final class FriendsStoreTests: XCTestCase {
         await store.add(try! XCTUnwrap(store.results.first))
         XCTAssertEqual(Set(store.friends.map(\.id)), Set(["p1", "p2"]))
         XCTAssertTrue(store.results.first?.isFriend == true)
+        // The optimistic row is what the list draws until the next launch, so
+        // every field the search row carried has to survive the hand-off — the
+        // photo above all, since losing it turns a face back into letters.
+        XCTAssertEqual(
+            store.friends.first { $0.id == "p2" }?.avatarVersion,
+            "abc123",
+            "the optimistic row must keep the search result's photo"
+        )
 
         await store.remove("p2")
         XCTAssertEqual(store.friends.map(\.id), ["p1"])

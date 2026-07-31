@@ -289,19 +289,22 @@ struct FriendsActivityEntry: Codable, Sendable, Equatable {
 struct FriendsActivityFriend: Codable, Sendable, Equatable {
     var playerId: String
     var displayName: String
+    var avatarVersion: String?
     var holesPlayed: Double
     var scoreToPar: Double?
 
     enum CodingKeys: String, CodingKey {
         case playerId = "playerId"
         case displayName = "displayName"
+        case avatarVersion = "avatarVersion"
         case holesPlayed = "holesPlayed"
         case scoreToPar = "scoreToPar"
     }
 
-    init(playerId: String, displayName: String, holesPlayed: Double, scoreToPar: Double? = nil) {
+    init(playerId: String, displayName: String, avatarVersion: String? = nil, holesPlayed: Double, scoreToPar: Double? = nil) {
         self.playerId = playerId
         self.displayName = displayName
+        self.avatarVersion = avatarVersion
         self.holesPlayed = holesPlayed
         self.scoreToPar = scoreToPar
     }
@@ -310,6 +313,7 @@ struct FriendsActivityFriend: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.playerId = try c.decode(String.self, forKey: .playerId)
         self.displayName = try c.decode(String.self, forKey: .displayName)
+        self.avatarVersion = try c.decodeIfPresent(String.self, forKey: .avatarVersion)
         self.holesPlayed = try c.decode(Double.self, forKey: .holesPlayed)
         self.scoreToPar = try c.decodeIfPresent(Double.self, forKey: .scoreToPar)
     }
@@ -318,6 +322,11 @@ struct FriendsActivityFriend: Codable, Sendable, Equatable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(playerId, forKey: .playerId)
         try c.encode(displayName, forKey: .displayName)
+        if let avatarVersion {
+            try c.encode(avatarVersion, forKey: .avatarVersion)
+        } else {
+            try c.encodeNil(forKey: .avatarVersion)
+        }
         try c.encode(holesPlayed, forKey: .holesPlayed)
         if let scoreToPar {
             try c.encode(scoreToPar, forKey: .scoreToPar)

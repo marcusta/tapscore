@@ -371,6 +371,7 @@ test('the card carries identity, aggregates and the newest five visible rounds',
         displayName: 'Bob Bengtsson',
         handicapIndex: 12.4,
         homeClubName: null,
+        avatarVersion: null,
     });
     expect(body.roundsTotal).toBe(6);
     expect(body.coursesTotal).toBe(1);

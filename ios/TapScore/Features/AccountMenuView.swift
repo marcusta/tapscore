@@ -154,11 +154,21 @@ struct AccountAvatarButton: View {
             Button {
                 showsSheet = true
             } label: {
-                Text(AccountAvatar.initials(for: player))
-                    .font(TapFont.ui(size: 12.8, weight: .bold))
-                    .foregroundStyle(TapColors.accentStrong)
-                    .frame(width: 32, height: 32)
-                    .background(Circle().fill(TapColors.accentSoft))
+                // The player's own face when they have uploaded one, and the
+                // same initials as before when they have not. This control is
+                // the most-seen instance of a person in the app, so it draws
+                // from the same `TapAvatar` as a friend row rather than
+                // keeping a look of its own.
+                TapAvatar(
+                    playerId: player.id,
+                    avatarVersion: player.avatarVersion,
+                    displayName: player.displayName,
+                    username: player.username,
+                    size: 32,
+                    fontSize: 12.8,
+                    background: TapColors.accentSoft,
+                    foreground: TapColors.accentStrong
+                )
                     .overlay(Circle().strokeBorder(TapColors.border, lineWidth: 1))
                     // The circle is 32pt because that is what fits a navigation
                     // bar; the TAP TARGET is 44, which is what fits a thumb.

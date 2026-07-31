@@ -225,6 +225,7 @@ export class FriendService {
             .selectFrom('friendships')
             .innerJoin('players', 'players.id', 'friendships.friend_player_id')
             .leftJoin('clubs', 'clubs.id', 'players.home_club_id')
+            .leftJoin('player_avatars', 'player_avatars.player_id', 'players.id')
             .select([
                 'players.id as id',
                 'players.username as username',
@@ -232,6 +233,9 @@ export class FriendService {
                 'players.gender as gender',
                 'players.handicap_index as handicapIndex',
                 'clubs.name as homeClubName',
+                // `version` only — the BLOB stays where it is. A friends list
+                // is a screenful of these rows.
+                'player_avatars.version as avatarVersion',
             ])
             .where('friendships.player_id', '=', playerId)
             .where('players.deleted_at', 'is', null)

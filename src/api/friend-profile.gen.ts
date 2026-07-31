@@ -26,6 +26,7 @@ export interface FriendProfileIdentity {
     displayName: string;
     handicapIndex: null | number;
     homeClubName: null | string;
+    avatarVersion: null | string;
 }
 
 export interface FriendProfileRoundEntry {

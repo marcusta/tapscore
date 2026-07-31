@@ -6,6 +6,11 @@ import { FriendsService } from './friends.service';
 import { isSearchable } from './friends-state';
 import { friendSubtitle, sortFriends } from './friend-sort';
 import type { FriendProfile } from '../api/friends.gen';
+import {
+    avatarBadgeBindings,
+    avatarBadgeCss,
+    avatarBadgeMarkup,
+} from '../app/avatar-badge';
 
 // Phase 3 friends — the one-directional contact list behind the auth side
 // door (mirrors /profile's sign-in prompt when logged out). Search registered
@@ -51,7 +56,7 @@ const tpl = template(`
 
 const resultTpl = template(`
     <div class="friend-row">
-        <span bind="initials" class="friend-row__badge"></span>
+        ${avatarBadgeMarkup('friend-row__badge')}
         <span class="friend-row__who">
             <span bind="name" class="friend-row__name"></span>
             <span bind="username" class="friend-row__username"></span>
@@ -64,7 +69,7 @@ const resultTpl = template(`
 
 const friendTpl = template(`
     <div class="friend-row">
-        <span bind="initials" class="friend-row__badge"></span>
+        ${avatarBadgeMarkup('friend-row__badge')}
         <span class="friend-row__who">
             <span bind="name" class="friend-row__name"></span>
             <span bind="subtitle" class="friend-row__subtitle"></span>
@@ -73,15 +78,6 @@ const friendTpl = template(`
         <button bind="remove" class="friend-row__remove" type="button" aria-label="Remove friend">✕</button>
     </div>
 `);
-
-function initialsOf(name: string): string {
-    return name
-        .split(/\s+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((w) => w[0]!.toUpperCase())
-        .join('');
-}
 
 export class FriendsComponent extends Component {
     static styles = `
@@ -185,10 +181,8 @@ export class FriendsComponent extends Component {
                 ${card()}
 
                 & .friend-row__badge {
-                    display: grid; place-items: center;
-                    width: 40px; height: 40px; border-radius: 50%;
+                    ${avatarBadgeCss(40)}
                     background: ${t('primary')}; color: ${t('primary-text')};
-                    font-weight: 700; font-size: 0.85rem; flex-shrink: 0;
                 }
                 & .friend-row__who {
                     flex: 1; min-width: 0;
@@ -302,7 +296,11 @@ export class FriendsComponent extends Component {
                 this.wireEl(
                     resultTpl,
                     {
-                        initials: () => initialsOf(r.displayName),
+                        // The LIVE row, not the closed-over one — see the
+                        // getter note in `avatarBadgeBindings`.
+                        ...avatarBadgeBindings(
+                            () => this.svc.results.get().find((x) => x.id === r.id) ?? r,
+                        ),
                         name: () => r.displayName,
                         // Home club disambiguates same-named players — the
                         // whole point of showing it on a search hit.
@@ -339,7 +337,9 @@ export class FriendsComponent extends Component {
                 this.wireEl(
                     friendTpl,
                     {
-                        initials: () => initialsOf(f.displayName),
+                        ...avatarBadgeBindings(
+                            () => this.svc.friends.get().find((x) => x.id === f.id) ?? f,
+                        ),
                         name: () => f.displayName,
                         subtitle: () => {
                             const live = this.svc.friends.get().find((x) => x.id === f.id) ?? f;

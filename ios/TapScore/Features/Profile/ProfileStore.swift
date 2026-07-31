@@ -46,6 +46,7 @@ final class ProfileStore {
         case homeClub
         case handicap
         case stats
+        case photo
     }
 
     /// The rejection copy for an out-of-range index, character for character the
@@ -99,6 +100,7 @@ final class ProfileStore {
     private(set) var clubError: String?
     private(set) var handicapError: String?
     private(set) var statsError: String?
+    private(set) var photoError: String?
 
     /// Set when a handicap save SUCCEEDED but the forced reload after it failed.
     /// A separate slot from `handicapError` because the two states demand
@@ -313,6 +315,72 @@ final class ProfileStore {
                 onProfileUpdated?(patched)
             }
         }
+    }
+
+    // MARK: - Profile photo
+
+    /// The rejection copy for a file this device could not decode. HEIC from
+    /// the photo library decodes fine here — this is for the odd import that
+    /// does not, and it names the two formats that always work.
+    static let photoUnreadableMessage = "That image could not be read. Try a JPEG or PNG."
+
+    /// Crop, downscale and upload a picked photo.
+    ///
+    /// The preparation is deliberately not the caller's job: the view hands
+    /// over whatever `PhotosPicker` produced — a 12-megapixel HEIC, usually —
+    /// and everything between that and 512px of JPEG is `AvatarImage`.
+    ///
+    /// On success only `avatarVersion` is patched. No reload: the version is a
+    /// content hash the server just computed, so it is already the freshest
+    /// fact about that column, and `onProfileUpdated` carries it to the session
+    /// state that the account button and every friends row read.
+    func savePhoto(_ picked: Data) async {
+        guard saving == nil else { return }
+        saving = .photo
+        photoError = nil
+        defer { saving = nil }
+
+        guard let prepared = AvatarImage.prepare(picked) else {
+            photoError = Self.photoUnreadableMessage
+            return
+        }
+        do {
+            let result = try await api.uploadAvatar(prepared)
+            patchAvatarVersion(result.avatarVersion)
+        } catch {
+            photoError = APIErrorCopy.short(error)
+        }
+    }
+
+    /// The picker handed back an item whose bytes would not load.
+    ///
+    /// Same sentence as an undecodable file, because it is the same thing from
+    /// the player's side: an iCloud photo that failed to download reads as "this
+    /// picture did not work", and "loadTransferable returned nil" reads as
+    /// nothing at all.
+    func reportPhotoUnreadable() {
+        photoError = Self.photoUnreadableMessage
+    }
+
+    /// Remove the photo. Every surface falls back to initials.
+    func removePhoto() async {
+        guard saving == nil else { return }
+        saving = .photo
+        photoError = nil
+        defer { saving = nil }
+        do {
+            try await api.deleteAvatar()
+            patchAvatarVersion(nil)
+        } catch {
+            photoError = APIErrorCopy.short(error)
+        }
+    }
+
+    private func patchAvatarVersion(_ version: String?) {
+        guard var patched = player else { return }
+        patched.avatarVersion = version
+        player = patched
+        onProfileUpdated?(patched)
     }
 
     // MARK: - Statistics

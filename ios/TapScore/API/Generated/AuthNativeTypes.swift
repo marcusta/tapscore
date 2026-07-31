@@ -40,6 +40,7 @@ struct Player: Codable, Sendable, Equatable {
     var displayName: String
     var nickname: String?
     var avatarUrl: String?
+    var avatarVersion: String?
     var homeClubId: String?
     var handicapIndex: Double?
     var gender: PlayerGender?
@@ -52,6 +53,7 @@ struct Player: Codable, Sendable, Equatable {
         case displayName = "displayName"
         case nickname = "nickname"
         case avatarUrl = "avatarUrl"
+        case avatarVersion = "avatarVersion"
         case homeClubId = "homeClubId"
         case handicapIndex = "handicapIndex"
         case gender = "gender"
@@ -59,12 +61,13 @@ struct Player: Codable, Sendable, Equatable {
         case deletedAt = "deletedAt"
     }
 
-    init(id: String, username: String, displayName: String, nickname: String? = nil, avatarUrl: String? = nil, homeClubId: String? = nil, handicapIndex: Double? = nil, gender: PlayerGender? = nil, handicapConfirmedAt: String? = nil, deletedAt: String? = nil) {
+    init(id: String, username: String, displayName: String, nickname: String? = nil, avatarUrl: String? = nil, avatarVersion: String? = nil, homeClubId: String? = nil, handicapIndex: Double? = nil, gender: PlayerGender? = nil, handicapConfirmedAt: String? = nil, deletedAt: String? = nil) {
         self.id = id
         self.username = username
         self.displayName = displayName
         self.nickname = nickname
         self.avatarUrl = avatarUrl
+        self.avatarVersion = avatarVersion
         self.homeClubId = homeClubId
         self.handicapIndex = handicapIndex
         self.gender = gender
@@ -79,6 +82,7 @@ struct Player: Codable, Sendable, Equatable {
         self.displayName = try c.decode(String.self, forKey: .displayName)
         self.nickname = try c.decodeIfPresent(String.self, forKey: .nickname)
         self.avatarUrl = try c.decodeIfPresent(String.self, forKey: .avatarUrl)
+        self.avatarVersion = try c.decodeIfPresent(String.self, forKey: .avatarVersion)
         self.homeClubId = try c.decodeIfPresent(String.self, forKey: .homeClubId)
         self.handicapIndex = try c.decodeIfPresent(Double.self, forKey: .handicapIndex)
         self.gender = try c.decodeIfPresent(PlayerGender.self, forKey: .gender)
@@ -100,6 +104,11 @@ struct Player: Codable, Sendable, Equatable {
             try c.encode(avatarUrl, forKey: .avatarUrl)
         } else {
             try c.encodeNil(forKey: .avatarUrl)
+        }
+        if let avatarVersion {
+            try c.encode(avatarVersion, forKey: .avatarVersion)
+        } else {
+            try c.encodeNil(forKey: .avatarVersion)
         }
         if let homeClubId {
             try c.encode(homeClubId, forKey: .homeClubId)

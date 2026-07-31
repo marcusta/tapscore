@@ -81,8 +81,9 @@ final class FriendListModelTests: XCTestCase {
         )
     }
 
-    func testInitialsAndMissingHandicapMatchTheRows() {
-        XCTAssertEqual(FriendListModel.initials(" Johan  Lindström "), "JL")
+    /// Initials moved to `AccountAvatar` (asserted in `AccountMenuTests`) so
+    /// every surface letters a name the same way.
+    func testMissingHandicapMatchesTheRows() {
         XCTAssertEqual(FriendListModel.handicap(4.14), "4.1")
         XCTAssertEqual(FriendListModel.handicap(nil), "–")
     }

@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 /// The signed-in player's profile — the native mirror of
@@ -35,6 +36,9 @@ struct ProfileView: View {
     /// shell's `NavigationStack` and inside a plain `.sheet` from
     /// `AccountSheetView`, and a link would be inert in the second.
     @State private var dashboardOpen = false
+    /// Held only between the tap and the load; cleared as soon as the bytes are
+    /// in hand, so re-picking the same photo counts as a change again.
+    @State private var photoItem: PhotosPickerItem?
 
     var body: some View {
         ScrollView {
@@ -169,21 +173,101 @@ struct ProfileView: View {
     /// belonging to the same human carry the same display name and never the
     /// same username.
     private func identity(_ store: ProfileStore) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(store.player?.displayName ?? "…")
-                .font(TapFont.display(size: 28, weight: .semibold))
-                .foregroundStyle(TapColors.text)
-                .lineLimit(2)
-            if let username = store.player?.username {
-                Text(verbatim: "@\(username)")
+        VStack(alignment: .leading, spacing: TapSpacing.md) {
+            HStack(spacing: TapSpacing.lg) {
+                TapAvatar(
+                    playerId: store.player?.id ?? "",
+                    avatarVersion: store.player?.avatarVersion,
+                    displayName: store.player?.displayName ?? "",
+                    username: store.player?.username ?? "",
+                    size: 72,
+                    fontSize: 24,
+                    background: TapColors.accentSoft,
+                    foreground: TapColors.accentStrong
+                )
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(store.player?.displayName ?? "…")
+                        .font(TapFont.display(size: 28, weight: .semibold))
+                        .foregroundStyle(TapColors.text)
+                        .lineLimit(2)
+                    if let username = store.player?.username {
+                        Text(verbatim: "@\(username)")
+                            .font(TapFont.ui(size: 13.6))
+                            .foregroundStyle(TapColors.textMuted)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+            }
+            photoControls(store)
+            if let problem = store.photoError {
+                Text(problem)
                     .font(TapFont.ui(size: 13.6))
-                    .foregroundStyle(TapColors.textMuted)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                    .foregroundStyle(TapColors.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("profile-photo-error")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("profile-identity")
+    }
+
+    /// Pick a photo, and — only when there is one — remove it.
+    ///
+    /// The picker is `PhotosPicker`, which means the app never asks for photo
+    /// library access: the system picker runs out of process and hands back the
+    /// one item the user chose. A permission prompt for a feature this small
+    /// would be a poor trade, and there is nothing here that needs the library.
+    @ViewBuilder
+    private func photoControls(_ store: ProfileStore) -> some View {
+        HStack(spacing: TapSpacing.sm) {
+            PhotosPicker(
+                selection: $photoItem,
+                matching: .images,
+                photoLibrary: .shared()
+            ) {
+                Text(store.player?.avatarVersion == nil ? "Add photo" : "Change photo")
+            }
+            .buttonStyle(.tap(.secondary))
+            .disabled(store.isSaving)
+            .opacity(store.isSaving ? 0.5 : 1)
+            .accessibilityIdentifier("profile-photo-pick")
+
+            if store.player?.avatarVersion != nil {
+                Button("Remove") {
+                    Task {
+                        await store.removePhoto()
+                        // The old face is still in the process-wide cache under
+                        // its old key, and a screen that is already on screen
+                        // is holding it.
+                        environment.avatars.clear()
+                    }
+                }
+                .buttonStyle(.tap(.ghost))
+                .disabled(store.isSaving)
+                .opacity(store.isSaving ? 0.5 : 1)
+                .accessibilityIdentifier("profile-photo-remove")
+            }
+            Spacer(minLength: 0)
+        }
+        // Loading the picked item is the picker's job and uploading is the
+        // store's; this is the seam. `nil` is what the picker leaves behind
+        // after it is dismissed with nothing chosen.
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task {
+                let data = try? await item.loadTransferable(type: Data.self)
+                // Cleared either way, so picking the SAME photo again after a
+                // failure still registers as a change.
+                photoItem = nil
+                guard let data else {
+                    store.reportPhotoUnreadable()
+                    return
+                }
+                await store.savePhoto(data)
+                environment.avatars.clear()
+            }
+        }
     }
 
     // MARK: - Gender

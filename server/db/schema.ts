@@ -3,6 +3,7 @@ import type { Generated } from 'kysely';
 export interface Database {
     players: PlayersTable;
     player_credentials: PlayerCredentialsTable;
+    player_avatars: PlayerAvatarsTable;
     clubs: ClubsTable;
     courses: CoursesTable;
     course_holes: CourseHolesTable;
@@ -1071,6 +1072,28 @@ export interface PlayerCredentialsTable {
     /** Password provider only; NULL for every other provider (CHECKed). */
     password_hash: string | null;
     created_at: Generated<string>;
+}
+
+/**
+ * A player's profile photo (migration 050). 1:0..1 with `players`, kept off
+ * the identity row so the BLOB never rides along on the `selectAll()` reads
+ * and the hot friend/search/feed queries.
+ *
+ * `version` (SHA-256 prefix of `bytes`) is the ONLY part of this table any
+ * other query touches: player-carrying shapes LEFT JOIN it out as
+ * `avatarVersion`, which is both the has-a-photo flag and the image URL's
+ * cache key. Never select `bytes` outside `PlayerAvatarService`.
+ */
+export interface PlayerAvatarsTable {
+    /** ON DELETE CASCADE. GDPR erasure deletes this row explicitly — see 050. */
+    player_id: string;
+    /** Sniffed from the magic bytes, never from the request header (CHECKed). */
+    content_type: 'image/jpeg' | 'image/png' | 'image/webp';
+    bytes: Uint8Array;
+    byte_size: number;
+    /** First 16 hex chars of SHA-256(bytes). Content-addressed, not a counter. */
+    version: string;
+    updated_at: Generated<string>;
 }
 
 /**

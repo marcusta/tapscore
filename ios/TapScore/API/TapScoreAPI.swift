@@ -132,12 +132,19 @@ actor TapScoreAPI {
     /// for exactly one caller: revoking a token that was issued but never made
     /// it into the Keychain, where the provider has nothing to hand back. Do
     /// not use it to route ordinary calls around the Keychain.
+    ///
+    /// `contentType` exists for the profile-photo routes, whose request body is
+    /// an image rather than JSON (`PlayerAvatarAPI.swift`). It is a parameter
+    /// of the transport rather than a second transport for the same reason rule
+    /// 1 below gives: bearer injection and the 401 mapping must not have a
+    /// second implementation to drift from.
     func requestData(
         path: String,
         method: String = "GET",
         query: [String: String?] = [:],
         body: Data? = nil,
-        bearer: String? = nil
+        bearer: String? = nil,
+        contentType: String = "application/json"
     ) async throws -> Data {
         var components = URLComponents(
             url: configuration.baseURL.appendingPathComponent(path),
@@ -156,7 +163,7 @@ actor TapScoreAPI {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
             urlRequest.httpBody = body
-            urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            urlRequest.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
         // Bearer injection. Read fresh every request — see the type doc.
         if let token = bearer ?? tokenProvider() {

@@ -143,6 +143,7 @@ export interface RoundGroupPlayedHole {
 export interface FriendsActivityFriend {
     playerId: string;
     displayName: string;
+    avatarVersion: null | string;
     holesPlayed: number;
     scoreToPar: null | number;
 }

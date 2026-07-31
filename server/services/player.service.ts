@@ -12,7 +12,21 @@ export interface Player {
     username: string;
     displayName: string;
     nickname: string | null;
+    /**
+     * Legacy slot for an EXTERNALLY hosted image (migration 003). Nothing
+     * writes it and no client reads it — an uploaded photo lives in
+     * `player_avatars` and surfaces as `avatarVersion`. Kept rather than
+     * dropped because it is a shipped API field and TestFlight builds decode
+     * it; a follow-up may retire it.
+     */
     avatarUrl: string | null;
+    /**
+     * Content hash of the uploaded profile photo, or null when there is none
+     * (migration 050). Null is the whole has-a-photo question answered without
+     * a fetch — a client with null draws initials. Non-null is the cache key
+     * for `GET /api/players/<id>/avatar?v=<version>`.
+     */
+    avatarVersion: string | null;
     homeClubId: string | null;
     handicapIndex: number | null;
     /**
@@ -51,6 +65,14 @@ export interface PlayerProfile {
      * client doing a second lookup per row.
      */
     homeClubName: string | null;
+    /**
+     * Content hash of the player's profile photo, null when they have none
+     * (migration 050). On the profile shape rather than only on `Player`
+     * because the surfaces that most need a face — search results, the friends
+     * list — read this type, and a row that could not say whether a photo
+     * exists would have to fetch one per row to find out.
+     */
+    avatarVersion: string | null;
 }
 
 export interface PlayerSearchResult extends PlayerProfile {
@@ -88,7 +110,9 @@ export interface RegisterInput {
 
 // --- Row mapping ---
 
-type PlayerRow = Selectable<PlayersTable>;
+/** `avatarVersion` rides along from the `player_avatars` LEFT JOIN in
+ *  `players()` — the BLOB itself is never selected here. */
+type PlayerRow = Selectable<PlayersTable> & { avatarVersion: string | null };
 
 function toPlayer(row: PlayerRow): Player {
     return {
@@ -97,6 +121,7 @@ function toPlayer(row: PlayerRow): Player {
         displayName: row.display_name,
         nickname: row.nickname,
         avatarUrl: row.avatar_url,
+        avatarVersion: row.avatarVersion,
         homeClubId: row.home_club_id,
         handicapIndex: row.handicap_index,
         gender: row.gender,
@@ -217,8 +242,17 @@ export class PlayerService {
 
     // --- Queries (read) ---
 
+    /**
+     * Every full-player read. The `player_avatars` LEFT JOIN selects `version`
+     * ONLY — never `bytes` — so `Player.avatarVersion` is always populated
+     * without any read of this table growing by the size of a photo.
+     */
     private players() {
-        return this.db.selectFrom('players').selectAll();
+        return this.db
+            .selectFrom('players')
+            .leftJoin('player_avatars', 'player_avatars.player_id', 'players.id')
+            .selectAll('players')
+            .select('player_avatars.version as avatarVersion');
     }
 
     private byId(id: string) {
@@ -334,6 +368,8 @@ export class PlayerService {
             displayName: input.displayName,
             nickname: values.nickname,
             avatarUrl: values.avatar_url,
+            // A player one statement old has no photo — no read needed to know.
+            avatarVersion: null,
             homeClubId: values.home_club_id,
             handicapIndex: values.handicap_index,
             gender: values.gender,
@@ -599,6 +635,7 @@ export class PlayerService {
                     displayName,
                     nickname: null,
                     avatarUrl: null,
+                    avatarVersion: null,
                     homeClubId: null,
                     handicapIndex: null,
                     gender: null,
@@ -747,6 +784,7 @@ export class PlayerService {
         const rows = await this.db
             .selectFrom('players')
             .leftJoin('clubs', 'clubs.id', 'players.home_club_id')
+            .leftJoin('player_avatars', 'player_avatars.player_id', 'players.id')
             .select([
                 'players.id as id',
                 'players.username as username',
@@ -754,6 +792,7 @@ export class PlayerService {
                 'players.gender as gender',
                 'players.handicap_index as handicapIndex',
                 'clubs.name as homeClubName',
+                'player_avatars.version as avatarVersion',
             ])
             .where('players.deleted_at', 'is', null)
             .where('players.id', '!=', callerId)
@@ -821,6 +860,10 @@ export class PlayerService {
         // marker that erasure was requested.
         await this.db.transaction().execute(async (trx) => {
             await trx.deleteFrom('player_credentials').where('player_id', '=', id).execute();
+            // A face is PII of the plainest kind, and the `players` row
+            // SURVIVES this path (scrubbed, not deleted) — so migration 050's
+            // ON DELETE CASCADE never fires here. Erasure has to say so itself.
+            await trx.deleteFrom('player_avatars').where('player_id', '=', id).execute();
             await trx
                 .updateTable('players')
                 .set({

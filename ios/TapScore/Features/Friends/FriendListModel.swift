@@ -36,14 +36,11 @@ enum FriendListModel {
         }
     }
 
-    static func initials(_ name: String) -> String {
-        name
-            .split(whereSeparator: \.isWhitespace)
-            .prefix(2)
-            .compactMap(\.first)
-            .map { String($0).uppercased() }
-            .joined()
-    }
+    // Initials used to live here, with a rule of their own (the first two
+    // words). They now come from `AccountAvatar.initials` — first and LAST
+    // word, then the username, then a placeholder — because a friend row and
+    // the account button drawing the same person differently is the same
+    // person appearing as two.
 
     /// The web list renders the raw stored index to one decimal and an en dash
     /// for a missing value.

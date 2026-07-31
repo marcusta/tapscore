@@ -96,6 +96,9 @@ export class FriendsService {
                 gender: p.gender,
                 handicapIndex: p.handicapIndex,
                 homeClubName: p.homeClubName,
+                // Carried across from the search row so the face the user just
+                // tapped Add on does not blink back to initials.
+                avatarVersion: p.avatarVersion,
                 // No shared history yet — sorts as never-played until the next
                 // server load recomputes the signals.
                 sharedRoundCount: 0,

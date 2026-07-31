@@ -4,6 +4,7 @@ import { SelectComponent, type SelectOption } from '@basics/core/client/ui/selec
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { ProfileService } from './profile.service';
+import { avatarBadgeBindings, avatarBadgeCss, avatarBadgeMarkup } from '../app/avatar-badge';
 import { parseHandicapIndex, formatHandicapIndex } from '../create/hcp-input';
 import {
     STATS_MASTER_HINT,
@@ -34,8 +35,22 @@ const tpl = template(`
         </div>
         <div bind="body" class="profile__body">
             <header class="profile__head">
-                <h1 bind="name"></h1>
-                <p bind="username"></p>
+                <div class="profile__ident">
+                    ${avatarBadgeMarkup('profile__badge')}
+                    <div class="profile__names">
+                        <h1 bind="name"></h1>
+                        <p bind="username"></p>
+                    </div>
+                </div>
+                <div class="profile__photo-actions">
+                    <!-- The real control. Kept in the DOM (not display:none) so
+                         the picker it opens has a live element to return to. -->
+                    <input bind="photoFile" type="file" class="profile__file"
+                           accept="image/jpeg,image/png,image/webp" />
+                    <button bind="photoPick" type="button"></button>
+                    <button bind="photoRemove" type="button" class="profile__photo-remove"></button>
+                </div>
+                <p bind="photoErr" class="profile__err"></p>
             </header>
 
             <section class="profile__card">
@@ -145,6 +160,50 @@ export class ProfileComponent extends Component {
 
             & .profile__head {
                 margin-bottom: ${s('xl')};
+
+                & .profile__ident { display: flex; align-items: center; gap: ${s('lg')}; }
+                & .profile__names { min-width: 0; }
+
+                & .profile__badge {
+                    ${avatarBadgeCss(72, '1.5rem')}
+                    background: ${t('accent-soft')};
+                    color: ${t('accent')};
+                }
+
+                & .profile__photo-actions {
+                    display: flex; align-items: center; gap: ${s('sm')};
+                    margin-top: ${s('md')};
+
+                    /* Off-screen rather than hidden: display:none makes the
+                       element unfocusable, and Safari will not open a file
+                       picker for a scripted click on one. */
+                    & .profile__file {
+                        position: absolute;
+                        width: 1px; height: 1px;
+                        opacity: 0; pointer-events: none;
+                    }
+
+                    & button {
+                        ${btn()}
+                        padding: ${s('sm')} ${s('md')};
+                        font-family: inherit; font-size: 0.85rem; font-weight: 700;
+                        &:disabled { opacity: 0.5; cursor: default; }
+                    }
+                    /* Destructive, so it does not get the same weight as
+                       Change — a mis-tap here costs the photo. */
+                    & .profile__photo-remove {
+                        background: none;
+                        color: ${t('error')};
+                        border-color: ${t('border')};
+                        &.hidden { display: none; }
+                    }
+                }
+
+                & .profile__err {
+                    margin: ${s('sm')} 0 0; font-size: 0.85rem; color: ${t('error')};
+                    &:empty { display: none; }
+                }
+
                 & h1 {
                     margin: 0;
                     font-family: ${t('font-display')};
@@ -346,6 +405,48 @@ export class ProfileComponent extends Component {
             anon: { className: () => (loggedIn() ? 'profile__anon hidden' : 'profile__anon') },
             toLogin: { onclick: () => this.router.navigate('/login', { query: { next: '/profile' } }) },
             body: { className: () => (loggedIn() ? 'profile__body' : 'profile__body hidden') },
+            ...avatarBadgeBindings(() => {
+                const p = this.svc.player.get();
+                return {
+                    id: p?.id ?? '',
+                    avatarVersion: p?.avatarVersion ?? null,
+                    displayName: p?.displayName,
+                    username: p?.username,
+                };
+            }),
+            photoFile: {
+                onchange: (e: Event) => {
+                    const el = e.target as HTMLInputElement;
+                    const file = el.files?.[0];
+                    // Cleared before the await: picking the SAME file twice
+                    // (after a failed upload, say) fires no `change` at all if
+                    // the input still holds it.
+                    el.value = '';
+                    if (file) void this.svc.saveAvatar(file);
+                },
+            },
+            photoPick: {
+                textContent: () =>
+                    this.svc.avatarSaving.get()
+                        ? 'Saving…'
+                        : this.svc.player.get()?.avatarVersion
+                          ? 'Change photo'
+                          : 'Add photo',
+                disabled: () => this.svc.avatarSaving.get(),
+                onclick: () => (this.ref(frag, 'photoFile') as HTMLInputElement).click(),
+            },
+            photoRemove: {
+                textContent: () => 'Remove',
+                className: () =>
+                    this.svc.player.get()?.avatarVersion
+                        ? 'profile__photo-remove'
+                        : 'profile__photo-remove hidden',
+                disabled: () => this.svc.avatarSaving.get(),
+                onclick: () => void this.svc.removeAvatar(),
+            },
+            photoErr: {
+                textContent: () => this.svc.avatarError.get()?.message ?? '',
+            },
             name: () => this.svc.player.get()?.displayName ?? '…',
             username: () => {
                 const p = this.svc.player.get();

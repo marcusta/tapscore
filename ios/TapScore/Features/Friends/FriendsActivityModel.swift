@@ -14,7 +14,11 @@ struct OutNowChip: Identifiable, Equatable, Sendable {
     /// The friend the chip is about — the alphabetically first of the caller's
     /// friends in that round, matching the server's own ordering.
     let displayName: String
-    let initials: String
+    /// Who to draw. The id and the photo version travel together because that
+    /// pair IS the avatar's cache key; a chip carrying only a name could show
+    /// letters and never a face.
+    let playerId: String
+    let avatarVersion: String?
     /// "Anna + 2" when several of the caller's friends share the round.
     let title: String
     /// "Thru 7 · +3".
@@ -77,7 +81,8 @@ enum FriendsActivityModel {
             return OutNowChip(
                 roundId: entry.roundId,
                 displayName: lead.displayName,
-                initials: FriendListModel.initials(lead.displayName),
+                playerId: lead.playerId,
+                avatarVersion: lead.avatarVersion,
                 title: others > 0 ? "\(lead.displayName) + \(others)" : lead.displayName,
                 progress: progress(lead),
                 courseName: entry.courseName

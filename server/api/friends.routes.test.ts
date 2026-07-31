@@ -68,6 +68,7 @@ test('POST /api/friends adds a friend; GET /api/friends returns the profile shap
             gender: 'M',
             handicapIndex: 12.4,
             homeClubName: null,
+            avatarVersion: null,
             // Frecency signals — present on every friend; a friend with no
             // shared rounds carries the never-played defaults.
             sharedRoundCount: 0,
@@ -203,6 +204,7 @@ test('search matches username and display name substrings case-insensitively', a
             gender: 'M',
             handicapIndex: 12.4,
             homeClubName: null,
+            avatarVersion: null,
             isFriend: false,
         },
     ]);
