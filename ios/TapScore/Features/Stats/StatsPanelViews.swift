@@ -258,13 +258,28 @@ struct StatsPanelsView: View {
 
     // MARK: Tee
 
+    /// The split bar's segments — empty when the tee sample is thin.
+    ///
+    /// Same gate as every other bar on the screen: one recorded tee shot is a
+    /// rate of 1.0, and a raw share would paint the track solid green off a
+    /// single answer. All three shares sit over the same denominator
+    /// (`teeRecorded`), so one thin check covers the whole bar. The legend
+    /// still prints "1 of 1", which is the honest reading of that sample.
+    static func teeSplitSegments(_ panel: StatsTeePanel) -> [StatsSplitBar.Segment] {
+        guard !StatsFormat.isThin(panel.fairway) else { return [] }
+        return [
+            .init(id: "fairway", share: panel.fairway.value ?? 0, color: TapColors.primary),
+            .init(id: "inPlay", share: panel.inPlayOnly.value ?? 0, color: TapColors.accent),
+            .init(id: "trouble", share: panel.trouble.value ?? 0, color: TapColors.danger),
+        ]
+    }
+
     static func teeDetail(_ panel: StatsTeePanel) -> some View {
-        VStack(alignment: .leading, spacing: TapSpacing.md) {
-            StatsSplitBar(segments: [
-                .init(id: "fairway", share: panel.fairway.value ?? 0, color: TapColors.primary),
-                .init(id: "inPlay", share: panel.inPlayOnly.value ?? 0, color: TapColors.accent),
-                .init(id: "trouble", share: panel.trouble.value ?? 0, color: TapColors.danger),
-            ])
+        let segments = teeSplitSegments(panel)
+        return VStack(alignment: .leading, spacing: TapSpacing.md) {
+            if !segments.isEmpty {
+                StatsSplitBar(segments: segments)
+            }
             StatsLegendRows(items: [
                 StatsLegendItem("Fairway", TapColors.primary, StatsFormat.rate(panel.fairway)),
                 StatsLegendItem("In play", TapColors.accent, StatsFormat.rate(panel.inPlayOnly)),
