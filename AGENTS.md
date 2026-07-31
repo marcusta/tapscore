@@ -142,6 +142,30 @@ bun run render:formats   # render canonical manual-format fixtures from that DB
 bun run check:format-fixtures # compare the canonical fixture oracle
 ```
 
+## iOS API base URL
+
+`APIConfiguration.default` is **production everywhere** — device, simulator,
+DEBUG, release. Reaching the dev server is always an explicit act.
+
+- **Simulator:** always pass the override. Without it the simulator talks to
+  PROD, and seeded local players simply fail to log in.
+
+  ```bash
+  xcrun simctl launch <udid> com.marcusandersson.tapscore \
+      -apiBaseURL http://localhost:3030/api
+  ```
+
+  Carry it on every launch line — deep link, gallery, screenshot, all of them.
+  It is a `UserDefaults` write, so it persists for that simulator until
+  overwritten; pass it anyway, it is idempotent.
+
+- **Physical device / TestFlight / App Store:** pass **nothing**. The default
+  (`https://app.swedenindoorgolf.se/tapscore/api`) is correct, and a device
+  cannot see the builder Mac's loopback in any case.
+
+Full rationale, and the super-admin Server screen that writes the same key:
+`ios/AGENTS.md`.
+
 ## Git workflow
 
 Commit to `main`. Do not create a feature branch unless asked for one.
