@@ -5,6 +5,7 @@
 // sums, kopenhamnare 6-point distribution) stays inside each strategy
 // so reading a strategy top-to-bottom tells the whole story.
 
+import type { FormatConfigField } from '../../formats/plugin';
 import type { FormatAllowanceConfig } from '../../round-definition';
 import { playingHandicap, strokesReceivedForStrokeIndex } from '../../handicap';
 import type { EffectivePhBall, EffectivePhInput } from '../../handicap-derivation';
@@ -219,6 +220,47 @@ export function validateUmbrellaHandicapMode(config: unknown, formatId: string):
         }
     }
     return [];
+}
+
+/**
+ * The `handicapMode` knob as the setup UI sees it — shared verbatim by every
+ * match-flavoured format that has one (köpenhamnare, both umbrellas), so the
+ * three cannot drift into three different wordings of the same question.
+ *
+ * The labels are one or two words and the explanation lives in `hint`, which
+ * both clients draw as a muted line under the control for the SELECTED option
+ * only (docs/design-guidelines.md §3). Sentence-length button labels were the
+ * rejected shape.
+ *
+ * `default` is the caller's, because it is a per-format product decision:
+ * every one of these passes 'delta_from_min' today, but the freeze on the
+ * absent-config READ path is what protects old rounds, not this value.
+ */
+export function matchStyleHandicapField(defaultValue: UmbrellaHandicapMode): FormatConfigField {
+    return {
+        kind: 'select',
+        key: 'handicapMode',
+        labels: { en: 'Handicap strokes', sv: 'Slagtilldelning' },
+        options: [
+            {
+                value: 'standard',
+                labels: { en: 'Full handicap', sv: 'Fullt hcp' },
+                hint: {
+                    en: 'Everyone plays off their whole playing handicap.',
+                    sv: 'Alla spelar på hela sitt spelhandicap.',
+                },
+            },
+            {
+                value: 'delta_from_min',
+                labels: { en: 'Match-style', sv: 'Matchspel' },
+                hint: {
+                    en: 'The lowest handicap plays off scratch; everyone else gets the difference.',
+                    sv: 'Lägsta handicappet spelar utan slag, övriga får skillnaden.',
+                },
+            },
+        ],
+        default: defaultValue,
+    };
 }
 
 /** Which score the low-score categories compare (individual's low ball; the

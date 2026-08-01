@@ -22,6 +22,8 @@ struct DesignGalleryView: View {
     /// depends on.
     @State private var forcedScheme: ColorScheme?
     @State private var selectedChip = 1
+    @State private var gallerySegment = "net"
+    @State private var galleryHandicap = "delta_from_min"
     @State private var tab = Tab.score
     @State private var hole = 7
     @State private var galleryCourse: String? = "lkpg"
@@ -39,6 +41,7 @@ struct DesignGalleryView: View {
                     typography
                     buttons
                     chips
+                    segmented
                     dropdowns
                     badges
                     cards
@@ -132,6 +135,33 @@ struct DesignGalleryView: View {
                     TapChip(title: "Group 2", tone: .accent)
                 }
             }
+        }
+    }
+
+    /// The two-way control, shown next to the chips it is deliberately NOT:
+    /// same bounded choice, but the selection reads from elevation instead of a
+    /// saturated fill, and the track sizes to its content
+    /// (`docs/design-guidelines.md` §§1–2).
+    private var segmented: some View {
+        section("Segmented (two-way choice)") {
+            TapSegmented(
+                options: [
+                    TapSegmented.Option(value: "gross", title: "Gross"),
+                    TapSegmented.Option(value: "net", title: "Net"),
+                ],
+                selected: gallerySegment,
+                onSelect: { gallerySegment = $0 })
+            TapSegmented(
+                options: [
+                    TapSegmented.Option(value: "standard", title: "Full hcp"),
+                    TapSegmented.Option(value: "delta_from_min", title: "Match-style"),
+                ],
+                selected: galleryHandicap,
+                onSelect: { galleryHandicap = $0 })
+            Text("The lowest handicap plays off scratch; everyone else gets the difference.")
+                .font(TapFont.ui(size: 12.5))
+                .foregroundStyle(TapColors.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

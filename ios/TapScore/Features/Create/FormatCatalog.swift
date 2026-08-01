@@ -88,6 +88,26 @@ struct FormatCatalog: Sendable, Equatable {
         localized(labels, locale: locale) ?? ""
     }
 
+    /// An option's one-sentence explanation, drawn under the control for the
+    /// SELECTED option only. Empty ⇒ the option is self-evident (Gross / Net)
+    /// and no line is drawn (`docs/design-guidelines.md` §3).
+    func configHint(_ hint: FormatLabels?, locale: Locale = .current) -> String {
+        guard let hint else { return "" }
+        return localized(hint, locale: locale) ?? ""
+    }
+
+    /// Whether a knob fits on ONE row beside its label. Deliberately derived
+    /// here rather than declared on the descriptor: "is this label short" is a
+    /// question about the RENDERED string, which only the client knows.
+    /// Mirrors `configFieldIsInline` in `src/create/format-catalog.service.ts`.
+    func configFieldIsInline(_ field: FormatConfigField, locale: Locale = .current) -> Bool {
+        guard field.options.count <= 2 else { return false }
+        guard field.options.allSatisfy({ configHint($0.hint, locale: locale).isEmpty }) else {
+            return false
+        }
+        return field.options.allSatisfy { configLabel($0.labels, locale: locale).count <= 12 }
+    }
+
     // MARK: - Classification
 
     enum Kind: Sendable, Equatable {

@@ -1458,24 +1458,48 @@ struct CreateRoundView: View {
     }
 
     /// A knob the FORMAT declared. Generic by construction — the key, the
-    /// options and their labels all come off the descriptor, so a format that
-    /// grows an option needs no change here.
+    /// options, their labels and their hints all come off the descriptor, so a
+    /// format that grows an option needs no change here.
+    ///
+    /// Two short options ⇒ one row, label left and track right; anything longer
+    /// stacks, with the selected option's hint underneath
+    /// (`docs/design-guidelines.md` §§1–3). Same rule, same wording, as the web
+    /// create flow.
     private func configField(
         _ store: CreateStore,
         slot: CreateStore.FormatSlot,
         field: FormatConfigField
     ) -> some View {
-        VStack(alignment: .leading, spacing: TapSpacing.xs) {
-            Text(store.catalog.configLabel(field.labels))
-                .font(TapFont.ui(size: 13.6, weight: .medium))
-                .foregroundStyle(TapColors.textMuted)
-            FlowRow(spacing: TapSpacing.sm) {
-                ForEach(field.options, id: \.value) { option in
-                    TapChip(
-                        title: store.catalog.configLabel(option.labels),
-                        isSelected: (slot.config[field.key] ?? field.`default`) == option.value,
-                        tone: .accent,
-                        action: { store.setConfig(slotId: slot.id, key: field.key, value: option.value) })
+        let value = slot.config[field.key] ?? field.`default`
+        let hint = store.catalog.configHint(
+            field.options.first(where: { $0.value == value })?.hint)
+        let track = TapSegmented(
+            options: field.options.map {
+                TapSegmented.Option(value: $0.value, title: store.catalog.configLabel($0.labels))
+            },
+            selected: value,
+            onSelect: { store.setConfig(slotId: slot.id, key: field.key, value: $0) })
+        let label = Text(store.catalog.configLabel(field.labels))
+            .font(TapFont.ui(size: 13.6, weight: .medium))
+            .foregroundStyle(TapColors.textMuted)
+
+        return Group {
+            if store.catalog.configFieldIsInline(field) {
+                HStack(spacing: TapSpacing.sm) {
+                    label
+                    Spacer(minLength: TapSpacing.sm)
+                    track
+                }
+            } else {
+                VStack(alignment: .leading, spacing: TapSpacing.xs) {
+                    label
+                    track
+                    if !hint.isEmpty {
+                        Text(hint)
+                            .font(TapFont.ui(size: 12.5))
+                            .foregroundStyle(TapColors.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
         }

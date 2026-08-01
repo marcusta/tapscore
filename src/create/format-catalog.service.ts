@@ -130,6 +130,30 @@ export class FormatCatalogService {
     }
 
     /**
+     * The option's one-sentence explanation, resolved the same way — empty
+     * when the option declares none (the self-evident Brutto/Netto pairs).
+     * Callers draw it under the control for the SELECTED option only; that is
+     * what lets `labels` stay one or two words (docs/design-guidelines.md §3).
+     */
+    configHintOf(option: FormatConfigOption, locale: Locale = currentLocale()): string {
+        return option.hint?.[locale] ?? option.hint?.en ?? '';
+    }
+
+    /**
+     * TRUE when a field's options are all short enough to sit beside the
+     * label instead of under it. Presentation only, and deliberately derived
+     * from the labels rather than declared on the descriptor: "is this short"
+     * is a question about the rendered string, so the client that renders it
+     * is the one that can answer it. A field with a hint always stacks — the
+     * sentence needs the full width.
+     */
+    configFieldIsInline(field: FormatConfigField, locale: Locale = currentLocale()): boolean {
+        if (field.options.length > 2) return false;
+        if (field.options.some((o) => this.configHintOf(o, locale))) return false;
+        return field.options.every((o) => this.configLabelOf(o, locale).length <= 12);
+    }
+
+    /**
      * The curated game cards (format-templates §1): every descriptor declaring
      * a `preset`, ordered by `rank` (lower first; an absent rank sorts last,
      * then by label so the order is stable). Absent `preset` ⇒ the format is

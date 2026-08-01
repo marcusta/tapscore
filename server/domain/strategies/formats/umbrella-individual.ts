@@ -32,6 +32,7 @@ import {
     latestMetadata,
     latestScoresByPlayHole,
     resolveSingleProducer,
+    matchStyleHandicapField,
     normalizeMatchPlayPHs,
     readUmbrellaHandicapMode,
     readUmbrellaLowScoreRule,
@@ -159,29 +160,11 @@ export const umbrellaIndividual: FormatStrategy = {
     // match-style handicaps, net low-score comparisons, gross birdies. The
     // read fallbacks for ABSENT config deliberately differ — see _shared.
     configFields: [
-        {
-            kind: 'select',
-            key: 'handicapMode',
-            labels: { en: 'Handicap strokes', sv: 'Slagtilldelning' },
-            options: [
-                {
-                    value: 'standard',
-                    labels: { en: 'Full handicap for everyone', sv: 'Full slagtilldelning för alla' },
-                },
-                {
-                    value: 'delta_from_min',
-                    labels: {
-                        en: 'Lowest handicap plays off scratch',
-                        sv: 'Lägsta handicappet spelar utan slag',
-                    },
-                },
-            ],
-            default: 'delta_from_min',
-        },
+        matchStyleHandicapField('delta_from_min'),
         {
             kind: 'select',
             key: 'lowScoreRule',
-            labels: { en: 'Lowest score counts as', sv: 'Lägsta score räknas på' },
+            labels: { en: 'Lowest score', sv: 'Lägsta score' },
             options: [
                 { value: 'gross', labels: { en: 'Gross', sv: 'Brutto' } },
                 { value: 'net', labels: { en: 'Net', sv: 'Netto' } },
@@ -191,7 +174,7 @@ export const umbrellaIndividual: FormatStrategy = {
         {
             kind: 'select',
             key: 'birdieRule',
-            labels: { en: 'Birdie point counts as', sv: 'Birdiepoäng räknas på' },
+            labels: { en: 'Birdie point', sv: 'Birdiepoäng' },
             options: [
                 { value: 'gross', labels: { en: 'Gross', sv: 'Brutto' } },
                 { value: 'net', labels: { en: 'Net', sv: 'Netto' } },

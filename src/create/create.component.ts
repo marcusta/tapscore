@@ -194,10 +194,15 @@ const fslotTpl = template(`
 // One declared format-config knob (`FormatDescriptor.configFields[]`), rendered
 // as a segmented control — one button per declared option. Nothing here knows
 // which format it belongs to; that is the point (format-templates §2).
+//
+// `--inline` (set by the renderer when every option label is short) puts the
+// label and the track on ONE row; otherwise they stack and `hint` draws the
+// selected option's sentence underneath (docs/design-guidelines.md §§2–3).
 const configFieldTpl = template(`
-    <div class="fslot__group">
+    <div class="fslot__group fslot__knob">
         <span bind="label" class="fslot__label"></span>
         <div bind="options" class="fslot__seg"></div>
+        <p bind="hint" class="fslot__hint"></p>
     </div>
 `);
 
@@ -616,14 +621,43 @@ export class CreateComponent extends Component {
                     }
                 }
 
+                /* Track segmented control (docs/design-guidelines.md §2). The
+                   selection reads from ELEVATION — a raised pill on a sunken
+                   track — not from saturation. A solid primary fill is
+                   reserved for primary actions; a knob that records a
+                   preference must not look like a Save button. Deliberately
+                   NOT the btn() recipe: btn() emits its own sizing and border,
+                   which is exactly the full-bleed slab this replaces. */
                 & .fslot__seg {
-                    display: flex; gap: ${s('xs')};
+                    display: inline-flex; align-self: flex-start; gap: 2px;
+                    padding: 3px; border: 1px solid ${t('border')};
+                    border-radius: ${t('radius-pill')}; background: ${t('surface-sunken')};
                     & button {
-                        ${btn()}
-                        flex: 1; padding: ${s('sm')} 0;
-                        font-family: inherit; font-weight: 700; font-size: 0.82rem;
-                        &.on { background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')}; }
+                        appearance: none; border: 1px solid transparent; background: none;
+                        padding: ${s('xs')} ${s('md')}; border-radius: ${t('radius-pill')};
+                        font-family: inherit; font-weight: 500; font-size: 0.85rem;
+                        color: ${t('text-muted')}; cursor: pointer; white-space: nowrap;
+                        &:hover { color: ${t('text')}; }
+                        &.on {
+                            background: ${t('surface')}; border-color: ${t('border')};
+                            color: ${t('text')}; font-weight: 700;
+                        }
                     }
+                }
+                /* A knob whose options are all short sits on ONE row — label
+                   left, track right. The base group is the column layout, so
+                   the inline variant overrides its direction rather than
+                   forking the template. */
+                & .fslot__knob--inline {
+                    flex-direction: row; align-items: center; justify-content: space-between;
+                    gap: ${s('sm')};
+                    & .fslot__seg { align-self: auto; flex-shrink: 0; }
+                }
+                /* The sentence a short label can't carry — drawn for the
+                   SELECTED option only, and empty for self-evident pairs. */
+                & .fslot__hint {
+                    margin: 0; font-size: 0.78rem; line-height: 1.4; color: ${t('text-muted')};
+                    &:empty { display: none; }
                 }
                 & .fslot__err {
                     font-size: 0.82rem; color: ${t('error')};
@@ -636,7 +670,7 @@ export class CreateComponent extends Component {
                 & .grow {
                     display: flex; align-items: center; gap: ${s('sm')};
                     & .grow__name { flex: 1; min-width: 0; font-size: 0.9rem; }
-                    & .fslot__seg { flex: 0 0 auto; & button { min-width: 44px; flex: 0 0 auto; padding: ${s('sm')}; } }
+                    & .fslot__seg { flex: 0 0 auto; & button { min-width: 40px; padding: ${s('xs')} ${s('sm')}; } }
                 }
                 & .gaddball {
                     ${btn()}
@@ -1446,16 +1480,8 @@ export class CreateComponent extends Component {
             this.ref(el, 'configFields'),
             track,
             () => this.svc.catalog.byId(formatId())?.configFields ?? [],
-            (field, _i, fieldTrack) => {
-                const s = slot();
-                if (s) return this.configField(s.key, field, fieldTrack);
-                // Unreachable (a picked game always has a slot), but the host
-                // is `display: contents`, so an UNCLASSED placeholder would
-                // become a direct flex child of `.fslot` and eat one `gap`.
-                const empty = document.createElement('div');
-                empty.className = 'fslot__configs';
-                return empty;
-            },
+            (field, _i, fieldTrack) =>
+                this.configField(() => slot()?.key ?? null, field, fieldTrack),
             (field) => `${formatId()}:${field.key}`,
         );
 
@@ -1562,7 +1588,7 @@ export class CreateComponent extends Component {
             this.ref(el, 'configFields'),
             track,
             () => this.svc.catalog.byId(formatId())?.configFields ?? [],
-            (field, _i, fieldTrack) => this.configField(key, field, fieldTrack),
+            (field, _i, fieldTrack) => this.configField(() => key, field, fieldTrack),
             (field) => `${formatId()}:${field.key}`,
         );
 
@@ -1610,15 +1636,34 @@ export class CreateComponent extends Component {
      * authority on what is legal, and its refusal arrives as a slot diagnostic.
      */
     private configField(
-        slotKey: number,
+        slotKey: () => number | null,
         field: FormatConfigField,
         track: (d: () => void) => void,
     ): HTMLElement {
+        // The slot is read LAZILY, per binding. A game panel is built in the
+        // same pass that picks the game, and `pickGame()` appends to `picked`
+        // BEFORE `regenerateGame()` mints the slot — so at construction time
+        // there is no slot yet. Capturing `s.key` here rendered nothing at all.
+        const valueOf = (): string => {
+            const key = slotKey();
+            return key === null ? field.default : this.svc.slotConfigValue(key, field);
+        };
+        // The hint belongs to whichever option is CURRENTLY selected, so it
+        // re-reads the config on every change rather than being baked per option.
+        const selectedHint = (): string => {
+            const value = valueOf();
+            const option = field.options.find((o) => o.value === value);
+            return option ? this.svc.catalog.configHintOf(option) : '';
+        };
         const el = this.wireEl(
             configFieldTpl,
-            { label: { textContent: () => this.svc.catalog.configLabelOf(field) } },
+            {
+                label: { textContent: () => this.svc.catalog.configLabelOf(field) },
+                hint: { textContent: selectedHint },
+            },
             track,
         );
+        if (this.svc.catalog.configFieldIsInline(field)) el.classList.add('fslot__knob--inline');
         this.eachInto(
             this.ref(el, 'options'),
             track,
@@ -1629,9 +1674,11 @@ export class CreateComponent extends Component {
                     {
                         opt: {
                             textContent: () => this.svc.catalog.configLabelOf(option),
-                            className: () =>
-                                this.svc.slotConfigValue(slotKey, field) === option.value ? 'on' : '',
-                            onclick: () => this.svc.setSlotConfig(slotKey, field.key, option.value),
+                            className: () => (valueOf() === option.value ? 'on' : ''),
+                            onclick: () => {
+                                const key = slotKey();
+                                if (key !== null) this.svc.setSlotConfig(key, field.key, option.value);
+                            },
                         },
                     },
                     optionTrack,

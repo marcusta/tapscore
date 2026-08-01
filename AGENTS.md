@@ -36,6 +36,11 @@ a format presents its results/leaderboard? Read
 maps the server-presenter → client-renderer pipeline and the closed
 presentation vocabulary.
 
+Adding or restyling a UI control on either client? Read
+[docs/design-guidelines.md](docs/design-guidelines.md) first — it holds the
+cross-surface rulings (which control a bounded choice gets, how a selection
+reads, labels vs explanations, words over symbols).
+
 ## Dependencies
 
 `@basics/core` is installed via `file:./vendor/basics-core-<X.Y.Z>.tgz`. Behaviour:

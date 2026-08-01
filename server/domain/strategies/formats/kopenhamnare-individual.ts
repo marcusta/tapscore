@@ -28,6 +28,7 @@ import {
     deriveAllowance,
     holeIdentity,
     latestScoresByPlayHole,
+    matchStyleHandicapField,
     strokesGivenForBallPH,
 } from './_shared';
 
@@ -241,31 +242,11 @@ export const kopenhamnareIndividual: FormatStrategy = {
     // existed in `score()` since 2.6b with no surface able to set it. Labels
     // describe what the mode DOES (see `effectivePHs` above), not the enum
     // name. `validateConfig` below stays the validation authority.
-    configFields: [
-        {
-            kind: 'select',
-            key: 'handicapMode',
-            labels: { en: 'Handicap strokes', sv: 'Slagtilldelning' },
-            options: [
-                {
-                    value: 'standard',
-                    labels: { en: 'Full handicap for everyone', sv: 'Full slagtilldelning för alla' },
-                },
-                {
-                    value: 'delta_from_min',
-                    labels: {
-                        en: 'Lowest handicap plays off scratch',
-                        sv: 'Lägsta handicappet spelar utan slag',
-                    },
-                },
-            ],
-            // Match-style by OWNER DECISION (2026-08-01): köpenhamnare is a
-            // head-to-head points game, so new rounds default to the low ball
-            // playing off scratch. Deliberately NOT the same as
-            // `readHandicapMode`'s absent-config fallback — see its doc.
-            default: 'delta_from_min',
-        },
-    ],
+    // Match-style by OWNER DECISION (2026-08-01): köpenhamnare is a
+    // head-to-head points game, so new rounds default to the low ball playing
+    // off scratch. Deliberately NOT the same as `readHandicapMode`'s
+    // absent-config fallback — see its doc.
+    configFields: [matchStyleHandicapField('delta_from_min')],
 
     validateConfig(config): ConfigDiagnostic[] {
         if (config && typeof config === 'object' && 'handicapMode' in config) {

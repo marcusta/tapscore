@@ -178,7 +178,7 @@ export const talibanBetterBall: FormatStrategy = {
         {
             kind: 'select',
             key: 'bonusRule',
-            labels: { en: 'Bonus scores count as', sv: 'Bonuspoäng räknas på' },
+            labels: { en: 'Bonus scores', sv: 'Bonuspoäng' },
             options: [
                 { value: 'gross', labels: { en: 'Gross', sv: 'Brutto' } },
                 { value: 'net', labels: { en: 'Net', sv: 'Netto' } },

@@ -171,6 +171,22 @@ export interface FormatConfigOption {
     value: string;
     /** Localized option label — see the locale note on {@link FormatConfigField}. */
     labels: FormatLabels;
+    /**
+     * Optional one-sentence explanation of what choosing this option DOES,
+     * shown by both clients as a muted line under the control — and only for
+     * the option currently selected.
+     *
+     * It exists so `labels` can stay one or two words. The rejected shape was
+     * a two-option control whose buttons each carried a full sentence
+     * ("Lägsta handicappet spelar utan slag"), which wrapped, doubled the
+     * control's height and still read as a wall
+     * (docs/design-guidelines.md §3). A label names the option; the hint
+     * explains it.
+     *
+     * Absent ⇒ the option is self-evident (Brutto / Netto) and no line is
+     * drawn. Never restate the label here.
+     */
+    hint?: FormatLabels;
 }
 
 /**

@@ -135,6 +135,12 @@ obvious in the dark screenshot.
 
 ## Chips vs dropdowns (standing design rule)
 
+The cross-surface home for this and the rest of the UI rulings is
+[docs/design-guidelines.md](../docs/design-guidelines.md) — including the
+two-option case (a track segmented control, never a dropdown), how a selection
+should read, and where an option's explanation goes. What follows is the iOS
+half, in terms of the iOS primitives.
+
 Owner ruling, twice over, on the create flow. **The web is the reference, and
 the web already uses dropdowns for every long choice** — its course select, its
 start-hole select and its tee selects are all collapsed fields with a raised

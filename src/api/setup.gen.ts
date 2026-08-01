@@ -142,6 +142,7 @@ export interface ScoreEntryCapabilities {
 export interface FormatConfigOption {
     value: string;
     labels: FormatLabels;
+    hint?: FormatLabels;
 }
 
 export interface MetadataInput {

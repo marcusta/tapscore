@@ -30,16 +30,24 @@ enum WebDraftFixtures {
             },
             "options": [
               {
+                "hint": {
+                  "en": "Everyone plays off their whole playing handicap.",
+                  "sv": "Alla spelar på hela sitt spelhandicap."
+                },
                 "labels": {
-                  "en": "Full handicap for everyone",
-                  "sv": "Full slagtilldelning för alla"
+                  "en": "Full handicap",
+                  "sv": "Fullt hcp"
                 },
                 "value": "standard"
               },
               {
+                "hint": {
+                  "en": "The lowest handicap plays off scratch; everyone else gets the difference.",
+                  "sv": "Lägsta handicappet spelar utan slag, övriga får skillnaden."
+                },
                 "labels": {
-                  "en": "Lowest handicap plays off scratch",
-                  "sv": "Lägsta handicappet spelar utan slag"
+                  "en": "Match-style",
+                  "sv": "Matchspel"
                 },
                 "value": "delta_from_min"
               }
@@ -347,8 +355,8 @@ enum WebDraftFixtures {
             "key": "bonusRule",
             "kind": "select",
             "labels": {
-              "en": "Bonus scores count as",
-              "sv": "Bonuspoäng räknas på"
+              "en": "Bonus scores",
+              "sv": "Bonuspoäng"
             },
             "options": [
               {
@@ -436,16 +444,24 @@ enum WebDraftFixtures {
             },
             "options": [
               {
+                "hint": {
+                  "en": "Everyone plays off their whole playing handicap.",
+                  "sv": "Alla spelar på hela sitt spelhandicap."
+                },
                 "labels": {
-                  "en": "Full handicap for everyone",
-                  "sv": "Full slagtilldelning för alla"
+                  "en": "Full handicap",
+                  "sv": "Fullt hcp"
                 },
                 "value": "standard"
               },
               {
+                "hint": {
+                  "en": "The lowest handicap plays off scratch; everyone else gets the difference.",
+                  "sv": "Lägsta handicappet spelar utan slag, övriga får skillnaden."
+                },
                 "labels": {
-                  "en": "Lowest handicap plays off scratch",
-                  "sv": "Lägsta handicappet spelar utan slag"
+                  "en": "Match-style",
+                  "sv": "Matchspel"
                 },
                 "value": "delta_from_min"
               }
@@ -456,8 +472,8 @@ enum WebDraftFixtures {
             "key": "lowScoreRule",
             "kind": "select",
             "labels": {
-              "en": "Lowest scores count as",
-              "sv": "Lägsta scorerna räknas på"
+              "en": "Lowest scores",
+              "sv": "Lägsta scorerna"
             },
             "options": [
               {
@@ -481,8 +497,8 @@ enum WebDraftFixtures {
             "key": "birdieRule",
             "kind": "select",
             "labels": {
-              "en": "Birdie point counts as",
-              "sv": "Birdiepoäng räknas på"
+              "en": "Birdie point",
+              "sv": "Birdiepoäng"
             },
             "options": [
               {
@@ -589,16 +605,24 @@ enum WebDraftFixtures {
             },
             "options": [
               {
+                "hint": {
+                  "en": "Everyone plays off their whole playing handicap.",
+                  "sv": "Alla spelar på hela sitt spelhandicap."
+                },
                 "labels": {
-                  "en": "Full handicap for everyone",
-                  "sv": "Full slagtilldelning för alla"
+                  "en": "Full handicap",
+                  "sv": "Fullt hcp"
                 },
                 "value": "standard"
               },
               {
+                "hint": {
+                  "en": "The lowest handicap plays off scratch; everyone else gets the difference.",
+                  "sv": "Lägsta handicappet spelar utan slag, övriga får skillnaden."
+                },
                 "labels": {
-                  "en": "Lowest handicap plays off scratch",
-                  "sv": "Lägsta handicappet spelar utan slag"
+                  "en": "Match-style",
+                  "sv": "Matchspel"
                 },
                 "value": "delta_from_min"
               }
@@ -609,8 +633,8 @@ enum WebDraftFixtures {
             "key": "lowScoreRule",
             "kind": "select",
             "labels": {
-              "en": "Lowest score counts as",
-              "sv": "Lägsta score räknas på"
+              "en": "Lowest score",
+              "sv": "Lägsta score"
             },
             "options": [
               {
@@ -634,8 +658,8 @@ enum WebDraftFixtures {
             "key": "birdieRule",
             "kind": "select",
             "labels": {
-              "en": "Birdie point counts as",
-              "sv": "Birdiepoäng räknas på"
+              "en": "Birdie point",
+              "sv": "Birdiepoäng"
             },
             "options": [
               {

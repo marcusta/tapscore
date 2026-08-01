@@ -34,6 +34,7 @@ import {
     holeIdentity,
     latestMetadata,
     latestScoresByPlayHole,
+    matchStyleHandicapField,
     presentMatchDeltaAcrossGroupings,
     readUmbrellaHandicapMode,
     readUmbrellaLowScoreRule,
@@ -185,29 +186,11 @@ export const umbrella4Ball: FormatStrategy = {
     // comparisons (both the low ball and the low team total), gross birdies.
     // The read fallbacks for ABSENT config deliberately differ — see _shared.
     configFields: [
-        {
-            kind: 'select',
-            key: 'handicapMode',
-            labels: { en: 'Handicap strokes', sv: 'Slagtilldelning' },
-            options: [
-                {
-                    value: 'standard',
-                    labels: { en: 'Full handicap for everyone', sv: 'Full slagtilldelning för alla' },
-                },
-                {
-                    value: 'delta_from_min',
-                    labels: {
-                        en: 'Lowest handicap plays off scratch',
-                        sv: 'Lägsta handicappet spelar utan slag',
-                    },
-                },
-            ],
-            default: 'delta_from_min',
-        },
+        matchStyleHandicapField('delta_from_min'),
         {
             kind: 'select',
             key: 'lowScoreRule',
-            labels: { en: 'Lowest scores count as', sv: 'Lägsta scorerna räknas på' },
+            labels: { en: 'Lowest scores', sv: 'Lägsta scorerna' },
             options: [
                 { value: 'gross', labels: { en: 'Gross', sv: 'Brutto' } },
                 { value: 'net', labels: { en: 'Net', sv: 'Netto' } },
@@ -217,7 +200,7 @@ export const umbrella4Ball: FormatStrategy = {
         {
             kind: 'select',
             key: 'birdieRule',
-            labels: { en: 'Birdie point counts as', sv: 'Birdiepoäng räknas på' },
+            labels: { en: 'Birdie point', sv: 'Birdiepoäng' },
             options: [
                 { value: 'gross', labels: { en: 'Gross', sv: 'Brutto' } },
                 { value: 'net', labels: { en: 'Net', sv: 'Netto' } },

@@ -44,7 +44,10 @@ describe('builtin descriptors stay serializable', () => {
             expect(d.label).toBe(d.labels.en);
             for (const f of d.configFields ?? []) {
                 expect(f.labels.en.length).toBeGreaterThan(0);
-                for (const o of f.options) expect(o.labels.en.length).toBeGreaterThan(0);
+                for (const o of f.options) {
+                    expect(o.labels.en.length).toBeGreaterThan(0);
+                    if (o.hint) expect((o.hint.sv ?? '').length).toBeGreaterThan(0);
+                }
             }
             if (d.preset) expect(d.preset.tagline.en.length).toBeGreaterThan(0);
         }
@@ -126,6 +129,55 @@ describe('configFields ↔ validateConfig (anti-drift pin)', () => {
             expect(o.labels.en).not.toBe(o.value);
             expect(o.labels.sv).toBeTruthy();
         }
+    });
+});
+
+describe('option labels stay labels (docs/design-guidelines.md §3)', () => {
+    // The rejected shape was a two-option control whose buttons each carried a
+    // full sentence. A label names the option in a word or two; anything
+    // needing a clause belongs in `hint`, which the clients draw under the
+    // control for the selected option only. Both bounds are asserted because
+    // fixing one by breaking the other is the obvious wrong move.
+    it('no option label is longer than two words in either locale', () => {
+        const offenders: string[] = [];
+        for (const d of formatCatalog()) {
+            for (const f of d.configFields ?? []) {
+                for (const o of f.options) {
+                    for (const [locale, text] of Object.entries(o.labels)) {
+                        if (text.trim().split(/\s+/).length > 2) {
+                            offenders.push(`${d.id}.${f.key}.${o.value} [${locale}] ⟶ "${text}"`);
+                        }
+                    }
+                }
+            }
+        }
+        expect(offenders).toEqual([]);
+    });
+
+    it('every hint is a sentence that does not merely restate its label', () => {
+        for (const d of formatCatalog()) {
+            for (const f of d.configFields ?? []) {
+                for (const o of f.options) {
+                    if (!o.hint) continue;
+                    for (const locale of ['en', 'sv'] as const) {
+                        const hint = o.hint[locale] ?? '';
+                        expect(hint.length).toBeGreaterThan((o.labels[locale] ?? '').length);
+                        expect(hint.endsWith('.')).toBe(true);
+                    }
+                }
+            }
+        }
+    });
+
+    it('the match-style handicap knob is declared once and shared', () => {
+        // Three formats ask this identical question; three hand-written copies
+        // would drift. `matchStyleHandicapField()` is the one declaration.
+        const fields = ['kopenhamnare_individual', 'umbrella_individual', 'umbrella_4_ball'].map(
+            (id) => descriptorOf(id).configFields!.find((f) => f.key === 'handicapMode'),
+        );
+        expect(fields.every((f) => f !== undefined)).toBe(true);
+        for (const f of fields) expect(f).toEqual(fields[0]!);
+        expect(fields[0]!.options.every((o) => o.hint !== undefined)).toBe(true);
     });
 });
 
