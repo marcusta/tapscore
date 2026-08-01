@@ -226,6 +226,7 @@ test('a one-way contact grants nothing; the reverse row makes the round visible'
     expect(body.live).toHaveLength(1);
     expect(body.live[0].roundId).toBe(round.roundId);
     expect(body.live[0].name).toBe("Bob's round");
+    expect(body.live[0].formatIds).toEqual(['stableford_individual']);
     expect(body.live[0].friends).toEqual([
         { playerId: cast.bob, displayName: 'Bob Bengtsson', avatarVersion: null, holesPlayed: 1, scoreToPar: 0 },
     ]);

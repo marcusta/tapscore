@@ -152,6 +152,7 @@ test('recentRows carry who / where / when — the course, never the round name',
             name: 'Revansch',
             courseName: 'Vreta',
             date: '2026-07-12',
+            formatIds: ['stableford_individual', 'taliban_better_ball'],
         }),
         entry('r2', [friend('p3', 'Cleo')], { courseName: 'Vreta' }),
         entry('r3', [friend('p4', 'Dag')]),
@@ -165,4 +166,5 @@ test('recentRows carry who / where / when — the course, never the round name',
     expect(rows[0]!.displayName).toBe('Anna');
     expect(rows[0]!.date).toBe('2026-07-12');
     expect(rows[0]!.roundId).toBe('r1');
+    expect(rows[0]!.formatIds).toEqual(['stableford_individual', 'taliban_better_ball']);
 });

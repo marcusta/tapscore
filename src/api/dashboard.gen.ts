@@ -123,6 +123,7 @@ export interface FriendsActivityEntry {
     status: 'active' | 'not_started' | 'complete';
     holeCount: number;
     lastActivityAt: null | string;
+    formatIds?: string[];
     friends: FriendsActivityFriend[];
 }
 

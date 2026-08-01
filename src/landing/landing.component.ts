@@ -44,6 +44,7 @@ import {
     avatarBadgeCss,
     avatarBadgeMarkup,
 } from '../app/avatar-badge';
+import { formatLabelFromId } from '../round/slot-labels';
 
 // Order (home redesign, spec item 12 / W4): who you are, what was handed to
 // you, what you are playing, who else is out, what you just played, what your
@@ -175,7 +176,10 @@ const finishedRowTpl = template(`
         <span class="finished-row__text">
             <span bind="title" class="finished-row__title"></span>
             <span bind="course" class="finished-row__course"></span>
-            <span bind="date" class="finished-row__date"></span>
+            <span class="finished-row__bottom">
+                <span bind="date" class="finished-row__date"></span>
+                <span bind="formats" class="finished-row__formats"></span>
+            </span>
         </span>
         <span bind="status" class="finished-row__status"></span>
     </button>
@@ -215,7 +219,10 @@ const recentTpl = template(`
     <button bind="row" type="button" class="recent-row">
         <span class="recent-row__text">
             <span bind="who" class="recent-row__who"></span>
-            <span bind="what" class="recent-row__what"></span>
+            <span class="recent-row__what-line">
+                <span bind="what" class="recent-row__what"></span>
+                <span bind="formats" class="recent-row__formats"></span>
+            </span>
         </span>
         <span bind="when" class="recent-row__when"></span>
     </button>
@@ -408,6 +415,14 @@ export class LandingComponent extends Component {
                 }
                 & .recent-row__who { font-weight: 600; font-size: 0.9rem; color: ${t('text')}; }
                 & .recent-row__what {
+                    color: ${t('text-muted')}; font-size: 0.8rem;
+                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                }
+                & .recent-row__what-line {
+                    display: flex; min-width: 0; gap: 0.25rem;
+                    overflow: hidden; white-space: nowrap;
+                }
+                & .recent-row__formats {
                     color: ${t('text-muted')}; font-size: 0.8rem;
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                 }
@@ -640,6 +655,20 @@ export class LandingComponent extends Component {
                 & .finished-row__date {
                     color: ${t('text-muted')};
                     font-size: 0.75rem;
+                }
+                & .finished-row__bottom {
+                    display: flex;
+                    justify-content: space-between;
+                    gap: ${s('md')};
+                    min-width: 0;
+                }
+                & .finished-row__formats {
+                    color: ${t('text-muted')};
+                    font-size: 0.75rem;
+                    text-align: right;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
                 }
                 & .finished-row__status { ${statusChipCss} }
             }
@@ -1047,6 +1076,10 @@ export class LandingComponent extends Component {
                         },
                         who: () => row.friendLabel,
                         what: () => row.title,
+                        formats: () => {
+                            const labels = (row.formatIds ?? []).map(formatLabelFromId);
+                            return labels.length > 0 ? ` · ${labels.join(' · ')}` : '';
+                        },
                         when: () => formatRowDate(row.date),
                     },
                     track,
@@ -1160,6 +1193,7 @@ export class LandingComponent extends Component {
                             : 'finished-row__course hidden',
                 },
                 date: () => formatRowDate(row.date),
+                formats: () => row.formats ?? '',
                 status: {
                     textContent: () => STATUS_TEXT[row.status] ?? row.status,
                     className: () => `finished-row__status s-${row.status}`,

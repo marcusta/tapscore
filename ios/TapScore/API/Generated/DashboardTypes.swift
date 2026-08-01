@@ -225,6 +225,7 @@ struct FriendsActivityEntry: Codable, Sendable, Equatable {
     var status: AdminRoundSummaryStatus
     var holeCount: Double
     var lastActivityAt: String?
+    var formatIds: [String]?
     var friends: [FriendsActivityFriend]
 
     enum CodingKeys: String, CodingKey {
@@ -235,10 +236,11 @@ struct FriendsActivityEntry: Codable, Sendable, Equatable {
         case status = "status"
         case holeCount = "holeCount"
         case lastActivityAt = "lastActivityAt"
+        case formatIds = "formatIds"
         case friends = "friends"
     }
 
-    init(roundId: String, name: String? = nil, courseName: String? = nil, date: String, status: AdminRoundSummaryStatus, holeCount: Double, lastActivityAt: String? = nil, friends: [FriendsActivityFriend]) {
+    init(roundId: String, name: String? = nil, courseName: String? = nil, date: String, status: AdminRoundSummaryStatus, holeCount: Double, lastActivityAt: String? = nil, formatIds: [String]? = nil, friends: [FriendsActivityFriend]) {
         self.roundId = roundId
         self.name = name
         self.courseName = courseName
@@ -246,6 +248,7 @@ struct FriendsActivityEntry: Codable, Sendable, Equatable {
         self.status = status
         self.holeCount = holeCount
         self.lastActivityAt = lastActivityAt
+        self.formatIds = formatIds
         self.friends = friends
     }
 
@@ -258,6 +261,7 @@ struct FriendsActivityEntry: Codable, Sendable, Equatable {
         self.status = try c.decode(AdminRoundSummaryStatus.self, forKey: .status)
         self.holeCount = try c.decode(Double.self, forKey: .holeCount)
         self.lastActivityAt = try c.decodeIfPresent(String.self, forKey: .lastActivityAt)
+        self.formatIds = try c.decodeIfPresent([String].self, forKey: .formatIds)
         self.friends = try c.decode([FriendsActivityFriend].self, forKey: .friends)
     }
 
@@ -282,6 +286,7 @@ struct FriendsActivityEntry: Codable, Sendable, Equatable {
         } else {
             try c.encodeNil(forKey: .lastActivityAt)
         }
+        try c.encodeIfPresent(formatIds, forKey: .formatIds)
         try c.encode(friends, forKey: .friends)
     }
 }

@@ -42,6 +42,9 @@ export interface FriendsActivityEntry {
     holeCount: number;
     /** Most recent score event, ISO-8601 UTC; null when nothing is scored yet. */
     lastActivityAt: string | null;
+    /** Format ids in slot order; clients resolve these through the format catalog.
+     * Optional for rolling compatibility with older feed payloads. */
+    formatIds?: string[];
     /** The caller's mutual friends in this round, by display name. */
     friends: FriendsActivityFriend[];
 }
@@ -112,6 +115,7 @@ interface RoundFacts {
     status: RoundStatus;
     holeCount: number;
     lastActivityAt: string | null;
+    formatIds: string[];
     /** True while ANY ball still has an unscored hole in the itinerary. */
     hasUnplayedHoles: boolean;
 }
@@ -313,6 +317,19 @@ export class FriendsActivityService {
             .execute();
         const holeCounts = new Map(holes.map((h) => [h.round_id, Number(h.holeCount)]));
 
+        const slots = await this.db
+            .selectFrom('slots')
+            .select(['round_id', 'format_id'])
+            .where('round_id', 'in', roundIds)
+            .orderBy('ordinal', 'asc')
+            .execute();
+        const formatIds = new Map<string, string[]>();
+        for (const slot of slots) {
+            const ids = formatIds.get(slot.round_id) ?? [];
+            ids.push(slot.format_id);
+            formatIds.set(slot.round_id, ids);
+        }
+
         const ballCountRows = await this.db
             .selectFrom('balls')
             .select(['round_id', (eb) => eb.fn.countAll<number>().as('ballCount')])
@@ -365,6 +382,7 @@ export class FriendsActivityService {
                 status: round.status,
                 holeCount,
                 lastActivityAt: raw === null ? null : toIsoUtc(raw),
+                formatIds: formatIds.get(round.id) ?? [],
                 hasUnplayedHoles: (filled.get(round.id) ?? 0) < cells,
             });
         }
@@ -555,6 +573,7 @@ export class FriendsActivityService {
                 status: fact.status,
                 holeCount: fact.holeCount,
                 lastActivityAt: fact.lastActivityAt,
+                formatIds: fact.formatIds,
                 friends,
             });
         }

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tapscore landing format labels</title>
+  <style>
+    :root { color-scheme: light; --bg:#f5f7fb; --panel:#fff; --line:#d9e0ea; --text:#1f2937; --muted:#667085; --blue:#2563eb; --green:#16803c; --green-bg:#dcfce7; --red:#b42318; --red-bg:#fee4e2; font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+    * { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--text); line-height:1.5; }
+    button,textarea { font:inherit; } .shell { display:grid; grid-template-columns:280px minmax(0,1fr); min-height:100vh; }
+    aside { position:sticky; top:0; height:100vh; padding:28px 22px; border-right:1px solid var(--line); background:#f8fafc; }
+    h1 { margin:0 0 5px; font-size:20px; } h2 { margin:0; font-size:22px; } h3 { margin:0; font-size:16px; }
+    .meta,.muted { color:var(--muted); font-size:13px; } .progress { margin:22px 0; padding:15px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
+    .progress strong { font-size:18px; } .track { height:7px; margin-top:10px; overflow:hidden; border-radius:99px; background:#e6ebf2; } .fill { width:0; height:100%; background:var(--blue); transition:width .15s; }
+    nav { display:grid; gap:10px; } nav a { color:var(--muted); text-decoration:none; font-size:14px; font-weight:700; }
+    .actions { position:absolute; right:22px; bottom:28px; left:22px; display:grid; gap:8px; } .button,.filter { border:1px solid #c6d0dd; border-radius:7px; background:#eef2f7; color:#526178; padding:8px 12px; cursor:pointer; font-weight:750; }
+    main { width:min(900px,calc(100vw - 280px)); padding:38px 34px 70px; } .setup { margin:18px 0 28px; padding:18px 20px; border:1px solid var(--line); border-radius:8px; background:var(--panel); color:#4b5563; font-size:14px; }
+    .setup code { padding:2px 5px; border-radius:4px; background:#edf3fb; color:#38547a; font-size:.92em; } .filters { display:flex; gap:8px; margin-bottom:20px; } .filter[aria-pressed=true] { border-color:var(--blue); background:var(--blue); color:#fff; }
+    section { margin-top:32px; } .section-head { display:flex; justify-content:space-between; gap:14px; align-items:baseline; margin-bottom:12px; padding-bottom:9px; border-bottom:1px solid var(--line); } .source { color:#98a2b3; font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+    .checks { display:grid; gap:11px; } .check { overflow:hidden; border:1px solid var(--line); border-radius:8px; background:var(--panel); box-shadow:0 1px 3px #10182814; } .check[data-status=pass] { border-color:#a6d8b7; } .check[data-status=fail] { border-color:#f4a6a1; }
+    .summary { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:14px; align-items:center; width:100%; padding:13px 16px; border:0; background:transparent; text-align:left; cursor:pointer; } .title { display:flex; gap:9px; align-items:center; min-width:0; font-weight:800; } .number { color:var(--blue); white-space:nowrap; } .twisty { color:#8aa0ba; }
+    .pill { display:none; border-radius:99px; padding:2px 8px; font-size:10px; font-weight:900; letter-spacing:.05em; text-transform:uppercase; } .check[data-status=pass] .pill { display:inline-block; color:var(--green); background:var(--green-bg); } .check[data-status=fail] .pill { display:inline-block; color:var(--red); background:var(--red-bg); }
+    .check-body { display:none; padding:0 16px 16px 42px; } .check.open .check-body { display:block; } .steps { margin:0 0 13px; padding-left:20px; } .steps li { margin:5px 0; } .result { margin-top:10px; color:var(--muted); font-size:13px; } .check-actions { display:flex; gap:8px; margin-top:10px; } .mini { min-width:64px; padding:6px 10px; border:1px solid #c6d0dd; border-radius:7px; background:#eef2f7; cursor:pointer; font-weight:800; } .mini[aria-pressed=true][data-kind=pass] { color:var(--green); background:var(--green-bg); border-color:#81c995; } .mini[aria-pressed=true][data-kind=fail] { color:var(--red); background:var(--red-bg); border-color:#ef9a95; }
+    textarea { width:100%; min-height:64px; margin-top:8px; padding:8px; border:1px solid var(--line); border-radius:7px; resize:vertical; } .footnote { margin-top:28px; color:var(--muted); font-size:13px; }
+    @media (max-width:760px) { .shell { display:block; } aside { position:static; height:auto; border-right:0; border-bottom:1px solid var(--line); } .actions { position:static; margin-top:20px; } main { width:auto; padding:26px 18px 50px; } .summary { grid-template-columns:1fr; } .check-actions { flex-wrap:wrap; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <h1>Landing format labels</h1>
+      <div class="meta">tapscore · 1 Aug 2026</div>
+      <div class="progress"><strong id="progressText">0 / 6</strong><div class="track"><div class="fill" id="progressFill"></div></div><div class="muted" id="progressDetail">Remaining: 6</div></div>
+      <nav id="toc"></nav>
+      <div class="actions"><button class="button" id="copy">Copy result summary</button><button class="button" id="reset">Reset all state</button></div>
+    </aside>
+    <main>
+      <div class="filters"><button class="filter" data-filter="all" aria-pressed="true">All</button><button class="filter" data-filter="remaining" aria-pressed="false">Remaining</button><button class="filter" data-filter="failed" aria-pressed="false">Failed</button></div>
+      <div class="setup"><strong>Setup</strong><br>Run <code>bun run dev:server</code> and <code>bun run dev:client</code>. Open the landing page, sign in as a player with at least one multi-format ongoing round, one recently finished round, and a mutual friend with a visible recent round. Use a narrow mobile-sized viewport as well as a laptop viewport. Automated checks already run: server/client/test type-checks plus 39 focused friends, landing, and API tests.</div>
+      <section id="own"><div class="section-head"><h2>Your rounds</h2><span class="source">landing.component.ts</span></div><div class="checks">
+        <article class="check" data-id="1.1" data-section="Your rounds"><button class="summary"><span class="title"><span class="twisty">▶</span><span class="number">1.1</span>Ongoing format line<span class="pill"></span></span></button><div class="check-body"><ol class="steps"><li>Find a multi-format round under <strong>Ongoing</strong>.</li><li>Confirm its bottom line still shows the formats in slot order, such as “Taliban · Poängbogey”.</li></ol><div class="result">Expected: existing ongoing presentation is unchanged.</div><div class="check-actions"><button class="mini" data-kind="pass">Pass</button><button class="mini" data-kind="fail">Fail</button></div><textarea placeholder="Notes (optional)"></textarea></div></article>
+        <article class="check" data-id="1.2" data-section="Your rounds"><button class="summary"><span class="title"><span class="twisty">▶</span><span class="number">1.2</span>Recently finished formats<span class="pill"></span></span></button><div class="check-body"><ol class="steps"><li>Find the same round after it is finished, under <strong>Recently finished</strong>.</li><li>Confirm each compact row shows the date at left and the same format list at the bottom/right, with the “Finished” status chip still visible.</li></ol><div class="result">Expected: format labels appear without removing the title, course, date, or status.</div><div class="check-actions"><button class="mini" data-kind="pass">Pass</button><button class="mini" data-kind="fail">Fail</button></div><textarea placeholder="Notes (optional)"></textarea></div></article>
+        <article class="check" data-id="1.3" data-section="Your rounds"><button class="summary"><span class="title"><span class="twisty">▶</span><span class="number">1.3</span>Compact-row overflow<span class="pill"></span></span></button><div class="check-body"><ol class="steps"><li>Use a round with several or long format names and view the finished card at a phone-width viewport.</li><li>Check that labels truncate within the row and do not push the status chip or page width off-screen.</li></ol><div class="result">Expected: the card remains readable and horizontally contained.</div><div class="check-actions"><button class="mini" data-kind="pass">Pass</button><button class="mini" data-kind="fail">Fail</button></div><textarea placeholder="Notes (optional)"></textarea></div></article>
+      </div></section>
+      <section id="friends"><div class="section-head"><h2>From your friends</h2><span class="source">friends-activity API + model</span></div><div class="checks">
+        <article class="check" data-id="2.1" data-section="From your friends"><button class="summary"><span class="title"><span class="twisty">▶</span><span class="number">2.1</span>Friend format line<span class="pill"></span></span></button><div class="check-body"><ol class="steps"><li>Find a friend round in <strong>From your friends</strong>.</li><li>Confirm the second line shows the course followed by the format labels, while the friend name and date remain easy to scan.</li></ol><div class="result">Expected: the row names the formats without exposing a private organizer round name.</div><div class="check-actions"><button class="mini" data-kind="pass">Pass</button><button class="mini" data-kind="fail">Fail</button></div><textarea placeholder="Notes (optional)"></textarea></div></article>
+        <article class="check" data-id="2.2" data-section="From your friends"><button class="summary"><span class="title"><span class="twisty">▶</span><span class="number">2.2</span>Friends with missing/old format data<span class="pill"></span></span></button><div class="check-body"><ol class="steps"><li>Load the page while the friends feed is unavailable or while viewing a payload from before format ids were added.</li><li>Confirm the friends section either hides as before or renders its course/date row without a broken label or console-visible page error.</li></ol><div class="result">Expected: format metadata is additive; older/failed feed data does not break the landing.</div><div class="check-actions"><button class="mini" data-kind="pass">Pass</button><button class="mini" data-kind="fail">Fail</button></div><textarea placeholder="Notes (optional)"></textarea></div></article>
+        <article class="check" data-id="2.3" data-section="From your friends"><button class="summary"><span class="title"><span class="twisty">▶</span><span class="number">2.3</span>Format language and order<span class="pill"></span></span></button><div class="check-body"><ol class="steps"><li>Switch the app/browser locale if supported, or use the same locale that produced the current landing screenshot.</li><li>Compare a friends row and your own ongoing row for the same formats.</li></ol><div class="result">Expected: both surfaces use the same catalog labels and slot order.</div><div class="check-actions"><button class="mini" data-kind="pass">Pass</button><button class="mini" data-kind="fail">Fail</button></div><textarea placeholder="Notes (optional)"></textarea></div></article>
+      </div></section>
+      <p class="footnote">Record failures with a screenshot and the round id if possible. This checklist state is saved in localStorage for this project and plan.</p>
+    </main>
+  </div>
+  <script>
+    const planKey = 'tapscore::landing-format-labels::2026-08-01';
+    const checks = [...document.querySelectorAll('.check')];
+    const state = JSON.parse(localStorage.getItem(planKey) || '{}');
+    let filter = 'all';
+    const save = () => localStorage.setItem(planKey, JSON.stringify(state));
+    const status = c => state[c.dataset.id]?.status || 'remaining';
+    function render() {
+      const counts = { pass:0, fail:0, remaining:0 };
+      checks.forEach(c => {
+        const s = status(c); counts[s]++;
+        c.dataset.status = s === 'remaining' ? '' : s;
+        c.hidden = filter === 'remaining' ? s !== 'remaining' : filter === 'failed' ? s !== 'fail' : false;
+        c.querySelector('.pill').textContent = s;
+        c.querySelectorAll('.mini').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.kind === s)));
+        const note = state[c.dataset.id]?.note || ''; const area = c.querySelector('textarea'); if (area.value !== note) area.value = note;
+      });
+      const total = checks.length; document.getElementById('progressText').textContent = `${counts.pass} / ${total}`; document.getElementById('progressDetail').textContent = `Remaining: ${counts.remaining} · Failed: ${counts.fail}`; document.getElementById('progressFill').style.width = `${Math.round(counts.pass / total * 100)}%`;
+      const sections = [...new Set(checks.map(c => c.dataset.section))]; document.getElementById('toc').innerHTML = sections.map(name => { const own = checks.filter(c => c.dataset.section === name); const done = own.filter(c => status(c) === 'pass').length; return `<a href="#${name === 'Your rounds' ? 'own' : 'friends'}">● ${name}<span>${done}/${own.length}</span></a>`; }).join('');
+    }
+    checks.forEach(c => { c.querySelector('.summary').addEventListener('click', () => c.classList.toggle('open')); c.querySelectorAll('.mini').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); state[c.dataset.id] = { ...(state[c.dataset.id] || {}), status:b.dataset.kind }; save(); render(); })); c.querySelector('textarea').addEventListener('input', e => { state[c.dataset.id] = { ...(state[c.dataset.id] || {}), note:e.target.value }; save(); }); });
+    document.querySelectorAll('.filter').forEach(b => b.addEventListener('click', () => { filter = b.dataset.filter; document.querySelectorAll('.filter').forEach(x => x.setAttribute('aria-pressed', String(x === b))); render(); }));
+    document.getElementById('reset').addEventListener('click', () => { if (confirm('Reset all checklist state?')) { localStorage.removeItem(planKey); location.reload(); } });
+    document.getElementById('copy').addEventListener('click', async () => { const lines = checks.map(c => `${c.dataset.id} ${c.dataset.section}: ${status(c)}${state[c.dataset.id]?.note ? ` — ${state[c.dataset.id].note}` : ''}`); await navigator.clipboard?.writeText(`Tapscore landing format labels\n${lines.join('\n')}`); alert('Result summary copied.'); });
+    render();
+  </script>
+</body>
+</html>

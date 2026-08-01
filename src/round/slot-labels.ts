@@ -14,3 +14,10 @@ export function formatLabelFromSlot(slot: FormatSlot): string {
     void catalog.load();
     return catalog.labelOf(slot.formatId) ?? `${slot.scoringMode} · ${slot.teamShape}`;
 }
+
+/** Human label for a format id from a compact payload such as the friends feed. */
+export function formatLabelFromId(formatId: string): string {
+    const catalog = di.get(FormatCatalogService);
+    void catalog.load();
+    return catalog.labelOf(formatId) ?? formatId;
+}

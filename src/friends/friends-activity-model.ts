@@ -172,6 +172,8 @@ export interface RecentRow {
     /** The raw 'YYYY-MM-DD' — the component formats it like every other round
      *  date (see `formatRowDate`), falling back to the raw string. */
     date: string;
+    /** Format ids in slot order; the landing resolves these via the catalog. */
+    formatIds: string[];
 }
 
 /** The feed's `recent` half as rows; friendless entries are dropped for the
@@ -188,6 +190,7 @@ export function recentRows(recent: readonly FriendsActivityEntry[]): RecentRow[]
             displayName: lead.displayName,
             title: courseLabel(entry) ?? 'A round',
             date: entry.date,
+            formatIds: entry.formatIds ?? [],
         });
     }
     return rows;
