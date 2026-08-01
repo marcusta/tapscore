@@ -80,15 +80,23 @@ export class HistoryComponent extends Component {
             }
 
             & .history__list {
+                ${card()}
                 display: flex;
                 flex-direction: column;
-                gap: ${s('sm')};
+                overflow: hidden;
+
+                &.hidden { display: none; }
             }
 
             & .round-row {
                 display: flex;
                 align-items: stretch;
-                ${card({ hover: true })}
+                background: none;
+                border: none;
+                border-top: 1px solid ${t('border')};
+
+                &:first-child { border-top: none; }
+                &:hover { background: ${t('hover-bg')}; }
 
                 & .round-row__main {
                     flex: 1;
@@ -114,7 +122,7 @@ export class HistoryComponent extends Component {
                     border: none;
                     color: ${t('text-muted')};
                     cursor: pointer;
-                    border-radius: 0 ${t('radius')} ${t('radius')} 0;
+                    border-radius: 0;
 
                     & svg { width: 17px; height: 17px; }
                     &:hover, &:active { color: ${t('error')}; }
@@ -220,6 +228,10 @@ export class HistoryComponent extends Component {
             empty: {
                 className: () =>
                     this.rows.get().length === 0 ? 'history__empty' : 'history__empty hidden',
+            },
+            list: {
+                className: () =>
+                    this.rows.get().length === 0 ? 'history__list hidden' : 'history__list',
             },
         });
 

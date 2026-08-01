@@ -100,19 +100,31 @@ struct AllRoundsView: View {
     @ViewBuilder
     private func section(_ title: String, rows sectionRows: [LandingRow]) -> some View {
         if !sectionRows.isEmpty {
-            VStack(alignment: .leading, spacing: TapSpacing.sm) {
-                SectionHeader(title: title, count: String(sectionRows.count))
-                VStack(spacing: TapSpacing.sm) {
+            TapCard {
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionHeader(title: title, count: String(sectionRows.count))
+                        .padding(.horizontal, TapSpacing.lg)
+                        .padding(.top, TapSpacing.md)
+                        .padding(.bottom, TapSpacing.sm)
                     ForEach(sectionRows) { row in
+                        hairline
                         RoundRow(
                             row: row,
                             onOpen: { open(row) },
-                            onRemove: { pendingRemoval = row }
+                            onRemove: { pendingRemoval = row },
+                            grouped: true
                         )
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    private var hairline: some View {
+        Rectangle()
+            .fill(TapColors.border)
+            .frame(height: 1)
     }
 
     // MARK: - Actions
