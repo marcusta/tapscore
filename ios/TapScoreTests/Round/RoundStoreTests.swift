@@ -168,28 +168,32 @@ final class RoundStoreTests: XCTestCase {
 
     /// A format chip SELECTS a presentation context; it does not navigate
     /// (`selectSlot`). On the score tab that is a handicap-line change and
-    /// nothing else — no tab move, and no fetch.
+    /// nothing else — no tab move, and no fetch OF ITS OWN. (`load()` fetches
+    /// the result once on every tab since the standing figure joined the score
+    /// rows; the chip must not add a second request on top of it.)
     func testSelectingAFormatOnTheScoreTabNeitherNavigatesNorFetches() async {
         routeHappyPath()
         RoundStubURLProtocol.route("/friendly-rounds/result", RoundFixtures.result(cursor: "c1"))
         let store = makeStore()
         await store.load()
+        XCTAssertEqual(resultRequests(), 1, "load fetches the result once, tab-independent")
 
         store.selectSlot("slot-0")
         await settle()
 
         XCTAssertEqual(store.selectedSlot, "slot-0")
         XCTAssertEqual(store.tab, .score, "selecting a chip does not navigate")
-        XCTAssertEqual(resultRequests(), 0, "and it fetches nothing")
+        XCTAssertEqual(resultRequests(), 1, "and the chip fetches nothing of its own")
     }
 
     /// `selectSlot`'s OWN load branch: with the leaderboard already up and no
     /// board in hand, picking a format fetches one.
     ///
-    /// The first open is stubbed to FAIL on purpose. `setTab` loads the board
-    /// itself, so on a happy path there is already a `result` and this branch
-    /// is unreachable — a test written over a successful open would pass with
-    /// the `selectSlot` line deleted.
+    /// The result route is stubbed to FAIL on purpose. Both `load()` and
+    /// `setTab` load the board themselves, so on a happy path there is already
+    /// a `result` and this branch is unreachable — a test written over a
+    /// successful open would pass with the `selectSlot` line deleted. Request
+    /// #1 is `load()`'s, #2 is the tab open's, #3 is the chip's.
     func testSelectingAFormatLoadsTheBoardWhenTheFirstOpenFailed() async {
         routeHappyPath()
         RoundStubURLProtocol.route("/friendly-rounds/result", status: 500, "{}")
@@ -197,14 +201,14 @@ final class RoundStoreTests: XCTestCase {
         await store.load()
 
         store.setTab(.leaderboard)
-        await waitUntil("the first board open to fail") { self.resultRequests() == 1 }
+        await waitUntil("the tab's board open to fail") { self.resultRequests() == 2 }
         await settle()
-        XCTAssertNil(store.result, "the failed open must leave nothing to reuse")
+        XCTAssertNil(store.result, "the failed opens must leave nothing to reuse")
 
         RoundStubURLProtocol.route("/friendly-rounds/result", RoundFixtures.result(cursor: "c1"))
         store.selectSlot("slot-0")
 
-        await waitUntil("the chip's own fetch") { self.resultRequests() == 2 }
+        await waitUntil("the chip's own fetch") { self.resultRequests() == 3 }
         XCTAssertEqual(store.selectedSlot, "slot-0")
     }
 
