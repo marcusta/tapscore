@@ -830,10 +830,13 @@ export class ScoreEntryComponent extends Component {
                         step.slope !== null &&
                         step.courseRating !== null &&
                         step.par !== null;
+                    // Name the tee whose rating did the adjusting — "these
+                    // tees" alone left the reader guessing which box.
+                    const tees = step.teeName ? `the ${step.teeName} tees` : 'these tees';
                     cards.push({
                         title: `Course handicap · ${step.producerLabel}`,
                         text: full
-                            ? `Exact handicap ${step.handicapIndex}, adjusted for the difficulty of these tees.`
+                            ? `Exact handicap ${step.handicapIndex}, adjusted for the difficulty of ${tees}.`
                             : `The handicap ${step.producerLabel} plays this course off.`,
                         math: full
                             ? `${step.handicapIndex} × ${step.slope} ÷ 113 + (${step.courseRating} − ${step.par}), rounded — the World Handicap System formula.`

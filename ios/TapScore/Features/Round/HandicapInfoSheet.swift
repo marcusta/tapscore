@@ -134,10 +134,13 @@ struct HandicapInfoSheet: View {
         // without them still gets an honest, shorter card.
         if let hi = s.handicapIndex, let slope = s.slope, let rating = s.courseRating,
            let par = s.par {
+            // Name the tee whose rating did the adjusting — "these tees"
+            // alone left the reader guessing which box.
+            let tees = s.teeName.map { "the \($0) tees" } ?? "these tees"
             return Card(
                 title: "Course handicap · \(s.producerLabel)",
                 sentence:
-                    "Exact handicap \(jsNumberString(hi)), adjusted for the difficulty of these tees.",
+                    "Exact handicap \(jsNumberString(hi)), adjusted for the difficulty of \(tees).",
                 arithmetic:
                     "\(jsNumberString(hi)) × \(jsNumberString(slope)) ÷ 113 + (\(jsNumberString(rating)) − \(jsNumberString(par))), rounded — the World Handicap System formula.",
                 result: s.result

@@ -265,7 +265,7 @@ export interface StartListOpDecision {
 
 export interface HandicapDerivation {
     effectivePh: number;
-    steps: ({ kind: 'course_handicap'; producerLabel: string; handicapIndex: null | number; slope: null | number; courseRating: null | number; par: null | number; result: number } | { kind: 'team_combination'; parts: { producerLabel: string; ch: number; pct: number }[]; result: number } | { kind: 'allowance'; pct: number; source: 'flat' | 'split'; result: number } | { kind: 'match_delta'; lowestPh: number; ownPh: number; result: number })[];
+    steps: ({ kind: 'course_handicap'; producerLabel: string; teeName: null | string; handicapIndex: null | number; slope: null | number; courseRating: null | number; par: null | number; result: number } | { kind: 'team_combination'; parts: { producerLabel: string; ch: number; pct: number }[]; result: number } | { kind: 'allowance'; pct: number; source: 'flat' | 'split'; result: number } | { kind: 'match_delta'; lowestPh: number; ownPh: number; result: number })[];
 }
 
 export interface ScoreGridSection {

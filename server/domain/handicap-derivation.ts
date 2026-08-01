@@ -17,12 +17,16 @@ export type DerivationStep =
     /**
      * WHS course handicap for ONE producer:
      * `round(HI × slope/113 + (CR − par))`. One step per producer — a team
-     * ball gets one per member. Formula inputs are null when the seat's
-     * snapshot pre-dates them; `result` (the CH) is always present.
+     * ball gets one per member. Formula inputs (and the tee the rating row
+     * came from) are null when the seat's snapshot pre-dates them; `result`
+     * (the CH) is always present.
      */
     | {
           kind: 'course_handicap';
           producerLabel: string;
+          /** The tee whose rating produced this CH ("Gul") — names the
+           *  "these tees" the popup's sentence refers to. */
+          teeName: string | null;
           handicapIndex: number | null;
           slope: number | null;
           courseRating: number | null;

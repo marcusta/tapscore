@@ -89,6 +89,7 @@ test('individual format with flat allowance: CH and allowance steps, effective =
         {
             kind: 'course_handicap',
             producerLabel: 'P2',
+            teeName: 'Yellow',
             handicapIndex: 9,
             slope: 113,
             courseRating: 72,

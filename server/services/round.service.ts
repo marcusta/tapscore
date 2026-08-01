@@ -1304,6 +1304,7 @@ interface DerivationSource {
         producer_def_id: string;
         display_name_snapshot: string;
         handicap_index_snapshot: number | null;
+        tee_name_snapshot: string | null;
         course_rating_snapshot: number | null;
         slope_snapshot: number | null;
         tee_par_snapshot: number | null;
@@ -1412,6 +1413,7 @@ function buildHandicapDerivations(src: DerivationSource): Map<string, HandicapDe
                 steps.push({
                     kind: 'course_handicap',
                     producerLabel: p.display_name_snapshot,
+                    teeName: p.tee_name_snapshot,
                     handicapIndex: p.handicap_index_snapshot,
                     slope: p.slope_snapshot,
                     courseRating: p.course_rating_snapshot,

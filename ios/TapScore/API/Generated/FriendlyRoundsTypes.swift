@@ -997,6 +997,7 @@ struct StartListOpDecision: Codable, Sendable, Equatable {
 struct HandicapDerivationStepsItemCourseHandicap: Codable, Sendable, Equatable {
     let kind: String = "course_handicap"
     var producerLabel: String
+    var teeName: String?
     var handicapIndex: Double?
     var slope: Double?
     var courseRating: Double?
@@ -1006,6 +1007,7 @@ struct HandicapDerivationStepsItemCourseHandicap: Codable, Sendable, Equatable {
     enum CodingKeys: String, CodingKey {
         case kind = "kind"
         case producerLabel = "producerLabel"
+        case teeName = "teeName"
         case handicapIndex = "handicapIndex"
         case slope = "slope"
         case courseRating = "courseRating"
@@ -1013,8 +1015,9 @@ struct HandicapDerivationStepsItemCourseHandicap: Codable, Sendable, Equatable {
         case result = "result"
     }
 
-    init(producerLabel: String, handicapIndex: Double? = nil, slope: Double? = nil, courseRating: Double? = nil, par: Double? = nil, result: Double) {
+    init(producerLabel: String, teeName: String? = nil, handicapIndex: Double? = nil, slope: Double? = nil, courseRating: Double? = nil, par: Double? = nil, result: Double) {
         self.producerLabel = producerLabel
+        self.teeName = teeName
         self.handicapIndex = handicapIndex
         self.slope = slope
         self.courseRating = courseRating
@@ -1026,6 +1029,7 @@ struct HandicapDerivationStepsItemCourseHandicap: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         _ = try c.decode(String.self, forKey: .kind)
         self.producerLabel = try c.decode(String.self, forKey: .producerLabel)
+        self.teeName = try c.decodeIfPresent(String.self, forKey: .teeName)
         self.handicapIndex = try c.decodeIfPresent(Double.self, forKey: .handicapIndex)
         self.slope = try c.decodeIfPresent(Double.self, forKey: .slope)
         self.courseRating = try c.decodeIfPresent(Double.self, forKey: .courseRating)
@@ -1037,6 +1041,11 @@ struct HandicapDerivationStepsItemCourseHandicap: Codable, Sendable, Equatable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(kind, forKey: .kind)
         try c.encode(producerLabel, forKey: .producerLabel)
+        if let teeName {
+            try c.encode(teeName, forKey: .teeName)
+        } else {
+            try c.encodeNil(forKey: .teeName)
+        }
         if let handicapIndex {
             try c.encode(handicapIndex, forKey: .handicapIndex)
         } else {
