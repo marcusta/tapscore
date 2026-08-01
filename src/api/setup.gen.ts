@@ -51,6 +51,13 @@ export interface AggregationDescriptor {
     configFields?: ({ kind: 'select'; key: string; label: string; options: { value: string; label: string }[]; default: string } | { kind: 'integer'; key: string; label: string; default: number; min?: number })[];
 }
 
+export interface FormationDescriptor {
+    id: string;
+    labels: FormationLabels;
+    size: FormationSize;
+    allowancesBySize: Record<string, number[]>;
+}
+
 export interface Hole {
     holeNumber: number;
     par: number;
@@ -108,6 +115,16 @@ export interface AggregationLabels {
     sv?: string;
 }
 
+export interface FormationLabels {
+    en: string;
+    sv?: string;
+}
+
+export interface FormationSize {
+    min: number;
+    max: number;
+}
+
 export interface FormatBallRequirement {
     producerCount: { min: number; max: number };
     ballMode: 'own' | 'team' | 'any';
@@ -147,6 +164,7 @@ export interface SetupApi {
     teesByCourse(input: { courseId: string }): Promise<Tee[]>;
     formats(): Promise<FormatDescriptor[]>;
     aggregations(): Promise<AggregationDescriptor[]>;
+    formations(): Promise<FormationDescriptor[]>;
 }
 
 export function createSetupClient(baseUrl: string): SetupApi {
@@ -169,6 +187,9 @@ export function createSetupClient(baseUrl: string): SetupApi {
         },
         async aggregations() {
             return apiFetch({ method: 'GET', url: `${baseUrl}/setup/aggregations` });
+        },
+        async formations() {
+            return apiFetch({ method: 'GET', url: `${baseUrl}/setup/formations` });
         },
     };
 }

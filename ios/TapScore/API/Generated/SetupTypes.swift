@@ -282,6 +282,43 @@ struct AggregationDescriptor: Codable, Sendable, Equatable {
     }
 }
 
+struct FormationDescriptor: Codable, Sendable, Equatable {
+    var id: String
+    var labels: FormationLabels
+    var size: FormationSize
+    var allowancesBySize: [String: [Double]]
+
+    enum CodingKeys: String, CodingKey {
+        case id = "id"
+        case labels = "labels"
+        case size = "size"
+        case allowancesBySize = "allowancesBySize"
+    }
+
+    init(id: String, labels: FormationLabels, size: FormationSize, allowancesBySize: [String: [Double]]) {
+        self.id = id
+        self.labels = labels
+        self.size = size
+        self.allowancesBySize = allowancesBySize
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
+        self.labels = try c.decode(FormationLabels.self, forKey: .labels)
+        self.size = try c.decode(FormationSize.self, forKey: .size)
+        self.allowancesBySize = try c.decode([String: [Double]].self, forKey: .allowancesBySize)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(labels, forKey: .labels)
+        try c.encode(size, forKey: .size)
+        try c.encode(allowancesBySize, forKey: .allowancesBySize)
+    }
+}
+
 struct TeeHoleLength: Codable, Sendable, Equatable {
     var holeNumber: Double
     var lengthM: Double
@@ -384,5 +421,59 @@ struct AggregationLabels: Codable, Sendable, Equatable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(en, forKey: .en)
         try c.encodeIfPresent(sv, forKey: .sv)
+    }
+}
+
+struct FormationLabels: Codable, Sendable, Equatable {
+    var en: String
+    var sv: String?
+
+    enum CodingKeys: String, CodingKey {
+        case en = "en"
+        case sv = "sv"
+    }
+
+    init(en: String, sv: String? = nil) {
+        self.en = en
+        self.sv = sv
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.en = try c.decode(String.self, forKey: .en)
+        self.sv = try c.decodeIfPresent(String.self, forKey: .sv)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(en, forKey: .en)
+        try c.encodeIfPresent(sv, forKey: .sv)
+    }
+}
+
+struct FormationSize: Codable, Sendable, Equatable {
+    var min: Double
+    var max: Double
+
+    enum CodingKeys: String, CodingKey {
+        case min = "min"
+        case max = "max"
+    }
+
+    init(min: Double, max: Double) {
+        self.min = min
+        self.max = max
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.min = try c.decode(Double.self, forKey: .min)
+        self.max = try c.decode(Double.self, forKey: .max)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(min, forKey: .min)
+        try c.encode(max, forKey: .max)
     }
 }

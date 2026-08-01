@@ -86,3 +86,82 @@ test('GET /setup/formats returns the registered descriptors with NO login', asyn
     expect(ids).not.toContain('scramble');
     expect(JSON.parse(JSON.stringify(data))).toEqual(data);
 });
+
+// --- Formations (docs/proposals/ball-teams-composition.md Phase A) -----------
+
+type FormationBody = {
+    id: string;
+    labels: { en: string; sv?: string };
+    size: { min: number; max: number };
+    allowancesBySize: Record<string, number[]>;
+};
+
+async function getFormations(): Promise<FormationBody[]> {
+    const { ctx } = await setup();
+    const res = await req(ctx.app, 'GET', '/api/setup/formations');
+    expect(res.status).toBe(200);
+    return (await res.json()) as FormationBody[];
+}
+
+test('GET /setup/formations returns the three formation descriptors with NO login', async () => {
+    const data = await getFormations();
+    expect(data).toHaveLength(3);
+    const ids = data.map((d) => d.id);
+    expect(ids).toEqual(['foursomes', 'greensomes', 'scramble']);
+    // `custom` has no recipe by design — it is a flexible-editor escape hatch.
+    expect(ids).not.toContain('custom');
+    expect(JSON.parse(JSON.stringify(data))).toEqual(data);
+});
+
+test('GET /setup/formations serves the established pair recipes', async () => {
+    const data = await getFormations();
+    const byId = Object.fromEntries(data.map((d) => [d.id, d]));
+
+    expect(byId.foursomes.size).toEqual({ min: 2, max: 2 });
+    expect(byId.foursomes.allowancesBySize).toEqual({ 2: [50, 50] });
+    expect(byId.foursomes.labels).toEqual({ en: 'Foursomes', sv: 'Foursome' });
+
+    expect(byId.greensomes.size).toEqual({ min: 2, max: 2 });
+    expect(byId.greensomes.allowancesBySize).toEqual({ 2: [60, 40] });
+    expect(byId.greensomes.labels).toEqual({ en: 'Greensomes', sv: 'Greensome' });
+});
+
+test('GET /setup/formations serves the full scramble allowance table', async () => {
+    const data = await getFormations();
+    const scramble = data.find((d) => d.id === 'scramble')!;
+    expect(scramble.size).toEqual({ min: 2, max: 8 });
+    expect(scramble.labels).toEqual({ en: 'Scramble', sv: 'Scramble' });
+    expect(scramble.allowancesBySize).toEqual({
+        2: [35, 15],
+        3: [30, 20, 10],
+        4: [25, 20, 15, 10],
+        5: [25, 20, 15, 10, 5],
+        6: [25, 20, 15, 10, 5, 0],
+        7: [25, 20, 15, 10, 5, 0, 0],
+        8: [25, 20, 15, 10, 5, 0, 0, 0],
+    });
+});
+
+// The self-consistency ratchet: a future formation (or an edited table) cannot
+// declare a recipe for a size it forbids, skip a size it allows, or hand out a
+// row whose length disagrees with its own key.
+test('every formation covers exactly its declared size range, one % per position', async () => {
+    const data = await getFormations();
+    for (const f of data) {
+        expect(Number.isInteger(f.size.min)).toBe(true);
+        expect(f.size.max).toBeGreaterThanOrEqual(f.size.min);
+
+        const sizes = Object.keys(f.allowancesBySize).map(Number);
+        const declared = Array.from(
+            { length: f.size.max - f.size.min + 1 },
+            (_, i) => f.size.min + i,
+        );
+        expect(sizes.sort((a, b) => a - b)).toEqual(declared);
+
+        for (const size of sizes) {
+            const pcts = f.allowancesBySize[String(size)]!;
+            expect(pcts).toHaveLength(size);
+            for (const pct of pcts) expect(pct).toBeGreaterThanOrEqual(0);
+        }
+    }
+});

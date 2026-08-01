@@ -933,7 +933,7 @@ an empty `playingGroups: []` is a deviation.
 **B8.1** WHEN the user is signed out THEN the entire create flow remains usable:
 courses, tees and formats all come from **no-auth** endpoints
 (`/setup/clubs`, `/setup/courses`, `/setup/tees/by-course`, `/setup/formats`,
-`/setup/aggregations`).
+`/setup/aggregations`, `/setup/formations`).
 
 **B8.2** WHEN the user is signed out THEN **Add from friends** and **Add me** are
 absent, and every roster row is a guest.

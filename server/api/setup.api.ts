@@ -4,6 +4,7 @@ import type { CourseService } from '../services/course.service';
 import type { TeeService } from '../services/tee.service';
 import { formatCatalog, type FormatDescriptor } from '../domain/formats/plugin';
 import { aggregationCatalog, type AggregationDescriptor } from '../domain/aggregation/strategy';
+import { formationCatalog, type FormationDescriptor } from '../domain/round-setup/formation-catalog';
 
 // --- Input schemas ---
 
@@ -20,6 +21,10 @@ const ByCourseInput = Type.Object({ courseId: Type.String() });
 // mirroring the share-token trust boundary on the friendly-rounds front door.
 // `setup/formats` serves the exact same `formatCatalog()` as the auth-gated
 // `GET /formats`; all writes (course/tee admin) stay behind `requireAuth()`.
+// `setup/formations` is the same SELECT-side deal for the Players step's ball
+// teams section (docs/proposals/ball-teams-composition.md): size bounds +
+// default allowance recipes, needed to build a draft, so it sits with the rest
+// of the no-login catalog.
 //
 // `setup/clubs` is the same read-side deal for the SIGNUP form's home-club
 // picker: account creation is itself unauthenticated, so the auth-gated `GET
@@ -33,5 +38,6 @@ export function createSetupApi(courses: CourseService, tees: TeeService, clubs: 
         teesByCourse:{ method: 'GET' as const, path: '/setup/tees/by-course',  fn: (input: Static<typeof ByCourseInput>)    => tees.listByCourse(input.courseId), schema: ByCourseInput },
         formats:     { method: 'GET' as const, path: '/setup/formats',         fn: (): FormatDescriptor[]                   => formatCatalog() },
         aggregations:{ method: 'GET' as const, path: '/setup/aggregations',    fn: (): AggregationDescriptor[]              => aggregationCatalog() },
+        formations:  { method: 'GET' as const, path: '/setup/formations',      fn: (): FormationDescriptor[]                => formationCatalog() },
     };
 }

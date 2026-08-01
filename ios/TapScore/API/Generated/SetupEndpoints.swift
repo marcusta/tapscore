@@ -21,4 +21,8 @@ enum SetupEndpoints {
         method: .get,
         path: "/setup/aggregations",
         pathParams: [])
+    static let formations = APIEndpoint<EmptyInput, [FormationDescriptor]>(
+        method: .get,
+        path: "/setup/formations",
+        pathParams: [])
 }
