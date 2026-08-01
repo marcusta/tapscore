@@ -21,7 +21,7 @@ enum WebDraftFixtures {
         "clientAdapterId": null,
         "configFields": [
           {
-            "default": "standard",
+            "default": "delta_from_min",
             "key": "handicapMode",
             "kind": "select",
             "labels": {
@@ -52,7 +52,7 @@ enum WebDraftFixtures {
             "type": "flat"
           },
           "formatConfig": {
-            "handicapMode": "standard"
+            "handicapMode": "delta_from_min"
           }
         },
         "description": "Three-way per-hole point distribution; highest wins.",
@@ -847,7 +847,7 @@ enum WebDraftFixtures {
             "type": "flat"
           },
           "formatConfig": {
-            "handicapMode": "standard"
+            "handicapMode": "delta_from_min"
           },
           "formatId": "kopenhamnare_individual",
           "subjects": [

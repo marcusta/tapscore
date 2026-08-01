@@ -112,7 +112,10 @@ describe('configFields ↔ validateConfig (anti-drift pin)', () => {
         expect(rest).toEqual([]);
         expect(field!.key).toBe('handicapMode');
         expect(field!.options.map((o) => o.value)).toEqual(['standard', 'delta_from_min']);
-        expect(field!.default).toBe('standard');
+        // Match-style by owner decision (2026-08-01): new rounds seed the low
+        // ball playing off scratch. The strategy's absent-config fallback
+        // stays 'standard' — a legacy freeze so old rounds never rescore.
+        expect(field!.default).toBe('delta_from_min');
         // Options are described by what they DO, never by the raw enum name.
         for (const o of field!.options) {
             expect(o.labels.en).not.toBe(o.value);
@@ -135,10 +138,10 @@ describe('defaults.formatConfig is derived from configFields', () => {
         }
     });
 
-    it('seeds the concrete values the strategies default to internally', () => {
+    it('seeds the declared field defaults (köpenhamnare deliberately differs from its legacy absent-config fallback)', () => {
         expect(descriptorOf('taliban_better_ball').defaults.formatConfig).toEqual({ bonusRule: 'gross' });
         expect(descriptorOf('kopenhamnare_individual').defaults.formatConfig).toEqual({
-            handicapMode: 'standard',
+            handicapMode: 'delta_from_min',
         });
     });
 

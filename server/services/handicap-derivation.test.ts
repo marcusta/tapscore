@@ -193,7 +193,10 @@ test('köpenhamnare presents the handicapMode its scoring uses', async () => {
         result: 8,
     });
 
-    // The default 'standard' mode presents untransformed PHs, no delta step.
+    // A draft with NO formatConfig is the legacy path: absent config reads
+    // 'standard' (frozen so old rounds never rescore) — untransformed PHs,
+    // no delta step. New UI-created rounds persist the 'delta_from_min'
+    // default explicitly and never hit this fallback.
     const ctx2 = await setup([2, 3, 10]);
     const standard = await ballsFor(ctx2, {
         courseId: ctx2.courseId,

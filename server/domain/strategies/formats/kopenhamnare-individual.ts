@@ -35,6 +35,14 @@ export const KOPENHAMNARE_INDIVIDUAL_ID = 'kopenhamnare_individual';
 
 export type KopenhamnareHandicapMode = 'standard' | 'delta_from_min';
 
+/**
+ * ABSENT config reads 'standard' — a LEGACY freeze, not the product default.
+ * Rounds compiled before the knob was surfaced stored no formatConfig, and
+ * their historical results must not rescore under a new interpretation. The
+ * product default for NEW rounds is the `configFields` default below
+ * ('delta_from_min'), which every create path persists EXPLICITLY into the
+ * slot's config — so the two defaults never meet on the same round.
+ */
 function readHandicapMode(cfg: unknown): KopenhamnareHandicapMode {
     if (cfg && typeof cfg === 'object' && 'handicapMode' in cfg) {
         const raw = (cfg as { handicapMode: unknown }).handicapMode;
@@ -251,7 +259,11 @@ export const kopenhamnareIndividual: FormatStrategy = {
                     },
                 },
             ],
-            default: 'standard',
+            // Match-style by OWNER DECISION (2026-08-01): köpenhamnare is a
+            // head-to-head points game, so new rounds default to the low ball
+            // playing off scratch. Deliberately NOT the same as
+            // `readHandicapMode`'s absent-config fallback — see its doc.
+            default: 'delta_from_min',
         },
     ],
 
