@@ -21,7 +21,7 @@
 // (see CompilerDiagnostic in server/domain/compiler/types.ts). The raw-message
 // fallback at the bottom is a safety net for codes this client predates, not a
 // presentation path. Messages say what to DO, in the setup UI's own vocabulary
-// ("One combined ball", "Separate balls (a side)", "Scores") — never engine
+// ("Share one ball", "Own ball each", "Scores") — never engine
 // jargon (slot, ball mode, producer).
 
 import type { CompilerDiagnostic } from '../api/friendly-rounds.gen';
@@ -121,7 +121,7 @@ export function humanizeDiagnostic(
             break;
         case 'missing_team_grouping':
             if (fmt) {
-                return `${fmt} compares teams — under Teams, group the players into “Separate balls (a side)” teams, then tick them under “Scores”.`;
+                return `${fmt} compares teams — under Teams, group the players into “Own ball each, scored together as a team” teams, then tick them under “Scores”.`;
             }
             break;
         // The format's own/team ball contract was violated: `actual` is the
@@ -130,14 +130,14 @@ export function humanizeDiagnostic(
         case 'ball_mode_violation':
             if (fmt && d.actual !== undefined) {
                 return d.actual > 1
-                    ? `${fmt} is played with everyone on their own ball — a “One combined ball” team can’t play it. Use a “Separate balls (a side)” team instead.`
-                    : `${fmt} is played on one shared team ball — under Teams, group the players into a “One combined ball” team, then tick that team instead of the individual players.`;
+                    ? `${fmt} is played with everyone on their own ball — a team sharing one ball can’t play it. Use an “Own ball each, scored together as a team” team instead.`
+                    : `${fmt} is played on one shared team ball — under Teams, group the players into a “Share one ball” team, then tick that team instead of the individual players.`;
             }
             break;
         case 'producer_count_violation':
             if (fmt && d.actual !== undefined && d.allowedMin !== undefined && d.allowedMax !== undefined) {
                 if (d.allowedMax === 1 && d.actual > 1) {
-                    return `${fmt} is played with everyone on their own ball — a “One combined ball” team can’t play it. Use a “Separate balls (a side)” team instead.`;
+                    return `${fmt} is played with everyone on their own ball — a team sharing one ball can’t play it. Use an “Own ball each, scored together as a team” team instead.`;
                 }
                 const bound =
                     d.allowedMin === d.allowedMax

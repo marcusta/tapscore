@@ -199,10 +199,19 @@ function firstStartHole(draft: StoredDraft): number {
  * `nameFor` resolves a producer's display name (the draft carries only the ref);
  * the caller supplies it from the round's balls, defaulting to '' (a guest row's
  * name field is then empty until the caller fills it — the caller always can).
+ *
+ * `knownFormations` are the formation ids the loaded catalog knows. A stored
+ * `single_ball` team of players whose formation is one of them is CLAIMED by
+ * the players step's ball teams section (ball-teams-composition.md); anything
+ * else — a `custom` formation, a nested team, an unknown id, an empty set
+ * because the catalog fetch failed — stays in the flexible Teams editor.
+ * Claiming never changes what the team IS, only which surface edits it, so a
+ * failed fetch costs presentation and never data.
  */
 export function draftToForms(
     draft: StoredDraft,
     nameFor: (producerDefId: string) => string = () => '',
+    knownFormations: ReadonlySet<string> = new Set(),
 ): PrefilledForms {
     let key = 1;
     let teamKey = 1;
@@ -241,18 +250,29 @@ export function draftToForms(
         const k = teamKeyByDraftId.get(tm.id)!;
         const pctByPlayer: Record<number, string> = {};
         const memberTeams: Record<number, boolean> = {};
+        const memberOrder: number[] = [];
         for (const m of tm.members) {
             if ('producerDefId' in m) {
                 const pk = keyByDefId.get(m.producerDefId);
-                if (pk !== undefined) pctByPlayer[pk] = String(m.allowancePct);
+                if (pk !== undefined) {
+                    pctByPlayer[pk] = String(m.allowancePct);
+                    memberOrder.push(pk);
+                }
             } else {
                 const mk = teamKeyByDraftId.get(m.teamId);
                 if (mk !== undefined) memberTeams[mk] = true;
             }
         }
+        const kind = tm.kind ?? 'single_ball';
+        const section =
+            kind === 'single_ball' &&
+            tm.formation !== undefined &&
+            knownFormations.has(tm.formation) &&
+            Object.keys(memberTeams).length === 0 &&
+            memberOrder.length >= 2;
         return {
             key: k,
-            kind: tm.kind ?? 'single_ball',
+            kind,
             formation: tm.formation ?? 'scramble',
             pctByPlayer,
             memberTeams,
@@ -260,6 +280,12 @@ export function draftToForms(
             // it (§6): every prefilled team is the user's from here on and is
             // never garbage-collected.
             autoCreated: false,
+            // A hydrated ball team is ALWAYS customized: its percentages are
+            // the round's decided handicaps, and re-seeding them because the
+            // setup screen happened to open would rewrite the round's rules.
+            ...(section
+                ? { section: true, customized: true, memberOrder, pctTextByPlayer: {} }
+                : {}),
         };
     });
 
@@ -303,6 +329,15 @@ export function draftToForms(
             for (const p of players) {
                 subjectPlayers[p.key] = included.has(p.key);
             }
+        }
+        // Same for teams, and for the same reason: a SHARED-BALL team the form
+        // would otherwise default into every ball format must stay out of a
+        // format the stored round deliberately did not score it in. Written
+        // even when the stored format carries NO subjects at all (a plain
+        // `producerDefIds` format scores the producers, never a team) —
+        // otherwise the absence would grow a team subject back on the next save.
+        for (const tk of teamKeyByDraftId.values()) {
+            if (subjectTeams[tk] === undefined) subjectTeams[tk] = false;
         }
         return {
             key: slotKey++,

@@ -1,7 +1,12 @@
 import { Signal } from '@basics/core/client/core';
 import { request, type RequestError } from '@basics/core/client/request';
 import { api } from '../api';
-import type { FormatConfigField, FormatConfigOption, FormatDescriptor } from '../api/setup.gen';
+import type {
+    FormatConfigField,
+    FormatConfigOption,
+    FormatDescriptor,
+    FormationDescriptor,
+} from '../api/setup.gen';
 import { currentLocale, type Locale } from '../locale';
 
 // Phase 2.6e M3 — the catalog-driven format step's data source. Loads the
@@ -254,5 +259,108 @@ export class FormatCatalogService {
         if (!d) return false;
         if (this.classify(d).kind === 'team_grouping') return false;
         return (d.requirements.scoreEntry?.metadata?.length ?? 0) === 0;
+    }
+}
+
+export type { FormationDescriptor } from '../api/setup.gen';
+
+/**
+ * The order the players step offers formations in — the words golfers reach
+ * for first. Purely presentational: the SERVER owns which formations exist
+ * (it sorts by id), and any formation the server adds that isn't listed here
+ * is appended in catalog order rather than hidden.
+ */
+const FORMATION_CHIP_ORDER = ['scramble', 'foursomes', 'greensomes'];
+
+/**
+ * The shared-ball formation catalog (`GET /setup/formations`) behind the
+ * players step's ball-teams section — see
+ * `docs/proposals/ball-teams-composition.md`.
+ *
+ * The section is OPTIONAL in the strong sense: if the endpoint is missing or
+ * the fetch fails the catalog stays empty, the section is simply absent, and
+ * nothing else about setup changes. In particular an edit-mode load that
+ * couldn't reach the catalog must still round-trip stored teams unharmed —
+ * they stay in the flexible Teams editor instead of being claimed by the
+ * section, and are never dropped.
+ */
+export class FormationCatalogService {
+    readonly loading = new Signal(false);
+    readonly error = new Signal<RequestError | null>(null);
+    readonly descriptors = new Signal<FormationDescriptor[]>([]);
+
+    /** The in-flight fetch, so a second caller AWAITS it instead of racing past
+     * it. `loadForEdit` awaits this before hydrating a stored draft: without the
+     * shared promise, a mount/remount (or the fire-and-forget `load()` in
+     * `load`) would leave the second caller with an empty catalog and hydrate
+     * every stored shared-ball team into the flexible editor. */
+    private inFlight: Promise<void> | null = null;
+    private loaded = false;
+
+    async load(): Promise<void> {
+        if (this.loaded) return; // catalog is immutable per session — fetch once
+        if (this.inFlight) return this.inFlight;
+        if (typeof api.setup?.formations !== 'function') return;
+        this.inFlight = (async () => {
+            const data = await request(this.loading, this.error, () => api.setup.formations());
+            if (data) {
+                this.descriptors.set(data);
+                this.loaded = true;
+            }
+        })().finally(() => {
+            this.inFlight = null; // a failed fetch may be retried
+        });
+        return this.inFlight;
+    }
+
+    /** No catalog, no section. */
+    available(): boolean {
+        return this.descriptors.get().length > 0;
+    }
+
+    byId(id: string): FormationDescriptor | null {
+        return this.descriptors.get().find((d) => d.id === id) ?? null;
+    }
+
+    ids(): Set<string> {
+        return new Set(this.descriptors.get().map((d) => d.id));
+    }
+
+    /** Descriptors in chip order: the known ones first, then anything new. */
+    chips(): FormationDescriptor[] {
+        const all = this.descriptors.get();
+        const rank = (id: string) => {
+            const i = FORMATION_CHIP_ORDER.indexOf(id);
+            return i === -1 ? FORMATION_CHIP_ORDER.length : i;
+        };
+        return [...all].sort((a, b) => rank(a.id) - rank(b.id));
+    }
+
+    labelOf(id: string, locale: Locale = currentLocale()): string {
+        const d = this.byId(id);
+        if (!d) return id;
+        return d.labels?.[locale] ?? d.labels?.en ?? d.id;
+    }
+
+    sizeOf(id: string): { min: number; max: number } | null {
+        return this.byId(id)?.size ?? null;
+    }
+
+    /** Whether `size` members are a legal team for this formation. */
+    fits(id: string, size: number): boolean {
+        const bounds = this.sizeOf(id);
+        if (!bounds) return true; // unknown formation — the UI doesn't police it
+        return size >= bounds.min && size <= bounds.max;
+    }
+
+    /**
+     * The per-position allowance recipe for a team of `size`, members sorted
+     * by course handicap ascending. `null` when the catalog has no recipe for
+     * that size — the caller must REFUSE rather than invent one (a silent
+     * 100% would quietly mis-score the round).
+     */
+    allowances(id: string, size: number): number[] | null {
+        const recipe = this.byId(id)?.allowancesBySize?.[String(size)];
+        return recipe && recipe.length === size ? recipe : null;
     }
 }

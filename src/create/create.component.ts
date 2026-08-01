@@ -68,6 +68,20 @@ const tpl = template(`
             <p bind="rosterErr" class="setup__warn"></p>
         </section>
 
+        <section bind="ballTeamsSection" class="setup__section">
+            <div bind="ballPitch" class="bteams__pitch">
+                <h2>Playing scramble or foursomes?</h2>
+                <p class="setup__hint">Group players who share one ball. Skip this if everyone plays their own ball.</p>
+                <button bind="openBallTeams" class="setup__add" type="button">Set up teams</button>
+            </div>
+            <div bind="ballOpen" class="bteams">
+                <h2 bind="ballHeading">Sharing a ball</h2>
+                <p class="setup__hint">Anyone not on a team plays their own ball.</p>
+                <div bind="ballTeams" class="setup__fslots"></div>
+                <button bind="addBallTeam" class="setup__add" type="button">+ Add another team</button>
+            </div>
+        </section>
+
         <section class="setup__section">
             <h2>Playing groups</h2>
             <p class="setup__hint">Optional. Split the field into groups with their own tee times or start holes (shotgun).</p>
@@ -290,7 +304,7 @@ const gamePanelTpl = template(`
 
         <div bind="err" class="fslot__err"></div>
         <p bind="sides" class="gsides"></p>
-        <button bind="fork" class="gadjust hidden" type="button">Use separate sides for this game</button>
+        <button bind="fork" class="gadjust hidden" type="button">Use separate teams for this game</button>
         <p bind="summary" class="gsummary"></p>
         <button bind="adjust" class="gadjust" type="button">Adjust details</button>
     </div>
@@ -312,6 +326,41 @@ const memberRowTpl = template(`
             <span bind="name" class="irow__name"></span>
         </label>
         <span bind="pctWrap" class="mrow__pct"><input bind="pct" inputmode="numeric" /><span>%</span></span>
+    </div>
+`);
+
+// One shared-ball team in the players step (ball-teams-composition.md). No
+// "plays as" select and no team naming: the SURFACE says what this is, which is
+// the whole point of splitting the two kinds of team apart.
+const ballTeamTpl = template(`
+    <div class="fslot">
+        <div class="fslot__top">
+            <span bind="teamName" class="fslot__teamname"></span>
+            <button bind="remove" class="fslot__remove" type="button" aria-label="Remove">✕</button>
+        </div>
+        <div class="fslot__group">
+            <span class="fslot__label">Formation</span>
+            <div bind="formations" class="fslot__seg"></div>
+        </div>
+        <div class="fslot__group">
+            <span class="fslot__label">Who shares this ball</span>
+            <div bind="memberRows" class="fslot__teamrows"></div>
+        </div>
+        <p bind="notice" class="fslot__err"></p>
+        <p bind="summary" class="fslot__teammeta"></p>
+    </div>
+`);
+
+// A ball-team member: the tick, and the allowance the recipe seeded. The
+// annotation spells the number out — a bare "%" beside a name reads as a share
+// of something, not as a slice of that player's handicap.
+const ballMemberTpl = template(`
+    <div class="mrow">
+        <label class="mrow__pick">
+            <input bind="chk" type="checkbox" class="irow__chk" />
+            <span bind="name" class="irow__name"></span>
+        </label>
+        <span bind="pctWrap" class="mrow__pct"><input bind="pct" inputmode="decimal" /><span>% of HCP</span></span>
     </div>
 `);
 
@@ -494,6 +543,18 @@ export class CreateComponent extends Component {
                 white-space: pre-line;
                 &:empty { display: none; }
             }
+
+            /* Ball teams (the players step's shared-ball section). Collapsed it
+               is a pitch; opened it is a stack of team cards reusing the .fslot
+               chrome. Both halves live in one section, so exactly one is on
+               screen at a time. */
+            & .bteams__pitch, & .bteams {
+                &.hidden { display: none; }
+            }
+            /* One heading rhythm across both halves — the pitch and the opened
+               section are the same section, and a heading that changed size on
+               open would read as a different one. */
+            & .bteams__pitch > h2, & .bteams > h2 { margin: 0 0 ${s('sm')}; }
 
             & .setup__fslots { display: flex; flex-direction: column; gap: ${s('md')}; }
 
@@ -838,6 +899,26 @@ export class CreateComponent extends Component {
                         ? 'setup__friends'
                         : 'setup__friends hidden',
             },
+            // Ball teams — optional, collapsed to a pitch until someone is
+            // actually pairing up. No formation catalog ⇒ no section at all.
+            ballTeamsSection: {
+                className: () =>
+                    this.svc.ballTeamsAvailable() ? 'setup__section' : 'setup__section hidden',
+            },
+            ballPitch: {
+                className: () => (this.svc.ballTeamsExpanded() ? 'bteams__pitch hidden' : 'bteams__pitch'),
+            },
+            ballOpen: {
+                className: () => (this.svc.ballTeamsExpanded() ? 'bteams' : 'bteams hidden'),
+            },
+            ballHeading: {
+                textContent: () => {
+                    const n = this.svc.ballTeamCount();
+                    return n === 0 ? 'Sharing a ball' : `Sharing a ball · ${n} team${n === 1 ? '' : 's'}`;
+                },
+            },
+            openBallTeams: { onclick: () => this.svc.openBallTeams() },
+            addBallTeam: { onclick: () => this.svc.addBallTeam() },
             // The flexible sections hold whatever no card owns, so they appear
             // once a custom game exists or a game's details were adjusted
             // (format-templates §5) — never while the round is only cards.
@@ -1146,6 +1227,15 @@ export class CreateComponent extends Component {
             (team) => team.key,
         );
 
+        // Ball teams — the guided section's own cards. Section-owned, so the
+        // flexible Teams list above deliberately never shows them.
+        this.$each(
+            this.ref(frag, 'ballTeams'),
+            () => this.svc.sectionTeams(),
+            (team, _i, track) => this.ballTeamCard(team.key, track),
+            (team) => team.key,
+        );
+
         // Playing-group cards (Phase 3.5).
         this.$each(
             this.ref(frag, 'groups'),
@@ -1383,7 +1473,7 @@ export class CreateComponent extends Component {
      * One player's ball pick within one game: a button per ball plus "–" to sit
      * THIS game out. The pick is per game (§4) — but a ball backed by a SHARED
      * side edits that side, so the move follows the player into every game
-     * playing it (§3). "Use separate sides" is the escape hatch.
+     * playing it (§3). "Use separate teams" is the escape hatch.
      */
     private ballRow(gameKey: number, playerKey: number, track: (d: () => void) => void): HTMLElement {
         const el = this.wireEl(
@@ -1434,7 +1524,7 @@ export class CreateComponent extends Component {
                 allowanceHint: {
                     textContent: () =>
                         this.svc.isSideFormat(formatId())
-                            ? 'applied to each side member’s ball'
+                            ? 'applied to each member’s own ball'
                             : 'of each player’s course handicap',
                 },
                 err: {
@@ -1561,7 +1651,7 @@ export class CreateComponent extends Component {
             if (kind === 'player') return this.svc.players.get().find((p) => p.key === subKey)?.name?.trim() || 'Player';
             const tm = this.svc.teamByKey(subKey);
             if (!tm) return 'Team';
-            return `${this.svc.teamLabel(tm)} (${tm.kind === 'multi_ball' ? 'side' : 'team'})`;
+            return `${this.svc.teamLabel(tm)} (${tm.kind === 'multi_ball' ? 'own balls' : 'one ball'})`;
         };
         const checked = () =>
             kind === 'player' ? this.svc.subjectPlayerIn(slotKey, subKey) : this.svc.subjectTeamIn(slotKey, subKey);
@@ -1682,11 +1772,11 @@ export class CreateComponent extends Component {
                         const size = this.svc.teamSize(key);
                         if (size === 0) {
                             return isSide()
-                                ? 'Tick at least 2 members — a side needs ≥2 balls.'
+                                ? 'Tick at least 2 members — a team scored together needs ≥2 balls.'
                                 : 'Tick at least 2 players to form a team ball.';
                         }
                         if (size < 2) return 'Add one more member — a team needs at least 2.';
-                        if (isSide()) return `${size} balls · a side (scored together by a side format)`;
+                        if (isSide()) return `${size} balls · own ball each, scored together as a team`;
                         const ch = this.svc.teamBallCh(key);
                         return ch === null ? `${size} players` : `${size} players · plays off HCP ${ch}`;
                     },
@@ -1703,8 +1793,8 @@ export class CreateComponent extends Component {
             ),
             options: {
                 get: () => [
-                    { value: 'single_ball', label: 'One combined ball' },
-                    { value: 'multi_ball', label: 'Separate balls (a side)' },
+                    { value: 'single_ball', label: 'Share one ball (scramble, foursomes)' },
+                    { value: 'multi_ball', label: 'Own ball each, scored together as a team' },
                 ],
             },
         });
@@ -1794,6 +1884,94 @@ export class CreateComponent extends Component {
                 pct: {
                     value: this.svc.teamByKey(teamKey)?.pctByPlayer[playerKey] ?? '100',
                     oninput: (e: Event) => this.svc.setTeamPct(teamKey, playerKey, (e.target as HTMLInputElement).value),
+                },
+            },
+            track,
+        );
+    }
+
+    /**
+     * One ball-team card in the players step. Everything here is about ONE
+     * ball: which formation it is played under, who shares it, and what slice
+     * of each of their handicaps the combined ball carries.
+     */
+    private ballTeamCard(key: number, track: (d: () => void) => void): HTMLElement {
+        const el = this.wireEl(
+            ballTeamTpl,
+            {
+                remove: { onclick: () => this.svc.removeBallTeam(key) },
+                teamName: { textContent: () => this.svc.ballTeamLabel(key) },
+                notice: {
+                    textContent: () => this.svc.ballTeamNotice(key),
+                    hidden: () => this.svc.ballTeamNotice(key) === '',
+                },
+                // The summary is the whole point of the card; until the team is
+                // real it says what is still missing instead.
+                summary: {
+                    textContent: () => this.svc.ballTeamSummary(key) || this.svc.ballTeamHint(key),
+                },
+            },
+            track,
+        );
+        // Formation chips — a short, closed list, so chips beat a dropdown.
+        this.eachInto(
+            this.ref(el, 'formations'),
+            track,
+            () => this.svc.formationChips(),
+            (f, _i, optTrack) =>
+                this.wireEl(
+                    configOptionTpl,
+                    {
+                        opt: {
+                            textContent: () => this.svc.formationLabel(f.id),
+                            className: () => (this.svc.ballTeamFormation(key) === f.id ? 'on' : ''),
+                            onclick: () => this.svc.setBallTeamFormation(key, f.id),
+                        },
+                    },
+                    optTrack,
+                ),
+            (f) => f.id,
+        );
+        // Candidates = this team's members plus everyone not on another team,
+        // so overlapping two shared balls is not expressible here.
+        this.eachInto(
+            this.ref(el, 'memberRows'),
+            track,
+            () => this.svc.ballTeamCandidates(key),
+            (p, _i, rowTrack) => this.ballMemberRow(key, p.key, rowTrack),
+            (p) => p.key,
+        );
+        return el;
+    }
+
+    /** A ball-team member: the tick, and the slice of their HCP the ball carries. */
+    private ballMemberRow(
+        teamKey: number,
+        playerKey: number,
+        track: (d: () => void) => void,
+    ): HTMLElement {
+        const inTeam = () => this.svc.ballTeamMemberIn(teamKey, playerKey);
+        return this.wireEl(
+            ballMemberTpl,
+            {
+                chk: {
+                    checked: () => inTeam(),
+                    onchange: (e: Event) =>
+                        this.svc.setBallTeamMember(teamKey, playerKey, (e.target as HTMLInputElement).checked),
+                },
+                name: {
+                    textContent: () =>
+                        this.svc.players.get().find((p) => p.key === playerKey)?.name?.trim() || 'Player',
+                },
+                pctWrap: { hidden: () => !inTeam() },
+                // Controlled on purpose: re-seeding rewrites this value when the
+                // membership changes, and the field has to show the new share.
+                // The typed text is stored verbatim, so the caret is only reset
+                // when the seed actually moves.
+                pct: {
+                    value: () => this.svc.ballTeamPctText(teamKey, playerKey),
+                    oninput: (e: Event) =>
+                        this.svc.setBallTeamPct(teamKey, playerKey, (e.target as HTMLInputElement).value),
                 },
             },
             track,

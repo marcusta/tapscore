@@ -489,7 +489,7 @@ test('a dead nested pair does not keep a side alive: the side is dropped everywh
     expect(lastDraft).toBeNull();
     const diag = svc.diagnosticsForFormat(0)[0]!;
     expect(diag.code).toBe('no_subjects');
-    expect(diag.message).toContain('Separate balls');
+    expect(diag.message).toContain('Own ball each');
 });
 
 test('a side format with NO teams refuses locally, naming the exact team shape to build', async () => {
@@ -505,7 +505,7 @@ test('a side format with NO teams refuses locally, naming the exact team shape t
     expect(diag.code).toBe('no_subjects');
     // Bounds come from the descriptor: teamCount {min:2}, teamSize {2..2}.
     expect(diag.message).toBe(
-        'better_ball is a team game — under Teams, create at least 2 teams of 2 players with kind “Separate balls (a side)”, add the players, then tick the teams under “Scores”.',
+        'better_ball is a team game — under Teams, create at least 2 teams of 2 players with kind “Own ball each, scored together as a team”, add the players, then tick the teams under “Scores”.',
     );
 });
 

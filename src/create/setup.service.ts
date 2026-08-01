@@ -7,8 +7,10 @@ import { courseHandicap, courseHandicapRaw } from './handicap';
 import { parseHandicapIndex, formatHandicapIndex } from './hcp-input';
 import {
     FormatCatalogService,
+    FormationCatalogService,
     MAX_TEAM_SIZE,
     type FormatDescriptor,
+    type FormationDescriptor,
     type PlayableShape,
 } from './format-catalog.service';
 import {
@@ -117,6 +119,35 @@ export interface TeamForm {
      * never reach the draft.
      */
     autoCreated: boolean;
+    /**
+     * OWNERSHIP — this `single_ball` team belongs to the players step's ball
+     * teams section (`docs/proposals/ball-teams-composition.md`), not to the
+     * flexible Teams editor. A section team is excluded from `customTeams()`
+     * exactly like a card-owned one, so it is edited in ONE place and its
+     * existence never forces the flexible sections open.
+     */
+    section?: boolean;
+    /**
+     * SECTION TEAMS — the user has typed an allowance by hand, so seeding stops
+     * touching this team ("defaults are computed, overrides are sticky").
+     * Hydrated teams are always customized: a stored draft carries decided
+     * percentages, and re-seeding them on load would silently rewrite the
+     * round's handicaps.
+     */
+    customized?: boolean;
+    /**
+     * SECTION TEAMS — member player keys in SEEDING order (course handicap
+     * ascending). `pctByPlayer` is keyed by number, so its own iteration order
+     * is numeric and cannot carry this.
+     */
+    memberOrder?: number[];
+    /**
+     * SECTION TEAMS — allowance text exactly as typed, per member. Kept apart
+     * from `pctByPlayer` (which holds the seeded value) so a half-typed or
+     * momentarily blank field is a legal pending state instead of a silent
+     * jump back to a default.
+     */
+    pctTextByPlayer?: Record<number, string>;
 }
 
 /**
@@ -177,6 +208,32 @@ const FORMATIONS = ['scramble', 'greensomes', 'foursomes', 'custom'] as const;
 const MIN_TEAM_SIZE = 2;
 
 const TEAM_LETTERS = 'ABCDEFGH';
+
+/**
+ * An allowance field's text as a number: comma-tolerant (a Swedish keyboard
+ * types "12,5"), clamped to 0–100, fractions kept. `null` for anything that is
+ * not a number at all — including the empty string, which is the legal pending
+ * state of a field the user is still typing in and must NOT collapse to a
+ * default the moment it is read.
+ */
+function parseAllowanceText(text: string | undefined): number | null {
+    if (text === undefined) return null;
+    const trimmed = text.trim().replace(',', '.');
+    if (trimmed === '') return null;
+    const n = Number(trimmed);
+    if (!Number.isFinite(n)) return null;
+    return Math.min(100, Math.max(0, n));
+}
+
+function sameOrder(a: number[], b: number[]): boolean {
+    return a.length === b.length && a.every((k, i) => k === b[i]);
+}
+
+function sameTextMap(a: Record<number, string>, b: Record<number, string>): boolean {
+    const ka = Object.keys(a);
+    const kb = Object.keys(b);
+    return ka.length === kb.length && ka.every((k) => a[Number(k)] === b[Number(k)]);
+}
 
 /** One row of the players step. Free-form entry → a `guest_player` on submit;
  * a row carrying `playerId` (the logged-in "Add me" row) emits a `player`-kind
@@ -315,6 +372,22 @@ export class SetupService {
     /** The server-backed format catalog drives the whole format step. */
     readonly catalog = di.get(FormatCatalogService);
 
+    /** The server-backed formation catalog drives the ball teams section. */
+    readonly formationCatalog = di.get(FormationCatalogService);
+
+    /** Whether the players step's ball teams section is expanded. Derived-open
+     * whenever the section already owns a team (so an edit shows its pairs). */
+    readonly ballTeamsOpen = new Signal(false);
+
+    /** Team key → the last refusal shown on that ball team's card (formation
+     * bounds). Cleared by the next successful edit — a notice explains why an
+     * action did nothing, so it must not outlive the action. */
+    readonly ballTeamNotices = new Signal<Record<number, string>>({});
+
+    /** The formation a NEW ball team starts on: the last one chosen, so
+     * "everyone plays scramble" needs no extra concept. */
+    private lastFormation: string | null = null;
+
     private nextKey = 1;
     private nextSlotKey = 1;
     private nextTeamKey = 1;
@@ -340,6 +413,9 @@ export class SetupService {
         this.formatSlots.set([]);
         this.picked.set([]);
         this.customOpen.set(false);
+        this.ballTeamsOpen.set(false);
+        this.ballTeamNotices.set({});
+        this.lastFormation = null;
         this.diagnostics.set([]);
         this.submitError.set(null);
         this.submitting.set(false);
@@ -364,6 +440,9 @@ export class SetupService {
         // the everyone-for-themselves card is picked so a round is valid out of
         // the box (M2 parity).
         void this.catalog.load().then(() => this.ensureDefaultGame());
+        // The ball teams section is optional: no catalog, no section, and
+        // nothing else about setup changes.
+        void this.formationCatalog.load();
         const data = await request(this.loading, this.error, () => api.setup.courses());
         if (!data) return;
         this.courses.set(data);
@@ -404,6 +483,10 @@ export class SetupService {
         this.editToken.set(token);
         // Catalog first so the format selects have options (mirrors load()).
         await this.catalog.load();
+        // And the formation catalog, because hydration decides from it which
+        // stored teams the ball teams section owns. A FAILED fetch must never
+        // cost the round its teams: they simply stay in the flexible editor.
+        await this.formationCatalog.load();
 
         const setup = await request(this.loading, this.error, () =>
             api.friendlyRounds.setup({ token }),
@@ -448,7 +531,11 @@ export class SetupService {
             for (const bp of b.players) nameByDefId.set(bp.producerDefId, bp.displayName);
         }
 
-        const forms = draftToForms(setup.draft as StoredDraft, (id) => nameByDefId.get(id) ?? '');
+        const forms = draftToForms(
+            setup.draft as StoredDraft,
+            (id) => nameByDefId.get(id) ?? '',
+            this.formationCatalog.ids(),
+        );
         this.courseId.set(forms.courseId);
         this.preset.set(forms.preset);
         this.startHole.set(forms.startHole);
@@ -489,6 +576,8 @@ export class SetupService {
             })),
         );
         if (this.players.get().length === 0) this.addPlayer();
+        // New tees ⇒ new course handicaps ⇒ new default allowances.
+        this.reseedBallTeams();
     }
 
     // --- Roster editing ---
@@ -593,14 +682,20 @@ export class SetupService {
                 return { ...g, members };
             }),
         );
+        // …and leaves any shared ball they were on, which re-seeds the rest.
+        this.reseedBallTeams();
         // A removed player leaves EVERY game's ball assignment (§4).
         this.syncGamesToRoster();
+        this.syncGamesToBallUnits();
     }
 
     patchPlayer(key: number, patch: Partial<Omit<PlayerForm, 'key'>>): void {
         this.players.set(
             this.players.get().map((p) => (p.key === key ? { ...p, ...patch } : p)),
         );
+        // A handicap, gender or tee edit changes the course handicaps a ball
+        // team's default allowances are seeded from.
+        this.reseedBallTeams();
     }
 
     // --- Format slots (the M3 format step) ---
@@ -750,18 +845,75 @@ export class SetupService {
         return shape.count.min * shape.size.min;
     }
 
+    /**
+     * What this game is judged against — the BALL roster, not the raw player
+     * count, once a shared ball exists (ball-teams-composition.md): 4 players
+     * as 2 scramble pairs are 2 balls, so match play fits and Taliban (which
+     * groups own-ball players into sides) does not.
+     *
+     * Deliberately inert while nothing is paired: `unitJudged` is false, and
+     * the plain player-count rule (and its wording) is untouched.
+     */
+    private fitOf(formatId: string): {
+        unitJudged: boolean;
+        available: number;
+        min: number;
+        noun: string;
+        sharing: number;
+    } {
+        const shape = this.shapeOfGame(formatId);
+        const players = this.players.get().length;
+        if (!shape || this.isIndividualShape(shape) || this.liveSectionTeams().length === 0) {
+            return {
+                unitJudged: false,
+                available: players,
+                min: this.minPlayersFor(formatId),
+                noun: 'players',
+                sharing: 0,
+            };
+        }
+        if (this.isSideFormat(formatId)) {
+            // A side is players on their OWN balls; a shared ball is one
+            // producer and cannot be a side member.
+            return {
+                unitJudged: true,
+                available: this.soloPlayers().length,
+                min: shape.count.min * shape.size.min,
+                noun: 'players on their own balls',
+                sharing: this.sharedBallPlayerCount(),
+            };
+        }
+        return {
+            unitJudged: true,
+            available: this.ballUnits().length,
+            min: shape.count.min,
+            noun: 'balls',
+            sharing: 0,
+        };
+    }
+
     /** True when the roster is big enough to play this game. Eligibility is
      * DISCOVERY, not a gate: an ineligible card stays visible and disabled. */
     gameFits(formatId: string): boolean {
-        return this.players.get().length >= this.minPlayersFor(formatId);
+        const fit = this.fitOf(formatId);
+        return fit.available >= fit.min;
     }
 
     /** What is missing, phrased as what to DO about it (game-rules.md's
      * actionable-refusal contract) — the ineligible card's subtitle. */
     gameNeedsText(formatId: string): string {
-        const min = this.minPlayersFor(formatId);
-        const missing = Math.max(0, min - this.players.get().length);
-        return `Needs ${min} players — add ${missing} more.`;
+        const fit = this.fitOf(formatId);
+        if (!fit.unitJudged) {
+            const missing = Math.max(0, fit.min - fit.available);
+            return `Needs ${fit.min} players — add ${missing} more.`;
+        }
+        // Say WHY the roster isn't enough: with players on shared balls, "needs
+        // 4 players" reads as a lie to a group of four.
+        const aside =
+            fit.sharing > 0
+                ? ` — ${fit.sharing} ${fit.sharing === 1 ? 'is' : 'are'} sharing balls`
+                : '';
+        return `Needs at least ${fit.min} ${fit.noun}${aside}.`;
     }
 
     /** One line saying what the game is contested between, derived from the
@@ -817,6 +969,16 @@ export class SetupService {
     pickGame(formatId: string): void {
         const shape = this.shapeOfGame(formatId);
         if (!shape || this.isGamePicked(formatId) || !this.gameFits(formatId)) return;
+        // A shared ball is a decided composition — the game is contested
+        // between the BALLS it produces, so unit seeding wins over adopting
+        // sides or spreading the raw roster.
+        const seeded = this.unitAssignment(formatId, shape);
+        if (seeded) {
+            const unitPick: PickedGame = { key: this.nextPickKey++, formatId, ...seeded };
+            this.picked.set([...this.picked.get(), unitPick]);
+            this.regenerateGame(unitPick);
+            return;
+        }
         const adopted = this.isIndividualShape(shape) ? null : this.adoptableTeams(shape);
         const pick: PickedGame = adopted
             ? {
@@ -919,10 +1081,13 @@ export class SetupService {
     /** Seed `ballByPlayer`: an even split when the roster divides by the ball
      * count, otherwise the per-ball minimum with the remainder sitting out.
      * Never more than a ball takes (`size.max`). */
-    private defaultAssignment(shape: PlayableShape, ballCount: number): Record<number, number> {
+    private defaultAssignment(
+        shape: PlayableShape,
+        ballCount: number,
+        roster: PlayerForm[] = this.players.get(),
+    ): Record<number, number> {
         const out: Record<number, number> = {};
         if (ballCount <= 0) return out;
-        const roster = this.players.get();
         const even = roster.length % ballCount === 0 ? roster.length / ballCount : shape.size.min;
         const per = Math.max(1, Math.min(even, shape.size.max));
         let i = 0;
@@ -958,8 +1123,14 @@ export class SetupService {
         const pick = this.pickedByKey(gameKey);
         if (!pick) return;
         const ballByPlayer = { ...pick.ballByPlayer };
-        if (ball === null) delete ballByPlayer[playerKey];
-        else ballByPlayer[playerKey] = ball;
+        // A shared ball moves as ONE unit: its members are on the same physical
+        // ball, so they cannot be on different balls of a game.
+        const unit = this.liveSectionTeams().find((t) => t.pctByPlayer[playerKey] !== undefined);
+        const keys = unit ? this.ballTeamMemberKeys(unit) : [playerKey];
+        for (const k of keys) {
+            if (ball === null) delete ballByPlayer[k];
+            else ballByPlayer[k] = ball;
+        }
         this.applyGameEdit({ ...pick, ballByPlayer });
     }
 
@@ -1019,7 +1190,7 @@ export class SetupService {
     }
 
     /**
-     * "Use separate sides for this game" (§3) — mint a private copy of every
+     * "Use separate teams for this game" (§3) — mint a private copy of every
      * team this game references, so editing its balls stops moving players in
      * the games it was sharing with. The copies keep the membership and the
      * per-member allowances; the originals stay exactly as they were.
@@ -1035,6 +1206,14 @@ export class SetupService {
             const i = teams.findIndex((t) => t.key === teamKey);
             if (i < 0) continue;
             const source = teams[i]!;
+            // A shared-ball team belongs to the PLAYERS step, not to this game:
+            // it is one ball the round produces, and every game that scores it
+            // scores the same ball. Copying it would mint an identical second
+            // team and score the pair twice. Keep the reference.
+            if (this.isSectionTeam(source)) {
+                ballTeams[Number(ballStr)] = source.key;
+                continue;
+            }
             copies.push({
                 ...source,
                 key: this.nextTeamKey++,
@@ -1137,7 +1316,24 @@ export class SetupService {
                 if (carried !== undefined) ballTeams[ball] = carried;
                 continue;
             }
-            const referenced = teams.find((t) => t.key === pick.ballTeams[ball]);
+            const carriedTeam = teams.find((t) => t.key === pick.ballTeams[ball]);
+            // A ball backed by a SHARED-BALL team is that team, untouched: it
+            // is the players step's composition, not a side this game minted,
+            // so its kind, formation and seeded allowances must survive intact.
+            if (carriedTeam && this.isSectionTeam(carriedTeam)) {
+                const memberKeys = this.ballTeamMemberKeys(carriedTeam);
+                const same =
+                    memberKeys.length === members.length &&
+                    members.every((m) => memberKeys.includes(m.key));
+                if (same) {
+                    ballTeams[ball] = carriedTeam.key;
+                    subjectKeys.push(carriedTeam.key);
+                    for (const k of memberKeys) subjectPlayers[k] = false;
+                    continue;
+                }
+            }
+            // Only a side this game owns may be rewritten in place.
+            const referenced = carriedTeam && !this.isSectionTeam(carriedTeam) ? carriedTeam : undefined;
             // A retained member keeps the allowance the user gave them.
             const pctByPlayer = Object.fromEntries(
                 members.map((m) => [m.key, referenced?.pctByPlayer[m.key] ?? '100']),
@@ -1172,11 +1368,36 @@ export class SetupService {
             for (const p of roster) {
                 if (subjectPlayers[p.key] === undefined) subjectPlayers[p.key] = false;
             }
+        } else if (!this.isSideFormat(pick.formatId)) {
+            // An INDIVIDUAL game scores every ball there is — and a shared-ball
+            // team IS a ball. Score the team and tick its members OUT: leaving
+            // them in would score them twice (once alone, once in the ball they
+            // are actually playing), which is the double-scoring trap.
+            for (const team of teams) {
+                if (!this.isSectionTeam(team)) continue;
+                const memberKeys = this.ballTeamMemberKeys(team);
+                if (memberKeys.length < MIN_TEAM_SIZE) continue;
+                if (!this.teamKindFitsFormat(pick.formatId, team.kind)) continue;
+                subjectKeys.push(team.key);
+                for (const k of memberKeys) subjectPlayers[k] = false;
+            }
         }
         this.teams.set(teams);
         this.picked.set(
             this.picked.get().map((p) => (p.key === pick.key ? { ...p, ballTeams } : p)),
         );
+
+        // A live shared-ball team this game did NOT put on a ball is ticked OUT
+        // explicitly. The slot defaults an unmentioned section team INTO a ball
+        // format (so a custom slot minted after pairing never scores a pair
+        // individually) — which would otherwise silently undo sitting a pair out
+        // of this game, or resurrect a unit dropped at the format's ball ceiling.
+        const subjectTeams: Record<number, boolean> = Object.fromEntries(
+            subjectKeys.map((k) => [k, true]),
+        );
+        for (const team of this.liveSectionTeams()) {
+            if (subjectTeams[team.key] === undefined) subjectTeams[team.key] = false;
+        }
 
         // Reuse the existing slot's identity so a knob the user changed on the
         // card (allowance, config) survives a participant change.
@@ -1187,7 +1408,7 @@ export class SetupService {
             formatId: pick.formatId,
             allowancePct: slotBefore?.allowancePct ?? '100',
             subjectPlayers,
-            subjectTeams: Object.fromEntries(subjectKeys.map((k) => [k, true])),
+            subjectTeams,
             config: slotBefore?.config ?? this.defaultConfigFor(pick.formatId),
             gameKey: pick.key,
         };
@@ -1319,7 +1540,15 @@ export class SetupService {
      * happens to reference it (§3).
      */
     gameSharedWith(gameKey: number): string[] {
-        const keys = new Set(this.teamsOfGame(gameKey).map((t) => t.key));
+        // A shared-ball team is deliberately scored by everything that scores
+        // its ball — that is the feature, not a collision between two games'
+        // pairings. Only a SIDE this game minted (or adopted) can be shared in
+        // the sense the card offers to undo.
+        const keys = new Set(
+            this.teamsOfGame(gameKey)
+                .filter((t) => !this.isSectionTeam(t))
+                .map((t) => t.key),
+        );
         if (keys.size === 0) return [];
         const own = this.slotForGame(gameKey)?.key;
         const out: string[] = [];
@@ -1435,7 +1664,11 @@ export class SetupService {
      */
     customTeams(): TeamForm[] {
         const owned = this.cardOwnedTeamKeys();
-        return this.teams.get().filter((t) => !owned.has(t.key));
+        // A ball team belongs to the players step's own section — same rule,
+        // different owner. It is edited there and nowhere else, and (because
+        // `showFlexible()` is defined in terms of this list) pairing two
+        // players never drags the flexible Teams + Formats editors on screen.
+        return this.teams.get().filter((t) => !owned.has(t.key) && !this.isSectionTeam(t));
     }
 
     /** Team keys a picked game contests a ball with. */
@@ -1452,6 +1685,499 @@ export class SetupService {
      * it. */
     slotIndex(slotKey: number): number {
         return this.formatSlots.get().findIndex((s) => s.key === slotKey);
+    }
+
+    // --- Ball teams: shared-ball composition in the players step -------------
+    //
+    // `docs/proposals/ball-teams-composition.md`. A ball team is a `single_ball`
+    // round team the PLAYERS step owns: players who share one physical ball
+    // (scramble, foursomes, greensomes). It is format-independent — pair up
+    // once and every ball format ranks the resulting balls (ADR-0003) — so it
+    // lives beside the roster, not inside a game. The flexible Teams editor
+    // never sees these: they are edited in exactly one place.
+
+    /** No formation catalog ⇒ no section at all. */
+    ballTeamsAvailable(): boolean {
+        return this.formationCatalog.available();
+    }
+
+    /** The section is expanded once it owns a team — which is also what makes
+     * an edited round open on its stored pairs. */
+    ballTeamsExpanded(): boolean {
+        return this.ballTeamsOpen.get() || this.sectionTeams().length > 0;
+    }
+
+    /** "Set up teams" — open with one empty team ready to fill. */
+    openBallTeams(): void {
+        this.ballTeamsOpen.set(true);
+        if (this.sectionTeams().length === 0) this.addBallTeam();
+    }
+
+    isSectionTeam(team: TeamForm): boolean {
+        return team.section === true;
+    }
+
+    /** Every ball team, including the one still being filled. */
+    sectionTeams(): TeamForm[] {
+        return this.teams.get().filter((t) => this.isSectionTeam(t));
+    }
+
+    /** Ball teams that actually produce a shared ball (≥2 members). */
+    liveSectionTeams(): TeamForm[] {
+        return this.sectionTeams().filter((t) => this.ballTeamMemberKeys(t).length >= MIN_TEAM_SIZE);
+    }
+
+    /** A ball team's members in SEEDING order (course handicap ascending). */
+    ballTeamMemberKeys(team: TeamForm): number[] {
+        const order = team.memberOrder ?? Object.keys(team.pctByPlayer).map(Number);
+        return order.filter((k) => team.pctByPlayer[k] !== undefined);
+    }
+
+    ballTeamMembers(teamKey: number): PlayerForm[] {
+        const team = this.teamByKey(teamKey);
+        if (!team) return [];
+        const byKey = new Map(this.players.get().map((p) => [p.key, p]));
+        return this.ballTeamMemberKeys(team)
+            .map((k) => byKey.get(k))
+            .filter((p): p is PlayerForm => p !== undefined);
+    }
+
+    /** The formation chips, catalog-ordered. */
+    formationChips(): FormationDescriptor[] {
+        return this.formationCatalog.chips();
+    }
+
+    formationLabel(id: string): string {
+        return this.formationCatalog.labelOf(id);
+    }
+
+    addBallTeam(): void {
+        const fallback = this.formationChips()[0]?.id ?? 'scramble';
+        this.teams.set([
+            ...this.teams.get(),
+            {
+                key: this.nextTeamKey++,
+                kind: 'single_ball',
+                formation: this.lastFormation ?? fallback,
+                pctByPlayer: {},
+                memberTeams: {},
+                autoCreated: false,
+                section: true,
+                memberOrder: [],
+                pctTextByPlayer: {},
+            },
+        ]);
+        this.ballTeamsOpen.set(true);
+    }
+
+    removeBallTeam(teamKey: number): void {
+        const team = this.teamByKey(teamKey);
+        if (!team || !this.isSectionTeam(team)) return;
+        this.removeTeam(teamKey);
+        this.clearBallTeamNotice(teamKey);
+        // Removing the last card takes the section back to its pitch: an empty
+        // expanded section is a form asking to be filled in, and nobody asked.
+        if (this.sectionTeams().length === 0) this.ballTeamsOpen.set(false);
+        this.syncGamesToBallUnits();
+    }
+
+    ballTeamFormation(teamKey: number): string {
+        return this.teamByKey(teamKey)?.formation ?? 'scramble';
+    }
+
+    /**
+     * Switch a ball team's formation. REFUSED, with a notice, when the team is
+     * already bigger than the new formation allows: a foursome is two players,
+     * and silently dropping the third would be a rules change the user never
+     * asked for.
+     */
+    setBallTeamFormation(teamKey: number, formation: string): void {
+        const team = this.teamByKey(teamKey);
+        if (!team || !this.isSectionTeam(team)) return;
+        const size = this.ballTeamMemberKeys(team).length;
+        if (size > 0 && !this.formationCatalog.fits(formation, size)) {
+            this.setBallTeamNotice(
+                teamKey,
+                `${this.formationLabel(formation)} ${this.formationBoundsText(formation)} — this team has ${size}.`,
+            );
+            return;
+        }
+        this.lastFormation = formation;
+        this.clearBallTeamNotice(teamKey);
+        this.teams.set(this.teams.get().map((t) => (t.key === teamKey ? { ...t, formation } : t)));
+        this.reseedBallTeams();
+    }
+
+    ballTeamMemberIn(teamKey: number, playerKey: number): boolean {
+        return this.teamByKey(teamKey)?.pctByPlayer[playerKey] !== undefined;
+    }
+
+    /**
+     * Who this team's chips offer: its own members plus everyone not on another
+     * ball team. A player is on at most one shared ball, so overlap is not a
+     * state the UI can reach — no rule to explain, nothing to refuse.
+     */
+    ballTeamCandidates(teamKey: number): PlayerForm[] {
+        const taken = new Set<number>();
+        for (const t of this.sectionTeams()) {
+            if (t.key === teamKey) continue;
+            for (const k of this.ballTeamMemberKeys(t)) taken.add(k);
+        }
+        return this.players.get().filter((p) => !taken.has(p.key));
+    }
+
+    /**
+     * Add/remove a member. Adding past the formation's bounds is REFUSED with a
+     * notice rather than silently ignored (game-rules.md's actionable-refusal
+     * contract).
+     */
+    setBallTeamMember(teamKey: number, playerKey: number, inTeam: boolean): void {
+        const team = this.teamByKey(teamKey);
+        if (!team || !this.isSectionTeam(team)) return;
+        const order = this.ballTeamMemberKeys(team);
+        if (inTeam) {
+            if (order.includes(playerKey)) return;
+            const max = Math.min(
+                this.formationCatalog.sizeOf(team.formation)?.max ?? MAX_TEAM_SIZE,
+                MAX_TEAM_SIZE,
+            );
+            if (order.length >= max) {
+                this.setBallTeamNotice(
+                    teamKey,
+                    `${this.formationLabel(team.formation)} ${this.formationBoundsText(team.formation)} — remove someone first.`,
+                );
+                return;
+            }
+        }
+        const pctByPlayer = { ...team.pctByPlayer };
+        const pctTextByPlayer = { ...(team.pctTextByPlayer ?? {}) };
+        let nextOrder: number[];
+        if (inTeam) {
+            // A customized team keeps its numbers, so this is the ONLY seed the
+            // new member ever gets: the recipe's last position for the new size.
+            // 100% would hand a shared ball a whole extra handicap, silently.
+            // (A team that is not customized is re-seeded wholesale below, and
+            // this value is overwritten.)
+            pctByPlayer[playerKey] = this.tailAllowance(team.formation, order.length + 1);
+            nextOrder = [...order, playerKey];
+        } else {
+            delete pctByPlayer[playerKey];
+            delete pctTextByPlayer[playerKey];
+            nextOrder = order.filter((k) => k !== playerKey);
+        }
+        this.clearBallTeamNotice(teamKey);
+        this.teams.set(
+            this.teams
+                .get()
+                .map((t) =>
+                    t.key === teamKey ? { ...t, pctByPlayer, pctTextByPlayer, memberOrder: nextOrder } : t,
+                ),
+        );
+        this.reseedBallTeams();
+        this.syncGamesToBallUnits();
+    }
+
+    /**
+     * What a member JOINING an already-customized team starts on: the last
+     * position of the recipe for the new size, because that is where they were
+     * just added. With no recipe for that size, the smallest tail the formation
+     * defines anywhere — the conservative end of its own convention, never a
+     * bare 100. Only a formation that publishes no recipe at all falls through
+     * to 100, and that is a formation the section could not seed either.
+     */
+    private tailAllowance(formation: string, size: number): string {
+        const recipe = this.formationCatalog.allowances(formation, size);
+        if (recipe) return String(recipe[size - 1] ?? recipe.at(-1) ?? 0);
+        const tails = Object.values(this.formationCatalog.byId(formation)?.allowancesBySize ?? {})
+            .map((r) => r.at(-1))
+            .filter((n): n is number => n !== undefined);
+        return tails.length > 0 ? String(Math.min(...tails)) : '100';
+    }
+
+    /** The allowance field's text: what the user typed, else the seeded value. */
+    ballTeamPctText(teamKey: number, playerKey: number): string {
+        const team = this.teamByKey(teamKey);
+        if (!team) return '';
+        const typed = team.pctTextByPlayer?.[playerKey];
+        return typed ?? team.pctByPlayer[playerKey] ?? '';
+    }
+
+    /**
+     * Type an allowance. Stored VERBATIM (a half-typed or blank field is a legal
+     * pending state) and parsed at use; any manual edit makes the team
+     * `customized`, so seeding stops overwriting the user's numbers.
+     */
+    setBallTeamPct(teamKey: number, playerKey: number, text: string): void {
+        const team = this.teamByKey(teamKey);
+        if (!team || !this.isSectionTeam(team) || team.pctByPlayer[playerKey] === undefined) return;
+        this.teams.set(
+            this.teams.get().map((t) =>
+                t.key === teamKey
+                    ? {
+                          ...t,
+                          customized: true,
+                          pctTextByPlayer: { ...(t.pctTextByPlayer ?? {}), [playerKey]: text },
+                      }
+                    : t,
+            ),
+        );
+    }
+
+    /** The card's header: a letter only once the team is a real ball, so a row
+     * being filled never claims a label the draft doesn't carry. */
+    ballTeamLabel(teamKey: number): string {
+        const team = this.teamByKey(teamKey);
+        if (!team) return 'New team';
+        return this.ballTeamMemberKeys(team).length >= MIN_TEAM_SIZE
+            ? this.teamLabel(team)
+            : 'New team';
+    }
+
+    /** How many shared balls the section has produced — the header's count. */
+    ballTeamCount(): number {
+        return this.liveSectionTeams().length;
+    }
+
+    /** How many players are on a shared ball right now. */
+    sharedBallPlayerCount(): number {
+        return this.liveSectionTeams().reduce((n, t) => n + this.ballTeamMemberKeys(t).length, 0);
+    }
+
+    /**
+     * The consequence, in plain words:
+     * "Anna + Marcus · Scramble · plays one ball · HCP 9". The handicap is the
+     * live combined team ball CH (the server's `per_producer_pct` formula) and
+     * is omitted while any member's CH can't be derived yet.
+     */
+    ballTeamSummary(teamKey: number): string {
+        const members = this.ballTeamMembers(teamKey);
+        if (members.length < MIN_TEAM_SIZE) return '';
+        const names = members.map((p) => p.name.trim() || 'Player').join(' + ');
+        const parts = [names, this.formationLabel(this.ballTeamFormation(teamKey)), 'plays one ball'];
+        const ch = this.teamBallCh(teamKey);
+        if (ch !== null) parts.push(`HCP ${ch}`);
+        return parts.join(' · ');
+    }
+
+    /** What is still missing on a team being filled (never a refusal). */
+    ballTeamHint(teamKey: number): string {
+        const team = this.teamByKey(teamKey);
+        if (!team) return '';
+        const missing = MIN_TEAM_SIZE - this.ballTeamMemberKeys(team).length;
+        if (missing <= 0) return '';
+        return `Pick ${missing} more player${missing === 1 ? '' : 's'} — a shared ball needs at least ${MIN_TEAM_SIZE}.`;
+    }
+
+    ballTeamNotice(teamKey: number): string {
+        return this.ballTeamNotices.get()[teamKey] ?? '';
+    }
+
+    private setBallTeamNotice(teamKey: number, message: string): void {
+        this.ballTeamNotices.set({ ...this.ballTeamNotices.get(), [teamKey]: message });
+    }
+
+    private clearBallTeamNotice(teamKey: number): void {
+        if (this.ballTeamNotices.get()[teamKey] === undefined) return;
+        const next = { ...this.ballTeamNotices.get() };
+        delete next[teamKey];
+        this.ballTeamNotices.set(next);
+    }
+
+    /** "is played by exactly 2" / "takes 2–8 players" — read off the descriptor,
+     * never a per-formation string on the client. */
+    private formationBoundsText(formation: string): string {
+        const bounds = this.formationCatalog.sizeOf(formation);
+        if (!bounds) return `takes up to ${MAX_TEAM_SIZE} players`;
+        return bounds.min === bounds.max
+            ? `is played by exactly ${bounds.min}`
+            : `takes ${bounds.min}–${bounds.max} players`;
+    }
+
+    /**
+     * Re-seed every ball team the user hasn't overridden: members sorted by
+     * course handicap ascending, percentages from the formation's recipe.
+     * "Defaults are computed, overrides are sticky" — a `customized` team is
+     * left alone entirely, ORDER included: its numbers were typed against the
+     * order on screen, and re-sorting them under the user would silently
+     * re-pair each % with a different player's position. A team hydrated from a
+     * stored round is always customized, so an edit re-emits its members
+     * exactly as they were stored.
+     *
+     * A player whose CH can't be derived yet sorts LAST: an unknown handicap is
+     * not a scratch handicap, and seeding them into position 1 would hand them
+     * the biggest allowance on the strength of a blank field.
+     */
+    private reseedBallTeams(): void {
+        const teams = this.teams.get();
+        if (!teams.some((t) => this.isSectionTeam(t))) return;
+        const rosterKeys = new Set(this.players.get().map((p) => p.key));
+        let changed = false;
+        const next = teams.map((team) => {
+            if (!this.isSectionTeam(team)) return team;
+            const live = this.ballTeamMemberKeys(team).filter((k) => rosterKeys.has(k));
+            const order = team.customized ? live : this.sortBySeeding(live);
+            const recipe = this.formationCatalog.allowances(team.formation, order.length);
+            const pctByPlayer: Record<number, string> = {};
+            const pctTextByPlayer: Record<number, string> = {};
+            order.forEach((k, i) => {
+                const seeded = String(recipe?.[i] ?? 100);
+                pctByPlayer[k] = team.customized ? (team.pctByPlayer[k] ?? seeded) : seeded;
+                const typed = team.pctTextByPlayer?.[k];
+                if (team.customized && typed !== undefined) pctTextByPlayer[k] = typed;
+            });
+            if (
+                sameOrder(order, this.ballTeamMemberKeys(team)) &&
+                sameTextMap(pctByPlayer, team.pctByPlayer) &&
+                sameTextMap(pctTextByPlayer, team.pctTextByPlayer ?? {})
+            ) {
+                return team;
+            }
+            changed = true;
+            return { ...team, memberOrder: order, pctByPlayer, pctTextByPlayer };
+        });
+        if (changed) this.teams.set(next);
+    }
+
+    /** Course handicap ascending; an underivable CH last; roster order breaks
+     * ties, so the order is stable while the user types. */
+    private sortBySeeding(keys: number[]): number[] {
+        const roster = this.players.get();
+        const rank = (k: number): [number, number, number] => {
+            const i = roster.findIndex((p) => p.key === k);
+            const p = i >= 0 ? roster[i]! : null;
+            const d = p ? this.derivedCH(p) : null;
+            return d ? [0, d.ch, i] : [1, 0, i];
+        };
+        return [...keys].sort((a, b) => {
+            const ra = rank(a);
+            const rb = rank(b);
+            return ra[0] - rb[0] || ra[1] - rb[1] || ra[2] - rb[2];
+        });
+    }
+
+    /**
+     * The balls the round actually produces: one per shared-ball team, one per
+     * unpaired player, in roster order. Format eligibility and per-game ball
+     * seeding both read THIS, not the raw player count — 4 players as 2
+     * scramble pairs are 2 balls, so match play lights up and Taliban does not.
+     */
+    ballUnits(): { teamKey: number | null; members: number[] }[] {
+        const teamOf = new Map<number, TeamForm>();
+        for (const t of this.liveSectionTeams()) {
+            for (const k of this.ballTeamMemberKeys(t)) teamOf.set(k, t);
+        }
+        const out: { teamKey: number | null; members: number[] }[] = [];
+        const placed = new Set<number>();
+        for (const p of this.players.get()) {
+            const team = teamOf.get(p.key);
+            if (!team) {
+                out.push({ teamKey: null, members: [p.key] });
+                continue;
+            }
+            if (placed.has(team.key)) continue;
+            placed.add(team.key);
+            out.push({ teamKey: team.key, members: this.ballTeamMemberKeys(team) });
+        }
+        return out;
+    }
+
+    /** Roster players not on a shared ball — the only ones a SIDE format can
+     * group, because a side's members each play their own ball. */
+    private soloPlayers(): PlayerForm[] {
+        const paired = new Set<number>();
+        for (const t of this.liveSectionTeams()) for (const k of this.ballTeamMemberKeys(t)) paired.add(k);
+        return this.players.get().filter((p) => !paired.has(p.key));
+    }
+
+    /**
+     * Seed one game's balls from the ball units: a ball team moves as ONE unit
+     * and is never split across a game's balls. Null ⇒ no shared ball exists,
+     * so the caller keeps the plain roster-based seeding (this is deliberately
+     * inert until the user pairs someone up).
+     */
+    private unitAssignment(
+        formatId: string,
+        shape: PlayableShape,
+    ): { ballCount: number; ballByPlayer: Record<number, number>; ballTeams: Record<number, number> } | null {
+        if (this.liveSectionTeams().length === 0) return null;
+        if (this.isIndividualShape(shape)) return null;
+        if (this.isSideFormat(formatId)) {
+            // Adoption (§3) still comes first: a second side format must play
+            // the sides the first one minted, not a duplicate set. Only when
+            // there is nothing to adopt do the solo players get spread — a
+            // shared ball is one producer and can never be split across sides.
+            if (this.adoptableTeams(shape)) return null;
+            const solo = this.soloPlayers();
+            return {
+                ballCount: shape.count.min,
+                ballByPlayer: this.defaultAssignment(shape, shape.count.min, solo),
+                ballTeams: {},
+            };
+        }
+        // Over the format's ball ceiling, SOLO units sit out first: a pairing is
+        // a composition the user decided, a lone player is just whoever is left.
+        // Trimming here (rather than truncating in roster order) is what keeps
+        // the subject count inside the format's bounds by construction.
+        const units = this.ballUnits();
+        const max = shape.count.max ?? units.length;
+        let playing = units;
+        if (units.length > max) {
+            const paired = units.filter((u) => u.teamKey !== null);
+            let soloBudget = Math.max(0, max - paired.length);
+            playing = units.filter((u) => {
+                if (u.teamKey !== null) return true;
+                if (soloBudget === 0) return false;
+                soloBudget--;
+                return true;
+            });
+            // A round with more PAIRS than the format has balls: the last pairs
+            // sit out, and `regenerateGame` ticks them out of the slot.
+            if (playing.length > max) playing = playing.slice(0, max);
+        }
+        const ballByPlayer: Record<number, number> = {};
+        const ballTeams: Record<number, number> = {};
+        playing.forEach((unit, ball) => {
+            for (const k of unit.members) ballByPlayer[k] = ball;
+            if (unit.teamKey !== null) ballTeams[ball] = unit.teamKey;
+        });
+        return { ballCount: playing.length, ballByPlayer, ballTeams };
+    }
+
+    /** Pull every picked game back onto the current ball roster after the
+     * pairing changed. Inert while nothing is paired. */
+    private syncGamesToBallUnits(): void {
+        const picks = this.picked.get();
+        if (picks.length === 0) return;
+        const next = picks.map((pick) => {
+            const shape = this.shapeOfGame(pick.formatId);
+            if (!shape || pick.ballCount === 0) return pick;
+            const seeded = this.unitAssignment(pick.formatId, shape);
+            if (!seeded) {
+                // The last shared ball just went away: keep the assignment, but
+                // drop references to teams that no longer exist so refilling a
+                // ball doesn't resurrect a dangling side.
+                const ballTeams: Record<number, number> = {};
+                for (const [ball, key] of Object.entries(pick.ballTeams)) {
+                    if (this.teamByKey(key)) ballTeams[Number(ball)] = key;
+                }
+                return { ...pick, ballTeams };
+            }
+            return { ...pick, ...seeded };
+        });
+        this.picked.set(next);
+        for (const pick of next) this.regenerateGame(pick);
+    }
+
+    /**
+     * The effective allowance % for one member — the typed text when it parses,
+     * else the seeded default. Clamped to 0–100 and comma-tolerant; a fractional
+     * value survives (the server takes a number, not an integer).
+     */
+    private allowanceOf(team: TeamForm, playerKey: number): number {
+        if (!this.isSectionTeam(team)) return this.parsePct(team.pctByPlayer[playerKey] ?? '');
+        const typed = parseAllowanceText(team.pctTextByPlayer?.[playerKey]);
+        if (typed !== null) return typed;
+        return parseAllowanceText(team.pctByPlayer[playerKey]) ?? 100;
     }
 
     // --- Round-level teams (ADR-0003) ---
@@ -1580,8 +2306,17 @@ export class SetupService {
         return this.teams.get().find((t) => t.key === key) ?? null;
     }
 
+    /**
+     * The positional label a team carries everywhere — and the one `buildTeams`
+     * writes into the draft. Letters index only LIVE teams, because only live
+     * teams reach the draft: a half-filled team card sitting above them would
+     * otherwise push every letter one along and make the players step disagree
+     * with the round it creates.
+     */
     teamLabel(team: TeamForm): string {
-        const i = this.teams.get().findIndex((t) => t.key === team.key);
+        const live = this.liveTeamKeySet();
+        const list = this.teams.get().filter((t) => t.key === team.key || live.has(t.key));
+        const i = list.findIndex((t) => t.key === team.key);
         return `Team ${this.teamLetter(Math.max(0, i))}`;
     }
 
@@ -1628,11 +2363,10 @@ export class SetupService {
         if (!team) return null;
         let sum = 0;
         for (const p of this.players.get()) {
-            const pct = team.pctByPlayer[p.key];
-            if (pct === undefined) continue;
+            if (team.pctByPlayer[p.key] === undefined) continue;
             const d = this.derivedCH(p);
             if (!d) return null;
-            sum += (this.parsePct(pct) * d.ch) / 100;
+            sum += (this.allowanceOf(team, p.key) * d.ch) / 100;
         }
         return Math.round(sum);
     }
@@ -1973,13 +2707,15 @@ export class SetupService {
         const roster = this.players.get();
         const covered = new Set<number>();
         for (const slot of this.formatSlots.get()) {
+            const teamKeys = this.slotTeamSubjectKeys(slot);
+            const suppressed = this.slotSuppressedPlayerKeys(slot);
             // Covered directly as an individual subject…
             for (const p of roster) {
-                if (slot.subjectPlayers[p.key] !== false) covered.add(p.key);
+                if (slot.subjectPlayers[p.key] !== false && !suppressed.has(p.key)) covered.add(p.key);
             }
             // …or via a team this format scores.
             for (const team of this.teams.get()) {
-                if (slot.subjectTeams[team.key] !== true) continue;
+                if (!teamKeys.has(team.key)) continue;
                 for (const p of roster) if (team.pctByPlayer[p.key] !== undefined) covered.add(p.key);
             }
         }
@@ -2031,12 +2767,16 @@ export class SetupService {
         const out: DraftRoundTeam[] = [];
         for (const team of this.teams.get()) {
             if (!live.has(team.key)) continue;
-            const members: DraftTeamMember[] = roster
-                .filter((p) => team.pctByPlayer[p.key] !== undefined)
-                .map((p) => ({
-                    producerDefId: defIdByKey.get(p.key)!,
-                    allowancePct: this.parsePct(team.pctByPlayer[p.key]!),
-                }));
+            // A ball team emits its members in SEEDING order (lowest handicap
+            // first) — the order its allowances were computed for, and the one
+            // an edit re-hydrates from.
+            const ordered = this.isSectionTeam(team)
+                ? this.ballTeamMembers(team.key)
+                : roster.filter((p) => team.pctByPlayer[p.key] !== undefined);
+            const members: DraftTeamMember[] = ordered.map((p) => ({
+                producerDefId: defIdByKey.get(p.key)!,
+                allowancePct: this.allowanceOf(team, p.key),
+            }));
             // A side may nest live single-ball teams as members (each → one ball).
             if (team.kind === 'multi_ball') {
                 for (const t of this.teams.get()) {
@@ -2062,30 +2802,21 @@ export class SetupService {
      * and the ticked teams. The server materialises exactly those balls.
      */
     private buildFormats(roster: PlayerForm[], defIdByKey: Map<number, string>): DraftFormat[] {
-        const liveTeamKeys = this.liveTeamKeySet();
         return this.formatSlots.get().map((slot) => {
             const side = this.isSideFormat(slot.formatId);
+            const teamKeys = this.slotTeamSubjectKeys(slot);
+            const suppressed = this.slotSuppressedPlayerKeys(slot);
             const subjects: DraftBallSubject[] = [];
             // A side format scores no individual players (only sides).
             if (!side) {
                 for (const p of roster) {
-                    if (slot.subjectPlayers[p.key] !== false) {
+                    if (slot.subjectPlayers[p.key] !== false && !suppressed.has(p.key)) {
                         subjects.push({ kind: 'player', producerDefId: defIdByKey.get(p.key)! });
                     }
                 }
             }
-            // Only emit a team subject whose kind fits the format — guards a
-            // stale tick left after the slot's format changed. A ball format
-            // may take a multi-ball side when it supports side aggregation
-            // (ADR-0004); the server derives teamGrouping + the marker.
             for (const team of this.teams.get()) {
-                if (
-                    slot.subjectTeams[team.key] === true &&
-                    liveTeamKeys.has(team.key) &&
-                    this.teamKindFitsFormat(slot.formatId, team.kind)
-                ) {
-                    subjects.push({ kind: 'team', teamId: String(team.key) });
-                }
+                if (teamKeys.has(team.key)) subjects.push({ kind: 'team', teamId: String(team.key) });
             }
             return {
                 formatId: slot.formatId,
@@ -2136,28 +2867,71 @@ export class SetupService {
      * teams count), so the pre-check and the draft can never disagree.
      */
     private slotSubjectCount(slot: FormatSlotForm): number {
-        const liveTeamKeys = this.liveTeamKeySet();
         const side = this.isSideFormat(slot.formatId);
-        let n = 0;
+        const suppressed = this.slotSuppressedPlayerKeys(slot);
+        let n = this.slotTeamSubjectKeys(slot).size;
         if (!side) {
-            for (const p of this.players.get()) if (slot.subjectPlayers[p.key] !== false) n++;
-        }
-        for (const team of this.teams.get()) {
-            if (
-                slot.subjectTeams[team.key] === true &&
-                liveTeamKeys.has(team.key) &&
-                this.teamKindFitsFormat(slot.formatId, team.kind)
-            ) {
-                n++;
+            for (const p of this.players.get()) {
+                if (slot.subjectPlayers[p.key] !== false && !suppressed.has(p.key)) n++;
             }
         }
         return n;
     }
 
     /**
+     * THE SINGLE AUTHORITY on which teams a slot emits as subjects — shared by
+     * `buildFormats`, the pre-submit count and the roster-coverage hint, so no
+     * two of them can drift apart.
+     *
+     * A team must be live and of a kind the format takes (guarding a stale tick
+     * left after the slot's format changed; ADR-0004 lets a ball format take a
+     * multi-ball side when it supports aggregation). On top of that, a
+     * SHARED-BALL team from the players step is included by DEFAULT in every
+     * ball format: it is one of the balls in play, so a format that scored
+     * everything except it would silently leave two players unscored. An
+     * explicit untick still wins.
+     */
+    private slotTeamSubjectKeys(slot: FormatSlotForm): Set<number> {
+        const live = this.liveTeamKeySet();
+        const out = new Set<number>();
+        for (const team of this.teams.get()) {
+            if (!live.has(team.key)) continue;
+            if (!this.teamKindFitsFormat(slot.formatId, team.kind)) continue;
+            const ticked = slot.subjectTeams[team.key];
+            if (ticked === true) {
+                out.add(team.key);
+                continue;
+            }
+            if (
+                ticked === undefined &&
+                this.isSectionTeam(team) &&
+                !this.isSideFormat(slot.formatId)
+            ) {
+                out.add(team.key);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Players this slot must NOT also score individually: the members of the
+     * shared-ball teams it scores. They have no ball of their own — the team's
+     * ball IS their ball — so scoring both is the double-scoring trap.
+     */
+    private slotSuppressedPlayerKeys(slot: FormatSlotForm): Set<number> {
+        const out = new Set<number>();
+        for (const key of this.slotTeamSubjectKeys(slot)) {
+            const team = this.teamByKey(key);
+            if (!team || !this.isSectionTeam(team)) continue;
+            for (const k of this.ballTeamMemberKeys(team)) out.add(k);
+        }
+        return out;
+    }
+
+    /**
      * Why a slot has nothing to score, phrased as what to DO about it. A side
      * format (Taliban, better-ball) is the interesting case: it needs
-     * "Separate balls (a side)" teams — the exact kind and counts come from
+     * "own ball each, scored together" teams — the exact kind and counts come from
      * the catalog descriptor, and the message adapts to whether the user has
      * no teams, the wrong kind of team, or just forgot to tick one.
      */
@@ -2180,8 +2954,8 @@ export class SetupService {
         if (teams.some((t) => t.kind === 'single_ball' && this.isTeamLive(t))) {
             return (
                 `${label} is played between teams whose players play their own balls — ` +
-                `a “One combined ball” team doesn’t fit. Under Teams, switch the team to ` +
-                `“Separate balls (a side)”, then tick it under “Scores”.`
+                `a team that shares one ball doesn’t fit. Under Teams, switch the team to ` +
+                `“Own ball each, scored together as a team”, then tick it under “Scores”.`
             );
         }
         const cls = this.catalog.classifyId(slot.formatId);
@@ -2197,7 +2971,8 @@ export class SetupService {
                 : '';
         return (
             `${label} is a team game — under Teams, create ${count}${size} with kind ` +
-            `“Separate balls (a side)”, add the players, then tick the teams under “Scores”.`
+            `“Own ball each, scored together as a team”, add the players, then tick the ` +
+            `teams under “Scores”.`
         );
     }
 
@@ -2236,6 +3011,33 @@ export class SetupService {
                 localDiags.push({ code: 'missing_tee', message: 'Pick a tee', path: `producers[${i}].teeId` });
             }
         });
+        // A shared ball whose allowances nobody decided. The percentages are
+        // the round's handicaps — inventing a flat 100% for a size the catalog
+        // has no convention for would mis-score the whole round silently, so
+        // this REFUSES and says what to do instead. Out of bounds is normally
+        // unreachable (the section enforces it) — checked anyway, because a
+        // stored draft can carry anything.
+        for (const team of this.liveSectionTeams()) {
+            const size = this.ballTeamMemberKeys(team).length;
+            const name = this.formationLabel(team.formation);
+            const who = this.ballTeamLabel(team.key);
+            if (!this.formationCatalog.byId(team.formation)) continue;
+            if (!this.formationCatalog.fits(team.formation, size)) {
+                localDiags.push({
+                    code: 'ball_team_size',
+                    message: `${who} has ${size} players sharing a ball, but ${name} ${this.formationBoundsText(team.formation)}. Change the formation or the team.`,
+                    path: 'teams',
+                });
+                continue;
+            }
+            if (!team.customized && this.formationCatalog.allowances(team.formation, size) === null) {
+                localDiags.push({
+                    code: 'ball_team_no_recipe',
+                    message: `${who} is a ${size}-player ${name}, and there is no standard handicap allowance for that. Type a % for each player, or put them on their own balls.`,
+                    path: 'teams',
+                });
+            }
+        }
         // A format whose subject list would come out EMPTY (a side format with
         // no — or only wrong-kind — teams ticked) would fail the server's
         // schema (`subjects minItems 1`) as a bare 400 before the compiler's

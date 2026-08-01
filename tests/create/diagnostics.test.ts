@@ -145,7 +145,7 @@ describe('humanizeDiagnostic', () => {
             path: 'slots[slot-0].teamGrouping',
         };
         expect(humanizeDiagnostic(d, label)).toBe(
-            'Better-ball Stableford compares teams — under Teams, group the players into “Separate balls (a side)” teams, then tick them under “Scores”.',
+            'Better-ball Stableford compares teams — under Teams, group the players into “Own ball each, scored together as a team” teams, then tick them under “Scores”.',
         );
     });
 
@@ -159,7 +159,7 @@ describe('humanizeDiagnostic', () => {
             actual: 2,
         };
         expect(humanizeDiagnostic(own, label)).toBe(
-            'Better-ball Stableford is played with everyone on their own ball — a “One combined ball” team can’t play it. Use a “Separate balls (a side)” team instead.',
+            'Better-ball Stableford is played with everyone on their own ball — a team sharing one ball can’t play it. Use an “Own ball each, scored together as a team” team instead.',
         );
         // A lone player fed to a team-ball format (actual === 1).
         const team: CompilerDiagnostic = {
@@ -170,7 +170,7 @@ describe('humanizeDiagnostic', () => {
             actual: 1,
         };
         expect(humanizeDiagnostic(team, label)).toBe(
-            'Better-ball Stableford is played on one shared team ball — under Teams, group the players into a “One combined ball” team, then tick that team instead of the individual players.',
+            'Better-ball Stableford is played on one shared team ball — under Teams, group the players into a “Share one ball” team, then tick that team instead of the individual players.',
         );
         // Without the structured field, the raw message survives.
         expect(
@@ -189,7 +189,7 @@ describe('humanizeDiagnostic', () => {
             allowedMax: 1,
         };
         expect(humanizeDiagnostic(ownish, label)).toBe(
-            'Better-ball Stableford is played with everyone on their own ball — a “One combined ball” team can’t play it. Use a “Separate balls (a side)” team instead.',
+            'Better-ball Stableford is played with everyone on their own ball — a team sharing one ball can’t play it. Use an “Own ball each, scored together as a team” team instead.',
         );
         const bounded: CompilerDiagnostic = {
             code: 'producer_count_violation',
