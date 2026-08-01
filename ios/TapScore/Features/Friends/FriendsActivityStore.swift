@@ -13,6 +13,7 @@ import Observation
 final class FriendsActivityStore {
     private(set) var live: [FriendsActivityEntry] = []
     private(set) var recent: [FriendsActivityEntry] = []
+    private(set) var formatDescriptors: [FormatDescriptor] = []
     private(set) var loaded = false
     private(set) var loading = false
     /// Recorded for tests and diagnostics, NOT rendered. A friends feed that
@@ -28,18 +29,27 @@ final class FriendsActivityStore {
     }
 
     var chips: [OutNowChip] { FriendsActivityModel.chips(live) }
+    var recentRows: [RecentFriendRow] { FriendsActivityModel.recentRows(recent) }
     var contextLine: String? { FriendsActivityModel.contextLine(live) }
     /// Friend ids to mark live in the Friends tab.
     var liveFriendIds: Set<String> { FriendsActivityModel.friendIds(live) }
+
+    func formatText(for ids: [String]) -> String? {
+        let text = LandingFormatLabels.forIds(ids, descriptors: formatDescriptors)
+            .joined(separator: " · ")
+        return text.isEmpty ? nil : text
+    }
 
     func load(force: Bool = false) async {
         guard force || (!loaded && !loading) else { return }
         loading = true
         defer { loading = false }
+        async let formatsResult: [FormatDescriptor]? = try? await api.send(SetupEndpoints.formats)
         do {
             let activity = try await api.send(DashboardEndpoints.friendsActivity)
             live = activity.live
             recent = activity.recent
+            formatDescriptors = await formatsResult ?? []
             loaded = true
             loadFailed = false
         } catch {

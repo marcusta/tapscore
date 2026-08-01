@@ -23,6 +23,7 @@ final class FriendsActivityModelTests: XCTestCase {
     private func entry(
         _ roundId: String,
         course: String? = "Linköping",
+        formatIds: [String]? = nil,
         friends: [FriendsActivityFriend]
     ) -> FriendsActivityEntry {
         FriendsActivityEntry(
@@ -33,6 +34,7 @@ final class FriendsActivityModelTests: XCTestCase {
             status: .active,
             holeCount: 18,
             lastActivityAt: nil,
+            formatIds: formatIds,
             friends: friends
         )
     }
@@ -119,5 +121,26 @@ final class FriendsActivityModelTests: XCTestCase {
         // Nothing to attribute it to; an anonymous "somebody is playing" chip
         // is not a thing this strip offers.
         XCTAssertTrue(FriendsActivityModel.chips([entry("r1", friends: [])]).isEmpty)
+    }
+
+    func testRecentRowsCarryAttributionDateAndFormatIds() {
+        let rows = FriendsActivityModel.recentRows([
+            entry(
+                "r1",
+                course: "Linköpings GK",
+                formatIds: ["stableford_individual", "taliban_better_ball"],
+                friends: [
+                    friend("p1", "Anna", holes: 18),
+                    friend("p2", "Bo", holes: 18),
+                ]
+            )
+        ])
+
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].friendLabel, "Anna + 1")
+        XCTAssertEqual(rows[0].displayName, "Anna")
+        XCTAssertEqual(rows[0].title, "Linköpings GK")
+        XCTAssertEqual(rows[0].date, "2026-07-30")
+        XCTAssertEqual(rows[0].formatIds, ["stableford_individual", "taliban_better_ball"])
     }
 }

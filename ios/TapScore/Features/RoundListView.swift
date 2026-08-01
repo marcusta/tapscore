@@ -110,6 +110,7 @@ struct RoundListView: View {
                 ongoingSection(partition.ongoing)
                 outNow
                 finishedCard(partition.finished)
+                recentFriendsSection
 
                 if partition.finished.isEmpty && !loader.rows.isEmpty
                     && partition.ongoing.count <= HomeIdentity.ongoingPreviewLimit
@@ -375,6 +376,28 @@ struct RoundListView: View {
         }
     }
 
+    /// The retrospective half of the friends feed — separate from "Out now"
+    /// because the live strip answers who is playing while this section answers
+    /// what friends played recently. It disappears completely when the feed is
+    /// empty or unavailable, just like the web landing.
+    @ViewBuilder
+    private var recentFriendsSection: some View {
+        if let activity, !activity.recentRows.isEmpty {
+            VStack(alignment: .leading, spacing: TapSpacing.sm) {
+                SectionHeader(title: "From your friends")
+                VStack(spacing: TapSpacing.sm) {
+                    ForEach(activity.recentRows) { row in
+                        RecentFriendRowView(
+                            row: row,
+                            formats: activity.formatText(for: row.formatIds),
+                            onOpen: { onSpectate(row.roundId, row.displayName) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     /// The same door, standing on its own when there is no card to put it in —
     /// the web's `.landing__history` link.
     private var allRoundsLink: some View {
@@ -565,9 +588,15 @@ final class LandingLoader {
             serverRoundCount = nil
             return
         }
+
+        // Format labels are catalog-driven, just like the create and round
+        // screens. Fetch the immutable catalog alongside the dashboard so a
+        // slow catalog never adds a serial round-trip to the landing load.
+        async let formatsResult: [FormatDescriptor]? = try? await api.send(SetupEndpoints.formats)
         do {
             let mine = try await api.send(DashboardEndpoints.myRounds)
-            rows = LandingRow.merge(device: device, mine: mine)
+            let formats = await formatsResult ?? []
+            rows = LandingRow.merge(device: device, mine: mine, formatDescriptors: formats)
             serverRoundCount = mine.created.count + mine.produced.count
             loadFailure = nil
         } catch APIError.unauthorized {
@@ -640,13 +669,20 @@ struct RoundRow: View {
                                     .lineLimit(2)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
-                            if let date = row.displayDate {
-                                // Web `.round-row__bottom` — muted, and a step
-                                // smaller again: the date is the last thing
-                                // anyone scans a row for.
-                                Text(date)
-                                    .font(TapFont.ui(size: 12))
-                                    .foregroundStyle(TapColors.textMuted)
+                            if row.displayDate != nil || row.formatsText != nil {
+                                // Web `.round-row__bottom` — date and formats
+                                // share the quiet metadata line.
+                                HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
+                                    if let date = row.displayDate {
+                                        Text(date)
+                                    }
+                                    if let formats = row.formatsText {
+                                        Text(formats)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                .font(TapFont.ui(size: 12))
+                                .foregroundStyle(TapColors.textMuted)
                             }
                         }
                         Spacer(minLength: TapSpacing.sm)
@@ -763,10 +799,18 @@ private struct FinishedRow: View {
                             .foregroundStyle(TapColors.textMuted)
                             .lineLimit(1)
                     }
-                    if let date = row.displayDate {
-                        Text(date)
-                            .font(TapFont.ui(size: 12))
-                            .foregroundStyle(TapColors.textMuted)
+                    if row.displayDate != nil || row.formatsText != nil {
+                        HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
+                            if let date = row.displayDate {
+                                Text(date)
+                            }
+                            if let formats = row.formatsText {
+                                Text(formats)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .font(TapFont.ui(size: 12))
+                        .foregroundStyle(TapColors.textMuted)
                     }
                 }
                 Spacer(minLength: TapSpacing.sm)
@@ -781,6 +825,52 @@ private struct FinishedRow: View {
         // A produced round with no friendly wrapper has no token, so it renders
         // but cannot be opened — same rule as `RoundRow`.
         .disabled(row.token == nil)
+    }
+}
+
+/// One retrospective friend round: who, where, which formats, and when. The
+/// row opens the read-only spectate screen rather than carrying a share token.
+private struct RecentFriendRowView: View {
+    let row: RecentFriendRow
+    let formats: String?
+    let onOpen: () -> Void
+
+    var body: some View {
+        TapCard {
+            Button(action: onOpen) {
+                HStack(alignment: .top, spacing: TapSpacing.md) {
+                    VStack(alignment: .leading, spacing: TapSpacing.xs) {
+                        Text(row.friendLabel)
+                            .font(TapFont.ui(size: 15.2, weight: .bold))
+                            .foregroundStyle(TapColors.text)
+                            .lineLimit(1)
+
+                        HStack(alignment: .firstTextBaseline, spacing: TapSpacing.xs) {
+                            Text(row.title)
+                            if let formats {
+                                Text("· \(formats)")
+                            }
+                        }
+                        .font(TapFont.ui(size: 12.8))
+                        .foregroundStyle(TapColors.textMuted)
+                        .lineLimit(1)
+                    }
+                    Spacer(minLength: TapSpacing.sm)
+                    if let date = row.displayDate {
+                        Text(date)
+                            .font(TapFont.ui(size: 12.8))
+                            .foregroundStyle(TapColors.textMuted)
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.vertical, TapSpacing.md)
+                .padding(.horizontal, TapSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(row.accessibilityLabel(formats: formats))
+        }
     }
 }
 
@@ -823,6 +913,26 @@ extension RoundStatusTone {
 /// whether the viewer is signed in or not. The Swift image of
 /// `src/landing/rows.ts` + `partition.ts` + `my-rounds.ts`, kept free of
 /// SwiftUI and of any fetch so it can be tested directly.
+enum LandingFormatLabels {
+    /// Labels for the full round payload. The descriptor catalog supplies the
+    /// reader's language; the slot metadata keeps the row useful while an old
+    /// server or a catalog failure leaves the descriptor unavailable.
+    static func forSlots(_ slots: [FormatSlot], descriptors: [FormatDescriptor]) -> [String] {
+        let catalog = FormatCatalog(descriptors: descriptors)
+        return slots.map { slot in
+            catalog.label(slot.formatId)
+                ?? "\(slot.scoringMode.rawValue) · \(slot.teamShape.rawValue)"
+        }
+    }
+
+    /// Labels for the compact friends payload, which carries ids rather than
+    /// full slot metadata. Unknown ids remain visible instead of disappearing.
+    static func forIds(_ ids: [String], descriptors: [FormatDescriptor]) -> [String] {
+        let catalog = FormatCatalog(descriptors: descriptors)
+        return ids.map { catalog.label($0) ?? $0 }
+    }
+}
+
 struct LandingRow: Identifiable, Equatable, Sendable {
     /// Stable identity: the round id when known, else the share token.
     let id: String
@@ -847,6 +957,9 @@ struct LandingRow: Identifiable, Equatable, Sendable {
     /// a device-list refresh (and a local Remove); a device-only row follows
     /// the device list and vanishes with it.
     var serverSourced: Bool = false
+    /// Human-readable format labels in slot order. Device-only rows do not
+    /// have format data, so their list is empty.
+    var formatLabels: [String] = []
 
     /// Default "recently finished" window, matching `RECENT_FINISHED_DAYS`.
     static let recentFinishedDays = 14
@@ -878,7 +991,11 @@ struct LandingRow: Identifiable, Equatable, Sendable {
     /// and role), device rows contribute anything the server does not know
     /// about — a round opened from a share link that the viewer neither
     /// created nor plays in still belongs on their landing.
-    static func merge(device: [DeviceRound], mine: DashboardMyRoundsOutput) -> [LandingRow] {
+    static func merge(
+        device: [DeviceRound],
+        mine: DashboardMyRoundsOutput,
+        formatDescriptors: [FormatDescriptor] = []
+    ) -> [LandingRow] {
         var byRoundId: [String: (round: Round, token: String?, played: Bool, created: Bool)] = [:]
         for item in mine.created {
             byRoundId[item.round.id] = (item.round, item.friendlyRound.shareToken, false, true)
@@ -908,7 +1025,11 @@ struct LandingRow: Identifiable, Equatable, Sendable {
                     roleLabel: roleLabel(played: entry.played, created: entry.created),
                     date: entry.round.date,
                     deviceLocal: entry.token.map(deviceTokens.contains) ?? false,
-                    serverSourced: true
+                    serverSourced: true,
+                    formatLabels: LandingFormatLabels.forSlots(
+                        entry.round.formatSlots,
+                        descriptors: formatDescriptors
+                    )
                 )
             }
             // Newest first, tie-broken by id so the order is stable across
@@ -970,7 +1091,8 @@ struct LandingRow: Identifiable, Equatable, Sendable {
             roleLabel: roleLabel,
             date: date ?? entry.date,
             deviceLocal: true,
-            serverSourced: serverSourced
+            serverSourced: serverSourced,
+            formatLabels: formatLabels
         )
     }
 
@@ -1030,6 +1152,11 @@ struct LandingRow: Identifiable, Equatable, Sendable {
     var displayDate: String? {
         guard let date, let parsed = Self.parse(date) else { return date }
         return parsed.formatted(.dateTime.day().month(.abbreviated).year())
+    }
+
+    var formatsText: String? {
+        let text = formatLabels.joined(separator: " · ")
+        return text.isEmpty ? nil : text
     }
 
     /// The round's own name when it has one, else the course — the same

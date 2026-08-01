@@ -43,6 +43,32 @@ struct OutNowChip: Identifiable, Equatable, Sendable {
     }
 }
 
+/// One quiet row under "From your friends": who, where, which formats, and
+/// when. The round id is the spectate target; no write credential crosses the
+/// friends surface.
+struct RecentFriendRow: Identifiable, Equatable, Sendable {
+    let roundId: String
+    let friendLabel: String
+    let displayName: String
+    let title: String
+    let date: String
+    let formatIds: [String]
+
+    var id: String { roundId }
+
+    var displayDate: String? {
+        guard let parsed = LandingRow.parse(date) else { return date }
+        return parsed.formatted(.dateTime.day().month(.abbreviated).year())
+    }
+
+    func accessibilityLabel(formats: String?) -> String {
+        var parts = [friendLabel, title]
+        if let displayDate { parts.append(displayDate) }
+        if let formats { parts.append(formats) }
+        return parts.joined(separator: ", ") + ". Watch."
+    }
+}
+
 /// Pure presentation rules for the friends-activity feed — the home strip's
 /// chips, the strip's one-line context, and the set of friends the Friends tab
 /// should show a live dot on.
@@ -86,6 +112,25 @@ enum FriendsActivityModel {
                 title: others > 0 ? "\(lead.displayName) + \(others)" : lead.displayName,
                 progress: progress(lead),
                 courseName: entry.courseName
+            )
+        }
+    }
+
+    /// The feed's retrospective half. Friendless entries are omitted because
+    /// the landing must always be able to say whose round it is.
+    static func recentRows(_ recent: [FriendsActivityEntry]) -> [RecentFriendRow] {
+        recent.compactMap { entry in
+            guard let lead = entry.friends.first else { return nil }
+            let others = entry.friends.count - 1
+            let label = others > 0 ? "\(lead.displayName) + \(others)" : lead.displayName
+            let course = entry.courseName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return RecentFriendRow(
+                roundId: entry.roundId,
+                friendLabel: label,
+                displayName: lead.displayName,
+                title: course?.isEmpty == false ? course! : "A round",
+                date: entry.date,
+                formatIds: entry.formatIds ?? []
             )
         }
     }
