@@ -6,7 +6,7 @@ struct SpectateView: Codable, Sendable, Equatable {
     var round: Round
     var result: RoundResult
     var cursor: String?
-    var status: AdminRoundSummaryStatus
+    var status: RoundStatus
 
     enum CodingKeys: String, CodingKey {
         case round = "round"
@@ -15,7 +15,7 @@ struct SpectateView: Codable, Sendable, Equatable {
         case status = "status"
     }
 
-    init(round: Round, result: RoundResult, cursor: String? = nil, status: AdminRoundSummaryStatus) {
+    init(round: Round, result: RoundResult, cursor: String? = nil, status: RoundStatus) {
         self.round = round
         self.result = result
         self.cursor = cursor
@@ -27,7 +27,7 @@ struct SpectateView: Codable, Sendable, Equatable {
         self.round = try c.decode(Round.self, forKey: .round)
         self.result = try c.decode(RoundResult.self, forKey: .result)
         self.cursor = try c.decodeIfPresent(String.self, forKey: .cursor)
-        self.status = try c.decode(AdminRoundSummaryStatus.self, forKey: .status)
+        self.status = try c.decode(RoundStatus.self, forKey: .status)
     }
 
     func encode(to encoder: any Encoder) throws {

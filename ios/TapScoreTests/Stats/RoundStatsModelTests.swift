@@ -54,11 +54,11 @@ final class RoundStatsModelTests: XCTestCase {
     private func holeStats(
         _ playHoleId: String,
         playerId: String = "p-1",
-        tee: PlayerHoleStatsTeeResult? = nil,
+        tee: TeeResult? = nil,
         gir: Bool? = nil,
-        firstPutt: PlayerHoleStatsFirstPutt? = nil,
+        firstPutt: FirstPutt? = nil,
         putts: Double? = nil,
-        shortGame: PlayerHoleStatsShortGameDifficulty? = nil,
+        shortGame: ShortGameDifficulty? = nil,
         penalties: Double? = nil,
         recoveryOk: Bool? = nil
     ) -> PlayerHoleStats {
@@ -246,7 +246,7 @@ final class RoundStatsModelTests: XCTestCase {
     func testEveryFirstPuttBucketIsWordedIncludingTheLegacyThree() {
         // The pre-split buckets still sit in old rounds; they must read as the
         // coarse bands they are rather than borrow a new bucket's name.
-        let legacy: [PlayerHoleStatsFirstPutt] = [.inside2m, .v2To6m, .over6m]
+        let legacy: [FirstPutt] = [.inside2m, .v2To6m, .over6m]
         for bucket in legacy {
             XCTAssertFalse(RoundStatsCopy.title(bucket).isEmpty)
         }

@@ -2,7 +2,7 @@
 
 import Foundation
 
-enum CompetitionDetailLifecycle: String, Codable, Sendable, Equatable {
+enum CompetitionLifecycle: String, Codable, Sendable, Equatable {
     case draft = "draft"
     case setup = "setup"
     case active = "active"
@@ -334,23 +334,23 @@ struct CompetitionDetailDefaultConfigCategoryTeesValue: Codable, Sendable, Equat
     }
 }
 
-enum CompetitionDetailDefaultConfigStartList: String, Codable, Sendable, Equatable {
+enum StartListShape: String, Codable, Sendable, Equatable {
     case singleGroup = "single_group"
     case foursomes = "foursomes"
 }
 
-enum CompetitionDetailDefaultConfigStartListPolicyGroups: String, Codable, Sendable, Equatable {
+enum StartListGroupsPolicy: String, Codable, Sendable, Equatable {
     case organized = "organized"
     case roster = "roster"
     case `open` = "open"
 }
 
-enum CompetitionDetailDefaultConfigStartListPolicySeats: String, Codable, Sendable, Equatable {
+enum StartListSeatsPolicy: String, Codable, Sendable, Equatable {
     case assigned = "assigned"
     case claimable = "claimable"
 }
 
-enum CompetitionDetailDefaultConfigStartListPolicyClaimBy: String, Codable, Sendable, Equatable {
+enum ClaimBy: String, Codable, Sendable, Equatable {
     case team = "team"
     case roster = "roster"
     case anyone = "anyone"
@@ -384,9 +384,9 @@ struct CompetitionDetailDefaultConfigStartListPolicyWindow: Codable, Sendable, E
 }
 
 struct CompetitionDetailDefaultConfigStartListPolicy: Codable, Sendable, Equatable {
-    var groups: CompetitionDetailDefaultConfigStartListPolicyGroups
-    var seats: CompetitionDetailDefaultConfigStartListPolicySeats
-    var claimBy: CompetitionDetailDefaultConfigStartListPolicyClaimBy
+    var groups: StartListGroupsPolicy
+    var seats: StartListSeatsPolicy
+    var claimBy: ClaimBy
     var window: CompetitionDetailDefaultConfigStartListPolicyWindow?
     var maxGroupSize: Double?
 
@@ -398,7 +398,7 @@ struct CompetitionDetailDefaultConfigStartListPolicy: Codable, Sendable, Equatab
         case maxGroupSize = "maxGroupSize"
     }
 
-    init(groups: CompetitionDetailDefaultConfigStartListPolicyGroups, seats: CompetitionDetailDefaultConfigStartListPolicySeats, claimBy: CompetitionDetailDefaultConfigStartListPolicyClaimBy, window: CompetitionDetailDefaultConfigStartListPolicyWindow? = nil, maxGroupSize: Double? = nil) {
+    init(groups: StartListGroupsPolicy, seats: StartListSeatsPolicy, claimBy: ClaimBy, window: CompetitionDetailDefaultConfigStartListPolicyWindow? = nil, maxGroupSize: Double? = nil) {
         self.groups = groups
         self.seats = seats
         self.claimBy = claimBy
@@ -408,9 +408,9 @@ struct CompetitionDetailDefaultConfigStartListPolicy: Codable, Sendable, Equatab
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.groups = try c.decode(CompetitionDetailDefaultConfigStartListPolicyGroups.self, forKey: .groups)
-        self.seats = try c.decode(CompetitionDetailDefaultConfigStartListPolicySeats.self, forKey: .seats)
-        self.claimBy = try c.decode(CompetitionDetailDefaultConfigStartListPolicyClaimBy.self, forKey: .claimBy)
+        self.groups = try c.decode(StartListGroupsPolicy.self, forKey: .groups)
+        self.seats = try c.decode(StartListSeatsPolicy.self, forKey: .seats)
+        self.claimBy = try c.decode(ClaimBy.self, forKey: .claimBy)
         self.window = try c.decodeIfPresent(CompetitionDetailDefaultConfigStartListPolicyWindow.self, forKey: .window)
         self.maxGroupSize = try c.decodeIfPresent(Double.self, forKey: .maxGroupSize)
     }
@@ -429,7 +429,7 @@ struct CompetitionDetailDefaultConfig: Codable, Sendable, Equatable {
     var slots: [CompetitionDetailDefaultConfigSlotsItem]
     var categoryTees: [String: CompetitionDetailDefaultConfigCategoryTeesValue]?
     var fallbackTee: CompetitionDetailDefaultConfigCategoryTeesValue?
-    var startList: CompetitionDetailDefaultConfigStartList?
+    var startList: StartListShape?
     var startListPolicy: CompetitionDetailDefaultConfigStartListPolicy?
 
     enum CodingKeys: String, CodingKey {
@@ -440,7 +440,7 @@ struct CompetitionDetailDefaultConfig: Codable, Sendable, Equatable {
         case startListPolicy = "startListPolicy"
     }
 
-    init(slots: [CompetitionDetailDefaultConfigSlotsItem], categoryTees: [String: CompetitionDetailDefaultConfigCategoryTeesValue]? = nil, fallbackTee: CompetitionDetailDefaultConfigCategoryTeesValue? = nil, startList: CompetitionDetailDefaultConfigStartList? = nil, startListPolicy: CompetitionDetailDefaultConfigStartListPolicy? = nil) {
+    init(slots: [CompetitionDetailDefaultConfigSlotsItem], categoryTees: [String: CompetitionDetailDefaultConfigCategoryTeesValue]? = nil, fallbackTee: CompetitionDetailDefaultConfigCategoryTeesValue? = nil, startList: StartListShape? = nil, startListPolicy: CompetitionDetailDefaultConfigStartListPolicy? = nil) {
         self.slots = slots
         self.categoryTees = categoryTees
         self.fallbackTee = fallbackTee
@@ -453,7 +453,7 @@ struct CompetitionDetailDefaultConfig: Codable, Sendable, Equatable {
         self.slots = try c.decode([CompetitionDetailDefaultConfigSlotsItem].self, forKey: .slots)
         self.categoryTees = try c.decodeIfPresent([String: CompetitionDetailDefaultConfigCategoryTeesValue].self, forKey: .categoryTees)
         self.fallbackTee = try c.decodeIfPresent(CompetitionDetailDefaultConfigCategoryTeesValue.self, forKey: .fallbackTee)
-        self.startList = try c.decodeIfPresent(CompetitionDetailDefaultConfigStartList.self, forKey: .startList)
+        self.startList = try c.decodeIfPresent(StartListShape.self, forKey: .startList)
         self.startListPolicy = try c.decodeIfPresent(CompetitionDetailDefaultConfigStartListPolicy.self, forKey: .startListPolicy)
     }
 
@@ -471,7 +471,7 @@ struct CompetitionDetail: Codable, Sendable, Equatable {
     var rounds: [CompetitionRoundListItem]
     var id: String
     var name: String
-    var lifecycle: CompetitionDetailLifecycle
+    var lifecycle: CompetitionLifecycle
     var defaultConfig: CompetitionDetailDefaultConfig?
     var aggregation: CompetitionAggregation?
     var pointTemplateId: String?
@@ -496,7 +496,7 @@ struct CompetitionDetail: Codable, Sendable, Equatable {
         case createdAt = "createdAt"
     }
 
-    init(rounds: [CompetitionRoundListItem], id: String, name: String, lifecycle: CompetitionDetailLifecycle, defaultConfig: CompetitionDetailDefaultConfig? = nil, aggregation: CompetitionAggregation? = nil, pointTemplateId: String? = nil, cutRules: JSONValue, isResultsFinal: Bool, resultsFinalizedAt: String? = nil, ownerPlayerId: String, createdAt: String) {
+    init(rounds: [CompetitionRoundListItem], id: String, name: String, lifecycle: CompetitionLifecycle, defaultConfig: CompetitionDetailDefaultConfig? = nil, aggregation: CompetitionAggregation? = nil, pointTemplateId: String? = nil, cutRules: JSONValue, isResultsFinal: Bool, resultsFinalizedAt: String? = nil, ownerPlayerId: String, createdAt: String) {
         self.rounds = rounds
         self.id = id
         self.name = name
@@ -516,7 +516,7 @@ struct CompetitionDetail: Codable, Sendable, Equatable {
         self.rounds = try c.decode([CompetitionRoundListItem].self, forKey: .rounds)
         self.id = try c.decode(String.self, forKey: .id)
         self.name = try c.decode(String.self, forKey: .name)
-        self.lifecycle = try c.decode(CompetitionDetailLifecycle.self, forKey: .lifecycle)
+        self.lifecycle = try c.decode(CompetitionLifecycle.self, forKey: .lifecycle)
         self.defaultConfig = try c.decodeIfPresent(CompetitionDetailDefaultConfig.self, forKey: .defaultConfig)
         self.aggregation = try c.decodeIfPresent(CompetitionAggregation.self, forKey: .aggregation)
         self.pointTemplateId = try c.decodeIfPresent(String.self, forKey: .pointTemplateId)
@@ -807,7 +807,7 @@ struct CompetitionResults: Codable, Sendable, Equatable {
 struct Competition: Codable, Sendable, Equatable {
     var id: String
     var name: String
-    var lifecycle: CompetitionDetailLifecycle
+    var lifecycle: CompetitionLifecycle
     var defaultConfig: CompetitionDetailDefaultConfig?
     var aggregation: CompetitionAggregation?
     var pointTemplateId: String?
@@ -831,7 +831,7 @@ struct Competition: Codable, Sendable, Equatable {
         case createdAt = "createdAt"
     }
 
-    init(id: String, name: String, lifecycle: CompetitionDetailLifecycle, defaultConfig: CompetitionDetailDefaultConfig? = nil, aggregation: CompetitionAggregation? = nil, pointTemplateId: String? = nil, cutRules: JSONValue, isResultsFinal: Bool, resultsFinalizedAt: String? = nil, ownerPlayerId: String, createdAt: String) {
+    init(id: String, name: String, lifecycle: CompetitionLifecycle, defaultConfig: CompetitionDetailDefaultConfig? = nil, aggregation: CompetitionAggregation? = nil, pointTemplateId: String? = nil, cutRules: JSONValue, isResultsFinal: Bool, resultsFinalizedAt: String? = nil, ownerPlayerId: String, createdAt: String) {
         self.id = id
         self.name = name
         self.lifecycle = lifecycle
@@ -849,7 +849,7 @@ struct Competition: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try c.decode(String.self, forKey: .id)
         self.name = try c.decode(String.self, forKey: .name)
-        self.lifecycle = try c.decode(CompetitionDetailLifecycle.self, forKey: .lifecycle)
+        self.lifecycle = try c.decode(CompetitionLifecycle.self, forKey: .lifecycle)
         self.defaultConfig = try c.decodeIfPresent(CompetitionDetailDefaultConfig.self, forKey: .defaultConfig)
         self.aggregation = try c.decodeIfPresent(CompetitionAggregation.self, forKey: .aggregation)
         self.pointTemplateId = try c.decodeIfPresent(String.self, forKey: .pointTemplateId)
@@ -944,41 +944,35 @@ struct CompetitionRound: Codable, Sendable, Equatable {
     }
 }
 
-enum RoundRoundType: String, Codable, Sendable, Equatable {
+enum RoundType: String, Codable, Sendable, Equatable {
     case full18 = "full_18"
     case front9 = "front_9"
     case back9 = "back_9"
     case customHoles = "custom_holes"
 }
 
-enum RoundVenueType: String, Codable, Sendable, Equatable {
+enum VenueType: String, Codable, Sendable, Equatable {
     case outdoor = "outdoor"
     case indoor = "indoor"
 }
 
-enum RoundStartListMode: String, Codable, Sendable, Equatable {
+enum StartListMode: String, Codable, Sendable, Equatable {
     case structured = "structured"
     case fixedSlots = "fixed_slots"
     case openWindow = "open_window"
-}
-
-enum RoundVisibility: String, Codable, Sendable, Equatable {
-    case `private` = "private"
-    case friends = "friends"
-    case link = "link"
 }
 
 struct Round: Codable, Sendable, Equatable {
     var id: String
     var courseId: String
     var date: String
-    var roundType: RoundRoundType
-    var venueType: RoundVenueType
-    var startListMode: RoundStartListMode
+    var roundType: RoundType
+    var venueType: VenueType
+    var startListMode: StartListMode
     var windowStart: String?
     var windowEnd: String?
     var selfOrganize: Bool
-    var status: AdminRoundSummaryStatus
+    var status: RoundStatus
     var latestEventId: String?
     var name: String?
     var visibility: RoundVisibility
@@ -1015,7 +1009,7 @@ struct Round: Codable, Sendable, Equatable {
         case playingGroups = "playingGroups"
     }
 
-    init(id: String, courseId: String, date: String, roundType: RoundRoundType, venueType: RoundVenueType, startListMode: RoundStartListMode, windowStart: String? = nil, windowEnd: String? = nil, selfOrganize: Bool, status: AdminRoundSummaryStatus, latestEventId: String? = nil, name: String? = nil, visibility: RoundVisibility, courseNameSnapshot: String? = nil, completedAt: String? = nil, formatSlots: [FormatSlot], playHoles: [RoundPlayHole], routeSi: RoundRouteSi, routeHandicapPolicy: RoundRoutePolicy, routeSections: [RoundRouteSection], playingGroups: [RoundPlayingGroup]) {
+    init(id: String, courseId: String, date: String, roundType: RoundType, venueType: VenueType, startListMode: StartListMode, windowStart: String? = nil, windowEnd: String? = nil, selfOrganize: Bool, status: RoundStatus, latestEventId: String? = nil, name: String? = nil, visibility: RoundVisibility, courseNameSnapshot: String? = nil, completedAt: String? = nil, formatSlots: [FormatSlot], playHoles: [RoundPlayHole], routeSi: RoundRouteSi, routeHandicapPolicy: RoundRoutePolicy, routeSections: [RoundRouteSection], playingGroups: [RoundPlayingGroup]) {
         self.id = id
         self.courseId = courseId
         self.date = date
@@ -1044,13 +1038,13 @@ struct Round: Codable, Sendable, Equatable {
         self.id = try c.decode(String.self, forKey: .id)
         self.courseId = try c.decode(String.self, forKey: .courseId)
         self.date = try c.decode(String.self, forKey: .date)
-        self.roundType = try c.decode(RoundRoundType.self, forKey: .roundType)
-        self.venueType = try c.decode(RoundVenueType.self, forKey: .venueType)
-        self.startListMode = try c.decode(RoundStartListMode.self, forKey: .startListMode)
+        self.roundType = try c.decode(RoundType.self, forKey: .roundType)
+        self.venueType = try c.decode(VenueType.self, forKey: .venueType)
+        self.startListMode = try c.decode(StartListMode.self, forKey: .startListMode)
         self.windowStart = try c.decodeIfPresent(String.self, forKey: .windowStart)
         self.windowEnd = try c.decodeIfPresent(String.self, forKey: .windowEnd)
         self.selfOrganize = try c.decode(Bool.self, forKey: .selfOrganize)
-        self.status = try c.decode(AdminRoundSummaryStatus.self, forKey: .status)
+        self.status = try c.decode(RoundStatus.self, forKey: .status)
         self.latestEventId = try c.decodeIfPresent(String.self, forKey: .latestEventId)
         self.name = try c.decodeIfPresent(String.self, forKey: .name)
         self.visibility = try c.decode(RoundVisibility.self, forKey: .visibility)
@@ -1181,7 +1175,7 @@ struct CompilerDiagnostic: Codable, Sendable, Equatable {
     }
 }
 
-enum CutOutcomeRuleCutType: String, Codable, Sendable, Equatable {
+enum CutType: String, Codable, Sendable, Equatable {
     case topN = "top_n"
     case topPercent = "top_percent"
     case withinStrokes = "within_strokes"
@@ -1189,7 +1183,7 @@ enum CutOutcomeRuleCutType: String, Codable, Sendable, Equatable {
 
 struct CutOutcomeRule: Codable, Sendable, Equatable {
     var afterRound: Double
-    var cutType: CutOutcomeRuleCutType
+    var cutType: CutType
     var cutValue: Double
 
     enum CodingKeys: String, CodingKey {
@@ -1198,7 +1192,7 @@ struct CutOutcomeRule: Codable, Sendable, Equatable {
         case cutValue = "cutValue"
     }
 
-    init(afterRound: Double, cutType: CutOutcomeRuleCutType, cutValue: Double) {
+    init(afterRound: Double, cutType: CutType, cutValue: Double) {
         self.afterRound = afterRound
         self.cutType = cutType
         self.cutValue = cutValue
@@ -1207,7 +1201,7 @@ struct CutOutcomeRule: Codable, Sendable, Equatable {
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.afterRound = try c.decode(Double.self, forKey: .afterRound)
-        self.cutType = try c.decode(CutOutcomeRuleCutType.self, forKey: .cutType)
+        self.cutType = try c.decode(CutType.self, forKey: .cutType)
         self.cutValue = try c.decode(Double.self, forKey: .cutValue)
     }
 
@@ -1301,7 +1295,7 @@ struct CompetitionRoundListItem: Codable, Sendable, Equatable {
     var cutEligible: Bool
     var postCut: Bool
     var createdAt: String
-    var status: AdminRoundSummaryStatus
+    var status: RoundStatus
     var completedAt: String?
     var date: String
     var courseNameSnapshot: String?
@@ -1322,7 +1316,7 @@ struct CompetitionRoundListItem: Codable, Sendable, Equatable {
         case shareToken = "shareToken"
     }
 
-    init(id: String, competitionId: String, roundId: String, roundNumber: Double, cutEligible: Bool, postCut: Bool, createdAt: String, status: AdminRoundSummaryStatus, completedAt: String? = nil, date: String, courseNameSnapshot: String? = nil, shareToken: String? = nil) {
+    init(id: String, competitionId: String, roundId: String, roundNumber: Double, cutEligible: Bool, postCut: Bool, createdAt: String, status: RoundStatus, completedAt: String? = nil, date: String, courseNameSnapshot: String? = nil, shareToken: String? = nil) {
         self.id = id
         self.competitionId = competitionId
         self.roundId = roundId
@@ -1346,7 +1340,7 @@ struct CompetitionRoundListItem: Codable, Sendable, Equatable {
         self.cutEligible = try c.decode(Bool.self, forKey: .cutEligible)
         self.postCut = try c.decode(Bool.self, forKey: .postCut)
         self.createdAt = try c.decode(String.self, forKey: .createdAt)
-        self.status = try c.decode(AdminRoundSummaryStatus.self, forKey: .status)
+        self.status = try c.decode(RoundStatus.self, forKey: .status)
         self.completedAt = try c.decodeIfPresent(String.self, forKey: .completedAt)
         self.date = try c.decode(String.self, forKey: .date)
         self.courseNameSnapshot = try c.decodeIfPresent(String.self, forKey: .courseNameSnapshot)
@@ -1405,7 +1399,7 @@ struct CompetitionAggregation: Codable, Sendable, Equatable {
     }
 }
 
-enum CompetitionResultViewDirection: String, Codable, Sendable, Equatable {
+enum ResultViewDirection: String, Codable, Sendable, Equatable {
     case high = "high"
     case low = "low"
 }
@@ -1520,7 +1514,7 @@ struct CompetitionResultView: Codable, Sendable, Equatable {
     var strategyId: String
     var metricId: String
     var metricLabel: String
-    var direction: CompetitionResultViewDirection
+    var direction: ResultViewDirection
     var `operator`: CompetitionResultViewOperator
     var rounds: [CompetitionResultViewRoundsItem]
     var entries: [CompetitionRankedEntry]
@@ -1536,7 +1530,7 @@ struct CompetitionResultView: Codable, Sendable, Equatable {
         case entries = "entries"
     }
 
-    init(strategyId: String, metricId: String, metricLabel: String, direction: CompetitionResultViewDirection, `operator`: CompetitionResultViewOperator, rounds: [CompetitionResultViewRoundsItem], entries: [CompetitionRankedEntry]) {
+    init(strategyId: String, metricId: String, metricLabel: String, direction: ResultViewDirection, `operator`: CompetitionResultViewOperator, rounds: [CompetitionResultViewRoundsItem], entries: [CompetitionRankedEntry]) {
         self.strategyId = strategyId
         self.metricId = metricId
         self.metricLabel = metricLabel
@@ -1552,7 +1546,7 @@ struct CompetitionResultView: Codable, Sendable, Equatable {
         self.strategyId = try c.decode(String.self, forKey: .strategyId)
         self.metricId = try c.decode(String.self, forKey: .metricId)
         self.metricLabel = try c.decode(String.self, forKey: .metricLabel)
-        self.direction = try c.decode(CompetitionResultViewDirection.self, forKey: .direction)
+        self.direction = try c.decode(ResultViewDirection.self, forKey: .direction)
         self.`operator` = try c.decode(CompetitionResultViewOperator.self, forKey: .`operator`)
         self.rounds = try c.decode([CompetitionResultViewRoundsItem].self, forKey: .rounds)
         self.entries = try c.decode([CompetitionRankedEntry].self, forKey: .entries)
@@ -1613,7 +1607,7 @@ struct CompetitionResultEntry: Codable, Sendable, Equatable {
     }
 }
 
-enum FormatSlotScoringMode: String, Codable, Sendable, Equatable {
+enum ScoringMode: String, Codable, Sendable, Equatable {
     case custom = "custom"
     case strokePlay = "stroke_play"
     case stableford = "stableford"
@@ -1624,7 +1618,7 @@ enum FormatSlotScoringMode: String, Codable, Sendable, Equatable {
     case skins = "skins"
 }
 
-enum FormatSlotTeamShape: String, Codable, Sendable, Equatable {
+enum TeamShape: String, Codable, Sendable, Equatable {
     case custom = "custom"
     case individual = "individual"
     case betterBall = "better_ball"
@@ -1640,8 +1634,8 @@ struct FormatSlot: Codable, Sendable, Equatable {
     var slotIndex: Double
     var slotDefId: String
     var formatId: String
-    var scoringMode: FormatSlotScoringMode
-    var teamShape: FormatSlotTeamShape
+    var scoringMode: ScoringMode
+    var teamShape: TeamShape
     var allowancePct: Double
     var allowanceConfig: CompetitionDetailDefaultConfigSlotsItemAllowanceConfig
     var formatConfig: JSONValue
@@ -1659,7 +1653,7 @@ struct FormatSlot: Codable, Sendable, Equatable {
         case ballMode = "ballMode"
     }
 
-    init(slotIndex: Double, slotDefId: String, formatId: String, scoringMode: FormatSlotScoringMode, teamShape: FormatSlotTeamShape, allowancePct: Double, allowanceConfig: CompetitionDetailDefaultConfigSlotsItemAllowanceConfig, formatConfig: JSONValue, ballMode: FormatSlotBallMode) {
+    init(slotIndex: Double, slotDefId: String, formatId: String, scoringMode: ScoringMode, teamShape: TeamShape, allowancePct: Double, allowanceConfig: CompetitionDetailDefaultConfigSlotsItemAllowanceConfig, formatConfig: JSONValue, ballMode: FormatSlotBallMode) {
         self.slotIndex = slotIndex
         self.slotDefId = slotDefId
         self.formatId = formatId
@@ -1676,8 +1670,8 @@ struct FormatSlot: Codable, Sendable, Equatable {
         self.slotIndex = try c.decode(Double.self, forKey: .slotIndex)
         self.slotDefId = try c.decode(String.self, forKey: .slotDefId)
         self.formatId = try c.decode(String.self, forKey: .formatId)
-        self.scoringMode = try c.decode(FormatSlotScoringMode.self, forKey: .scoringMode)
-        self.teamShape = try c.decode(FormatSlotTeamShape.self, forKey: .teamShape)
+        self.scoringMode = try c.decode(ScoringMode.self, forKey: .scoringMode)
+        self.teamShape = try c.decode(TeamShape.self, forKey: .teamShape)
         self.allowancePct = try c.decode(Double.self, forKey: .allowancePct)
         self.allowanceConfig = try c.decode(CompetitionDetailDefaultConfigSlotsItemAllowanceConfig.self, forKey: .allowanceConfig)
         self.formatConfig = try c.decode(JSONValue.self, forKey: .formatConfig)
@@ -1750,14 +1744,14 @@ struct RoundPlayHole: Codable, Sendable, Equatable {
     }
 }
 
-enum RoundRouteSiMode: String, Codable, Sendable, Equatable {
+enum RouteSiMode: String, Codable, Sendable, Equatable {
     case official = "official"
     case difficulty = "difficulty"
     case custom = "custom"
 }
 
 struct RoundRouteSi: Codable, Sendable, Equatable {
-    var mode: RoundRouteSiMode
+    var mode: RouteSiMode
     var sourceLabel: String?
     var sourceVersion: String?
     var allocationCycleSize: Double
@@ -1769,7 +1763,7 @@ struct RoundRouteSi: Codable, Sendable, Equatable {
         case allocationCycleSize = "allocationCycleSize"
     }
 
-    init(mode: RoundRouteSiMode, sourceLabel: String? = nil, sourceVersion: String? = nil, allocationCycleSize: Double) {
+    init(mode: RouteSiMode, sourceLabel: String? = nil, sourceVersion: String? = nil, allocationCycleSize: Double) {
         self.mode = mode
         self.sourceLabel = sourceLabel
         self.sourceVersion = sourceVersion
@@ -1778,7 +1772,7 @@ struct RoundRouteSi: Codable, Sendable, Equatable {
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.mode = try c.decode(RoundRouteSiMode.self, forKey: .mode)
+        self.mode = try c.decode(RouteSiMode.self, forKey: .mode)
         self.sourceLabel = try c.decodeIfPresent(String.self, forKey: .sourceLabel)
         self.sourceVersion = try c.decodeIfPresent(String.self, forKey: .sourceVersion)
         self.allocationCycleSize = try c.decode(Double.self, forKey: .allocationCycleSize)
@@ -1801,7 +1795,7 @@ struct RoundRouteSi: Codable, Sendable, Equatable {
     }
 }
 
-enum RoundRoutePolicyType: String, Codable, Sendable, Equatable {
+enum RoutePolicyType: String, Codable, Sendable, Equatable {
     case officialRoute = "official_route"
     case fullCourseCasual = "full_course_casual"
     case proratedCasual = "prorated_casual"
@@ -1809,7 +1803,7 @@ enum RoundRoutePolicyType: String, Codable, Sendable, Equatable {
 }
 
 struct RoundRoutePolicy: Codable, Sendable, Equatable {
-    var type: RoundRoutePolicyType
+    var type: RoutePolicyType
     var postingEligible: Bool
     var postingIneligibleReason: String?
 
@@ -1819,7 +1813,7 @@ struct RoundRoutePolicy: Codable, Sendable, Equatable {
         case postingIneligibleReason = "postingIneligibleReason"
     }
 
-    init(type: RoundRoutePolicyType, postingEligible: Bool, postingIneligibleReason: String? = nil) {
+    init(type: RoutePolicyType, postingEligible: Bool, postingIneligibleReason: String? = nil) {
         self.type = type
         self.postingEligible = postingEligible
         self.postingIneligibleReason = postingIneligibleReason
@@ -1827,7 +1821,7 @@ struct RoundRoutePolicy: Codable, Sendable, Equatable {
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.type = try c.decode(RoundRoutePolicyType.self, forKey: .type)
+        self.type = try c.decode(RoutePolicyType.self, forKey: .type)
         self.postingEligible = try c.decode(Bool.self, forKey: .postingEligible)
         self.postingIneligibleReason = try c.decodeIfPresent(String.self, forKey: .postingIneligibleReason)
     }
@@ -2551,14 +2545,14 @@ enum CompetitionsUpdateOutput: Codable, Sendable, Equatable {
 
 struct CompetitionsTransitionInput: Codable, Sendable, Equatable {
     var id: String
-    var to: CompetitionDetailLifecycle
+    var to: CompetitionLifecycle
 
     enum CodingKeys: String, CodingKey {
         case id = "id"
         case to = "to"
     }
 
-    init(id: String, to: CompetitionDetailLifecycle) {
+    init(id: String, to: CompetitionLifecycle) {
         self.id = id
         self.to = to
     }
@@ -2566,7 +2560,7 @@ struct CompetitionsTransitionInput: Codable, Sendable, Equatable {
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try c.decode(String.self, forKey: .id)
-        self.to = try c.decode(CompetitionDetailLifecycle.self, forKey: .to)
+        self.to = try c.decode(CompetitionLifecycle.self, forKey: .to)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -2580,8 +2574,8 @@ struct CompetitionsCreateRoundInput: Codable, Sendable, Equatable {
     var id: String
     var courseId: String
     var playedAt: String
-    var roundType: RoundRoundType?
-    var venueType: RoundVenueType?
+    var roundType: RoundType?
+    var venueType: VenueType?
 
     enum CodingKeys: String, CodingKey {
         case id = "id"
@@ -2591,7 +2585,7 @@ struct CompetitionsCreateRoundInput: Codable, Sendable, Equatable {
         case venueType = "venueType"
     }
 
-    init(id: String, courseId: String, playedAt: String, roundType: RoundRoundType? = nil, venueType: RoundVenueType? = nil) {
+    init(id: String, courseId: String, playedAt: String, roundType: RoundType? = nil, venueType: VenueType? = nil) {
         self.id = id
         self.courseId = courseId
         self.playedAt = playedAt
@@ -2604,8 +2598,8 @@ struct CompetitionsCreateRoundInput: Codable, Sendable, Equatable {
         self.id = try c.decode(String.self, forKey: .id)
         self.courseId = try c.decode(String.self, forKey: .courseId)
         self.playedAt = try c.decode(String.self, forKey: .playedAt)
-        self.roundType = try c.decodeIfPresent(RoundRoundType.self, forKey: .roundType)
-        self.venueType = try c.decodeIfPresent(RoundVenueType.self, forKey: .venueType)
+        self.roundType = try c.decodeIfPresent(RoundType.self, forKey: .roundType)
+        self.venueType = try c.decodeIfPresent(VenueType.self, forKey: .venueType)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -2876,7 +2870,7 @@ enum CompetitionsCreateRoundOutputOkDraftProducersItem: Codable, Sendable, Equat
     }
 }
 
-enum CompetitionsCreateRoundOutputOkDraftTeamsItemKind: String, Codable, Sendable, Equatable {
+enum DraftTeamKind: String, Codable, Sendable, Equatable {
     case singleBall = "single_ball"
     case multiBall = "multi_ball"
 }
@@ -2955,7 +2949,7 @@ struct CompetitionsCreateRoundOutputOkDraftTeamsItem: Codable, Sendable, Equatab
     var id: String
     var label: String?
     var formation: String?
-    var kind: CompetitionsCreateRoundOutputOkDraftTeamsItemKind?
+    var kind: DraftTeamKind?
     var members: [CompetitionsCreateRoundOutputOkDraftTeamsItemMembersItem]
 
     enum CodingKeys: String, CodingKey {
@@ -2966,7 +2960,7 @@ struct CompetitionsCreateRoundOutputOkDraftTeamsItem: Codable, Sendable, Equatab
         case members = "members"
     }
 
-    init(id: String, label: String? = nil, formation: String? = nil, kind: CompetitionsCreateRoundOutputOkDraftTeamsItemKind? = nil, members: [CompetitionsCreateRoundOutputOkDraftTeamsItemMembersItem]) {
+    init(id: String, label: String? = nil, formation: String? = nil, kind: DraftTeamKind? = nil, members: [CompetitionsCreateRoundOutputOkDraftTeamsItemMembersItem]) {
         self.id = id
         self.label = label
         self.formation = formation
@@ -2979,7 +2973,7 @@ struct CompetitionsCreateRoundOutputOkDraftTeamsItem: Codable, Sendable, Equatab
         self.id = try c.decode(String.self, forKey: .id)
         self.label = try c.decodeIfPresent(String.self, forKey: .label)
         self.formation = try c.decodeIfPresent(String.self, forKey: .formation)
-        self.kind = try c.decodeIfPresent(CompetitionsCreateRoundOutputOkDraftTeamsItemKind.self, forKey: .kind)
+        self.kind = try c.decodeIfPresent(DraftTeamKind.self, forKey: .kind)
         self.members = try c.decode([CompetitionsCreateRoundOutputOkDraftTeamsItemMembersItem].self, forKey: .members)
     }
 
@@ -3029,8 +3023,8 @@ struct CompetitionsCreateRoundOutputOkDraft: Codable, Sendable, Equatable {
     var courseId: String
     var playedAt: String
     var name: String?
-    var roundType: RoundRoundType?
-    var venueType: RoundVenueType?
+    var roundType: RoundType?
+    var venueType: VenueType?
     var route: CompetitionsCreateRoundOutputOkDraftRoute?
     var producers: [CompetitionsCreateRoundOutputOkDraftProducersItem]
     var teams: [CompetitionsCreateRoundOutputOkDraftTeamsItem]?
@@ -3052,7 +3046,7 @@ struct CompetitionsCreateRoundOutputOkDraft: Codable, Sendable, Equatable {
         case startList = "startList"
     }
 
-    init(courseId: String, playedAt: String, name: String? = nil, roundType: RoundRoundType? = nil, venueType: RoundVenueType? = nil, route: CompetitionsCreateRoundOutputOkDraftRoute? = nil, producers: [CompetitionsCreateRoundOutputOkDraftProducersItem], teams: [CompetitionsCreateRoundOutputOkDraftTeamsItem]? = nil, formats: [CompetitionDetailDefaultConfigSlotsItem], playingGroups: [CompetitionsCreateRoundOutputOkDraftPlayingGroupsItem]? = nil, startList: CompetitionDetailDefaultConfigStartListPolicy? = nil) {
+    init(courseId: String, playedAt: String, name: String? = nil, roundType: RoundType? = nil, venueType: VenueType? = nil, route: CompetitionsCreateRoundOutputOkDraftRoute? = nil, producers: [CompetitionsCreateRoundOutputOkDraftProducersItem], teams: [CompetitionsCreateRoundOutputOkDraftTeamsItem]? = nil, formats: [CompetitionDetailDefaultConfigSlotsItem], playingGroups: [CompetitionsCreateRoundOutputOkDraftPlayingGroupsItem]? = nil, startList: CompetitionDetailDefaultConfigStartListPolicy? = nil) {
         self.courseId = courseId
         self.playedAt = playedAt
         self.name = name
@@ -3071,8 +3065,8 @@ struct CompetitionsCreateRoundOutputOkDraft: Codable, Sendable, Equatable {
         self.courseId = try c.decode(String.self, forKey: .courseId)
         self.playedAt = try c.decode(String.self, forKey: .playedAt)
         self.name = try c.decodeIfPresent(String.self, forKey: .name)
-        self.roundType = try c.decodeIfPresent(RoundRoundType.self, forKey: .roundType)
-        self.venueType = try c.decodeIfPresent(RoundVenueType.self, forKey: .venueType)
+        self.roundType = try c.decodeIfPresent(RoundType.self, forKey: .roundType)
+        self.venueType = try c.decodeIfPresent(VenueType.self, forKey: .venueType)
         self.route = try c.decodeIfPresent(CompetitionsCreateRoundOutputOkDraftRoute.self, forKey: .route)
         self.producers = try c.decode([CompetitionsCreateRoundOutputOkDraftProducersItem].self, forKey: .producers)
         self.teams = try c.decodeIfPresent([CompetitionsCreateRoundOutputOkDraftTeamsItem].self, forKey: .teams)

@@ -732,7 +732,7 @@ struct EditDraftAssembler: Sendable {
     /// the hole set's span.
     static func route(
         from draft: CompetitionsCreateRoundOutputOkDraft
-    ) -> (preset: RoundRoundType, startHole: Int) {
+    ) -> (preset: RoundType, startHole: Int) {
         switch draft.roundType {
         case .full18, .front9:
             return (draft.roundType ?? .full18, 1)

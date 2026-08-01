@@ -131,7 +131,7 @@ struct FormatCatalog: Sendable, Equatable {
     /// sides too when the format supports side aggregation.
     func teamKindFits(
         _ formatId: String,
-        kind: CompetitionsCreateRoundOutputOkDraftTeamsItemKind
+        kind: DraftTeamKind
     ) -> Bool {
         if isSideFormat(formatId) { return kind == .multiBall }
         return kind == .singleBall || acceptsSideSubjects(formatId)

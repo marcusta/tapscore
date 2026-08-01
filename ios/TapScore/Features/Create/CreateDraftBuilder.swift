@@ -85,12 +85,12 @@ struct CreateDraftBuilder: Sendable {
     struct Route: Sendable, Equatable {
         /// `full_18` / `front_9` / `back_9` — never `custom_holes`, which is an
         /// ENCODING of a rotated preset rather than something a user picks.
-        var preset: RoundRoundType
+        var preset: RoundType
         /// The preset's hole set, ascending.
         var holes: [Int]
         var startHole: Int
 
-        init(preset: RoundRoundType, holes: [Int], startHole: Int) {
+        init(preset: RoundType, holes: [Int], startHole: Int) {
             self.preset = preset
             self.holes = holes
             self.startHole = startHole
@@ -103,7 +103,7 @@ struct CreateDraftBuilder: Sendable {
         }
 
         /// Spec §3.2 B3.3: the holes a preset plays, derived from the course.
-        static func holes(for preset: RoundRoundType, courseHoles: [Int]) -> [Int] {
+        static func holes(for preset: RoundType, courseHoles: [Int]) -> [Int] {
             let all = courseHoles.sorted()
             switch preset {
             case .front9: return all.filter { $0 <= 9 }
@@ -125,7 +125,7 @@ struct CreateDraftBuilder: Sendable {
     /// so it must carry an explicit handicap policy, and posting stays off.
     func routeFields(
         _ route: Route
-    ) -> (roundType: RoundRoundType, route: CompetitionsCreateRoundOutputOkDraftRoute?) {
+    ) -> (roundType: RoundType, route: CompetitionsCreateRoundOutputOkDraftRoute?) {
         let index = route.holes.firstIndex(of: route.startHole) ?? -1
         guard index > 0 else { return (route.preset, nil) }
         let rotated = Array(route.holes[index...]) + Array(route.holes[..<index])
@@ -449,7 +449,7 @@ struct CreateDraftBuilder: Sendable {
 
         struct Team: Sendable, Equatable {
             var key: Int
-            var kind: CompetitionsCreateRoundOutputOkDraftTeamsItemKind
+            var kind: DraftTeamKind
             var formation: String
             /// Roster indices → allowance %, in roster order.
             var members: [Int]

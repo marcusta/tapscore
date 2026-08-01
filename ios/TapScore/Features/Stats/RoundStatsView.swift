@@ -264,7 +264,7 @@ struct RoundStatsHoleCellView: View {
 
 /// The glyph colours, in one place so the strip and its legend cannot drift.
 enum RoundStatsGlyph {
-    static func teeColor(_ tee: PlayerHoleStatsTeeResult) -> Color {
+    static func teeColor(_ tee: TeeResult) -> Color {
         switch tee {
         case .fairway: return TapColors.primary
         case .inPlay: return TapColors.accent
@@ -518,7 +518,7 @@ enum RoundStatsCopy {
         return nil
     }
 
-    static func title(_ tee: PlayerHoleStatsTeeResult) -> String {
+    static func title(_ tee: TeeResult) -> String {
         switch tee {
         case .fairway: return "Fairway"
         case .inPlay: return "In play"
@@ -530,7 +530,7 @@ enum RoundStatsCopy {
     /// the ladder was split. They are worded as the coarse bands they are —
     /// re-labelling `2_to_6m` as one of the new buckets would put a measurement
     /// where none was taken.
-    static func title(_ firstPutt: PlayerHoleStatsFirstPutt) -> String {
+    static func title(_ firstPutt: FirstPutt) -> String {
         switch firstPutt {
         case .inside1m: return "Inside 1 m"
         case .v1To2m: return "1–2 m"
@@ -543,7 +543,7 @@ enum RoundStatsCopy {
         }
     }
 
-    static func title(_ shortGame: PlayerHoleStatsShortGameDifficulty) -> String {
+    static func title(_ shortGame: ShortGameDifficulty) -> String {
         switch shortGame {
         case .standard: return "Standard chip or pitch"
         case .hard: return "Hard chip or pitch"

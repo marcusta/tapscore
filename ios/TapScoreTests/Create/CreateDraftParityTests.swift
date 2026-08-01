@@ -153,7 +153,7 @@ final class CreateDraftParityTests: XCTestCase {
     func testStartHoleVectors() {
         let builder = CreateDraftBuilder(catalog: catalog)
         let full = Array(1...18), front = Array(1...9), back = Array(10...18)
-        let cases: [(RoundRoundType, [Int], Int, RoundRoundType, [Int]?)] = [
+        let cases: [(RoundType, [Int], Int, RoundType, [Int]?)] = [
             (.full18, full, 1, .full18, nil),
             (.full18, full, 10, .customHoles, Array(10...18) + Array(1...9)),
             (.full18, full, 7, .customHoles, Array(7...18) + Array(1...6)),

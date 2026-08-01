@@ -222,7 +222,7 @@ struct FriendsActivityEntry: Codable, Sendable, Equatable {
     var name: String?
     var courseName: String?
     var date: String
-    var status: AdminRoundSummaryStatus
+    var status: RoundStatus
     var holeCount: Double
     var lastActivityAt: String?
     var formatIds: [String]?
@@ -240,7 +240,7 @@ struct FriendsActivityEntry: Codable, Sendable, Equatable {
         case friends = "friends"
     }
 
-    init(roundId: String, name: String? = nil, courseName: String? = nil, date: String, status: AdminRoundSummaryStatus, holeCount: Double, lastActivityAt: String? = nil, formatIds: [String]? = nil, friends: [FriendsActivityFriend]) {
+    init(roundId: String, name: String? = nil, courseName: String? = nil, date: String, status: RoundStatus, holeCount: Double, lastActivityAt: String? = nil, formatIds: [String]? = nil, friends: [FriendsActivityFriend]) {
         self.roundId = roundId
         self.name = name
         self.courseName = courseName
@@ -258,7 +258,7 @@ struct FriendsActivityEntry: Codable, Sendable, Equatable {
         self.name = try c.decodeIfPresent(String.self, forKey: .name)
         self.courseName = try c.decodeIfPresent(String.self, forKey: .courseName)
         self.date = try c.decode(String.self, forKey: .date)
-        self.status = try c.decode(AdminRoundSummaryStatus.self, forKey: .status)
+        self.status = try c.decode(RoundStatus.self, forKey: .status)
         self.holeCount = try c.decode(Double.self, forKey: .holeCount)
         self.lastActivityAt = try c.decodeIfPresent(String.self, forKey: .lastActivityAt)
         self.formatIds = try c.decodeIfPresent([String].self, forKey: .formatIds)

@@ -245,14 +245,14 @@ enum StatsFormat {
         }
     }
 
-    static func title(_ venue: RoundVenueType) -> String {
+    static func title(_ venue: VenueType) -> String {
         switch venue {
         case .indoor: return "Indoor"
         case .outdoor: return "Outdoor"
         }
     }
 
-    static func title(_ type: RoundRoundType) -> String {
+    static func title(_ type: RoundType) -> String {
         switch type {
         case .full18: return "18 holes"
         case .front9: return "Front 9"

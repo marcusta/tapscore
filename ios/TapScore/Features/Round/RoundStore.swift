@@ -750,7 +750,7 @@ final class RoundStore {
     /// close itself when another device finishes the round.
     private func applyRemoteStatus(_ status: LiveRoundStatus) {
         guard let r = round else { return }
-        let mapped: AdminRoundSummaryStatus
+        let mapped: RoundStatus
         switch status {
         case .notStarted: mapped = .notStarted
         case .active: mapped = .active
@@ -776,7 +776,7 @@ final class RoundStore {
     /// One funnel for both the remote transition and this device's own
     /// finish/reopen, so the two cannot drift into doing different bookkeeping
     /// for the same fact.
-    private func applyStatus(_ status: AdminRoundSummaryStatus, completedAt: String?) {
+    private func applyStatus(_ status: RoundStatus, completedAt: String?) {
         guard var r = round else { return }
         r.status = status
         r.completedAt = completedAt
@@ -945,7 +945,7 @@ final class RoundStore {
     /// separate types on purpose — one is generated from the server contract,
     /// the other is a storage format — so the mapping is written out rather
     /// than round-tripped through `rawValue`.
-    private static func deviceStatus(_ status: AdminRoundSummaryStatus) -> DeviceRoundStatus {
+    private static func deviceStatus(_ status: RoundStatus) -> DeviceRoundStatus {
         switch status {
         case .notStarted: .notStarted
         case .active: .active

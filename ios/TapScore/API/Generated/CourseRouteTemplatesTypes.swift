@@ -77,7 +77,7 @@ struct CourseRouteTemplateRoutePlayHolesItem: Codable, Sendable, Equatable {
 }
 
 struct CourseRouteTemplateRouteRouteSi: Codable, Sendable, Equatable {
-    var mode: RoundRouteSiMode
+    var mode: RouteSiMode
     var sourceLabel: String?
     var sourceVersion: String?
     var allocationCycleSize: Double?
@@ -89,7 +89,7 @@ struct CourseRouteTemplateRouteRouteSi: Codable, Sendable, Equatable {
         case allocationCycleSize = "allocationCycleSize"
     }
 
-    init(mode: RoundRouteSiMode, sourceLabel: String? = nil, sourceVersion: String? = nil, allocationCycleSize: Double? = nil) {
+    init(mode: RouteSiMode, sourceLabel: String? = nil, sourceVersion: String? = nil, allocationCycleSize: Double? = nil) {
         self.mode = mode
         self.sourceLabel = sourceLabel
         self.sourceVersion = sourceVersion
@@ -98,7 +98,7 @@ struct CourseRouteTemplateRouteRouteSi: Codable, Sendable, Equatable {
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.mode = try c.decode(RoundRouteSiMode.self, forKey: .mode)
+        self.mode = try c.decode(RouteSiMode.self, forKey: .mode)
         self.sourceLabel = try c.decodeIfPresent(String.self, forKey: .sourceLabel)
         self.sourceVersion = try c.decodeIfPresent(String.self, forKey: .sourceVersion)
         self.allocationCycleSize = try c.decodeIfPresent(Double.self, forKey: .allocationCycleSize)
@@ -114,7 +114,7 @@ struct CourseRouteTemplateRouteRouteSi: Codable, Sendable, Equatable {
 }
 
 struct CourseRouteTemplateRouteRouteHandicapPolicy: Codable, Sendable, Equatable {
-    var type: RoundRoutePolicyType
+    var type: RoutePolicyType
     var postingEligible: Bool
     var postingIneligibleReason: String?
 
@@ -124,7 +124,7 @@ struct CourseRouteTemplateRouteRouteHandicapPolicy: Codable, Sendable, Equatable
         case postingIneligibleReason = "postingIneligibleReason"
     }
 
-    init(type: RoundRoutePolicyType, postingEligible: Bool, postingIneligibleReason: String? = nil) {
+    init(type: RoutePolicyType, postingEligible: Bool, postingIneligibleReason: String? = nil) {
         self.type = type
         self.postingEligible = postingEligible
         self.postingIneligibleReason = postingIneligibleReason
@@ -132,7 +132,7 @@ struct CourseRouteTemplateRouteRouteHandicapPolicy: Codable, Sendable, Equatable
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.type = try c.decode(RoundRoutePolicyType.self, forKey: .type)
+        self.type = try c.decode(RoutePolicyType.self, forKey: .type)
         self.postingEligible = try c.decode(Bool.self, forKey: .postingEligible)
         self.postingIneligibleReason = try c.decodeIfPresent(String.self, forKey: .postingIneligibleReason)
     }

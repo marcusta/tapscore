@@ -531,7 +531,7 @@ struct CreateRoundView: View {
             onSelect: { store.setDefaultTee($0, for: gender) })
     }
 
-    private static let routePresets: [(RoundRoundType, String)] = [
+    private static let routePresets: [(RoundType, String)] = [
         (.full18, "Full 18"),
         (.front9, "Front 9"),
         (.back9, "Back 9"),

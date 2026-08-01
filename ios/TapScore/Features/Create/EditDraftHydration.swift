@@ -24,7 +24,7 @@ enum EditDraftHydration {
     /// Everything the store sets when a draft lands.
     struct Prefill {
         var courseId: String
-        var preset: RoundRoundType
+        var preset: RoundType
         var startHole: Int
         var players: [CreateStore.PlayerRow]
         var slots: [CreateStore.FormatSlot]

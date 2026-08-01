@@ -21,7 +21,7 @@ final class PollGateTests: XCTestCase {
     /// there is no tab to pass, which is exactly the change — so it is pinned
     /// one layer up, in `RoundStoreTests.testGateOpensOnTheScoreTabToo`.
     func testTheTruthTable() {
-        let statuses: [AdminRoundSummaryStatus?] = [nil, .notStarted, .active, .complete]
+        let statuses: [RoundStatus?] = [nil, .notStarted, .active, .complete]
         for sceneActive in [true, false] {
             for status in statuses {
                 let expected = sceneActive && status != .complete

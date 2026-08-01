@@ -2,7 +2,7 @@
 
 import Foundation
 
-enum CorrectionsSetupCorrectionInputTarget: String, Codable, Sendable, Equatable {
+enum SetupCorrectionTarget: String, Codable, Sendable, Equatable {
     case producerTee = "producer_tee"
     case producerHandicapIndex = "producer_handicap_index"
     case producerCategory = "producer_category"
@@ -15,7 +15,7 @@ enum CorrectionsSetupCorrectionInputTarget: String, Codable, Sendable, Equatable
 
 struct CorrectionsSetupCorrectionInput: Codable, Sendable, Equatable {
     var roundId: String
-    var target: CorrectionsSetupCorrectionInputTarget
+    var target: SetupCorrectionTarget
     var targetRef: [String: String]
     var newValue: JSONValue
     var reason: String
@@ -30,7 +30,7 @@ struct CorrectionsSetupCorrectionInput: Codable, Sendable, Equatable {
         case clientEventId = "clientEventId"
     }
 
-    init(roundId: String, target: CorrectionsSetupCorrectionInputTarget, targetRef: [String: String], newValue: JSONValue, reason: String, clientEventId: String) {
+    init(roundId: String, target: SetupCorrectionTarget, targetRef: [String: String], newValue: JSONValue, reason: String, clientEventId: String) {
         self.roundId = roundId
         self.target = target
         self.targetRef = targetRef
@@ -42,7 +42,7 @@ struct CorrectionsSetupCorrectionInput: Codable, Sendable, Equatable {
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.roundId = try c.decode(String.self, forKey: .roundId)
-        self.target = try c.decode(CorrectionsSetupCorrectionInputTarget.self, forKey: .target)
+        self.target = try c.decode(SetupCorrectionTarget.self, forKey: .target)
         self.targetRef = try c.decode([String: String].self, forKey: .targetRef)
         self.newValue = try c.decode(JSONValue.self, forKey: .newValue)
         self.reason = try c.decode(String.self, forKey: .reason)
@@ -160,13 +160,13 @@ struct CorrectionsAllowanceOverrideInput: Codable, Sendable, Equatable {
     }
 }
 
-enum CorrectionsRulingInputTarget: String, Codable, Sendable, Equatable {
+enum RulingTarget: String, Codable, Sendable, Equatable {
     case ballHole = "ball_hole"
     case ballTotal = "ball_total"
     case slotBallResult = "slot_ball_result"
 }
 
-enum CorrectionsRulingInputRulingKind: String, Codable, Sendable, Equatable {
+enum RulingKind: String, Codable, Sendable, Equatable {
     case dq = "dq"
     case penaltyStrokes = "penalty_strokes"
     case holeAdjudication = "hole_adjudication"
@@ -175,9 +175,9 @@ enum CorrectionsRulingInputRulingKind: String, Codable, Sendable, Equatable {
 
 struct CorrectionsRulingInput: Codable, Sendable, Equatable {
     var roundId: String
-    var target: CorrectionsRulingInputTarget
+    var target: RulingTarget
     var targetId: String
-    var rulingKind: CorrectionsRulingInputRulingKind
+    var rulingKind: RulingKind
     var value: JSONValue
     var reason: String
     var clientEventId: String
@@ -192,7 +192,7 @@ struct CorrectionsRulingInput: Codable, Sendable, Equatable {
         case clientEventId = "clientEventId"
     }
 
-    init(roundId: String, target: CorrectionsRulingInputTarget, targetId: String, rulingKind: CorrectionsRulingInputRulingKind, value: JSONValue, reason: String, clientEventId: String) {
+    init(roundId: String, target: RulingTarget, targetId: String, rulingKind: RulingKind, value: JSONValue, reason: String, clientEventId: String) {
         self.roundId = roundId
         self.target = target
         self.targetId = targetId
@@ -205,9 +205,9 @@ struct CorrectionsRulingInput: Codable, Sendable, Equatable {
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.roundId = try c.decode(String.self, forKey: .roundId)
-        self.target = try c.decode(CorrectionsRulingInputTarget.self, forKey: .target)
+        self.target = try c.decode(RulingTarget.self, forKey: .target)
         self.targetId = try c.decode(String.self, forKey: .targetId)
-        self.rulingKind = try c.decode(CorrectionsRulingInputRulingKind.self, forKey: .rulingKind)
+        self.rulingKind = try c.decode(RulingKind.self, forKey: .rulingKind)
         self.value = try c.decode(JSONValue.self, forKey: .value)
         self.reason = try c.decode(String.self, forKey: .reason)
         self.clientEventId = try c.decode(String.self, forKey: .clientEventId)

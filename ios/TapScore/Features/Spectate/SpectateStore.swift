@@ -29,7 +29,7 @@ final class SpectateStore {
     private(set) var round: Round?
     private(set) var result: RoundResult?
     private(set) var balls: [RoundBall] = []
-    private(set) var status: AdminRoundSummaryStatus?
+    private(set) var status: RoundStatus?
     private(set) var loading = false
     private(set) var loadError: String?
     /// Set when the server says this round is not (or no longer) watchable —

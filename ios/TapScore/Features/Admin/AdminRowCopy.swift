@@ -15,7 +15,7 @@ enum AdminRowCopy {
     /// "Done"), not the landing's (`StatusChip` → "Live", "Finished") — the
     /// same difference the web has between `admin.component.ts` and
     /// `landing.component.ts`.
-    static func statusLabel(_ status: AdminRoundSummaryStatus) -> String {
+    static func statusLabel(_ status: RoundStatus) -> String {
         switch status {
         case .notStarted: "Not started"
         case .active: "Playing"

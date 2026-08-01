@@ -44,7 +44,7 @@ final class AdminStoreTests: XCTestCase {
         let lastJSON = lastEventAt.map { "\"\($0)\"" } ?? "null"
         return """
         {"roundId":"\(id)","shareToken":\(tokenJSON),"date":"2026-06-14",
-         "status":"\(status)","courseName":"Observer Links",
+         "status":"\(status)","visibility":"friends","courseName":"Observer Links",
          "createdAt":"2026-06-14T08:00:00.000Z","completedAt":null,
          "creatorPlayerId":null,"creatorName":null,
          "participants":["Ivar","Jonas"],"scoreEventCount":\(events),

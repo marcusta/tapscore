@@ -139,7 +139,7 @@ struct StatsFilterSheet: View {
             // selected means both, which is what the empty set already means in
             // `StatsRoundFilter`.
             HStack(spacing: TapSpacing.sm) {
-                ForEach([RoundVenueType.outdoor, .indoor], id: \.rawValue) { venue in
+                ForEach([VenueType.outdoor, .indoor], id: \.rawValue) { venue in
                     TapChip(
                         title: StatsFormat.title(venue),
                         isSelected: draft.venueTypes.contains(venue),
@@ -173,7 +173,7 @@ struct StatsFilterSheet: View {
         }
     }
 
-    private func chip(_ type: RoundRoundType) -> some View {
+    private func chip(_ type: RoundType) -> some View {
         TapChip(
             title: StatsFormat.title(type),
             isSelected: draft.roundTypes.contains(type),

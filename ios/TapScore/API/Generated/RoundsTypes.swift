@@ -457,9 +457,9 @@ struct RoundsCreateInputDefinitionSlotsItem: Codable, Sendable, Equatable {
 struct RoundsCreateInputDefinition: Codable, Sendable, Equatable {
     var courseId: String
     var playedAt: String
-    var roundType: RoundRoundType?
-    var venueType: RoundVenueType?
-    var startListMode: RoundStartListMode?
+    var roundType: RoundType?
+    var venueType: VenueType?
+    var startListMode: StartListMode?
     var windowStart: TriState<String>
     var windowEnd: TriState<String>
     var selfOrganize: Bool?
@@ -491,7 +491,7 @@ struct RoundsCreateInputDefinition: Codable, Sendable, Equatable {
         case slots = "slots"
     }
 
-    init(courseId: String, playedAt: String, roundType: RoundRoundType? = nil, venueType: RoundVenueType? = nil, startListMode: RoundStartListMode? = nil, windowStart: TriState<String> = .absent, windowEnd: TriState<String> = .absent, selfOrganize: Bool? = nil, routeSi: CourseRouteTemplateRouteRouteSi? = nil, routeHandicapPolicy: CourseRouteTemplateRouteRouteHandicapPolicy? = nil, routeSections: [CourseRouteTemplateRouteRouteSectionsItem]? = nil, playHoles: [CourseRouteTemplateRoutePlayHolesItem]? = nil, producers: [RoundsCreateInputDefinitionProducersItem], ballStrategies: [RoundsCreateInputDefinitionBallStrategiesItem], playingGroups: [CompetitionsCreateRoundOutputOkDraftRoutePlayingGroupsItem]? = nil, slots: [RoundsCreateInputDefinitionSlotsItem]) {
+    init(courseId: String, playedAt: String, roundType: RoundType? = nil, venueType: VenueType? = nil, startListMode: StartListMode? = nil, windowStart: TriState<String> = .absent, windowEnd: TriState<String> = .absent, selfOrganize: Bool? = nil, routeSi: CourseRouteTemplateRouteRouteSi? = nil, routeHandicapPolicy: CourseRouteTemplateRouteRouteHandicapPolicy? = nil, routeSections: [CourseRouteTemplateRouteRouteSectionsItem]? = nil, playHoles: [CourseRouteTemplateRoutePlayHolesItem]? = nil, producers: [RoundsCreateInputDefinitionProducersItem], ballStrategies: [RoundsCreateInputDefinitionBallStrategiesItem], playingGroups: [CompetitionsCreateRoundOutputOkDraftRoutePlayingGroupsItem]? = nil, slots: [RoundsCreateInputDefinitionSlotsItem]) {
         self.courseId = courseId
         self.playedAt = playedAt
         self.roundType = roundType
@@ -514,9 +514,9 @@ struct RoundsCreateInputDefinition: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.courseId = try c.decode(String.self, forKey: .courseId)
         self.playedAt = try c.decode(String.self, forKey: .playedAt)
-        self.roundType = try c.decodeIfPresent(RoundRoundType.self, forKey: .roundType)
-        self.venueType = try c.decodeIfPresent(RoundVenueType.self, forKey: .venueType)
-        self.startListMode = try c.decodeIfPresent(RoundStartListMode.self, forKey: .startListMode)
+        self.roundType = try c.decodeIfPresent(RoundType.self, forKey: .roundType)
+        self.venueType = try c.decodeIfPresent(VenueType.self, forKey: .venueType)
+        self.startListMode = try c.decodeIfPresent(StartListMode.self, forKey: .startListMode)
         if c.contains(.windowStart) {
             self.windowStart = try c.decodeNil(forKey: .windowStart)
                 ? .null
@@ -596,13 +596,13 @@ struct RoundsCreateInput: Codable, Sendable, Equatable {
 struct RoundsUpdateInput: Codable, Sendable, Equatable {
     var id: String
     var date: String?
-    var roundType: RoundRoundType?
-    var venueType: RoundVenueType?
-    var startListMode: RoundStartListMode?
+    var roundType: RoundType?
+    var venueType: VenueType?
+    var startListMode: StartListMode?
     var windowStart: TriState<String>
     var windowEnd: TriState<String>
     var selfOrganize: Bool?
-    var status: AdminRoundSummaryStatus?
+    var status: RoundStatus?
 
     enum CodingKeys: String, CodingKey {
         case id = "id"
@@ -616,7 +616,7 @@ struct RoundsUpdateInput: Codable, Sendable, Equatable {
         case status = "status"
     }
 
-    init(id: String, date: String? = nil, roundType: RoundRoundType? = nil, venueType: RoundVenueType? = nil, startListMode: RoundStartListMode? = nil, windowStart: TriState<String> = .absent, windowEnd: TriState<String> = .absent, selfOrganize: Bool? = nil, status: AdminRoundSummaryStatus? = nil) {
+    init(id: String, date: String? = nil, roundType: RoundType? = nil, venueType: VenueType? = nil, startListMode: StartListMode? = nil, windowStart: TriState<String> = .absent, windowEnd: TriState<String> = .absent, selfOrganize: Bool? = nil, status: RoundStatus? = nil) {
         self.id = id
         self.date = date
         self.roundType = roundType
@@ -632,9 +632,9 @@ struct RoundsUpdateInput: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try c.decode(String.self, forKey: .id)
         self.date = try c.decodeIfPresent(String.self, forKey: .date)
-        self.roundType = try c.decodeIfPresent(RoundRoundType.self, forKey: .roundType)
-        self.venueType = try c.decodeIfPresent(RoundVenueType.self, forKey: .venueType)
-        self.startListMode = try c.decodeIfPresent(RoundStartListMode.self, forKey: .startListMode)
+        self.roundType = try c.decodeIfPresent(RoundType.self, forKey: .roundType)
+        self.venueType = try c.decodeIfPresent(VenueType.self, forKey: .venueType)
+        self.startListMode = try c.decodeIfPresent(StartListMode.self, forKey: .startListMode)
         if c.contains(.windowStart) {
             self.windowStart = try c.decodeNil(forKey: .windowStart)
                 ? .null
@@ -650,7 +650,7 @@ struct RoundsUpdateInput: Codable, Sendable, Equatable {
             self.windowEnd = .absent
         }
         self.selfOrganize = try c.decodeIfPresent(Bool.self, forKey: .selfOrganize)
-        self.status = try c.decodeIfPresent(AdminRoundSummaryStatus.self, forKey: .status)
+        self.status = try c.decodeIfPresent(RoundStatus.self, forKey: .status)
     }
 
     func encode(to encoder: any Encoder) throws {

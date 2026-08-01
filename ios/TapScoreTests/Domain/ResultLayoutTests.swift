@@ -33,7 +33,7 @@ private func hole(_ n: Int) -> HoleRef {
 private func grid(
     _ rows: [GridRow],
     _ holes: [HoleRef],
-    componentId: FormatDescriptorResultDisplayScoreGridComponentId? = nil,
+    componentId: ScoreGridComponentId? = nil,
     title: ScoreGridSectionTitle? = nil,
     subjectBallIds: [String]? = nil,
     subtitleFacts: [String]? = nil,
@@ -415,7 +415,7 @@ final class ResultLayoutTests: XCTestCase {
     /// TS: `function ranked(entries, overrides = {})`
     private func ranked(
         _ entries: [RankedEntry],
-        direction: CompetitionResultViewDirection? = nil
+        direction: ResultViewDirection? = nil
     ) -> RankedSection {
         RankedSection(
             metricId: "points",

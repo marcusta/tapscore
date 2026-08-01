@@ -44,7 +44,7 @@ enum RoundTab: String, CaseIterable, Identifiable, Sendable {
 /// front of a user right now.
 struct PollGateInput: Sendable, Equatable {
     var sceneActive: Bool
-    var status: AdminRoundSummaryStatus?
+    var status: RoundStatus?
 }
 
 func shouldPoll(_ input: PollGateInput) -> Bool {

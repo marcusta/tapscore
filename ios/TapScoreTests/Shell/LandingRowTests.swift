@@ -13,7 +13,7 @@ final class LandingRowTests: XCTestCase {
     private func round(
         id: String,
         date: String,
-        status: AdminRoundSummaryStatus = .active,
+        status: RoundStatus = .active,
         course: String? = "Linköpings GK",
         completedAt: String? = nil
     ) -> Round {

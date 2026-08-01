@@ -937,7 +937,7 @@ private func entryGroupLabel(_ ballIds: [String], _ groupOf: GroupOf) -> String?
 /// otherwise).
 private func paceLayout(
     _ paceDelta: Double?,
-    _ direction: CompetitionResultViewDirection?
+    _ direction: ResultViewDirection?
 ) -> PaceLayout? {
     guard let paceDelta else { return nil }
     let shown = direction == .high ? -paceDelta : paceDelta

@@ -47,11 +47,11 @@ struct RoundStatsHoleCell: Equatable, Sendable, Identifiable {
     /// form everywhere — not because this strip goes through the card's path.
     var marker: ScoreMarkerForm?
 
-    var tee: PlayerHoleStatsTeeResult?
+    var tee: TeeResult?
     var gir: Bool?
     var putts: Int?
-    var firstPutt: PlayerHoleStatsFirstPutt?
-    var shortGame: PlayerHoleStatsShortGameDifficulty?
+    var firstPutt: FirstPutt?
+    var shortGame: ShortGameDifficulty?
     var penalties: Int?
     var recoveryOk: Bool?
 

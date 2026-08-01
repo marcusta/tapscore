@@ -42,6 +42,9 @@ const refDir = refFlag >= 0 ? args[refFlag + 1] : null;
 const ALLOW_MISSING = new Set<string>(
     args.flatMap((a, i) => (a === '--allow-missing' && args[i + 1] ? [args[i + 1]] : [])),
 );
+// `--dump-enum-names` prints every deduped string enum with the property names
+// it rides on and the name it resolved to — how you maintain ENUM_NAME_BY_FIELD.
+const DUMP_ENUM_NAMES = args.includes('--dump-enum-names');
 
 function toPascal(stem: string): string {
     return stem
@@ -611,6 +614,168 @@ const namedIR = new Map<string, TypeIR>();
 
 let currentModule = '';
 
+// ── stable names for deduplicated string enums ─────────────────────────────
+//
+// A string-literal union is structurally deduped: `visibility: 'private' |
+// 'friends' | 'link'` on `Round` and on `AdminRoundSummary` is ONE Swift enum.
+// Naming it after whichever struct happened to be emitted first makes the name
+// a function of the schema's shape everywhere else: adding `visibility` to an
+// unrelated admin route renamed `RoundVisibility` to `AdminRoundSummaryVisibility`
+// and broke hand-written app code that referenced it.
+//
+// So the name is resolved from the WHOLE schema before any body is emitted
+// (see `resolveStableEnumNames`), out of the property name(s) the enum appears
+// under — a property of the enum itself, not of its neighbours.
+
+interface UnionSite {
+    /** Property names the union appears under, across every declaration site. */
+    fields: Set<string>;
+    /** Full path hints (`AdminRoundSummaryVisibility`), the fallback name pool. */
+    hints: Set<string>;
+}
+
+/** structural key → every site that asked for it. Filled by the collect pass. */
+const unionSites = new Map<string, UnionSite>();
+/** structural key → its case values, for the keys that are String-backed enums. */
+const stringEnumValues = new Map<string, string[]>();
+/** structural key → resolved name. Empty during the collect pass. */
+const stableEnumNames = new Map<string, string>();
+
+function recordUnionSite(key: string, hint: string, field: string | null): void {
+    let site = unionSites.get(key);
+    if (!site) {
+        site = { fields: new Set(), hints: new Set() };
+        unionSites.set(key, site);
+    }
+    if (field) site.fields.add(field);
+    site.hints.add(hint);
+}
+
+/**
+ * Explicit names for enums whose property name alone is a poor module-global
+ * Swift type. `Pascal(field)` is right for `visibility` → `Visibility`, and
+ * wrong for `key` → `Key`: the generated code shares ONE Swift module with the
+ * whole app, so a bare common word is a name collision waiting to happen.
+ *
+ * Keys, tried in this order: `property:everyValue,inOrder` (needed only when
+ * two enums on one property share a first case), `property#firstValue` (two
+ * enums on one property), plain `property`. Being hand-written is the point —
+ * a pinned name cannot be moved by a schema edit anywhere.
+ *
+ * Add an entry when a new enum resolves to a single generic word. Run
+ * `bun run generate:swift --dump-enum-names` to see what resolved to what.
+ */
+const ENUM_NAME_BY_FIELD: Record<string, string> = {
+    aggregate: 'GridRowAggregate',
+    'ballMode:own,team': 'FormatSlotBallMode',
+    'ballMode:own,team,any': 'FormatBallRequirementBallMode',
+    'code#illegal_transition': 'CompetitionRefusalCode',
+    'code#missing_holes': 'CourseIssueCode',
+    componentId: 'ScoreGridComponentId',
+    direction: 'ResultViewDirection',
+    eventType: 'ScoreEventEventType',
+    gender: 'PlayerGender',
+    groups: 'StartListGroupsPolicy',
+    key: 'StatEventKey',
+    'kind#number': 'MetadataInputKind',
+    'kind#par': 'GridRowKind',
+    'kind#player': 'IdentityRefKind',
+    'kind#single_ball': 'DraftTeamKind',
+    lifecycle: 'CompetitionLifecycle',
+    mode: 'RouteSiMode',
+    presetId: 'StartListPresetId',
+    providers: 'AuthProvider',
+    'reason#rank': 'CutDecisionEntryReason',
+    'reason#round_complete': 'SetupNotEditableReason',
+    role: 'RoleGrantRole',
+    seats: 'StartListSeatsPolicy',
+    severity: 'CourseIssueSeverity',
+    'source#flat': 'AllowanceSource',
+    'source#manual': 'HandicapEntrySource',
+    startList: 'StartListShape',
+    'status#active': 'RoundStatus',
+    'status#counted': 'CompetitionRoundCellStatus',
+    'target#ball_hole': 'RulingTarget',
+    'target#producer_tee': 'SetupCorrectionTarget',
+    team: 'GridRowTeam',
+    template: 'CellMarkerTemplate',
+    tone: 'GridCellTone',
+    topology: 'FormatBallTopology',
+    type: 'RoutePolicyType',
+    visibility: 'RoundVisibility',
+};
+
+/**
+ * Pick a name for every deduped string enum, as a pure function of the sites
+ * collected across all modules — no dependence on emission order.
+ *
+ *   1. An explicit `ENUM_NAME_BY_FIELD` pin wins.
+ *   2. An enum used under exactly ONE property name is named after it
+ *      (`visibility` → `Visibility`), whatever structs carry it.
+ *   3. Otherwise — several property names, none at all (an enum inside an
+ *      array or a map value), or a property name two different enums both
+ *      claim — the first case value qualifies the property name:
+ *      `kind: 'single_ball' | 'multi_ball'` → `SingleBallKind`.
+ *
+ * Rule 3 is deliberately NOT "the shortest path hint": a path hint is built
+ * from the enclosing struct's minted name, and anonymous structs are still
+ * named first-emitter-wins, so hint-derived names inherit exactly the
+ * order-dependence this function exists to remove. Property names and case
+ * values belong to the enum itself, and nothing else in the schema can move
+ * them. Rule-3 names read plainly rather than well — pin the ones that matter.
+ */
+function resolveStableEnumNames(taken: Iterable<string>): void {
+    const sorted = [...stringEnumValues.keys()].sort();
+    const pinFor = (key: string) => {
+        const values = stringEnumValues.get(key)!;
+        for (const field of [...unionSites.get(key)!.fields].sort()) {
+            const pin = ENUM_NAME_BY_FIELD[`${field}:${values.join(',')}`]
+                ?? ENUM_NAME_BY_FIELD[`${field}#${values[0]}`]
+                ?? ENUM_NAME_BY_FIELD[field];
+            if (pin) return pin;
+        }
+        return null;
+    };
+    const qualified = (key: string) => {
+        const fields = [...unionSites.get(key)!.fields].sort();
+        return `${pascalFromToken(stringEnumValues.get(key)![0])}${fields.map(pascalFromToken).join('')}`;
+    };
+    const preferred = new Map<string, string>();
+    for (const key of sorted) {
+        const fields = [...unionSites.get(key)!.fields];
+        preferred.set(
+            key,
+            pinFor(key) ?? (fields.length === 1 ? pascalFromToken(fields[0]) : qualified(key)),
+        );
+    }
+    // A name two enums both want belongs to neither.
+    const claims = new Map<string, number>();
+    for (const name of preferred.values()) claims.set(name, (claims.get(name) ?? 0) + 1);
+    for (const key of sorted) {
+        if (claims.get(preferred.get(key)!)! > 1) preferred.set(key, qualified(key));
+    }
+    // Named models own their names outright — they are minted from the server
+    // interface name, which no unrelated schema edit can move.
+    const used = new Set<string>(taken);
+    for (const key of sorted) {
+        let base = pascalFromToken(preferred.get(key)!);
+        if (RESERVED_TYPE_NAMES.has(base)) base = `${base}Model`;
+        let name = base;
+        for (let i = 2; used.has(name); i++) name = `${base}${i}`;
+        used.add(name);
+        stableEnumNames.set(key, name);
+    }
+    if (DUMP_ENUM_NAMES) {
+        for (const key of sorted) {
+            const site = unionSites.get(key)!;
+            console.error(
+                `${stableEnumNames.get(key)!.padEnd(32)} fields=[${[...site.fields].sort().join(',')}] ` +
+                `values=[${stringEnumValues.get(key)!.join(',')}]`,
+            );
+        }
+    }
+}
+
 function mintName(preferred: string): string {
     let base = pascalFromToken(preferred);
     if (RESERVED_TYPE_NAMES.has(base)) base = `${base}Model`;
@@ -657,7 +822,7 @@ function constantFor(prop: PropIR): string | null {
 
 function fieldFor(prop: PropIR, hint: string): SwiftField {
     const { base, hasNull } = splitNullability(prop.type);
-    const inner = swiftType(base, hint);
+    const inner = swiftType(base, hint, prop.name);
     const constant = constantFor(prop);
     let optionality: Optionality;
     let type: string;
@@ -1179,7 +1344,7 @@ function emitUnionEnum(name: string, members: TypeIR[], hint: string): string {
 
 // ── the type mapper ────────────────────────────────────────────────────────
 
-function swiftType(ir: TypeIR, hint: string): string {
+function swiftType(ir: TypeIR, hint: string, field: string | null = null): string {
     switch (ir.kind) {
         case 'primitive':
             // TS `number` carries no int/float distinction; Double round-trips
@@ -1192,9 +1357,9 @@ function swiftType(ir: TypeIR, hint: string): string {
         case 'booleanLiteral': return 'Bool';
         case 'null': fail(`bare null has no Swift type (hint: ${hint})`);
         case 'undefined': fail(`bare undefined has no Swift type (hint: ${hint})`);
-        case 'array': return `[${swiftType(ir.element, `${hint}Item`)}]`;
+        case 'array': return `[${swiftType(ir.element, `${hint}Item`, field)}]`;
         case 'record':
-            return `[${swiftType(ir.key, `${hint}Key`)}: ${swiftType(ir.value, `${hint}Value`)}]`;
+            return `[${swiftType(ir.key, `${hint}Key`)}: ${swiftType(ir.value, `${hint}Value`, field)}]`;
         case 'named': {
             const existing = namedModels.get(ir.name);
             if (existing) return existing;
@@ -1211,13 +1376,14 @@ function swiftType(ir: TypeIR, hint: string): string {
         }
         case 'union': {
             const key = irKey(ir);
+            recordUnionSite(key, hint, field);
             const hit = declByKey.get(key);
             if (hit) return hit;
             const { base, hasNull } = splitNullability(ir);
             if (hasNull) {
                 // A nullable union in a non-property position (array element,
                 // map value): Optional wraps whatever the rest resolves to.
-                return `${swiftType(base, hint)}?`;
+                return `${swiftType(base, hint, field)}?`;
             }
             // A union of numeric literals (`9 | 18`) is just a number: Swift
             // has no Double-backed RawRepresentable worth minting for it.
@@ -1225,7 +1391,8 @@ function swiftType(ir: TypeIR, hint: string): string {
             if (ir.members.every((m) => m.kind === 'booleanLiteral')) return 'Bool';
             const lits = literalValuesOf(ir);
             if (lits && lits.every((v) => typeof v === 'string')) {
-                const name = mintName(hint);
+                stringEnumValues.set(key, lits as string[]);
+                const name = stableEnumNames.get(key) ?? mintName(hint);
                 declByKey.set(key, name);
                 push(name, emitStringEnum(name, lits as string[]));
                 return name;
@@ -1519,23 +1686,49 @@ const swiftModules = [...modules].sort((a, b) => (a.name < b.name ? -1 : 1));
 for (const mod of swiftModules) {
     for (const iface of mod.interfaces) namedIR.set(iface.name, iface.type);
 }
-for (const mod of swiftModules) {
-    currentModule = mod.pascal;
-    for (const iface of mod.interfaces) reserveNamedModel(iface.name, iface.type);
-}
-for (const mod of swiftModules) {
-    for (const iface of mod.interfaces) {
-        if (namedModelHome.get(iface.name) !== mod.pascal) continue;
+
+const endpointFiles = new Map<string, string>();
+
+function emitSwiftPass(): void {
+    for (const mod of swiftModules) {
         currentModule = mod.pascal;
-        emitNamedModel(iface.name, iface.type);
+        for (const iface of mod.interfaces) reserveNamedModel(iface.name, iface.type);
+    }
+    // Reserve the resolved enum names alongside the models, so an anonymous
+    // struct minted mid-emission is the one that gets bumped, never an enum.
+    for (const name of stableEnumNames.values()) takenNames.add(name);
+    for (const mod of swiftModules) {
+        for (const iface of mod.interfaces) {
+            if (namedModelHome.get(iface.name) !== mod.pascal) continue;
+            currentModule = mod.pascal;
+            emitNamedModel(iface.name, iface.type);
+        }
+    }
+    for (const mod of swiftModules) {
+        currentModule = mod.pascal;
+        endpointFiles.set(`${mod.pascal}Endpoints.swift`, swiftEndpointFile(mod));
     }
 }
 
-const endpointFiles = new Map<string, string>();
-for (const mod of swiftModules) {
-    currentModule = mod.pascal;
-    endpointFiles.set(`${mod.pascal}Endpoints.swift`, swiftEndpointFile(mod));
+function resetSwiftPass(): void {
+    swiftDecls.length = 0;
+    declByKey.clear();
+    takenNames.clear();
+    for (const n of RESERVED_TYPE_NAMES) takenNames.add(n);
+    namedModels.clear();
+    namedModelKeys.clear();
+    namedModelHome.clear();
+    endpointFiles.clear();
 }
+
+// Pass 1 is thrown away. Its only product is `unionSites` / `stringEnumKeys`:
+// which structural keys are string enums and which property names carry them,
+// across every module. Names cannot be resolved during a walk, because the
+// first site to be visited would decide — the very coupling being removed.
+emitSwiftPass();
+resolveStableEnumNames([...namedModels.values()]);
+resetSwiftPass();
+emitSwiftPass();
 
 rmSync(swiftOutDir, { recursive: true, force: true });
 mkdirSync(swiftOutDir, { recursive: true });

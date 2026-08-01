@@ -19,8 +19,8 @@ final class StatsWindowTests: XCTestCase {
         date: String,
         courseId: String = "course-1",
         courseName: String? = "Linköpings GK",
-        venue: RoundVenueType = .outdoor,
-        type: RoundRoundType = .full18,
+        venue: VenueType = .outdoor,
+        type: RoundType = .full18,
         name: String? = nil,
         holes: Double = 18,
         measures: StatMeasures = StatMeasuresMath.zero

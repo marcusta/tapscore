@@ -171,7 +171,7 @@ struct FriendProfileRoundEntry: Codable, Sendable, Equatable {
     var name: String?
     var courseName: String?
     var date: String
-    var status: AdminRoundSummaryStatus
+    var status: RoundStatus
     var holeCount: Double
     var holesPlayed: Double
     var scoreToPar: Double?
@@ -187,7 +187,7 @@ struct FriendProfileRoundEntry: Codable, Sendable, Equatable {
         case scoreToPar = "scoreToPar"
     }
 
-    init(roundId: String, name: String? = nil, courseName: String? = nil, date: String, status: AdminRoundSummaryStatus, holeCount: Double, holesPlayed: Double, scoreToPar: Double? = nil) {
+    init(roundId: String, name: String? = nil, courseName: String? = nil, date: String, status: RoundStatus, holeCount: Double, holesPlayed: Double, scoreToPar: Double? = nil) {
         self.roundId = roundId
         self.name = name
         self.courseName = courseName
@@ -204,7 +204,7 @@ struct FriendProfileRoundEntry: Codable, Sendable, Equatable {
         self.name = try c.decodeIfPresent(String.self, forKey: .name)
         self.courseName = try c.decodeIfPresent(String.self, forKey: .courseName)
         self.date = try c.decode(String.self, forKey: .date)
-        self.status = try c.decode(AdminRoundSummaryStatus.self, forKey: .status)
+        self.status = try c.decode(RoundStatus.self, forKey: .status)
         self.holeCount = try c.decode(Double.self, forKey: .holeCount)
         self.holesPlayed = try c.decode(Double.self, forKey: .holesPlayed)
         self.scoreToPar = try c.decodeIfPresent(Double.self, forKey: .scoreToPar)

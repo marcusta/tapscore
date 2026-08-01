@@ -2,7 +2,7 @@
 
 import Foundation
 
-enum StartListViewPresetId: String, Codable, Sendable, Equatable {
+enum StartListPresetId: String, Codable, Sendable, Equatable {
     case organized = "organized"
     case organizedOpenSlots = "organized_open_slots"
     case pickYourTeeTime = "pick_your_tee_time"
@@ -11,7 +11,7 @@ enum StartListViewPresetId: String, Codable, Sendable, Equatable {
 
 struct StartListView: Codable, Sendable, Equatable {
     var policy: CompetitionDetailDefaultConfigStartListPolicy
-    var presetId: StartListViewPresetId?
+    var presetId: StartListPresetId?
     var viewer: StartListOps
     var seats: [StartListSeat]
     var claimedSeats: [ClaimedSeat]
@@ -24,7 +24,7 @@ struct StartListView: Codable, Sendable, Equatable {
         case claimedSeats = "claimedSeats"
     }
 
-    init(policy: CompetitionDetailDefaultConfigStartListPolicy, presetId: StartListViewPresetId? = nil, viewer: StartListOps, seats: [StartListSeat], claimedSeats: [ClaimedSeat]) {
+    init(policy: CompetitionDetailDefaultConfigStartListPolicy, presetId: StartListPresetId? = nil, viewer: StartListOps, seats: [StartListSeat], claimedSeats: [ClaimedSeat]) {
         self.policy = policy
         self.presetId = presetId
         self.viewer = viewer
@@ -35,7 +35,7 @@ struct StartListView: Codable, Sendable, Equatable {
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.policy = try c.decode(CompetitionDetailDefaultConfigStartListPolicy.self, forKey: .policy)
-        self.presetId = try c.decodeIfPresent(StartListViewPresetId.self, forKey: .presetId)
+        self.presetId = try c.decodeIfPresent(StartListPresetId.self, forKey: .presetId)
         self.viewer = try c.decode(StartListOps.self, forKey: .viewer)
         self.seats = try c.decode([StartListSeat].self, forKey: .seats)
         self.claimedSeats = try c.decode([ClaimedSeat].self, forKey: .claimedSeats)
@@ -1133,7 +1133,7 @@ struct HandicapDerivationStepsItemTeamCombination: Codable, Sendable, Equatable 
     }
 }
 
-enum HandicapDerivationStepsItemAllowanceSource: String, Codable, Sendable, Equatable {
+enum AllowanceSource: String, Codable, Sendable, Equatable {
     case flat = "flat"
     case split = "split"
 }
@@ -1141,7 +1141,7 @@ enum HandicapDerivationStepsItemAllowanceSource: String, Codable, Sendable, Equa
 struct HandicapDerivationStepsItemAllowance: Codable, Sendable, Equatable {
     let kind: String = "allowance"
     var pct: Double
-    var source: HandicapDerivationStepsItemAllowanceSource
+    var source: AllowanceSource
     var result: Double
 
     enum CodingKeys: String, CodingKey {
@@ -1151,7 +1151,7 @@ struct HandicapDerivationStepsItemAllowance: Codable, Sendable, Equatable {
         case result = "result"
     }
 
-    init(pct: Double, source: HandicapDerivationStepsItemAllowanceSource, result: Double) {
+    init(pct: Double, source: AllowanceSource, result: Double) {
         self.pct = pct
         self.source = source
         self.result = result
@@ -1161,7 +1161,7 @@ struct HandicapDerivationStepsItemAllowance: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         _ = try c.decode(String.self, forKey: .kind)
         self.pct = try c.decode(Double.self, forKey: .pct)
-        self.source = try c.decode(HandicapDerivationStepsItemAllowanceSource.self, forKey: .source)
+        self.source = try c.decode(AllowanceSource.self, forKey: .source)
         self.result = try c.decode(Double.self, forKey: .result)
     }
 
@@ -1336,7 +1336,7 @@ struct ScoreGridSectionTotalsItem: Codable, Sendable, Equatable {
 
 struct ScoreGridSection: Codable, Sendable, Equatable {
     let kind: String = "score_grid"
-    var componentId: FormatDescriptorResultDisplayScoreGridComponentId?
+    var componentId: ScoreGridComponentId?
     var title: ScoreGridSectionTitle
     var subjectBallIds: [String]
     var holes: [HoleRef]
@@ -1359,7 +1359,7 @@ struct ScoreGridSection: Codable, Sendable, Equatable {
         case totals = "totals"
     }
 
-    init(componentId: FormatDescriptorResultDisplayScoreGridComponentId? = nil, title: ScoreGridSectionTitle, subjectBallIds: [String], holes: [HoleRef], subtitleFacts: [String], rows: [GridRow], footnotes: [String], caption: String? = nil, totals: [ScoreGridSectionTotalsItem]) {
+    init(componentId: ScoreGridComponentId? = nil, title: ScoreGridSectionTitle, subjectBallIds: [String], holes: [HoleRef], subtitleFacts: [String], rows: [GridRow], footnotes: [String], caption: String? = nil, totals: [ScoreGridSectionTotalsItem]) {
         self.componentId = componentId
         self.title = title
         self.subjectBallIds = subjectBallIds
@@ -1374,7 +1374,7 @@ struct ScoreGridSection: Codable, Sendable, Equatable {
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         _ = try c.decode(String.self, forKey: .kind)
-        self.componentId = try c.decodeIfPresent(FormatDescriptorResultDisplayScoreGridComponentId.self, forKey: .componentId)
+        self.componentId = try c.decodeIfPresent(ScoreGridComponentId.self, forKey: .componentId)
         self.title = try c.decode(ScoreGridSectionTitle.self, forKey: .title)
         self.subjectBallIds = try c.decode([String].self, forKey: .subjectBallIds)
         self.holes = try c.decode([HoleRef].self, forKey: .holes)
@@ -1404,7 +1404,7 @@ struct RankedSection: Codable, Sendable, Equatable {
     let kind: String = "ranked"
     var metricId: String
     var metricLabel: String
-    var direction: CompetitionResultViewDirection?
+    var direction: ResultViewDirection?
     var entries: [RankedEntry]
 
     enum CodingKeys: String, CodingKey {
@@ -1415,7 +1415,7 @@ struct RankedSection: Codable, Sendable, Equatable {
         case entries = "entries"
     }
 
-    init(metricId: String, metricLabel: String, direction: CompetitionResultViewDirection? = nil, entries: [RankedEntry]) {
+    init(metricId: String, metricLabel: String, direction: ResultViewDirection? = nil, entries: [RankedEntry]) {
         self.metricId = metricId
         self.metricLabel = metricLabel
         self.direction = direction
@@ -1427,7 +1427,7 @@ struct RankedSection: Codable, Sendable, Equatable {
         _ = try c.decode(String.self, forKey: .kind)
         self.metricId = try c.decode(String.self, forKey: .metricId)
         self.metricLabel = try c.decode(String.self, forKey: .metricLabel)
-        self.direction = try c.decodeIfPresent(CompetitionResultViewDirection.self, forKey: .direction)
+        self.direction = try c.decodeIfPresent(ResultViewDirection.self, forKey: .direction)
         self.entries = try c.decode([RankedEntry].self, forKey: .entries)
     }
 
@@ -1718,7 +1718,7 @@ enum GridCellTone: String, Codable, Sendable, Equatable {
     case danger = "danger"
 }
 
-enum GridCellMarkerOtherTemplate: String, Codable, Sendable, Equatable {
+enum CellMarkerTemplate: String, Codable, Sendable, Equatable {
     case ring = "ring"
     case doubleRing = "double_ring"
     case diamond = "diamond"
@@ -1733,7 +1733,7 @@ struct GridCellMarkerOther: Codable, Sendable, Equatable {
     var tone: GridCellTone?
     var label: String?
     var value: String?
-    var template: GridCellMarkerOtherTemplate
+    var template: CellMarkerTemplate
 
     enum CodingKeys: String, CodingKey {
         case tone = "tone"
@@ -1742,7 +1742,7 @@ struct GridCellMarkerOther: Codable, Sendable, Equatable {
         case template = "template"
     }
 
-    init(tone: GridCellTone? = nil, label: String? = nil, value: String? = nil, template: GridCellMarkerOtherTemplate) {
+    init(tone: GridCellTone? = nil, label: String? = nil, value: String? = nil, template: CellMarkerTemplate) {
         self.tone = tone
         self.label = label
         self.value = value
@@ -1754,7 +1754,7 @@ struct GridCellMarkerOther: Codable, Sendable, Equatable {
         self.tone = try c.decodeIfPresent(GridCellTone.self, forKey: .tone)
         self.label = try c.decodeIfPresent(String.self, forKey: .label)
         self.value = try c.decodeIfPresent(String.self, forKey: .value)
-        self.template = try c.decode(GridCellMarkerOtherTemplate.self, forKey: .template)
+        self.template = try c.decode(CellMarkerTemplate.self, forKey: .template)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -2251,7 +2251,7 @@ struct FriendlyRoundsScoreInput: Codable, Sendable, Equatable {
 
 struct FriendlyRoundsSetupOutputEditable: Codable, Sendable, Equatable {
     let editable: Bool = true
-    var status: AdminRoundSummaryStatus
+    var status: RoundStatus
     var hasScores: Bool
     var draft: CompetitionsCreateRoundOutputOkDraft
     var draftVersion: Double
@@ -2264,7 +2264,7 @@ struct FriendlyRoundsSetupOutputEditable: Codable, Sendable, Equatable {
         case draftVersion = "draftVersion"
     }
 
-    init(status: AdminRoundSummaryStatus, hasScores: Bool, draft: CompetitionsCreateRoundOutputOkDraft, draftVersion: Double) {
+    init(status: RoundStatus, hasScores: Bool, draft: CompetitionsCreateRoundOutputOkDraft, draftVersion: Double) {
         self.status = status
         self.hasScores = hasScores
         self.draft = draft
@@ -2274,7 +2274,7 @@ struct FriendlyRoundsSetupOutputEditable: Codable, Sendable, Equatable {
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         _ = try c.decode(Bool.self, forKey: .editable)
-        self.status = try c.decode(AdminRoundSummaryStatus.self, forKey: .status)
+        self.status = try c.decode(RoundStatus.self, forKey: .status)
         self.hasScores = try c.decode(Bool.self, forKey: .hasScores)
         self.draft = try c.decode(CompetitionsCreateRoundOutputOkDraft.self, forKey: .draft)
         self.draftVersion = try c.decode(Double.self, forKey: .draftVersion)
@@ -2290,15 +2290,15 @@ struct FriendlyRoundsSetupOutputEditable: Codable, Sendable, Equatable {
     }
 }
 
-enum FriendlyRoundsSetupOutputNotEditableReason: String, Codable, Sendable, Equatable {
+enum SetupNotEditableReason: String, Codable, Sendable, Equatable {
     case roundComplete = "round_complete"
     case noStoredDraft = "no_stored_draft"
 }
 
 struct FriendlyRoundsSetupOutputNotEditable: Codable, Sendable, Equatable {
     let editable: Bool = false
-    var status: AdminRoundSummaryStatus
-    var reason: FriendlyRoundsSetupOutputNotEditableReason
+    var status: RoundStatus
+    var reason: SetupNotEditableReason
 
     enum CodingKeys: String, CodingKey {
         case editable = "editable"
@@ -2306,7 +2306,7 @@ struct FriendlyRoundsSetupOutputNotEditable: Codable, Sendable, Equatable {
         case reason = "reason"
     }
 
-    init(status: AdminRoundSummaryStatus, reason: FriendlyRoundsSetupOutputNotEditableReason) {
+    init(status: RoundStatus, reason: SetupNotEditableReason) {
         self.status = status
         self.reason = reason
     }
@@ -2314,8 +2314,8 @@ struct FriendlyRoundsSetupOutputNotEditable: Codable, Sendable, Equatable {
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         _ = try c.decode(Bool.self, forKey: .editable)
-        self.status = try c.decode(AdminRoundSummaryStatus.self, forKey: .status)
-        self.reason = try c.decode(FriendlyRoundsSetupOutputNotEditableReason.self, forKey: .reason)
+        self.status = try c.decode(RoundStatus.self, forKey: .status)
+        self.reason = try c.decode(SetupNotEditableReason.self, forKey: .reason)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -2439,7 +2439,7 @@ enum FriendlyRoundsEditSetupOutput: Codable, Sendable, Equatable {
 }
 
 struct FriendlyRoundsFinishOutput: Codable, Sendable, Equatable {
-    var status: AdminRoundSummaryStatus
+    var status: RoundStatus
     var completedAt: String
 
     enum CodingKeys: String, CodingKey {
@@ -2447,14 +2447,14 @@ struct FriendlyRoundsFinishOutput: Codable, Sendable, Equatable {
         case completedAt = "completedAt"
     }
 
-    init(status: AdminRoundSummaryStatus, completedAt: String) {
+    init(status: RoundStatus, completedAt: String) {
         self.status = status
         self.completedAt = completedAt
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.status = try c.decode(AdminRoundSummaryStatus.self, forKey: .status)
+        self.status = try c.decode(RoundStatus.self, forKey: .status)
         self.completedAt = try c.decode(String.self, forKey: .completedAt)
     }
 
@@ -2466,19 +2466,19 @@ struct FriendlyRoundsFinishOutput: Codable, Sendable, Equatable {
 }
 
 struct FriendlyRoundsReopenOutput: Codable, Sendable, Equatable {
-    var status: AdminRoundSummaryStatus
+    var status: RoundStatus
 
     enum CodingKeys: String, CodingKey {
         case status = "status"
     }
 
-    init(status: AdminRoundSummaryStatus) {
+    init(status: RoundStatus) {
         self.status = status
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.status = try c.decode(AdminRoundSummaryStatus.self, forKey: .status)
+        self.status = try c.decode(RoundStatus.self, forKey: .status)
     }
 
     func encode(to encoder: any Encoder) throws {

@@ -311,7 +311,7 @@ final class CreateStore {
     /// The played-holes preset — `full_18` / `front_9` / `back_9`. Never
     /// `custom_holes`: that is how a rotated start is ENCODED on the wire
     /// (spec §3.2 B3.5/B3.6), not something the user picks.
-    private(set) var routePreset: RoundRoundType = .full18
+    private(set) var routePreset: RoundType = .full18
     private(set) var startHole: Int = 1
     /// The round's formats, in the order they were added — which is the order
     /// they reach the wire (contract 3).
@@ -981,7 +981,7 @@ final class CreateStore {
 
     /// Spec §3.2 B3.4: a preset change keeps the start hole when the new hole
     /// set still contains it, otherwise falls to that set's first hole.
-    func setRoutePreset(_ preset: RoundRoundType) {
+    func setRoutePreset(_ preset: RoundType) {
         guard !courseRouteLocked else { return }
         guard preset != routePreset else { return }
         routePreset = preset

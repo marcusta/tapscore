@@ -50,7 +50,7 @@ enum SpectateHeaderModel {
     static func subtitle(
         roundName: String?,
         courseName: String?,
-        status: AdminRoundSummaryStatus?,
+        status: RoundStatus?,
         holeCount: Int?
     ) -> String? {
         let place = trimmed(roundName) == nil ? nil : trimmed(courseName)

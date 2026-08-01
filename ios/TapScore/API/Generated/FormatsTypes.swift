@@ -29,7 +29,7 @@ struct FormatDescriptorDefaults: Codable, Sendable, Equatable {
     }
 }
 
-enum FormatDescriptorResultDisplayScoreGridComponentId: String, Codable, Sendable, Equatable {
+enum ScoreGridComponentId: String, Codable, Sendable, Equatable {
     case defaultScoreGrid = "default-score-grid"
     case compactMatchGrid = "compact-match-grid"
     case categoryMatrixGrid = "category-matrix-grid"
@@ -37,14 +37,14 @@ enum FormatDescriptorResultDisplayScoreGridComponentId: String, Codable, Sendabl
 
 struct FormatDescriptorResultDisplay: Codable, Sendable, Equatable {
     var runningTotals: String?
-    var scoreGridComponentId: FormatDescriptorResultDisplayScoreGridComponentId?
+    var scoreGridComponentId: ScoreGridComponentId?
 
     enum CodingKeys: String, CodingKey {
         case runningTotals = "runningTotals"
         case scoreGridComponentId = "scoreGridComponentId"
     }
 
-    init(runningTotals: String? = nil, scoreGridComponentId: FormatDescriptorResultDisplayScoreGridComponentId? = nil) {
+    init(runningTotals: String? = nil, scoreGridComponentId: ScoreGridComponentId? = nil) {
         self.runningTotals = runningTotals
         self.scoreGridComponentId = scoreGridComponentId
     }
@@ -52,7 +52,7 @@ struct FormatDescriptorResultDisplay: Codable, Sendable, Equatable {
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.runningTotals = try c.decodeIfPresent(String.self, forKey: .runningTotals)
-        self.scoreGridComponentId = try c.decodeIfPresent(FormatDescriptorResultDisplayScoreGridComponentId.self, forKey: .scoreGridComponentId)
+        self.scoreGridComponentId = try c.decodeIfPresent(ScoreGridComponentId.self, forKey: .scoreGridComponentId)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -180,7 +180,7 @@ struct FormatLabels: Codable, Sendable, Equatable {
     }
 }
 
-enum FormatRequirementsHoleCoordinate: String, Codable, Sendable, Equatable {
+enum HoleCoordinate: String, Codable, Sendable, Equatable {
     case playedOrdinal = "played_ordinal"
     case canonicalOrdinal = "canonical_ordinal"
     case courseHoleNumber = "course_hole_number"
@@ -189,7 +189,7 @@ enum FormatRequirementsHoleCoordinate: String, Codable, Sendable, Equatable {
 struct FormatRequirements: Codable, Sendable, Equatable {
     var balls: FormatBallRequirement
     var scoreEntry: ScoreEntryCapabilities?
-    var holeCoordinate: FormatRequirementsHoleCoordinate?
+    var holeCoordinate: HoleCoordinate?
     var allowSegmentOverlap: Bool?
 
     enum CodingKeys: String, CodingKey {
@@ -199,7 +199,7 @@ struct FormatRequirements: Codable, Sendable, Equatable {
         case allowSegmentOverlap = "allowSegmentOverlap"
     }
 
-    init(balls: FormatBallRequirement, scoreEntry: ScoreEntryCapabilities? = nil, holeCoordinate: FormatRequirementsHoleCoordinate? = nil, allowSegmentOverlap: Bool? = nil) {
+    init(balls: FormatBallRequirement, scoreEntry: ScoreEntryCapabilities? = nil, holeCoordinate: HoleCoordinate? = nil, allowSegmentOverlap: Bool? = nil) {
         self.balls = balls
         self.scoreEntry = scoreEntry
         self.holeCoordinate = holeCoordinate
@@ -210,7 +210,7 @@ struct FormatRequirements: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.balls = try c.decode(FormatBallRequirement.self, forKey: .balls)
         self.scoreEntry = try c.decodeIfPresent(ScoreEntryCapabilities.self, forKey: .scoreEntry)
-        self.holeCoordinate = try c.decodeIfPresent(FormatRequirementsHoleCoordinate.self, forKey: .holeCoordinate)
+        self.holeCoordinate = try c.decodeIfPresent(HoleCoordinate.self, forKey: .holeCoordinate)
         self.allowSegmentOverlap = try c.decodeIfPresent(Bool.self, forKey: .allowSegmentOverlap)
     }
 
@@ -354,7 +354,7 @@ enum FormatMetricPace: Codable, Sendable, Equatable {
 struct FormatMetric: Codable, Sendable, Equatable {
     var id: String
     var label: String
-    var direction: CompetitionResultViewDirection
+    var direction: ResultViewDirection
     var pace: FormatMetricPace?
 
     enum CodingKeys: String, CodingKey {
@@ -364,7 +364,7 @@ struct FormatMetric: Codable, Sendable, Equatable {
         case pace = "pace"
     }
 
-    init(id: String, label: String, direction: CompetitionResultViewDirection, pace: FormatMetricPace? = nil) {
+    init(id: String, label: String, direction: ResultViewDirection, pace: FormatMetricPace? = nil) {
         self.id = id
         self.label = label
         self.direction = direction
@@ -375,7 +375,7 @@ struct FormatMetric: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try c.decode(String.self, forKey: .id)
         self.label = try c.decode(String.self, forKey: .label)
-        self.direction = try c.decode(CompetitionResultViewDirection.self, forKey: .direction)
+        self.direction = try c.decode(ResultViewDirection.self, forKey: .direction)
         self.pace = try c.decodeIfPresent(FormatMetricPace.self, forKey: .pace)
     }
 
@@ -421,7 +421,7 @@ enum FormatBallRequirementBallMode: String, Codable, Sendable, Equatable {
     case any = "any"
 }
 
-enum FormatBallRequirementTopology: String, Codable, Sendable, Equatable {
+enum FormatBallTopology: String, Codable, Sendable, Equatable {
     case `static` = "static"
     case scheduled = "scheduled"
     case `dynamic` = "dynamic"
@@ -516,7 +516,7 @@ struct FormatBallRequirementSlotTeamGrouping: Codable, Sendable, Equatable {
 struct FormatBallRequirement: Codable, Sendable, Equatable {
     var producerCount: FormatBallRequirementProducerCount
     var ballMode: FormatBallRequirementBallMode
-    var topology: FormatBallRequirementTopology?
+    var topology: FormatBallTopology?
     var requiresSlotTeamGrouping: Bool?
     var slotBallCount: FormatBallRequirementSlotBallCount?
     var slotTeamGrouping: FormatBallRequirementSlotTeamGrouping?
@@ -530,7 +530,7 @@ struct FormatBallRequirement: Codable, Sendable, Equatable {
         case slotTeamGrouping = "slotTeamGrouping"
     }
 
-    init(producerCount: FormatBallRequirementProducerCount, ballMode: FormatBallRequirementBallMode, topology: FormatBallRequirementTopology? = nil, requiresSlotTeamGrouping: Bool? = nil, slotBallCount: FormatBallRequirementSlotBallCount? = nil, slotTeamGrouping: FormatBallRequirementSlotTeamGrouping? = nil) {
+    init(producerCount: FormatBallRequirementProducerCount, ballMode: FormatBallRequirementBallMode, topology: FormatBallTopology? = nil, requiresSlotTeamGrouping: Bool? = nil, slotBallCount: FormatBallRequirementSlotBallCount? = nil, slotTeamGrouping: FormatBallRequirementSlotTeamGrouping? = nil) {
         self.producerCount = producerCount
         self.ballMode = ballMode
         self.topology = topology
@@ -543,7 +543,7 @@ struct FormatBallRequirement: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.producerCount = try c.decode(FormatBallRequirementProducerCount.self, forKey: .producerCount)
         self.ballMode = try c.decode(FormatBallRequirementBallMode.self, forKey: .ballMode)
-        self.topology = try c.decodeIfPresent(FormatBallRequirementTopology.self, forKey: .topology)
+        self.topology = try c.decodeIfPresent(FormatBallTopology.self, forKey: .topology)
         self.requiresSlotTeamGrouping = try c.decodeIfPresent(Bool.self, forKey: .requiresSlotTeamGrouping)
         self.slotBallCount = try c.decodeIfPresent(FormatBallRequirementSlotBallCount.self, forKey: .slotBallCount)
         self.slotTeamGrouping = try c.decodeIfPresent(FormatBallRequirementSlotTeamGrouping.self, forKey: .slotTeamGrouping)
@@ -590,27 +590,32 @@ struct ScoreEntryCapabilities: Codable, Sendable, Equatable {
 struct FormatConfigOption: Codable, Sendable, Equatable {
     var value: String
     var labels: FormatLabels
+    var hint: FormatLabels?
 
     enum CodingKeys: String, CodingKey {
         case value = "value"
         case labels = "labels"
+        case hint = "hint"
     }
 
-    init(value: String, labels: FormatLabels) {
+    init(value: String, labels: FormatLabels, hint: FormatLabels? = nil) {
         self.value = value
         self.labels = labels
+        self.hint = hint
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.value = try c.decode(String.self, forKey: .value)
         self.labels = try c.decode(FormatLabels.self, forKey: .labels)
+        self.hint = try c.decodeIfPresent(FormatLabels.self, forKey: .hint)
     }
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(value, forKey: .value)
         try c.encode(labels, forKey: .labels)
+        try c.encodeIfPresent(hint, forKey: .hint)
     }
 }
 

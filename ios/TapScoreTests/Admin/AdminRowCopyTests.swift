@@ -16,13 +16,14 @@ final class AdminRowCopyTests: XCTestCase {
         lastEventAt: String? = "2026-07-24T10:02:31.000Z",
         creatorName: String? = "Marcus",
         courseName: String? = "Observer Links",
-        status: AdminRoundSummaryStatus = .active
+        status: RoundStatus = .active
     ) -> AdminRoundSummary {
         AdminRoundSummary(
             roundId: "r-1",
             shareToken: "tok-1",
             date: "2026-06-14",
             status: status,
+            visibility: .friends,
             courseName: courseName,
             createdAt: "2026-06-14T08:00:00.000Z",
             creatorName: creatorName,

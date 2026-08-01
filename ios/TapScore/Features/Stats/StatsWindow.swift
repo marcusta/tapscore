@@ -74,9 +74,9 @@ struct StatsRoundFilter: Equatable, Sendable {
     /// Empty = every course.
     var courseIDs: Set<String> = []
     /// Empty = indoor and outdoor.
-    var venueTypes: Set<RoundVenueType> = []
+    var venueTypes: Set<VenueType> = []
     /// Empty = every round type.
-    var roundTypes: Set<RoundRoundType> = []
+    var roundTypes: Set<RoundType> = []
     /// Rounds the player struck out by hand. This is the ONE field that is not
     /// "empty means everything" in the same sense — it always subtracts.
     var excludedRoundIDs: Set<String> = []
@@ -85,8 +85,8 @@ struct StatsRoundFilter: Equatable, Sendable {
         from: String? = nil,
         to: String? = nil,
         courseIDs: Set<String> = [],
-        venueTypes: Set<RoundVenueType> = [],
-        roundTypes: Set<RoundRoundType> = [],
+        venueTypes: Set<VenueType> = [],
+        roundTypes: Set<RoundType> = [],
         excludedRoundIDs: Set<String> = []
     ) {
         self.from = from

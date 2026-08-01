@@ -41,7 +41,7 @@ struct RoundManageRows: Equatable {
     ///   - viewerPlayerId: the signed-in player's id, or nil when anonymous.
     ///   - balls: the loaded balls payload, whose producers carry `playerId`.
     init(
-        status: AdminRoundSummaryStatus?,
+        status: RoundStatus?,
         editability: FriendlyRoundsSetupOutput? = nil,
         viewerPlayerId: String? = nil,
         balls: [RoundBall] = []

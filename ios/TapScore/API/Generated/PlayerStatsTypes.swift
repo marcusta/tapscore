@@ -204,13 +204,13 @@ struct AppendStatEventsResult: Codable, Sendable, Equatable {
     }
 }
 
-enum PlayerHoleStatsTeeResult: String, Codable, Sendable, Equatable {
+enum TeeResult: String, Codable, Sendable, Equatable {
     case fairway = "fairway"
     case inPlay = "in_play"
     case trouble = "trouble"
 }
 
-enum PlayerHoleStatsFirstPutt: String, Codable, Sendable, Equatable {
+enum FirstPutt: String, Codable, Sendable, Equatable {
     case inside1m = "inside_1m"
     case v1To2m = "1_to_2m"
     case v2To4m = "2_to_4m"
@@ -221,7 +221,7 @@ enum PlayerHoleStatsFirstPutt: String, Codable, Sendable, Equatable {
     case over6m = "over_6m"
 }
 
-enum PlayerHoleStatsShortGameDifficulty: String, Codable, Sendable, Equatable {
+enum ShortGameDifficulty: String, Codable, Sendable, Equatable {
     case standard = "standard"
     case hard = "hard"
 }
@@ -230,11 +230,11 @@ struct PlayerHoleStats: Codable, Sendable, Equatable {
     var roundId: String
     var playHoleId: String
     var playerId: String
-    var teeResult: PlayerHoleStatsTeeResult?
+    var teeResult: TeeResult?
     var gir: Bool?
-    var firstPutt: PlayerHoleStatsFirstPutt?
+    var firstPutt: FirstPutt?
     var putts: Double?
-    var shortGameDifficulty: PlayerHoleStatsShortGameDifficulty?
+    var shortGameDifficulty: ShortGameDifficulty?
     var penalties: Double?
     var recoveryOk: Bool?
 
@@ -251,7 +251,7 @@ struct PlayerHoleStats: Codable, Sendable, Equatable {
         case recoveryOk = "recoveryOk"
     }
 
-    init(roundId: String, playHoleId: String, playerId: String, teeResult: PlayerHoleStatsTeeResult? = nil, gir: Bool? = nil, firstPutt: PlayerHoleStatsFirstPutt? = nil, putts: Double? = nil, shortGameDifficulty: PlayerHoleStatsShortGameDifficulty? = nil, penalties: Double? = nil, recoveryOk: Bool? = nil) {
+    init(roundId: String, playHoleId: String, playerId: String, teeResult: TeeResult? = nil, gir: Bool? = nil, firstPutt: FirstPutt? = nil, putts: Double? = nil, shortGameDifficulty: ShortGameDifficulty? = nil, penalties: Double? = nil, recoveryOk: Bool? = nil) {
         self.roundId = roundId
         self.playHoleId = playHoleId
         self.playerId = playerId
@@ -269,11 +269,11 @@ struct PlayerHoleStats: Codable, Sendable, Equatable {
         self.roundId = try c.decode(String.self, forKey: .roundId)
         self.playHoleId = try c.decode(String.self, forKey: .playHoleId)
         self.playerId = try c.decode(String.self, forKey: .playerId)
-        self.teeResult = try c.decodeIfPresent(PlayerHoleStatsTeeResult.self, forKey: .teeResult)
+        self.teeResult = try c.decodeIfPresent(TeeResult.self, forKey: .teeResult)
         self.gir = try c.decodeIfPresent(Bool.self, forKey: .gir)
-        self.firstPutt = try c.decodeIfPresent(PlayerHoleStatsFirstPutt.self, forKey: .firstPutt)
+        self.firstPutt = try c.decodeIfPresent(FirstPutt.self, forKey: .firstPutt)
         self.putts = try c.decodeIfPresent(Double.self, forKey: .putts)
-        self.shortGameDifficulty = try c.decodeIfPresent(PlayerHoleStatsShortGameDifficulty.self, forKey: .shortGameDifficulty)
+        self.shortGameDifficulty = try c.decodeIfPresent(ShortGameDifficulty.self, forKey: .shortGameDifficulty)
         self.penalties = try c.decodeIfPresent(Double.self, forKey: .penalties)
         self.recoveryOk = try c.decodeIfPresent(Bool.self, forKey: .recoveryOk)
     }
@@ -765,8 +765,8 @@ struct PlayerRoundStats: Codable, Sendable, Equatable {
     var date: String
     var courseName: String?
     var courseId: String
-    var roundType: RoundRoundType
-    var venueType: RoundVenueType
+    var roundType: RoundType
+    var venueType: VenueType
     var name: String?
     var holeCount: Double
     var measures: StatMeasures
@@ -783,7 +783,7 @@ struct PlayerRoundStats: Codable, Sendable, Equatable {
         case measures = "measures"
     }
 
-    init(roundId: String, date: String, courseName: String? = nil, courseId: String, roundType: RoundRoundType, venueType: RoundVenueType, name: String? = nil, holeCount: Double, measures: StatMeasures) {
+    init(roundId: String, date: String, courseName: String? = nil, courseId: String, roundType: RoundType, venueType: VenueType, name: String? = nil, holeCount: Double, measures: StatMeasures) {
         self.roundId = roundId
         self.date = date
         self.courseName = courseName
@@ -801,8 +801,8 @@ struct PlayerRoundStats: Codable, Sendable, Equatable {
         self.date = try c.decode(String.self, forKey: .date)
         self.courseName = try c.decodeIfPresent(String.self, forKey: .courseName)
         self.courseId = try c.decode(String.self, forKey: .courseId)
-        self.roundType = try c.decode(RoundRoundType.self, forKey: .roundType)
-        self.venueType = try c.decode(RoundVenueType.self, forKey: .venueType)
+        self.roundType = try c.decode(RoundType.self, forKey: .roundType)
+        self.venueType = try c.decode(VenueType.self, forKey: .venueType)
         self.name = try c.decodeIfPresent(String.self, forKey: .name)
         self.holeCount = try c.decode(Double.self, forKey: .holeCount)
         self.measures = try c.decode(StatMeasures.self, forKey: .measures)

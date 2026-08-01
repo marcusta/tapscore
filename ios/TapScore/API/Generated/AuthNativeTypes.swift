@@ -266,25 +266,25 @@ struct AuthNativeAppleSignInOutput: Codable, Sendable, Equatable {
     }
 }
 
-enum AuthNativeCredentialsOutputProvidersItem: String, Codable, Sendable, Equatable {
+enum AuthProvider: String, Codable, Sendable, Equatable {
     case password = "password"
     case apple = "apple"
 }
 
 struct AuthNativeCredentialsOutput: Codable, Sendable, Equatable {
-    var providers: [AuthNativeCredentialsOutputProvidersItem]
+    var providers: [AuthProvider]
 
     enum CodingKeys: String, CodingKey {
         case providers = "providers"
     }
 
-    init(providers: [AuthNativeCredentialsOutputProvidersItem]) {
+    init(providers: [AuthProvider]) {
         self.providers = providers
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.providers = try c.decode([AuthNativeCredentialsOutputProvidersItem].self, forKey: .providers)
+        self.providers = try c.decode([AuthProvider].self, forKey: .providers)
     }
 
     func encode(to encoder: any Encoder) throws {

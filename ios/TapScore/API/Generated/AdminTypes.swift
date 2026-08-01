@@ -117,17 +117,24 @@ struct AdminStats: Codable, Sendable, Equatable {
     }
 }
 
-enum AdminRoundSummaryStatus: String, Codable, Sendable, Equatable {
+enum RoundStatus: String, Codable, Sendable, Equatable {
     case active = "active"
     case notStarted = "not_started"
     case complete = "complete"
+}
+
+enum RoundVisibility: String, Codable, Sendable, Equatable {
+    case `private` = "private"
+    case friends = "friends"
+    case link = "link"
 }
 
 struct AdminRoundSummary: Codable, Sendable, Equatable {
     var roundId: String
     var shareToken: String?
     var date: String
-    var status: AdminRoundSummaryStatus
+    var status: RoundStatus
+    var visibility: RoundVisibility
     var courseName: String?
     var createdAt: String
     var completedAt: String?
@@ -142,6 +149,7 @@ struct AdminRoundSummary: Codable, Sendable, Equatable {
         case shareToken = "shareToken"
         case date = "date"
         case status = "status"
+        case visibility = "visibility"
         case courseName = "courseName"
         case createdAt = "createdAt"
         case completedAt = "completedAt"
@@ -152,11 +160,12 @@ struct AdminRoundSummary: Codable, Sendable, Equatable {
         case lastEventAt = "lastEventAt"
     }
 
-    init(roundId: String, shareToken: String? = nil, date: String, status: AdminRoundSummaryStatus, courseName: String? = nil, createdAt: String, completedAt: String? = nil, creatorPlayerId: String? = nil, creatorName: String? = nil, participants: [String], scoreEventCount: Double, lastEventAt: String? = nil) {
+    init(roundId: String, shareToken: String? = nil, date: String, status: RoundStatus, visibility: RoundVisibility, courseName: String? = nil, createdAt: String, completedAt: String? = nil, creatorPlayerId: String? = nil, creatorName: String? = nil, participants: [String], scoreEventCount: Double, lastEventAt: String? = nil) {
         self.roundId = roundId
         self.shareToken = shareToken
         self.date = date
         self.status = status
+        self.visibility = visibility
         self.courseName = courseName
         self.createdAt = createdAt
         self.completedAt = completedAt
@@ -172,7 +181,8 @@ struct AdminRoundSummary: Codable, Sendable, Equatable {
         self.roundId = try c.decode(String.self, forKey: .roundId)
         self.shareToken = try c.decodeIfPresent(String.self, forKey: .shareToken)
         self.date = try c.decode(String.self, forKey: .date)
-        self.status = try c.decode(AdminRoundSummaryStatus.self, forKey: .status)
+        self.status = try c.decode(RoundStatus.self, forKey: .status)
+        self.visibility = try c.decode(RoundVisibility.self, forKey: .visibility)
         self.courseName = try c.decodeIfPresent(String.self, forKey: .courseName)
         self.createdAt = try c.decode(String.self, forKey: .createdAt)
         self.completedAt = try c.decodeIfPresent(String.self, forKey: .completedAt)
@@ -193,6 +203,7 @@ struct AdminRoundSummary: Codable, Sendable, Equatable {
         }
         try c.encode(date, forKey: .date)
         try c.encode(status, forKey: .status)
+        try c.encode(visibility, forKey: .visibility)
         if let courseName {
             try c.encode(courseName, forKey: .courseName)
         } else {
