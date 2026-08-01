@@ -1,5 +1,6 @@
-import { Component, Router, template } from '@basics/core/client/core';
+import { Component, Router, Signal, template } from '@basics/core/client/core';
 import { AuthService } from '@basics/core/client/auth';
+import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { FriendsService } from './friends.service';
@@ -64,6 +65,7 @@ const tpl = template(`
                 <div bind="connections" class="friends__list"></div>
             </section>
         </div>
+        <div bind="removeConfirmHost"></div>
     </div>
 `);
 
@@ -300,6 +302,8 @@ export class FriendsComponent extends Component {
     private svc = this.inject(FriendsService);
     private auth = this.inject(AuthService);
     private router = this.inject(Router);
+    private removeOpen = new Signal(false);
+    private removeTarget = new Signal<{ id: string; displayName: string } | null>(null);
 
     render(): DocumentFragment {
         const loggedIn = () => this.auth.currentUser.get() !== null;
@@ -426,12 +430,45 @@ export class FriendsComponent extends Component {
             (f) => f.id,
         );
 
+        this.spawn(ConfirmComponent, this.ref(frag, 'removeConfirmHost'), {
+            open: this.removeOpen,
+            title: () => {
+                const target = this.removeTarget.get();
+                return target ? `Remove ${target.displayName} from friends?` : 'Remove friend?';
+            },
+            message: () => {
+                const target = this.removeTarget.get();
+                return target
+                    ? `${target.displayName} will disappear from your friends list. You can add them again later.`
+                    : 'They will disappear from your friends list. You can add them again later.';
+            },
+            confirmLabel: 'Remove friend',
+            cancelLabel: 'Cancel',
+            danger: true,
+            onconfirm: () => {
+                const target = this.removeTarget.get();
+                if (target) void this.svc.remove(target.id);
+            },
+        });
+
+        const onKeydown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && this.removeOpen.get()) this.removeOpen.set(false);
+        };
+        window.addEventListener('keydown', onKeydown);
+        this.track(() => window.removeEventListener('keydown', onKeydown));
+
         return frag;
     }
 
     /** The LIVE friend row for a closed-over one (see the `$each` notes). */
     private liveFriend(f: FriendProfile): FriendProfile {
         return this.svc.friends.get().find((x) => x.id === f.id) ?? f;
+    }
+
+    private askRemove(f: FriendProfile): void {
+        const live = this.liveFriend(f);
+        this.removeTarget.set({ id: live.id, displayName: live.displayName });
+        this.removeOpen.set(true);
     }
 
     private friendRowBindings(f: FriendProfile, now: string) {
@@ -458,8 +495,8 @@ export class FriendsComponent extends Component {
             remove: {
                 'aria-label': () => `Remove ${this.liveFriend(f).displayName} from friends`,
                 title: () => `Remove ${this.liveFriend(f).displayName} from friends`,
-                disabled: () => this.svc.mutating.get(),
-                onclick: () => void this.svc.remove(f.id),
+                disabled: () => this.svc.mutating.get() || this.removeOpen.get(),
+                onclick: () => this.askRemove(f),
             },
         };
     }
