@@ -5,7 +5,7 @@ import SwiftUI
 /// Home is deliberately short — it shows what is being played now and the last
 /// three finished rounds inside a 14-day window. This screen is the rest of
 /// that same list: the **same** `LandingLoader` rows, the same Ongoing /
-/// finished split, and the same `RoundRow` (trash included, where the row is
+/// finished split, and the same `RoundRow` (swipe-to-remove where the row is
 /// device-local). The only difference is the window, which is `nil` here, so
 /// nothing ages off.
 ///
@@ -26,7 +26,8 @@ struct AllRoundsView: View {
     /// Asks the shell to open a round, through the same funnel a Home row uses.
     let onOpen: (RoundOpenRequest) -> Void
 
-    /// The row whose trash was tapped, parked while the confirmation is up.
+    /// The row whose swipe-revealed Remove action was invoked, parked while the
+    /// confirmation is up.
     @State private var pendingRemoval: LandingRow?
 
     var body: some View {

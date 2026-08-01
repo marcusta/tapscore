@@ -51,7 +51,7 @@ import { formatLabelFromId } from '../round/slot-labels';
 // friends played. Every section is invisible when empty, so the page shortens
 // rather than explaining itself.
 const tpl = template(`
-    <div class="landing">
+    <div bind="root" class="landing">
         <header bind="head" class="landing__head">
             <div class="landing__flag">⛳</div>
             <h1>tapscore</h1>
@@ -78,13 +78,13 @@ const tpl = template(`
             <div bind="newList" class="landing__list"></div>
         </div>
 
-        <div bind="ongoingSection" class="landing__section-block">
-            <div class="landing__section">
+        <div bind="ongoingSection" class="landing__section-block landing__ongoing">
+            <div class="landing__section landing__ongoing-head">
                 <span class="landing__section-title">Ongoing</span>
                 <span bind="ongoingCount" class="landing__count"></span>
             </div>
-            <div bind="ongoingList" class="landing__list"></div>
-            <button bind="ongoingMore" class="landing__more" type="button">Show all →</button>
+            <div bind="ongoingList" class="landing__ongoing-list"></div>
+            <button bind="ongoingMore" class="landing__ongoing-foot" type="button">Show all →</button>
         </div>
 
         <div bind="outNowSection" class="landing__section-block landing__outnow">
@@ -146,9 +146,10 @@ const tpl = template(`
     </div>
 `);
 
-// A small trash control OUTSIDE the row's main tap target (buttons can't
-// nest), separated at the card's right edge so a scroll-tap can't hit it.
-const trashSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
+// The round action menu stays outside the row's main tap target (buttons
+// can't nest), keeping destructive actions available without permanent
+// visual weight in every row.
+const moreSvg = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>`;
 
 const rowTpl = template(`
     <div class="round-row">
@@ -164,7 +165,12 @@ const rowTpl = template(`
                 <span bind="formats" class="round-row__formats"></span>
             </div>
         </button>
-        <button bind="del" type="button" class="round-row__del" aria-label="Delete round">${trashSvg}</button>
+        <div bind="actions" class="round-row__actions">
+            <button bind="menuButton" type="button" class="round-row__menu-button" aria-label="Round actions" aria-haspopup="true" aria-expanded="false">${moreSvg}</button>
+            <div bind="menu" class="round-row__menu" role="group" aria-label="Round actions">
+                <button bind="delete" type="button" class="round-row__menu-action">Delete</button>
+            </div>
+        </div>
     </div>
 `);
 
@@ -181,7 +187,6 @@ const finishedRowTpl = template(`
                 <span bind="formats" class="finished-row__formats"></span>
             </span>
         </span>
-        <span bind="status" class="finished-row__status"></span>
     </button>
 `);
 
@@ -228,9 +233,8 @@ const recentTpl = template(`
     </button>
 `);
 
-// The lifecycle chip, shared by the full round row and the finished card's
-// compact one — one chip, one set of tones, no drift between two screens that
-// show the same three words.
+// The lifecycle chip used by Ongoing rows. Recently finished is already
+// grouped by its section heading, so it does not repeat "Finished" per row.
 const statusChipCss = `
     font-size: 0.7rem;
     font-weight: 700;
@@ -505,22 +509,12 @@ export class LandingComponent extends Component {
                     &:disabled { cursor: default; }
                 }
 
-                /* Danger stays quiet until touched: muted glyph, small icon,
-                   its own 44px-wide tap column at the card's edge. */
-                & .round-row__del {
+                & .round-row__actions {
+                    position: relative;
                     flex: 0 0 44px;
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    background: none;
-                    border: none;
-                    color: ${t('text-muted')};
-                    cursor: pointer;
-                    border-radius: 0 ${t('radius')} ${t('radius')} 0;
-
-                    & svg { width: 17px; height: 17px; }
-                    &:hover, &:active { color: ${t('error')}; }
-                    &:focus-visible { outline: 2px solid ${t('error')}; outline-offset: -2px; }
                     &.hidden { display: none; }
                 }
 
@@ -562,22 +556,97 @@ export class LandingComponent extends Component {
                 }
             }
 
-            /* "Show all →" under a truncated Ongoing section. Absent at or
-               under the cap — a door leading to exactly what is on screen is
-               furniture (see showsOngoingShowAll). */
-            & .landing__more {
-                display: block;
-                margin-top: ${s('sm')};
-                padding: ${s('sm')} 0;
+            /* Ongoing and Recently finished are both grouped panels. Ongoing
+               keeps its per-row lifecycle markers because the panel contains
+               more than one state; the outer card carries the grouping. */
+            & .landing__ongoing {
+                ${card()}
+                overflow: hidden;
+
+                & .landing__ongoing-head {
+                    margin-bottom: 0;
+                    padding: ${s('md')} ${s('lg')} ${s('sm')};
+                }
+                & .landing__ongoing-list {
+                    display: flex;
+                    flex-direction: column;
+                }
+                & .round-row {
+                    border: 0;
+                    border-top: 1px solid ${t('border')};
+                    border-radius: 0;
+                    box-shadow: none;
+                }
+                & .landing__ongoing-foot {
+                    display: block;
+                    width: 100%;
+                    padding: ${s('md')} ${s('lg')};
+                    background: none;
+                    border: none;
+                    border-top: 1px solid ${t('border')};
+                    font-family: inherit;
+                    font-size: 0.85rem;
+                    font-weight: 700;
+                    text-align: left;
+                    color: ${t('accent')};
+                    cursor: pointer;
+
+                    &:hover { background: ${t('hover-bg')}; }
+                    &.hidden { display: none; }
+                }
+            }
+
+            /* Round actions are a compact overflow menu rather than a
+               permanently visible trash button. The menu opens beside the
+               row so it remains inside the grouped panel's clipping boundary. */
+            & .round-row__menu-button {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 44px;
+                height: 44px;
+                padding: 0;
                 background: none;
                 border: none;
-                font-family: inherit;
-                font-size: 0.85rem;
-                font-weight: 700;
-                color: ${t('accent')};
+                border-radius: ${t('radius-sm')};
+                color: ${t('text-muted')};
                 cursor: pointer;
 
+                & svg { width: 18px; height: 18px; }
+                &:hover { background: ${t('hover-bg')}; color: ${t('text')}; }
+                &:focus-visible { outline: 2px solid ${t('accent')}; outline-offset: -2px; }
+            }
+            & .round-row__menu {
+                position: absolute;
+                top: 50%;
+                right: 0;
+                z-index: 3;
+                min-width: 132px;
+                padding: ${s('xs')};
+                transform: translateY(-50%);
+                background: ${t('surface')};
+                border: 1px solid ${t('border')};
+                border-radius: ${t('radius')};
+                box-shadow: ${t('shadow-elevated')};
+
                 &.hidden { display: none; }
+            }
+            & .round-row__menu-action {
+                display: block;
+                width: 100%;
+                padding: ${s('sm')} ${s('md')};
+                background: none;
+                border: none;
+                border-radius: ${t('radius-sm')};
+                font-family: inherit;
+                font-size: 0.9rem;
+                font-weight: 600;
+                text-align: left;
+                color: ${t('error')};
+                cursor: pointer;
+
+                &:hover { background: ${t('hover-bg')}; }
+                &:focus-visible { outline: 2px solid ${t('error')}; outline-offset: -2px; }
             }
 
             /* Recently finished: one card, its rows separated by the card's own
@@ -670,7 +739,6 @@ export class LandingComponent extends Component {
                     text-overflow: ellipsis;
                     white-space: nowrap;
                 }
-                & .finished-row__status { ${statusChipCss} }
             }
 
             /* The statistics card. One card, one button: the tiles, the
@@ -856,8 +924,10 @@ export class LandingComponent extends Component {
     private deleteTarget = new Signal<{ token: string; roundId: string; name: string } | null>(
         null,
     );
+    private openRoundMenu = new Signal<string | null>(null);
 
     private askDelete(token: string, roundId: string, name: string): void {
+        this.openRoundMenu.set(null);
         this.deleteTarget.set({ token, roundId, name });
         this.deleteOpen.set(true);
     }
@@ -958,8 +1028,8 @@ export class LandingComponent extends Component {
             ongoingSection: {
                 className: () =>
                     this.ongoing.get().length > 0
-                        ? 'landing__section-block'
-                        : 'landing__section-block hidden',
+                        ? 'landing__section-block landing__ongoing'
+                        : 'landing__section-block landing__ongoing hidden',
             },
             ongoingCount: () => {
                 const n = this.ongoing.get().length;
@@ -968,8 +1038,8 @@ export class LandingComponent extends Component {
             ongoingMore: {
                 className: () =>
                     showsOngoingShowAll(this.counts.get().ongoing)
-                        ? 'landing__more'
-                        : 'landing__more hidden',
+                        ? 'landing__ongoing-foot'
+                        : 'landing__ongoing-foot hidden',
                 'aria-label': () => 'Show all ongoing rounds',
                 onclick: () => this.router.navigate('/history'),
             },
@@ -1151,9 +1221,22 @@ export class LandingComponent extends Component {
 
         const onKeydown = (e: KeyboardEvent) => {
             if (e.key === 'Escape' && this.deleteOpen.get()) this.deleteOpen.set(false);
+            if (e.key === 'Escape' && this.openRoundMenu.get() !== null) {
+                this.openRoundMenu.set(null);
+            }
         };
         window.addEventListener('keydown', onKeydown);
         this.track(() => window.removeEventListener('keydown', onKeydown));
+
+        const root = this.ref(frag, 'root');
+        const onPointerDown = (e: Event) => {
+            if (this.openRoundMenu.get() === null) return;
+            const target = e.target;
+            if (target instanceof Node && root.contains(target)) return;
+            this.openRoundMenu.set(null);
+        };
+        document.addEventListener('pointerdown', onPointerDown, true);
+        this.track(() => document.removeEventListener('pointerdown', onPointerDown, true));
 
         return frag;
     }
@@ -1194,10 +1277,6 @@ export class LandingComponent extends Component {
                 },
                 date: () => formatRowDate(row.date),
                 formats: () => row.formats ?? '',
-                status: {
-                    textContent: () => STATUS_TEXT[row.status] ?? row.status,
-                    className: () => `finished-row__status s-${row.status}`,
-                },
             },
             track,
         );
@@ -1234,9 +1313,25 @@ export class LandingComponent extends Component {
                 },
                 date: () => formatRowDate(row.date),
                 formats: () => row.formats ?? '',
-                del: {
+                actions: {
                     className: () =>
-                        row.token === null ? 'round-row__del hidden' : 'round-row__del',
+                        row.token === null ? 'round-row__actions hidden' : 'round-row__actions',
+                },
+                menuButton: {
+                    'aria-expanded': () =>
+                        this.openRoundMenu.get() === row.key ? 'true' : 'false',
+                    onclick: () =>
+                        this.openRoundMenu.set(
+                            this.openRoundMenu.get() === row.key ? null : row.key,
+                        ),
+                },
+                menu: {
+                    className: () =>
+                        this.openRoundMenu.get() === row.key
+                            ? 'round-row__menu'
+                            : 'round-row__menu hidden',
+                },
+                delete: {
                     onclick: () => {
                         if (row.token === null) return;
                         this.askDelete(row.token, row.roundId ?? '', rowLabel(row));

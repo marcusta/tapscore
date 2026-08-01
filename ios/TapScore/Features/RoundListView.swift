@@ -84,12 +84,13 @@ struct RoundListView: View {
     /// it.
     @State private var dashboardOpen = false
 
-    /// The row whose trash was tapped, parked while the confirmation is up.
+    /// The row whose swipe-revealed Remove action was invoked, parked while
+    /// the confirmation is up.
     ///
     /// The web ALWAYS confirms before a row leaves the landing (`askDelete` in
     /// `src/landing/landing.component.ts`), and one shared dialog serves every
     /// row there — same shape here. A single tap must not be able to remove a
-    /// round: the trash sits a few points from the row's own tap target.
+    /// round: a swipe-revealed destructive action is deliberately confirmed.
     @State private var pendingRemoval: LandingRow?
 
     var body: some View {
@@ -296,37 +297,46 @@ struct RoundListView: View {
         }
     }
 
-    /// Ongoing, capped like the finished card: the header still counts them
-    /// all, at most four full rows render, and past four a "Show all →" link
-    /// (same door, `AllRoundsView`) carries the rest. At four or fewer there is
-    /// no link — it would open a list identical to the one on screen.
+    /// Ongoing, as ONE card like Recently finished. The header still counts
+    /// them all, at most four rows render, and past four a footer carries the
+    /// rest to `AllRoundsView`.
     @ViewBuilder
     private func ongoingSection(_ sectionRows: [LandingRow]) -> some View {
         if !sectionRows.isEmpty {
-            VStack(alignment: .leading, spacing: TapSpacing.sm) {
-                SectionHeader(title: "Ongoing", count: String(sectionRows.count))
-                // Web `.landing__list` — a `s('sm')` gapped column of cards.
-                VStack(spacing: TapSpacing.sm) {
+            TapCard {
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionHeader(title: "Ongoing", count: String(sectionRows.count))
+                        .padding(.horizontal, TapSpacing.lg)
+                        .padding(.top, TapSpacing.md)
+                        .padding(.bottom, TapSpacing.sm)
                     ForEach(sectionRows.prefix(HomeIdentity.ongoingPreviewLimit)) { row in
+                        hairline
                         RoundRow(
                             row: row,
                             onOpen: { open(row) },
-                            onRemove: { pendingRemoval = row }
+                            onRemove: { pendingRemoval = row },
+                            grouped: true
                         )
                     }
-                }
-                if sectionRows.count > HomeIdentity.ongoingPreviewLimit {
-                    Button(action: onSeeAllRounds) {
-                        Text("Show all \u{2192}")
-                            .font(TapFont.ui(size: 13.6, weight: .semibold))
-                            .foregroundStyle(TapColors.accentStrong)
+                    if sectionRows.count > HomeIdentity.ongoingPreviewLimit {
+                        hairline
+                        Button(action: onSeeAllRounds) {
+                            HStack(spacing: TapSpacing.xs) {
+                                Text("Show all \u{2192}")
+                                    .font(TapFont.ui(size: 13.6, weight: .semibold))
+                                    .foregroundStyle(TapColors.accentStrong)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, TapSpacing.lg)
                             .frame(minHeight: 44)
                             .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Show all ongoing rounds")
+                        .accessibilityIdentifier("home-show-all-ongoing")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Show all ongoing rounds")
-                    .accessibilityIdentifier("home-show-all-ongoing")
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -334,7 +344,7 @@ struct RoundListView: View {
     /// Recently finished, as ONE card rather than a card per round.
     ///
     /// Home is about the round you are playing; the ones you have played are a
-    /// glance and a door. So the rows are compact (no role label, no trash —
+    /// glance and a door. So the rows are compact (no role label, no status —
     /// removing a round is a deliberate act and it belongs on the screen that
     /// lists them all), they are capped at three, and the card ends in the
     /// footer that opens the rest. The count in the header still names how many
@@ -618,13 +628,10 @@ final class LandingLoader {
 
 // MARK: - Row
 
-/// One round, as `.round-row` draws it: a `card()` split into a tappable main
-/// column and a 44pt trash column at the right edge.
-///
-/// The trash replaces the placeholder's swipe action, matching the web — and
-/// it is offered on exactly the same rows the swipe was: device-local ones. A
-/// server row this device never opened has nothing local to remove, and a
-/// control that did nothing would read as a broken delete.
+/// One round, as `.round-row` draws it. A standalone row is a card; a grouped
+/// row supplies only its content so the section's outer card can own the
+/// surface and separators. Device-local rows reveal their Remove action with a
+/// horizontal swipe instead of reserving a permanent trash column.
 /// Internal rather than fileprivate: `AllRoundsView` is the same list without
 /// the window, and a second copy of this row is how the two screens would start
 /// disagreeing about what a round looks like.
@@ -632,99 +639,166 @@ struct RoundRow: View {
     let row: LandingRow
     let onOpen: () -> Void
     let onRemove: () -> Void
+    var grouped = false
 
     private var isRemovable: Bool { row.deviceLocal && row.token != nil }
+    private let revealWidth: CGFloat = 88
+    @State private var revealOffset: CGFloat = 0
+    @State private var dragOrigin: CGFloat = 0
+    @State private var horizontalDrag = false
 
     var body: some View {
-        TapCard {
-            HStack(spacing: 0) {
-                Button(action: onOpen) {
-                    HStack(alignment: .top, spacing: TapSpacing.md) {
-                        VStack(alignment: .leading, spacing: TapSpacing.xs) {
-                            // Web `.round-row__course`: 1.05rem/700 in the UI
-                            // face. Kept in the UI face here too — the serif
-                            // marks *structure* (section headers, the
-                            // wordmark), and a course name is content. Two
-                            // clients disagreeing about which face a round row
-                            // wears is a divergence with nothing to buy it.
-                            Text(row.label)
-                                .font(TapFont.ui(size: 16.8, weight: .bold))
-                                .foregroundStyle(TapColors.text)
+        ZStack(alignment: .trailing) {
+            if isRemovable {
+                removeAction
+            }
+            accessibleRow
+                .offset(x: revealOffset)
+                .simultaneousGesture(swipeGesture)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var accessibleRow: some View {
+        if isRemovable {
+            rowSurface
+                .accessibilityAction(named: "Remove") {
+                    onRemove()
+                }
+                .accessibilityHint("Swipe left to reveal the remove action")
+        } else {
+            rowSurface
+        }
+    }
+
+    @ViewBuilder
+    private var rowSurface: some View {
+        if grouped {
+            rowContent
+        } else {
+            TapCard { rowContent }
+        }
+    }
+
+    private var rowContent: some View {
+        HStack(spacing: 0) {
+            Button(action: openRow) {
+                HStack(alignment: .top, spacing: TapSpacing.md) {
+                    VStack(alignment: .leading, spacing: TapSpacing.xs) {
+                        // Web `.round-row__course`: 1.05rem/700 in the UI
+                        // face. Kept in the UI face here too — the serif
+                        // marks *structure* (section headers, the
+                        // wordmark), and a course name is content. Two
+                        // clients disagreeing about which face a round row
+                        // wears is a divergence with nothing to buy it.
+                        Text(row.label)
+                            .font(TapFont.ui(size: 16.8, weight: .bold))
+                            .foregroundStyle(TapColors.text)
+                            .multilineTextAlignment(.leading)
+                            // Two lines is enough for every real course
+                            // name; past that the row would push the chip
+                            // column around for no gain.
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                        // Three sizes, one hierarchy: what the round is
+                        // CALLED, then where it was played, then when.
+                        // The course only appears when the headline is a
+                        // name — otherwise the course IS the headline and
+                        // this would repeat it.
+                        if let course = row.courseSubtitle {
+                            Text(course)
+                                .font(TapFont.ui(size: 13.6))
+                                .foregroundStyle(TapColors.textMuted)
                                 .multilineTextAlignment(.leading)
-                                // Two lines is enough for every real course
-                                // name; past that the row would push the chip
-                                // column around for no gain.
                                 .lineLimit(2)
                                 .fixedSize(horizontal: false, vertical: true)
-                            // Three sizes, one hierarchy: what the round is
-                            // CALLED, then where it was played, then when.
-                            // The course only appears when the headline is a
-                            // name — otherwise the course IS the headline and
-                            // this would repeat it.
-                            if let course = row.courseSubtitle {
-                                Text(course)
-                                    .font(TapFont.ui(size: 13.6))
-                                    .foregroundStyle(TapColors.textMuted)
-                                    .multilineTextAlignment(.leading)
-                                    .lineLimit(2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            if row.displayDate != nil || row.formatsText != nil {
-                                // Web `.round-row__bottom` — date and formats
-                                // share the quiet metadata line.
-                                HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
-                                    if let date = row.displayDate {
-                                        Text(date)
-                                    }
-                                    if let formats = row.formatsText {
-                                        Text(formats)
-                                            .lineLimit(1)
-                                    }
+                        }
+                        if row.displayDate != nil || row.formatsText != nil {
+                            // Web `.round-row__bottom` — date and formats
+                            // share the quiet metadata line.
+                            HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
+                                if let date = row.displayDate {
+                                    Text(date)
                                 }
-                                .font(TapFont.ui(size: 12))
-                                .foregroundStyle(TapColors.textMuted)
+                                if let formats = row.formatsText {
+                                    Text(formats)
+                                        .lineLimit(1)
+                                }
                             }
-                        }
-                        Spacer(minLength: TapSpacing.sm)
-                        VStack(alignment: .trailing, spacing: TapSpacing.xs) {
-                            if let role = row.roleLabel {
-                                RoleLabel(text: role)
-                            }
-                            StatusChip(status: RoundStatusTone(row.status))
-                        }
-                    }
-                    .padding(.vertical, TapSpacing.md)
-                    .padding(.leading, TapSpacing.lg)
-                    .padding(.trailing, isRemovable ? 0 : TapSpacing.lg)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                // A produced round with no friendly wrapper has no token, so it
-                // renders but cannot be opened.
-                .disabled(row.token == nil)
-
-                if isRemovable {
-                    // Web `.round-row__del`: quiet muted glyph in its own 44px
-                    // tap column at the card's edge, outside the row's main
-                    // target so a scroll-tap cannot hit it.
-                    Button(action: onRemove) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 17, weight: .medium))
+                            .font(TapFont.ui(size: 12))
                             .foregroundStyle(TapColors.textMuted)
-                            .frame(width: 44)
-                            .frame(maxHeight: .infinity)
-                            .contentShape(Rectangle())
+                        }
                     }
-                    .buttonStyle(.plain)
-                    // Names the round, because VoiceOver reads these buttons
-                    // out of the list one after another and "Remove round"
-                    // four times over says nothing about which.
-                    .accessibilityLabel("Remove \(row.courseName.isEmpty ? "round" : row.courseName)")
+                    Spacer(minLength: TapSpacing.sm)
+                    VStack(alignment: .trailing, spacing: TapSpacing.xs) {
+                        if let role = row.roleLabel {
+                            RoleLabel(text: role)
+                        }
+                        StatusChip(status: RoundStatusTone(row.status))
+                    }
+                }
+                .padding(.vertical, TapSpacing.md)
+                .padding(.leading, TapSpacing.lg)
+                .padding(.trailing, isRemovable ? 0 : TapSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            // A produced round with no friendly wrapper has no token, so it
+            // renders but cannot be opened.
+            .disabled(row.token == nil)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var removeAction: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.18)) { revealOffset = 0 }
+            onRemove()
+        } label: {
+            Label("Remove", systemImage: "trash")
+                .font(TapFont.ui(size: 13.6, weight: .semibold))
+                .foregroundStyle(TapColors.onDanger)
+                .frame(width: revealWidth)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(TapColors.danger)
+        .accessibilityLabel("Remove \(row.courseName.isEmpty ? "round" : row.courseName)")
+    }
+
+    private var swipeGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                if !horizontalDrag {
+                    dragOrigin = revealOffset
+                    horizontalDrag = true
+                }
+                revealOffset = min(
+                    0,
+                    max(-revealWidth, dragOrigin + value.translation.width)
+                )
+            }
+            .onEnded { value in
+                guard horizontalDrag else { return }
+                horizontalDrag = false
+                let reveal = value.translation.width < -(revealWidth / 3)
+                    || value.predictedEndTranslation.width < -revealWidth
+                withAnimation(.easeOut(duration: 0.18)) {
+                    revealOffset = reveal ? -revealWidth : 0
                 }
             }
-            .frame(maxWidth: .infinity)
+    }
+
+    private func openRow() {
+        if revealOffset != 0 {
+            withAnimation(.easeOut(duration: 0.18)) { revealOffset = 0 }
+            return
         }
+        onOpen()
     }
 }
 
@@ -764,8 +838,8 @@ private struct RoundRemovalDialog: ViewModifier {
 }
 
 extension View {
-    /// Attaches the shared "remove from this device" confirmation, driven by the
-    /// row whose trash was tapped.
+    /// Attaches the shared "remove from this device" confirmation, driven by a
+    /// row's swipe-revealed Remove action.
     func roundRemovalDialog(
         pending: Binding<LandingRow?>,
         onRemove: @escaping (String) -> Void
@@ -814,7 +888,6 @@ private struct FinishedRow: View {
                     }
                 }
                 Spacer(minLength: TapSpacing.sm)
-                StatusChip(status: RoundStatusTone(row.status))
             }
             .padding(.vertical, TapSpacing.md)
             .padding(.horizontal, TapSpacing.lg)
