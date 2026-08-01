@@ -54,6 +54,8 @@ const tpl = template(`
     </div>
 `);
 
+const removeFriendSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8.5" cy="7.5" r="3.25"/><path d="M2.5 20c.5-3.5 2.7-5.5 6-5.5 2.7 0 5.1 1.8 5.8 4.5"/><circle cx="17.5" cy="16.5" r="4.25"/><path d="M15.5 16.5h4"/></svg>`;
+
 const resultTpl = template(`
     <div class="friend-row">
         ${avatarBadgeMarkup('friend-row__badge')}
@@ -81,7 +83,7 @@ const friendTpl = template(`
             </span>
         </button>
         <span bind="hcp" class="friend-row__hcp"></span>
-        <button bind="remove" class="friend-row__remove" type="button" aria-label="Remove friend">✕</button>
+        <button bind="remove" class="friend-row__remove" type="button" aria-label="Remove friend">${removeFriendSvg}</button>
     </div>
 `);
 
@@ -241,8 +243,32 @@ export class FriendsComponent extends Component {
                 }
                 & .friend-row__remove {
                     ${btn()}
-                    width: 34px; height: 34px; flex-shrink: 0;
-                    font-size: 0.9rem; color: ${t('text-muted')};
+                    width: 40px; height: 40px; flex-shrink: 0;
+                    box-sizing: border-box;
+                    padding: 0;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    border-radius: 50%;
+                    background: transparent;
+                    border-color: transparent;
+                    box-shadow: none;
+                    color: ${t('text-muted')};
+                    transition: background ${t('dur-fast')} ${t('ease-standard')}, color ${t('dur-fast')} ${t('ease-standard')};
+
+                    & svg { display: block; width: 19px; height: 19px; }
+                    &:hover, &:active {
+                        background: ${t('surface-sunken')};
+                        border-color: transparent;
+                        box-shadow: none;
+                        color: ${t('error')};
+                    }
+                    &:focus-visible {
+                        outline: 2px solid ${t('error')};
+                        outline-offset: 2px;
+                        box-shadow: none;
+                    }
+                    &:disabled { cursor: default; }
                 }
             }
         }
@@ -380,6 +406,8 @@ export class FriendsComponent extends Component {
                         },
                         hcp: () => (f.handicapIndex === null ? '–' : f.handicapIndex.toFixed(1)),
                         remove: {
+                            'aria-label': () => `Remove ${this.liveFriend(f).displayName} from friends`,
+                            title: () => `Remove ${this.liveFriend(f).displayName} from friends`,
                             disabled: () => this.svc.mutating.get(),
                             onclick: () => void this.svc.remove(f.id),
                         },
