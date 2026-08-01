@@ -794,25 +794,51 @@ private struct BallRow: View {
     private var toParValue: some View {
         if ball.pending {
             EmptyView()
-        } else if let value = toPar {
-            let direction = ParDirection(toPar: value)
-            Text(direction.formatted(toPar: value))
-                .font(TapFont.display(size: 21.6, weight: .bold, tabular: true))
-                .foregroundStyle(direction.color)
-                .lineLimit(1)
-                .layoutPriority(1)
         } else {
-            Text("–")
-                .font(TapFont.display(size: 21.6, weight: .bold, tabular: true))
-                .foregroundStyle(TapColors.textMuted)
-                .lineLimit(1)
-                .layoutPriority(1)
+            // The standing under the SELECTED format when the result payload
+            // has one (points pace, plain points, "2 UP"); the local
+            // gross-to-par otherwise — which is also what keeps the figure
+            // instant on plain stroke play, where the two agree and the local
+            // one updates optimistically with every keypad tap.
+            switch store.standing(of: ball) {
+            case .pace(let delta):
+                let direction = ParDirection(toPar: delta)
+                figureText(direction.formatted(toPar: delta), color: direction.color)
+            case .total(let total):
+                figureText(jsNumberString(total), color: TapColors.text)
+            case .match(let text, let up):
+                let color: Color =
+                    switch up {
+                    case .some(true): ParDirection.under.color
+                    case .some(false): ParDirection.over.color
+                    case .none: ParDirection.level.color
+                    }
+                // Words, not a scalar — a size down so "2 UP" does not
+                // out-shout the score circles (web: `se-row__topar--match`).
+                figureText(text, color: color, size: 16.8)
+            case nil:
+                if let value = toPar {
+                    let direction = ParDirection(toPar: value)
+                    figureText(direction.formatted(toPar: value), color: direction.color)
+                } else {
+                    figureText("–", color: TapColors.textMuted)
+                }
+            }
         }
+    }
+
+    private func figureText(_ text: String, color: Color, size: CGFloat = 21.6) -> some View {
+        Text(text)
+            .font(TapFont.display(size: size, weight: .bold, tabular: true))
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .layoutPriority(1)
     }
 
     /// Running to-par over scored holes — the Swift image of the web's
     /// `toParValue`. Pick-ups (`0`) and unscored holes are excluded, and a ball
-    /// with nothing scored yet has no value at all.
+    /// with nothing scored yet has no value at all. The FALLBACK figure —
+    /// `store.standing(of:)` wins when the result payload covers this ball.
     private var toPar: Int? {
         var shots = 0
         var par = 0
@@ -868,7 +894,7 @@ private struct BallRow: View {
     private var accessibilityLabel: String {
         let name = store.displayName(of: ball)
         let handicap = handicapText.map { ", \($0)" } ?? ""
-        let standing = toPar.map { ", \(ParDirection(toPar: $0).formatted(toPar: $0))" } ?? ""
+        let standing = spokenStanding.map { ", \($0)" } ?? ""
         let previous = previousText.map { ", previous hole \($0)" } ?? ""
         guard let strokes else {
             if ball.pending { return "\(name), open seat" }
@@ -878,6 +904,17 @@ private struct BallRow: View {
             return "\(name)\(handicap)\(standing), no score\(previous)"
         }
         return "\(name)\(handicap)\(standing), \(jsNumberString(strokes))\(previous)"
+    }
+
+    /// The standing exactly as WRITTEN on the row (same source order as
+    /// `toParValue`), so a listener and a looker describe the same figure.
+    private var spokenStanding: String? {
+        switch store.standing(of: ball) {
+        case .pace(let delta): return ParDirection(toPar: delta).formatted(toPar: delta)
+        case .total(let total): return jsNumberString(total)
+        case .match(let text, _): return text
+        case nil: return toPar.map { ParDirection(toPar: $0).formatted(toPar: $0) }
+        }
     }
 
     @ViewBuilder

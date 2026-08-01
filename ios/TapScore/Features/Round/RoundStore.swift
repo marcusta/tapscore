@@ -456,6 +456,12 @@ final class RoundStore {
         await flushPendingStats()
         refreshStatStep()
         updateLiveGate()
+
+        // The result is fetched on EVERY tab now, not just the leaderboard:
+        // the score rows' standing figure joins the selected format's result
+        // entries by ballId, so the score tab needs the payload too. Live
+        // score events keep it fresh afterwards (`handle(_:)` → `pollResult`).
+        if result == nil { await loadResult() }
     }
 
     /// The full refetch: round + balls + SCORECARDS (all of `load()`) and then
@@ -1093,6 +1099,16 @@ final class RoundStore {
     func effectivePlayingHandicap(of ball: RoundBall) -> Double? {
         guard let slot = presentedSlot(of: ball) else { return nil }
         return slot.handicapDerivation?.effectivePh ?? slot.playingHandicap
+    }
+
+    /// The ball's standing under the SELECTED format, joined from the result
+    /// payload by ballId — the score row's loud figure. Nil = nothing to say
+    /// (result not loaded, ball not in the slot, nothing scored yet); the row
+    /// falls back to its local gross-to-par.
+    func standing(of ball: RoundBall) -> SlotStanding? {
+        guard let view = result?.slots.first(where: { $0.slotDefId == selectedSlotDefId })
+        else { return nil }
+        return slotStanding(forBallId: ball.id, in: view)
     }
 
     /// The selected slot's catalog label ("Taliban", "Poängbogey"), with the

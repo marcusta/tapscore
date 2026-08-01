@@ -151,15 +151,29 @@ Team balls need no special casing in the UI: the row *is* the team ball, so
 the popup naturally shows member `course_handicap` steps followed by the
 `team_combination` step.
 
-### 5. Phase 2 — format-scoped result figure
+### 5. Phase 2 — format-scoped result figure (shipped)
 
-The gross-to-par "+12" becomes the selected format's standing. This is a
-separate slice because it needs score data (a compact per-ball summary from
-the result presenters — position/total for ranked formats, "2 UP thru 9"
-for match panels) and a fetch strategy for the scoring tab, where
-`RoundResult` is currently never loaded. Not specified further here; the
-chip-as-context mechanism from §1 is the prerequisite it shares with the
-handicap slice.
+The gross-to-par "+12" becomes the selected format's standing, joined from
+the result payload by ballId — no server change needed, the sections already
+carry everything:
+
+- **Ranked metric with pace** (stroke play gross-vs-par, Stableford
+  points-vs-2-per-hole): the pace delta, sign-normalised to golf convention
+  (`E` / `+3` / `−1`), tinted by the existing over/under tones. The primary
+  metric is the FIRST ranked section, the same convention the boards use.
+- **Paceless ranked metric** (köpenhamnare/umbrella points, field-relative):
+  the plain total, neutral tone.
+- **Match formats** (no ranked section): the ball's side of its panel —
+  `2 UP` / `2 DN` / `AS`, one size down because words are not a scalar.
+- **Fallback** — result not loaded, ball not in the slot, nothing scored —
+  is the old locally-computed gross-to-par, which also keeps the figure
+  optimistic-instant on plain stroke play where the two agree.
+
+The join lives once per client (`slotStandingFor` in `round.service.ts`,
+`slotStanding(forBallId:in:)` in `Domain/SlotStanding.swift`), resolves
+ADR-0004 virtual subject ids through `subjectLabels`, and the scoring tab now
+fetches the result on round load (live score events already kept it fresh on
+every tab via `pollResult`).
 
 ## Edge cases
 

@@ -58,6 +58,16 @@ export interface CellState {
 const cellKey = (ballId: string, playHoleId: string) => `${ballId}|${playHoleId}`;
 
 /** On-course position restored from the URL so a reload survives in place. */
+/**
+ * A ball's standing under the selected format slot, for the score row's loud
+ * figure (see `slotStandingFor`). `pace` deltas are already sign-normalised to
+ * golf convention: negative = under/ahead.
+ */
+export type SlotStanding =
+    | { kind: 'pace'; delta: number }
+    | { kind: 'total'; total: number }
+    | { kind: 'match'; text: string; tone: 'even' | 'under' | 'over' };
+
 export interface InitialPosition {
     holeIdx?: number;
     groupIdx?: number;
@@ -801,6 +811,70 @@ export class RoundViewService {
     effectivePlayingHandicap(ball: RoundBall): number | null {
         const slot = this.presentedSlot(ball);
         return slot?.handicapDerivation?.effectivePh ?? slot?.playingHandicap ?? null;
+    }
+
+    /**
+     * The ball's standing under the SELECTED format, joined from the result
+     * payload by ballId — the score row's loud figure. Three shapes:
+     *
+     *   - `pace`  — the primary ranked metric's pace delta, sign-normalised to
+     *     golf convention (negative = under/ahead). Stroke play: gross vs par.
+     *     Stableford: points vs 2-per-hole. The gross-to-par replacement.
+     *   - `total` — a paceless ranked metric (köpenhamnare/umbrella points,
+     *     which are field-relative): the plain total.
+     *   - `match` — match formats have no ranked section; the ball's side of
+     *     its panel reads `2 UP` / `2 DN` / `AS`.
+     *
+     * `null` = nothing to say (result not loaded, ball not in the slot,
+     * nothing scored yet) — the caller falls back to the local gross-to-par.
+     * The first section that covers the ball wins: `leaderboard` is ordered
+     * with the primary metric first (the same convention the boards use).
+     */
+    slotStandingFor(ball: RoundBall): SlotStanding | null {
+        const slotDefId = this.selectedSlotDefId();
+        const view = this.result.get()?.slots.find((s) => s.slotDefId === slotDefId);
+        if (!view) return null;
+        // ADR-0004 aggregated sides publish a VIRTUAL subject id; the
+        // subjectLabels bridge maps it back to member balls.
+        const covers = (ids: string[]): boolean =>
+            ids.includes(ball.id) ||
+            ids.some(
+                (id) =>
+                    view.subjectLabels?.some(
+                        (l) => l.ballId === id && l.memberBallIds.includes(ball.id),
+                    ) ?? false,
+            );
+        for (const section of view.leaderboard) {
+            if (section.kind === 'ranked') {
+                const entry = section.entries.find((e) => covers(e.ballIds));
+                if (!entry) continue;
+                if (entry.total === null) return null; // nothing scored yet
+                if (entry.paceDelta !== undefined) {
+                    const delta =
+                        section.direction === 'high' ? -entry.paceDelta : entry.paceDelta;
+                    return { kind: 'pace', delta };
+                }
+                return { kind: 'total', total: entry.total };
+            }
+            if (section.kind === 'match_summary') {
+                const panel = section.matches.find(
+                    (m) => covers(m.sideA.ballIds) || covers(m.sideB.ballIds),
+                );
+                if (!panel) continue;
+                if (panel.thru === 0 && !panel.finished) return null; // nothing decided yet
+                const own = covers(panel.sideA.ballIds) ? 'a' : 'b';
+                if (panel.leader === null || panel.magnitude === 0) {
+                    return { kind: 'match', text: 'AS', tone: 'even' };
+                }
+                const up = panel.leader === own;
+                return {
+                    kind: 'match',
+                    text: `${panel.magnitude} ${up ? 'UP' : 'DN'}`,
+                    tone: up ? 'under' : 'over',
+                };
+            }
+        }
+        return null;
     }
 
     // --- Shared on-course navigation (carousel + orange hole bar) ---

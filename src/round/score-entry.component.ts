@@ -331,9 +331,11 @@ export class ScoreEntryComponent extends Component {
                 transform: scale(0.72); transform-origin: center;
                 &.hidden { display: none; }
             }
-            /* Gamebook puts the running to-par where the eye lands: its own
-               column between the name and the scores, in the display face at
-               score size, tinted by tone. */
+            /* Gamebook puts the standing where the eye lands: its own column
+               between the name and the scores, in the display face at score
+               size, tinted by tone. A match standing ("2 UP") is words, not a
+               scalar — slightly smaller so four glyphs don't out-shout the
+               scores. */
             & .se-row__topar {
                 flex-shrink: 0;
                 text-align: right;
@@ -342,6 +344,7 @@ export class ScoreEntryComponent extends Component {
                 font-size: 1.35rem;
                 font-variant-numeric: tabular-nums;
             }
+            & .se-row__topar--match { font-size: 1.05rem; }
 
             & .se-row__scores { display: flex; align-items: center; padding-right: ${RIGHT_PAD}px; flex-shrink: 0; }
             & .se-row__slot { width: ${SLOT}px; display: flex; align-items: center; justify-content: center; }
@@ -881,14 +884,48 @@ export class ScoreEntryComponent extends Component {
         return cards;
     };
 
-    private toParText = (ball: RoundBall): string => {
-        const v = this.toParValue(ball);
-        return v === null ? '–' : v === 0 ? 'E' : v > 0 ? `+${v}` : `${v}`;
+    /**
+     * The row's loud figure: the ball's standing under the SELECTED format
+     * (points pace, plain points, `2 UP`) joined from the result payload —
+     * falling back to the locally-computed gross-to-par while the result
+     * hasn't arrived or has nothing to say for this ball. The fallback is
+     * also what keeps the figure instant on plain stroke-play rounds: the
+     * gross pace and the local computation agree, and the local one updates
+     * optimistically with every keypad tap.
+     */
+    private figureText = (ball: RoundBall): string => {
+        const standing = this.svc.slotStandingFor(ball);
+        if (standing === null) {
+            const v = this.toParValue(ball);
+            return v === null ? '–' : v === 0 ? 'E' : v > 0 ? `+${v}` : `${v}`;
+        }
+        switch (standing.kind) {
+            case 'pace': {
+                const d = standing.delta;
+                return d === 0 ? 'E' : d > 0 ? `+${d}` : `${d}`;
+            }
+            case 'total':
+                return String(standing.total);
+            case 'match':
+                return standing.text;
+        }
     };
-    private toParClass = (ball: RoundBall): string => {
-        const v = this.toParValue(ball);
-        const tone = v === null || v === 0 ? 'even' : v < 0 ? 'under' : 'over';
-        return `se-row__topar ${tone}`;
+    private figureClass = (ball: RoundBall): string => {
+        const standing = this.svc.slotStandingFor(ball);
+        let tone: 'even' | 'under' | 'over';
+        let match = false;
+        if (standing === null) {
+            const v = this.toParValue(ball);
+            tone = v === null || v === 0 ? 'even' : v < 0 ? 'under' : 'over';
+        } else if (standing.kind === 'pace') {
+            tone = standing.delta === 0 ? 'even' : standing.delta < 0 ? 'under' : 'over';
+        } else if (standing.kind === 'total') {
+            tone = 'even';
+        } else {
+            tone = standing.tone;
+            match = true;
+        }
+        return `se-row__topar ${tone}${match ? ' se-row__topar--match' : ''}`;
     };
 
     private scoreLabel = (score: number, par: number): string => {
@@ -1215,8 +1252,8 @@ export class ScoreEntryComponent extends Component {
                     onclick: () => this.hcpInfoBallId.set(ball.id),
                 },
                 topar: {
-                    textContent: () => this.toParText(ball),
-                    className: () => this.toParClass(ball),
+                    textContent: () => this.figureText(ball),
+                    className: () => this.figureClass(ball),
                 },
                 prev: {
                     textContent: () =>

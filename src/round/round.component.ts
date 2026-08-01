@@ -438,10 +438,12 @@ export class RoundComponent extends Component {
                 // Pass the URL-restored position; loadByToken applies it only when
                 // the token actually changed (a fresh open/reload).
                 void this.svc.loadByToken(token, this.initPos).then(() => {
-                    // Reloading straight into the leaderboard tab restores tab=board
-                    // but never goes through the tab/pill click that fetches the
-                    // result — so fetch it here, else the board reads "No results yet".
-                    if (this.tab.get() === 'leaderboard') void this.svc.loadResult();
+                    // The result is fetched on EVERY tab now, not just the
+                    // leaderboard: the score rows' standing figure joins the
+                    // selected format's result entries by ballId, so the score
+                    // tab needs the payload too. Live score events keep it
+                    // fresh afterwards (`onLiveResultEvent` → `pollResult`).
+                    void this.svc.loadResult();
                 });
             }),
         );
