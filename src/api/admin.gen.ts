@@ -25,6 +25,7 @@ export interface AdminRoundSummary {
     shareToken: null | string;
     date: string;
     status: 'active' | 'not_started' | 'complete';
+    visibility: 'private' | 'friends' | 'link';
     courseName: null | string;
     createdAt: string;
     completedAt: null | string;

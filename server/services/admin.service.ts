@@ -1,5 +1,5 @@
 import { sql, type Kysely } from 'kysely';
-import type { Database } from '../db/schema';
+import type { Database, RoundVisibility } from '../db/schema';
 
 /**
  * Operator observability — READ ONLY.
@@ -22,6 +22,13 @@ export interface AdminRoundSummary {
     shareToken: string | null;
     date: string;
     status: 'not_started' | 'active' | 'complete';
+    /**
+     * Who can discover the round (migration 049). Display-only here — the
+     * operator answer to "why isn't this round in my friend's feed" (only
+     * 'friends' rounds surface there); changing it stays on the token-scoped
+     * round-settings path.
+     */
+    visibility: RoundVisibility;
     courseName: string | null;
     createdAt: string;
     completedAt: string | null;
@@ -76,6 +83,7 @@ export class AdminService {
                 'r.id as id',
                 'r.date as date',
                 'r.status as status',
+                'r.visibility as visibility',
                 'r.course_name_snapshot as course_name_snapshot',
                 'r.created_at as created_at',
                 'r.completed_at as completed_at',
@@ -142,6 +150,7 @@ export class AdminService {
                 shareToken: r.share_token,
                 date: r.date,
                 status: r.status,
+                visibility: r.visibility,
                 courseName: r.course_name_snapshot,
                 createdAt: r.created_at,
                 completedAt: r.completed_at,

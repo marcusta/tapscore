@@ -135,8 +135,31 @@ test('a super admin sees a round they neither created nor played, with its token
     expect(row.participants.sort()).toEqual(['Ivar', 'Jonas']);
     expect(row.scoreEventCount).toBe(0);
     expect(row.lastEventAt).toBeNull();
+    // Migration 049 default — nobody has touched the round-settings toggle.
+    expect(row.visibility).toBe('friends');
     // Anonymous creation → no creator to attribute it to.
     expect(row.creatorPlayerId).toBeNull();
+});
+
+test('a visibility change shows up on the admin round row', async () => {
+    const { ctx, draft } = await setup();
+    const created = await (await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })).json();
+    const token: string = created.friendlyRound.shareToken;
+
+    // Flipped through the normal token-scoped path — admin only observes it.
+    const flip = await req(ctx.app, 'POST', '/api/friendly-rounds/visibility', {
+        token,
+        visibility: 'private',
+    });
+    expect(flip.status).toBe(200);
+
+    const adminId = await register(ctx, 'operator');
+    await ctx.roleService.grant({ playerId: adminId, role: 'super_admin' });
+    const cookie = await loginAs(ctx.app, 'operator', 'password123');
+
+    const rounds = await (await req(ctx.app, 'GET', '/api/admin/rounds', undefined, cookie)).json();
+    const row = rounds.find((r: { roundId: string }) => r.roundId === created.round.id);
+    expect(row.visibility).toBe('private');
 });
 
 test('score activity surfaces on the round row', async () => {

@@ -54,6 +54,7 @@ const roundTpl = template(`
     <button bind="row" type="button" class="admin-row">
         <div class="admin-row__top">
             <span bind="course" class="admin-row__title"></span>
+            <span bind="visibility" class="admin-chip"></span>
             <span bind="status" class="admin-chip"></span>
         </div>
         <div class="admin-row__sub">
@@ -84,6 +85,14 @@ const STATUS_LABEL: Record<AdminRoundSummary['status'], string> = {
     not_started: 'Not started',
     active: 'Playing',
     complete: 'Done',
+};
+
+// The operator answer to "why isn't this round in the friends feed": only
+// 'friends' rounds surface there, so the row says which bucket this one is in.
+const VISIBILITY_LABEL: Record<AdminRoundSummary['visibility'], string> = {
+    private: 'Private',
+    friends: 'Friends',
+    link: 'Link',
 };
 
 /** "3 players · 42 scores · last 2026-07-24 10:02" — the activity line. */
@@ -313,6 +322,7 @@ export class AdminComponent extends Component {
                             },
                         },
                         course: () => r.courseName ?? 'Unknown course',
+                        visibility: () => VISIBILITY_LABEL[r.visibility],
                         status: () => STATUS_LABEL[r.status],
                         who: () => {
                             const by = r.creatorName ? `by ${r.creatorName}` : 'by a guest';
