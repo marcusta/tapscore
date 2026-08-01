@@ -547,6 +547,36 @@ export class SetupService {
         this.syncGamesToRoster();
     }
 
+    /**
+     * Seed the STARTING roster with the signed-in player (iOS spec B5.1, which
+     * `CreateStore.setOwner` implements there). Not "prefill row 1 if it
+     * happens to be blank" as a nicety: the overwhelmingly common round is "me
+     * and whoever I add next", and a flow that opens on an empty row makes
+     * every signed-in user type their own name.
+     *
+     * Called once the profile lands, which races `load()`/`selectCourse()` —
+     * hence the guards. It only ever replaces the single untouched placeholder
+     * row: a roster the user has already touched (a typed name, a friend, more
+     * than one row) is left alone, and edit mode is never seeded at all.
+     * `addFriend` dedupes, so a second call is a no-op.
+     */
+    seedSelf(me: {
+        id: string;
+        displayName: string;
+        handicapIndex: number | null;
+        gender?: Gender | null;
+    }): void {
+        if (this.editToken.get() !== null) return;
+        const roster = this.players.get();
+        if (roster.length > 1) return;
+        if (roster.length === 1) {
+            const only = roster[0];
+            if (only.playerId != null || only.name.trim() !== '') return;
+            this.players.set([]);
+        }
+        this.addFriend(me);
+    }
+
     /** True when a registered player already holds a roster row. */
     hasPlayer(playerId: string): boolean {
         return this.players.get().some((p) => p.playerId === playerId);

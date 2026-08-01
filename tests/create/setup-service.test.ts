@@ -854,3 +854,53 @@ test('reset clears the whole in-progress draft (DI-singleton second visit)', () 
     expect(svc.startHole.get()).toBe(1);
     expect(svc.submitError.get()).toBeNull();
 });
+
+// --- Starting roster is me (iOS B5.1 parity) ------------------------------
+
+const ME = { id: 'p-me', displayName: 'Marcus', handicapIndex: 14.2, gender: 'M' as const };
+
+test('seedSelf replaces the seeded empty row with the signed-in player', () => {
+    const svc = makeService();
+    svc.addPlayer(); // what selectCourse() seeds on a fresh round
+
+    svc.seedSelf(ME);
+
+    expect(svc.players.get().map((p) => [p.name, p.playerId, p.handicapIndex])).toEqual([
+        ['Marcus', 'p-me', '14.2'],
+    ]);
+});
+
+test('seedSelf seeds an empty roster too (profile lands before the course)', () => {
+    const svc = makeService();
+    svc.seedSelf(ME);
+    expect(svc.players.get().map((p) => p.playerId)).toEqual(['p-me']);
+});
+
+test('seedSelf never overwrites a row the user has touched', () => {
+    const svc = makeService();
+    addPlayer(svc, 'Anna', '10');
+
+    svc.seedSelf(ME);
+
+    expect(svc.players.get().map((p) => p.name)).toEqual(['Anna']);
+});
+
+test('seedSelf leaves a multi-row roster alone, and is idempotent', () => {
+    const svc = makeService();
+    svc.seedSelf(ME);
+    addPlayer(svc, 'Anna', '10');
+
+    svc.seedSelf(ME);
+
+    expect(svc.players.get().map((p) => p.name)).toEqual(['Marcus', 'Anna']);
+});
+
+test('seedSelf is a no-op in edit mode (the stored draft owns the roster)', () => {
+    const svc = makeService();
+    svc.editToken.set('tok-1');
+    svc.addPlayer();
+
+    svc.seedSelf(ME);
+
+    expect(svc.players.get().map((p) => p.playerId)).toEqual([undefined]);
+});

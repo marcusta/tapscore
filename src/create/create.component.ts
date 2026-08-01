@@ -733,7 +733,20 @@ export class CreateComponent extends Component {
         // fixed by the stored draft; adding self/friends still works via the
         // buttons, but the prefill fetch isn't needed for the edit affordance.
         if (this.auth.currentUser.get()) {
-            void this.profile.load();
+            void this.profile.load().then(() => {
+                // Signed in, fresh round: the STARTING roster is me, not an
+                // empty row (iOS B5.1 parity). Guarded inside the service —
+                // this resolves in a race with load()/selectCourse().
+                if (isEdit) return;
+                const p = this.profile.player.get();
+                if (p)
+                    this.svc.seedSelf({
+                        id: p.id,
+                        displayName: p.displayName,
+                        handicapIndex: p.handicapIndex,
+                        gender: p.gender,
+                    });
+            });
             void this.friends.load();
         }
 
