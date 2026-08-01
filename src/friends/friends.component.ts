@@ -4,7 +4,12 @@ import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { FriendsService } from './friends.service';
 import { isSearchable } from './friends-state';
-import { friendSubtitle, sortFriends } from './friend-sort';
+import {
+    friendConnectionNote,
+    friendSubtitle,
+    partitionFriends,
+    sortFriends,
+} from './friend-sort';
 import type { FriendProfile } from '../api/friends.gen';
 import {
     avatarBadgeBindings,
@@ -41,14 +46,22 @@ const tpl = template(`
 
             <section class="friends__section">
                 <div class="friends__sechead">
-                    <h2>My friends</h2>
+                    <h2>Friends</h2>
                     <div bind="sortToggle" class="friends__sort" role="group" aria-label="Sort friends">
                         <button bind="sortFrecency" type="button" class="friends__sortbtn">Suggested</button>
                         <button bind="sortAlpha" type="button" class="friends__sortbtn">A–Z</button>
                     </div>
                 </div>
-                <div bind="friendsEmpty" class="friends__empty">No friends yet — search above to add the people you play with.</div>
+                <div bind="friendsEmpty" class="friends__empty">No mutual friends yet — search above to add the people you play with.</div>
                 <div bind="friends" class="friends__list"></div>
+            </section>
+
+            <section bind="connectionsSection" class="friends__section">
+                <div class="friends__sechead">
+                    <h2>Added by me</h2>
+                </div>
+                <p class="friends__sectionhint">These players haven’t added you back yet.</p>
+                <div bind="connections" class="friends__list"></div>
             </section>
         </div>
     </div>
@@ -65,7 +78,7 @@ const resultTpl = template(`
         </span>
         <span bind="hcp" class="friend-row__hcp"></span>
         <button bind="add" class="friend-row__add" type="button">Add</button>
-        <span bind="added" class="friend-row__added">✓ Friend</span>
+        <span bind="added" class="friend-row__added">✓ Added</span>
     </div>
 `);
 
@@ -80,6 +93,7 @@ const friendTpl = template(`
             <span class="friend-row__who">
                 <span bind="name" class="friend-row__name"></span>
                 <span bind="subtitle" class="friend-row__subtitle"></span>
+                <span bind="connection" class="friend-row__connection"></span>
             </span>
         </button>
         <span bind="hcp" class="friend-row__hcp"></span>
@@ -124,11 +138,18 @@ export class FriendsComponent extends Component {
 
             & .friends__section {
                 margin-bottom: ${s('xl')};
+                &.hidden { display: none; }
                 & h2 {
                     margin: 0 0 ${s('sm')};
                     font-family: ${t('font-display')};
                     font-weight: 600; font-size: 1.2rem;
                 }
+            }
+
+            & .friends__sectionhint {
+                margin: 0 0 ${s('sm')};
+                color: ${t('text-muted')};
+                font-size: 0.85rem;
             }
 
             & .friends__sechead {
@@ -216,11 +237,13 @@ export class FriendsComponent extends Component {
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                 }
                 & .friend-row__username,
-                & .friend-row__subtitle {
+                & .friend-row__subtitle,
+                & .friend-row__connection {
                     color: ${t('text-muted')}; font-size: 0.8rem;
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                 }
-                & .friend-row__subtitle:empty { display: none; }
+                & .friend-row__subtitle:empty,
+                & .friend-row__connection:empty { display: none; }
                 & .friend-row__hcp {
                     font-weight: 700; flex-shrink: 0;
                     color: ${t('accent')}; background: ${t('accent-soft')};
@@ -313,9 +336,15 @@ export class FriendsComponent extends Component {
             },
             friendsEmpty: {
                 className: () =>
-                    this.svc.loaded.get() && this.svc.friends.get().length === 0
+                    this.svc.loaded.get() && partitionFriends(this.svc.friends.get()).mutual.length === 0
                         ? 'friends__empty'
                         : 'friends__empty hidden',
+            },
+            connectionsSection: {
+                className: () =>
+                    partitionFriends(this.svc.friends.get()).addedByMe.length > 0
+                        ? 'friends__section'
+                        : 'friends__section hidden',
             },
             // Sort toggle — only meaningful once there are friends to reorder.
             sortToggle: {
@@ -334,7 +363,7 @@ export class FriendsComponent extends Component {
             },
         });
 
-        // Search results — Add flips to a "✓ Friend" tick once added (isFriend
+        // Search results — Add flips to a "✓ Added" tick once added (isFriend
         // is updated locally by the service, so no re-search is needed).
         this.$each(
             this.ref(frag, 'results'),
@@ -373,47 +402,27 @@ export class FriendsComponent extends Component {
             (r) => r.id,
         );
 
-        // My friends — reordered live by the Suggested⇄A–Z toggle; the subtitle
-        // ("played 6×, last week") self-explains the Suggested order. `now` is
-        // captured once per render for a stable relative time.
+        // Friends and one-way contacts are each reordered live by the same
+        // Suggested⇄A–Z toggle. `now` is captured once per render for a stable
+        // relative time.
         const now = new Date().toISOString();
         this.$each(
             this.ref(frag, 'friends'),
-            () => sortFriends(this.svc.friends.get(), this.svc.sortMode.get()),
+            () => sortFriends(partitionFriends(this.svc.friends.get()).mutual, this.svc.sortMode.get()),
             (f: FriendProfile, _i, track) =>
                 this.wireEl(
                     friendTpl,
-                    {
-                        ...avatarBadgeBindings(
-                            () => this.svc.friends.get().find((x) => x.id === f.id) ?? f,
-                        ),
-                        // Only a MUTUAL row opens the profile (the live row
-                        // decides — mutuality can arrive without a remount).
-                        open: {
-                            disabled: () => !this.liveFriend(f).isMutual,
-                            onclick: () => {
-                                const live = this.liveFriend(f);
-                                if (!live.isMutual) return;
-                                this.router.navigate('/friend', {
-                                    query: { id: f.id, name: live.displayName },
-                                });
-                            },
-                        },
-                        name: () => f.displayName,
-                        subtitle: () => {
-                            const live = this.svc.friends.get().find((x) => x.id === f.id) ?? f;
-                            return friendSubtitle(live, now);
-                        },
-                        hcp: () => (f.handicapIndex === null ? '–' : f.handicapIndex.toFixed(1)),
-                        remove: {
-                            'aria-label': () => `Remove ${this.liveFriend(f).displayName} from friends`,
-                            title: () => `Remove ${this.liveFriend(f).displayName} from friends`,
-                            disabled: () => this.svc.mutating.get(),
-                            onclick: () => void this.svc.remove(f.id),
-                        },
-                    },
+                    this.friendRowBindings(f, now),
                     track,
                 ),
+            (f) => f.id,
+        );
+
+        this.$each(
+            this.ref(frag, 'connections'),
+            () => sortFriends(partitionFriends(this.svc.friends.get()).addedByMe, this.svc.sortMode.get()),
+            (f: FriendProfile, _i, track) =>
+                this.wireEl(friendTpl, this.friendRowBindings(f, now), track),
             (f) => f.id,
         );
 
@@ -423,6 +432,36 @@ export class FriendsComponent extends Component {
     /** The LIVE friend row for a closed-over one (see the `$each` notes). */
     private liveFriend(f: FriendProfile): FriendProfile {
         return this.svc.friends.get().find((x) => x.id === f.id) ?? f;
+    }
+
+    private friendRowBindings(f: FriendProfile, now: string) {
+        return {
+            ...avatarBadgeBindings(
+                () => this.svc.friends.get().find((x) => x.id === f.id) ?? f,
+            ),
+            // Only a MUTUAL row opens the profile (the live row decides —
+            // mutuality can arrive without a remount).
+            open: {
+                disabled: () => !this.liveFriend(f).isMutual,
+                onclick: () => {
+                    const live = this.liveFriend(f);
+                    if (!live.isMutual) return;
+                    this.router.navigate('/friend', {
+                        query: { id: f.id, name: live.displayName },
+                    });
+                },
+            },
+            name: () => f.displayName,
+            subtitle: () => friendSubtitle(this.liveFriend(f), now),
+            connection: () => friendConnectionNote(this.liveFriend(f)) ?? '',
+            hcp: () => (f.handicapIndex === null ? '–' : f.handicapIndex.toFixed(1)),
+            remove: {
+                'aria-label': () => `Remove ${this.liveFriend(f).displayName} from friends`,
+                title: () => `Remove ${this.liveFriend(f).displayName} from friends`,
+                disabled: () => this.svc.mutating.get(),
+                onclick: () => void this.svc.remove(f.id),
+            },
+        };
     }
 
     /** isFriend for a result id, tracking the live results signal. */

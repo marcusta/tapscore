@@ -6,6 +6,11 @@ enum FriendSortMode: String, CaseIterable, Sendable {
     case alphabetical
 }
 
+struct FriendListSections: Equatable, Sendable {
+    let friends: [FriendProfile]
+    let addedByMe: [FriendProfile]
+}
+
 /// Pure presentation rules shared by the native Friends screen.
 ///
 /// Source: `src/friends/friend-sort.ts` and `friends.component.ts`. Keeping
@@ -16,6 +21,20 @@ enum FriendListModel {
 
     static func isSearchable(_ raw: String) -> Bool {
         raw.trimmingCharacters(in: .whitespacesAndNewlines).count >= minimumSearchLength
+    }
+
+    /// The API returns both mutual friends and one-way contacts because both
+    /// are useful to the round picker. The Friends screen keeps the two
+    /// relationships visible instead of calling both of them friends.
+    static func sections(
+        _ friends: [FriendProfile],
+        mode: FriendSortMode
+    ) -> FriendListSections {
+        let ordered = sorted(friends, mode: mode)
+        return FriendListSections(
+            friends: ordered.filter(\.isMutual),
+            addedByMe: ordered.filter { !$0.isMutual }
+        )
     }
 
     static func sorted(

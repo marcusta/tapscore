@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test';
 import {
+    friendConnectionNote,
     friendSubtitle,
+    partitionFriends,
     relativeTime,
     sortFriends,
 } from '../../src/friends/friend-sort';
@@ -125,4 +127,23 @@ test('friendSubtitle self-explains the Suggested order', () => {
 
 test('friendSubtitle says "never played" for zero shared rounds', () => {
     expect(friendSubtitle(friend({ id: 'z', displayName: 'Zed' }), NOW)).toBe('never played');
+});
+
+// --- Connection sections -----------------------------------------------------
+
+test('partitionFriends separates mutual friends from one-way contacts', () => {
+    const mutual = friend({ id: 'mutual', displayName: 'Mutual', isMutual: true });
+    const contact = friend({ id: 'contact', displayName: 'Contact', isMutual: false });
+
+    const sections = partitionFriends([contact, mutual]);
+
+    expect(sections.mutual).toEqual([mutual]);
+    expect(sections.addedByMe).toEqual([contact]);
+});
+
+test('friendConnectionNote explains a one-way contact without annotating mutual friends', () => {
+    expect(friendConnectionNote(friend({ id: 'mutual', displayName: 'Mutual', isMutual: true }))).toBeNull();
+    expect(friendConnectionNote(friend({ id: 'contact', displayName: 'Contact', isMutual: false }))).toBe(
+        "hasn't added you back",
+    );
 });

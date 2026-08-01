@@ -6,6 +6,23 @@ import type { FriendProfile } from '../api/friends.gen';
 
 export type FriendSortMode = 'frecency' | 'alpha';
 
+export interface FriendSections {
+    /** Mutual edges — the rows that can open a friend profile. */
+    mutual: FriendProfile[];
+    /** Contacts the caller added, without a reverse edge yet. */
+    addedByMe: FriendProfile[];
+}
+
+/** Keep the two meanings of "friend" visible on the list. */
+export function partitionFriends(friends: readonly FriendProfile[]): FriendSections {
+    const mutual: FriendProfile[] = [];
+    const addedByMe: FriendProfile[] = [];
+    for (const friend of friends) {
+        (friend.isMutual ? mutual : addedByMe).push(friend);
+    }
+    return { mutual, addedByMe };
+}
+
 /** Locale-aware display-name comparator (Swedish collation, base sensitivity). */
 function byName(a: FriendProfile, b: FriendProfile): number {
     return a.displayName.localeCompare(b.displayName, 'sv', { sensitivity: 'base' });
@@ -86,4 +103,9 @@ export function friendSubtitle(friend: FriendProfile, now: string): string {
     const when = relativeTime(friend.lastPlayedAt, now);
     const plays = `played ${friend.sharedRoundCount}×`;
     return when ? `${plays}, ${when}` : plays;
+}
+
+/** Quiet explanation for a contact that has not become a mutual friend. */
+export function friendConnectionNote(friend: FriendProfile): string | null {
+    return friend.isMutual ? null : "hasn't added you back";
 }

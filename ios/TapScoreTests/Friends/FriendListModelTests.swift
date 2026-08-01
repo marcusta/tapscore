@@ -32,6 +32,16 @@ final class FriendListModelTests: XCTestCase {
         )
     }
 
+    func testSectionsSeparateMutualFriendsFromOneWayContacts() {
+        let mutual = friend("mutual", name: "Mutual", isMutual: true)
+        let contact = friend("contact", name: "Contact", isMutual: false)
+
+        let sections = FriendListModel.sections([contact, mutual], mode: .alphabetical)
+
+        XCTAssertEqual(sections.friends.map(\.id), ["mutual"])
+        XCTAssertEqual(sections.addedByMe.map(\.id), ["contact"])
+    }
+
     func testSearchRequiresTwoTrimmedCharacters() {
         XCTAssertFalse(FriendListModel.isSearchable(""))
         XCTAssertFalse(FriendListModel.isSearchable(" j "))

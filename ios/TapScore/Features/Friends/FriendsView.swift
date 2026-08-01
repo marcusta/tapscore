@@ -150,87 +150,118 @@ struct FriendsView: View {
 
     @ViewBuilder
     private func friendsSection(_ store: FriendsStore) -> some View {
-        Section {
-            if store.loading, !store.loaded {
+        let sections = FriendListModel.sections(store.friends, mode: sortMode)
+
+        if store.loading, !store.loaded {
+            Section {
                 ProgressView()
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, TapSpacing.lg)
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
-            } else if let error = store.loadError {
+            } header: {
+                sectionHeader("Friends", showSort: false)
+            }
+            .textCase(nil)
+        } else if let error = store.loadError {
+            Section {
                 VStack(alignment: .leading, spacing: TapSpacing.sm) {
                     errorText(error)
                     Button("Try again") { Task { await store.load(force: true) } }
                         .buttonStyle(.tap(.secondary))
                 }
-                .listRowInsets(
-                    EdgeInsets(
-                        top: 0,
-                        leading: TapSpacing.lg,
-                        bottom: TapSpacing.sm,
-                        trailing: TapSpacing.lg
-                    )
-                )
+                .listRowInsets(friendRowInsets)
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-            } else if store.loaded, store.friends.isEmpty {
-                hint("No friends yet — search above to add the people you play with.")
+            } header: {
+                sectionHeader("Friends", showSort: false)
+            }
+            .textCase(nil)
+        } else if store.loaded, store.friends.isEmpty {
+            Section {
+                hint("No mutual friends yet — search above to add the people you play with.")
                     .padding(.vertical, TapSpacing.sm)
-                    .listRowInsets(
-                        EdgeInsets(
-                            top: 0,
-                            leading: TapSpacing.lg,
-                            bottom: TapSpacing.sm,
-                            trailing: TapSpacing.lg
-                        )
-                    )
+                    .listRowInsets(friendRowInsets)
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
-            } else {
-                ForEach(
-                    FriendListModel.sorted(store.friends, mode: sortMode),
-                    id: \.id
-                ) { friend in
-                    friendRow(friend, store: store)
-                        .listRowInsets(
-                            EdgeInsets(
-                                top: 0,
-                                leading: TapSpacing.lg,
-                                bottom: TapSpacing.sm,
-                                trailing: TapSpacing.lg
-                            )
-                        )
+            } header: {
+                sectionHeader("Friends", showSort: false)
+            }
+            .textCase(nil)
+        } else {
+            if sections.friends.isEmpty {
+                Section {
+                    hint("No mutual friends yet — search above to add the people you play with.")
+                        .padding(.vertical, TapSpacing.sm)
+                        .listRowInsets(friendRowInsets)
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
+                } header: {
+                    sectionHeader("Friends", showSort: false)
                 }
+                .textCase(nil)
+            } else {
+                friendGroup("Friends", rows: sections.friends, store: store, showSort: true)
             }
+            if !sections.addedByMe.isEmpty {
+                friendGroup(
+                    "Added by me",
+                    rows: sections.addedByMe,
+                    store: store,
+                    showSort: sections.friends.isEmpty
+                )
+            }
+        }
 
-            if let error = store.mutationError {
+        if let error = store.mutationError {
+            Section {
                 errorText(error)
-                    .listRowInsets(
-                        EdgeInsets(
-                            top: 0,
-                            leading: TapSpacing.lg,
-                            bottom: TapSpacing.sm,
-                            trailing: TapSpacing.lg
-                        )
-                    )
+                    .listRowInsets(friendRowInsets)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+        }
+    }
+
+    private var friendRowInsets: EdgeInsets {
+        EdgeInsets(
+            top: 0,
+            leading: TapSpacing.lg,
+            bottom: TapSpacing.sm,
+            trailing: TapSpacing.lg
+        )
+    }
+
+    private func friendGroup(
+        _ title: String,
+        rows: [FriendProfile],
+        store: FriendsStore,
+        showSort: Bool
+    ) -> some View {
+        Section {
+            ForEach(rows, id: \.id) { friend in
+                friendRow(friend, store: store)
+                    .listRowInsets(friendRowInsets)
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             }
         } header: {
-            HStack(spacing: TapSpacing.md) {
-                Text("My friends")
-                    .font(TapFont.display(size: 19.2, weight: .semibold))
-                    .foregroundStyle(TapColors.text)
-                Spacer(minLength: 0)
-                if !store.friends.isEmpty { sortToggle }
-            }
-            .padding(.top, TapSpacing.xs)
-            .padding(.bottom, TapSpacing.xs)
+            sectionHeader(title, showSort: showSort)
         }
         .textCase(nil)
+    }
+
+    private func sectionHeader(_ title: String, showSort: Bool) -> some View {
+        HStack(spacing: TapSpacing.md) {
+            Text(title)
+                .font(TapFont.display(size: 19.2, weight: .semibold))
+                .foregroundStyle(TapColors.text)
+            Spacer(minLength: 0)
+            if showSort { sortToggle }
+        }
+        .padding(.top, TapSpacing.xs)
+        .padding(.bottom, TapSpacing.xs)
     }
 
     private var sortMode: FriendSortMode {
@@ -286,7 +317,7 @@ struct FriendsView: View {
                 Spacer(minLength: 0)
                 handicap(player.handicapIndex)
                 if player.isFriend {
-                    Text("✓ Friend")
+                    Text("✓ Added")
                         .font(TapFont.ui(size: 12.8, weight: .bold))
                         .foregroundStyle(TapColors.accent)
                 } else {
