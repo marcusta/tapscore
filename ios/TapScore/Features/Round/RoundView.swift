@@ -368,8 +368,9 @@ struct RoundHeaderView: View {
     }
 
     /// Web: `.round-view__formats` — a horizontally scrolling chip row. The
-    /// selection is the leaderboard's visible slot; on the score tab the chips
-    /// are a plain display of what the round is playing.
+    /// selection is the round's PRESENTATION CONTEXT: which format's handicap
+    /// the score rows show, and which board the leaderboard tab shows. A chip
+    /// selects in place — it never changes tab.
     @ViewBuilder
     private var formatChips: some View {
         let slots = store.round?.formatSlots ?? []
@@ -382,7 +383,7 @@ struct RoundHeaderView: View {
                             isSelected: store.selectedSlotDefId == slot.slotDefId,
                             tone: .primary
                         ) {
-                            store.showLeaderboard(for: slot.slotDefId)
+                            store.selectSlot(slot.slotDefId)
                         }
                     }
                 }

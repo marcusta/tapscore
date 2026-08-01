@@ -7,6 +7,7 @@
 
 import type { FormatAllowanceConfig } from '../../round-definition';
 import { playingHandicap, strokesReceivedForStrokeIndex } from '../../handicap';
+import type { EffectivePhBall, EffectivePhInput } from '../../handicap-derivation';
 import type { DerivedSlotBall, DeriveSlotBallsInput } from '../format-strategy';
 import type {
     ConfigDiagnostic,
@@ -274,4 +275,63 @@ export function normalizeMatchPlayPHs(phs: number[]): number[] {
     if (phs.length === 0) return [];
     const min = Math.min(...phs);
     return phs.map((ph) => ph - min);
+}
+
+/**
+ * Shared `presentEffectivePhs` for the grouping-based match formats
+ * (match-play better-ball, taliban): ONE normalisation group spanning the
+ * balls of all slot team groupings, in grouping order — exactly the
+ * `[...teamA.balls, ...teamB.balls]` layout their `score()` normalises over.
+ * Balls outside the groupings (never scored by these formats) pass through
+ * untransformed.
+ */
+export function presentMatchDeltaAcrossGroupings(input: EffectivePhInput): EffectivePhBall[] {
+    const phById = new Map(input.slotBalls.map((b) => [b.ballId, b.playingHandicapSnapshot]));
+    const groupIds = (input.slotTeamGroupings ?? [])
+        .flatMap((g) => g.ballIds)
+        .filter((id) => phById.has(id));
+    const phs = groupIds.map((id) => phById.get(id)!);
+    const eff = normalizeMatchPlayPHs(phs);
+    const lowest = phs.length > 0 ? Math.min(...phs) : 0;
+
+    const out: EffectivePhBall[] = groupIds.map((id, i) => ({
+        ballId: id,
+        effectivePh: eff[i],
+        step: { kind: 'match_delta', lowestPh: lowest, ownPh: phs[i], result: eff[i] },
+    }));
+    const grouped = new Set(groupIds);
+    for (const b of input.slotBalls) {
+        if (!grouped.has(b.ballId)) {
+            out.push({ ballId: b.ballId, effectivePh: b.playingHandicapSnapshot });
+        }
+    }
+    return out;
+}
+
+/**
+ * `presentEffectivePhs` for pair-in-order match play: consecutive balls pair
+ * off (the `score()` iteration), each pair its own normalisation group. A
+ * trailing odd ball is a bye — untransformed.
+ */
+export function presentMatchDeltaPerPair(input: EffectivePhInput): EffectivePhBall[] {
+    const { slotBalls } = input;
+    const out: EffectivePhBall[] = [];
+    for (let i = 0; i + 1 < slotBalls.length; i += 2) {
+        const pair = [slotBalls[i], slotBalls[i + 1]];
+        const phs = pair.map((b) => b.playingHandicapSnapshot);
+        const eff = normalizeMatchPlayPHs(phs);
+        const lowest = Math.min(...phs);
+        pair.forEach((b, j) =>
+            out.push({
+                ballId: b.ballId,
+                effectivePh: eff[j],
+                step: { kind: 'match_delta', lowestPh: lowest, ownPh: phs[j], result: eff[j] },
+            }),
+        );
+    }
+    if (slotBalls.length % 2 === 1) {
+        const last = slotBalls[slotBalls.length - 1];
+        out.push({ ballId: last.ballId, effectivePh: last.playingHandicapSnapshot });
+    }
+    return out;
 }

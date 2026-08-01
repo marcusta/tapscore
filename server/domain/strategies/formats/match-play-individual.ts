@@ -24,6 +24,7 @@ import {
     holeIdentity,
     latestScoresByPlayHole,
     normalizeMatchPlayPHs,
+    presentMatchDeltaPerPair,
     strokesGivenForBallPH,
 } from './_shared';
 import type { RoundContext, StrategyEvent } from '../types';
@@ -280,6 +281,10 @@ export const matchPlayIndividual: FormatStrategy = {
     },
 
     deriveSlotBalls: deriveAllowance,
+
+    // Same pair-in-order layout as score() below; same normalize helper, so
+    // the presented PH can never drift from the scored one.
+    presentEffectivePhs: presentMatchDeltaPerPair,
 
     score({ roundContext, slotBalls, events }): StrategyResult {
         const ballResults: BallResult[] = [];

@@ -19,6 +19,7 @@
 import { Value } from '@sinclair/typebox/value';
 
 import { FormatAllowanceConfig, type BallDerivationConfig } from '../round-definition';
+import type { EffectivePhBall, EffectivePhInput } from '../handicap-derivation';
 import type {
     DeriveSlotBallsInput,
     DerivedSlotBall,
@@ -382,6 +383,12 @@ export interface FormatPlugin {
     /** Required: format-owned result presenter. The service dispatches result
      * assembly here — there is no central builder fallback. */
     renderResult: FormatResultPresenter;
+    /**
+     * Optional effective-PH presentation (see
+     * `FormatStrategy.presentEffectivePhs`). Absent → no format-level PH
+     * transform; effective PH is the slot PH.
+     */
+    presentEffectivePhs?(input: EffectivePhInput): EffectivePhBall[];
     /**
      * In-round action types this format accepts. Absent / empty → the format is
      * stateless and the append path rejects any action against its slots.

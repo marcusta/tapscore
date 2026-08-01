@@ -25,6 +25,7 @@ import {
     holeIdentity,
     latestScoresByPlayHole,
     normalizeMatchPlayPHs,
+    presentMatchDeltaAcrossGroupings,
     resolveSingleProducer,
     strokesGivenMapForProducer,
 } from './_shared';
@@ -163,6 +164,9 @@ export const matchPlayBetterBall: FormatStrategy = {
     },
 
     deriveSlotBalls: deriveAllowance,
+
+    // Same [...teamA, ...teamB] normalisation group as score() below.
+    presentEffectivePhs: presentMatchDeltaAcrossGroupings,
 
     score({ roundContext, slotBalls, slotTeamGroupings, events }): StrategyResult {
         if (!slotTeamGroupings || slotTeamGroupings.length !== 2) {

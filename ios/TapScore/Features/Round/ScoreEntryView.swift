@@ -563,6 +563,7 @@ private struct BallRow: View {
     let columns: ScoreColumns
 
     private var playHoleId: String { columns.current.playHoleId }
+    @State private var showsHandicapInfo = false
     private var strokes: Double? { store.strokes(ballId: ball.id, playHoleId: playHoleId) }
     private var status: RoundStore.CellState.Status? {
         store.writeStatus(ballId: ball.id, playHoleId: playHoleId)
@@ -692,17 +693,57 @@ private struct BallRow: View {
                 .font(TapFont.ui(size: 12, weight: .regular))
                 .foregroundStyle(TapColors.textMuted)
         } else if let handicapText {
-            Text(handicapText)
-                .font(TapFont.ui(size: 12, weight: .regular))
-                .foregroundStyle(TapColors.textMuted)
-                .lineLimit(1)
+            HStack(spacing: 4) {
+                Text(handicapText)
+                    .font(TapFont.ui(size: 12, weight: .regular))
+                    .foregroundStyle(TapColors.textMuted)
+                    .lineLimit(1)
+                // The ⓘ exists only when there is a derivation to explain —
+                // a round without handicaps keeps its clean caption.
+                if derivation != nil {
+                    Button {
+                        showsHandicapInfo = true
+                    } label: {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(TapColors.textMuted)
+                            // Thumb room over a caption-sized glyph; the row
+                            // tap around it opens the keypad, so this must
+                            // win its own space.
+                            .frame(width: 28, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("How this handicap was calculated")
+                }
+            }
+            .sheet(isPresented: $showsHandicapInfo) {
+                if let derivation {
+                    HandicapInfoSheet(
+                        ballName: store.displayName(of: ball),
+                        formatLabel: store.selectedFormatLabel(),
+                        derivation: derivation
+                    )
+                    .presentationDetents([.medium, .large])
+                }
+            }
         }
+    }
+
+    /// The derivation behind the caption, under the SELECTED format chip.
+    private var derivation: HandicapDerivation? {
+        store.presentedSlot(of: ball)?.handicapDerivation
     }
 
     /// The handicap this ball scores off — the SAME derivation
     /// `ScoreKeypadView.handicapLine` uses, and it has to stay the same one: two
     /// surfaces disagreeing about which number a ball plays off is the kind of
     /// bug nobody reports, they just stop trusting the app.
+    ///
+    /// Since the format chips became the view's presentation context, the line
+    /// shows what the ball PLAYS OFF under the selected format: the raw
+    /// handicap when nothing changes it, and `HCP 7 → 5` when an allowance or
+    /// a match-play normalisation moves it — the ⓘ beside it tells the story.
     ///
     /// A team's handicap is the BALL's (the composed one the server allocates
     /// against); a single player's is their own, with the ball's as the fallback
@@ -712,14 +753,23 @@ private struct BallRow: View {
     /// subtitle facts and the web client made. See `productSubtitleFacts` in
     /// `ResultLayout.swift`, which filters the server's `HCP n` fact by prefix.
     private var handicapText: String? {
+        let base: String
+        let baseValue: Double
         if ball.players.count > 1 {
             guard let value = ball.courseHandicap else { return nil }
-            return "Team · HCP \(jsNumberString(value))"
+            base = "Team · HCP \(jsNumberString(value))"
+            baseValue = value
+        } else {
+            guard let value = ball.players.first?.courseHandicap ?? ball.courseHandicap else {
+                return nil
+            }
+            base = "HCP \(jsNumberString(value))"
+            baseValue = value
         }
-        guard let value = ball.players.first?.courseHandicap ?? ball.courseHandicap else {
-            return nil
+        if let effective = store.effectivePlayingHandicap(of: ball), effective != baseValue {
+            return "\(base) → \(jsNumberString(effective))"
         }
-        return "HCP \(jsNumberString(value))"
+        return base
     }
 
     /// Web: `.se-row__topar` — the running to-par over scored holes, tinted

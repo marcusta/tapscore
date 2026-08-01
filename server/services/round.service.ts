@@ -1,4 +1,4 @@
-import type { Kysely, Selectable } from 'kysely';
+import { sql, type Kysely, type Selectable } from 'kysely';
 import type {
     Database,
     RoundsTable,
@@ -31,6 +31,8 @@ import {
     defaultRouteSections,
 } from '../domain/compiler/normalize';
 import type { RoundEventsHub } from './round-events-hub';
+import { hasFormatPlugin, findFormatPlugin } from '../domain/formats/plugin';
+import type { DerivationStep, HandicapDerivation } from '../domain/handicap-derivation';
 
 // --- Output types ---
 
@@ -233,6 +235,13 @@ export interface RoundBallSlot {
     /** Null when the ball covers a pending placeholder seat (no CH → no PH). */
     playingHandicap: number | null;
     teamLabel: string | null;
+    /**
+     * The CH → effective-PH chain for this ball under THIS slot's format —
+     * `effectivePh` is what the ball actually plays off (allowance and any
+     * match-play normalisation applied); `steps` is the ⓘ-popup breakdown.
+     * Null when the ball covers a pending placeholder seat.
+     */
+    handicapDerivation: HandicapDerivation | null;
 }
 
 export interface RoundBall {
@@ -661,13 +670,28 @@ export class RoundService {
         const ballRows = await this.db
             .selectFrom('balls')
             .where('round_id', '=', roundId)
-            .select(['id', 'label', 'course_handicap_snapshot'])
+            .select([
+                'id',
+                'label',
+                'course_handicap_snapshot',
+                'per_producer_ch',
+                'round_ball_strategy_id',
+            ])
+            .execute();
+
+        const strategyRows = await this.db
+            .selectFrom('round_ball_strategies')
+            .where('round_id', '=', roundId)
+            .select(['id', 'derivation_config'])
             .execute();
 
         const playerRows = await this.db
             .selectFrom('ball_players as bp')
             .innerJoin('balls as b', 'b.id', 'bp.ball_id')
             .where('b.round_id', '=', roundId)
+            // Insertion order == per-producer order (same convention as the
+            // leaderboard materializer); derivation steps list members in it.
+            .orderBy(sql`bp.rowid`)
             .select([
                 'bp.ball_id',
                 'bp.producer_def_id',
@@ -676,14 +700,26 @@ export class RoundService {
                 'bp.display_name_snapshot',
                 'bp.handicap_index_snapshot',
                 'bp.tee_name_snapshot',
+                'bp.course_rating_snapshot',
+                'bp.slope_snapshot',
+                'bp.tee_par_snapshot',
                 'bp.course_handicap_snapshot',
             ])
+            .execute();
+
+        const slotRows = await this.db
+            .selectFrom('slots')
+            .where('round_id', '=', roundId)
+            .select(['slot_def_id', 'format_id', 'allowance_config'])
             .execute();
 
         const slotBallRows = await this.db
             .selectFrom('slot_balls as sb')
             .innerJoin('slots as s', 's.id', 'sb.slot_id')
             .where('s.round_id', '=', roundId)
+            // rowid == compiler insertion order == the ball-order contract the
+            // effective-PH presentation depends on (match-play pairs in order).
+            .orderBy(sql`sb.rowid`)
             .select(['sb.ball_id', 's.slot_def_id', 's.ordinal', 'sb.playing_handicap_snapshot'])
             .execute();
 
@@ -691,6 +727,7 @@ export class RoundService {
             .selectFrom('slot_ball_teams as t')
             .innerJoin('slots as s', 's.id', 't.slot_id')
             .where('s.round_id', '=', roundId)
+            .orderBy(sql`t.rowid`)
             .select(['t.ball_id', 's.slot_def_id', 't.team_label'])
             .execute();
 
@@ -716,6 +753,15 @@ export class RoundService {
             playersByBall.set(r.ball_id, list);
         }
 
+        const derivations = buildHandicapDerivations({
+            ballRows,
+            playerRows,
+            strategyRows,
+            slotRows,
+            slotBallRows,
+            teamRows,
+        });
+
         const slotsByBall = new Map<string, RoundBallSlot[]>();
         for (const r of slotBallRows) {
             const list = slotsByBall.get(r.ball_id) ?? [];
@@ -725,6 +771,7 @@ export class RoundService {
                 slotIndex: r.ordinal,
                 playingHandicap: r.playing_handicap_snapshot,
                 teamLabel: teamByBallSlot.get(`${r.ball_id}\u0000${r.slot_def_id}`) ?? null,
+                handicapDerivation: derivations.get(ballSlotKey(r.ball_id, r.slot_def_id)) ?? null,
             });
             slotsByBall.set(r.ball_id, list);
         }
@@ -1231,4 +1278,202 @@ export class RoundService {
         return nextVersion;
     }
 
+}
+
+// --- Handicap derivation assembly (scoring-view info popup) -----------------
+//
+// Builds one `HandicapDerivation` per (ball x slot) from compile-time
+// snapshots. Pure presentation: nothing here feeds scoring — the leaderboard
+// path recomputes everything from the same snapshots through the engine.
+
+/** Composite key for (ball, slot) maps — ball ids are content hashes, so a
+ *  space separator cannot collide. */
+function ballSlotKey(ballId: string, slotDefId: string): string {
+    return `${ballId} ${slotDefId}`;
+}
+
+interface DerivationSource {
+    ballRows: {
+        id: string;
+        course_handicap_snapshot: number | null;
+        per_producer_ch: string | null;
+        round_ball_strategy_id: string;
+    }[];
+    playerRows: {
+        ball_id: string;
+        producer_def_id: string;
+        display_name_snapshot: string;
+        handicap_index_snapshot: number | null;
+        course_rating_snapshot: number | null;
+        slope_snapshot: number | null;
+        tee_par_snapshot: number | null;
+        course_handicap_snapshot: number | null;
+    }[];
+    strategyRows: { id: string; derivation_config: string }[];
+    slotRows: { slot_def_id: string; format_id: string; allowance_config: string }[];
+    slotBallRows: {
+        ball_id: string;
+        slot_def_id: string;
+        playing_handicap_snapshot: number | null;
+    }[];
+    teamRows: { ball_id: string; slot_def_id: string; team_label: string }[];
+}
+
+function buildHandicapDerivations(src: DerivationSource): Map<string, HandicapDerivation> {
+    const out = new Map<string, HandicapDerivation>();
+
+    const ballById = new Map(src.ballRows.map((b) => [b.id, b] as const));
+    const playersByBall = new Map<string, DerivationSource['playerRows']>();
+    for (const p of src.playerRows) {
+        const list = playersByBall.get(p.ball_id) ?? [];
+        list.push(p);
+        playersByBall.set(p.ball_id, list);
+    }
+
+    // Team-ball combination percentages, keyed by strategy row id. Only the
+    // explicit per-producer table renders as a combination step; other
+    // multi-producer derivations (avg, ...) start their chain at the ball CH.
+    const pctsByStrategyId = new Map<string, Record<string, number>>();
+    for (const s of src.strategyRows) {
+        try {
+            const cfg = JSON.parse(s.derivation_config) as {
+                type?: string;
+                pcts?: Record<string, number>;
+            };
+            if (cfg.type === 'per_producer_pct' && cfg.pcts) pctsByStrategyId.set(s.id, cfg.pcts);
+        } catch {
+            // Malformed config JSON — no combination step for its balls.
+        }
+    }
+
+    const slotByDefId = new Map(src.slotRows.map((s) => [s.slot_def_id, s] as const));
+
+    // Per-slot ordered ball lists (slotBallRows arrive in compiler order) and
+    // grouping lists (teamRows likewise) — the effective-PH hook's input.
+    const ballsBySlot = new Map<string, { ballId: string; ph: number | null }[]>();
+    for (const r of src.slotBallRows) {
+        const list = ballsBySlot.get(r.slot_def_id) ?? [];
+        list.push({ ballId: r.ball_id, ph: r.playing_handicap_snapshot });
+        ballsBySlot.set(r.slot_def_id, list);
+    }
+    const groupingsBySlot = new Map<string, { teamLabel: string; ballIds: string[] }[]>();
+    for (const t of src.teamRows) {
+        const groups = groupingsBySlot.get(t.slot_def_id) ?? [];
+        let g = groups.find((x) => x.teamLabel === t.team_label);
+        if (!g) {
+            g = { teamLabel: t.team_label, ballIds: [] };
+            groups.push(g);
+        }
+        g.ballIds.push(t.ball_id);
+        groupingsBySlot.set(t.slot_def_id, groups);
+    }
+
+    for (const [slotDefId, slotBalls] of ballsBySlot) {
+        const slot = slotByDefId.get(slotDefId);
+        if (!slot) continue;
+
+        // Format-level PH presentation — only when every ball in the slot has
+        // a real PH (an unclaimed placeholder would poison the delta; the
+        // claim recompiles and the transform appears then).
+        let effective: Map<string, { effectivePh: number; step?: DerivationStep }> | null = null;
+        if (slotBalls.every((b) => b.ph !== null) && hasFormatPlugin(slot.format_id)) {
+            const plugin = findFormatPlugin(slot.format_id);
+            if (plugin.presentEffectivePhs) {
+                const presented = plugin.presentEffectivePhs({
+                    slotBalls: slotBalls.map((b) => ({
+                        ballId: b.ballId,
+                        playingHandicapSnapshot: b.ph!,
+                    })),
+                    slotTeamGroupings: groupingsBySlot.get(slotDefId),
+                });
+                effective = new Map(
+                    presented.map((p) => [p.ballId, { effectivePh: p.effectivePh, step: p.step }]),
+                );
+            }
+        }
+
+        let allowanceConfig: FormatAllowanceConfig | null = null;
+        try {
+            allowanceConfig = JSON.parse(slot.allowance_config) as FormatAllowanceConfig;
+        } catch {
+            allowanceConfig = null;
+        }
+
+        for (const { ballId, ph } of slotBalls) {
+            if (ph === null) continue; // pending placeholder — no derivation
+            const ball = ballById.get(ballId);
+            if (!ball || ball.course_handicap_snapshot === null) continue;
+            const ballCh = ball.course_handicap_snapshot;
+            const players = playersByBall.get(ballId) ?? [];
+            const steps: DerivationStep[] = [];
+
+            for (const p of players) {
+                if (p.course_handicap_snapshot === null) continue;
+                steps.push({
+                    kind: 'course_handicap',
+                    producerLabel: p.display_name_snapshot,
+                    handicapIndex: p.handicap_index_snapshot,
+                    slope: p.slope_snapshot,
+                    courseRating: p.course_rating_snapshot,
+                    par: p.tee_par_snapshot,
+                    result: p.course_handicap_snapshot,
+                });
+            }
+
+            if (players.length >= 2) {
+                const pcts = pctsByStrategyId.get(ball.round_ball_strategy_id);
+                const parts: { producerLabel: string; ch: number; pct: number }[] = [];
+                if (pcts) {
+                    for (const p of players) {
+                        const pct = pcts[p.producer_def_id];
+                        if (pct === undefined || p.course_handicap_snapshot === null) {
+                            parts.length = 0;
+                            break;
+                        }
+                        parts.push({
+                            producerLabel: p.display_name_snapshot,
+                            ch: p.course_handicap_snapshot,
+                            pct,
+                        });
+                    }
+                }
+                if (parts.length > 0) {
+                    steps.push({ kind: 'team_combination', parts, result: ballCh });
+                }
+            }
+
+            if (allowanceConfig) {
+                if (allowanceConfig.type === 'flat') {
+                    steps.push({
+                        kind: 'allowance',
+                        pct: allowanceConfig.pct,
+                        source: 'flat',
+                        result: ph,
+                    });
+                } else {
+                    const band = allowanceConfig.bands.find(
+                        (bd) => bd.upToCh === null || ballCh <= bd.upToCh,
+                    );
+                    if (band) {
+                        steps.push({
+                            kind: 'allowance',
+                            pct: band.pct,
+                            source: 'split',
+                            result: ph,
+                        });
+                    }
+                }
+            }
+
+            const eff = effective?.get(ballId);
+            if (eff?.step) steps.push(eff.step);
+
+            out.set(ballSlotKey(ballId, slotDefId), {
+                effectivePh: eff?.effectivePh ?? ph,
+                steps,
+            });
+        }
+    }
+
+    return out;
 }

@@ -43,6 +43,7 @@ import {
     holeIdentity,
     latestScoresByPlayHole,
     normalizeMatchPlayPHs,
+    presentMatchDeltaAcrossGroupings,
     resolveSingleProducer,
     strokesGivenMapForProducer,
 } from './_shared';
@@ -165,6 +166,9 @@ export const talibanBetterBall: FormatStrategy = {
     },
 
     deriveSlotBalls: deriveAllowance,
+
+    // Same [A1, A2, B1, B2] normalisation group as score() below.
+    presentEffectivePhs: presentMatchDeltaAcrossGroupings,
 
     // The one knob this format takes, declared as data so the setup UI renders
     // it without knowing what a taliban is. `validateConfig` below stays the

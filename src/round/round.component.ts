@@ -882,19 +882,18 @@ export class RoundComponent extends Component {
             {
                 pill: {
                     textContent: () => formatLabelFromSlot(slot),
+                    // The selection is the round's PRESENTATION CONTEXT —
+                    // which format's handicap the score rows show, and which
+                    // board the leaderboard shows — so it reads as selected on
+                    // BOTH tabs (previously only on the leaderboard).
                     className: () =>
-                        this.tab.get() === 'leaderboard' &&
                         this.svc.selectedSlotDefId() === slot.slotDefId
                             ? 'round-view__fmt active'
                             : 'round-view__fmt',
-                    onclick: () => {
-                        this.svc.selectSlot(slot.slotDefId);
-                        if (this.tab.get() !== 'leaderboard') {
-                            this.tab.set('leaderboard');
-                            // Re-fetch so the board reflects the latest entered scores.
-                            void this.svc.loadResult();
-                        }
-                    },
+                    // Select in place; never change tab. The leaderboard tab
+                    // button remains the one way to the board, and it loads
+                    // the result itself.
+                    onclick: () => this.svc.selectSlot(slot.slotDefId),
                 },
             },
             track,

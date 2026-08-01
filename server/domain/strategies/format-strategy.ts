@@ -28,6 +28,7 @@
 // parallel strategy registry retired in Slice 6 (2.6b-final).
 
 import type { FormatConfigField } from '../formats/plugin';
+import type { EffectivePhBall, EffectivePhInput } from '../handicap-derivation';
 import type { FormatAllowanceConfig } from '../round-definition';
 import type {
     ConfigDiagnostic,
@@ -125,6 +126,17 @@ export interface FormatStrategy {
      * the config (ADR-0001).
      */
     validateConfig?(config: unknown): ConfigDiagnostic[];
+    /**
+     * Present the EFFECTIVE playing handicap per ball — the PH after any
+     * format-level transform (match-play normalisation off the low ball).
+     * Presentation only: `score()` remains the scoring authority, and an
+     * implementation must reuse the same transform helper its `score()` uses
+     * (`normalizeMatchPlayPHs`) so the presented number cannot drift from the
+     * scored one. Omit when the format applies no transform — effective PH is
+     * then the slot PH. Input arrives in the compiler ball-order (supplied
+     * order contract above); pairing formats depend on it.
+     */
+    presentEffectivePhs?(input: EffectivePhInput): EffectivePhBall[];
     /**
      * The config knobs a setup UI may offer for this format, as pure data
      * (`FormatConfigField`). Declared HERE — next to the `score()` that reads

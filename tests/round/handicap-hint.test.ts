@@ -105,6 +105,7 @@ function ball(
             slotIndex: null,
             playingHandicap,
             teamLabel: null,
+            handicapDerivation: null,
         })),
     };
 }
@@ -150,6 +151,18 @@ test('hint follows the selected slot; falls back to the first ball slot', () => 
     expect(svc.strokesHintFor('both', 'ph1')).toBe(0);
     // A valid selection the BALL doesn't carry falls back to its first slot.
     expect(svc.strokesHintFor('aonly', 'ph1')).toBe(1);
+});
+
+test('a handicapDerivation feeds its effective PH to the hint (match-play normalisation)', () => {
+    const b = ball('b1', { 'slot-a': 16 });
+    // Server normalised this ball off the low ball: slot PH 16, effective 0.
+    b.slots[0]!.handicapDerivation = {
+        effectivePh: 0,
+        steps: [{ kind: 'match_delta', lowestPh: 16, ownPh: 16, result: 0 }],
+    };
+    const svc = serviceWith(makeRound(), [b]);
+    expect(svc.effectivePlayingHandicap(b)).toBe(0);
+    expect(svc.strokesHintFor('b1', 'ph1')).toBe(0); // 16 would have given 1 on SI 3
 });
 
 test('null when no PH, on a pending seat, or for an unknown hole', () => {

@@ -540,19 +540,22 @@ struct RoundBallSlot: Codable, Sendable, Equatable {
     var slotIndex: Double?
     var playingHandicap: Double?
     var teamLabel: String?
+    var handicapDerivation: HandicapDerivation?
 
     enum CodingKeys: String, CodingKey {
         case slotDefId = "slotDefId"
         case slotIndex = "slotIndex"
         case playingHandicap = "playingHandicap"
         case teamLabel = "teamLabel"
+        case handicapDerivation = "handicapDerivation"
     }
 
-    init(slotDefId: String, slotIndex: Double? = nil, playingHandicap: Double? = nil, teamLabel: String? = nil) {
+    init(slotDefId: String, slotIndex: Double? = nil, playingHandicap: Double? = nil, teamLabel: String? = nil, handicapDerivation: HandicapDerivation? = nil) {
         self.slotDefId = slotDefId
         self.slotIndex = slotIndex
         self.playingHandicap = playingHandicap
         self.teamLabel = teamLabel
+        self.handicapDerivation = handicapDerivation
     }
 
     init(from decoder: any Decoder) throws {
@@ -561,6 +564,7 @@ struct RoundBallSlot: Codable, Sendable, Equatable {
         self.slotIndex = try c.decodeIfPresent(Double.self, forKey: .slotIndex)
         self.playingHandicap = try c.decodeIfPresent(Double.self, forKey: .playingHandicap)
         self.teamLabel = try c.decodeIfPresent(String.self, forKey: .teamLabel)
+        self.handicapDerivation = try c.decodeIfPresent(HandicapDerivation.self, forKey: .handicapDerivation)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -580,6 +584,11 @@ struct RoundBallSlot: Codable, Sendable, Equatable {
             try c.encode(teamLabel, forKey: .teamLabel)
         } else {
             try c.encodeNil(forKey: .teamLabel)
+        }
+        if let handicapDerivation {
+            try c.encode(handicapDerivation, forKey: .handicapDerivation)
+        } else {
+            try c.encodeNil(forKey: .handicapDerivation)
         }
     }
 }
@@ -982,6 +991,279 @@ struct StartListOpDecision: Codable, Sendable, Equatable {
         try c.encode(allowed, forKey: .allowed)
         try c.encodeIfPresent(code, forKey: .code)
         try c.encodeIfPresent(message, forKey: .message)
+    }
+}
+
+struct HandicapDerivationStepsItemCourseHandicap: Codable, Sendable, Equatable {
+    let kind: String = "course_handicap"
+    var producerLabel: String
+    var handicapIndex: Double?
+    var slope: Double?
+    var courseRating: Double?
+    var par: Double?
+    var result: Double
+
+    enum CodingKeys: String, CodingKey {
+        case kind = "kind"
+        case producerLabel = "producerLabel"
+        case handicapIndex = "handicapIndex"
+        case slope = "slope"
+        case courseRating = "courseRating"
+        case par = "par"
+        case result = "result"
+    }
+
+    init(producerLabel: String, handicapIndex: Double? = nil, slope: Double? = nil, courseRating: Double? = nil, par: Double? = nil, result: Double) {
+        self.producerLabel = producerLabel
+        self.handicapIndex = handicapIndex
+        self.slope = slope
+        self.courseRating = courseRating
+        self.par = par
+        self.result = result
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        _ = try c.decode(String.self, forKey: .kind)
+        self.producerLabel = try c.decode(String.self, forKey: .producerLabel)
+        self.handicapIndex = try c.decodeIfPresent(Double.self, forKey: .handicapIndex)
+        self.slope = try c.decodeIfPresent(Double.self, forKey: .slope)
+        self.courseRating = try c.decodeIfPresent(Double.self, forKey: .courseRating)
+        self.par = try c.decodeIfPresent(Double.self, forKey: .par)
+        self.result = try c.decode(Double.self, forKey: .result)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(kind, forKey: .kind)
+        try c.encode(producerLabel, forKey: .producerLabel)
+        if let handicapIndex {
+            try c.encode(handicapIndex, forKey: .handicapIndex)
+        } else {
+            try c.encodeNil(forKey: .handicapIndex)
+        }
+        if let slope {
+            try c.encode(slope, forKey: .slope)
+        } else {
+            try c.encodeNil(forKey: .slope)
+        }
+        if let courseRating {
+            try c.encode(courseRating, forKey: .courseRating)
+        } else {
+            try c.encodeNil(forKey: .courseRating)
+        }
+        if let par {
+            try c.encode(par, forKey: .par)
+        } else {
+            try c.encodeNil(forKey: .par)
+        }
+        try c.encode(result, forKey: .result)
+    }
+}
+
+struct HandicapDerivationStepsItemTeamCombinationPartsItem: Codable, Sendable, Equatable {
+    var producerLabel: String
+    var ch: Double
+    var pct: Double
+
+    enum CodingKeys: String, CodingKey {
+        case producerLabel = "producerLabel"
+        case ch = "ch"
+        case pct = "pct"
+    }
+
+    init(producerLabel: String, ch: Double, pct: Double) {
+        self.producerLabel = producerLabel
+        self.ch = ch
+        self.pct = pct
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.producerLabel = try c.decode(String.self, forKey: .producerLabel)
+        self.ch = try c.decode(Double.self, forKey: .ch)
+        self.pct = try c.decode(Double.self, forKey: .pct)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(producerLabel, forKey: .producerLabel)
+        try c.encode(ch, forKey: .ch)
+        try c.encode(pct, forKey: .pct)
+    }
+}
+
+struct HandicapDerivationStepsItemTeamCombination: Codable, Sendable, Equatable {
+    let kind: String = "team_combination"
+    var parts: [HandicapDerivationStepsItemTeamCombinationPartsItem]
+    var result: Double
+
+    enum CodingKeys: String, CodingKey {
+        case kind = "kind"
+        case parts = "parts"
+        case result = "result"
+    }
+
+    init(parts: [HandicapDerivationStepsItemTeamCombinationPartsItem], result: Double) {
+        self.parts = parts
+        self.result = result
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        _ = try c.decode(String.self, forKey: .kind)
+        self.parts = try c.decode([HandicapDerivationStepsItemTeamCombinationPartsItem].self, forKey: .parts)
+        self.result = try c.decode(Double.self, forKey: .result)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(kind, forKey: .kind)
+        try c.encode(parts, forKey: .parts)
+        try c.encode(result, forKey: .result)
+    }
+}
+
+enum HandicapDerivationStepsItemAllowanceSource: String, Codable, Sendable, Equatable {
+    case flat = "flat"
+    case split = "split"
+}
+
+struct HandicapDerivationStepsItemAllowance: Codable, Sendable, Equatable {
+    let kind: String = "allowance"
+    var pct: Double
+    var source: HandicapDerivationStepsItemAllowanceSource
+    var result: Double
+
+    enum CodingKeys: String, CodingKey {
+        case kind = "kind"
+        case pct = "pct"
+        case source = "source"
+        case result = "result"
+    }
+
+    init(pct: Double, source: HandicapDerivationStepsItemAllowanceSource, result: Double) {
+        self.pct = pct
+        self.source = source
+        self.result = result
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        _ = try c.decode(String.self, forKey: .kind)
+        self.pct = try c.decode(Double.self, forKey: .pct)
+        self.source = try c.decode(HandicapDerivationStepsItemAllowanceSource.self, forKey: .source)
+        self.result = try c.decode(Double.self, forKey: .result)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(kind, forKey: .kind)
+        try c.encode(pct, forKey: .pct)
+        try c.encode(source, forKey: .source)
+        try c.encode(result, forKey: .result)
+    }
+}
+
+struct HandicapDerivationStepsItemMatchDelta: Codable, Sendable, Equatable {
+    let kind: String = "match_delta"
+    var lowestPh: Double
+    var ownPh: Double
+    var result: Double
+
+    enum CodingKeys: String, CodingKey {
+        case kind = "kind"
+        case lowestPh = "lowestPh"
+        case ownPh = "ownPh"
+        case result = "result"
+    }
+
+    init(lowestPh: Double, ownPh: Double, result: Double) {
+        self.lowestPh = lowestPh
+        self.ownPh = ownPh
+        self.result = result
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        _ = try c.decode(String.self, forKey: .kind)
+        self.lowestPh = try c.decode(Double.self, forKey: .lowestPh)
+        self.ownPh = try c.decode(Double.self, forKey: .ownPh)
+        self.result = try c.decode(Double.self, forKey: .result)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(kind, forKey: .kind)
+        try c.encode(lowestPh, forKey: .lowestPh)
+        try c.encode(ownPh, forKey: .ownPh)
+        try c.encode(result, forKey: .result)
+    }
+}
+
+enum HandicapDerivationStepsItem: Codable, Sendable, Equatable {
+    case courseHandicap(HandicapDerivationStepsItemCourseHandicap)
+    case teamCombination(HandicapDerivationStepsItemTeamCombination)
+    case allowance(HandicapDerivationStepsItemAllowance)
+    case matchDelta(HandicapDerivationStepsItemMatchDelta)
+
+    private enum DiscriminantKey: String, CodingKey {
+        case discriminant = "kind"
+    }
+
+    init(from decoder: any Decoder) throws {
+        let tag = try decoder.container(keyedBy: DiscriminantKey.self)
+        let discriminant = try tag.decode(String.self, forKey: .discriminant)
+        switch discriminant {
+        case "course_handicap":
+            self = .courseHandicap(try HandicapDerivationStepsItemCourseHandicap(from: decoder))
+        case "team_combination":
+            self = .teamCombination(try HandicapDerivationStepsItemTeamCombination(from: decoder))
+        case "allowance":
+            self = .allowance(try HandicapDerivationStepsItemAllowance(from: decoder))
+        case "match_delta":
+            self = .matchDelta(try HandicapDerivationStepsItemMatchDelta(from: decoder))
+        default:
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: decoder.codingPath,
+                debugDescription: "unknown kind: \(discriminant)"))
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        switch self {
+        case .courseHandicap(let v): try v.encode(to: encoder)
+        case .teamCombination(let v): try v.encode(to: encoder)
+        case .allowance(let v): try v.encode(to: encoder)
+        case .matchDelta(let v): try v.encode(to: encoder)
+        }
+    }
+}
+
+struct HandicapDerivation: Codable, Sendable, Equatable {
+    var effectivePh: Double
+    var steps: [HandicapDerivationStepsItem]
+
+    enum CodingKeys: String, CodingKey {
+        case effectivePh = "effectivePh"
+        case steps = "steps"
+    }
+
+    init(effectivePh: Double, steps: [HandicapDerivationStepsItem]) {
+        self.effectivePh = effectivePh
+        self.steps = steps
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.effectivePh = try c.decode(Double.self, forKey: .effectivePh)
+        self.steps = try c.decode([HandicapDerivationStepsItem].self, forKey: .steps)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(effectivePh, forKey: .effectivePh)
+        try c.encode(steps, forKey: .steps)
     }
 }
 

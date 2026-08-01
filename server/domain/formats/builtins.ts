@@ -381,6 +381,9 @@ function toPlugin(meta: BuiltinMeta): FormatPlugin {
         deriveSlotBalls: (input) => strategy.deriveSlotBalls(input),
         score: (input) => strategy.score(input),
         renderResult: meta.renderResult,
+        ...(strategy.presentEffectivePhs
+            ? { presentEffectivePhs: strategy.presentEffectivePhs.bind(strategy) }
+            : {}),
     };
 }
 

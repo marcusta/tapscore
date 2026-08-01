@@ -6,6 +6,7 @@ import type {
     FriendlyRound,
     Round,
     RoundBall,
+    RoundBallSlot,
     RoundGroupPlayedHole,
     RoundPlayHole,
     RoundPlayingGroup,
@@ -781,6 +782,27 @@ export class RoundViewService {
         this.selectedSlot.set(slotDefId);
     }
 
+    /**
+     * The slot assignment a ball presents under the SELECTED format chip,
+     * falling back to the ball's first slot. The one lookup shared by the
+     * handicap line, the keypad list and the stroke hint — three surfaces
+     * must never disagree about which number a ball plays off.
+     */
+    presentedSlot(ball: RoundBall): RoundBallSlot | undefined {
+        const slotDefId = this.selectedSlotDefId();
+        return ball.slots.find((sl) => sl.slotDefId === slotDefId) ?? ball.slots[0];
+    }
+
+    /**
+     * What the ball actually plays off under the selected format: the server's
+     * effective PH (allowance AND any match-play normalisation applied),
+     * falling back to the slot PH for payloads that pre-date the derivation.
+     */
+    effectivePlayingHandicap(ball: RoundBall): number | null {
+        const slot = this.presentedSlot(ball);
+        return slot?.handicapDerivation?.effectivePh ?? slot?.playingHandicap ?? null;
+    }
+
     // --- Shared on-course navigation (carousel + orange hole bar) ---
 
     groups(): RoundPlayingGroup[] {
@@ -860,17 +882,17 @@ export class RoundViewService {
      * DISPLAY ONLY — mirrors the server's allocation (`strokesGivenMapForBall`:
      * first-producer tee resolves the effective SI, tee override → base) via
      * the client mirror of `strokesReceivedForStrokeIndex`. The server's net
-     * stays authoritative; format-level PH tweaks (match-play normalization
-     * off the low ball) are deliberately not reproduced here.
+     * stays authoritative. The PH fed in is the server's per-slot EFFECTIVE
+     * PH, so format-level tweaks (match-play normalization off the low ball)
+     * are included — the old "deliberately not reproduced" mismatch is
+     * retired.
      */
     strokesHintFor(ballId: string, playHoleId: string): number | null {
         const r = this.round.get();
         if (!r) return null;
         const ball = this.balls.get().find((b) => b.id === ballId);
         if (!ball || ball.pending) return null;
-        const slotDefId = this.selectedSlotDefId();
-        const slot = ball.slots.find((s) => s.slotDefId === slotDefId) ?? ball.slots[0];
-        const ph = slot?.playingHandicap;
+        const ph = this.effectivePlayingHandicap(ball);
         if (ph == null) return null;
         const hole = this.playHoleById(playHoleId);
         if (!hole) return null;

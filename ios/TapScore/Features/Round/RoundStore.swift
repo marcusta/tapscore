@@ -611,13 +611,16 @@ final class RoundStore {
         if tab == .leaderboard, result == nil { Task { await loadResult() } }
     }
 
-    /// The header's format chips are navigation: choose the slot, then show its
-    /// board. Keeping both writes here prevents a chip from looking selected
-    /// while the score tab remains on screen.
-    func showLeaderboard(for slotDefId: String) {
+    /// The header's format chips SELECT the presentation context — which
+    /// format's handicap (and, on the leaderboard, which board) the screen
+    /// shows. They no longer navigate: on the score tab the selection changes
+    /// the handicap line and stroke hints in place, and the leaderboard keeps
+    /// its own tab. Selecting while the leaderboard is up still loads the
+    /// board if it has not been fetched.
+    func selectSlot(_ slotDefId: String) {
         guard round?.formatSlots.contains(where: { $0.slotDefId == slotDefId }) == true else { return }
         selectedSlot = slotDefId
-        setTab(.leaderboard)
+        if tab == .leaderboard, result == nil { Task { await loadResult() } }
     }
 
     /// The single place the stream/poll decision is made — re-run on every load,
@@ -1074,6 +1077,35 @@ final class RoundStore {
         return slots.first?.slotDefId
     }
 
+    /// The slot assignment this ball presents under the SELECTED format chip,
+    /// falling back to the ball's first slot. The one lookup shared by the
+    /// handicap line, the keypad and the stroke hint — three surfaces
+    /// disagreeing about which number a ball plays off is the kind of bug
+    /// nobody reports.
+    func presentedSlot(of ball: RoundBall) -> RoundBallSlot? {
+        ball.slots.first { $0.slotDefId == selectedSlotDefId } ?? ball.slots.first
+    }
+
+    /// What the ball actually plays off under the selected format: the
+    /// server's effective PH (allowance AND any match-play normalisation
+    /// applied), falling back to the slot PH for payloads that pre-date the
+    /// derivation.
+    func effectivePlayingHandicap(of ball: RoundBall) -> Double? {
+        guard let slot = presentedSlot(of: ball) else { return nil }
+        return slot.handicapDerivation?.effectivePh ?? slot.playingHandicap
+    }
+
+    /// The selected slot's catalog label ("Taliban", "Poängbogey"), with the
+    /// same metadata fallback the header chips use.
+    func selectedFormatLabel() -> String? {
+        guard let slot = round?.formatSlots.first(where: { $0.slotDefId == selectedSlotDefId })
+        else { return nil }
+        if let descriptor = formats.first(where: { $0.id == slot.formatId }) {
+            return descriptor.label
+        }
+        return "\(slot.scoringMode.rawValue) · \(slot.teamShape.rawValue)"
+    }
+
     // MARK: - Handicap hint (Gamebook-style)
 
     /// The hint printed inside an UNSCORED circle: how handicap will modify the
@@ -1099,14 +1131,14 @@ final class RoundStore {
     /// Web: `strokesHintFor` in `round.service.ts`. **DISPLAY ONLY** — it
     /// mirrors the server's allocation (first-producer tee resolves the
     /// effective SI; the payload's per-tee `strokeIndex` is already
-    /// override → base), and the server's net stays authoritative. Format-level
-    /// PH tweaks (match-play normalisation off the low ball) are deliberately
-    /// not reproduced, exactly as on the web.
+    /// override → base), and the server's net stays authoritative. The PH fed
+    /// in is the server's per-slot EFFECTIVE PH, so format-level tweaks
+    /// (match-play normalisation off the low ball) are included — the old
+    /// "deliberately not reproduced" mismatch is retired.
     func strokesHint(ballId: String, playHoleId: String) -> Int? {
         guard let round else { return nil }
         guard let ball = balls.first(where: { $0.id == ballId }), !ball.pending else { return nil }
-        let slot = ball.slots.first { $0.slotDefId == selectedSlotDefId } ?? ball.slots.first
-        guard let playingHandicap = slot?.playingHandicap else { return nil }
+        guard let playingHandicap = effectivePlayingHandicap(of: ball) else { return nil }
         guard let hole = playHole(id: playHoleId) else { return nil }
         // First-producer convention, as on the server: a team ball's SI
         // reference is its first producer's tee.

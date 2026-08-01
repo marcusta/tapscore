@@ -11,8 +11,9 @@ import {
     type AdvanceState,
     type EntryEvent,
 } from './advance-policy';
-import type { RoundBall } from '../api/friendly-rounds.gen';
+import type { HandicapDerivation, RoundBall } from '../api/friendly-rounds.gen';
 import type { MetadataInput } from '../api/setup.gen';
+import { formatLabelFromSlot } from './slot-labels';
 import { stepperText, type StatEventKey, type StatPrompt } from './stat-prompts';
 
 // One score column / carousel cell is SLOT wide. The carousel is a clipped
@@ -78,6 +79,21 @@ const tpl = template(`
             </div>
         </div>
 
+        <div bind="hcpModal" class="se-hcp hidden">
+            <div class="se-hcp__panel">
+                <div class="se-hcp__head">
+                    <span bind="hcpTitle" class="se-hcp__title"></span>
+                    <button bind="hcpClose" class="se-hcp__close" type="button" aria-label="Close">✕</button>
+                </div>
+                <span bind="hcpFormat" class="se-hcp__format"></span>
+                <div bind="hcpSteps" class="se-hcp__steps"></div>
+                <div class="se-hcp__foot">
+                    <span class="se-hcp__foot-label">Plays off</span>
+                    <span bind="hcpEff" class="se-hcp__eff"></span>
+                </div>
+            </div>
+        </div>
+
         <div bind="toast" class="se-toast hidden"></div>
     </div>
 `);
@@ -93,7 +109,10 @@ const rowTpl = template(`
     <div class="se-row">
         <div class="se-row__who">
             <span bind="name" class="se-row__name"></span>
-            <span bind="hcp" class="se-row__hcp"></span>
+            <span class="se-row__hcpline">
+                <span bind="hcp" class="se-row__hcp"></span>
+                <button bind="hcpInfo" class="se-row__hcpinfo hidden" type="button" aria-label="How this handicap was calculated">i</button>
+            </span>
         </div>
         <span bind="topar" class="se-row__topar"></span>
         <div class="se-row__scores">
@@ -111,6 +130,19 @@ const mrowTpl = template(`
         </div>
         <div bind="mcircle" class="se-mrow__circle"><span bind="mval"></span></div>
     </button>
+`);
+
+// One derivation step in the handicap ⓘ dialog: what happened in words, the
+// arithmetic as small print, the step's output as the trailing number.
+const hcpStepTpl = template(`
+    <div class="se-hcp__card">
+        <div class="se-hcp__card-body">
+            <span bind="ctitle" class="se-hcp__card-title"></span>
+            <span bind="ctext" class="se-hcp__card-text"></span>
+            <span bind="cmath" class="se-hcp__card-math"></span>
+        </div>
+        <span bind="cresult" class="se-hcp__card-result"></span>
+    </div>
 `);
 
 const keyTpl = template(`
@@ -276,10 +308,28 @@ export class ScoreEntryComponent extends Component {
             /* What the ball plays off, quiet under the name (same chain as the
                keypad list rows). Absent — not blanked — when there is no
                handicap to state. */
+            & .se-row__hcpline {
+                display: flex; align-items: center; gap: 2px; min-width: 0;
+            }
             & .se-row__hcp {
                 font-size: 0.75rem;
                 color: ${t('text-muted')};
                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            /* The ⓘ behind the handicap: a caption-sized ringed "i" with
+               thumb room — the row around it is not a control on the web
+               (only the circle is), so it needs no propagation guard. */
+            & .se-row__hcpinfo {
+                flex: none;
+                width: 22px; height: 22px; padding: 0;
+                display: inline-flex; align-items: center; justify-content: center;
+                background: none; cursor: pointer;
+                border: 1px solid ${t('border')}; border-radius: 999px;
+                color: ${t('text-muted')};
+                font-size: 0.65rem; font-style: italic; font-family: serif;
+                line-height: 1;
+                transform: scale(0.72); transform-origin: center;
+                &.hidden { display: none; }
             }
             /* Gamebook puts the running to-par where the eye lands: its own
                column between the name and the scores, in the display face at
@@ -541,6 +591,71 @@ export class ScoreEntryComponent extends Component {
             & .se-pad__ext-ok { height: 52px; border-radius: 10px; border: none; cursor: pointer; background: ${t('primary')}; color: #fff; font-size: 1.3rem; }
         }
 
+        /* The handicap-derivation dialog: a dimmed backdrop with a bottom
+           sheet (mobile-first, like the keypad), one card per step, the
+           effective PH as the loud closing line. */
+        .se-hcp {
+            position: fixed; inset: 0; z-index: 55;
+            display: flex; align-items: flex-end; justify-content: center;
+            background: rgba(0, 0, 0, 0.45);
+            &.hidden { display: none; }
+        }
+        .se-hcp__panel {
+            width: 100%; max-width: 480px; max-height: 82dvh;
+            overflow-y: auto;
+            background: ${t('surface')};
+            border-radius: ${t('radius')} ${t('radius')} 0 0;
+            padding: ${s('md')} ${s('lg')} ${s('xl')};
+            display: flex; flex-direction: column; gap: ${s('sm')};
+        }
+        .se-hcp__head {
+            display: flex; align-items: center; justify-content: space-between;
+            & .se-hcp__title {
+                font-family: ${t('font-display')}; font-weight: 700; font-size: 1.15rem;
+                color: ${t('text')};
+            }
+            & .se-hcp__close {
+                background: none; border: none; color: ${t('text-muted')};
+                font-size: 1.1rem; width: 40px; height: 40px; border-radius: 999px;
+                cursor: pointer; flex: none;
+            }
+        }
+        .se-hcp__format {
+            font-size: 0.7rem; font-weight: 600; letter-spacing: 0.06em;
+            text-transform: uppercase; color: ${t('text-muted')};
+        }
+        .se-hcp__steps { display: flex; flex-direction: column; gap: ${s('sm')}; }
+        .se-hcp__card {
+            display: flex; align-items: flex-start; gap: ${s('md')};
+            border: 1px solid ${t('border')}; border-radius: ${t('radius')};
+            padding: ${s('md')};
+            & .se-hcp__card-body {
+                display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1;
+            }
+            & .se-hcp__card-title {
+                font-size: 0.7rem; font-weight: 600; letter-spacing: 0.06em;
+                text-transform: uppercase; color: ${t('text-muted')};
+            }
+            & .se-hcp__card-text { font-size: 0.9rem; color: ${t('text')}; }
+            & .se-hcp__card-math {
+                font-size: 0.75rem; color: ${t('text-muted')};
+                &[hidden] { display: none; }
+            }
+            & .se-hcp__card-result {
+                font-family: ${t('font-display')}; font-weight: 700; font-size: 1.1rem;
+                font-variant-numeric: tabular-nums; color: ${t('text')};
+            }
+        }
+        .se-hcp__foot {
+            display: flex; align-items: center; gap: ${s('sm')};
+            padding-top: ${s('xs')};
+            & .se-hcp__foot-label { font-size: 0.9rem; font-weight: 600; color: ${t('text')}; }
+            & .se-hcp__eff {
+                font-family: ${t('font-display')}; font-weight: 700; font-size: 1.35rem;
+                font-variant-numeric: tabular-nums; color: ${t('accent')};
+            }
+        }
+
         .se-toast {
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
             z-index: 60;
@@ -581,6 +696,8 @@ export class ScoreEntryComponent extends Component {
     private pendingMeta = new Signal<Record<string, boolean>>({});
     private lastMetaKey: string | null = null;
     private toastMsg = new Signal<string | null>(null);
+    /** Ball id whose handicap-derivation dialog is open; null = closed. */
+    private hcpInfoBallId = new Signal<string | null>(null);
     private dragOffset = new Signal(0);
     private transitioning = new Signal(false);
     private ptr: PointerState | null = null;
@@ -655,6 +772,11 @@ export class ScoreEntryComponent extends Component {
      * state, and the row drops the line entirely rather than print a
      * placeholder — unlike the keypad's list row (`modalRow`), which is the
      * scoring surface and keeps the line with a "–".
+     *
+     * Since the format chips became the view's presentation context, the line
+     * shows what the ball PLAYS OFF under the selected format: the raw
+     * handicap when nothing changes it, and `HCP 7 → 5` when an allowance or
+     * a match-play normalisation moves it — the ⓘ beside it tells the story.
      */
     private hcpLine = (ballId: string): string | null => {
         const ball = this.ballsInGroup().find((b) => b.id === ballId);
@@ -664,7 +786,99 @@ export class ScoreEntryComponent extends Component {
                 ? ball.courseHandicap
                 : (ball.players[0]?.courseHandicap ?? ball.courseHandicap);
         if (ch === null) return null;
-        return ball.players.length > 1 ? `Team · HCP ${ch}` : `HCP ${ch}`;
+        const base = ball.players.length > 1 ? `Team · HCP ${ch}` : `HCP ${ch}`;
+        const eff = this.svc.effectivePlayingHandicap(ball);
+        return eff !== null && eff !== ch ? `${base} → ${eff}` : base;
+    };
+
+    /** The derivation behind a row's caption, under the SELECTED format chip. */
+    private rowDerivation = (ballId: string): HandicapDerivation | null => {
+        const ball = this.ballsInGroup().find((b) => b.id === ballId);
+        if (!ball || ball.pending) return null;
+        return this.svc.presentedSlot(ball)?.handicapDerivation ?? null;
+    };
+
+    /** Catalog label of the selected slot, for the dialog's format caption. */
+    private selectedFormatLabel = (): string | null => {
+        const slot = this.svc.round
+            .get()
+            ?.formatSlots.find((sl) => sl.slotDefId === this.svc.selectedSlotDefId());
+        return slot ? formatLabelFromSlot(slot) : null;
+    };
+
+    /**
+     * The dialog's rendered steps. The server sends structured numbers (a
+     * closed step vocabulary, `HandicapDerivation`); every sentence here is
+     * client prose — same split as the result sections, so tone and the WHS
+     * explanation can change without a server release. Mirrors the iOS
+     * `HandicapInfoSheet` card-for-card. A 100% allowance card is dropped:
+     * "× 100%" changes nothing and reads as noise.
+     */
+    private hcpCards = (
+        d: HandicapDerivation,
+    ): { title: string; text: string; math: string | null; result: number }[] => {
+        const label = this.selectedFormatLabel();
+        const cards: { title: string; text: string; math: string | null; result: number }[] = [];
+        for (const step of d.steps) {
+            switch (step.kind) {
+                case 'course_handicap': {
+                    const full =
+                        step.handicapIndex !== null &&
+                        step.slope !== null &&
+                        step.courseRating !== null &&
+                        step.par !== null;
+                    cards.push({
+                        title: `Course handicap · ${step.producerLabel}`,
+                        text: full
+                            ? `Exact handicap ${step.handicapIndex}, adjusted for the difficulty of these tees.`
+                            : `The handicap ${step.producerLabel} plays this course off.`,
+                        math: full
+                            ? `${step.handicapIndex} × ${step.slope} ÷ 113 + (${step.courseRating} − ${step.par}), rounded — the World Handicap System formula.`
+                            : null,
+                        result: step.result,
+                    });
+                    break;
+                }
+                case 'team_combination':
+                    cards.push({
+                        title: 'Team handicap',
+                        text: "The team plays off a share of each member's handicap.",
+                        math: `${step.parts
+                            .map((p) => `${p.pct}% of ${p.producerLabel}'s ${p.ch}`)
+                            .join(' + ')}, rounded.`,
+                        result: step.result,
+                    });
+                    break;
+                case 'allowance':
+                    if (step.pct !== 100) {
+                        cards.push({
+                            title: 'Allowance',
+                            text: `${label ?? 'This format'} is played at ${step.pct}% handicap.`,
+                            math: null,
+                            result: step.result,
+                        });
+                    }
+                    break;
+                case 'match_delta':
+                    cards.push(
+                        step.ownPh === step.lowestPh
+                            ? {
+                                  title: 'Match difference',
+                                  text: 'Lowest handicap in the match — plays off scratch, and the others get the difference.',
+                                  math: null,
+                                  result: step.result,
+                              }
+                            : {
+                                  title: 'Match difference',
+                                  text: 'In match formats only the difference matters: the lowest ball plays off 0, this ball gets the rest.',
+                                  math: `${step.ownPh} − ${step.lowestPh} = ${step.result}.`,
+                                  result: step.result,
+                              },
+                    );
+                    break;
+            }
+        }
+        return cards;
     };
 
     private toParText = (ball: RoundBall): string => {
@@ -741,6 +955,27 @@ export class ScoreEntryComponent extends Component {
                 className: () => (this.toastMsg.get() ? 'se-toast' : 'se-toast hidden'),
                 textContent: () => this.toastMsg.get() ?? '',
             },
+            // The handicap ⓘ dialog. Closing = clearing the ball id; a tap on
+            // the dimmed backdrop closes too (the panel stops propagation via
+            // its own onclick target check).
+            hcpModal: {
+                className: () => (this.hcpInfoBallId.get() !== null ? 'se-hcp' : 'se-hcp hidden'),
+                onclick: (e: MouseEvent) => {
+                    if (e.target === e.currentTarget) this.hcpInfoBallId.set(null);
+                },
+            },
+            hcpClose: { onclick: () => this.hcpInfoBallId.set(null) },
+            hcpTitle: () => {
+                const id = this.hcpInfoBallId.get();
+                const ball = id ? this.ballsInGroup().find((b) => b.id === id) : null;
+                return ball ? this.ballName(ball) : '';
+            },
+            hcpFormat: () => this.selectedFormatLabel() ?? '',
+            hcpEff: () => {
+                const id = this.hcpInfoBallId.get();
+                const d = id ? this.rowDerivation(id) : null;
+                return d ? String(d.effectivePh) : '';
+            },
             // The stats step (umbrella GIR/fairway today). Shown by `commit()`
             // after a real score on a stats hole; "Next" persists + advances.
             stats: { className: () => (this.statsOpen.get() ? 'se-stats' : 'se-stats hidden') },
@@ -815,6 +1050,29 @@ export class ScoreEntryComponent extends Component {
             // playerRow (inert seat vs scorable row) that no binding can undo:
             // claiming a seat mid-round must remount the row, not update it.
             (d) => `${d.ball.id}|${d.ph}|${d.ball.pending}`,
+        );
+
+        // The ⓘ dialog's step cards — rebuilt when the open ball or the
+        // selected format chip changes.
+        this.$each(
+            this.ref(frag, 'hcpSteps'),
+            new Computed(() => {
+                const id = this.hcpInfoBallId.get();
+                const d = id ? this.rowDerivation(id) : null;
+                return d ? this.hcpCards(d) : [];
+            }),
+            (card, _i, t2) =>
+                this.wireEl(
+                    hcpStepTpl,
+                    {
+                        ctitle: { textContent: card.title },
+                        ctext: { textContent: card.text },
+                        cmath: { textContent: card.math ?? '', hidden: card.math === null },
+                        cresult: { textContent: String(card.result) },
+                    },
+                    t2,
+                ),
+            (card, i) => `${i}|${card.title}|${card.result}`,
         );
 
         // Modal player list (stable per ball; reactive score + selection).
@@ -947,6 +1205,15 @@ export class ScoreEntryComponent extends Component {
                     textContent: () => this.hcpLine(ball.id) ?? '',
                     hidden: () => this.hcpLine(ball.id) === null,
                 },
+                // The ⓘ exists only when there is a derivation to explain —
+                // a round without handicaps keeps its clean caption.
+                hcpInfo: {
+                    className: () =>
+                        this.rowDerivation(ball.id) !== null
+                            ? 'se-row__hcpinfo'
+                            : 'se-row__hcpinfo hidden',
+                    onclick: () => this.hcpInfoBallId.set(ball.id),
+                },
                 topar: {
                     textContent: () => this.toParText(ball),
                     className: () => this.toParClass(ball),
@@ -981,16 +1248,23 @@ export class ScoreEntryComponent extends Component {
         // handicap on a claimed ball keeps the line and prints the same "–"
         // placeholder the score circles use; this is the scoring surface, so a
         // missing number is stated rather than silently dropped.
-        const ch =
-            ball.players.length > 1
-                ? ball.courseHandicap
-                : (ball.players[0]?.courseHandicap ?? ball.courseHandicap);
-        const chText = ch === null ? '–' : String(ch);
-        const hcp = ball.pending
-            ? 'Open seat — claim to score'
-            : ball.players.length > 1
-              ? `Team · HCP ${chText}`
-              : `HCP ${chText}`;
+        //
+        // Reactive, not snapshot: the `HCP 7 → 5` arrow follows the selected
+        // format chip, same derivation as the row caption (`hcpLine`) — the
+        // two surfaces must never disagree about which number a ball plays
+        // off.
+        const hcp = (): string => {
+            if (ball.pending) return 'Open seat — claim to score';
+            const ch =
+                ball.players.length > 1
+                    ? ball.courseHandicap
+                    : (ball.players[0]?.courseHandicap ?? ball.courseHandicap);
+            const chText = ch === null ? '–' : String(ch);
+            const base =
+                ball.players.length > 1 ? `Team · HCP ${chText}` : `HCP ${chText}`;
+            const eff = this.svc.effectivePlayingHandicap(ball);
+            return ch !== null && eff !== null && eff !== ch ? `${base} → ${eff}` : base;
+        };
         return this.wireEl(
             mrowTpl,
             {

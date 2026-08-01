@@ -210,14 +210,26 @@ struct KeypadView: View {
     }
 
     /// Web: `.se-mrow__hcp` — the playing handicap this ball scores off, or what
-    /// an unclaimed seat is instead.
+    /// an unclaimed seat is instead. Same derivation (and same `HCP n → m`
+    /// arrow under the selected format) as `BallRow.handicapText` — the two
+    /// surfaces must never disagree about which number a ball plays off.
     private func handicapLine(_ ball: RoundBall) -> String {
         if ball.pending { return "Open seat — claim to score" }
+        let base: String
+        let baseValue: Double?
         if ball.players.count > 1 {
-            return "Team · HCP \(ball.courseHandicap.map { jsNumberString($0) } ?? "–")"
+            baseValue = ball.courseHandicap
+            base = "Team · HCP \(baseValue.map { jsNumberString($0) } ?? "–")"
+        } else {
+            baseValue = ball.players.first?.courseHandicap ?? ball.courseHandicap
+            base = "HCP \(baseValue.map { jsNumberString($0) } ?? "–")"
         }
-        let value = ball.players.first?.courseHandicap ?? ball.courseHandicap
-        return "HCP \(value.map { jsNumberString($0) } ?? "–")"
+        if let baseValue,
+           let effective = store.effectivePlayingHandicap(of: ball),
+           effective != baseValue {
+            return "\(base) → \(jsNumberString(effective))"
+        }
+        return base
     }
 
     // MARK: - Pad
