@@ -721,8 +721,11 @@ final class RoundStoreTests: XCTestCase {
         XCTAssertEqual(scoreRequests(), 1, "a pending seat must never be written")
     }
 
-    /// The last hole ends the round instead of jumping: toast, keypad closed.
-    func testFinalHoleClosesKeypad() async {
+    /// The last hole ends the round instead of jumping: the keypad closes and
+    /// the fullscreen finish prompt opens. No toast — the prompt IS the
+    /// completion confirmation (caller contract #5's carve-out), and a toast
+    /// under a fullscreen cover would be invisible anyway.
+    func testFinalHoleClosesKeypadAndOpensFinishPrompt() async {
         RoundStubURLProtocol.route("/friendly-rounds/by-token", RoundFixtures.byToken(holes: 1))
         RoundStubURLProtocol.route("/friendly-rounds/balls", RoundFixtures.balls())
         RoundStubURLProtocol.route("/friendly-rounds/scorecard", RoundFixtures.emptyScorecards)
@@ -736,9 +739,14 @@ final class RoundStoreTests: XCTestCase {
         await waitUntil("the first ball's write") { self.scoreRequests() == 1 }
         store.commit(5)
 
-        XCTAssertNotNil(store.toast)
+        XCTAssertNil(store.toast, "the finish prompt replaces the toast")
         XCTAssertFalse(store.keypadOpen)
         XCTAssertNil(store.pendingJump)
+        XCTAssertTrue(store.finishFlowPresented)
+
+        // "Go back" — the flow closes and nothing else changed.
+        store.dismissFinishFlow()
+        XCTAssertFalse(store.finishFlowPresented)
     }
 
     /// Correction mode: arriving on an already-complete hole snapshots that

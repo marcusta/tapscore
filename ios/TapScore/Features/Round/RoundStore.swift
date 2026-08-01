@@ -158,6 +158,11 @@ final class RoundStore {
 
     private(set) var keypadOpen = false
     private(set) var statsOpen = false
+    /// True while the fullscreen finish flow (prompt → final board → stats
+    /// hand-off) is up. Raised by advance-policy's `roundComplete` moment —
+    /// the last ball on the last hole was just scored — and read by the round
+    /// screen's `fullScreenCover`. Web twin: `RoundViewService.finishFlowOpen`.
+    private(set) var finishFlowPresented = false
     /// True when every scoreable ball on this hole was already scored when the
     /// keypad arrived — correction mode for the whole visit.
     private(set) var holeCompleteOnEntry = false
@@ -812,6 +817,35 @@ final class RoundStore {
         }
     }
 
+    /// Finish, and ONLY finish — the finish flow's press. Unlike
+    /// `finishOrReopen()` this can never reopen: if another device finished
+    /// the round first, the flow's press must land on the board, not undo them.
+    /// The endpoint is idempotent (a re-finish keeps the original
+    /// `completedAt`), so an already-complete round is simply confirmed.
+    ///
+    /// - Returns: true when the round is (now) complete.
+    func finishRound() async -> Bool {
+        guard round != nil else { return false }
+        if round?.status == .complete { return true }
+        guard manageAction == nil else { return false }
+        manageAction = .finish
+        defer { manageAction = nil }
+        do {
+            let output = try await api.send(
+                FriendlyRoundsEndpoints.finish, FriendlyRoundsByTokenInput(token: token))
+            applyStatus(output.status, completedAt: output.completedAt)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Close the finish flow — "Go back", the cover's dismiss, and the flow's
+    /// own exits all land here.
+    func dismissFinishFlow() {
+        finishFlowPresented = false
+    }
+
     /// Delete the round and everything in it, for everyone.
     ///
     /// Token trust: no owner gate and no status gate, exactly as on the web. On
@@ -1307,6 +1341,26 @@ final class RoundStore {
         }.count
     }
 
+    /// Score cells still empty across the WHOLE round: every group's itinerary
+    /// × every scoreable ball in that group, pending (unclaimed) seats
+    /// excluded. The finish prompt's honesty check — `roundComplete` means "the
+    /// LAST hole just filled in", not "every hole has a score", so a skipped
+    /// hole (or a second group still out) shows up here and nowhere else.
+    /// Web twin: `src/round/round-completion.ts` `unscoredCellCount`.
+    func unscoredCellCount() -> Int {
+        let scoreable = Set(balls.filter { !$0.pending }.map(\.id))
+        var missing = 0
+        for group in groups {
+            for ballId in group.ballIds where scoreable.contains(ballId) {
+                for occ in group.playedOrder
+                where strokes(ballId: ballId, playHoleId: occ.playHoleId) == nil {
+                    missing += 1
+                }
+            }
+        }
+        return missing
+    }
+
     /// Whether the round-end story (§4.1) may appear, for the signed-in player.
     ///
     /// The store deliberately holds no session — the round flow works logged
@@ -1775,12 +1829,15 @@ final class RoundStore {
             seedStats()
         case .openStats:
             statsOpen = true
-        case .roundComplete(let toast):
-            // #5 toast FIRST, synchronously; #2 close the whole keypad.
-            flash(toast)
+        case .roundComplete:
+            // #2 close the whole keypad, then open the finish prompt. The
+            // decision's toast is deliberately NOT flashed — the fullscreen
+            // prompt is the completion confirmation now (contract #5's
+            // carve-out in `Domain/AdvancePolicy.swift`).
             cancelJump()
             keypadOpen = false
             statsOpen = false
+            finishFlowPresented = true
         case .holeComplete(let toast, let fromHoleId, let toHoleIndex, let delayMs):
             // #5 toast FIRST, then #3 schedule at most one timer.
             flash(toast)

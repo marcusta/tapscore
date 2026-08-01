@@ -156,6 +156,43 @@ final class RoundManageActionsTests: XCTestCase {
         XCTAssertNil(entry?.completedAt)
     }
 
+    /// The finish flow's press is finish-ONLY: on an active round it posts
+    /// /finish like the manage row, but on an already-complete round (another
+    /// device beat us to it) it must confirm rather than reopen — the flow's
+    /// press landing as an undo of someone else's finish would be a disaster.
+    func testFinishRoundNeverReopens() async {
+        routeHappyPath(status: "complete")
+        RoundStubURLProtocol.route("/friendly-rounds/reopen", RoundFixtures.reopened)
+        RoundStubURLProtocol.route("/friendly-rounds/finish", RoundFixtures.finished())
+        let store = makeStore()
+        await store.load()
+        XCTAssertEqual(store.round?.status, .complete)
+
+        let finished = await store.finishRound()
+
+        XCTAssertTrue(finished)
+        XCTAssertEqual(store.round?.status, .complete)
+        XCTAssertTrue(RoundStubURLProtocol.requests(for: "/friendly-rounds/reopen").isEmpty)
+        XCTAssertTrue(RoundStubURLProtocol.requests(for: "/friendly-rounds/finish").isEmpty)
+    }
+
+    func testFinishRoundFinishesAnActiveRound() async {
+        routeHappyPath()
+        RoundStubURLProtocol.route("/friendly-rounds/finish", RoundFixtures.finished())
+        let store = makeStore()
+        await store.load()
+
+        let finished = await store.finishRound()
+
+        XCTAssertTrue(finished)
+        XCTAssertEqual(store.round?.status, .complete)
+        XCTAssertEqual(store.round?.completedAt, "2026-07-27T11:00:00.000Z")
+        XCTAssertEqual(RoundStubURLProtocol.requests(for: "/friendly-rounds/finish").count, 1)
+        // The landing row moved Ongoing → Recently finished, same as the
+        // manage row's finish — one applyStatus funnel for both.
+        XCTAssertEqual(deviceRounds.round(for: RoundFixtures.token)?.status, .complete)
+    }
+
     func testFinishFailureSurfacesTheErrorAndChangesNothing() async {
         routeHappyPath()
         RoundStubURLProtocol.route("/friendly-rounds/finish", status: 500, "{\"error\":\"boom\"}")

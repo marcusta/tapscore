@@ -55,6 +55,7 @@ import {
 const tpl = template(`
     <div class="roundstats">
         <button bind="back" class="roundstats__back" type="button">Back to statistics</button>
+        <p bind="finishKicker" class="roundstats__kicker hidden">Round finished</p>
 
         <p bind="state" class="roundstats__state"></p>
 
@@ -88,6 +89,8 @@ const tpl = template(`
                 <ul bind="legend" class="roundstats__legend"></ul>
             </section>
         </div>
+
+        <button bind="finishClose" class="roundstats__closebtn hidden" type="button">Close</button>
     </div>
 `);
 
@@ -156,6 +159,29 @@ export class RoundStatsComponent extends Component {
                 margin-bottom: ${s('lg')};
                 padding: ${s('xs')} ${s('md')};
                 font-family: inherit; font-size: 0.82rem; font-weight: 700;
+                &.hidden { display: none; }
+            }
+
+            /* Finish-flow mode (\`?finish=1\`): the screen is the last stage of
+               the round's closing ceremony, so the dashboard back link stands
+               down and a kicker + bottom Close home take its place. */
+            & .roundstats__kicker {
+                margin: 0 0 ${s('lg')};
+                font-size: 0.78rem; font-weight: 700;
+                text-transform: uppercase; letter-spacing: 0.08em;
+                color: ${t('accent')};
+                &.hidden { display: none; }
+            }
+            & .roundstats__closebtn {
+                ${btn()}
+                width: 100%;
+                min-height: 52px;
+                margin-top: ${s('xl')};
+                font-family: inherit; font-size: 1rem; font-weight: 700;
+                background: ${t('primary')};
+                color: ${t('primary-text')};
+                border: none;
+                &.hidden { display: none; }
             }
 
             & .roundstats__state {
@@ -327,8 +353,26 @@ export class RoundStatsComponent extends Component {
             }),
         );
 
+        // Finish-flow mode (`?finish=1`): reached from the round's finish
+        // ceremony rather than the dashboard. Same screen, different exits —
+        // the back link hides and a bottom "Close" goes home instead.
+        const finishQ = this.router.query('finish');
+        const finishMode = () => finishQ.get() === '1';
+
         const frag = this.wire(tpl, {
-            back: { onclick: () => this.router.navigate('/stats') },
+            back: {
+                className: () => (finishMode() ? 'roundstats__back hidden' : 'roundstats__back'),
+                onclick: () => this.router.navigate('/stats'),
+            },
+            finishKicker: {
+                className: () =>
+                    finishMode() ? 'roundstats__kicker' : 'roundstats__kicker hidden',
+            },
+            finishClose: {
+                className: () =>
+                    finishMode() ? 'roundstats__closebtn' : 'roundstats__closebtn hidden',
+                onclick: () => this.router.navigate('/'),
+            },
             state: () => this.stateLine(),
             body: { className: () => (ready() ? 'roundstats__body' : 'roundstats__body hidden') },
             title: () => (model() === null ? '' : roundStatsTitle(model()!)),

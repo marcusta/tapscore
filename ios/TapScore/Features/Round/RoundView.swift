@@ -102,6 +102,20 @@ private struct RoundScreen: View {
         }
         .background(TapColors.bg)
         .overlay(alignment: .top) { toast }
+        // The finish flow (2026-08-01): raised by the store when the last ball
+        // on the last hole is scored (advance-policy's `roundComplete`), and by
+        // nothing else. A cover, not an overlay, so it sits over the dock and
+        // the whole tab body — the web's `.ffl` fixed takeover.
+        .fullScreenCover(isPresented: finishFlowBinding) {
+            FinishFlowView(store: store, onClose: onBack)
+        }
+    }
+
+    private var finishFlowBinding: Binding<Bool> {
+        Binding(
+            get: { store.finishFlowPresented },
+            set: { if !$0 { store.dismissFinishFlow() } }
+        )
     }
 
     private var header: RoundHeaderView {

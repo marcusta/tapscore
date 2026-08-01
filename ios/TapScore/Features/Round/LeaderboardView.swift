@@ -16,11 +16,14 @@ import SwiftUI
 ///
 /// The format selector is NOT here — the round header's chip row owns it, the
 /// way `.round-view__formats` does on the web. This view reads the selection.
-struct LeaderboardView: View {
+struct LeaderboardView<Header: View>: View {
     @Bindable var store: RoundStore
-    /// The round header. It is part of THIS view's scroll content — web parity:
-    /// `.round-view__main` scrolls the header with the board.
-    let header: RoundHeaderView
+    /// The header block, part of THIS view's scroll content — web parity:
+    /// `.round-view__main` scrolls the header with the board. Generic because
+    /// two screens render this board: the round's leaderboard tab (the full
+    /// `RoundHeaderView`) and the finish flow's final-results stage (its own
+    /// ceremony header, no back link and no manage chrome).
+    let header: Header
 
     var body: some View {
         ScrollView {

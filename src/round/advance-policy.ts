@@ -23,7 +23,9 @@
 //     The policy can answer `stay`/`noop`, which touches nothing, so a sheet
 //     left open on those branches would never close.
 //  2. `roundComplete` must close the keypad (the whole modal), not just park
-//     the cursor. There is no further hole to aim at.
+//     the cursor. There is no further hole to aim at. As of the finish flow
+//     (2026-08-01) it must then OPEN the fullscreen finish prompt
+//     (`RoundViewService.finishFlowOpen` / `RoundStore.finishFlowPresented`).
 //  3. `holeComplete` must schedule the jump on a timer of `delayMs`, keeping
 //     at most one timer alive (clear any pending one first), and at fire time
 //     must re-check that the keypad is STILL on `fromHoleId`; if it moved
@@ -33,9 +35,12 @@
 //  4. `toHoleIndex` is computed against the played order as it was at DECISION
 //     time and must be clamped against the LIVE played order when the timer
 //     fires; the itinerary can change during the pause.
-//  5. On both `holeComplete` and `roundComplete` the toast is flashed FIRST,
-//     synchronously, before the timer is scheduled / the keypad closes — the
-//     confirmation is what the delay exists to show.
+//  5. On `holeComplete` the toast is flashed FIRST, synchronously, before the
+//     timer is scheduled — the confirmation is what the delay exists to show.
+//     On `roundComplete` the toast is deliberately NOT flashed: the fullscreen
+//     finish prompt (#2) is the confirmation, and a toast under it would be
+//     invisible. The decision still carries the toast so the policy stays
+//     presentation-agnostic.
 //  6. After a jump lands, reset the cursor to ball 0 and re-run
 //     `isHoleCompleteOnEntry` for the new hole, storing it as the visit's
 //     `holeCompleteOnEntry`. That re-snapshot is what stops the advance chain

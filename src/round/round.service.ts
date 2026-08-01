@@ -262,6 +262,13 @@ export class RoundViewService {
      */
     readonly keypadOpen = new Signal(false);
     /**
+     * True while the fullscreen finish flow (prompt → final board → stats) is
+     * up. Owned here for the same reason `keypadOpen` is: the score-entry
+     * component RAISES it (advance-policy's `roundComplete` moment) and the
+     * round view HOSTS the flow component that reads it.
+     */
+    readonly finishFlowOpen = new Signal(false);
+    /**
      * Which format slot the shared pill row points at, keyed by the slot's
      * stable `slotDefId` — NOT a positional index. Competition rounds
      * (inherit-then-override) can reorder or skip slots relative to a base
@@ -1504,6 +1511,7 @@ export class RoundViewService {
         this.holeIdx.set(initial?.holeIdx ?? 0);
         this.groupIdx.set(initial?.groupIdx ?? 0);
         this.keypadOpen.set(false);
+        this.finishFlowOpen.set(false);
         // Stats belong to a round: the modules, the projection and this device's
         // shadow values are all token-scoped, and an open step points at a cell
         // that no longer exists. The durable QUEUE is deliberately untouched —

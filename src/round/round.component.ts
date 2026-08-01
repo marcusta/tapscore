@@ -17,6 +17,7 @@ import { SeatCardComponent } from './seat-card.component';
 import { JoinCardComponent } from './join-card.component';
 import { HandicapCheckinComponent } from './handicap-checkin.component';
 import { ManageOverlayComponent } from './manage-overlay.component';
+import { FinishFlowComponent } from './finish-flow.component';
 import { RoundStoryComponent } from '../stats/round-story.component';
 import { formatLabelFromSlot } from './slot-labels';
 import { roundHeaderTitle } from './header-title';
@@ -86,6 +87,7 @@ const tpl = template(`
         </div>
 
         <div bind="manageHost"></div>
+        <div bind="finishHost"></div>
 
         <div bind="dock" class="round-view__dock hidden">
             <div bind="holebar" class="round-hole hidden">
@@ -820,6 +822,11 @@ export class RoundComponent extends Component {
         this.spawn(ManageOverlayComponent, this.ref(frag, 'manageHost'), {
             open: this.manageOpen,
         });
+
+        // The finish flow (2026-08-01): raised by score entry's roundComplete
+        // moment (`svc.finishFlowOpen`), fullscreen over everything including
+        // the dock — prompt → final board → stats hand-off.
+        this.spawn(FinishFlowComponent, this.ref(frag, 'finishHost'));
 
         return frag;
     }

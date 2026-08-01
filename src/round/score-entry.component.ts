@@ -1494,8 +1494,11 @@ export class ScoreEntryComponent extends Component {
                 this.statsOpen.set(true);
                 return;
             case 'roundComplete':
-                this.flash(move.toast);
+                // The fullscreen finish prompt IS the completion confirmation
+                // now — the policy's toast is deliberately not flashed under
+                // it (caller contract #5's carve-out in advance-policy.ts).
                 this.modalOpen.set(false);
+                this.svc.finishFlowOpen.set(true);
                 return;
             case 'holeComplete': {
                 this.flash(move.toast);
