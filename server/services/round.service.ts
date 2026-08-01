@@ -710,7 +710,7 @@ export class RoundService {
         const slotRows = await this.db
             .selectFrom('slots')
             .where('round_id', '=', roundId)
-            .select(['slot_def_id', 'format_id', 'allowance_config'])
+            .select(['slot_def_id', 'format_id', 'allowance_config', 'format_config'])
             .execute();
 
         const slotBallRows = await this.db
@@ -1311,7 +1311,12 @@ interface DerivationSource {
         course_handicap_snapshot: number | null;
     }[];
     strategyRows: { id: string; derivation_config: string }[];
-    slotRows: { slot_def_id: string; format_id: string; allowance_config: string }[];
+    slotRows: {
+        slot_def_id: string;
+        format_id: string;
+        allowance_config: string;
+        format_config: string | null;
+    }[];
     slotBallRows: {
         ball_id: string;
         slot_def_id: string;
@@ -1380,12 +1385,20 @@ function buildHandicapDerivations(src: DerivationSource): Map<string, HandicapDe
         if (slotBalls.every((b) => b.ph !== null) && hasFormatPlugin(slot.format_id)) {
             const plugin = findFormatPlugin(slot.format_id);
             if (plugin.presentEffectivePhs) {
+                let formatConfig: unknown;
+                try {
+                    formatConfig =
+                        slot.format_config === null ? undefined : JSON.parse(slot.format_config);
+                } catch {
+                    formatConfig = undefined;
+                }
                 const presented = plugin.presentEffectivePhs({
                     slotBalls: slotBalls.map((b) => ({
                         ballId: b.ballId,
                         playingHandicapSnapshot: b.ph!,
                     })),
                     slotTeamGroupings: groupingsBySlot.get(slotDefId),
+                    formatConfig,
                 });
                 effective = new Map(
                     presented.map((p) => [p.ballId, { effectivePh: p.effectivePh, step: p.step }]),

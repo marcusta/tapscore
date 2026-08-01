@@ -210,6 +210,25 @@ export const kopenhamnareIndividual: FormatStrategy = {
 
     deriveSlotBalls: deriveAllowance,
 
+    // The PH presentation follows the SAME mode `score()` reads: under
+    // 'delta_from_min' the low ball plays 0 and the others their gap (the
+    // `effectivePHs` arithmetic above, emitted as a match_delta step);
+    // 'standard' presents the slot PHs untransformed. Config-driven — this is
+    // why `EffectivePhInput` carries `formatConfig` at all.
+    presentEffectivePhs({ slotBalls, formatConfig }) {
+        const mode = readHandicapMode(formatConfig);
+        const phs = slotBalls.map((b) => b.playingHandicapSnapshot);
+        if (mode === 'standard') {
+            return slotBalls.map((b, i) => ({ ballId: b.ballId, effectivePh: phs[i] }));
+        }
+        const min = Math.min(...phs);
+        return slotBalls.map((b, i) => ({
+            ballId: b.ballId,
+            effectivePh: phs[i] - min,
+            step: { kind: 'match_delta', lowestPh: min, ownPh: phs[i], result: phs[i] - min },
+        }));
+    },
+
     // Declared as data so the setup UI can reach this knob at all — it has
     // existed in `score()` since 2.6b with no surface able to set it. Labels
     // describe what the mode DOES (see `effectivePHs` above), not the enum

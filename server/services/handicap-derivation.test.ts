@@ -168,6 +168,44 @@ test('taliban 2v2: one normalisation group across all four balls', async () => {
     expect(p4.steps.at(-1)).toEqual({ kind: 'match_delta', lowestPh: 1, ownPh: 9, result: 8 });
 });
 
+test('köpenhamnare presents the handicapMode its scoring uses', async () => {
+    // delta_from_min: low PH plays 0, others their gap — same as match play.
+    const ctx = await setup([2, 3, 10]);
+    const balls = await ballsFor(ctx, {
+        courseId: ctx.courseId,
+        playedAt: '2026-08-01',
+        producers: producers(ctx),
+        formats: [
+            {
+                formatId: 'kopenhamnare_individual',
+                formatConfig: { handicapMode: 'delta_from_min' },
+            },
+        ],
+    });
+    const effs = ['P1', 'P2', 'P3'].map(
+        (n) => ownBallOf(balls, n).slots[0]!.handicapDerivation!.effectivePh,
+    );
+    expect(effs).toEqual([0, 1, 8]);
+    expect(ownBallOf(balls, 'P3').slots[0]!.handicapDerivation!.steps.at(-1)).toEqual({
+        kind: 'match_delta',
+        lowestPh: 2,
+        ownPh: 10,
+        result: 8,
+    });
+
+    // The default 'standard' mode presents untransformed PHs, no delta step.
+    const ctx2 = await setup([2, 3, 10]);
+    const standard = await ballsFor(ctx2, {
+        courseId: ctx2.courseId,
+        playedAt: '2026-08-01',
+        producers: producers(ctx2),
+        formats: [{ formatId: 'kopenhamnare_individual' }],
+    });
+    const d = ownBallOf(standard, 'P3').slots[0]!.handicapDerivation!;
+    expect(d.effectivePh).toBe(10);
+    expect(d.steps.some((s) => s.kind === 'match_delta')).toBe(false);
+});
+
 test('combined team ball (scramble-style): member CH steps + team_combination step', async () => {
     const ctx = await setup([8, 4, 6, 2]);
     const balls = await ballsFor(ctx, {

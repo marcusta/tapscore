@@ -75,6 +75,12 @@ export interface EffectivePhInput {
      */
     slotBalls: { ballId: string; playingHandicapSnapshot: number }[];
     slotTeamGroupings?: { teamLabel: string; ballIds: string[] }[];
+    /**
+     * The slot's opaque `formatConfig`, exactly as `score()` receives it — a
+     * format whose PH transform is a config knob (köpenhamnare's
+     * `handicapMode`) must present the mode the scoring actually uses.
+     */
+    formatConfig?: unknown;
 }
 
 export interface EffectivePhBall {
