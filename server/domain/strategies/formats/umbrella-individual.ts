@@ -1,10 +1,15 @@
 // Phase 2.6b/2 — umbrella × individual (3-player).
 //
 // Per-hole 4-category allocation (per ball):
-//   LG   — low individual gross among the 3 (all tied get it)
+//   LG   — low individual score among the 3 (all tied get it), compared on
+//          formatConfig.lowScoreRule ('gross' | 'net'; new rounds seed 'net')
 //   FWY  — fairway hit metadata (par 4/5 only)
 //   GIR  — green in regulation metadata
-//   BIRD — birdie per formatConfig.birdieRule ('gross' | 'net', default 'gross')
+//   BIRD — birdie per formatConfig.birdieRule ('gross' | 'net', seeds 'gross')
+//
+// Handicaps follow formatConfig.handicapMode: new rounds seed 'delta_from_min'
+// (match-style — low ball plays 0, others their gap); absent config reads
+// 'standard' (a legacy freeze, see _shared).
 //
 // Hole points = categorySum × holeNumber; sweep (all 4) doubles.
 // Pickup / DNP / no-event: does not contribute. Metadata (gir/fairway)
@@ -27,15 +32,28 @@ import {
     latestMetadata,
     latestScoresByPlayHole,
     resolveSingleProducer,
+    normalizeMatchPlayPHs,
+    readUmbrellaHandicapMode,
+    readUmbrellaLowScoreRule,
     strokesGivenMapForProducer,
     validateBirdieRule,
+    validateUmbrellaHandicapMode,
+    validateUmbrellaLowScoreRule,
+    type UmbrellaLowScoreRule,
 } from './_shared';
 
 export const UMBRELLA_INDIVIDUAL_ID = 'umbrella_individual';
 
 /** The full ordered category set — one scorecard marker row per entry (order
- * must match the per-hole `won` pushes below). */
-const UMBRELLA_CATEGORIES = ['Low gross', 'Fairway', 'GIR', 'Birdie'];
+ * must match the per-hole `won` pushes below). The low category is named for
+ * what it actually compares (`lowScoreRule`). */
+function umbrellaCategories(lowLabel: string): string[] {
+    return [lowLabel, 'Fairway', 'GIR', 'Birdie'];
+}
+
+function lowCategoryLabel(rule: UmbrellaLowScoreRule): string {
+    return rule === 'net' ? 'Low net' : 'Low gross';
+}
 
 type BirdieRule = 'gross' | 'net';
 
@@ -64,11 +82,16 @@ interface BallCtx {
     scores: Map<string, number | null>;
 }
 
-function buildCtx(ball: SlotBall, ctx: RoundContext, events: StrategyEvent[]): BallCtx {
+function buildCtx(
+    ball: SlotBall,
+    effectivePh: number,
+    ctx: RoundContext,
+    events: StrategyEvent[],
+): BallCtx {
     const p = resolveSingleProducer(ball);
     return {
         ball,
-        strokesByHole: strokesGivenMapForProducer(p.producerDefId, ball.playingHandicapSnapshot, ctx),
+        strokesByHole: strokesGivenMapForProducer(p.producerDefId, effectivePh, ctx),
         scores: latestScoresByPlayHole(events, ball.ballId),
     };
 }
@@ -111,8 +134,78 @@ export const umbrellaIndividual: FormatStrategy = {
 
     deriveSlotBalls: deriveAllowance,
 
+    // The PH presentation follows the SAME mode `score()` reads:
+    // 'delta_from_min' presents the low ball off 0 and the others their gap
+    // (emitted as a match_delta step); the legacy 'standard' fallback presents
+    // slot PHs untransformed.
+    presentEffectivePhs({ slotBalls, formatConfig }) {
+        const mode = readUmbrellaHandicapMode(formatConfig, UMBRELLA_INDIVIDUAL_ID);
+        const phs = slotBalls.map((b) => b.playingHandicapSnapshot);
+        if (mode === 'standard') {
+            return slotBalls.map((b, i) => ({ ballId: b.ballId, effectivePh: phs[i] }));
+        }
+        const eff = normalizeMatchPlayPHs(phs);
+        const min = Math.min(...phs);
+        return slotBalls.map((b, i) => ({
+            ballId: b.ballId,
+            effectivePh: eff[i],
+            step: { kind: 'match_delta', lowestPh: min, ownPh: phs[i], result: eff[i] },
+        }));
+    },
+
+    // The three knobs, declared as data so the setup UI renders them without
+    // knowing what an umbrella is (same pattern as taliban's bonusRule).
+    // Defaults are the OWNER-DECIDED values for new rounds (2026-08-01):
+    // match-style handicaps, net low-score comparisons, gross birdies. The
+    // read fallbacks for ABSENT config deliberately differ — see _shared.
+    configFields: [
+        {
+            kind: 'select',
+            key: 'handicapMode',
+            labels: { en: 'Handicap strokes', sv: 'Slagtilldelning' },
+            options: [
+                {
+                    value: 'standard',
+                    labels: { en: 'Full handicap for everyone', sv: 'Full slagtilldelning för alla' },
+                },
+                {
+                    value: 'delta_from_min',
+                    labels: {
+                        en: 'Lowest handicap plays off scratch',
+                        sv: 'Lägsta handicappet spelar utan slag',
+                    },
+                },
+            ],
+            default: 'delta_from_min',
+        },
+        {
+            kind: 'select',
+            key: 'lowScoreRule',
+            labels: { en: 'Lowest score counts as', sv: 'Lägsta score räknas på' },
+            options: [
+                { value: 'gross', labels: { en: 'Gross', sv: 'Brutto' } },
+                { value: 'net', labels: { en: 'Net', sv: 'Netto' } },
+            ],
+            default: 'net',
+        },
+        {
+            kind: 'select',
+            key: 'birdieRule',
+            labels: { en: 'Birdie point counts as', sv: 'Birdiepoäng räknas på' },
+            options: [
+                { value: 'gross', labels: { en: 'Gross', sv: 'Brutto' } },
+                { value: 'net', labels: { en: 'Net', sv: 'Netto' } },
+            ],
+            default: 'gross',
+        },
+    ],
+
     validateConfig(config): ConfigDiagnostic[] {
-        return validateBirdieRule(config, 'umbrella_individual');
+        return [
+            ...validateBirdieRule(config, 'umbrella_individual'),
+            ...validateUmbrellaHandicapMode(config, 'umbrella_individual'),
+            ...validateUmbrellaLowScoreRule(config, 'umbrella_individual'),
+        ];
     },
 
     score({ roundContext, slotBalls, events, formatConfig }): StrategyResult {
@@ -120,7 +213,14 @@ export const umbrellaIndividual: FormatStrategy = {
             throw new Error(`umbrella_individual: needs exactly 3 balls (got ${slotBalls.length})`);
         }
         const birdieRule = readBirdieRule(formatConfig);
-        const ctxs = slotBalls.map((b) => buildCtx(b, roundContext, events));
+        const handicapMode = readUmbrellaHandicapMode(formatConfig, UMBRELLA_INDIVIDUAL_ID);
+        const lowScoreRule = readUmbrellaLowScoreRule(formatConfig, UMBRELLA_INDIVIDUAL_ID);
+        const lowLabel = lowCategoryLabel(lowScoreRule);
+        // Match-style handicaps: the low ball plays 0, others their gap — the
+        // same normalisation `presentEffectivePhs` above shows the golfer.
+        const phs = slotBalls.map((b) => b.playingHandicapSnapshot);
+        const effPHs = handicapMode === 'delta_from_min' ? normalizeMatchPlayPHs(phs) : phs;
+        const ctxs = slotBalls.map((b, i) => buildCtx(b, effPHs[i], roundContext, events));
 
         const holesPer: BallHoleResult[][] = slotBalls.map(() => []);
         const totals = slotBalls.map(() => 0);
@@ -128,9 +228,15 @@ export const umbrellaIndividual: FormatStrategy = {
 
         for (const occ of roundContext.playHoles) {
             const scores = ctxs.map((c) => holeScore(c, occ, events));
-            const grosses = scores.map((s) => s.gross);
-            const contributedGrosses = grosses.filter((g): g is number => g !== null);
-            const lowGross = contributedGrosses.length > 0 ? Math.min(...contributedGrosses) : null;
+            // The low-score category compares the CONFIGURED basis — net by
+            // the product default, gross for groups that set it (and for
+            // legacy rounds with no stored config).
+            const basisOf = (s: HoleScore): number | null =>
+                lowScoreRule === 'net' ? s.net : s.gross;
+            const contributed = scores
+                .map(basisOf)
+                .filter((v): v is number => v !== null);
+            const lowBasis = contributed.length > 0 ? Math.min(...contributed) : null;
 
             scores.forEach((s, i) => {
                 if (s.hasEvent) holesPlayed[i]++;
@@ -138,7 +244,7 @@ export const umbrellaIndividual: FormatStrategy = {
                     fwy = 0,
                     gir = 0,
                     bird = 0;
-                if (lowGross !== null && s.contributed && s.gross === lowGross) lg = 1;
+                if (lowBasis !== null && s.contributed && basisOf(s) === lowBasis) lg = 1;
                 if (s.fairway) fwy = 1;
                 if (s.gir) gir = 1;
                 if (s.contributed) {
@@ -154,7 +260,7 @@ export const umbrellaIndividual: FormatStrategy = {
                 totals[i] += points;
 
                 const won: string[] = [];
-                if (lg) won.push('Low gross');
+                if (lg) won.push(lowLabel);
                 if (fwy) won.push('Fairway');
                 if (gir) won.push('GIR');
                 if (bird) won.push('Birdie');
@@ -181,7 +287,7 @@ export const umbrellaIndividual: FormatStrategy = {
             holes: holesPer[i],
             totals: [{ scoringType: 'points', value: totals[i] }],
             holesPlayed: holesPlayed[i],
-            categoryDefs: UMBRELLA_CATEGORIES,
+            categoryDefs: umbrellaCategories(lowLabel),
         }));
         return { ballResults };
     },

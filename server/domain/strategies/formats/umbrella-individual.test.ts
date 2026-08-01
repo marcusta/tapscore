@@ -241,3 +241,83 @@ describe('umbrellaIndividual (new contract)', () => {
         expect(h1.points).toBe(2);
     });
 });
+
+describe('umbrellaIndividual config knobs (owner defaults 2026-08-01)', () => {
+    // P1 ph2 / P2 ph5 / P3 ph8. delta_from_min → effective 0/3/6, so on hole 1
+    // (SI 1) strokes given are 0/1/1. Scores 4/5/5 → nets 4/4/4.
+    function play(formatConfig: unknown) {
+        const courseHoles = make18Holes();
+        const ctx = makeRoundContext(courseHoles, [
+            makeProducer('P1', { courseHandicap: 2 }),
+            makeProducer('P2', { courseHandicap: 5 }),
+            makeProducer('P3', { courseHandicap: 8 }),
+        ]);
+        const b1 = makeOwnBall('P1', 2, 2);
+        const b2 = makeOwnBall('P2', 5, 5);
+        const b3 = makeOwnBall('P3', 8, 8);
+        return umbrellaIndividual.score({
+            roundContext: ctx,
+            slotBalls: [b1, b2, b3],
+            events: [
+                makeScoreEvent(b1.ballId, 1, 4),
+                makeScoreEvent(b2.ballId, 1, 5),
+                makeScoreEvent(b3.ballId, 1, 5),
+            ],
+            formatConfig,
+        });
+    }
+
+    test('delta_from_min + net low: all three tie the low net, category says Low net', () => {
+        const { ballResults } = play({ handicapMode: 'delta_from_min', lowScoreRule: 'net' });
+        for (const r of ballResults) {
+            const h1 = r.holes.find((h) => h.holeNumber === 1)!;
+            expect(h1.categories).toEqual(['Low net']);
+            expect(h1.points).toBe(1);
+            expect(r.categoryDefs![0]).toBe('Low net');
+        }
+        // Effective nets: P1 4−0, P2 5−1, P3 5−1 — the tie is the proof the
+        // delta handicaps were used (standard would give P1 net 3, sole low).
+    });
+
+    test('gross low under the same handicaps: P1 alone takes the category', () => {
+        const { ballResults } = play({ handicapMode: 'delta_from_min', lowScoreRule: 'gross' });
+        const h1 = (i: number) => ballResults[i].holes.find((h) => h.holeNumber === 1)!;
+        expect(h1(0).categories).toEqual(['Low gross']);
+        expect(h1(1).categories).toEqual([]);
+        expect(h1(2).categories).toEqual([]);
+        expect(ballResults[0].categoryDefs![0]).toBe('Low gross');
+    });
+
+    test('standard handicaps + net low: full strokes give P1 the sole low net', () => {
+        const { ballResults } = play({ handicapMode: 'standard', lowScoreRule: 'net' });
+        const h1 = (i: number) => ballResults[i].holes.find((h) => h.holeNumber === 1)!;
+        // Given on SI 1: 1/1/1 (ph 2/5/8) → nets 3/4/4.
+        expect(h1(0).categories).toEqual(['Low net']);
+        expect(h1(1).categories).toEqual([]);
+    });
+
+    test('absent config is the legacy freeze: standard handicaps, gross low', () => {
+        const { ballResults } = play(undefined);
+        const h1 = (i: number) => ballResults[i].holes.find((h) => h.holeNumber === 1)!;
+        expect(h1(0).categories).toEqual(['Low gross']);
+        expect(ballResults[0].categoryDefs![0]).toBe('Low gross');
+    });
+
+    test('presentEffectivePhs follows the configured mode', () => {
+        const slotBalls = [
+            { ballId: 'b1', playingHandicapSnapshot: 2 },
+            { ballId: 'b2', playingHandicapSnapshot: 5 },
+            { ballId: 'b3', playingHandicapSnapshot: 8 },
+        ];
+        const delta = umbrellaIndividual.presentEffectivePhs!({
+            slotBalls,
+            formatConfig: { handicapMode: 'delta_from_min' },
+        });
+        expect(delta.map((d) => d.effectivePh)).toEqual([0, 3, 6]);
+        expect(delta[2]!.step).toEqual({ kind: 'match_delta', lowestPh: 2, ownPh: 8, result: 6 });
+
+        const standard = umbrellaIndividual.presentEffectivePhs!({ slotBalls });
+        expect(standard.map((d) => d.effectivePh)).toEqual([2, 5, 8]);
+        expect(standard.every((d) => d.step === undefined)).toBe(true);
+    });
+});

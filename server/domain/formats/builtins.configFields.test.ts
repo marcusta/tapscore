@@ -18,7 +18,12 @@ beforeEach(() => {
 });
 
 /** Formats that declare knobs today — asserted so a dropped declaration fails. */
-const FORMATS_WITH_CONFIG_FIELDS = ['kopenhamnare_individual', 'taliban_better_ball'];
+const FORMATS_WITH_CONFIG_FIELDS = [
+    'kopenhamnare_individual',
+    'taliban_better_ball',
+    'umbrella_4_ball',
+    'umbrella_individual',
+];
 
 function descriptorOf(id: string): FormatDescriptor {
     const d = formatCatalog().find((x) => x.id === id);
@@ -138,11 +143,22 @@ describe('defaults.formatConfig is derived from configFields', () => {
         }
     });
 
-    it('seeds the declared field defaults (köpenhamnare deliberately differs from its legacy absent-config fallback)', () => {
+    it('seeds the declared field defaults (köpenhamnare and umbrella deliberately differ from their legacy absent-config fallbacks)', () => {
         expect(descriptorOf('taliban_better_ball').defaults.formatConfig).toEqual({ bonusRule: 'gross' });
         expect(descriptorOf('kopenhamnare_individual').defaults.formatConfig).toEqual({
             handicapMode: 'delta_from_min',
         });
+        // Owner decision (2026-08-01): umbrella is match-like — new rounds
+        // seed match-style handicaps and NET low-score comparisons; the
+        // birdie point stays gross. Absent-config reads remain
+        // standard/gross/gross so old rounds never rescore.
+        const umbrellaDefaults = {
+            handicapMode: 'delta_from_min',
+            lowScoreRule: 'net',
+            birdieRule: 'gross',
+        };
+        expect(descriptorOf('umbrella_individual').defaults.formatConfig).toEqual(umbrellaDefaults);
+        expect(descriptorOf('umbrella_4_ball').defaults.formatConfig).toEqual(umbrellaDefaults);
     });
 
     it('the seeded config validates clean against its own strategy', () => {

@@ -425,10 +425,92 @@ enum WebDraftFixtures {
       },
       {
         "clientAdapterId": null,
+        "configFields": [
+          {
+            "default": "delta_from_min",
+            "key": "handicapMode",
+            "kind": "select",
+            "labels": {
+              "en": "Handicap strokes",
+              "sv": "Slagtilldelning"
+            },
+            "options": [
+              {
+                "labels": {
+                  "en": "Full handicap for everyone",
+                  "sv": "Full slagtilldelning för alla"
+                },
+                "value": "standard"
+              },
+              {
+                "labels": {
+                  "en": "Lowest handicap plays off scratch",
+                  "sv": "Lägsta handicappet spelar utan slag"
+                },
+                "value": "delta_from_min"
+              }
+            ]
+          },
+          {
+            "default": "net",
+            "key": "lowScoreRule",
+            "kind": "select",
+            "labels": {
+              "en": "Lowest scores count as",
+              "sv": "Lägsta scorerna räknas på"
+            },
+            "options": [
+              {
+                "labels": {
+                  "en": "Gross",
+                  "sv": "Brutto"
+                },
+                "value": "gross"
+              },
+              {
+                "labels": {
+                  "en": "Net",
+                  "sv": "Netto"
+                },
+                "value": "net"
+              }
+            ]
+          },
+          {
+            "default": "gross",
+            "key": "birdieRule",
+            "kind": "select",
+            "labels": {
+              "en": "Birdie point counts as",
+              "sv": "Birdiepoäng räknas på"
+            },
+            "options": [
+              {
+                "labels": {
+                  "en": "Gross",
+                  "sv": "Brutto"
+                },
+                "value": "gross"
+              },
+              {
+                "labels": {
+                  "en": "Net",
+                  "sv": "Netto"
+                },
+                "value": "net"
+              }
+            ]
+          }
+        ],
         "defaults": {
           "allowanceConfig": {
             "pct": 100,
             "type": "flat"
+          },
+          "formatConfig": {
+            "birdieRule": "gross",
+            "handicapMode": "delta_from_min",
+            "lowScoreRule": "net"
           }
         },
         "description": "Team umbrella with per-player GIR categories.",
@@ -496,10 +578,92 @@ enum WebDraftFixtures {
       },
       {
         "clientAdapterId": null,
+        "configFields": [
+          {
+            "default": "delta_from_min",
+            "key": "handicapMode",
+            "kind": "select",
+            "labels": {
+              "en": "Handicap strokes",
+              "sv": "Slagtilldelning"
+            },
+            "options": [
+              {
+                "labels": {
+                  "en": "Full handicap for everyone",
+                  "sv": "Full slagtilldelning för alla"
+                },
+                "value": "standard"
+              },
+              {
+                "labels": {
+                  "en": "Lowest handicap plays off scratch",
+                  "sv": "Lägsta handicappet spelar utan slag"
+                },
+                "value": "delta_from_min"
+              }
+            ]
+          },
+          {
+            "default": "net",
+            "key": "lowScoreRule",
+            "kind": "select",
+            "labels": {
+              "en": "Lowest score counts as",
+              "sv": "Lägsta score räknas på"
+            },
+            "options": [
+              {
+                "labels": {
+                  "en": "Gross",
+                  "sv": "Brutto"
+                },
+                "value": "gross"
+              },
+              {
+                "labels": {
+                  "en": "Net",
+                  "sv": "Netto"
+                },
+                "value": "net"
+              }
+            ]
+          },
+          {
+            "default": "gross",
+            "key": "birdieRule",
+            "kind": "select",
+            "labels": {
+              "en": "Birdie point counts as",
+              "sv": "Birdiepoäng räknas på"
+            },
+            "options": [
+              {
+                "labels": {
+                  "en": "Gross",
+                  "sv": "Brutto"
+                },
+                "value": "gross"
+              },
+              {
+                "labels": {
+                  "en": "Net",
+                  "sv": "Netto"
+                },
+                "value": "net"
+              }
+            ]
+          }
+        ],
         "defaults": {
           "allowanceConfig": {
             "pct": 100,
             "type": "flat"
+          },
+          "formatConfig": {
+            "birdieRule": "gross",
+            "handicapMode": "delta_from_min",
+            "lowScoreRule": "net"
           }
         },
         "description": "Per-hole category points (long-game, fairway, GIR, birdie).",
@@ -922,6 +1086,11 @@ enum WebDraftFixtures {
             "pct": 100,
             "type": "flat"
           },
+          "formatConfig": {
+            "birdieRule": "gross",
+            "handicapMode": "delta_from_min",
+            "lowScoreRule": "net"
+          },
           "formatId": "umbrella_individual",
           "subjects": [
             {
@@ -1136,6 +1305,11 @@ enum WebDraftFixtures {
           "allowanceConfig": {
             "pct": 100,
             "type": "flat"
+          },
+          "formatConfig": {
+            "birdieRule": "gross",
+            "handicapMode": "delta_from_min",
+            "lowScoreRule": "net"
           },
           "formatId": "umbrella_4_ball",
           "subjects": [

@@ -130,7 +130,7 @@ describe('format architecture invariants', () => {
         const BALL_STRATEGY_IDS = [
             'modified_alt_shot_pair',
         ];
-        const FORMAT_CONFIG_FIELDS = ['handicapMode', 'birdieRule'];
+        const FORMAT_CONFIG_FIELDS = ['handicapMode', 'birdieRule', 'lowScoreRule'];
         const banned = [...BUILTIN_FORMAT_IDS, ...BALL_STRATEGY_IDS, ...FORMAT_CONFIG_FIELDS];
         const offenders: string[] = [];
         for (const f of files) {

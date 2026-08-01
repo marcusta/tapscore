@@ -249,3 +249,88 @@ describe('umbrella4Ball (new contract)', () => {
         expect(teamB.totals[0].value).toBe(0);
     });
 });
+
+describe('umbrella4Ball config knobs (owner defaults 2026-08-01)', () => {
+    // A: a1 ph2, a2 ph6 · B: b1 ph4, b2 ph8. delta_from_min → 0/4/2/6, so on
+    // hole 1 (SI 1) strokes given are 0/1/1/1. Scores 4/6/4/6.
+    function play(formatConfig: unknown) {
+        const courseHoles = make18Holes();
+        const ctx = makeRoundContext(courseHoles, [
+            makeProducer('P1', { courseHandicap: 2 }),
+            makeProducer('P2', { courseHandicap: 6 }),
+            makeProducer('P3', { courseHandicap: 4 }),
+            makeProducer('P4', { courseHandicap: 8 }),
+        ]);
+        const a1 = makeOwnBall('P1', 2, 2);
+        const a2 = makeOwnBall('P2', 6, 6);
+        const b1 = makeOwnBall('P3', 4, 4);
+        const b2 = makeOwnBall('P4', 8, 8);
+        const groupings = [
+            { teamLabel: 'A', ballIds: [a1.ballId, a2.ballId] },
+            { teamLabel: 'B', ballIds: [b1.ballId, b2.ballId] },
+        ];
+        const result = umbrella4Ball.score({
+            roundContext: ctx,
+            slotBalls: [a1, a2, b1, b2],
+            slotTeamGroupings: groupings,
+            events: [
+                makeScoreEvent(a1.ballId, 1, 4),
+                makeScoreEvent(a2.ballId, 1, 6),
+                makeScoreEvent(b1.ballId, 1, 4),
+                makeScoreEvent(b2.ballId, 1, 6),
+            ],
+            formatConfig,
+        });
+        const teamOf = (label: string) =>
+            result.ballResults.find((r) => r.ballId === `team:${label}`)!;
+        return { teamA: teamOf('A'), teamB: teamOf('B') };
+    }
+
+    test('delta_from_min + net low: side B takes both low categories', () => {
+        // Effective nets: a1 4, a2 5, b1 3, b2 5 → low ball b1 (net), and low
+        // team total B 8 vs A 9.
+        const { teamA, teamB } = play({ handicapMode: 'delta_from_min', lowScoreRule: 'net' });
+        expect(teamB.holes[0]!.categories).toEqual(['Low net', 'Low total']);
+        expect(teamB.holes[0]!.points).toBe(2);
+        expect(teamA.holes[0]!.categories).toEqual([]);
+        expect(teamB.categoryDefs![0]).toBe('Low net');
+        // The card still DISPLAYS the gross team total.
+        expect(teamB.holes[0]!.gross).toBe(10);
+    });
+
+    test('absent config is the legacy freeze: gross comparisons tie both sides', () => {
+        // Gross: low ball 4 ties a1/b1; team totals 10 = 10 tie.
+        const { teamA, teamB } = play(undefined);
+        expect(teamA.holes[0]!.categories).toEqual(['Low gross', 'Low total']);
+        expect(teamB.holes[0]!.categories).toEqual(['Low gross', 'Low total']);
+        expect(teamA.categoryDefs![0]).toBe('Low gross');
+    });
+
+    test('presentEffectivePhs normalises across both sides when configured', () => {
+        const input = {
+            slotBalls: [
+                { ballId: 'a1', playingHandicapSnapshot: 2 },
+                { ballId: 'a2', playingHandicapSnapshot: 6 },
+                { ballId: 'b1', playingHandicapSnapshot: 4 },
+                { ballId: 'b2', playingHandicapSnapshot: 8 },
+            ],
+            slotTeamGroupings: [
+                { teamLabel: 'A', ballIds: ['a1', 'a2'] },
+                { teamLabel: 'B', ballIds: ['b1', 'b2'] },
+            ],
+        };
+        const delta = umbrella4Ball.presentEffectivePhs!({
+            ...input,
+            formatConfig: { handicapMode: 'delta_from_min' },
+        });
+        expect(delta.map((d) => [d.ballId, d.effectivePh])).toEqual([
+            ['a1', 0],
+            ['a2', 4],
+            ['b1', 2],
+            ['b2', 6],
+        ]);
+        const standard = umbrella4Ball.presentEffectivePhs!(input);
+        expect(standard.map((d) => d.effectivePh)).toEqual([2, 6, 4, 8]);
+        expect(standard.every((d) => d.step === undefined)).toBe(true);
+    });
+});

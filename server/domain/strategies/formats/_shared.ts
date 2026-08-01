@@ -180,6 +180,79 @@ export function validateBirdieRule(config: unknown, formatId: string): ConfigDia
     return [];
 }
 
+// --- Umbrella's shared config knobs (individual + 4-ball, one source of truth
+// for the valid values — same co-location argument as validateBirdieRule).
+//
+// BOTH readers treat an ABSENT key as the LEGACY behaviour ('standard' /
+// 'gross'), not the product default. Rounds compiled before these knobs were
+// surfaced stored no formatConfig, and their historical results must not
+// rescore under a new interpretation. The product defaults for NEW rounds are
+// the `configFields` defaults ('delta_from_min' / 'net'), which every create
+// path persists EXPLICITLY into the slot's config — so the two defaults never
+// meet on the same round. (Köpenhamnare's handicapMode works identically.)
+
+export type UmbrellaHandicapMode = 'standard' | 'delta_from_min';
+
+export function readUmbrellaHandicapMode(cfg: unknown, formatId: string): UmbrellaHandicapMode {
+    if (cfg && typeof cfg === 'object' && 'handicapMode' in cfg) {
+        const raw = (cfg as { handicapMode: unknown }).handicapMode;
+        if (raw === 'standard' || raw === 'delta_from_min') return raw;
+        if (raw === undefined) return 'standard';
+        throw new Error(
+            `${formatId}: unknown handicapMode ${JSON.stringify(raw)} — expected 'standard' or 'delta_from_min'`,
+        );
+    }
+    return 'standard';
+}
+
+export function validateUmbrellaHandicapMode(config: unknown, formatId: string): ConfigDiagnostic[] {
+    if (config && typeof config === 'object' && 'handicapMode' in config) {
+        const raw = (config as { handicapMode: unknown }).handicapMode;
+        if (raw !== undefined && raw !== 'standard' && raw !== 'delta_from_min') {
+            return [
+                {
+                    code: 'umbrella_handicap_mode_invalid',
+                    message: `${formatId}: unknown handicapMode ${JSON.stringify(raw)} — expected 'standard' or 'delta_from_min'`,
+                    path: 'handicapMode',
+                },
+            ];
+        }
+    }
+    return [];
+}
+
+/** Which score the low-score categories compare (individual's low ball; the
+ *  4-ball's low ball AND low team total). Distinct from `birdieRule`. */
+export type UmbrellaLowScoreRule = 'gross' | 'net';
+
+export function readUmbrellaLowScoreRule(cfg: unknown, formatId: string): UmbrellaLowScoreRule {
+    if (cfg && typeof cfg === 'object' && 'lowScoreRule' in cfg) {
+        const raw = (cfg as { lowScoreRule: unknown }).lowScoreRule;
+        if (raw === 'gross' || raw === 'net') return raw;
+        if (raw === undefined) return 'gross';
+        throw new Error(
+            `${formatId}: unknown lowScoreRule ${JSON.stringify(raw)} — expected 'gross' or 'net'`,
+        );
+    }
+    return 'gross';
+}
+
+export function validateUmbrellaLowScoreRule(config: unknown, formatId: string): ConfigDiagnostic[] {
+    if (config && typeof config === 'object' && 'lowScoreRule' in config) {
+        const raw = (config as { lowScoreRule: unknown }).lowScoreRule;
+        if (raw !== undefined && raw !== 'gross' && raw !== 'net') {
+            return [
+                {
+                    code: 'umbrella_low_score_rule_invalid',
+                    message: `${formatId}: unknown lowScoreRule ${JSON.stringify(raw)} — expected 'gross' or 'net'`,
+                    path: 'lowScoreRule',
+                },
+            ];
+        }
+    }
+    return [];
+}
+
 /** Ordered course holes (defensive copy, sorted by holeNumber). */
 export function orderedHoles(courseHoles: RoundCourseHoleSnapshot[]): RoundCourseHoleSnapshot[] {
     return [...courseHoles].sort((a, b) => a.holeNumber - b.holeNumber);
