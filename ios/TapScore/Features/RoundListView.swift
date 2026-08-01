@@ -389,14 +389,19 @@ struct RoundListView: View {
     /// The retrospective half of the friends feed — separate from "Out now"
     /// because the live strip answers who is playing while this section answers
     /// what friends played recently. It disappears completely when the feed is
-    /// empty or unavailable, just like the web landing.
+    /// empty or unavailable, just like the web landing, and groups its rows in
+    /// the same panel treatment as the own-round sections.
     @ViewBuilder
     private var recentFriendsSection: some View {
         if let activity, !activity.recentRows.isEmpty {
-            VStack(alignment: .leading, spacing: TapSpacing.sm) {
-                SectionHeader(title: "From your friends")
-                VStack(spacing: TapSpacing.sm) {
+            TapCard {
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionHeader(title: "From your friends")
+                        .padding(.horizontal, TapSpacing.lg)
+                        .padding(.top, TapSpacing.md)
+                        .padding(.bottom, TapSpacing.sm)
                     ForEach(activity.recentRows) { row in
+                        hairline
                         RecentFriendRowView(
                             row: row,
                             formats: activity.formatText(for: row.formatIds),
@@ -404,6 +409,7 @@ struct RoundListView: View {
                         )
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -909,41 +915,39 @@ private struct RecentFriendRowView: View {
     let onOpen: () -> Void
 
     var body: some View {
-        TapCard {
-            Button(action: onOpen) {
-                HStack(alignment: .top, spacing: TapSpacing.md) {
-                    VStack(alignment: .leading, spacing: TapSpacing.xs) {
-                        Text(row.friendLabel)
-                            .font(TapFont.ui(size: 15.2, weight: .bold))
-                            .foregroundStyle(TapColors.text)
-                            .lineLimit(1)
+        Button(action: onOpen) {
+            HStack(alignment: .top, spacing: TapSpacing.md) {
+                VStack(alignment: .leading, spacing: TapSpacing.xs) {
+                    Text(row.friendLabel)
+                        .font(TapFont.ui(size: 15.2, weight: .bold))
+                        .foregroundStyle(TapColors.text)
+                        .lineLimit(1)
 
-                        HStack(alignment: .firstTextBaseline, spacing: TapSpacing.xs) {
-                            Text(row.title)
-                            if let formats {
-                                Text("· \(formats)")
-                            }
+                    HStack(alignment: .firstTextBaseline, spacing: TapSpacing.xs) {
+                        Text(row.title)
+                        if let formats {
+                            Text("· \(formats)")
                         }
+                    }
+                    .font(TapFont.ui(size: 12.8))
+                    .foregroundStyle(TapColors.textMuted)
+                    .lineLimit(1)
+                }
+                Spacer(minLength: TapSpacing.sm)
+                if let date = row.displayDate {
+                    Text(date)
                         .font(TapFont.ui(size: 12.8))
                         .foregroundStyle(TapColors.textMuted)
                         .lineLimit(1)
-                    }
-                    Spacer(minLength: TapSpacing.sm)
-                    if let date = row.displayDate {
-                        Text(date)
-                            .font(TapFont.ui(size: 12.8))
-                            .foregroundStyle(TapColors.textMuted)
-                            .lineLimit(1)
-                    }
                 }
-                .padding(.vertical, TapSpacing.md)
-                .padding(.horizontal, TapSpacing.lg)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(row.accessibilityLabel(formats: formats))
+            .padding(.vertical, TapSpacing.md)
+            .padding(.horizontal, TapSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(row.accessibilityLabel(formats: formats))
     }
 }
 

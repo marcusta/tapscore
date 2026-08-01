@@ -118,10 +118,10 @@ const tpl = template(`
              "Recently finished" section for YOUR rounds, and two headings one
              word apart with nothing saying whose is a coin-flip. -->
         <div bind="recentlySection" class="landing__section-block landing__recently">
-            <div class="landing__section">
+            <div class="landing__section landing__recently-head">
                 <span class="landing__section-title">From your friends</span>
             </div>
-            <div bind="recentlyList" class="landing__list"></div>
+            <div bind="recentlyList" class="landing__recently-list"></div>
         </div>
 
         <!-- The statistics card, last: it is the screen's slowest read and the
@@ -404,14 +404,33 @@ export class LandingComponent extends Component {
                 }
             }
 
-            /* "Recently" — the feed's retrospective half, kept quiet: muted
-               rows at the bottom, below the viewer's own rounds. */
+            /* "From your friends" is one grouped activity panel. The heading
+               and rows share the same outer card treatment as the two own-round
+               panels above it. */
+            & .landing__recently {
+                ${card()}
+                overflow: hidden;
+
+                & .landing__recently-head {
+                    margin-bottom: 0;
+                    padding: ${s('md')} ${s('lg')} ${s('sm')};
+                }
+                & .landing__recently-list {
+                    display: flex;
+                    flex-direction: column;
+                }
+            }
+
             & .recent-row {
-                ${card({ hover: true })}
                 display: flex; align-items: center; gap: ${s('md')};
                 width: 100%;
                 padding: ${s('sm')} ${s('lg')};
+                background: none;
+                border: none;
+                border-top: 1px solid ${t('border')};
                 font-family: inherit; text-align: left; cursor: pointer;
+
+                &:hover { background: ${t('hover-bg')}; }
 
                 & .recent-row__text {
                     flex: 1; min-width: 0;
