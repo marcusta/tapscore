@@ -54,6 +54,19 @@ test('roles are fetched once per session, however many surfaces ask', async () =
     expect(svc.isSuperAdmin()).toBe(true);
 });
 
+test('a second caller during the in-flight fetch awaits the same result', async () => {
+    // Cold /admin load: the shell calls loadRoles() first, the admin page
+    // calls it again before the fetch resolves. The page's `.then` must see
+    // the populated roles, not the initial [].
+    state.roles = [grant()];
+    const svc = new AdminService();
+    const first = svc.loadRoles();
+    const second = svc.loadRoles().then(() => svc.isSuperAdmin());
+    await first;
+    expect(await second).toBe(true);
+    expect(state.calls).toBe(1);
+});
+
 test('only an UNSCOPED super_admin grant counts', async () => {
     state.roles = [grant({ scopeType: 'competition', scopeId: 'c1' })];
     const svc = new AdminService();

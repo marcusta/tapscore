@@ -27,7 +27,7 @@ export class AdminService {
     // --- Caller-scoped ---
 
     readonly roles = new Signal<RoleGrant[]>([]);
-    private rolesLoaded = false;
+    private rolesPromise: Promise<void> | null = null;
 
     // --- Admin-only ---
 
@@ -48,21 +48,27 @@ export class AdminService {
      * Load the caller's own grants. Load-once (unless forced) and quiet: an
      * anonymous caller gets a 401 here, which is not an error worth surfacing
      * — it just means "no roles".
+     *
+     * Concurrent callers share the in-flight promise, so every caller's
+     * `.then` runs after roles are actually populated — a cold /admin load
+     * has the shell and the page both calling this before the fetch resolves.
      */
-    async loadRoles(force = false): Promise<void> {
-        if (!force && this.rolesLoaded) return;
-        this.rolesLoaded = true;
-        try {
-            this.roles.set(await api.admin.myRoles());
-        } catch {
-            this.roles.set([]);
-        }
+    loadRoles(force = false): Promise<void> {
+        if (!force && this.rolesPromise) return this.rolesPromise;
+        this.rolesPromise = (async () => {
+            try {
+                this.roles.set(await api.admin.myRoles());
+            } catch {
+                this.roles.set([]);
+            }
+        })();
+        return this.rolesPromise;
     }
 
     /** Forget everything (sign-out). */
     clear(): void {
         this.roles.set([]);
-        this.rolesLoaded = false;
+        this.rolesPromise = null;
         this.stats.set(null);
         this.rounds.set([]);
         this.players.set([]);
