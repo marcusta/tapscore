@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import TapScore
 
 /// Shared balls in the create flow: scramble, foursomes and greensomes built in
@@ -137,7 +138,7 @@ final class CreateBallTeamsTests: XCTestCase {
     func testAManualAllowanceIsStickyAgainstEveryLaterChange() async throws {
         let store = await filled([("Anna", "5"), ("Bert", "12"), ("Cleo", "20")])
         let team = try pair(store, "scramble", [0, 1])
-        store.setBallTeamAllowance(90, rowId: store.players[0].id, teamId: team)
+        store.setBallTeamAllowanceText("90", rowId: store.players[0].id, teamId: team)
         XCTAssertEqual(pcts(store, 0), [90, 15])
 
         store.updatePlayer(id: store.players[1].id) { $0.handicapText = "1" }
@@ -176,6 +177,82 @@ final class CreateBallTeamsTests: XCTestCase {
         XCTAssertEqual(store.ballTeams[0].memberRowIds.count, 8)
     }
 
+    // MARK: - What the Players-step section drives (Phase C)
+
+    /// Retapping a member chip takes that player off the ball, and they are
+    /// immediately available to the next one — the section offers exactly
+    /// `unpairedPlayers`, so a seat that did not come back would be a player the
+    /// UI could never place again.
+    func testTakingAPlayerOffABallHandsThemBack() async throws {
+        let store = await filled([("Anna", "5"), ("Bert", "12"), ("Cleo", "20")])
+        let team = try pair(store, "scramble", [0, 1])
+        XCTAssertEqual(store.unpairedPlayers.map(\.name), ["Cleo"])
+
+        store.removeBallTeamMember(rowId: store.players[1].id, from: team)
+        XCTAssertEqual(store.unpairedPlayers.map(\.name), ["Bert", "Cleo"])
+        XCTAssertFalse(store.ballTeams[0].isLive, "one member is not a ball")
+        XCTAssertEqual(store.ballUnits.count, 3, "and the round is three own balls again")
+    }
+
+    /// The card's remove control. Both members come back, and nothing that
+    /// belonged to the team outlives it.
+    func testRemovingATeamReturnsItsMembersToTheirOwnBalls() async throws {
+        let store = await filled([("Anna", "5"), ("Bert", "12"), ("Cleo", "20")])
+        let team = try pair(store, "scramble", [0, 1])
+        XCTAssertTrue(store.hasBallTeams)
+
+        store.removeBallTeam(id: team)
+        XCTAssertTrue(store.ballTeams.isEmpty)
+        XCTAssertFalse(store.hasBallTeams)
+        XCTAssertEqual(store.unpairedPlayers.map(\.name), ["Anna", "Bert", "Cleo"])
+        XCTAssertEqual(store.ballUnits.count, 3)
+    }
+
+    /// The FIRST team opens on scramble — the shared ball people turn up
+    /// wanting to play. Falling through to the catalog's first descriptor would
+    /// open on Foursomes, which is only true of the alphabet.
+    func testTheFirstTeamOpensOnScramble() async throws {
+        let store = await filled([("Anna", "5"), ("Bert", "12")])
+        let team = try XCTUnwrap(store.addBallTeam())
+        XCTAssertEqual(store.ballTeams.first { $0.id == team }?.formationId, "scramble")
+    }
+
+    /// "Add team" passes no formation, and the new team opens on the one last
+    /// chosen — which is what makes "everyone plays scramble" one tap per pair
+    /// rather than a formation question per team.
+    func testAddTeamOpensOnTheFormationLastChosen() async throws {
+        let store = await filled([
+            ("Anna", "5"), ("Bert", "12"), ("Cleo", "20"), ("Dan", "30"),
+        ])
+        try pair(store, "greensomes", [0, 1])
+        let second = try XCTUnwrap(store.addBallTeam())
+        XCTAssertEqual(store.ballTeams.last?.id, second)
+        XCTAssertEqual(store.ballTeams.last?.formationId, "greensomes")
+
+        // …and a formation CHANGE is a choice too, so it moves the default.
+        XCTAssertTrue(store.setBallTeamFormation("scramble", teamId: second))
+        XCTAssertEqual(store.addBallTeam().flatMap { id in
+            store.ballTeams.first { $0.id == id }?.formationId
+        }, "scramble")
+    }
+
+    /// The formation chips refuse rather than rearrange: three players cannot
+    /// become a foursome, and dropping one of them to make it fit is not a
+    /// decision a chip tap gets to take. The refusal is the return value the
+    /// card turns into a sentence.
+    func testAFormationChipIsRefusedWhenTheMembershipCannotFitIt() async throws {
+        let store = await filled([("Anna", "5"), ("Bert", "12"), ("Cleo", "20")])
+        let team = try pair(store, "scramble", [0, 1, 2])
+        XCTAssertFalse(store.setBallTeamFormation("foursomes", teamId: team))
+        XCTAssertEqual(store.ballTeams[0].formationId, "scramble")
+        XCTAssertEqual(store.ballTeams[0].memberRowIds.count, 3, "nobody was dropped")
+
+        // An EMPTY team takes any formation — that is the ordinary first tap on
+        // a card the section just created.
+        let fresh = try XCTUnwrap(store.addBallTeam())
+        XCTAssertTrue(store.setBallTeamFormation("foursomes", teamId: fresh))
+    }
+
     // MARK: - Eligibility over the ball roster
 
     /// A SIDE format is built from the players still on their own ball (v1: a
@@ -194,7 +271,26 @@ final class CreateBallTeamsTests: XCTestCase {
         try pair(store, "scramble", [2, 3])
         XCTAssertEqual(
             store.eligibilityIssue(for: "taliban_better_ball"),
-            "needs at least 4 players")
+            "needs at least 4 players on their own balls — 4 are sharing balls")
+    }
+
+    /// The refusal has to say WHICH roster is short. Six names are on the
+    /// screen and Taliban wants four of them, so "needs at least 4 players" is
+    /// read as arithmetic that does not add up; naming the players it cannot
+    /// reach turns the same refusal into something to act on.
+    func testASideFormatRefusalCountsIndividualsOnceBallsAreShared() async throws {
+        let names = ["Anna", "Bert", "Cleo", "Dan"]
+        let store = await filled(names.map { ($0, "12") })
+        XCTAssertNil(store.eligibilityIssue(for: "taliban_better_ball"), "four own balls")
+
+        try pair(store, "scramble", [0, 1])
+        XCTAssertEqual(
+            store.eligibilityIssue(for: "taliban_better_ball"),
+            "needs at least 4 players on their own balls — 2 are sharing balls")
+
+        // A BALL format loses nobody to a shared ball, so it never gets the
+        // variant — its refusal already counts the thing it is judged on.
+        XCTAssertNil(store.eligibilityIssue(for: "match_play_individual"))
     }
 
     /// The other half of the same rule: a BALL format is judged on BALLS. Four
@@ -328,6 +424,150 @@ final class CreateBallTeamsTests: XCTestCase {
         XCTAssertEqual(pcts(store, 0), [30, 20, 10])
     }
 
+    // MARK: - The allowance field (text in, number out)
+
+    /// A cleared box stays cleared, and scores as the seeded number while it is
+    /// empty. Deriving the text back from the model instead snapped the field to
+    /// its old value on the next read, so the number could never be retyped —
+    /// and writing the blank through would have played Anna off 0%, which is a
+    /// legal allowance nothing downstream would have flagged.
+    func testBlankingAnAllowanceLeavesItBlankAndStillScoresTheSeededNumber() async throws {
+        let store = await filled([("Anna", "5"), ("Bert", "12")])
+        let team = try pair(store, "scramble", [0, 1])
+        let field = CreateRoundView.allowanceText(
+            store, teamId: team, rowId: store.players[0].id)
+        XCTAssertEqual(field.wrappedValue, "35", "the seeded number shows without being typed")
+
+        field.wrappedValue = ""
+        XCTAssertEqual(field.wrappedValue, "", "a cleared box must stay cleared")
+        XCTAssertEqual(pcts(store, 0), [35, 15], "a blank is not 0% — it is the seeded number")
+
+        field.wrappedValue = "6"
+        field.wrappedValue = "60"
+        XCTAssertEqual(field.wrappedValue, "60")
+        XCTAssertEqual(pcts(store, 0), [60, 15], "the retyped number is the one that scores")
+
+        // A comma is a decimal point to most of this app's users, and
+        // `HandicapInput.parse` is the one place that is decided.
+        field.wrappedValue = "5,5"
+        XCTAssertEqual(pcts(store, 0), [5.5, 15])
+
+        // Clamped where it is consumed, not under the caret: "1000" is a
+        // half-typed number until the user stops typing.
+        field.wrappedValue = "1000"
+        XCTAssertEqual(field.wrappedValue, "1000")
+        XCTAssertEqual(pcts(store, 0), [100, 15])
+    }
+
+    /// A stored 62.5 is somebody's scorecard. It has to survive an edit that
+    /// was not about it — the field renders it, and rendering must not be a
+    /// round trip through a digits-only parser that lands 62.
+    func testAStoredFractionalAllowanceSurvivesAnUnrelatedEdit() async throws {
+        let draft = EditDraftFixtures.scramblePairs.replacingOccurrences(
+            of: "{\"producerDefId\": \"p1\", \"allowancePct\": 35}",
+            with: "{\"producerDefId\": \"p1\", \"allowancePct\": 62.5}")
+        XCTAssertNotEqual(draft, EditDraftFixtures.scramblePairs, "fixture shape changed")
+        routeEditSetup(draft: draft)
+        let store = CreateStore(api: RoundStubURLProtocol.makeAPI())
+        await store.loadForEdit(token: "tok")
+        XCTAssertTrue(store.editHydrated)
+
+        let team = try XCTUnwrap(store.ballTeams.first)
+        let rowId = try XCTUnwrap(team.memberRowIds.first)
+        let field = CreateRoundView.allowanceText(store, teamId: team.id, rowId: rowId)
+        XCTAssertEqual(field.wrappedValue, "62.5")
+
+        // The unrelated edit: another player's handicap (which re-seeds every
+        // untouched team), and a second member's percentage typed on this card.
+        store.updatePlayer(id: store.players[3].id) { $0.handicapText = "9" }
+        let sibling = try XCTUnwrap(team.memberRowIds.last)
+        CreateRoundView.allowanceText(store, teamId: team.id, rowId: sibling)
+            .wrappedValue = "20"
+
+        XCTAssertEqual(field.wrappedValue, "62.5", "the untouched number was rewritten")
+        XCTAssertEqual(store.ballTeams[0].allowance(rowId), 62.5)
+
+        routeEditSetupAccepts()
+        let saved = await store.saveEdits()
+        XCTAssertTrue(saved, "\(store.diagnostics) \(store.submitError ?? "")")
+        let posted = try postedEditDraft()
+        XCTAssertEqual(
+            try XCTUnwrap(posted.teams?.first).members.compactMap { member -> Double? in
+                guard case .producerDefId(let m) = member else { return nil }
+                return m.allowancePct
+            },
+            [62.5, 20])
+    }
+
+    // MARK: - What the card says (`CreateRoundView`)
+
+    /// The card letters a team by its position among the teams the DRAFT will
+    /// carry, not by its position in the list on screen: an empty card is
+    /// dropped before the draft, so counting it would print "Team B" over the
+    /// ball the scorecard calls Team A.
+    func testACardLettersATeamTheWayTheDraftWill() async throws {
+        let store = await filled([("Anna", "5"), ("Bert", "12")])
+        let empty = try XCTUnwrap(store.addBallTeam(formationId: "scramble"))
+        let real = try pair(store, "scramble", [0, 1])
+
+        let labels = CreateRoundView.ballTeamLabels(store)
+        XCTAssertEqual(labels[empty], "New team", "an empty card claims no letter")
+        XCTAssertEqual(labels[real], "Team A")
+
+        let draft = try await submitted(store)
+        XCTAssertEqual(draft.teams?.map(\.label), ["Team A"])
+        XCTAssertEqual(labels[real], draft.teams?.first?.label, "the card and the draft disagree")
+    }
+
+    /// The sentence the whole section exists to produce, and the words around
+    /// it. Pinned because this copy is the feature: it is what tells a group of
+    /// four that they are now two balls, and what each of them brings to one.
+    func testTheCardSaysWhatSharingABallDoes() async throws {
+        let store = await filled([("Anna", "5"), ("Bert", "12")])
+        XCTAssertEqual(CreateRoundView.ballTeamsPitchTitle, "Playing scramble or foursomes?")
+        XCTAssertEqual(
+            CreateRoundView.ballTeamsPitchBody,
+            "Group players who share one ball. Skip this if everyone plays their own ball.")
+        XCTAssertEqual(
+            CreateRoundView.ballTeamsFootnote, "Anyone not on a team plays their own ball.")
+
+        let team = try XCTUnwrap(store.addBallTeam(formationId: "scramble"))
+        XCTAssertNil(
+            CreateRoundView.ballTeamSummary(store, team: store.ballTeams[0]),
+            "a team that is not a ball has no consequence to state")
+        XCTAssertEqual(
+            CreateRoundView.ballTeamHint(memberCount: 0),
+            "Pick two players — a shared ball needs at least two.")
+        XCTAssertEqual(
+            CreateRoundView.ballTeamHint(memberCount: 1),
+            "Pick one more player — a shared ball needs at least two.")
+
+        XCTAssertTrue(store.addBallTeamMember(rowId: store.players[0].id, to: team))
+        XCTAssertTrue(store.addBallTeamMember(rowId: store.players[1].id, to: team))
+        XCTAssertEqual(
+            CreateRoundView.ballTeamSummary(store, team: store.ballTeams[0]),
+            "Anna + Bert · Scramble · plays one ball · HCP 4")
+    }
+
+    /// Both refusals, in the formation's own words. The size one says what it
+    /// wants AND what it has; the full one deliberately does not — "plays 2,
+    /// has 2" reads as a contradiction to whoever just tapped a third name.
+    func testARefusedTapSaysWhichRuleRefusedIt() async throws {
+        let store = await filled([("Anna", "5"), ("Bert", "12"), ("Cleo", "20")])
+        let foursomes = try XCTUnwrap(store.formations.byId("foursomes"))
+        let scramble = try XCTUnwrap(store.formations.byId("scramble"))
+
+        XCTAssertEqual(
+            CreateRoundView.ballTeamSizeRefusal(store, descriptor: foursomes, memberCount: 3),
+            "Foursomes plays 2 — this ball has 3.")
+        XCTAssertEqual(
+            CreateRoundView.ballTeamSizeRefusal(store, descriptor: scramble, memberCount: 1),
+            "Scramble plays 2–8 — this ball has 1.")
+        XCTAssertEqual(
+            CreateRoundView.ballTeamFullRefusal(store, descriptor: foursomes),
+            "Foursomes plays 2 players — this ball is full.")
+    }
+
     // MARK: - Helpers
 
     private func filled(_ roster: [(String, String)]) async -> CreateStore {
@@ -361,7 +601,7 @@ final class CreateBallTeamsTests: XCTestCase {
     /// is itself part of what is being asserted.
     private func pcts(_ store: CreateStore, _ index: Int) -> [Double] {
         let team = store.ballTeams[index]
-        return team.memberRowIds.map { team.pctByRow[$0] ?? -1 }
+        return team.memberRowIds.map { team.allowance($0) ?? -1 }
     }
 
     private func order(_ store: CreateStore, _ index: Int) -> [String] {
@@ -472,7 +712,7 @@ final class EditBallTeamsRoundTripTests: XCTestCase {
             store.ballTeams.allSatisfy(\.customized),
             "a stored percentage is an override by the only definition that matters")
         XCTAssertEqual(
-            store.ballTeams[1].memberRowIds.map { store.ballTeams[1].pctByRow[$0] },
+            store.ballTeams[1].memberRowIds.map { store.ballTeams[1].allowance($0) },
             [35, 15],
             "the seeder would have put Dan's 5 first — the stored order stands")
         XCTAssertTrue(store.unpairedPlayers.isEmpty)

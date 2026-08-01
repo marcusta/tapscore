@@ -149,6 +149,13 @@ final class CreateStore {
         var customized: Bool
         /// Row id → allowance %. Seeded from the formation's recipe.
         var pctByRow: [UUID: Double]
+        /// Row id → what the user has TYPED into the allowance field, kept
+        /// exactly as typed. The field cannot be backed by `pctByRow` alone:
+        /// re-deriving the text from the number on every read snaps a blanked
+        /// box straight back to its old value (so it can never be retyped), and
+        /// truncates a hydrated 62.5 the moment anything else on the card
+        /// changes. Text in, number out — the same split `handicapText` uses.
+        var pctTextByRow: [UUID: String]
         /// The stored `teams[].id` this team round-trips as, and its stored
         /// label. Edit mode only; nil for a team paired up in this session.
         /// They exist so a save REPLACES the stored team in place rather than
@@ -162,6 +169,7 @@ final class CreateStore {
             formationId: String,
             customized: Bool = false,
             pctByRow: [UUID: Double] = [:],
+            pctTextByRow: [UUID: String] = [:],
             sourceTeamId: String? = nil,
             sourceLabel: String? = nil
         ) {
@@ -170,8 +178,23 @@ final class CreateStore {
             self.formationId = formationId
             self.customized = customized
             self.pctByRow = pctByRow
+            self.pctTextByRow = pctTextByRow
             self.sourceTeamId = sourceTeamId
             self.sourceLabel = sourceLabel
+        }
+
+        /// The allowance actually applied to a member: what they typed when it
+        /// parses to a number, the seeded percentage otherwise.
+        ///
+        /// Clamped HERE rather than while typing, so a half-typed "1000" is not
+        /// rewritten under the caret. A share of a handicap larger than the
+        /// handicap is not a thing to express on this card; the web flexible
+        /// editor is where exotic percentages live.
+        func allowance(_ rowId: UUID) -> Double? {
+            if let typed = pctTextByRow[rowId], let pct = HandicapInput.parse(typed) {
+                return Swift.min(Swift.max(pct, 0), 100)
+            }
+            return pctByRow[rowId]
         }
 
         /// A shared ball needs at least a pair — the same liveness rule the
@@ -723,11 +746,18 @@ final class CreateStore {
         return players.filter { !paired.contains($0.id) }
     }
 
+    /// The formation a brand-new first team opens on. Scramble, because it is
+    /// the shared ball people actually turn up wanting to play; the catalog's
+    /// own first entry is whatever sorts first by id (Foursomes), which is an
+    /// alphabet, not an intention.
+    private static let openingFormationId = "scramble"
+
     /// Start a shared ball. Nil when the catalog never loaded, or when the id
     /// is not one of its formations — `custom` included, deliberately.
     @discardableResult
     func addBallTeam(formationId: String? = nil) -> UUID? {
-        let id = formationId ?? lastFormationId ?? formations.descriptors.first?.id
+        let opening = formations.byId(Self.openingFormationId)?.id
+        let id = formationId ?? lastFormationId ?? opening ?? formations.descriptors.first?.id
         guard let id, formations.byId(id) != nil else { return nil }
         lastFormationId = id
         let team = BallTeam(formationId: id)
@@ -760,6 +790,7 @@ final class CreateStore {
         guard let at = ballTeams.firstIndex(where: { $0.id == teamId }) else { return }
         ballTeams[at].memberRowIds.removeAll { $0 == rowId }
         ballTeams[at].pctByRow.removeValue(forKey: rowId)
+        ballTeams[at].pctTextByRow.removeValue(forKey: rowId)
         reseedBallTeams()
     }
 
@@ -782,15 +813,20 @@ final class CreateStore {
         return true
     }
 
-    /// Override one member's allowance. Sticky by design: from here on the
-    /// team's numbers are the user's, and no membership or handicap change
-    /// re-seeds over them (proposal §Seeding semantics).
-    func setBallTeamAllowance(_ pct: Double, rowId: UUID, teamId: UUID) {
+    /// Override one member's allowance, as TYPED. Sticky by design: from here
+    /// on the team's numbers are the user's, and no membership or handicap
+    /// change re-seeds over them (proposal §Seeding semantics).
+    ///
+    /// Every keystroke lands, including the empty string — a box being cleared
+    /// on the way to a new number has to be able to look cleared. The seeded
+    /// number underneath is what a blank still counts as until a digit replaces
+    /// it, so no member is ever silently scored at 0%.
+    func setBallTeamAllowanceText(_ text: String, rowId: UUID, teamId: UUID) {
         guard let at = ballTeams.firstIndex(where: { $0.id == teamId }),
               ballTeams[at].memberRowIds.contains(rowId)
         else { return }
         ballTeams[at].customized = true
-        ballTeams[at].pctByRow[rowId] = pct
+        ballTeams[at].pctTextByRow[rowId] = text
     }
 
     /// Recompute every untouched team's member order and percentages.
@@ -808,6 +844,7 @@ final class CreateStore {
             team.memberRowIds.removeAll { byRow[$0] == nil }
             let members = Set(team.memberRowIds)
             team.pctByRow = team.pctByRow.filter { members.contains($0.key) }
+            team.pctTextByRow = team.pctTextByRow.filter { members.contains($0.key) }
 
             if !team.customized {
                 // Playing handicap ASCENDING, ties broken by roster position so
@@ -822,6 +859,7 @@ final class CreateStore {
                     return (position[lhs] ?? 0) < (position[rhs] ?? 0)
                 }
                 team.pctByRow = [:]
+                team.pctTextByRow = [:]
             }
 
             let recipe = formations.allowances(team.formationId, memberCount: team.memberRowIds.count)
@@ -883,7 +921,7 @@ final class CreateStore {
                 formation: team.formationId,
                 members: members,
                 pctByPlayer: Dictionary(
-                    uniqueKeysWithValues: members.map { ($0, team.pctByRow[rows[$0].id] ?? 100) })))
+                    uniqueKeysWithValues: members.map { ($0, team.allowance(rows[$0].id) ?? 100) })))
         }
         return out
     }
@@ -914,7 +952,7 @@ final class CreateStore {
                     tee: tee(for: row),
                     gender: row.gender)
             else { return nil }
-            total += Double(derivation.value) * (team.pctByRow[rowId] ?? 100) / 100
+            total += Double(derivation.value) * (team.allowance(rowId) ?? 100) / 100
         }
         return Int((total).rounded())
     }
@@ -1071,10 +1109,62 @@ final class CreateStore {
     /// never hidden — an unavailable game the user cannot see is an unavailable
     /// game they cannot understand.
     func eligibilityIssue(for id: String) -> String? {
+        boundsRefusal(id, voice: .card)
+    }
+
+    /// Which surface is doing the refusing. The two say the same fact in
+    /// different grammar: the card is a fragment under a title that already
+    /// names the game, the footer gate is a whole sentence that has to name it.
+    enum RefusalVoice { case card, gate }
+
+    /// The ONE place a bounds refusal becomes a sentence.
+    ///
+    /// Card and gate must count the same thing or they contradict each other on
+    /// screen — four players with a pair among them had the card saying "needs
+    /// at least 4 players on their own balls" while the footer said "needs 4
+    /// players", two sentences about two different rosters. What differs is
+    /// only the tail: the card EXPLAINS (who it cannot reach), the gate COUNTS
+    /// DOWN (how far off the round still is).
+    func boundsRefusal(_ id: String, voice: RefusalVoice) -> String? {
         let fit = self.fit(id)
-        if fit.available < fit.min { return "needs at least \(fit.min) \(fit.noun)" }
-        if let max = fit.max, fit.available > max { return "seats at most \(max) \(fit.noun)" }
+        // A side format counts INDIVIDUALS, so once players are sharing a ball
+        // the bare noun is read against the roster on screen and lands as a
+        // lie. Naming the two rosters apart is what makes the refusal
+        // actionable: unpair someone, or add a player.
+        let sharing = sharedBallPlayerCount(id) ?? 0
+        let noun = sharing > 0 ? "players on their own balls" : fit.noun
+        let aside = sharing > 0 ? " — \(sharing) are sharing balls" : ""
+        let game = catalog.label(id) ?? "This game"
+
+        if fit.available < fit.min {
+            switch voice {
+            case .card: return "needs at least \(fit.min) \(noun)\(aside)"
+            case .gate:
+                return "\(game) needs \(fit.min) \(noun) — "
+                    + "\(fit.min - fit.available) more to go."
+            }
+        }
+        if let max = fit.max, fit.available > max {
+            switch voice {
+            case .card: return "seats at most \(max) \(noun)\(aside)"
+            case .gate:
+                return "\(game) seats \(max) \(noun) — remove \(fit.available - max)."
+            }
+        }
         return nil
+    }
+
+    /// How many players this format cannot reach because they are on a shared
+    /// ball — 0 when the distinction does not apply (no live shared ball, or a
+    /// ball format, which is judged on the ball roster and so loses nobody).
+    ///
+    /// Never 1: `CreateDraftBuilder.ballUnits` only groups a team of two or
+    /// more, so a shared ball always costs at least a pair.
+    private func sharedBallPlayerCount(_ id: String) -> Int? {
+        guard catalog.isSideFormat(id) else { return nil }
+        let units = ballUnits
+        guard units.contains(where: { $0.teamKey != nil }) else { return nil }
+        return filledPlayers.count - units.filter { $0.teamKey == nil }.count
     }
 
     /// What a format's bounds are measured against, and what the round has of
@@ -1374,18 +1464,10 @@ final class CreateStore {
         for team in ballTeams where !team.memberRowIds.isEmpty && !team.isLive {
             return "A shared ball needs two players — add a partner, or remove the team."
         }
+        // Built by the same function the card's own eligibility line is, so the
+        // gate and the card can never disagree about what is being counted.
         for slot in formatSlots {
-            let name = catalog.label(slot.formatId) ?? "This game"
-            // Measured against the same thing the card's own eligibility line
-            // is (`fit`), so the gate and the card can never disagree.
-            let fit = self.fit(slot.formatId)
-            if fit.available < fit.min {
-                return "\(name) needs \(fit.min) \(fit.noun) — "
-                    + "\(fit.min - fit.available) more to go."
-            }
-            if let max = fit.max, fit.available > max {
-                return "\(name) seats \(max) \(fit.noun) — remove \(fit.available - max)."
-            }
+            if let refusal = boundsRefusal(slot.formatId, voice: .gate) { return refusal }
         }
         return nil
     }
@@ -1690,7 +1772,7 @@ final class CreateStore {
                     let members = team.memberRowIds.compactMap { rowId in
                         defIdByRow[rowId].map {
                             EditDraftAssembler.BallTeam.Member(
-                                producerDefId: $0, allowancePct: team.pctByRow[rowId] ?? 100)
+                                producerDefId: $0, allowancePct: team.allowance(rowId) ?? 100)
                         }
                     }
                     guard members.count >= 2 else { return nil }

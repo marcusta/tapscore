@@ -63,6 +63,17 @@ struct CreateRoundView: View {
     /// The row whose handicap pad is open. Nil ⇒ closed.
     @State private var padRowId: UUID?
     @State private var friendsOpen = false
+    /// The shared-ball section has been asked for. Only ever the OPENING half
+    /// of the answer — a round that already has teams (an edit, or a pairing
+    /// built a moment ago) shows the section whatever this says, which is why
+    /// it lives here and not in the store: it describes this screen, not the
+    /// round (`ballTeamsExpanded`).
+    @State private var ballTeamsOpen = false
+    /// Why a team refused what was just asked of it, keyed by team id. The
+    /// store answers add/formation with a Bool; this is where that Bool is
+    /// turned into words, on the card that was tapped.
+    @State private var ballTeamNotice: [UUID: String] = [:]
+    @ScaledMetric(relativeTo: .body) private var allowanceFieldWidth: CGFloat = 84
 
     var body: some View {
         NavigationStack {
@@ -580,6 +591,10 @@ struct CreateRoundView: View {
             .buttonStyle(.tap(.secondary, fillsWidth: true))
             .disabled(!store.canAddPlayer)
         }
+
+        // Last on the step, under the roster it groups: pairing is an addition
+        // to the question "who's playing", never a precondition of it.
+        ballTeamsSection(store)
     }
 
     /// B5.28 makes the index part of a complete row, so the subtitle says so —
@@ -762,6 +777,476 @@ struct CreateRoundView: View {
                 : nil,
             onSelect: { store.setPlayerTee(rowId: row.id, teeId: $0) })
             .disabled(store.tees.isEmpty)
+    }
+
+    // MARK: - Step 2 — shared balls
+
+    /// Scramble, foursomes, greensomes: the players who share ONE ball
+    /// (`docs/proposals/ball-teams-composition.md`, Phase C).
+    ///
+    /// Optional and collapsed, because the overwhelming majority of rounds are
+    /// everyone-on-their-own-ball and must not be asked a question they do not
+    /// have. What it changes is not cosmetic — a shared ball becomes the round's
+    /// subject, so the Format step's cards are judged on the BALL roster from
+    /// here on — which is exactly why the collapsed pitch names the two games
+    /// people came here for rather than the machinery.
+    ///
+    /// Shown only when the server told us what the formations are: the recipes
+    /// are the server's (`FormationCatalog` keeps no local table), so a catalog
+    /// that did not load means the feature is unavailable, not guessed at.
+    @ViewBuilder
+    private func ballTeamsSection(_ store: CreateStore) -> some View {
+        // Two named players is the smallest thing that can share a ball — but
+        // teams that already exist keep the section on screen whatever the
+        // roster does, or an edit could strand a pairing nothing can reach.
+        if store.ballTeamsAvailable, store.filledPlayers.count >= 2 || !store.ballTeams.isEmpty {
+            if ballTeamsExpanded(store) {
+                ballTeamsEditor(store)
+            } else {
+                ballTeamsPitch(store)
+            }
+        }
+    }
+
+    /// Open once asked for, and open on its own whenever the round HAS shared
+    /// balls — which is what auto-expands an edit whose teams were hydrated
+    /// before this screen drew anything.
+    private func ballTeamsExpanded(_ store: CreateStore) -> Bool {
+        ballTeamsOpen || !store.ballTeams.isEmpty
+    }
+
+    /// The collapsed offer's two lines, and the footnote the open editor
+    /// carries. Hoisted out of `body` because this copy is a contract: it names
+    /// the two games people came here for, and it is the only place the flow
+    /// says what NOT joining a team means — so it is pinned by test rather than
+    /// left where a layout edit can quietly reword it.
+    static let ballTeamsPitchTitle = "Playing scramble or foursomes?"
+    static let ballTeamsPitchBody =
+        "Group players who share one ball. Skip this if everyone plays their own ball."
+    static let ballTeamsFootnote = "Anyone not on a team plays their own ball."
+
+    /// The collapsed offer. One question, one consequence, one way in.
+    private func ballTeamsPitch(_ store: CreateStore) -> some View {
+        TapCard(sunken: true) {
+            VStack(alignment: .leading, spacing: TapSpacing.sm) {
+                Text(Self.ballTeamsPitchTitle)
+                    .font(TapFont.display(size: 17.6, weight: .semibold))
+                    .foregroundStyle(TapColors.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(Self.ballTeamsPitchBody)
+                    .font(TapFont.ui(size: 13.6))
+                    .foregroundStyle(TapColors.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                // Opens ON a team rather than on an empty surface with a second
+                // button in it: someone who tapped this has already said they
+                // want a team.
+                Button("Set up teams") {
+                    ballTeamsOpen = true
+                    if store.ballTeams.isEmpty { store.addBallTeam() }
+                }
+                .buttonStyle(.tap(.secondary, fillsWidth: true))
+                .accessibilityIdentifier("ball-teams-open")
+            }
+            .padding(TapSpacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private func ballTeamsEditor(_ store: CreateStore) -> some View {
+        VStack(alignment: .leading, spacing: TapSpacing.sm) {
+            SectionHeader(
+                title: "Sharing a ball",
+                count: store.ballTeams.isEmpty ? nil : "\(store.ballTeams.count)")
+            // Said once, here: there is deliberately no "own ball" marker on the
+            // roster rows, because absence from every team already means it.
+            Text(Self.ballTeamsFootnote)
+                .font(TapFont.ui(size: 12.8))
+                .foregroundStyle(TapColors.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Lettered once for the whole list, not per card: the letter is a
+            // team's position among the teams that REACH the draft, which no
+            // single card can see.
+            let labels = Self.ballTeamLabels(store)
+            ForEach(store.ballTeams, id: \.id) { team in
+                ballTeamCard(
+                    store, team: team, label: labels[team.id] ?? Self.freshBallTeamLabel)
+            }
+
+            // A new team defaults to the formation last chosen, which is what
+            // makes "everyone plays scramble" one tap per pair. Offered only
+            // while somebody is left to put on it — an empty team nobody can
+            // fill is a card that can do nothing but complain.
+            Button("Add team") {
+                store.addBallTeam()
+                ballTeamNotice.removeAll()
+            }
+            .buttonStyle(.tap(.secondary, fillsWidth: true))
+            .disabled(ballTeamAvailableRows(store).isEmpty)
+            .accessibilityIdentifier("ball-teams-add")
+        }
+    }
+
+    /// One shared ball: what it plays, who is on it, what each of them brings,
+    /// and the consequence in a sentence.
+    private func ballTeamCard(
+        _ store: CreateStore,
+        team: CreateStore.BallTeam,
+        label: String
+    ) -> some View {
+        TapCard {
+            VStack(alignment: .leading, spacing: TapSpacing.md) {
+                HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
+                    Text(label)
+                        .font(TapFont.display(size: 17.6, weight: .semibold))
+                        .foregroundStyle(TapColors.text)
+                    Spacer(minLength: 0)
+                    Button {
+                        store.removeBallTeam(id: team.id)
+                        // Every card's notice, not just this one: the letters
+                        // below have just shifted up, so a refusal left on one
+                        // of them would now be pointing at a different team.
+                        ballTeamNotice.removeAll()
+                        // The last team gone puts the offer back — the surface
+                        // and the thing it makes are the same decision.
+                        if store.ballTeams.isEmpty { ballTeamsOpen = false }
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(TapColors.textMuted)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Remove \(label)")
+                }
+
+                // Three formations, three chips — the one place in this flow
+                // where a chip row is the right control (`ios/AGENTS.md`): a
+                // short, closed set of words golfers already own, worth keeping
+                // on screen because the allowances below are read against them.
+                FlowRow(spacing: TapSpacing.sm) {
+                    ForEach(ballTeamFormations(store), id: \.id) { descriptor in
+                        formationChip(store, team: team, descriptor: descriptor)
+                    }
+                }
+
+                Text("Who's on this ball")
+                    .font(TapFont.ui(size: 12.8, weight: .medium))
+                    .foregroundStyle(TapColors.textMuted)
+                FlowRow(spacing: TapSpacing.sm) {
+                    ForEach(ballTeamCandidates(store, team: team), id: \.id) { row in
+                        memberChip(store, team: team, row: row)
+                    }
+                }
+
+                // Percentages come off the formation's recipe and are shown, not
+                // hidden — a combined handicap nobody can take apart is a number
+                // the group will argue about on the first tee.
+                if !team.memberRowIds.isEmpty {
+                    VStack(alignment: .leading, spacing: TapSpacing.sm) {
+                        ForEach(team.memberRowIds, id: \.self) { rowId in
+                            allowanceRow(store, team: team, rowId: rowId)
+                        }
+                    }
+                }
+
+                if let summary = Self.ballTeamSummary(store, team: team) {
+                    Text(summary)
+                        .font(TapFont.ui(size: 12.8))
+                        .foregroundStyle(TapColors.accent)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("ball-team-summary")
+                } else {
+                    // Soft, not a refusal: a half-built team blocks nothing (the
+                    // draft simply leaves it out), so it is stated the way the
+                    // course-handicap line is, in the quiet tier.
+                    Text(Self.ballTeamHint(memberCount: team.memberRowIds.count))
+                        .font(TapFont.ui(size: 12.8))
+                        .foregroundStyle(TapColors.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if let notice = ballTeamNotice[team.id] {
+                    Text(notice)
+                        .font(TapFont.ui(size: 12.8))
+                        .foregroundStyle(TapColors.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(TapSpacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func formationChip(
+        _ store: CreateStore,
+        team: CreateStore.BallTeam,
+        descriptor: FormationDescriptor
+    ) -> some View {
+        TapChip(
+            title: store.formations.label(descriptor),
+            isSelected: team.formationId == descriptor.id,
+            action: {
+                // The store refuses a formation the current membership does not
+                // fit — three players cannot become a foursome, and dropping one
+                // of them to make it fit is not this chip's decision to take.
+                if store.setBallTeamFormation(descriptor.id, teamId: team.id) {
+                    ballTeamNotice.removeAll()
+                } else {
+                    ballTeamNotice.removeAll()
+                    ballTeamNotice[team.id] = Self.ballTeamSizeRefusal(
+                        store, descriptor: descriptor, memberCount: team.memberRowIds.count)
+                }
+            })
+    }
+
+    private func memberChip(
+        _ store: CreateStore,
+        team: CreateStore.BallTeam,
+        row: CreateStore.PlayerRow
+    ) -> some View {
+        let onThisBall = team.memberRowIds.contains(row.id)
+        return TapChip(
+            title: Self.ballTeamName(store, rowId: row.id),
+            isSelected: onThisBall,
+            tone: .accent,
+            action: {
+                // Membership just moved, so every notice on screen was written
+                // about a roster that no longer exists — "this ball is full"
+                // outliving the removal that emptied a seat is the exact
+                // contradiction the diagnostics rule forbids.
+                ballTeamNotice.removeAll()
+                if onThisBall {
+                    store.removeBallTeamMember(rowId: row.id, from: team.id)
+                } else if !store.addBallTeamMember(rowId: row.id, to: team.id) {
+                    // The only refusal reachable from here: the formation is
+                    // full (a player already on another ball is not offered).
+                    // Said as FULL, not as a count — "plays 2, has 2" reads as a
+                    // contradiction to the person who just tapped a third name.
+                    ballTeamNotice[team.id] = store.formations.byId(team.formationId).map {
+                        Self.ballTeamFullRefusal(store, descriptor: $0)
+                    } ?? Self.ballTeamJoinRefusal
+                }
+            })
+    }
+
+    /// One member's share of the ball, in the words that make it a share:
+    /// "50% of HCP", never a bare 50.
+    private func allowanceRow(
+        _ store: CreateStore,
+        team: CreateStore.BallTeam,
+        rowId: UUID
+    ) -> some View {
+        let name = Self.ballTeamName(store, rowId: rowId)
+        return HStack(spacing: TapSpacing.sm) {
+            Text(name)
+                .font(TapFont.ui(size: 13.6))
+                .foregroundStyle(TapColors.text)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            TextField(
+                "",
+                text: Self.allowanceText(store, teamId: team.id, rowId: rowId),
+                prompt: tapFieldPrompt("50"))
+                .keyboardType(.numberPad)
+                .multilineTextAlignment(.trailing)
+                .tapField()
+                // Scaled, not fixed: at the accessibility text sizes "% of HCP"
+                // and a two-digit field have to keep sharing one line, and a
+                // 72pt box stops fitting its own digits well before they do.
+                // 84 is the sibling allowance field's width (the format slot's).
+                .frame(maxWidth: allowanceFieldWidth)
+                // NOT `.combine`: combining swallows the field's own trait, so
+                // VoiceOver reads the row and offers no way into it. The name
+                // stays its own element and the box carries what it is.
+                .accessibilityLabel("\(name) allowance, percent of handicap")
+            Text("% of HCP")
+                .font(TapFont.ui(size: 12.8))
+                .foregroundStyle(TapColors.textMuted)
+        }
+    }
+
+    /// "Anna + Marcus · Scramble · plays one ball · HCP 9" — the proposal's
+    /// sentence, live. Nil until the team is a ball at all.
+    ///
+    /// The HCP clause is DROPPED rather than zeroed while a member's course
+    /// handicap cannot be derived (no tee, no rating, no index yet): the store
+    /// answers nil there, and a combined total that quietly counted somebody as
+    /// scratch would be the one number nobody could explain.
+    static func ballTeamSummary(_ store: CreateStore, team: CreateStore.BallTeam) -> String? {
+        guard team.isLive else { return nil }
+        var parts = [
+            team.memberRowIds.map { ballTeamName(store, rowId: $0) }.joined(separator: " + "),
+            store.formations.label(team.formationId) ?? team.formationId,
+            "plays one ball",
+        ]
+        if let combined = store.combinedHandicap(team) { parts.append("HCP \(combined)") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Chips in the order a golfer reaches for them, not the order the wire
+    /// happens to sort them in (the catalog is id-sorted, which would open on
+    /// Foursomes). A formation the server adds later still appears — after
+    /// these, in catalog order — rather than silently going missing.
+    private func ballTeamFormations(_ store: CreateStore) -> [FormationDescriptor] {
+        let known = Self.formationOrder.compactMap { store.formations.byId($0) }
+        let rest = store.formations.descriptors.filter { !Self.formationOrder.contains($0.id) }
+        return known + rest
+    }
+
+    private static let formationOrder = ["scramble", "foursomes", "greensomes"]
+
+    /// The rows this team can be built from: its own members, plus everyone
+    /// still on their own ball. A player already sharing a DIFFERENT ball is
+    /// absent rather than shown-and-refused — the refusal would say nothing the
+    /// other card is not already saying.
+    private func ballTeamCandidates(
+        _ store: CreateStore,
+        team: CreateStore.BallTeam
+    ) -> [CreateStore.PlayerRow] {
+        // "Named" is the roster's own definition of it (`filledPlayers`), not a
+        // second one spelled here — a row this list offered and the draft then
+        // dropped would be a team that lost a member on submit.
+        let named = Set(store.filledPlayers.map(\.id))
+        return store.players.filter { row in
+            team.memberRowIds.contains(row.id)
+                || (named.contains(row.id) && store.ballTeam(containing: row.id) == nil)
+        }
+    }
+
+    /// Rows that could start a NEW ball: named, and on their own ball.
+    private func ballTeamAvailableRows(_ store: CreateStore) -> [CreateStore.PlayerRow] {
+        let named = Set(store.filledPlayers.map(\.id))
+        return store.unpairedPlayers.filter { named.contains($0.id) }
+    }
+
+    /// A roster row's name, or its position while it has none — the same
+    /// fallback the row's own placeholder uses, so a chip never reads as blank.
+    static func ballTeamName(_ store: CreateStore, rowId: UUID) -> String {
+        guard let index = store.players.firstIndex(where: { $0.id == rowId }) else { return "Player" }
+        let row = store.players[index]
+        return row.name.isEmpty ? "Player \(index + 1)" : row.name
+    }
+
+    /// A size refusal in the formation's own words, with the number it wants
+    /// and the number it has.
+    static func ballTeamSizeRefusal(
+        _ store: CreateStore,
+        descriptor: FormationDescriptor,
+        memberCount: Int
+    ) -> String {
+        let label = store.formations.label(descriptor)
+        guard let size = store.formations.size(descriptor.id) else {
+            return "\(label) can't take that many players."
+        }
+        let wants = size.min == size.max ? "\(size.min)" : "\(size.min)–\(size.max)"
+        return "\(label) plays \(wants) — this ball has \(memberCount)."
+    }
+
+    /// The ball is already at the formation's maximum. A count would be the
+    /// wrong shape here: the number the caller cares about is the one that did
+    /// not fit, and it is not on the ball to be counted.
+    static func ballTeamFullRefusal(
+        _ store: CreateStore,
+        descriptor: FormationDescriptor
+    ) -> String {
+        let label = store.formations.label(descriptor)
+        guard let size = store.formations.size(descriptor.id) else {
+            return "\(label) can't take another player."
+        }
+        let players = size.max == 1 ? "player" : "players"
+        return "\(label) plays \(size.max) \(players) — this ball is full."
+    }
+
+    /// A card with nobody on it yet has no letter to show. Naming it "Team A"
+    /// would be a claim about a team that does not exist — and the letter it
+    /// borrowed belongs to the first card that DOES.
+    static let freshBallTeamLabel = "New team"
+
+    /// The catalog answered, but this player still cannot join — a case the
+    /// bounds already cover, kept as a sentence for the path where the
+    /// formation itself has gone missing from the catalog.
+    static let ballTeamJoinRefusal = "That player can't join this ball."
+
+    /// Positional labels, by design — the proposal keeps team NAMING out of
+    /// scope — and lettered the way `CreateDraftBuilder` letters the draft, so a
+    /// card and the leaderboard it produces say the same "Team B".
+    ///
+    /// The letter counts only teams with a NAMED member on them, because
+    /// `ballTeamComposition` drops the rest before the draft ever sees them: an
+    /// empty card sitting above a real pair would otherwise show "Team B" over
+    /// the ball the scorecard calls Team A.
+    ///
+    /// A team hydrated from a stored draft answers with the label the draft
+    /// already carries: the round has been played under it, possibly announced
+    /// under it, and re-lettering it by list position here would rename somebody
+    /// else's team on the way past. It still consumes a position — it is one of
+    /// the teams the draft is counting.
+    static func ballTeamLabels(_ store: CreateStore) -> [UUID: String] {
+        let named = Set(store.filledPlayers.map(\.id))
+        var out: [UUID: String] = [:]
+        var position = 0
+        for team in store.ballTeams {
+            guard team.memberRowIds.contains(where: { named.contains($0) }) else {
+                out[team.id] = freshBallTeamLabel
+                continue
+            }
+            out[team.id] = team.sourceLabel ?? CreateDraftBuilder.teamLabel(position)
+            position += 1
+        }
+        return out
+    }
+
+    /// The quiet line under a team that is not a ball yet. It counts what is
+    /// MISSING, so a card nobody has touched does not ask for "one more" of
+    /// nothing.
+    static func ballTeamHint(memberCount: Int) -> String {
+        memberCount == 0
+            ? "Pick two players — a shared ball needs at least two."
+            : "Pick one more player — a shared ball needs at least two."
+    }
+
+    /// A member's allowance as text, resolved through the STORE on every read —
+    /// the same staleness rule `rowText` is written up under.
+    ///
+    /// Text in, number out — the split the format slot's own allowance field
+    /// (and every handicap box on this screen) already uses. The store keeps
+    /// what was TYPED and parses it where the number is consumed, so:
+    ///
+    /// - blanking the box leaves it blank, and can be retyped. Deriving the text
+    ///   back from the number instead snapped a cleared field to its old value
+    ///   under the caret, which made the number unchangeable rather than safe.
+    ///   A blank still SCORES as the seeded percentage, so nobody is ever
+    ///   silently played off 0%.
+    /// - a hydrated 62.5 survives an unrelated edit. Rendering it into the field
+    ///   as text used to round-trip it through the digits-only setter and land
+    ///   62 the first time anything else on the card changed.
+    /// - "5,5" is a number. `HandicapInput.parse` is the one place this app
+    ///   decides what a typed number is, comma included.
+    ///
+    /// Clamping to 100 happens at consumption, not per keystroke, so a half-typed
+    /// "1000" is not rewritten mid-word.
+    ///
+    /// Any write marks the team `customized`, which is what stops seeding from
+    /// ever quietly rewriting the user's number (proposal, "Seeding semantics").
+    static func allowanceText(
+        _ store: CreateStore,
+        teamId: UUID,
+        rowId: UUID
+    ) -> Binding<String> {
+        Binding(
+            get: {
+                guard let team = store.ballTeams.first(where: { $0.id == teamId })
+                else { return "" }
+                if let typed = team.pctTextByRow[rowId] { return typed }
+                guard let pct = team.pctByRow[rowId] else { return "" }
+                return pct == pct.rounded() ? String(Int(pct)) : String(format: "%.1f", pct)
+            },
+            set: { value in
+                store.setBallTeamAllowanceText(value, rowId: rowId, teamId: teamId)
+            })
     }
 
     // MARK: - Step 3 — formats
