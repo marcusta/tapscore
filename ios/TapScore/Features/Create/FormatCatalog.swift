@@ -222,6 +222,25 @@ struct FormatCatalog: Sendable, Equatable {
         return countMax * shape.sizeMax
     }
 
+    /// The fewest BALLS this game can be contested between (`countMin`), and
+    /// the most (`countMax`, nil ⇒ unbounded).
+    ///
+    /// The player bounds above answer "how big a roster", these answer "how big
+    /// a ball roster" — and once players share a ball those are different
+    /// questions. Four players as two scramble pairs are two balls: match play
+    /// (2+ balls) fits, even though four players would also have fitted it.
+    /// An individual game has no ball bound of its own; it is contested between
+    /// as many balls as the round has.
+    func minBalls(for id: String) -> Int {
+        guard let shape = playableShape(id: id), !isIndividualShape(shape) else { return 0 }
+        return shape.countMin
+    }
+
+    func maxBalls(for id: String) -> Int? {
+        guard let shape = playableShape(id: id), !isIndividualShape(shape) else { return nil }
+        return shape.countMax
+    }
+
     /// One line saying what the game is contested between, derived from the
     /// descriptor (web: `gameShapeText`).
     func shapeText(_ id: String) -> String {

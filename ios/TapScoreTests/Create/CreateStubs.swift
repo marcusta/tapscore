@@ -58,6 +58,23 @@ enum CreateStubs {
         """
     }
 
+    /// `GET /setup/formations`, byte-for-byte the table in
+    /// `server/domain/round-setup/formation-catalog.ts` (id-sorted, as the
+    /// server sorts it). Typed out rather than generated because it IS the
+    /// contract these tests assert against — 35/15 and 50/50 are the values a
+    /// scorecard is built from, and a fixture that derived them from the same
+    /// code as the assertion would prove nothing.
+    static let formations = """
+    [{"id":"foursomes","labels":{"en":"Foursomes","sv":"Foursome"},
+      "size":{"min":2,"max":2},"allowancesBySize":{"2":[50,50]}},
+     {"id":"greensomes","labels":{"en":"Greensomes","sv":"Greensome"},
+      "size":{"min":2,"max":2},"allowancesBySize":{"2":[60,40]}},
+     {"id":"scramble","labels":{"en":"Scramble","sv":"Scramble"},
+      "size":{"min":2,"max":8},"allowancesBySize":{
+        "2":[35,15],"3":[30,20,10],"4":[25,20,15,10],"5":[25,20,15,10,5],
+        "6":[25,20,15,10,5,0],"7":[25,20,15,10,5,0,0],"8":[25,20,15,10,5,0,0,0]}}]
+    """
+
     static func guest(_ id: String) -> String {
         """
         {"id":"\(id)","displayName":"Guest","gender":"M","handicapIndex":12,
@@ -72,6 +89,7 @@ extension XCTestCase {
         RoundStubURLProtocol.route("/setup/clubs", CreateStubs.clubs)
         RoundStubURLProtocol.route("/setup/courses", CreateStubs.courses)
         RoundStubURLProtocol.route("/setup/formats", WebDraftFixtures.catalogJSON)
+        RoundStubURLProtocol.route("/setup/formations", CreateStubs.formations)
         RoundStubURLProtocol.route("/setup/tees/by-course", CreateStubs.tees)
     }
 

@@ -166,17 +166,46 @@ final class RoundStoreTests: XCTestCase {
         XCTAssertEqual(store.par(of: "ph-1"), 4)
     }
 
-    func testSelectingAFormatFromScoreShowsThatFormatsLeaderboard() async {
+    /// A format chip SELECTS a presentation context; it does not navigate
+    /// (`selectSlot`). On the score tab that is a handicap-line change and
+    /// nothing else — no tab move, and no fetch.
+    func testSelectingAFormatOnTheScoreTabNeitherNavigatesNorFetches() async {
         routeHappyPath()
         RoundStubURLProtocol.route("/friendly-rounds/result", RoundFixtures.result(cursor: "c1"))
         let store = makeStore()
         await store.load()
 
-        store.showLeaderboard(for: "slot-0")
+        store.selectSlot("slot-0")
+        await settle()
 
         XCTAssertEqual(store.selectedSlot, "slot-0")
-        XCTAssertEqual(store.tab, .leaderboard)
-        await waitUntil("the selected format's board to load") { self.resultRequests() == 1 }
+        XCTAssertEqual(store.tab, .score, "selecting a chip does not navigate")
+        XCTAssertEqual(resultRequests(), 0, "and it fetches nothing")
+    }
+
+    /// `selectSlot`'s OWN load branch: with the leaderboard already up and no
+    /// board in hand, picking a format fetches one.
+    ///
+    /// The first open is stubbed to FAIL on purpose. `setTab` loads the board
+    /// itself, so on a happy path there is already a `result` and this branch
+    /// is unreachable — a test written over a successful open would pass with
+    /// the `selectSlot` line deleted.
+    func testSelectingAFormatLoadsTheBoardWhenTheFirstOpenFailed() async {
+        routeHappyPath()
+        RoundStubURLProtocol.route("/friendly-rounds/result", status: 500, "{}")
+        let store = makeStore()
+        await store.load()
+
+        store.setTab(.leaderboard)
+        await waitUntil("the first board open to fail") { self.resultRequests() == 1 }
+        await settle()
+        XCTAssertNil(store.result, "the failed open must leave nothing to reuse")
+
+        RoundStubURLProtocol.route("/friendly-rounds/result", RoundFixtures.result(cursor: "c1"))
+        store.selectSlot("slot-0")
+
+        await waitUntil("the chip's own fetch") { self.resultRequests() == 2 }
+        XCTAssertEqual(store.selectedSlot, "slot-0")
     }
 
     /// Balls and scorecards are non-fatal: a round that loaded still renders,

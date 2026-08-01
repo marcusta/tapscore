@@ -120,6 +120,66 @@ final class CreateStore {
         }
     }
 
+    /// A group of roster rows who share ONE physical ball — a scramble pair, a
+    /// foursome (proposal `docs/proposals/ball-teams-composition.md`).
+    ///
+    /// Round-level, never per game: pair up once in the Players step and every
+    /// game of the round ranks the same two team-balls. It becomes a
+    /// `single_ball` entry in the draft's `teams[]`, which is the same document
+    /// field the web's flexible editor writes — so this is a second way to say
+    /// an existing thing, not a new concept on the wire.
+    ///
+    /// Not to be confused with a `multi_ball` SIDE, which is derived from a
+    /// game's ball assignment and never hand-built here.
+    struct BallTeam: Identifiable, Sendable, Equatable {
+        let id: UUID
+        /// Roster row ids, in SEEDING ORDER — playing handicap ascending, which
+        /// is the order the allowance recipe is indexed by (position 1 = lowest
+        /// handicap). Re-sorted on every re-seed.
+        var memberRowIds: [UUID]
+        /// A `FormationCatalog` id — `scramble` / `foursomes` / `greensomes`.
+        /// Never `custom`: that formation has no recipe and no bounds, and it
+        /// is reachable only from the web flexible editor.
+        var formationId: String
+        /// A member's allowance % was edited by hand, so seeding stops for
+        /// good: "defaults are computed, overrides are sticky". A team hydrated
+        /// from a stored draft is ALWAYS customized — its percentages were
+        /// frozen by whoever set the round up, and re-deriving them from a
+        /// recipe would silently rewrite somebody's scorecard.
+        var customized: Bool
+        /// Row id → allowance %. Seeded from the formation's recipe.
+        var pctByRow: [UUID: Double]
+        /// The stored `teams[].id` this team round-trips as, and its stored
+        /// label. Edit mode only; nil for a team paired up in this session.
+        /// They exist so a save REPLACES the stored team in place rather than
+        /// dropping it and minting a differently-identified one.
+        var sourceTeamId: String?
+        var sourceLabel: String?
+
+        init(
+            id: UUID = UUID(),
+            memberRowIds: [UUID] = [],
+            formationId: String,
+            customized: Bool = false,
+            pctByRow: [UUID: Double] = [:],
+            sourceTeamId: String? = nil,
+            sourceLabel: String? = nil
+        ) {
+            self.id = id
+            self.memberRowIds = memberRowIds
+            self.formationId = formationId
+            self.customized = customized
+            self.pctByRow = pctByRow
+            self.sourceTeamId = sourceTeamId
+            self.sourceLabel = sourceLabel
+        }
+
+        /// A shared ball needs at least a pair — the same liveness rule the
+        /// draft applies (`Composition.liveTeams`, web `isTeamLive`). A
+        /// half-built team of one is not a ball; its member is still their own.
+        var isLive: Bool { memberRowIds.count >= 2 }
+    }
+
     /// One format the round is played under. The client-side half of a draft
     /// `formats[]` entry (web: `FormatSlotForm`).
     ///
@@ -202,6 +262,11 @@ final class CreateStore {
     private(set) var courses: [SetupCourse] = []
     private(set) var tees: [Tee] = []
     private(set) var catalog = FormatCatalog()
+    /// The shared-ball formations and their seeding recipes. Fetched with the
+    /// format catalog, and EMPTY when that fetch failed — in which case ball
+    /// teams simply cannot be built this session (there is no local fallback
+    /// table; see `FormationCatalog`).
+    private(set) var formations = FormationCatalog()
     private(set) var loadingTees = false
 
     // MARK: - Selections
@@ -232,6 +297,16 @@ final class CreateStore {
     private(set) var customOpen = false
     /// One row, added to by hand. Spec §5.4 B5.3: never a bank of empty rows.
     private(set) var players: [PlayerRow] = [PlayerRow()]
+    /// The round's shared balls, in the order they were built — which is the
+    /// order they take their positional `Team A/B…` labels in.
+    private(set) var ballTeams: [BallTeam] = []
+    /// In EDIT mode, the stored `teams[]` ids `EditDraftHydration` took over —
+    /// the exact set `saveEdits` is allowed to replace. Every other stored team
+    /// passes through untouched, whatever it looks like from here.
+    private(set) var managedTeamIds: Set<String> = []
+    /// A new team defaults to the last formation chosen, which covers
+    /// "everyone plays scramble" with no extra concept (proposal §Seeding).
+    private var lastFormationId: String?
 
     // MARK: - Identity
 
@@ -281,7 +356,9 @@ final class CreateStore {
             date: createdRound?.date)
     }
 
-    var builder: CreateDraftBuilder { CreateDraftBuilder(catalog: catalog) }
+    var builder: CreateDraftBuilder {
+        CreateDraftBuilder(catalog: catalog, formations: formations)
+    }
 
     // MARK: - Edit mode
 
@@ -354,9 +431,15 @@ final class CreateStore {
             async let clubs = api.send(SetupEndpoints.clubs)
             async let courses = api.send(SetupEndpoints.courses)
             async let formats = api.send(SetupEndpoints.formats)
+            // The one OPTIONAL fetch of the flow. Shared balls are an addition
+            // to a create flow that has always worked without them, so a
+            // catalog that will not load must not take the whole flow down with
+            // it — the section is simply unavailable (`ballTeamsAvailable`).
+            async let formations = api.send(SetupEndpoints.formations)
             self.clubs = try await clubs
             self.courses = try await courses
             self.catalog = FormatCatalog(descriptors: try await formats)
+            self.formations = FormationCatalog(descriptors: (try? await formations) ?? [])
             ensureDefaultGame()
         } catch {
             loadError = Self.message(for: error, fallback: "Couldn't load courses. Check the connection and try again.")
@@ -549,6 +632,9 @@ final class CreateStore {
             maleTeeId = TeeOrder.defaultTee(in: tees, for: .m)?.id
             femaleTeeId = TeeOrder.defaultTee(in: tees, for: .f)?.id
             startHole = permittedStartHoles.first ?? 1
+            // The course (and so every course handicap) has changed under the
+            // roster; untouched shared balls re-order and re-seed.
+            reseedBallTeams()
             loadError = nil
         } catch {
             guard self.courseId == courseId else { return }
@@ -572,6 +658,9 @@ final class CreateStore {
     /// row holds `nil` and simply reads the new default.
     func setDefaultTee(_ id: String, for gender: PlayerGender) {
         if gender == .m { maleTeeId = id } else { femaleTeeId = id }
+        // Every non-overridden row of that gender just moved tee, and with it
+        // its course handicap — which is the order shared balls seed by.
+        reseedBallTeams()
     }
 
     /// The tee a row actually plays off: its override, or its gender's default
@@ -615,6 +704,219 @@ final class CreateStore {
                 gender: row.gender)
         else { return nil }
         return CourseHandicap.line(derivation, indexText: text)
+    }
+
+    // MARK: - Ball teams
+
+    /// The Players-step section can be offered at all: the server told us what
+    /// the formations are.
+    var ballTeamsAvailable: Bool { formations.isAvailable }
+
+    /// The team this row shares a ball with, or nil when it plays its own.
+    func ballTeam(containing rowId: UUID) -> BallTeam? {
+        ballTeams.first { $0.memberRowIds.contains(rowId) }
+    }
+
+    /// Rows on their own ball — the ones a new team can still be built from.
+    var unpairedPlayers: [PlayerRow] {
+        let paired = Set(ballTeams.flatMap(\.memberRowIds))
+        return players.filter { !paired.contains($0.id) }
+    }
+
+    /// Start a shared ball. Nil when the catalog never loaded, or when the id
+    /// is not one of its formations — `custom` included, deliberately.
+    @discardableResult
+    func addBallTeam(formationId: String? = nil) -> UUID? {
+        let id = formationId ?? lastFormationId ?? formations.descriptors.first?.id
+        guard let id, formations.byId(id) != nil else { return nil }
+        lastFormationId = id
+        let team = BallTeam(formationId: id)
+        ballTeams.append(team)
+        return team.id
+    }
+
+    func removeBallTeam(id: UUID) {
+        ballTeams.removeAll { $0.id == id }
+    }
+
+    /// Put a row on a shared ball. Refused — rather than silently clamped —
+    /// when the formation is full (a foursome takes no third player) or the row
+    /// already shares a different ball. Returns whether it happened, so the
+    /// caller does not have to re-derive the rule to know.
+    @discardableResult
+    func addBallTeamMember(rowId: UUID, to teamId: UUID) -> Bool {
+        guard let at = ballTeams.firstIndex(where: { $0.id == teamId }),
+              players.contains(where: { $0.id == rowId }),
+              ballTeam(containing: rowId) == nil,
+              let size = formations.size(ballTeams[at].formationId),
+              ballTeams[at].memberRowIds.count < size.max
+        else { return false }
+        ballTeams[at].memberRowIds.append(rowId)
+        reseedBallTeams()
+        return true
+    }
+
+    func removeBallTeamMember(rowId: UUID, from teamId: UUID) {
+        guard let at = ballTeams.firstIndex(where: { $0.id == teamId }) else { return }
+        ballTeams[at].memberRowIds.removeAll { $0 == rowId }
+        ballTeams[at].pctByRow.removeValue(forKey: rowId)
+        reseedBallTeams()
+    }
+
+    /// Change a team's formation. Refused when the current membership does not
+    /// fit the new bounds — three players cannot become a foursome, and
+    /// dropping one of them to make it fit is not this control's decision.
+    @discardableResult
+    func setBallTeamFormation(_ formationId: String, teamId: UUID) -> Bool {
+        guard let at = ballTeams.firstIndex(where: { $0.id == teamId }),
+              formations.byId(formationId) != nil,
+              formations.fits(formationId, memberCount: ballTeams[at].memberRowIds.count)
+                  || ballTeams[at].memberRowIds.count < 2
+        else { return false }
+        ballTeams[at].formationId = formationId
+        lastFormationId = formationId
+        // A formation change re-seeds an untouched team — the recipe IS the
+        // formation, so keeping foursomes' 50/50 under greensomes would be the
+        // one number the user did not choose and cannot explain.
+        reseedBallTeams()
+        return true
+    }
+
+    /// Override one member's allowance. Sticky by design: from here on the
+    /// team's numbers are the user's, and no membership or handicap change
+    /// re-seeds over them (proposal §Seeding semantics).
+    func setBallTeamAllowance(_ pct: Double, rowId: UUID, teamId: UUID) {
+        guard let at = ballTeams.firstIndex(where: { $0.id == teamId }),
+              ballTeams[at].memberRowIds.contains(rowId)
+        else { return }
+        ballTeams[at].customized = true
+        ballTeams[at].pctByRow[rowId] = pct
+    }
+
+    /// Recompute every untouched team's member order and percentages.
+    ///
+    /// Runs on any change that can move them — membership, handicap, gender,
+    /// tee, the round's tee defaults — because the recipe is indexed by PLAYING
+    /// HANDICAP position, so a handicap edit can reorder a team that nobody
+    /// touched. A customized team is left alone except for bookkeeping: rows
+    /// that left the roster leave the team, and a member with no number yet
+    /// still gets one (a blank allowance is not an override, it is a gap).
+    func reseedBallTeams() {
+        let byRow = Dictionary(uniqueKeysWithValues: players.map { ($0.id, $0) })
+        for index in ballTeams.indices {
+            var team = ballTeams[index]
+            team.memberRowIds.removeAll { byRow[$0] == nil }
+            let members = Set(team.memberRowIds)
+            team.pctByRow = team.pctByRow.filter { members.contains($0.key) }
+
+            if !team.customized {
+                // Playing handicap ASCENDING, ties broken by roster position so
+                // the order is stable rather than dependent on sort internals.
+                let position = Dictionary(
+                    uniqueKeysWithValues: players.enumerated().map { ($1.id, $0) })
+                team.memberRowIds.sort { lhs, rhs in
+                    let l = byRow[lhs].map(seedingKey) ?? (1, 0)
+                    let r = byRow[rhs].map(seedingKey) ?? (1, 0)
+                    if l.0 != r.0 { return l.0 < r.0 }
+                    if l.1 != r.1 { return l.1 < r.1 }
+                    return (position[lhs] ?? 0) < (position[rhs] ?? 0)
+                }
+                team.pctByRow = [:]
+            }
+
+            let recipe = formations.allowances(team.formationId, memberCount: team.memberRowIds.count)
+            for (at, rowId) in team.memberRowIds.enumerated() where team.pctByRow[rowId] == nil {
+                // 100 is the fallback for a size the formation has no recipe
+                // for — the neutral allowance, and the one a stroke-play round
+                // would have used anyway.
+                team.pctByRow[rowId] = recipe.map { $0[at] } ?? 100
+            }
+            ballTeams[index] = team
+        }
+    }
+
+    /// The number a team's members are ordered by: the COURSE handicap when the
+    /// course and the row's tee make one derivable, and the raw index
+    /// otherwise — a roster whose course is not picked yet still has to sort,
+    /// and the index is the same ordering as long as everyone plays one tee.
+    func seedingHandicap(_ row: PlayerRow) -> Double {
+        let index = HandicapInput.parse(row.handicapText) ?? 0
+        if let derivation = CourseHandicap.derive(
+            index: index, tee: tee(for: row), gender: row.gender) {
+            return Double(derivation.value)
+        }
+        return index
+    }
+
+    /// The sort key behind that number, with the one thing the number alone
+    /// cannot say: whether it is a COURSE handicap at all.
+    ///
+    /// A row whose course handicap is not derivable falls back to the raw
+    /// index, which on nearly every course is the SMALLER number — so ordering
+    /// on it alone would sort the unknown row to the front and hand it the
+    /// formation's top allowance slot (scramble's 35%). Unknowns sort LAST
+    /// instead: the lowest allowance is the conservative place for a row we
+    /// cannot yet measure, and the order settles itself the moment a tee lands.
+    private func seedingKey(_ row: PlayerRow) -> (Int, Double) {
+        let index = HandicapInput.parse(row.handicapText) ?? 0
+        guard let derivation = CourseHandicap.derive(
+            index: index, tee: tee(for: row), gender: row.gender)
+        else { return (1, index) }
+        return (0, Double(derivation.value))
+    }
+
+    /// The ball teams as the DRAFT BUILDER speaks them: roster indices over
+    /// `filledPlayers`, keyed `1…n` so they take the first `Team A/B…` letters.
+    ///
+    /// A team whose members have all been removed or blanked out disappears
+    /// here rather than reaching pre-flight as an empty complaint; a team of
+    /// one survives, because that one IS a complaint.
+    func ballTeamComposition(rows: [PlayerRow]) -> [CreateDraftBuilder.Composition.Team] {
+        let indexByRow = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($1.id, $0) })
+        var out: [CreateDraftBuilder.Composition.Team] = []
+        for team in ballTeams {
+            let members = team.memberRowIds.compactMap { indexByRow[$0] }
+            guard !members.isEmpty else { continue }
+            out.append(CreateDraftBuilder.Composition.Team(
+                key: out.count + 1,
+                kind: .singleBall,
+                formation: team.formationId,
+                members: members,
+                pctByPlayer: Dictionary(
+                    uniqueKeysWithValues: members.map { ($0, team.pctByRow[rows[$0].id] ?? 100) })))
+        }
+        return out
+    }
+
+    /// The round's BALL ROSTER — one ball per live shared team, one per player
+    /// on their own. What format cards are judged against once teams exist.
+    var ballUnits: [CreateDraftBuilder.BallUnit] {
+        let rows = filledPlayers
+        return CreateDraftBuilder.ballUnits(
+            rosterCount: rows.count, ballTeams: ballTeamComposition(rows: rows))
+    }
+
+    /// The round has at least one live shared ball, so the ball roster and the
+    /// player roster are different things.
+    var hasBallTeams: Bool { ballUnits.contains { $0.teamKey != nil } }
+
+    /// Combined playing handicap of a shared ball: `round(Σ memberCH × pct%)`
+    /// (proposal, "Team row states the consequence in plain words"). Nil while
+    /// a member's course handicap cannot be derived — the honest answer, rather
+    /// than a total that quietly counts them as scratch.
+    func combinedHandicap(_ team: BallTeam) -> Int? {
+        guard !team.memberRowIds.isEmpty else { return nil }
+        var total = 0.0
+        for rowId in team.memberRowIds {
+            guard let row = player(id: rowId),
+                  let derivation = CourseHandicap.derive(
+                    index: HandicapInput.parse(row.handicapText),
+                    tee: tee(for: row),
+                    gender: row.gender)
+            else { return nil }
+            total += Double(derivation.value) * (team.pctByRow[rowId] ?? 100) / 100
+        }
+        return Int((total).rounded())
     }
 
     // MARK: - Route and start hole
@@ -769,13 +1071,60 @@ final class CreateStore {
     /// never hidden — an unavailable game the user cannot see is an unavailable
     /// game they cannot understand.
     func eligibilityIssue(for id: String) -> String? {
-        let filled = max(filledPlayers.count, 0)
-        let min = catalog.minPlayers(for: id)
-        if filled < min { return "needs at least \(min) players" }
-        if let max = catalog.maxPlayers(for: id), filled > max {
-            return "seats at most \(max) players"
-        }
+        let fit = self.fit(id)
+        if fit.available < fit.min { return "needs at least \(fit.min) \(fit.noun)" }
+        if let max = fit.max, fit.available > max { return "seats at most \(max) \(fit.noun)" }
         return nil
+    }
+
+    /// What a format's bounds are measured against, and what the round has of
+    /// it right now.
+    ///
+    /// With no shared balls this is the roster, exactly as it always was. Once
+    /// players share a ball the question splits in two (proposal, "Format card
+    /// eligibility derives from the resulting ball roster"):
+    ///
+    /// - A BALL format is contested between balls, so it is judged on the ball
+    ///   roster against `minBalls`/`maxBalls`. Four players as two scramble
+    ///   pairs are two balls: match play fits.
+    /// - A SIDE format is built from players on their own ball — a shared
+    ///   ball's members are not available to it (v1; see
+    ///   `CreateDraftBuilder.seedGame(formatId:units:existingTeams:)`) — so it
+    ///   is judged on the remaining individuals against the unchanged player
+    ///   bounds. Six players with two of them paired leaves Taliban its four.
+    ///
+    /// Ball formats keep the PLAYER bounds while no ball is shared, because
+    /// those bounds are the tighter and more meaningful statement for a plain
+    /// roster: Köpenhamnare is 3 balls and up to 10 per ball, so its ball bound
+    /// would seat thirty players.
+    private func fit(_ id: String) -> (available: Int, min: Int, max: Int?, noun: String) {
+        let units = ballUnits
+        guard units.contains(where: { $0.teamKey != nil }) else {
+            return (
+                max(filledPlayers.count, 0),
+                catalog.minPlayers(for: id),
+                catalog.maxPlayers(for: id),
+                "players")
+        }
+        if catalog.isSideFormat(id) {
+            return (
+                units.filter { $0.teamKey == nil }.count,
+                catalog.minPlayers(for: id),
+                catalog.maxPlayers(for: id),
+                "players")
+        }
+        // Clamped by the format's own ceiling, because the SEED is clamped
+        // (`CreateDraftBuilder.seedGame`): a ball past the ceiling sits out, the
+        // way a surplus player already does on a plain roster. Comparing the
+        // raw count would refuse a five-player Köpenhamnare the moment two of
+        // its players paired up — a refusal with nothing to act on, since the
+        // roster was already two balls over and perfectly legal.
+        let max = catalog.maxBalls(for: id)
+        return (
+            Swift.min(units.count, max ?? units.count),
+            catalog.minBalls(for: id),
+            max,
+            "balls")
     }
 
     /// The picked games as the builder sees them — format, balls, who is on
@@ -789,6 +1138,8 @@ final class CreateStore {
         let rows = filledPlayers
         let indexByRow = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($1.id, $0) })
         let builder = self.builder
+        let shared = ballTeamComposition(rows: rows)
+        let units = CreateDraftBuilder.ballUnits(rosterCount: rows.count, ballTeams: shared)
         var out: [CreateDraftBuilder.Game] = []
         var teams: [CreateDraftBuilder.Composition.Team] = []
         for slot in formatSlots {
@@ -805,13 +1156,14 @@ final class CreateStore {
                 game = builder.seedGame(
                     formatId: slot.formatId,
                     rosterCount: rows.count,
-                    existingTeams: teams)
+                    existingTeams: teams,
+                    units: units)
             }
             game.allowancePct = slot.allowancePct
             game.config = slot.config
             game.excludedPlayers = Set(slot.excludedRowIds.compactMap { indexByRow[$0] })
             out.append(game)
-            teams = builder.compose(games: out, rosterCount: rows.count).teams
+            teams = builder.compose(games: out, rosterCount: rows.count, ballTeams: shared).teams
         }
         return out
     }
@@ -827,7 +1179,14 @@ final class CreateStore {
     }
 
     var maxPlayers: Int? {
-        formatSlots.compactMap { catalog.maxPlayers(for: $0.formatId) }.min()
+        guard let bound = formatSlots.compactMap({ catalog.maxPlayers(for: $0.formatId) }).min()
+        else { return nil }
+        // Players sharing a ball do not spend a seat: a ball format seats
+        // BALLS, and a side format seats the players still on their own ball.
+        // Without this the roster cap would forbid adding the very players a
+        // pairing is about to absorb — Taliban would refuse a fifth player on
+        // a round where two of the four already share a ball.
+        return bound + ballTeams.filter(\.isLive).reduce(0) { $0 + $1.memberRowIds.count }
     }
 
     var canAddPlayer: Bool {
@@ -858,6 +1217,9 @@ final class CreateStore {
         // A subject tick for a player who is gone would otherwise sit in the
         // slot forever, invisible, ready to exclude whoever inherits the id.
         for index in formatSlots.indices { formatSlots[index].excludedRowIds.remove(id) }
+        // …and so would a seat on a shared ball. Re-seeding drops it and
+        // re-derives the remaining members' allowances for their new size.
+        reseedBallTeams()
     }
 
     /// The row with this id, or nil once it has been removed. The read half of
@@ -870,6 +1232,9 @@ final class CreateStore {
     func updatePlayer(id: UUID, _ mutate: (inout PlayerRow) -> Void) {
         guard let index = players.firstIndex(where: { $0.id == id }) else { return }
         mutate(&players[index])
+        // A handicap, gender or tee edit moves the playing handicap this row
+        // is seeded by, and the recipe is indexed by that order.
+        reseedBallTeams()
         // B9.9: a refusal that pointed at this row is now stale.
         clearRowDiagnostics(id)
     }
@@ -1006,15 +1371,20 @@ final class CreateStore {
         if let rosterBlocker { return rosterBlocker }
         // B6.9 — removing the last slot is allowed, and this is what says so.
         guard !formatSlots.isEmpty else { return "Add at least one format." }
-        let filled = filledPlayers.count
+        for team in ballTeams where !team.memberRowIds.isEmpty && !team.isLive {
+            return "A shared ball needs two players — add a partner, or remove the team."
+        }
         for slot in formatSlots {
             let name = catalog.label(slot.formatId) ?? "This game"
-            let min = catalog.minPlayers(for: slot.formatId)
-            if filled < min {
-                return "\(name) needs \(min) players — \(min - filled) more to go."
+            // Measured against the same thing the card's own eligibility line
+            // is (`fit`), so the gate and the card can never disagree.
+            let fit = self.fit(slot.formatId)
+            if fit.available < fit.min {
+                return "\(name) needs \(fit.min) \(fit.noun) — "
+                    + "\(fit.min - fit.available) more to go."
             }
-            if let max = catalog.maxPlayers(for: slot.formatId), filled > max {
-                return "\(name) seats \(max) players — remove \(filled - max)."
+            if let max = fit.max, fit.available > max {
+                return "\(name) seats \(max) \(fit.noun) — remove \(fit.available - max)."
             }
         }
         return nil
@@ -1049,6 +1419,7 @@ final class CreateStore {
         // and a roster edited mid-flight must not renumber the balls under the
         // draft that is already being built.
         let built = self.games
+        let shared = ballTeamComposition(rows: rows)
 
         // The producers as far as the CLIENT can resolve them. Everything
         // pre-flight judges — name, index, tee, gender — is already known
@@ -1070,7 +1441,7 @@ final class CreateStore {
         // B9.7: a client-side refusal makes NO network request — not even the
         // guest mint, which would otherwise be the one side effect of a submit
         // that never happened.
-        let local = builder.preflight(games: built, players: players)
+        let local = builder.preflight(games: built, players: players, ballTeams: shared)
         if !local.isEmpty {
             diagnostics = local
             return nil
@@ -1096,6 +1467,7 @@ final class CreateStore {
                 route: route,
                 games: built,
                 players: players,
+                ballTeams: shared,
                 name: roundName)
             let result = try await api.send(
                 FriendlyRoundsEndpoints.create,
@@ -1149,11 +1521,13 @@ final class CreateStore {
         do {
             async let formats = api.send(SetupEndpoints.formats)
             async let courses = api.send(SetupEndpoints.courses)
+            async let loadedFormations = api.send(SetupEndpoints.formations)
             let setup = try await api.send(
                 FriendlyRoundsEndpoints.setup,
                 FriendlyRoundsByTokenInput(token: token))
             self.catalog = FormatCatalog(descriptors: try await formats)
             self.courses = try await courses
+            self.formations = FormationCatalog(descriptors: (try? await loadedFormations) ?? [])
 
             guard case .editable(let editable) = setup else {
                 if case .notEditable(let blocked) = setup {
@@ -1187,7 +1561,10 @@ final class CreateStore {
             await loadTees(courseId: editable.draft.courseId)
             if loadError != nil { return }
 
-            let prefill = EditDraftHydration.prefill(draft: editable.draft) { defId in
+            let prefill = EditDraftHydration.prefill(
+                draft: editable.draft,
+                formations: formations
+            ) { defId in
                 nameByDefId[defId] ?? ""
             }
             roundName = editable.draft.name ?? ""
@@ -1195,6 +1572,9 @@ final class CreateStore {
             startHole = prefill.startHole
             players = prefill.players
             formatSlots = prefill.slots
+            ballTeams = prefill.ballTeams
+            managedTeamIds = prefill.managedTeamIds
+            lastFormationId = prefill.ballTeams.last?.formationId
             // A stored draft records composition, not the cards behind it, so
             // the flexible surface is what can actually describe it.
             customOpen = true
@@ -1241,6 +1621,7 @@ final class CreateStore {
         // deliberately not run here; an edited round's subjects come off the
         // stored draft, not off ball composition this flow can see.
         let local = builder.preflightPlayers(players)
+            + builder.preflightBallTeams(ballTeamComposition(rows: rows))
         if !local.isEmpty {
             diagnostics = local
             return false
@@ -1300,12 +1681,34 @@ final class CreateStore {
                     config: slot.config,
                     excludedDefIds: Set(slot.excludedRowIds.compactMap { defIdByRow[$0] }))
             }
-            let draft = EditDraftAssembler(catalog: catalog).draft(
+            // Nil, not empty, when the formation catalog never loaded: the
+            // teams could not be hydrated either, so an empty list would read
+            // as "the user removed them" and delete a stored pairing this
+            // session was never able to show.
+            let teams: [EditDraftAssembler.BallTeam]? = formations.isAvailable
+                ? ballTeams.compactMap { team in
+                    let members = team.memberRowIds.compactMap { rowId in
+                        defIdByRow[rowId].map {
+                            EditDraftAssembler.BallTeam.Member(
+                                producerDefId: $0, allowancePct: team.pctByRow[rowId] ?? 100)
+                        }
+                    }
+                    guard members.count >= 2 else { return nil }
+                    return EditDraftAssembler.BallTeam(
+                        id: team.sourceTeamId,
+                        label: team.sourceLabel,
+                        formation: team.formationId,
+                        members: members)
+                }
+                : nil
+            let draft = EditDraftAssembler(catalog: catalog, formations: formations).draft(
                 replacing: loaded,
                 courseId: courseId,
                 route: route,
                 producers: producers,
                 slots: slots,
+                ballTeams: teams,
+                managedTeamIds: managedTeamIds,
                 name: roundName)
 
             // The one shape the server rejects as a bare 400 rather than a

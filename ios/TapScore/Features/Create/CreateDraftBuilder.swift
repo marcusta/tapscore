@@ -6,19 +6,34 @@ import Foundation
 /// It is the Swift image of the draft-building half of `src/create/setup.service.ts`
 /// (`defaultAssignment` / `regenerateGame` / `buildTeams` / `buildFormats` /
 /// `buildRoute` / the pre-flight checks in `submit`), restricted to what this
-/// flow can express: ONE game, no hand-built teams, no playing groups. That
-/// restriction only removes draft fields — for the
-/// choices both clients can make, the JSON is byte-for-byte the web's, which is
-/// what `CreateDraftParityTests` pins.
+/// flow can express: no playing groups, no team NAMING (labels stay positional),
+/// no nested teams, and no `custom` formation — the web flexible editor stays
+/// the escape hatch for those. That restriction only removes draft fields — for
+/// the choices both clients can make, the JSON is byte-for-byte the web's, which
+/// is what `CreateDraftParityTests` pins.
+///
+/// **Hand-built teams are now half-allowed** (proposal
+/// `docs/proposals/ball-teams-composition.md`): the roster may carry
+/// `single_ball` BALL TEAMS — players sharing one physical ball (scramble,
+/// foursomes, greensomes) — built in the Players step and passed in as
+/// `ballTeams`. They are round-level, so every game of the round ranks the same
+/// pairing. `multi_ball` SIDES are still never hand-built; they remain derived
+/// from a game's ball assignment, which is what makes their shape follow the
+/// format (Taliban's 2×2) instead of a user's guess.
 ///
 /// Pure and synchronous on purpose: guest minting (the one network step in the
 /// web's `submit`) happens in `CreateStore` and arrives here as a resolved
 /// `playerRef`. So the shape of what we POST is testable without a server.
 struct CreateDraftBuilder: Sendable {
     var catalog: FormatCatalog
+    /// Only pre-flight needs it — the recipes are applied during SETUP, and what
+    /// reaches the builder is always frozen percentages. It is here to name a
+    /// formation and state its bounds in a refusal.
+    var formations: FormationCatalog
 
-    init(catalog: FormatCatalog) {
+    init(catalog: FormatCatalog, formations: FormationCatalog = FormationCatalog()) {
         self.catalog = catalog
+        self.formations = formations
     }
 
     // MARK: - Inputs
@@ -182,19 +197,79 @@ struct CreateDraftBuilder: Sendable {
     /// Never more than a ball takes (`size.max`). Web: `defaultAssignment`.
     func defaultAssignment(formatId: String, rosterCount: Int) -> [Int: Int] {
         guard let shape = catalog.playableShape(id: formatId) else { return [:] }
-        let ballCount = defaultBallCount(formatId: formatId)
+        return assignment(
+            shape: shape,
+            ballCount: defaultBallCount(formatId: formatId),
+            indices: Array(0..<rosterCount))
+    }
+
+    /// The same split over an arbitrary SUB-ROSTER, in the given order. The
+    /// full-roster case above is `indices = 0..<rosterCount`; the sub-roster
+    /// case is a side game seeded from the players still on their own ball
+    /// (see `seedGame(formatId:units:existingTeams:)`).
+    private func assignment(
+        shape: FormatCatalog.PlayableShape,
+        ballCount: Int,
+        indices: [Int]
+    ) -> [Int: Int] {
         guard ballCount > 0 else { return [:] }
-        let even = rosterCount % ballCount == 0 ? rosterCount / ballCount : shape.sizeMin
+        let count = indices.count
+        let even = count % ballCount == 0 ? count / ballCount : shape.sizeMin
         let per = max(1, min(even, shape.sizeMax))
         var out: [Int: Int] = [:]
         var i = 0
-        for ball in 0..<ballCount where i < rosterCount {
+        for ball in 0..<ballCount where i < count {
             var n = 0
-            while n < per && i < rosterCount {
-                out[i] = ball
+            while n < per && i < count {
+                out[indices[i]] = ball
                 n += 1
                 i += 1
             }
+        }
+        return out
+    }
+
+    // MARK: - The ball roster
+
+    /// One BALL of the round: either a shared-ball team, or a player playing
+    /// their own ball.
+    ///
+    /// This is the roster format cards are judged against once ball teams exist
+    /// (proposal: "eligibility derives from the resulting ball roster, not the
+    /// raw player count"). Four players as two scramble pairs are TWO balls, so
+    /// match play (2 balls) lights up and Taliban (2 sides × 2 own-ball
+    /// players) does not.
+    struct BallUnit: Sendable, Equatable {
+        /// The round team key when this ball is shared; nil for a lone player.
+        var teamKey: Int?
+        /// The roster indices standing on this ball.
+        var members: [Int]
+    }
+
+    /// The round's ball roster, DERIVED: one unit per live ball team, one per
+    /// player in none of them, ordered by first roster index so the order is
+    /// the roster's own.
+    ///
+    /// Liveness is the same rule the draft uses (`liveTeams`): a shared ball
+    /// needs at least a pair, so a half-built team of one is not a ball — its
+    /// member is still their own.
+    static func ballUnits(rosterCount: Int, ballTeams: [Composition.Team]) -> [BallUnit] {
+        var teamAt: [Int: Int] = [:]
+        for (at, team) in ballTeams.enumerated() where team.members.count >= 2 {
+            for member in team.members where teamAt[member] == nil { teamAt[member] = at }
+        }
+        var out: [BallUnit] = []
+        var emitted = Set<Int>()
+        for index in 0..<rosterCount {
+            guard let at = teamAt[index] else {
+                out.append(BallUnit(teamKey: nil, members: [index]))
+                continue
+            }
+            guard !emitted.contains(at) else { continue }
+            emitted.insert(at)
+            out.append(BallUnit(
+                teamKey: ballTeams[at].key,
+                members: ballTeams[at].members.filter { $0 < rosterCount }))
         }
         return out
     }
@@ -208,8 +283,15 @@ struct CreateDraftBuilder: Sendable {
     func seedGame(
         formatId: String,
         rosterCount: Int,
-        existingTeams: [Composition.Team] = []
+        existingTeams: [Composition.Team] = [],
+        units: [BallUnit] = []
     ) -> Game {
+        // A round with no shared ball has a ball roster identical to its
+        // roster, so the seeding below is the whole story and every parity
+        // fixture stays on this path untouched.
+        if units.contains(where: { $0.teamKey != nil }) {
+            return seedGame(formatId: formatId, units: units, existingTeams: existingTeams)
+        }
         let config = catalog.byId(formatId)?.defaults.formatConfig ?? [:]
         guard let shape = catalog.playableShape(id: formatId),
               !catalog.isIndividualShape(shape),
@@ -236,6 +318,80 @@ struct CreateDraftBuilder: Sendable {
             ballByPlayer: ballByPlayer,
             ballTeams: Dictionary(
                 uniqueKeysWithValues: adopted.enumerated().map { ($0.offset, $0.element.key) }),
+            allowancePct: 100,
+            config: config)
+    }
+
+    /// Seeding a game over a ball roster that holds SHARED balls.
+    ///
+    /// The shared ball is the unit: it moves whole and can never be split
+    /// across a game's balls (proposal, "Per-game ball assignment operates on
+    /// that ball roster"). So the seed is not a split of the roster at all —
+    /// it is the ball roster itself, one game ball per unit.
+    private func seedGame(
+        formatId: String,
+        units: [BallUnit],
+        existingTeams: [Composition.Team]
+    ) -> Game {
+        let config = catalog.byId(formatId)?.defaults.formatConfig ?? [:]
+        let rosterCount = (units.flatMap(\.members).max() ?? -1) + 1
+        guard let shape = catalog.playableShape(id: formatId) else {
+            return Game(formatId: formatId, ballCount: 0, ballByPlayer: [:], config: config)
+        }
+
+        // A SIDE game is seeded from the players still on their OWN ball, and
+        // a shared ball's members are simply not available to it (v1).
+        //
+        // Nesting a scramble pair inside a side is legal server-side — a
+        // `multi_ball` team may hold a `single_ball` team — but it is
+        // deliberately out of iOS scope (proposal, "Out of iOS scope: team
+        // naming, nested teams, custom formation"); the web flexible editor is
+        // the escape hatch. Seeding one here would emit a nesting this flow
+        // then cannot show or edit.
+        if catalog.isSideFormat(formatId) {
+            if adoptableTeams(shape: shape, teams: existingTeams) != nil {
+                return seedGame(formatId: formatId, rosterCount: rosterCount, existingTeams: existingTeams)
+            }
+            let ballCount = defaultBallCount(formatId: formatId)
+            return Game(
+                formatId: formatId,
+                ballCount: ballCount,
+                ballByPlayer: assignment(
+                    shape: shape,
+                    ballCount: ballCount,
+                    indices: units.filter { $0.teamKey == nil }.flatMap(\.members)),
+                allowancePct: 100,
+                config: config)
+        }
+
+        // An INDIVIDUAL game has no ball decision to seed — it is contested
+        // between as many balls as the round has. Its shared balls still become
+        // team subjects; `compose` does that, because it is true of a custom
+        // slot with no balls as well.
+        if catalog.isIndividualShape(shape) {
+            return Game(
+                formatId: formatId, ballCount: 0, ballByPlayer: [:], allowancePct: 100, config: config)
+        }
+
+        // Every other ball format is contested between the ball roster itself —
+        // up to the format's own CEILING. Köpenhamnare is three balls, and a
+        // five-player round already sits two players out; pairing two of them
+        // must not turn that into a refusal the user cannot act on, because
+        // there is nothing to remove. So the ceiling clamps the seed and the
+        // balls past it sit out, exactly as the roster path's `assignment`
+        // leaves surplus players unassigned.
+        let ballCount = min(units.count, shape.countMax ?? units.count)
+        var ballByPlayer: [Int: Int] = [:]
+        var ballTeams: [Int: Int] = [:]
+        for (ball, unit) in units.enumerated() where ball < ballCount {
+            for member in unit.members { ballByPlayer[member] = ball }
+            if let key = unit.teamKey { ballTeams[ball] = key }
+        }
+        return Game(
+            formatId: formatId,
+            ballCount: ballCount,
+            ballByPlayer: ballByPlayer,
+            ballTeams: ballTeams,
             allowancePct: 100,
             config: config)
     }
@@ -311,9 +467,19 @@ struct CreateDraftBuilder: Sendable {
     /// in pick order. Teams are round-level, so the list — and with it the
     /// A…H letters — is built across games, not per game: two games contested
     /// between the same pair emit ONE team and both reference it.
-    func compose(games: [Game], rosterCount: Int) -> Composition {
+    ///
+    /// `ballTeams` are the round's hand-built SHARED balls, and they go in
+    /// FIRST — before any side a game mints — so the positional `Team A/B…`
+    /// labels stay put while the user edits games. Adding a third game must not
+    /// rename the pair set up in the Players step.
+    func compose(
+        games: [Game],
+        rosterCount: Int,
+        ballTeams: [Composition.Team] = []
+    ) -> Composition {
         var out = Composition()
-        var nextTeamKey = 1
+        out.teams = ballTeams
+        var nextTeamKey = (ballTeams.map(\.key).max() ?? 0) + 1
 
         for game in games {
             var per = Composition.GameComposition()
@@ -342,6 +508,17 @@ struct CreateDraftBuilder: Sendable {
                     continue
                 }
                 let pct = Dictionary(uniqueKeysWithValues: members.map { ($0, 100.0) })
+                if let carried, let at = out.teams.firstIndex(where: { $0.key == carried }),
+                   out.teams[at].kind == .singleBall {
+                    // A SHARED ball the game is contested between. It is owned
+                    // by the roster, not by this game: its formation, its
+                    // membership and its seeded percentages all stand, and the
+                    // refresh below would flatten every one of them to a
+                    // 100%-each side.
+                    per.ballTeams[ball] = carried
+                    per.subjectTeamKeys.append(carried)
+                    continue
+                }
                 if let carried, let at = out.teams.firstIndex(where: { $0.key == carried }) {
                     // A side this game already references: refresh its
                     // membership in place, so the OTHER game sharing it moves
@@ -373,6 +550,17 @@ struct CreateDraftBuilder: Sendable {
             if game.ballCount > 0 {
                 for i in 0..<rosterCount where per.subjectPlayers[i] == nil {
                     per.subjectPlayers[i] = false
+                }
+            } else if catalog.teamKindFits(game.formatId, kind: .singleBall) {
+                // An INDIVIDUAL game (and a custom slot) has no balls of its
+                // own, so the loop above never met the round's shared balls.
+                // They are still subjects — one ball, one score — and their
+                // members must NOT also be scored individually. Stableford over
+                // two scramble pairs is two subjects, not two plus four: THE
+                // DOUBLE-SCORING TRAP (format-templates.md §4).
+                for team in ballTeams where team.members.count >= 2 {
+                    per.subjectTeamKeys.append(team.key)
+                    for member in team.members { per.subjectPlayers[member] = false }
                 }
             }
             // The custom slot's own subject ticks win over the seeded ones
@@ -406,12 +594,13 @@ struct CreateDraftBuilder: Sendable {
         route: Route,
         games: [Game],
         players: [Player],
+        ballTeams: [Composition.Team] = [],
         name: String = "",
         playedAt: String = CreateDraftBuilder.today()
     ) -> CompetitionsCreateRoundOutputOkDraft {
         let defIds = (0..<players.count).map { "p\($0 + 1)" }
         let (roundType, routeFields) = self.routeFields(route)
-        let composition = compose(games: games, rosterCount: players.count)
+        let composition = compose(games: games, rosterCount: players.count, ballTeams: ballTeams)
 
         let producers = players.enumerated().map { index, p in
             CompetitionsCreateRoundOutputOkDraftProducersItem.playerRef(
@@ -542,9 +731,14 @@ struct CreateDraftBuilder: Sendable {
     /// out empty fails the server's schema (`subjects minItems 1`) as a bare
     /// 400, long before the compiler's friendly diagnostics run. Catching it
     /// here is what turns that into a sentence saying what to build instead.
-    func preflight(games: [Game], players: [Player]) -> [CompilerDiagnostic] {
+    func preflight(
+        games: [Game],
+        players: [Player],
+        ballTeams: [Composition.Team] = []
+    ) -> [CompilerDiagnostic] {
         var out = preflightPlayers(players)
-        let composition = compose(games: games, rosterCount: players.count)
+        out += preflightBallTeams(ballTeams)
+        let composition = compose(games: games, rosterCount: players.count, ballTeams: ballTeams)
         let live = composition.liveTeams
         let defIds = (0..<players.count).map { "p\($0 + 1)" }
         for i in games.indices
@@ -557,6 +751,73 @@ struct CreateDraftBuilder: Sendable {
                 // has nobody to score" must name which one.
                 path: "formats[\(i)]",
                 formatIndex: Double(i)))
+        }
+        return out
+    }
+
+    /// The four ways a hand-built shared ball can be degenerate, all of which
+    /// the draft would otherwise swallow silently:
+    ///
+    ///  - a team that is not a team (one member, dropped by `liveTeams`, so its
+    ///    player quietly plays alone);
+    ///  - a team whose size its formation does not allow (three in a foursome —
+    ///    legal to the server, which does not enforce formation bounds, and
+    ///    nonsense on the course);
+    ///  - a size the formation ALLOWS but has no allowance recipe for, which
+    ///    can only happen when this app is older than the server's catalog. The
+    ///    honest answer is a refusal: the alternative is 100% each, i.e. one
+    ///    ball playing off the SUM of its members' course handicaps, which is
+    ///    the most dangerous default available and would look like a scoring
+    ///    bug rather than a version skew;
+    ///  - one player standing on two shared balls. The Players step cannot
+    ///    build that (`addBallTeamMember` refuses a row that already shares a
+    ///    ball), but a stored draft can carry it, and hydration takes stored
+    ///    teams at their word.
+    ///
+    /// All carry no `path`, so `CreateDiagnostics` buckets them as GENERAL:
+    /// the offending team is named in the message, and there is no draft field
+    /// to point at until the Players-step section exists (Phase C).
+    func preflightBallTeams(_ ballTeams: [Composition.Team]) -> [CompilerDiagnostic] {
+        var out: [CompilerDiagnostic] = []
+        var ballByPlayer: [Int: Int] = [:]
+        for (index, team) in ballTeams.enumerated() {
+            let label = Self.teamLabel(index)
+            for member in team.members {
+                guard let first = ballByPlayer[member] else {
+                    ballByPlayer[member] = index
+                    continue
+                }
+                out.append(CompilerDiagnostic(
+                    code: "ball_team_overlap",
+                    message: "A player is on both \(Self.teamLabel(first)) and \(label) — "
+                        + "one player can only share one ball."))
+                break
+            }
+            guard team.members.count >= 2 else {
+                out.append(CompilerDiagnostic(
+                    code: "ball_team_too_small",
+                    message: "\(label) shares one ball but has only one player — "
+                        + "add a playing partner, or remove the team."))
+                continue
+            }
+            guard let size = formations.size(team.formation) else { continue }
+            let name = formations.label(team.formation) ?? team.formation
+            guard team.members.count >= size.min && team.members.count <= size.max else {
+                let bound = size.min == size.max
+                    ? "exactly \(size.min) players"
+                    : "\(size.min)–\(size.max) players"
+                out.append(CompilerDiagnostic(
+                    code: "ball_team_size_mismatch",
+                    message: "\(label) has \(team.members.count) players — "
+                        + "\(name) is played by \(bound)."))
+                continue
+            }
+            guard formations.allowances(team.formation, memberCount: team.members.count) == nil
+            else { continue }
+            out.append(CompilerDiagnostic(
+                code: "ball_team_no_recipe",
+                message: "This app doesn't know the allowances for a \(team.members.count)-player "
+                    + "\(name) (\(label)) — update the app, or play them on their own balls."))
         }
         return out
     }

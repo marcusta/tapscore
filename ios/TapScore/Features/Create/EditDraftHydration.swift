@@ -28,12 +28,33 @@ enum EditDraftHydration {
         var startHole: Int
         var players: [CreateStore.PlayerRow]
         var slots: [CreateStore.FormatSlot]
+        /// The round's shared balls, in stored order. Only the ones this client
+        /// can OWN — a `single_ball` team whose formation the catalog does not
+        /// carry (`custom`) is deliberately absent, so `EditDraftAssembler`
+        /// passes it through untouched instead of the Players step re-seeding
+        /// percentages it has no recipe for.
+        var ballTeams: [CreateStore.BallTeam] = []
+        /// The stored `teams[]` ids this hydration actually TOOK — the exact
+        /// set the save path may replace from form state.
+        ///
+        /// It is reported rather than re-derived because the two sides
+        /// disagreeing is a silent delete: a team hydration skipped (a nested
+        /// member, say) but the assembler re-classified as ownable would be
+        /// dropped from `teams[]` on the next save, along with every subject
+        /// naming it. Managedness is a fact about what happened here, so it
+        /// travels with the result.
+        var managedTeamIds: Set<String> = []
     }
 
     /// `nameFor` resolves a producer's display name — the draft carries only an
     /// identity ref, so the caller reads the label off the round's balls.
+    ///
+    /// `formations` decides which stored teams are ownable at all; empty (the
+    /// catalog failed to load) hydrates none, and the save path then carries
+    /// every stored team through unchanged.
     static func prefill(
         draft: CompetitionsCreateRoundOutputOkDraft,
+        formations: FormationCatalog = FormationCatalog(),
         nameFor: (String) -> String = { _ in "" }
     ) -> Prefill {
         var rowIdByDefId: [String: UUID] = [:]
@@ -64,6 +85,10 @@ enum EditDraftHydration {
                 producerDefId: p.producerDefId))
         }
 
+        let sharedMembers = EditDraftAssembler.sharedBallMembers(draft.teams ?? [])
+        let ballTeams = Self.ballTeams(
+            draft, formations: formations, rowIdByDefId: rowIdByDefId)
+
         let allDefIds = players.compactMap(\.producerDefId)
         let slots = draft.formats.enumerated().map { index, format in
             CreateStore.FormatSlot(
@@ -74,7 +99,8 @@ enum EditDraftHydration {
                 excludedRowIds: Self.excludedRowIds(
                     format,
                     allDefIds: allDefIds,
-                    rowIdByDefId: rowIdByDefId),
+                    rowIdByDefId: rowIdByDefId,
+                    sharedMembers: sharedMembers),
                 sourceIndex: index)
         }
 
@@ -84,7 +110,49 @@ enum EditDraftHydration {
             preset: route.preset,
             startHole: route.startHole,
             players: players,
-            slots: slots)
+            slots: slots,
+            ballTeams: ballTeams,
+            managedTeamIds: Set(ballTeams.compactMap(\.sourceTeamId)))
+    }
+
+    /// The stored shared balls, as Players-step state.
+    ///
+    /// Always `customized`: the percentages in a stored draft are the ones the
+    /// round was set up with — possibly hand-entered, possibly seeded by a
+    /// version of the recipe that has since moved — and re-deriving them the
+    /// first time somebody opens the round to rename a guest would silently
+    /// rewrite the scorecard. Overrides are sticky; a stored number is an
+    /// override by the only definition that matters here.
+    private static func ballTeams(
+        _ draft: CompetitionsCreateRoundOutputOkDraft,
+        formations: FormationCatalog,
+        rowIdByDefId: [String: UUID]
+    ) -> [CreateStore.BallTeam] {
+        (draft.teams ?? []).compactMap { team in
+            guard (team.kind ?? .singleBall) == .singleBall,
+                  let formation = team.formation,
+                  formations.byId(formation) != nil
+            else { return nil }
+            var memberRowIds: [UUID] = []
+            var pctByRow: [UUID: Double] = [:]
+            for member in team.members {
+                // A NESTED team cannot be shown by this flow, so the team
+                // holding it is left to pass through whole rather than
+                // hydrated as the members it does not have.
+                guard case .producerDefId(let m) = member,
+                      let rowId = rowIdByDefId[m.producerDefId]
+                else { return nil }
+                memberRowIds.append(rowId)
+                pctByRow[rowId] = m.allowancePct ?? 100
+            }
+            return CreateStore.BallTeam(
+                memberRowIds: memberRowIds,
+                formationId: formation,
+                customized: true,
+                pctByRow: pctByRow,
+                sourceTeamId: team.id,
+                sourceLabel: team.label)
+        }
     }
 
     /// True when any producer is an unclaimed seat — the one client-side reason
@@ -99,12 +167,20 @@ enum EditDraftHydration {
     private static func excludedRowIds(
         _ format: CompetitionDetailDefaultConfigSlotsItem,
         allDefIds: [String],
-        rowIdByDefId: [String: UUID]
+        rowIdByDefId: [String: UUID],
+        sharedMembers: [String: Set<String>]
     ) -> Set<UUID> {
         guard let subjects = format.subjects else { return [] }
         var included = Set<String>()
         for subject in subjects {
-            if case .player(let p) = subject { included.insert(p.producerDefId) }
+            switch subject {
+            case .player(let p): included.insert(p.producerDefId)
+            // A player scored AS PART OF A SHARED BALL is not "ticked out" of
+            // the slot — they are scored by it, through the ball. Marking them
+            // excluded would render the roster as if the user had removed them,
+            // and un-ticking one would then double-score them.
+            case .team(let t): included.formUnion(sharedMembers[t.teamId] ?? [])
+            }
         }
         return Set(allDefIds.filter { !included.contains($0) }.compactMap { rowIdByDefId[$0] })
     }

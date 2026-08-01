@@ -38,11 +38,20 @@ import Foundation
 ///
 /// `playedAt`, `venueType` and the `startList` policy are always the loaded
 /// document's — there is no UI for any of them, so there is nothing to merge.
+///
+/// Rule 2 has one exception, added with shared-ball teams: a `single_ball` team
+/// whose formation this client KNOWS is owned by the Players step, so it is
+/// replaced from form state rather than carried. Everything else about a team
+/// still carries — including a `single_ball` team whose formation the catalog
+/// does not have (`custom`, from the web flexible editor), which stays pure
+/// passthrough because this flow can neither show nor safely re-seed it.
 struct EditDraftAssembler: Sendable {
     var catalog: FormatCatalog
+    var formations: FormationCatalog
 
-    init(catalog: FormatCatalog) {
+    init(catalog: FormatCatalog, formations: FormationCatalog = FormationCatalog()) {
         self.catalog = catalog
+        self.formations = formations
     }
 
     // MARK: - Inputs
@@ -106,14 +115,52 @@ struct EditDraftAssembler: Sendable {
         }
     }
 
+    /// One shared-ball team as the form holds it, in DEF-IDS — the roster is
+    /// addressed by def-id everywhere in an edit, because that is the identity
+    /// a scored ball already carries.
+    ///
+    /// `id` and `label` are the stored team's, when this team came from the
+    /// loaded draft: keeping them is what makes the round-trip byte-for-byte,
+    /// and what stops a save from deleting a team and re-creating it under a
+    /// new id that every stored subject then fails to name.
+    struct BallTeam: Sendable, Equatable {
+        var id: String?
+        var label: String?
+        var formation: String
+        var members: [Member]
+
+        struct Member: Sendable, Equatable {
+            var producerDefId: String
+            var allowancePct: Double
+
+            init(producerDefId: String, allowancePct: Double) {
+                self.producerDefId = producerDefId
+                self.allowancePct = allowancePct
+            }
+        }
+
+        init(id: String? = nil, label: String? = nil, formation: String, members: [Member]) {
+            self.id = id
+            self.label = label
+            self.formation = formation
+            self.members = members
+        }
+    }
+
     // MARK: - Assembly
 
+    /// `ballTeams` is the Players step's shared-ball state. **Nil means "this
+    /// session has nothing to say about them"** — the formation catalog never
+    /// loaded, so nothing could be hydrated either — and every stored team is
+    /// carried untouched. An empty ARRAY is a statement: the user removed them.
     func draft(
         replacing loaded: CompetitionsCreateRoundOutputOkDraft,
         courseId: String,
         route: CreateDraftBuilder.Route,
         producers: [Producer],
         slots: [Slot],
+        ballTeams: [BallTeam]? = nil,
+        managedTeamIds: Set<String> = [],
         name: String = ""
     ) -> CompetitionsCreateRoundOutputOkDraft {
         let liveIds = Set(producers.map(\.producerDefId))
@@ -136,12 +183,34 @@ struct EditDraftAssembler: Sendable {
         }
 
         let carriedTeams = Self.prunedTeams(loaded.teams, liveIds: liveIds)
-        let teamIds = Set((carriedTeams ?? []).map(\.id))
+        let (merged, mintedIds) = mergedBallTeams(
+            carriedTeams ?? [], state: ballTeams, managed: managedTeamIds)
+        let teamIds = Set(merged.map(\.id))
+        // The balls a slot may GROW: the ones BUILT during this edit, in
+        // document order.
+        //
+        // Only those. A stored ball's absence from a stored slot is a decision
+        // the round already made — a web-authored round can perfectly well
+        // score a scramble pair in one game and sit it out of another — and an
+        // iOS edit of somebody's handicap is not the place to overturn it.
+        // A ball built HERE has no such history: nothing has ever had the
+        // chance to say where it plays, so every slot that can take it does,
+        // which is what stops a pairing made in this flow from being stored and
+        // scored by nothing.
+        let grownBallOrder = merged
+            .filter { ($0.kind ?? .singleBall) == .singleBall && mintedIds.contains($0.id) }
+            .map(\.id)
+        // Team id → the def-ids standing on that SHARED ball. Every
+        // `single_ball` team of the round, not only the ones this flow owns: a
+        // player scored as part of a shared ball must never also be scored
+        // individually, whoever built the ball (the double-scoring trap,
+        // format-templates.md §4).
+        let sharedMembers = Self.sharedBallMembers(merged)
 
         // The team list a slot may GROW: a side format picked during this edit
         // has no stored composition to merge, so it seeds sides the way create
         // does, and a seeded side is a new round team (see `sideSubjects`).
-        var teams = carriedTeams ?? []
+        var teams = merged
         var formats: [CompetitionDetailDefaultConfigSlotsItem] = []
         for slot in slots {
             let source = slot.sourceIndex.flatMap { index in
@@ -153,12 +222,14 @@ struct EditDraftAssembler: Sendable {
                 order: order,
                 liveIds: liveIds,
                 teamIds: teamIds,
+                sharedMembers: sharedMembers,
+                grownBallOrder: grownBallOrder,
                 teams: &teams))
         }
 
         let carryRoute = courseId == loaded.courseId
             && Self.route(from: loaded) == (preset: route.preset, startHole: route.startHole)
-        let rebuilt = CreateDraftBuilder(catalog: catalog).routeFields(route)
+        let rebuilt = CreateDraftBuilder(catalog: catalog, formations: formations).routeFields(route)
 
         // The name IS edited by this flow, so it is rebuilt from the field
         // rather than carried off `loaded` — clearing it must actually clear it.
@@ -182,6 +253,94 @@ struct EditDraftAssembler: Sendable {
             startList: loaded.startList)
     }
 
+    // MARK: - Shared balls
+
+    /// The stored team list with the flow's shared balls swapped in.
+    ///
+    /// Managed teams are replaced IN PLACE — same id, same label, same
+    /// position — so a save that changed nothing produces the document it
+    /// loaded. Teams built during this edit are PREPENDED, mirroring
+    /// `CreateDraftBuilder.compose`: shared balls come before any side, so the
+    /// positional letters stay put as games are added.
+    ///
+    /// `managed` is the set of stored ids `EditDraftHydration` actually took —
+    /// never a re-derivation from the team's own fields. A team the form does
+    /// not hold is dropped only if the form was the thing that dropped it;
+    /// anything hydration passed over passes through here too.
+    ///
+    /// Returns the ids it MINTED alongside the list, because "was this ball
+    /// built during this edit?" is a fact about what happened here — the same
+    /// shape as `managed`, and for the same reason: a caller re-deriving it
+    /// from the team's own fields cannot tell a ball built a minute ago from
+    /// one the round has carried since it was created.
+    private func mergedBallTeams(
+        _ carried: [CompetitionsCreateRoundOutputOkDraftTeamsItem],
+        state: [BallTeam]?,
+        managed: Set<String>
+    ) -> (teams: [CompetitionsCreateRoundOutputOkDraftTeamsItem], minted: Set<String>) {
+        guard let state else { return (carried, []) }
+        let byId = Dictionary(
+            state.compactMap { team in team.id.map { ($0, team) } },
+            uniquingKeysWith: { first, _ in first })
+
+        var kept: [CompetitionsCreateRoundOutputOkDraftTeamsItem] = []
+        var replaced = Set<String>()
+        for team in carried {
+            guard managed.contains(team.id) else { kept.append(team); continue }
+            // A managed team the form no longer holds was un-paired during this
+            // edit, and dropping it is the whole point of that gesture.
+            guard let replacement = byId[team.id] else { continue }
+            replaced.insert(team.id)
+            kept.append(item(replacement, id: team.id, label: replacement.label ?? team.label))
+        }
+
+        var minted: [CompetitionsCreateRoundOutputOkDraftTeamsItem] = []
+        var mintedIds = Set<String>()
+        for team in state where team.id.map({ !replaced.contains($0) }) ?? true {
+            let pool = carried + kept + minted
+            let id = team.id ?? Self.freshTeamId(pool)
+            mintedIds.insert(id)
+            minted.append(item(
+                team,
+                id: id,
+                label: team.label ?? Self.freshTeamLabel(pool)))
+        }
+        return (minted + kept, mintedIds)
+    }
+
+    private func item(
+        _ team: BallTeam,
+        id: String,
+        label: String?
+    ) -> CompetitionsCreateRoundOutputOkDraftTeamsItem {
+        CompetitionsCreateRoundOutputOkDraftTeamsItem(
+            id: id,
+            label: label,
+            formation: team.formation,
+            kind: .singleBall,
+            members: team.members.map {
+                .producerDefId(.init(producerDefId: $0.producerDefId, allowancePct: $0.allowancePct))
+            })
+    }
+
+    /// Team id → the def-ids on that shared ball, for every `single_ball` team
+    /// of the round. A nested team contributes nothing: this flow cannot
+    /// resolve one, and guessing at its membership would exclude the wrong
+    /// player from being scored.
+    static func sharedBallMembers(
+        _ teams: [CompetitionsCreateRoundOutputOkDraftTeamsItem]
+    ) -> [String: Set<String>] {
+        var out: [String: Set<String>] = [:]
+        for team in teams where (team.kind ?? .singleBall) == .singleBall {
+            var ids = Set<String>()
+            for member in team.members {
+                if case .producerDefId(let m) = member { ids.insert(m.producerDefId) }
+            }
+            out[team.id] = ids
+        }
+        return out
+    }
+
     // MARK: - Formats
 
     private func slotItem(
@@ -190,6 +349,8 @@ struct EditDraftAssembler: Sendable {
         order: [String],
         liveIds: Set<String>,
         teamIds: Set<String>,
+        sharedMembers: [String: Set<String>],
+        grownBallOrder: [String],
         teams: inout [CompetitionsCreateRoundOutputOkDraftTeamsItem]
     ) -> CompetitionDetailDefaultConfigSlotsItem {
         // A slot whose FORMAT was changed keeps nothing: its config keys belong
@@ -200,7 +361,8 @@ struct EditDraftAssembler: Sendable {
                 formatId: slot.formatId,
                 allowanceConfig: .flat(.init(pct: slot.allowancePct)),
                 formatConfig: Self.configValue(slot.config),
-                subjects: freshSubjects(slot, order: order, teams: &teams))
+                subjects: freshSubjects(
+                    slot, order: order, sharedMembers: sharedMembers, teams: &teams))
         }
         return CompetitionDetailDefaultConfigSlotsItem(
             formatId: slot.formatId,
@@ -225,28 +387,45 @@ struct EditDraftAssembler: Sendable {
                 slot: slot,
                 order: order,
                 liveIds: liveIds,
-                teamIds: teamIds))
+                teamIds: teamIds,
+                sharedMembers: sharedMembers,
+                grownBallOrder: grownBallOrder))
     }
 
-    /// The loaded subject list, pruned and topped up.
+    /// The loaded subject list, pruned, GROWN and topped up.
     ///
-    /// Pruned: a subject naming a producer or team that is gone. Topped up: a
-    /// roster row ADDED during this edit is scored by every slot that scores
-    /// players, which is the web's behaviour (its form treats a player with no
-    /// tick as included). A side format is never topped up — it scores sides,
-    /// and an individual subject on it is a lie the compiler would refuse.
+    /// Pruned: a subject naming a producer or team that is gone. Grown: a
+    /// shared ball built during this edit becomes a subject of every slot that
+    /// can take one — without this a pair made while editing a stored round
+    /// lands in `teams[]` and is scored by nothing, while its members carry on
+    /// being scored individually, which is exactly the arrangement the pairing
+    /// was meant to replace. A STORED ball is never grown: a slot it is absent
+    /// from is a slot it was sat out of, and that is the round's decision to
+    /// have made. Topped up: a roster row ADDED during this edit is scored by
+    /// every slot that scores players, which is the web's behaviour (its form
+    /// treats a player with no tick as included).
+    ///
+    /// A side format is never grown or topped up — it scores sides, and an
+    /// individual subject on it is a lie the compiler would refuse.
     private func mergedSubjects(
         _ source: [CompetitionDetailDefaultConfigSlotsItemSubjectsItem]?,
         slot: Slot,
         order: [String],
         liveIds: Set<String>,
-        teamIds: Set<String>
+        teamIds: Set<String>,
+        sharedMembers: [String: Set<String>],
+        grownBallOrder: [String]
     ) -> [CompetitionDetailDefaultConfigSlotsItemSubjectsItem]? {
         // No subject list stored ⇒ none emitted. An absent key is a shape the
         // compiler understands; an invented list is a decision nobody made.
         guard let source else { return nil }
         var out: [CompetitionDetailDefaultConfigSlotsItemSubjectsItem] = []
         var kept = Set<String>()
+        var present = Set<String>()
+        // Players already scored by this slot AS PART OF A SHARED BALL. The
+        // top-up below must skip them, or a scramble pair added to the round
+        // would be scored three times: once as the ball, once per member.
+        var covered = Set<String>()
         for subject in source {
             switch subject {
             case .player(let p):
@@ -256,11 +435,29 @@ struct EditDraftAssembler: Sendable {
                 out.append(subject)
             case .team(let t):
                 guard teamIds.contains(t.teamId) else { continue }
+                present.insert(t.teamId)
+                covered.formUnion(sharedMembers[t.teamId] ?? [])
                 out.append(subject)
             }
         }
         guard !catalog.isSideFormat(slot.formatId) else { return out }
-        for id in order where !kept.contains(id) && !slot.excludedDefIds.contains(id) {
+        if catalog.teamKindFits(slot.formatId, kind: .singleBall) {
+            for id in grownBallOrder where !present.contains(id) {
+                guard let members = sharedMembers[id], members.count >= 2 else { continue }
+                covered.formUnion(members)
+                out.append(.team(.init(teamId: id)))
+            }
+        }
+        // A member of a shared ball is scored THROUGH it. Any individual
+        // subject the stored list still names for one of them is the
+        // double-scoring trap (format-templates.md §4) — it goes, whether it
+        // was made stale by a pairing built just now or arrived that way.
+        out.removeAll { subject in
+            guard case .player(let p) = subject else { return false }
+            return covered.contains(p.producerDefId)
+        }
+        for id in order
+        where !kept.contains(id) && !covered.contains(id) && !slot.excludedDefIds.contains(id) {
             out.append(.player(.init(producerDefId: id)))
         }
         return out
@@ -277,12 +474,29 @@ struct EditDraftAssembler: Sendable {
     private func freshSubjects(
         _ slot: Slot,
         order: [String],
+        sharedMembers: [String: Set<String>],
         teams: inout [CompetitionsCreateRoundOutputOkDraftTeamsItem]
     ) -> [CompetitionDetailDefaultConfigSlotsItemSubjectsItem] {
         guard catalog.isSideFormat(slot.formatId) else {
-            return order
-                .filter { !slot.excludedDefIds.contains($0) }
-                .map { .player(.init(producerDefId: $0)) }
+            // The round's shared balls are subjects of it, and their members are
+            // then NOT scored individually — the same rule create applies in
+            // `CreateDraftBuilder.compose`, for the same reason.
+            var out: [CompetitionDetailDefaultConfigSlotsItemSubjectsItem] = []
+            var covered = Set<String>()
+            if catalog.teamKindFits(slot.formatId, kind: .singleBall) {
+                for team in teams where sharedMembers[team.id] != nil {
+                    guard let members = sharedMembers[team.id], members.count >= 2 else { continue }
+                    covered.formUnion(members)
+                    out.append(.team(.init(teamId: team.id)))
+                }
+            }
+            let players = order
+                .filter { !covered.contains($0) && !slot.excludedDefIds.contains($0) }
+                .map {
+                    CompetitionDetailDefaultConfigSlotsItemSubjectsItem
+                        .player(.init(producerDefId: $0))
+                }
+            return players + out
         }
         return sideSubjects(slot, order: order, teams: &teams)
     }
@@ -301,7 +515,7 @@ struct EditDraftAssembler: Sendable {
         order: [String],
         teams: inout [CompetitionsCreateRoundOutputOkDraftTeamsItem]
     ) -> [CompetitionDetailDefaultConfigSlotsItemSubjectsItem] {
-        let builder = CreateDraftBuilder(catalog: catalog)
+        let builder = CreateDraftBuilder(catalog: catalog, formations: formations)
         // The round's teams as the builder speaks them: roster INDICES, keyed
         // by position in the draft's team list so an adopted key maps straight
         // back to the team it came from. A team holding another team cannot be
@@ -327,7 +541,12 @@ struct EditDraftAssembler: Sendable {
         let game = builder.seedGame(
             formatId: slot.formatId,
             rosterCount: order.count,
-            existingTeams: existing)
+            existingTeams: existing,
+            // A shared ball's members are not available to a side game (v1) —
+            // the same rule create seeds by.
+            units: CreateDraftBuilder.ballUnits(
+                rosterCount: order.count,
+                ballTeams: existing.filter { $0.kind == .singleBall }))
 
         // Adopted: the sides are the round's own, and nothing new is minted.
         if !game.ballTeams.isEmpty {
@@ -369,6 +588,19 @@ struct EditDraftAssembler: Sendable {
         var next = 1
         while used.contains(String(next)) { next += 1 }
         return String(next)
+    }
+
+    /// The first positional `Team A/B…` label the round is not already using.
+    /// A created round labels by position; an edited one cannot, because the
+    /// positions it would count are a document it did not build — so it takes
+    /// the first free letter instead of duplicating one.
+    private static func freshTeamLabel(
+        _ teams: [CompetitionsCreateRoundOutputOkDraftTeamsItem]
+    ) -> String {
+        let used = Set(teams.compactMap(\.label))
+        var next = 0
+        while used.contains(CreateDraftBuilder.teamLabel(next)) { next += 1 }
+        return CreateDraftBuilder.teamLabel(next)
     }
 
     /// Carried while the control still reads what the stored config says — so a
