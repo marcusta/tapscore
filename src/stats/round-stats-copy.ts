@@ -354,6 +354,8 @@ export function insightSentence(line: InsightLine): string {
         }
         case 'scramble_streak':
             return `You saved par ${count(p.successes)} of the ${count(p.attempts)} times you missed the green.`;
+        case 'hard_scramble_streak':
+            return `You saved par from all ${count(p.attempts)} of the hard spots you were in.`;
         case 'three_putt_free':
             return `No three-putts — ${count(p.putts)} putts across the round.`;
         case 'best_putting_round': {

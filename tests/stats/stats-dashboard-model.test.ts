@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import {
+    approachPanel,
     buildDashboardModel,
     buildPriorities,
     buildTrends,
@@ -99,6 +100,71 @@ test('putting opens on EITHER counter — a bucketed first putt with no putt cou
 test('short game opens on scramble ATTEMPTS across both difficulties', () => {
     expect(shortGamePanel(measures({ scrambleAttemptsHard: 2 }))).not.toBeNull();
     expect(shortGamePanel(measures({ scrambleHoledStandard: 1 }))).toBeNull();
+});
+
+test('the results summary is built from the ROWS, not from the window sum', () => {
+    // Two nines sum to eighteen holes and are not a round: the 18-hole gate and
+    // the best score are per-round facts a summed window would destroy.
+    const model = buildDashboardModel([
+        row({
+            roundId: 'a',
+            date: '2026-05-01',
+            holeCount: 9,
+            measures: measures({ holesScored: 9, strokesTotal: 44, parTotal: 36 }),
+        }),
+        row({
+            roundId: 'b',
+            date: '2026-05-02',
+            holeCount: 9,
+            measures: measures({ holesScored: 9, strokesTotal: 43, parTotal: 36 }),
+        }),
+    ]);
+    expect(model.results!.rounds).toBe(2);
+    expect(model.results!.completeRounds).toBe(0);
+    expect(model.results!.bestScore).toBeNull();
+    expect(model.results!.averageScore).toEqual({ value: null, n: 0, d: 0 });
+    // Vs par is per-hole-normalised, so the nines count: (8 + 7) / 2.
+    expect(model.results!.avgVsParPerRound).toEqual({ value: 7.5, n: 15, d: 2 });
+    // Not a panel — it is gated on nothing but an empty window.
+    expect(presentPanels(model)).toEqual(['scoring']);
+    expect(EMPTY_DASHBOARD_MODEL.results).toBeNull();
+});
+
+test('the panels carry the coverage and split figures their gates are decided on', () => {
+    const m = measures({
+        teeRecorded: 9,
+        girRecorded: 9,
+        girHits: 4,
+        puttsRecorded: 9,
+        puttsTotal: 16,
+        puttsRecordedGir: 4,
+        puttsTotalGir: 6,
+        firstPuttRecorded: 9,
+        firstPuttInside1mResolved: 5,
+        firstPutt2To4mResolved: 4,
+        penaltiesRecorded: 18,
+        penaltiesTotal: 2,
+        scrambleAttemptsStandard: 3,
+        scrambleAttemptsHard: 2,
+        scrambleHoledStandard: 2,
+        scrambleHoledHard: 1,
+    });
+    // The recorded-holes count the Penalties row is gated on — `penaltiesPerRound`
+    // divides by the ROUND count and so cannot answer "was it ever asked?".
+    expect(teePanel(m, 1)!.penaltiesRecordedHoles).toBe(18);
+    expect(teePanel(measures({ teeRecorded: 9 }), 1)!.penaltiesRecordedHoles).toBe(0);
+    // A property of the approach MISS, so it lives on the approach panel.
+    expect(approachPanel(m)!.hardChipShare).toEqual({ value: 0.4, n: 2, d: 5 });
+
+    const putting = puttingPanel(m)!;
+    // Shares of the RESOLVED total (9), not of `firstPuttRecorded`.
+    expect(putting.firstPuttSpread.inside_1m).toEqual({ value: 5 / 9, n: 5, d: 9 });
+    expect(putting.firstPuttSpread['1_to_2m']).toEqual({ value: 0, n: 0, d: 9 });
+    // 16 − 6 = 10 putts over 9 − 4 = 5 holes.
+    expect(putting.puttsAfterMissedGreen).toEqual({ value: 2, n: 10, d: 5 });
+
+    // Chip-ins are two counts and their total, not one lumped number.
+    expect(shortGamePanel(m)!.chipIns).toEqual({ standard: 2, hard: 1, overall: 3 });
 });
 
 test('present panels come back in reading order, tee to green then the scorecard', () => {

@@ -173,6 +173,11 @@ enum RoundStoryCopy {
             return
                 "\(strokes(penalties)) penalty \(penalties == 1 ? "stroke" : "strokes"), against \(StatsFormat.number(baseline)) in a normal round."
 
+        case .hardScrambleStreak:
+            guard let attempts = number(line, "attempts")
+            else { return "You saved par from every hard spot you were in." }
+            return "You saved par from all \(strokes(attempts)) of the hard spots you were in."
+
         case .scrambleStreak:
             guard let successes = number(line, "successes"), let attempts = number(line, "attempts")
             else { return "You scrambled well when you missed the green." }

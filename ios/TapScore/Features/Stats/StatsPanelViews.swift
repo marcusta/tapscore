@@ -274,8 +274,47 @@ struct StatsPanelsView: View {
         ]
     }
 
+    /// The three vs-par rows, or nothing.
+    ///
+    /// The group is omitted only when NO tee shot has a scored hole behind it —
+    /// an individual row with `d == 0` stays and reads "Not recorded", because
+    /// the three partition the tee shots and hiding one of a partition misreads
+    /// as "you never went there".
+    static func teeVsParFigures(_ panel: StatsTeePanel) -> [StatsFigure] {
+        let byTee = panel.vsParByTee
+        guard byTee.fairway.d > 0 || byTee.inPlay.d > 0 || byTee.trouble.d > 0 else { return [] }
+        return [
+            StatsFigure(
+                "From the fairway",
+                StatsFormat.averageWithSample(byTee.fairway, signed: true, unit: .holes)),
+            StatsFigure(
+                "From in play",
+                StatsFormat.averageWithSample(byTee.inPlay, signed: true, unit: .holes)),
+            StatsFigure(
+                "From trouble",
+                StatsFormat.averageWithSample(byTee.trouble, signed: true, unit: .holes)),
+        ]
+    }
+
+    /// Penalties, or nothing.
+    ///
+    /// `penaltiesPerRound` divides by the round count, so a player who never
+    /// recorded a penalty gets "0.00 per round" — a zero where the truth is
+    /// "not recorded". The coverage counter is the gate, and the sentence.
+    static func penaltiesFigure(_ panel: StatsTeePanel) -> [StatsFigure] {
+        guard panel.penaltiesRecordedHoles > 0 else { return [] }
+        return [
+            StatsFigure(
+                "Penalties",
+                StatsFormat.averageWithSample(panel.penaltiesPerRound, unit: .rounds),
+                "\(StatsCopy.penalties) Recorded on "
+                    + "\(StatsFormat.quantity(panel.penaltiesRecordedHoles, .holes)).")
+        ]
+    }
+
     static func teeDetail(_ panel: StatsTeePanel) -> some View {
         let segments = teeSplitSegments(panel)
+        let vsPar = teeVsParFigures(panel)
         return VStack(alignment: .leading, spacing: TapSpacing.md) {
             if !segments.isEmpty {
                 StatsSplitBar(segments: segments)
@@ -285,15 +324,20 @@ struct StatsPanelsView: View {
                 StatsLegendItem("In play", TapColors.accent, StatsFormat.rate(panel.inPlayOnly)),
                 StatsLegendItem("Trouble", TapColors.danger, StatsFormat.rate(panel.trouble)),
             ])
-            StatsFigureRows(items: [
-                troubleTaxFigure(panel),
-                StatsFigure(
-                    "Recovery", StatsFormat.rateWithSample(panel.recovery), StatsCopy.recovery),
-                StatsFigure(
-                    "Penalties",
-                    StatsFormat.averageWithSample(panel.penaltiesPerRound, unit: .rounds),
-                    StatsCopy.penalties),
-            ])
+            if !vsPar.isEmpty {
+                StatsSubhead(text: "Average vs par, by where the tee shot finished")
+                Text(StatsCopy.vsParByTee)
+                    .font(TapFont.ui(size: 12.0))
+                    .foregroundStyle(TapColors.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                StatsFigureRows(items: vsPar)
+            }
+            StatsFigureRows(
+                items: [
+                    troubleTaxFigure(panel),
+                    StatsFigure(
+                        "Recovery", StatsFormat.rateWithSample(panel.recovery), StatsCopy.recovery),
+                ] + penaltiesFigure(panel))
         }
     }
 
@@ -314,6 +358,18 @@ struct StatsPanelsView: View {
 
     // MARK: Approach
 
+    /// The hard-chip share, or nothing. The approach panel is gated on
+    /// `girRecorded`, which can be non-zero over a window with no recorded
+    /// short-game attempt at all — so this row carries its own gate.
+    static func hardChipShareFigure(_ panel: StatsApproachPanel) -> [StatsFigure] {
+        guard panel.hardChipShare.d > 0 else { return [] }
+        return [
+            StatsFigure(
+                "Hard misses", StatsFormat.rateWithSample(panel.hardChipShare),
+                StatsCopy.hardChipShare)
+        ]
+    }
+
     static func approachDetail(_ panel: StatsApproachPanel) -> some View {
         VStack(alignment: .leading, spacing: TapSpacing.md) {
             StatsSubhead(text: "Greens hit, by where the tee shot finished")
@@ -333,18 +389,49 @@ struct StatsPanelsView: View {
                         StatsFormat.title($0),
                         panel.girFirstPuttMix[$0] ?? Rate(value: nil, n: 0, d: 0))
                 })
-            StatsFigureRows(items: [
-                StatsFigure(
-                    "Birdie conversion", StatsFormat.rateWithSample(panel.birdieConversion),
-                    StatsCopy.birdieConversion)
-            ])
+            StatsFigureRows(
+                items: [
+                    StatsFigure(
+                        "Birdie conversion", StatsFormat.rateWithSample(panel.birdieConversion),
+                        StatsCopy.birdieConversion)
+                ] + hardChipShareFigure(panel))
         }
     }
 
     // MARK: Putting
 
+    /// The raw first-putt distribution, or nothing. Every bucket sits over the
+    /// same denominator, so one bucket having a sample means they all do.
+    static func firstPuttSpreadItems(_ panel: StatsPuttingPanel) -> [StatsBarItem] {
+        let items = PuttBucket.allCases.map {
+            StatsBarItem(
+                StatsFormat.title($0), panel.firstPuttSpread[$0] ?? Rate(value: nil, n: 0, d: 0))
+        }
+        return items.contains(where: { $0.rate.d > 0 }) ? items : []
+    }
+
+    /// Putts on the holes where the green was missed, or nothing.
+    static func puttsAfterMissedGreenFigure(_ panel: StatsPuttingPanel) -> [StatsFigure] {
+        guard panel.puttsAfterMissedGreen.d > 0 else { return [] }
+        return [
+            StatsFigure(
+                "Putts after a missed green",
+                StatsFormat.averageWithSample(panel.puttsAfterMissedGreen, unit: .holes),
+                StatsCopy.puttsAfterMissedGreen)
+        ]
+    }
+
     static func puttingDetail(_ panel: StatsPuttingPanel) -> some View {
-        VStack(alignment: .leading, spacing: TapSpacing.md) {
+        let spread = firstPuttSpreadItems(panel)
+        return VStack(alignment: .leading, spacing: TapSpacing.md) {
+            if !spread.isEmpty {
+                StatsSubhead(text: "First putt, all holes")
+                Text(StatsCopy.firstPuttSpread)
+                    .font(TapFont.ui(size: 12.0))
+                    .foregroundStyle(TapColors.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                StatsMiniBarRows(items: spread)
+            }
             StatsSubhead(text: "Holed on the first putt")
             Text(StatsCopy.ladderBaseline)
                 .font(TapFont.ui(size: 12.0))
@@ -369,18 +456,20 @@ struct StatsPanelsView: View {
                 }
                 .accessibilityElement(children: .combine)
             }
-            StatsFigureRows(items: [
-                StatsFigure(
-                    "Three-putts", StatsFormat.rateWithSample(panel.threePutt), StatsCopy.threePutt),
-                StatsFigure(
-                    "Three-putts from over 8 m",
-                    StatsFormat.rateWithSample(panel.threePuttsFromOver8m),
-                    StatsCopy.longThreePutt),
-                StatsFigure(
-                    "Putts per green hit",
-                    StatsFormat.averageWithSample(panel.puttsPerGirHole, unit: .greens),
-                    StatsCopy.puttsPerGir),
-            ])
+            StatsFigureRows(
+                items: [
+                    StatsFigure(
+                        "Three-putts", StatsFormat.rateWithSample(panel.threePutt),
+                        StatsCopy.threePutt),
+                    StatsFigure(
+                        "Three-putts from over 8 m",
+                        StatsFormat.rateWithSample(panel.threePuttsFromOver8m),
+                        StatsCopy.longThreePutt),
+                    StatsFigure(
+                        "Putts per green hit",
+                        StatsFormat.averageWithSample(panel.puttsPerGirHole, unit: .greens),
+                        StatsCopy.puttsPerGir),
+                ] + puttsAfterMissedGreenFigure(panel))
         }
     }
 
@@ -402,8 +491,18 @@ struct StatsPanelsView: View {
                 StatsFigure(
                     "Holed from inside 2 m",
                     StatsFormat.rateWithSample(panel.conversionInside2m),
-                    StatsCopy.conversionInside2m),
-                StatsFigure("Chip-ins", StatsFormat.count(panel.chipIns), StatsCopy.chipIns),
+                    StatsCopy.conversionInside2m)
+            ])
+            // Always shown: the panel is already gated on there having been a
+            // scramble attempt, so a zero here is a real zero, not an absence.
+            StatsSubhead(text: "Chip-ins")
+            Text(StatsCopy.chipIns)
+                .font(TapFont.ui(size: 12.0))
+                .foregroundStyle(TapColors.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            StatsFigureRows(items: [
+                StatsFigure("Standard", StatsFormat.count(panel.chipIns.standard)),
+                StatsFigure("Hard", StatsFormat.count(panel.chipIns.hard)),
             ])
         }
     }

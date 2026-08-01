@@ -25,17 +25,21 @@ import {
     doubleBogeyPlusPerRound,
     EXPECTED_PUTTS_V1,
     fairwayRate,
+    firstPuttMix,
     girFirstPuttMix,
     girRate,
     girRateByTee,
+    hardChipShare,
     meanOfPresent,
     onePuttRate,
     penaltiesPerRound,
     PUTT_BUCKETS,
+    puttsAfterMissedGreen,
     puttsPerGirHole,
     rate,
     rateDisplay,
     recoveryRate,
+    resultsSummary,
     scrambleRate,
     STROKES_LOST_COMPONENTS,
     strokesLost,
@@ -52,6 +56,7 @@ import {
     type ByTee,
     type PuttBucket,
     type Rate,
+    type ResultsSummary,
     type StrokesLost,
     type StrokesLostComponent,
 } from '../round/stat-measures';
@@ -168,6 +173,14 @@ export interface StatsTeePanel {
     vsParByTee: ByTee<Rate>;
     recovery: Rate;
     penaltiesPerRound: Rate;
+    /**
+     * Holes on which a penalty answer was recorded at all.
+     *
+     * `penaltiesPerRound` divides by the ROUND count, so it prints a confident
+     * 0.00 for a player who never answered the question. This is the coverage the
+     * view gates that figure on (invariant 1: absent is not zero).
+     */
+    penaltiesRecordedHoles: number;
 }
 
 export interface StatsApproachPanel {
@@ -179,6 +192,12 @@ export interface StatsApproachPanel {
      */
     girFirstPuttMix: Record<PuttBucket, Rate>;
     birdieConversion: Rate;
+    /**
+     * How often a missed green left a HARD short-game shot. A property of the
+     * approach miss — where it put you — which is why it sits here rather than on
+     * the short-game card.
+     */
+    hardChipShare: Rate;
 }
 
 /** One rung of the make-% ladder. */
@@ -199,9 +218,17 @@ export interface StatsLadderRung {
 
 export interface StatsPuttingPanel {
     ladder: StatsLadderRung[];
+    /**
+     * Where the first putt was on EVERY hole that recorded one — the raw twin of
+     * the approach card's `girFirstPuttMix`, which is the same distribution over
+     * greens hit only. Shares of `firstPuttResolvedTotal`, so they sum to 1.
+     */
+    firstPuttSpread: Record<PuttBucket, Rate>;
     threePutt: Rate;
     threePuttsFromOver8m: Rate;
     puttsPerGirHole: Rate;
+    /** Putts per hole on the holes where the green was missed. */
+    puttsAfterMissedGreen: Rate;
 }
 
 export interface StatsShortGamePanel {
@@ -219,10 +246,11 @@ export interface StatsShortGamePanel {
      */
     conversionInside2m: Rate;
     /**
-     * Chips holed outright. A count, not a rate: there is no attempt denominator
-     * that would make a "chip-in %" mean anything.
+     * Chips holed outright, split by the lie they came from. A count, not a rate:
+     * there is no attempt denominator that would make a "chip-in %" mean
+     * anything.
      */
-    chipIns: number;
+    chipIns: ByDifficulty<number>;
 }
 
 export interface StatsScoringPanel {
@@ -266,6 +294,12 @@ export interface StatsDashboardModel {
     putting: StatsPuttingPanel | null;
     shortGame: StatsShortGamePanel | null;
     scoring: StatsScoringPanel | null;
+    /**
+     * The window's scoring headline. Not a panel: it is not gated on a stats
+     * module and does not appear in `presentPanels`. Null only for an empty
+     * window.
+     */
+    results: ResultsSummary | null;
 }
 
 export const EMPTY_DASHBOARD_MODEL: StatsDashboardModel = {
@@ -279,6 +313,7 @@ export const EMPTY_DASHBOARD_MODEL: StatsDashboardModel = {
     putting: null,
     shortGame: null,
     scoring: null,
+    results: null,
 };
 
 /** The panels that have data, in reading order. */
@@ -323,6 +358,9 @@ export function buildDashboardModel(rows: readonly PlayerRoundStats[]): StatsDas
         putting: puttingPanel(totals),
         shortGame: shortGamePanel(totals),
         scoring: scoringPanel(totals, roundCount),
+        // From the ROWS, not the totals: the 18-hole gate and the best score are
+        // per-round facts a sum destroys.
+        results: resultsSummary(ordered),
     };
 }
 
@@ -438,6 +476,7 @@ export function teePanel(m: StatMeasures, roundCount: number): StatsTeePanel | n
         vsParByTee: strokesVsParByTee(m),
         recovery: recoveryRate(m),
         penaltiesPerRound: penaltiesPerRound(m, roundCount),
+        penaltiesRecordedHoles: m.penaltiesRecorded,
     };
 }
 
@@ -450,20 +489,25 @@ export function approachPanel(m: StatMeasures): StatsApproachPanel | null {
         girByTee: girRateByTee(m),
         girFirstPuttMix: mix,
         birdieConversion: birdieConversion(m),
+        hardChipShare: hardChipShare(m),
     };
 }
 
 export function puttingPanel(m: StatMeasures): StatsPuttingPanel | null {
     if (m.puttsRecorded <= 0 && m.firstPuttRecorded <= 0) return null;
+    const spread = {} as Record<PuttBucket, Rate>;
+    for (const bucket of PUTT_BUCKETS) spread[bucket] = firstPuttMix(m, bucket);
     return {
         ladder: PUTT_BUCKETS.map((bucket) => ({
             bucket,
             made: onePuttRate(m, bucket),
             baseline: Math.max(0, 2 - EXPECTED_PUTTS_V1[bucket]),
         })),
+        firstPuttSpread: spread,
         threePutt: threePuttRate(m),
         threePuttsFromOver8m: threePuttsFromOver8mRate(m),
         puttsPerGirHole: puttsPerGirHole(m),
+        puttsAfterMissedGreen: puttsAfterMissedGreen(m),
     };
 }
 
@@ -478,7 +522,11 @@ export function shortGamePanel(m: StatMeasures): StatsShortGamePanel | null {
         scramble: scrambleRate(m),
         chipInside2m: chipInside2mRate(m),
         conversionInside2m: rate(made, faced),
-        chipIns: m.scrambleHoledStandard + m.scrambleHoledHard,
+        chipIns: {
+            standard: m.scrambleHoledStandard,
+            hard: m.scrambleHoledHard,
+            overall: m.scrambleHoledStandard + m.scrambleHoledHard,
+        },
     };
 }
 

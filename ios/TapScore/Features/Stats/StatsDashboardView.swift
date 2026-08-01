@@ -114,6 +114,7 @@ struct StatsDashboardView: View {
         if model.isEmpty {
             message(store.windowIsOverFiltered ? StatsCopy.windowEmpty : StatsCopy.noStats)
         } else {
+            results(model)
             priorities(model)
             trends(model)
             StatsPanelsView(model: model, expanded: $expanded)
@@ -190,6 +191,62 @@ struct StatsDashboardView: View {
             return shown == 1 ? "1 round" : "\(shown) rounds"
         }
         return "\(shown) of \(total) rounds"
+    }
+
+    // MARK: - Results
+
+    /// What the window actually shot.
+    ///
+    /// A SECTION, not a module panel: it is gated on nothing but the window
+    /// having rounds in it, and it leads the screen because "how am I scoring"
+    /// is the question a player brings to the page before "what should I
+    /// practise". Rows are appended conditionally — an omitted row is ABSENT,
+    /// not "Not recorded": a window of nine-holers has no 18-hole average, and
+    /// printing a placeholder for it invents a question nobody asked.
+    static func resultsFigures(_ r: ResultsSummary) -> [StatsFigure] {
+        var items: [StatsFigure] = [
+            StatsFigure("Rounds", StatsFormat.count(Double(r.rounds)))
+        ]
+        if r.completeRounds > 0 {
+            items.append(
+                StatsFigure(
+                    "Average score",
+                    StatsFormat.averageWithSample(r.averageScore, decimals: 1, unit: .rounds),
+                    StatsCopy.averageScore))
+        }
+        if let best = r.bestScore {
+            items.append(StatsFigure("Best score", StatsFormat.count(best), StatsCopy.bestScore))
+        }
+        if r.avgVsParPerRound.d > 0 {
+            items.append(
+                StatsFigure(
+                    "Average vs par",
+                    StatsFormat.averageWithSample(
+                        r.avgVsParPerRound, decimals: 1, signed: true, unit: .rounds),
+                    StatsCopy.avgVsParPerRound))
+        }
+        return items
+    }
+
+    @ViewBuilder
+    private func results(_ model: StatsDashboardModel) -> some View {
+        if let summary = model.results {
+            VStack(alignment: .leading, spacing: TapSpacing.sm) {
+                SectionHeader(title: StatsCopy.resultsHeading)
+                TapCard {
+                    VStack(alignment: .leading, spacing: TapSpacing.md) {
+                        Text(StatsCopy.resultsHint)
+                            .font(TapFont.ui(size: 12.8))
+                            .foregroundStyle(TapColors.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                        StatsFigureRows(items: Self.resultsFigures(summary))
+                    }
+                    .padding(TapSpacing.md)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .accessibilityIdentifier("stats-results")
+        }
     }
 
     // MARK: - Practice priorities
@@ -390,8 +447,18 @@ enum StatsCopy {
     static let notEnoughData = "Not enough data"
     static let notRecorded = "Not recorded"
 
+    static let resultsHeading = "Results"
+    static let resultsHint = "Your scoring across the rounds in this window."
+    static let averageScore =
+        "Complete 18-hole rounds only — part rounds and nine-holers are left out."
+    static let bestScore = "Your lowest complete 18-hole round in this window."
+    static let avgVsParPerRound =
+        "Per round, over every round with a score — nine-hole rounds included."
+
     static let prioritiesHint =
         "Strokes lost per round against a fixed baseline, worst first. Positive costs you shots."
+    static let vsParByTee =
+        "What each kind of tee shot actually cost you, per hole. The trouble tax below is the difference between the last row and the first."
     static let troubleTax =
         "Extra strokes per hole when the tee shot finds trouble, against your own fairway holes."
     static let recovery = "Holes where the shot after trouble got you back in play."
@@ -399,11 +466,16 @@ enum StatsCopy {
     static let proximityProxy =
         "How far the first putt was on greens you hit — a stand-in for approach proximity, which the app does not measure directly."
     static let birdieConversion = "Greens hit that became a birdie or better."
+    static let hardChipShare =
+        "How often a missed green left a hard chip or pitch rather than a standard one."
+    static let firstPuttSpread =
+        "Where the first putt was on every hole you recorded one — not only the greens you hit."
     static let ladderBaseline =
         "The tick is the make rate the expected-putts table implies. For 4–8 m and over 8 m it sits at zero: the table expects two putts from there, so any make is ahead of it."
     static let threePutt = "Holes with three putts or more."
     static let longThreePutt = "Three-putts that started from over 8 m."
     static let puttsPerGir = "Putts taken on holes where you hit the green."
+    static let puttsAfterMissedGreen = "Putts taken on holes where you missed the green."
     static let conversionInside2m =
         "First putts from inside 2 m that went in — across every hole, not only chipped ones. The app records no chip-and-hole cross-tab."
     static let chipIns = "Short-game shots that went in without a putt."

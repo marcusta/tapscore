@@ -418,10 +418,10 @@ final class RoundStatsModelTests: XCTestCase {
         }
     }
 
-    func testTheClosedSetIsStillSeven() {
+    func testTheClosedSetIsStillEight() {
         // A guard on the set's size, so growing it is a deliberate act that
         // walks past this line and the wording test above.
-        XCTAssertEqual(InsightID.allCases.count, 7)
+        XCTAssertEqual(InsightID.allCases.count, 8)
     }
 
     func testTheWordedLinesCarryTheirNumbers() {

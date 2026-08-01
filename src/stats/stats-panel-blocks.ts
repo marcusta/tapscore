@@ -14,13 +14,14 @@
 // SwiftUI, so its blocks are inline views rather than data — same catalog,
 // same order, same wording).
 
-import { PUTT_BUCKETS, type Rate } from '../round/stat-measures';
+import { PUTT_BUCKETS, type Rate, type ResultsSummary } from '../round/stat-measures';
 import {
     averageWithSample,
     bucketTitle,
     formatAverage,
     formatCount,
     isThin,
+    quantity,
     rateWithSample,
     formatRate,
     troubleTaxSample,
@@ -96,6 +97,20 @@ export const STATS_COPY = {
     conversionInside2m:
         'First putts from inside 2 m that went in — across every hole, not only chipped ones. The app records no chip-and-hole cross-tab.',
     chipIns: 'Short-game shots that went in without a putt.',
+    vsParByTee:
+        'What each kind of tee shot actually cost you, per hole. The trouble tax below is the difference between the last row and the first.',
+    firstPuttSpread:
+        'Where the first putt was on every hole you recorded one — not only the greens you hit.',
+    puttsAfterMissedGreen: 'Putts taken on holes where you missed the green.',
+    hardChipShare:
+        'How often a missed green left a hard chip or pitch rather than a standard one.',
+    resultsHeading: 'Results',
+    resultsHint: 'Your scoring across the rounds in this window.',
+    averageScore:
+        'Complete 18-hole rounds only — part rounds and nine-holers are left out.',
+    bestScore: 'Your lowest complete 18-hole round in this window.',
+    avgVsParPerRound:
+        'Per round, over every round with a score — nine-hole rounds included.',
     doubleBogeyPlus: 'Holes at double bogey or worse, per round.',
     bounceBack: 'Holes after a bogey or worse that came back at par or better.',
 } as const;
@@ -164,6 +179,16 @@ function troubleTaxFigure(panel: StatsTeePanel): StatsBlock {
     return figure('troubleTax', 'Trouble tax', formatAverage(panel.troubleTax, 2, true), hint);
 }
 
+/** Average strokes vs par per hole, signed — the tee card's three absolutes. */
+function vsPar(r: Rate): string | null {
+    return averageWithSample(r, { unit: UNIT_HOLES, signed: true });
+}
+
+/** Whether any tee bucket has a scored hole behind it. */
+function vsParByTeeRecorded(p: StatsTeePanel): boolean {
+    return p.vsParByTee.fairway.d > 0 || p.vsParByTee.inPlay.d > 0 || p.vsParByTee.trouble.d > 0;
+}
+
 /** The open panel's contents, in reading order. Empty for an absent panel. */
 export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): StatsBlock[] {
     switch (id) {
@@ -185,14 +210,39 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                         { id: 'trouble', title: 'Trouble', tone: 'trouble', share: barShare(p.trouble), value: formatRate(p.trouble) },
                     ],
                 },
+                // The three absolutes the tax is a difference OF, read before it.
+                // Omitted as a group when no tee shot has a scored hole behind it;
+                // inside the group a single empty row still prints "Not recorded",
+                // because the three partition the tee shots and hiding one reads as
+                // "you never went there".
+                ...(vsParByTeeRecorded(p)
+                    ? [
+                          {
+                              kind: 'subhead' as const,
+                              id: 'vsParByTeeHead',
+                              text: 'Average vs par, by where the tee shot finished',
+                          },
+                          { kind: 'note' as const, id: 'vsParByTeeNote', text: STATS_COPY.vsParByTee },
+                          figure('vsParFairway', 'From the fairway', vsPar(p.vsParByTee.fairway)),
+                          figure('vsParInPlay', 'From in play', vsPar(p.vsParByTee.inPlay)),
+                          figure('vsParTrouble', 'From trouble', vsPar(p.vsParByTee.trouble)),
+                      ]
+                    : []),
                 troubleTaxFigure(p),
                 figure('recovery', 'Recovery', rateWithSample(p.recovery), STATS_COPY.recovery),
-                figure(
-                    'penalties',
-                    'Penalties',
-                    averageWithSample(p.penaltiesPerRound, { unit: UNIT_ROUNDS }),
-                    STATS_COPY.penalties,
-                ),
+                // Absent, not zero: `penaltiesPerRound` divides by the round count,
+                // so it would print a confident "0.00 per round" for a player who
+                // never answered the question.
+                ...(p.penaltiesRecordedHoles > 0
+                    ? [
+                          figure(
+                              'penalties',
+                              'Penalties',
+                              averageWithSample(p.penaltiesPerRound, { unit: UNIT_ROUNDS }),
+                              `${STATS_COPY.penalties} Recorded on ${quantity(p.penaltiesRecordedHoles, UNIT_HOLES)}.`,
+                          ),
+                      ]
+                    : []),
             ];
         }
         case 'approach': {
@@ -212,12 +262,33 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                     rateWithSample(p.birdieConversion),
                     STATS_COPY.birdieConversion,
                 ),
+                // The approach panel is gated on `girRecorded`, which can be
+                // non-zero on a window that recorded no short-game attempt at all.
+                ...(p.hardChipShare.d > 0
+                    ? [
+                          figure(
+                              'hardChipShare',
+                              'Hard misses',
+                              rateWithSample(p.hardChipShare),
+                              STATS_COPY.hardChipShare,
+                          ),
+                      ]
+                    : []),
             ];
         }
         case 'putting': {
             const p = model.putting;
             if (!p) return [];
             return [
+                // The raw distribution first: it is the context the make-% ladder
+                // below is read against.
+                ...(p.firstPuttSpread[PUTT_BUCKETS[0]!].d > 0
+                    ? [
+                          { kind: 'subhead' as const, id: 'firstPuttHead', text: 'First putt, all holes' },
+                          { kind: 'note' as const, id: 'firstPuttNote', text: STATS_COPY.firstPuttSpread },
+                          ...PUTT_BUCKETS.map((b) => bar(`spread-${b}`, bucketTitle(b), p.firstPuttSpread[b])),
+                      ]
+                    : []),
                 { kind: 'subhead', id: 'ladderHead', text: 'Holed on the first putt' },
                 { kind: 'note', id: 'ladderNote', text: STATS_COPY.ladderBaseline },
                 ...p.ladder.map(
@@ -243,6 +314,16 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                     averageWithSample(p.puttsPerGirHole, { unit: UNIT_GREENS }),
                     STATS_COPY.puttsPerGir,
                 ),
+                ...(p.puttsAfterMissedGreen.d > 0
+                    ? [
+                          figure(
+                              'puttsAfterMissedGreen',
+                              'Putts after a missed green',
+                              averageWithSample(p.puttsAfterMissedGreen, { unit: UNIT_HOLES }),
+                              STATS_COPY.puttsAfterMissedGreen,
+                          ),
+                      ]
+                    : []),
             ];
         }
         case 'shortGame': {
@@ -261,7 +342,12 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                     rateWithSample(p.conversionInside2m),
                     STATS_COPY.conversionInside2m,
                 ),
-                figure('chipIns', 'Chip-ins', formatCount(p.chipIns), STATS_COPY.chipIns),
+                // The pair, not the sum: "Standard / Hard" matches the two groups
+                // above it, and the total is the addition of two visible rows.
+                { kind: 'subhead', id: 'chipInsHead', text: 'Chip-ins' },
+                { kind: 'note', id: 'chipInsNote', text: STATS_COPY.chipIns },
+                figure('chipInsStandard', 'Standard', formatCount(p.chipIns.standard)),
+                figure('chipInsHard', 'Hard', formatCount(p.chipIns.hard)),
             ];
         }
         case 'scoring': {
@@ -284,6 +370,51 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
             ];
         }
     }
+}
+
+/**
+ * The Results section's rows — figures, exactly like a panel's, but not a panel:
+ * `results` is gated on nothing but an empty window, so it is not a
+ * `StatsPanelId` and does not collapse.
+ *
+ * A row that cannot be said honestly is ABSENT rather than "Not recorded": every
+ * one of these has a real answer for any window that has rounds in it, so an
+ * empty row here would only ever mean "this window is nines" or "no scorecard",
+ * which the remaining rows already say.
+ */
+export function resultsBlocks(results: ResultsSummary | null): StatsBlock[] {
+    if (!results) return [];
+    const blocks: StatsBlock[] = [figure('rounds', 'Rounds', formatCount(results.rounds))];
+    if (results.completeRounds > 0) {
+        blocks.push(
+            figure(
+                'averageScore',
+                'Average score',
+                averageWithSample(results.averageScore, { unit: UNIT_ROUNDS, decimals: 1 }),
+                STATS_COPY.averageScore,
+            ),
+        );
+    }
+    if (results.bestScore !== null) {
+        blocks.push(
+            figure('bestScore', 'Best score', formatCount(results.bestScore), STATS_COPY.bestScore),
+        );
+    }
+    if (results.avgVsParPerRound.d > 0) {
+        blocks.push(
+            figure(
+                'avgVsPar',
+                'Average vs par',
+                averageWithSample(results.avgVsParPerRound, {
+                    unit: UNIT_ROUNDS,
+                    decimals: 1,
+                    signed: true,
+                }),
+                STATS_COPY.avgVsParPerRound,
+            ),
+        );
+    }
+    return blocks;
 }
 
 /** Why a priority row has no number, in the reader's terms. */

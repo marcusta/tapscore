@@ -107,6 +107,11 @@ struct StatsTeePanel: Equatable, Sendable {
     var vsParByTee: ByTee<Rate>
     var recovery: Rate
     var penaltiesPerRound: Rate
+    /// Holes carrying a penalty answer. `penaltiesPerRound` divides by the round
+    /// count, so it prints "0.00 per round" for a player who never recorded one
+    /// — a zero where the truth is "not recorded". This is the coverage the view
+    /// gates that figure on, and the sample it prints beside it.
+    var penaltiesRecordedHoles: Double
 }
 
 struct StatsApproachPanel: Equatable, Sendable {
@@ -116,6 +121,9 @@ struct StatsApproachPanel: Equatable, Sendable {
     /// `girFirstPuttRecorded`, so they sum to 1 across buckets.
     var girFirstPuttMix: [PuttBucket: Rate]
     var birdieConversion: Rate
+    /// How often a missed green left a HARD chip. A property of the approach
+    /// MISS, which is why it sits here rather than on the short-game card.
+    var hardChipShare: Rate
 }
 
 struct StatsPuttingPanel: Equatable, Sendable {
@@ -135,9 +143,17 @@ struct StatsPuttingPanel: Equatable, Sendable {
     }
 
     var ladder: [Rung]
+    /// Where the first putt was on EVERY hole with one recorded — the
+    /// unconditioned twin of the approach card's `girFirstPuttMix`. The
+    /// difference between the two distributions is the short-game proximity
+    /// story told from the putting side.
+    var firstPuttSpread: [PuttBucket: Rate]
     var threePutt: Rate
     var threePuttsFromOver8m: Rate
     var puttsPerGirHole: Rate
+    /// The complement of `puttsPerGirHole`: putts per hole on the holes where
+    /// the green was missed.
+    var puttsAfterMissedGreen: Rate
 }
 
 struct StatsShortGamePanel: Equatable, Sendable {
@@ -152,9 +168,11 @@ struct StatsShortGamePanel: Equatable, Sendable {
     /// only chipped ones. It answers "when you leave it that close, do you hole
     /// it" with the sample the schema actually has.
     var conversionInside2m: Rate
-    /// Chips holed outright. A count, not a rate: there is no attempt
-    /// denominator that would make a "chip-in %" mean anything.
-    var chipIns: Double
+    /// Chips holed outright, split by lie difficulty. A count, not a rate:
+    /// there is no attempt denominator that would make a "chip-in %" mean
+    /// anything. Split because holing out from a hard lie is the rarer,
+    /// louder event, and a single total buries it.
+    var chipIns: ByDifficulty<Double>
 }
 
 struct StatsScoringPanel: Equatable, Sendable {
@@ -193,6 +211,10 @@ struct StatsDashboardModel: Equatable, Sendable {
     var waterfall: StrokesLost
     var priorities: [StatsPriority]
     var trends: [StatsTrend]
+    /// What the window actually shot. Not a panel — it sits above the practice
+    /// priorities as the plain answer to "how am I scoring", and it is nil only
+    /// for an empty window.
+    var results: ResultsSummary?
 
     var tee: StatsTeePanel?
     var approach: StatsApproachPanel?
@@ -249,6 +271,8 @@ struct StatsDashboardModel: Equatable, Sendable {
             waterfall: windowWaterfall,
             priorities: priorities(perRound: perRound),
             trends: trends(rows: ordered),
+            results: StatMeasuresMath.resultsSummary(
+                ordered.map { ResultsRow(holeCount: $0.holeCount, measures: $0.measures) }),
             tee: teePanel(totals, roundCount: Double(ordered.count)),
             approach: approachPanel(totals),
             putting: puttingPanel(totals),
@@ -358,7 +382,8 @@ struct StatsDashboardModel: Equatable, Sendable {
             troubleTax: StatMeasuresMath.troubleTaxPerHole(m),
             vsParByTee: StatMeasuresMath.strokesVsParByTee(m),
             recovery: StatMeasuresMath.recoveryRate(m),
-            penaltiesPerRound: StatMeasuresMath.penaltiesPerRound(m, roundCount: roundCount))
+            penaltiesPerRound: StatMeasuresMath.penaltiesPerRound(m, roundCount: roundCount),
+            penaltiesRecordedHoles: m.penaltiesRecorded)
     }
 
     static func approachPanel(_ m: StatMeasures) -> StatsApproachPanel? {
@@ -371,12 +396,17 @@ struct StatsDashboardModel: Equatable, Sendable {
             gir: StatMeasuresMath.girRate(m),
             girByTee: StatMeasuresMath.girRateByTee(m),
             girFirstPuttMix: mix,
-            birdieConversion: StatMeasuresMath.birdieConversion(m))
+            birdieConversion: StatMeasuresMath.birdieConversion(m),
+            hardChipShare: StatMeasuresMath.hardChipShare(m))
     }
 
     static func puttingPanel(_ m: StatMeasures) -> StatsPuttingPanel? {
         guard m.puttsRecorded > 0 || m.firstPuttRecorded > 0 else { return nil }
         let expected = StatMeasuresMath.expectedPuttsV1
+        var spread: [PuttBucket: Rate] = [:]
+        for bucket in PuttBucket.allCases {
+            spread[bucket] = StatMeasuresMath.firstPuttMix(m, bucket)
+        }
         return StatsPuttingPanel(
             ladder: PuttBucket.allCases.map { bucket in
                 StatsPuttingPanel.Rung(
@@ -384,9 +414,11 @@ struct StatsDashboardModel: Equatable, Sendable {
                     made: StatMeasuresMath.onePuttRate(m, bucket),
                     baseline: max(0, 2 - expected[bucket]))
             },
+            firstPuttSpread: spread,
             threePutt: StatMeasuresMath.threePuttRate(m),
             threePuttsFromOver8m: StatMeasuresMath.threePuttsFromOver8mRate(m),
-            puttsPerGirHole: StatMeasuresMath.puttsPerGirHole(m))
+            puttsPerGirHole: StatMeasuresMath.puttsPerGirHole(m),
+            puttsAfterMissedGreen: StatMeasuresMath.puttsAfterMissedGreen(m))
     }
 
     static func shortGamePanel(_ m: StatMeasures) -> StatsShortGamePanel? {
@@ -400,7 +432,10 @@ struct StatsDashboardModel: Equatable, Sendable {
             scramble: StatMeasuresMath.scrambleRate(m),
             chipInside2m: StatMeasuresMath.chipInside2mRate(m),
             conversionInside2m: StatMeasuresMath.rate(made, faced),
-            chipIns: m.scrambleHoledStandard + m.scrambleHoledHard)
+            chipIns: ByDifficulty(
+                standard: m.scrambleHoledStandard,
+                hard: m.scrambleHoledHard,
+                overall: m.scrambleHoledStandard + m.scrambleHoledHard))
     }
 
     static func scoringPanel(_ m: StatMeasures, roundCount: Double) -> StatsScoringPanel? {

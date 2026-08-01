@@ -350,6 +350,117 @@ final class StatsDashboardModelTests: XCTestCase {
         XCTAssertEqual(model.shortGame?.conversionInside2m.n, 10)
         XCTAssertEqual(model.shortGame?.conversionInside2m.d, 12)
     }
+
+    /// Chip-ins are split, because holing out from a hard lie is the rarer,
+    /// louder event and a single total buries it.
+    func testChipInsAreSplitByDifficultyAndStillCarryTheirTotal() {
+        let model = StatsDashboardModel.build(rows: [
+            row(
+                "a", date: "2026-07-02",
+                measures {
+                    $0.scrambleAttemptsStandard = 4
+                    $0.scrambleHoledStandard = 2
+                    $0.scrambleAttemptsHard = 2
+                    $0.scrambleHoledHard = 1
+                })
+        ])
+
+        XCTAssertEqual(model.shortGame?.chipIns, ByDifficulty(standard: 2, hard: 1, overall: 3))
+    }
+
+    // MARK: - 7. The v2 blocks
+
+    func testTheNewPanelFieldsCarryTheirOwnDenominators() {
+        let model = StatsDashboardModel.build(rows: [
+            row(
+                "a", date: "2026-07-02",
+                measures {
+                    $0.teeRecorded = 14
+                    $0.girRecorded = 12
+                    $0.scrambleAttemptsStandard = 6
+                    $0.scrambleAttemptsHard = 4
+                    $0.puttsRecorded = 18
+                    $0.puttsTotal = 32
+                    $0.puttsRecordedGir = 8
+                    $0.puttsTotalGir = 13
+                    $0.firstPuttInside1mResolved = 5
+                    $0.firstPutt2To4mResolved = 13
+                    $0.penaltiesRecorded = 18
+                    $0.penaltiesTotal = 2
+                })
+        ])
+
+        // Hard misses are a property of the APPROACH miss, so they sit on the
+        // approach panel: 4 of the 10 missed greens left a hard chip.
+        XCTAssertEqual(model.approach?.hardChipShare, Rate(value: 0.4, n: 4, d: 10))
+        // The complement of putts-per-green-hit: 32 − 13 putts over 18 − 8 holes.
+        XCTAssertEqual(model.putting?.puttsAfterMissedGreen, Rate(value: 1.9, n: 19, d: 10))
+        // The raw spread is over EVERY recorded hole, not only the greens hit.
+        XCTAssertEqual(model.putting?.firstPuttSpread[.inside1m]?.d, 18)
+        XCTAssertEqual(model.putting?.firstPuttSpread[.twoTo4m]?.n, 13)
+        // A real zero over a real sample, which is what makes the five a
+        // distribution rather than five unrelated rates.
+        XCTAssertEqual(model.putting?.firstPuttSpread[.over8m], Rate(value: 0, n: 0, d: 18))
+        // The coverage the view gates the penalty figure on.
+        XCTAssertEqual(model.tee?.penaltiesRecordedHoles, 18)
+    }
+
+    /// A penalty figure that divides by the round count reads "0.00 per round"
+    /// for a player who never recorded one. The coverage counter is what tells
+    /// the two apart, so it has to reach the panel as zero.
+    func testAPanelWithNoPenaltyRecordCarriesZeroCoverage() {
+        let model = StatsDashboardModel.build(rows: [
+            row("a", date: "2026-07-02", measures { $0.teeRecorded = 14 })
+        ])
+
+        XCTAssertEqual(model.tee?.penaltiesPerRound.value, 0)
+        XCTAssertEqual(model.tee?.penaltiesRecordedHoles, 0)
+    }
+
+    // MARK: - 8. Results
+
+    func testResultsCountEveryRoundAndAverageOnlyTheCompleteEighteens() throws {
+        let complete = measures {
+            $0.holesScored = 18
+            $0.strokesTotal = 84
+            $0.parTotal = 72
+        }
+        let low = measures {
+            $0.holesScored = 18
+            $0.strokesTotal = 79
+            $0.parTotal = 72
+        }
+        var nine = row("c", date: "2026-07-01", measures {
+            $0.holesScored = 9
+            $0.strokesTotal = 44
+            $0.parTotal = 36
+        })
+        nine.holeCount = 9
+
+        let model = StatsDashboardModel.build(rows: [
+            row("a", date: "2026-07-03", complete),
+            row("b", date: "2026-07-02", low),
+            nine,
+            // A stats-only round: it is a round played, and nothing else.
+            row("d", date: "2026-06-30"),
+        ])
+
+        let r = try XCTUnwrap(model.results)
+        XCTAssertEqual(r.rounds, 4)
+        XCTAssertEqual(r.completeRounds, 2)
+        XCTAssertEqual(r.averageScore, Rate(value: 81.5, n: 163, d: 2))
+        XCTAssertEqual(r.bestScore, 79)
+        // Vs par takes the nine in: 12 + 7 + 8 over three scored rounds.
+        XCTAssertEqual(r.avgVsParPerRound, Rate(value: 9, n: 27, d: 3))
+        // Results is a SECTION, not a module: it changes nothing about which
+        // panels the window produces.
+        XCTAssertEqual(model.presentPanels, [.scoring])
+    }
+
+    func testAnEmptyWindowHasNoResultsAtAll() {
+        XCTAssertNil(StatsDashboardModel.build(rows: []).results)
+        XCTAssertNil(StatsDashboardModel.empty.results)
+    }
 }
 
 /// Sugar so a trend assertion reads as a point lookup rather than an index

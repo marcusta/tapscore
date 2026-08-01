@@ -11,7 +11,13 @@ import {
     type StatsRoundRow,
     type StatsTrend,
 } from './stats-dashboard-model';
-import { priorityCoverage, roundLabel, STATS_COPY } from './stats-panel-blocks';
+import {
+    priorityCoverage,
+    resultsBlocks,
+    roundLabel,
+    STATS_COPY,
+    type StatsBlock,
+} from './stats-panel-blocks';
 import { renderSignedBar, renderSparkline, renderWaterfallStrip } from './stats-charts';
 import { STATS_COLORS } from './stats-palette';
 import { StatsPanelsComponent } from './stats-panels.component';
@@ -107,6 +113,12 @@ const tpl = template(`
 
             <div bind="empty" class="stats__empty"></div>
 
+            <section bind="resultsSec" class="stats__section">
+                <h2></h2>
+                <p bind="resultsHint" class="stats__hint"></p>
+                <div bind="results" class="stats__results"></div>
+            </section>
+
             <section bind="prioritiesSec" class="stats__section">
                 <h2></h2>
                 <p bind="prioritiesHint" class="stats__hint"></p>
@@ -141,6 +153,16 @@ const courseTpl = template(`
         <span bind="name" class="stats__coursename"></span>
         <span bind="count" class="stats__coursecount"></span>
     </label>
+`);
+
+const resultTpl = template(`
+    <div class="result">
+        <div class="result__text">
+            <span bind="title" class="result__title"></span>
+            <span bind="hint" class="result__hint"></span>
+        </div>
+        <span bind="value" class="result__value"></span>
+    </div>
 `);
 
 const priorityTpl = template(`
@@ -323,6 +345,29 @@ export class StatsDashboardComponent extends Component {
                 &:empty { display: none; }
             }
 
+            & .stats__results { display: flex; flex-direction: column; gap: ${s('sm')}; }
+
+            /* The module cards' figure row, in this component's own CSS scope:
+               .block--figure lives in StatsPanelsComponent and does not reach
+               here. Same shape, same sizes. */
+            & .result {
+                ${card()}
+                display: flex; align-items: flex-start; gap: ${s('md')};
+                padding: ${s('md')} ${s('lg')};
+
+                & .result__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+                & .result__title { font-size: 0.9rem; }
+                & .result__hint {
+                    font-size: 0.76rem; color: ${t('text-muted')};
+                    &:empty { display: none; }
+                }
+                & .result__value {
+                    flex-shrink: 0; text-align: right;
+                    font-size: 0.9rem; font-weight: 700;
+                    font-variant-numeric: tabular-nums;
+                }
+            }
+
             & .stats__priorities { display: flex; flex-direction: column; gap: ${s('sm')}; }
 
             & .priority {
@@ -452,6 +497,11 @@ export class StatsDashboardComponent extends Component {
                 onclick: () => this.svc.clearFilter(),
             },
             empty: () => this.emptyLine(),
+            resultsSec: {
+                className: () =>
+                    model().results !== null ? 'stats__section' : 'stats__section hidden',
+            },
+            resultsHint: () => STATS_COPY.resultsHint,
             prioritiesSec: {
                 className: () =>
                     model().priorities.length > 0 ? 'stats__section' : 'stats__section hidden',
@@ -474,12 +524,43 @@ export class StatsDashboardComponent extends Component {
 
         // Section headings are static text the template cannot hold (each
         // section's <h2> is bindless), so they are written once here.
+        this.setHeading(frag, 'resultsSec', STATS_COPY.resultsHeading);
         this.setHeading(frag, 'prioritiesSec', STATS_COPY.priorities);
         this.setHeading(frag, 'trendsSec', STATS_COPY.trends);
         this.setHeading(frag, 'roundsSec', STATS_COPY.roundsHeading);
 
         this.mountPicker(frag);
         this.mountFilterLists(frag);
+
+        // --- Results ---------------------------------------------------------
+        this.$each(
+            this.ref(frag, 'results'),
+            () => resultsBlocks(model().results),
+            (block: StatsBlock, _i, track) =>
+                this.wireEl(
+                    resultTpl,
+                    {
+                        title: () => (block.kind === 'figure' ? block.title : ''),
+                        hint: () => (block.kind === 'figure' ? (block.hint ?? '') : ''),
+                        // Re-read from the live model so a window change refreshes
+                        // the row in place; the id list decides only whether it is
+                        // there at all.
+                        value: {
+                            textContent: () => {
+                                const live = resultsBlocks(model().results).find(
+                                    (b) => b.id === block.id,
+                                );
+                                const b = live ?? block;
+                                return b.kind === 'figure'
+                                    ? (b.value ?? STATS_COPY.notRecorded)
+                                    : '';
+                            },
+                        },
+                    },
+                    track,
+                ),
+            (block) => block.id,
+        );
 
         // --- Practice priorities ---------------------------------------------
         this.$each(

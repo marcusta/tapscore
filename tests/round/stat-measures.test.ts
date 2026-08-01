@@ -2,6 +2,8 @@ import { expect, test } from 'bun:test';
 import type { StatMeasures } from '../../src/api/player-stats.gen';
 import {
     CHIP_EXPECTED_PUTTS_V1,
+    CHIP_EXPECTED_PUTTS_V1_BY_DIFFICULTY,
+    CHIP_EXPECTED_PUTTS_V2,
     CHIP_OUTCOME_EXPECTED_PUTTS_V1,
     EXPECTED_PUTTS_V1,
     INSIGHT_BEST_PUTTING_MIN_WINDOW,
@@ -16,19 +18,24 @@ import {
     chipInside2mRate,
     doubleBogeyPlusPerRound,
     fairwayRate,
+    firstPuttMix,
+    firstPuttResolvedTotal,
     girFirstPuttMix,
     girRate,
     girRateByTee,
+    hardChipShare,
     inPlayRate,
     insightLines,
     meanOfPresent,
     onePuttRate,
     penaltiesPerRound,
+    puttsAfterMissedGreen,
     puttsPerFirstPutt,
     puttsPerGirHole,
     rate,
     rateDisplay,
     recoveryRate,
+    resultsSummary,
     scrambleRate,
     strokesLost,
     strokesLostComponent,
@@ -39,6 +46,7 @@ import {
     troubleRate,
     troubleTaxPerHole,
     type InsightId,
+    type ResultsRow,
     type StrokesLost,
 } from '../../src/round/stat-measures';
 
@@ -138,6 +146,72 @@ const WORKED_EXAMPLE: StatMeasures = measures({
     puttsTotal2To4mResolved: 2,
     puttsTotalOver8mResolved: 3,
 });
+
+/**
+ * A complete eighteen with chips of BOTH difficulties, in both outcomes, plus a
+ * hole-out from each — the six terms of the per-difficulty short-game formula,
+ * which the worked example only reaches two of. Every unlisted field is zero.
+ *
+ * Coherent by construction: the resolved buckets sum to `puttsRecorded` (18) and
+ * their putts to `puttsTotal` (32); each `scrambleInside2m*` is at most its
+ * `scrambleFirstPutt*`; putting coverage is complete, so the residual reports.
+ */
+const CHIP_MIX: StatMeasures = measures({
+    firstPuttRecorded: 18,
+    firstPuttInside1m: 5,
+    firstPutt1To2m: 3,
+    firstPutt2To4m: 4,
+    firstPutt4To8m: 3,
+    firstPuttOver8m: 3,
+    firstPuttInside1mResolved: 5,
+    firstPutt1To2mResolved: 3,
+    firstPutt2To4mResolved: 4,
+    firstPutt4To8mResolved: 3,
+    firstPuttOver8mResolved: 3,
+    puttsRecorded: 18,
+    puttsTotal: 32,
+    puttsTotalInside1mResolved: 5,
+    puttsTotal1To2mResolved: 4,
+    puttsTotal2To4mResolved: 7,
+    puttsTotal4To8mResolved: 7,
+    puttsTotalOver8mResolved: 9,
+    puttsRecordedGir: 8,
+    puttsTotalGir: 13,
+    scrambleAttemptsStandard: 6,
+    scrambleSuccessesStandard: 3,
+    scrambleAttemptsHard: 4,
+    scrambleSuccessesHard: 4,
+    scrambleFirstPuttStandard: 4,
+    scrambleInside2mStandard: 3,
+    scrambleFirstPuttHard: 3,
+    scrambleInside2mHard: 1,
+    scrambleHoledStandard: 2,
+    scrambleHoledHard: 1,
+    penaltiesRecorded: 18,
+    penaltiesTotal: 3,
+    holesScored: 18,
+    strokesTotal: 84,
+    parTotal: 72,
+});
+
+/** A nine: a real round, and never a complete eighteen. */
+const NINE_HOLE: StatMeasures = measures({ holesScored: 9, strokesTotal: 44, parTotal: 36 });
+
+/** The window's best eighteen. */
+const LOW_ROUND: StatMeasures = measures({ holesScored: 18, strokesTotal: 79, parTotal: 72 });
+
+/**
+ * Five rounds covering every branch of the two denominators: a part round, a
+ * complete eighteen, a nine, a stats-only round with no card at all, and the low
+ * round.
+ */
+const RESULTS_ROWS: readonly ResultsRow[] = [
+    { holeCount: 18, measures: WORKED_EXAMPLE },
+    { holeCount: 18, measures: CHIP_MIX },
+    { holeCount: 9, measures: NINE_HOLE },
+    { holeCount: 18, measures: ZERO_MEASURES },
+    { holeCount: 18, measures: LOW_ROUND },
+];
 
 function value(r: { value: number | null }): number | null {
     return r.value;
@@ -455,6 +529,13 @@ test('the expected-putts tables are frozen at their v1 values', () => {
     // Frozen, so a caller cannot retune history under the player's feet.
     expect(Object.isFrozen(EXPECTED_PUTTS_V1)).toBe(true);
     expect(Object.isFrozen(CHIP_OUTCOME_EXPECTED_PUTTS_V1)).toBe(true);
+
+    // v2 splits the chip baseline by difficulty and is frozen the same way. The
+    // OUTCOME table is NOT versioned: where the ball finished does not depend on
+    // the lie it came from, only the baseline that outcome is scored against.
+    expect(CHIP_EXPECTED_PUTTS_V2).toEqual({ standard: 1.7, hard: 2.1 });
+    expect(Object.isFrozen(CHIP_EXPECTED_PUTTS_V2)).toBe(true);
+    expect(CHIP_EXPECTED_PUTTS_V1_BY_DIFFICULTY).toEqual({ standard: 1.85, hard: 1.85 });
 });
 
 test('the worked example waterfall is the hand-computed arithmetic', () => {
@@ -463,17 +544,17 @@ test('the worked example waterfall is the hand-computed arithmetic', () => {
     // Putting: 7 putts taken over the resolved buckets (2 + 2 + 3) against
     // 2×1.05 + 1×1.85 + 1×2.40 = 6.35 expected → +0.65 lost.
     expect(w.putting).toBeCloseTo(0.65, 9);
-    // Short game, two terms:
-    //   H2's standard chip finished inside 2m → 1 × (1.25 − 1.85) = −0.60
-    //   H3's hard chip was HOLED              → 1 × (1 − 2.85)    = −1.85
-    // giving −2.45. The hole-out has no first-putt bucket, so before migration
-    // 047 it contributed nothing here and its 1.85 sat in the long game.
-    expect(w.shortGame).toBeCloseTo(-2.45, 9);
+    // Short game, two terms, each against ITS OWN difficulty's baseline (v2):
+    //   H2's standard chip finished inside 2m → 1 × (1.25 − 1.70) = −0.45
+    //   H3's HARD chip was HOLED              → 1 × (1 − 3.10)    = −2.10
+    // giving −2.55. The hole-out has no first-putt bucket, so before migration
+    // 047 it contributed nothing here and its baseline sat in the long game.
+    expect(w.shortGame).toBeCloseTo(-2.55, 9);
     expect(w.penalties).toBe(1);
     // Total: 25 strokes over par 24 → +1.
     expect(w.total).toBe(1);
-    // Long game is the residual: 1 − 0.65 − (−2.45) − 1 = +1.80.
-    expect(w.longGame).toBeCloseTo(1.8, 9);
+    // Long game is the residual: 1 − 0.65 − (−2.55) − 1 = +1.90.
+    expect(w.longGame).toBeCloseTo(1.9, 9);
     // …and the four parts add back to the total, which is the whole point.
     expect(w.putting! + w.shortGame! + w.penalties + w.longGame!).toBeCloseTo(1, 9);
     // 5 of 6 scored holes carry a putt count, clearing the residual's floor.
@@ -497,16 +578,16 @@ test('a holed chip is a short-game gain, not a long-game one', () => {
 
     const plain = strokesLost(base);
     const holed = strokesLost(withHoleOut);
-    // −1.85 moves OUT of the residual and INTO the short game. The total is
-    // untouched: attribution changed, the score did not.
-    expect(holed.shortGame! - plain.shortGame!).toBeCloseTo(-1.85, 9);
-    expect(holed.longGame! - plain.longGame!).toBeCloseTo(1.85, 9);
+    // The HARD baseline, −2.10, moves OUT of the residual and INTO the short
+    // game. The total is untouched: attribution changed, the score did not.
+    expect(holed.shortGame! - plain.shortGame!).toBeCloseTo(-2.1, 9);
+    expect(holed.longGame! - plain.longGame!).toBeCloseTo(2.1, 9);
     expect(holed.total).toBe(plain.total);
 
     // And a holed chip is a scramble signal on its own: no bucketed first putt
     // anywhere, yet the short game is a number rather than null.
     const holeOutOnly = measures({ scrambleHoledStandard: 1 });
-    expect(strokesLost(holeOutOnly).shortGame).toBeCloseTo(-1.85, 9);
+    expect(strokesLost(holeOutOnly).shortGame).toBeCloseTo(-1.7, 9);
     // Neither signal → still null, not 0.
     expect(strokesLost(measures()).shortGame).toBeNull();
 });
@@ -529,7 +610,7 @@ test('the residual is null when most of the round has no putt count', () => {
     const w = strokesLost(sparse);
     // Every measured term still stands — coverage gates the RESIDUAL only.
     expect(w.putting).toBeCloseTo(6 - 3 * 1.05, 9);
-    expect(w.shortGame).toBeCloseTo(-0.6, 9);
+    expect(w.shortGame).toBeCloseTo(-0.45, 9);
     expect(w.total).toBe(18);
     expect(w.longGame).toBeNull();
     expect(w.coverage).toEqual({ holesScored: 18, puttsRecorded: 3 });
@@ -556,7 +637,7 @@ test('a stats-only round has no total and no residual, and produces no NaN', () 
     const w = strokesLost(statsOnly);
     // The measured terms still stand: 2 putts against 1.05 expected.
     expect(w.putting).toBeCloseTo(0.95, 9);
-    expect(w.shortGame).toBeCloseTo(-0.6, 9);
+    expect(w.shortGame).toBeCloseTo(-0.45, 9);
     expect(w.penalties).toBe(1);
     expect(w.total).toBeNull();
     expect(w.longGame).toBeNull();
@@ -609,10 +690,140 @@ test('an unmeasured term nulls the residual instead of charging it to the long g
 
 test('a chip left outside 2m charges the short game, a chip left inside credits it', () => {
     const far = measures({ scrambleFirstPuttHard: 4, scrambleInside2mHard: 1 });
-    // 1 × (1.25 − 1.85) + 3 × (2.12 − 1.85) = −0.60 + 0.81 = +0.21.
-    expect(strokesLost(far).shortGame).toBeCloseTo(0.21, 9);
+    // Against the HARD baseline: 1 × (1.25 − 2.10) + 3 × (2.12 − 2.10)
+    // = −0.85 + 0.06 = −0.79. Under v1's flat 1.85 the same round read +0.21 —
+    // the hard lie was being charged a standard lie's expectation.
+    expect(strokesLost(far).shortGame).toBeCloseTo(-0.79, 9);
     const close = measures({ scrambleFirstPuttStandard: 4, scrambleInside2mStandard: 4 });
-    expect(strokesLost(close).shortGame).toBeCloseTo(-2.4, 9);
+    // 4 × (1.25 − 1.70) = −1.80.
+    expect(strokesLost(close).shortGame).toBeCloseTo(-1.8, 9);
+});
+
+test('the chip-mix round exercises all six terms of the per-difficulty short game', () => {
+    const w = strokesLost(CHIP_MIX);
+
+    // Putting: 5×1.05 + 3×1.45 + 4×1.85 + 3×2.10 + 3×2.40 = 30.50 expected
+    // against 32 taken → +1.50.
+    expect(w.putting).toBeCloseTo(1.5, 9);
+    // Short game, each leg against its own baseline:
+    //   standard  3×(1.25−1.70) + 1×(2.12−1.70) + 2×(1−2.70) = −4.33
+    //   hard      1×(1.25−2.10) + 2×(2.12−2.10) + 1×(1−3.10) = −2.91
+    expect(w.shortGame).toBeCloseTo(-7.24, 9);
+    expect(w.penalties).toBe(3);
+    expect(w.total).toBe(12);
+    // Residual: 12 − 1.50 − (−7.24) − 3 = +14.74.
+    expect(w.longGame).toBeCloseTo(14.74, 9);
+    expect(w.coverage).toEqual({ holesScored: 18, puttsRecorded: 18 });
+});
+
+test('the v1 table reproduces the old FLAT short-game formula exactly', () => {
+    // Compatibility, stated as arithmetic: hand v2's per-difficulty sum a table
+    // whose two entries are both 1.85 and it collapses onto the single-baseline
+    // formula it replaced — 4 chips inside, 3 outside, 3 holed, over one 1.85.
+    const v1 = strokesLost(
+        CHIP_MIX,
+        EXPECTED_PUTTS_V1,
+        CHIP_OUTCOME_EXPECTED_PUTTS_V1,
+        CHIP_EXPECTED_PUTTS_V1_BY_DIFFICULTY,
+    );
+    const flat =
+        4 * (1.25 - CHIP_EXPECTED_PUTTS_V1) +
+        3 * (2.12 - CHIP_EXPECTED_PUTTS_V1) +
+        3 * (1 - (1 + CHIP_EXPECTED_PUTTS_V1));
+    expect(flat).toBeCloseTo(-7.14, 9);
+    expect(v1.shortGame).toBeCloseTo(-7.14, 9);
+});
+
+test('the hard-chip share is a property of the approach miss, not of the chip', () => {
+    const worked = hardChipShare(WORKED_EXAMPLE);
+    expect([worked.value, worked.n, worked.d]).toEqual([0.5, 1, 2]);
+    expect(rateDisplay(worked)).toBe('fraction');
+
+    const mix = hardChipShare(CHIP_MIX);
+    expect([mix.value, mix.n, mix.d]).toEqual([0.4, 4, 10]);
+    expect(rateDisplay(mix)).toBe('percentage');
+
+    // No attempts either way → absent, never 0%.
+    const none = hardChipShare(ZERO_MEASURES);
+    expect([none.value, none.n, none.d]).toEqual([null, 0, 0]);
+    expect(rateDisplay(none)).toBe('absent');
+});
+
+test('putts after a missed green are the complement of putts per green hit', () => {
+    const worked = puttsAfterMissedGreen(WORKED_EXAMPLE);
+    // 7 − 6 = 1 putt over 5 − 3 = 2 holes.
+    expect([worked.value, worked.n, worked.d]).toEqual([0.5, 1, 2]);
+    expect(rateDisplay(worked)).toBe('fraction');
+
+    const mix = puttsAfterMissedGreen(CHIP_MIX);
+    // 32 − 13 = 19 putts over 18 − 8 = 10 holes.
+    expect([mix.value, mix.n, mix.d]).toEqual([1.9, 19, 10]);
+    expect(rateDisplay(mix)).toBe('percentage');
+
+    const none = puttsAfterMissedGreen(ZERO_MEASURES);
+    expect([none.value, none.n, none.d]).toEqual([null, 0, 0]);
+    expect(rateDisplay(none)).toBe('absent');
+});
+
+test('the raw first-putt spread shares the putting card denominator and sums to 1', () => {
+    expect(firstPuttResolvedTotal(WORKED_EXAMPLE)).toBe(4);
+    expect(firstPuttResolvedTotal(CHIP_MIX)).toBe(18);
+
+    const worked = PUTT_BUCKETS.map((b) => firstPuttMix(WORKED_EXAMPLE, b));
+    expect(worked.map((r) => [r.value, r.n, r.d])).toEqual([
+        [0.5, 2, 4],
+        [0, 0, 4],
+        [0.25, 1, 4],
+        [0, 0, 4],
+        [0.25, 1, 4],
+    ]);
+    const mix = PUTT_BUCKETS.map((b) => firstPuttMix(CHIP_MIX, b));
+    expect(mix.map((r) => [r.n, r.d])).toEqual([
+        [5, 18],
+        [3, 18],
+        [4, 18],
+        [3, 18],
+        [3, 18],
+    ]);
+    expect(mix[0]!.value).toBeCloseTo(0.2777777777777778, 9);
+    expect(mix[1]!.value).toBeCloseTo(0.16666666666666666, 9);
+    expect(mix[2]!.value).toBeCloseTo(0.2222222222222222, 9);
+
+    // A distribution, so it partitions: both columns sum to exactly one.
+    const sum = (rows: { value: number | null }[]) =>
+        rows.reduce((acc, r) => acc + (r.value ?? 0), 0);
+    expect(sum(worked)).toBeCloseTo(1, 9);
+    expect(sum(mix)).toBeCloseTo(1, 9);
+
+    // Nothing resolved → absent on every bucket, not a flat 0%.
+    expect(firstPuttResolvedTotal(ZERO_MEASURES)).toBe(0);
+    expect(firstPuttMix(ZERO_MEASURES, 'inside_1m')).toEqual({ value: null, n: 0, d: 0 });
+});
+
+test('the results summary keeps its two denominators apart', () => {
+    const r = resultsSummary(RESULTS_ROWS);
+    // Every row is a round the player played, including the one with no card.
+    expect(r.rounds).toBe(5);
+    // Only the two COMPLETE eighteens: 84 and 79.
+    expect(r.completeRounds).toBe(2);
+    expect([r.averageScore.value, r.averageScore.n, r.averageScore.d]).toEqual([81.5, 163, 2]);
+    expect(rateDisplay(r.averageScore)).toBe('fraction');
+    expect(r.bestScore).toBe(79);
+    // Vs par is already per-hole-normalised, so it takes every round with a
+    // score — the six-hole partial and the nine included, the cardless one not.
+    expect([r.avgVsParPerRound.value, r.avgVsParPerRound.n, r.avgVsParPerRound.d]).toEqual([
+        7, 28, 4,
+    ]);
+    expect(rateDisplay(r.avgVsParPerRound)).toBe('fraction');
+});
+
+test('an empty window of rounds summarises as absent, never as zero', () => {
+    const r = resultsSummary([]);
+    expect(r.rounds).toBe(0);
+    expect(r.completeRounds).toBe(0);
+    expect(r.averageScore).toEqual({ value: null, n: 0, d: 0 });
+    expect(r.bestScore).toBeNull();
+    expect(r.avgVsParPerRound).toEqual({ value: null, n: 0, d: 0 });
 });
 
 test('the waterfall is additive, so a window sums the same way the counts do', () => {
@@ -846,6 +1057,48 @@ test('the window is the PRIOR rounds — the round under evaluation is not in it
     expect(baselineDeltas(round, [...prior, round]).putting).toBeCloseTo(-1 - 4 / 6, 9);
 });
 
+test('a perfect run out of HARD spots is its own line, ranked above the general one', () => {
+    const window = Array.from({ length: 4 }, () => waterfall());
+
+    // 4 of 4 hard saves clears the rule's floor of 3; the round's OVERALL rate,
+    // 7 of 10 = 0.70, is under the 0.75 the general rule wants, so only the
+    // sharper line fires.
+    expect(ids(insightLines(CHIP_MIX, strokesLost(CHIP_MIX), window, 10))).toContain(
+        'hard_scramble_streak',
+    );
+    expect(ids(insightLines(CHIP_MIX, strokesLost(CHIP_MIX), window, 10))).not.toContain(
+        'scramble_streak',
+    );
+
+    // Both rules clearing at once: neither carries a delta, so push order — the
+    // hard line first — is what decides, in both directions of the input.
+    const both = measures({
+        scrambleAttemptsStandard: 4,
+        scrambleSuccessesStandard: 4,
+        scrambleAttemptsHard: 3,
+        scrambleSuccessesHard: 3,
+    });
+    expect(ids(insightLines(both, waterfall(), window, 10))).toEqual([
+        'hard_scramble_streak',
+        'scramble_streak',
+    ]);
+
+    // Three is the floor, and it has to be PERFECT — one miss ends it.
+    const hard = (attempts: number, successes: number) =>
+        measures({ scrambleAttemptsHard: attempts, scrambleSuccessesHard: successes });
+    // Three hard saves and nothing else is under the general rule's floor of
+    // four attempts, so the hard line stands alone.
+    expect(ids(insightLines(hard(3, 3), waterfall(), window, 10))).toEqual([
+        'hard_scramble_streak',
+    ]);
+    expect(ids(insightLines(hard(2, 2), waterfall(), window, 10))).toEqual([]);
+    expect(ids(insightLines(hard(4, 3), waterfall(), window, 10))).toEqual(['scramble_streak']);
+    // The worked example has one hard attempt, which is not a run.
+    expect(ids(insightLines(WORKED_EXAMPLE, strokesLost(WORKED_EXAMPLE), window, 10))).not.toContain(
+        'hard_scramble_streak',
+    );
+});
+
 test('the worked example, end to end: counts in, ranked lines out', () => {
     // The same round the server test asserts, played against five flat rounds.
     const window: StrokesLost[] = Array.from({ length: 5 }, () =>
@@ -853,9 +1106,9 @@ test('the worked example, end to end: counts in, ranked lines out', () => {
     );
     const w = strokesLost(WORKED_EXAMPLE);
     const lines = insightLines(WORKED_EXAMPLE, w, window, 3);
-    // Deltas vs the flat window: short game −2.45 − 0 = −2.45 (best, and it is
+    // Deltas vs the flat window: short game −2.55 − 0 = −2.55 (best, and it is
     // the holed chip that puts it there); penalties 1 − 0 = +1 (worst); putting
-    // 0.65 − 2 = −1.35 and long game 1.80 − 1 = +0.80 lose to them. The round
+    // 0.65 − 2 = −1.35 and long game 1.90 − 1 = +0.90 lose to them. The round
     // also putted better than all five, which is the third line.
     expect(ids(lines)).toEqual([
         'component_best_vs_baseline',
@@ -863,7 +1116,7 @@ test('the worked example, end to end: counts in, ranked lines out', () => {
         'best_putting_round',
     ]);
     expect(lines[0]!.params.component).toBe('shortGame');
-    expect(lines[0]!.params.delta).toBeCloseTo(-2.45, 9);
+    expect(lines[0]!.params.delta).toBeCloseTo(-2.55, 9);
     // "Worst" is a genuine regression here: +1 penalty stroke against a
     // baseline of none. (It is only ever the component furthest ABOVE the
     // baseline — which on a good round can still be a gain.)

@@ -123,6 +123,12 @@ struct ChipOutcomeExpectedPutts: Equatable, Sendable {
     var outside2m: Double
 }
 
+/// A chip baseline per difficulty — what an AVERAGE short-game shot leaves.
+struct ChipExpectedPutts: Equatable, Sendable {
+    var standard: Double
+    var hard: Double
+}
+
 // MARK: - The strokes-lost waterfall
 
 /// The four attributable buckets, in the order a waterfall draws them.
@@ -214,6 +220,39 @@ struct StrokesLostDeltas: Equatable, Sendable {
     }
 }
 
+// MARK: - Results over a window of rounds
+
+/// A full round, in holes. The gate the score figures are computed over.
+///
+/// One row of the window as `resultsSummary` needs it. `holeCount` is the
+/// round's own length, which no `StatMeasures` column carries — a round can be
+/// eighteen holes long and have six of them scored.
+struct ResultsRow: Equatable, Sendable {
+    var holeCount: Double
+    var measures: StatMeasures
+}
+
+/// The scoring headline for a window: how much golf, how well, and how well at
+/// best.
+///
+/// The two denominators are deliberately different. `averageScore` and
+/// `bestScore` are COMPLETE-18-only, because a total is only comparable at a
+/// fixed hole count, and the copy on screen says so. `avgVsParPerRound` covers
+/// every round with a score, nine-holers included, because vs par is already
+/// normalised against the holes it was played over.
+struct ResultsSummary: Equatable, Sendable {
+    /// Every round in the window, whatever it holds.
+    var rounds: Int
+    /// Rounds that are a COMPLETE 18: `holeCount == holesScored == 18`.
+    var completeRounds: Int
+    /// Mean strokes over the complete rounds. `d` is `completeRounds`.
+    var averageScore: Rate
+    /// Lowest complete-18 total, or nil when there is none.
+    var bestScore: Double?
+    /// Mean (strokes − par) per round over every round with a score.
+    var avgVsParPerRound: Rate
+}
+
 // MARK: - Insight lines
 
 /// The closed set of things this module will say about a round. The UI owns the
@@ -232,6 +271,7 @@ enum InsightID: String, Equatable, Sendable, CaseIterable {
     case componentWorstVsBaseline = "component_worst_vs_baseline"
     case penaltiesSpike = "penalties_spike"
     case scrambleStreak = "scramble_streak"
+    case hardScrambleStreak = "hard_scramble_streak"
     case threePuttFree = "three_putt_free"
     case bestPuttingRound = "best_putting_round"
     case bounceBackPerfect = "bounce_back_perfect"
@@ -579,11 +619,35 @@ enum StatMeasuresMath {
         rate(girFirstPutt(m, bucket), m.girFirstPuttRecorded)
     }
 
+    /// Holes with a first putt recorded AND its putt count — the mix denominator.
+    static func firstPuttResolvedTotal(_ m: StatMeasures) -> Double {
+        var total: Double = 0
+        for bucket in PuttBucket.allCases { total += firstPuttResolved(m, bucket) }
+        return total
+    }
+
+    /// Share of ALL recorded holes whose first putt was in this bucket.
+    ///
+    /// The unconditioned twin of `girFirstPuttMix`: that one is the greens you
+    /// HIT, this one is every hole you recorded a first putt on. Resolved on
+    /// both sides (invariant 2), so the five shares sum to 1.
+    static func firstPuttMix(_ m: StatMeasures, _ bucket: PuttBucket) -> Rate {
+        rate(firstPuttResolved(m, bucket), firstPuttResolvedTotal(m))
+    }
+
     /// Birdies over greens hit THAT WERE ALSO SCORED. Not over `girHits`: a green
     /// hit on a hole with no score cannot become a birdie, and counting it would
     /// push the conversion rate down for a hole nobody recorded.
     static func birdieConversion(_ m: StatMeasures) -> Rate {
         rate(m.birdiesOnGir, m.girHolesScored)
+    }
+
+    /// How often a missed green left a HARD short-game shot rather than a
+    /// standard one. A property of the APPROACH miss, not of the short game: it
+    /// says where the approach put you, which is why it is surfaced on the
+    /// approach card.
+    static func hardChipShare(_ m: StatMeasures) -> Rate {
+        rate(m.scrambleAttemptsHard, m.scrambleAttemptsStandard + m.scrambleAttemptsHard)
     }
 
     // MARK: Putting
@@ -614,6 +678,18 @@ enum StatMeasuresMath {
     /// greens; this denominator is greens hit with a putt count recorded.
     static func puttsPerGirHole(_ m: StatMeasures) -> Rate {
         rate(m.puttsTotalGir, m.puttsRecordedGir)
+    }
+
+    /// Putts per hole on the holes where the green was MISSED — the complement
+    /// of `puttsPerGirHole`, over the same two recorded columns.
+    ///
+    /// Both sides are clamped at zero: on coherent data the GIR subset cannot
+    /// exceed the total, but a mixed window could produce a negative difference,
+    /// and a negative count here would flatter the miss holes.
+    static func puttsAfterMissedGreen(_ m: StatMeasures) -> Rate {
+        let putts = max(0, m.puttsTotal - m.puttsTotalGir)
+        let holes = max(0, m.puttsRecorded - m.puttsRecordedGir)
+        return rate(putts, holes)
     }
 
     // MARK: Short game
@@ -699,6 +775,29 @@ enum StatMeasuresMath {
     static let chipOutcomeExpectedPuttsV1 = ChipOutcomeExpectedPutts(
         inside2m: 1.25, outside2m: 2.12)
 
+    /// Expected putts remaining after an average short-game shot, v2 — split by
+    /// the difficulty the player recorded.
+    ///
+    /// v1 used one number, 1.85, for every chip. It is the right AVERAGE and the
+    /// wrong baseline for either individual case: a standard chip from a clean
+    /// lie is expected to leave less than a hard one from a bad one, so v1
+    /// quietly rewarded every hard chip and punished every standard one. A
+    /// roughly 60/40 standard/hard mix over 1.70 and 2.10 recovers v1's 1.85
+    /// (0.6 × 1.70 + 0.4 × 2.10 = 1.86), so the aggregate barely moves while
+    /// each chip is now scored against its own lie.
+    ///
+    /// The OUTCOME table above is NOT versioned alongside it: where the ball
+    /// finished (inside 2 m / outside 2 m) does not depend on the lie it came
+    /// from, only the baseline that outcome is scored against does.
+    ///
+    /// FROZEN, exactly like v1: tune by adding a V3, never by editing these.
+    static let chipExpectedPuttsV2 = ChipExpectedPutts(standard: 1.70, hard: 2.10)
+
+    /// v1 as a per-difficulty table — both difficulties share the single 1.85.
+    /// Passing it to `strokesLost` reproduces the frozen v1 numbers exactly.
+    static let chipExpectedPuttsV1ByDifficulty = ChipExpectedPutts(
+        standard: chipExpectedPuttsV1, hard: chipExpectedPuttsV1)
+
     // MARK: The strokes-lost waterfall (proposal §2)
 
     /// The share of scored holes that must carry a putt count before the long
@@ -717,16 +816,18 @@ enum StatMeasuresMath {
     ///
     ///     putting   = Σ puttsTotal{bucket}Resolved
     ///                 − Σ firstPutt{bucket}Resolved × E[bucket]
-    ///     shortGame = Σ chip outcomes × (E[outcome] − chipBaseline)
-    ///                 + holed chips × (1 − (1 + chipBaseline))
+    ///     shortGame = Σ over {standard, hard} of
+    ///                   chip outcomes × (E[outcome] − chipBaseline[difficulty])
+    ///                 + holed chips  × (1 − (1 + chipBaseline[difficulty]))
     ///     penalties = penaltiesTotal      (one penalty ≈ one stroke, directly)
     ///     longGame  = total − putting − shortGame − penalties
     ///     total     = strokesTotal − parTotal
     ///
     /// The holed-chip term is the same subtraction as the other two outcomes,
     /// just with the chip itself inside it. An average short-game shot costs 1
-    /// stroke and leaves `chipBaseline` putts behind it — 2.85 strokes to get
-    /// down. A chip-in costs 1 and leaves nothing, so it gains 1.85 strokes.
+    /// stroke and leaves its difficulty's baseline in putts behind it — 2.70
+    /// strokes to get down from a standard lie, 3.10 from a hard one. A chip-in
+    /// costs 1 and leaves nothing, so it gains 1.70 or 2.10 strokes.
     /// Without the term a hole-out is invisible to the short game (there is no
     /// first putt to bucket) and its whole gain lands in the long-game residual,
     /// which reads as "great approach play" for a shot that MISSED the green.
@@ -748,7 +849,7 @@ enum StatMeasuresMath {
         _ m: StatMeasures,
         expected: ExpectedPuttsTable = expectedPuttsV1,
         chipExpected: ChipOutcomeExpectedPutts = chipOutcomeExpectedPuttsV1,
-        chipBaseline: Double = chipExpectedPuttsV1
+        chipBaseline: ChipExpectedPutts = chipExpectedPuttsV2
     ) -> StrokesLost {
         var resolvedHoles: Double = 0
         var puttsTaken: Double = 0
@@ -761,23 +862,37 @@ enum StatMeasuresMath {
         }
         let putting: Double? = resolvedHoles == 0 ? nil : puttsTaken - puttsExpected
 
-        let chipsInside2m = m.scrambleInside2mStandard + m.scrambleInside2mHard
-        let chipsMeasured = m.scrambleFirstPuttStandard + m.scrambleFirstPuttHard
-        // Clamped: `scrambleInside2m*` is a subset of `scrambleFirstPutt*` by
+        // One difficulty's contribution, scored against ITS OWN baseline. The
+        // clamp is per difficulty for the same reason it used to be per window:
+        // `scrambleInside2m*` is a subset of `scrambleFirstPutt*` by
         // construction, so this cannot go negative on coherent data — but a
         // mixed window (a v2 numerator summed over pre-044 rows) could, and a
         // negative count here would credit the short game for chips that were
         // never hit.
-        let chipsOutside2m = max(0, chipsMeasured - chipsInside2m)
+        func term(_ inside2m: Double, _ measured: Double, _ holed: Double, _ baseline: Double)
+            -> Double
+        {
+            let outside2m = max(0, measured - inside2m)
+            return inside2m * (chipExpected.inside2m - baseline)
+                + outside2m * (chipExpected.outside2m - baseline)
+                // 1 stroke taken where an average chip + its putts expects
+                // 1 + baseline. Negative, i.e. a gain.
+                + holed * (1 - (1 + baseline))
+        }
+
+        let chipsMeasured = m.scrambleFirstPuttStandard + m.scrambleFirstPuttHard
         let chipsHoled = m.scrambleHoledStandard + m.scrambleHoledHard
+        // Standard before hard, on both clients, so the floating-point
+        // accumulation is identical down to the last bit.
         let shortGame: Double? =
             chipsMeasured == 0 && chipsHoled == 0
             ? nil
-            : chipsInside2m * (chipExpected.inside2m - chipBaseline)
-                + chipsOutside2m * (chipExpected.outside2m - chipBaseline)
-                // 1 stroke taken where an average chip + its putts expects
-                // 1 + chipBaseline. Negative, i.e. a gain.
-                + chipsHoled * (1 - (1 + chipBaseline))
+            : term(
+                m.scrambleInside2mStandard, m.scrambleFirstPuttStandard, m.scrambleHoledStandard,
+                chipBaseline.standard)
+                + term(
+                    m.scrambleInside2mHard, m.scrambleFirstPuttHard, m.scrambleHoledHard,
+                    chipBaseline.hard)
 
         let penalties = m.penaltiesTotal
         let total: Double? = m.holesScored == 0 ? nil : m.strokesTotal - m.parTotal
@@ -797,6 +912,43 @@ enum StatMeasuresMath {
         return StrokesLost(
             putting: putting, shortGame: shortGame, penalties: penalties, longGame: longGame,
             total: total, coverage: coverage)
+    }
+
+    // MARK: Results over a window of rounds
+
+    /// What counts as a whole round for the score figures.
+    static let fullRoundHoles: Double = 18
+
+    /// The window's scoring headline.
+    ///
+    /// Operates on ROWS, not on a summed `StatMeasures`: the 18-hole gate and
+    /// the best score are per-round facts that a sum destroys — eighteen nines
+    /// add up to nine eighteens, and the lowest total in a window is not a
+    /// column anybody can add.
+    static func resultsSummary(_ rows: [ResultsRow]) -> ResultsSummary {
+        var completeRounds: Double = 0
+        var strokes: Double = 0
+        var best: Double?
+        var vsPar: Double = 0
+        var scoredRounds: Double = 0
+        for row in rows {
+            let m = row.measures
+            if m.holesScored > 0 {
+                scoredRounds += 1
+                vsPar += m.strokesTotal - m.parTotal
+            }
+            if row.holeCount == fullRoundHoles, m.holesScored == fullRoundHoles {
+                completeRounds += 1
+                strokes += m.strokesTotal
+                if best == nil || m.strokesTotal < best! { best = m.strokesTotal }
+            }
+        }
+        return ResultsSummary(
+            rounds: rows.count,
+            completeRounds: Int(completeRounds),
+            averageScore: rate(strokes, completeRounds),
+            bestScore: best,
+            avgVsParPerRound: rate(vsPar, scoredRounds))
     }
 
     // MARK: Personal baseline
@@ -847,6 +999,8 @@ enum StatMeasuresMath {
     static let insightPenaltySpikeOverMean: Double = 2
     static let insightScrambleStreakRate: Double = 0.75
     static let insightScrambleStreakMinAttempts: Double = 4
+    /// Below three hard misses, "all of them" is a coincidence, not a streak.
+    static let insightHardScrambleStreakMinAttempts: Double = 3
     /// Below this many putts, "no three-putts" is a short round, not a good one.
     static let insightThreePuttFreeMinPutts: Double = 12
     /// "Best in your last N" needs an N worth comparing against.
@@ -924,7 +1078,25 @@ enum StatMeasuresMath {
                 0)
         }
 
-        // 4. A scrambling round, on a sample big enough to mean it.
+        // 4. Every hard spot saved. No rate threshold: the sentence claims "all
+        // of them", so a partial rate would make the copy false. Pushed BEFORE
+        // the overall streak below, which it ties with on magnitude — a round
+        // with three hard saves should lead with the harder claim, and both
+        // lines may fire together.
+        if m.scrambleAttemptsHard >= insightHardScrambleStreakMinAttempts,
+            m.scrambleSuccessesHard == m.scrambleAttemptsHard
+        {
+            push(
+                InsightLine(
+                    id: .hardScrambleStreak,
+                    params: [
+                        "successes": .number(m.scrambleSuccessesHard),
+                        "attempts": .number(m.scrambleAttemptsHard),
+                    ]),
+                0)
+        }
+
+        // 5. A scrambling round, on a sample big enough to mean it.
         let attempts = m.scrambleAttemptsStandard + m.scrambleAttemptsHard
         let successes = m.scrambleSuccessesStandard + m.scrambleSuccessesHard
         if attempts >= insightScrambleStreakMinAttempts,
@@ -937,7 +1109,7 @@ enum StatMeasuresMath {
                 0)
         }
 
-        // 5. No three-putts, over enough putts for that to be an achievement.
+        // 6. No three-putts, over enough putts for that to be an achievement.
         if m.threePutts == 0, m.puttsTotal >= insightThreePuttFreeMinPutts {
             push(
                 InsightLine(
@@ -946,7 +1118,7 @@ enum StatMeasuresMath {
                 0)
         }
 
-        // 6. Best putting round in the window: strictly better than every round
+        // 7. Best putting round in the window: strictly better than every round
         // in it that has a putting term, over a window worth the claim.
         let windowPutting = window.compactMap(\.putting)
         if let putting = waterfall.putting,
@@ -962,7 +1134,7 @@ enum StatMeasuresMath {
                 0)
         }
 
-        // 7. Every bounce-back chance taken.
+        // 8. Every bounce-back chance taken.
         if m.bounceBackOpportunities >= insightBounceBackMinOpportunities,
             m.bounceBackSuccesses == m.bounceBackOpportunities
         {

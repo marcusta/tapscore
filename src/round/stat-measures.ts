@@ -465,6 +465,26 @@ export function girFirstPuttMix(m: StatMeasures, bucket: PuttBucket): Rate {
     return rate(girFirstPutt(m, bucket), m.girFirstPuttRecorded);
 }
 
+/** Holes with a first putt recorded AND its putt count — the mix denominator. */
+export function firstPuttResolvedTotal(m: StatMeasures): number {
+    let total = 0;
+    for (const bucket of PUTT_BUCKETS) total += firstPuttResolved(m, bucket);
+    return total;
+}
+
+/**
+ * Share of ALL recorded holes whose first putt was in this bucket — the raw
+ * twin of `girFirstPuttMix`, over every hole rather than only the greens hit.
+ *
+ * Resolved on both sides (invariant 2), so it shares the putting card's
+ * denominator rather than the coarse `firstPuttRecorded`. The difference
+ * between the two distributions IS the short-game proximity story, told from
+ * the putting side.
+ */
+export function firstPuttMix(m: StatMeasures, bucket: PuttBucket): Rate {
+    return rate(firstPuttResolved(m, bucket), firstPuttResolvedTotal(m));
+}
+
 /**
  * Birdies over greens hit THAT WERE ALSO SCORED. Not over `girHits`: a green hit
  * on a hole with no score cannot become a birdie, and counting it would push the
@@ -472,6 +492,15 @@ export function girFirstPuttMix(m: StatMeasures, bucket: PuttBucket): Rate {
  */
 export function birdieConversion(m: StatMeasures): Rate {
     return rate(m.birdiesOnGir, m.girHolesScored);
+}
+
+/**
+ * How often a missed green left a HARD short-game shot rather than a standard
+ * one. A property of the APPROACH miss, not of the short game: it says where
+ * the approach put you, which is why it is surfaced on the approach card.
+ */
+export function hardChipShare(m: StatMeasures): Rate {
+    return rate(m.scrambleAttemptsHard, m.scrambleAttemptsStandard + m.scrambleAttemptsHard);
 }
 
 // --- Putting ---
@@ -510,6 +539,21 @@ export function threePuttsFromOver8mRate(m: StatMeasures): Rate {
  */
 export function puttsPerGirHole(m: StatMeasures): Rate {
     return rate(m.puttsTotalGir, m.puttsRecordedGir);
+}
+
+/**
+ * Putts per hole on the holes where the green was MISSED — the complement of
+ * `puttsPerGirHole`, over the same two recorded columns. The gap between the
+ * two is the short-game contribution, seen from the green.
+ *
+ * Both sides are clamped at zero: on coherent data the GIR subset cannot exceed
+ * the total, but a mixed window could produce a negative difference, and a
+ * negative count here would flatter the miss holes.
+ */
+export function puttsAfterMissedGreen(m: StatMeasures): Rate {
+    const putts = Math.max(0, m.puttsTotal - m.puttsTotalGir);
+    const holes = Math.max(0, m.puttsRecorded - m.puttsRecordedGir);
+    return rate(putts, holes);
 }
 
 // --- Short game ---
@@ -591,6 +635,71 @@ export function bounceBackRate(m: StatMeasures): Rate {
     return rate(m.bounceBackSuccesses, m.bounceBackOpportunities);
 }
 
+// --- Results (the headline scoring figures) ---
+//
+// These operate on ROWS rather than on a summed `StatMeasures`, because the
+// 18-hole gate and the best score are per-ROUND facts that a sum destroys: a
+// window of two nines sums to eighteen holes and is not a round, and the lowest
+// total in a window cannot be recovered from the window's own total.
+
+/** A full round, in holes. The gate the score figures are computed over. */
+export const FULL_ROUND_HOLES = 18;
+
+/** The one row shape `resultsSummary` needs. `PlayerRoundStats` satisfies it. */
+export interface ResultsRow {
+    holeCount: number;
+    measures: StatMeasures;
+}
+
+export interface ResultsSummary {
+    /** Every round in the window, whatever it holds. */
+    rounds: number;
+    /** Rounds that are a COMPLETE 18: `holeCount === holesScored === 18`. */
+    completeRounds: number;
+    /** Mean strokes over the complete rounds. `d` is `completeRounds`. */
+    averageScore: Rate;
+    /** Lowest complete-18 total, or null when there is none. */
+    bestScore: number | null;
+    /** Mean (strokes − par) per round over every round with a score. */
+    avgVsParPerRound: Rate;
+}
+
+/**
+ * The window's scoring headline.
+ *
+ * The two denominators are deliberately different. Average score and best score
+ * are only comparable at a fixed hole count, so they are 18-hole-only and the
+ * screen says so. Vs par is already a per-hole-normalised quantity, so it is
+ * taken over every round that has a score at all — nines and part rounds
+ * included — divided by the number of those rounds.
+ */
+export function resultsSummary(rows: readonly ResultsRow[]): ResultsSummary {
+    let completeRounds = 0;
+    let strokes = 0;
+    let best: number | null = null;
+    let vsPar = 0;
+    let scoredRounds = 0;
+    for (const row of rows) {
+        const m = row.measures;
+        if (m.holesScored > 0) {
+            scoredRounds += 1;
+            vsPar += m.strokesTotal - m.parTotal;
+        }
+        if (row.holeCount === FULL_ROUND_HOLES && m.holesScored === FULL_ROUND_HOLES) {
+            completeRounds += 1;
+            strokes += m.strokesTotal;
+            if (best === null || m.strokesTotal < best) best = m.strokesTotal;
+        }
+    }
+    return {
+        rounds: rows.length,
+        completeRounds,
+        averageScore: rate(strokes, completeRounds),
+        bestScore: best,
+        avgVsParPerRound: rate(vsPar, scoredRounds),
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Expected putts
 // ---------------------------------------------------------------------------
@@ -629,6 +738,41 @@ export const CHIP_EXPECTED_PUTTS_V1 = 1.85;
  */
 export const CHIP_OUTCOME_EXPECTED_PUTTS_V1: Readonly<{ inside2m: number; outside2m: number }> =
     Object.freeze({ inside2m: 1.25, outside2m: 2.12 });
+
+/** A chip baseline per difficulty — what an AVERAGE short-game shot leaves. */
+export interface ChipExpectedPutts {
+    readonly standard: number;
+    readonly hard: number;
+}
+
+/**
+ * Expected putts remaining after an average short-game shot, v2 — split by the
+ * difficulty the player recorded.
+ *
+ * v1 used one number, 1.85, for every chip. It is the right AVERAGE and the
+ * wrong baseline for either individual case: a standard chip from a clean lie
+ * is expected to leave less than a hard one from a bad one, so v1 quietly
+ * rewarded every hard chip and punished every standard one. A roughly 60/40
+ * standard/hard mix over 1.70 and 2.10 recovers v1's 1.85
+ * (0.6 × 1.70 + 0.4 × 2.10 = 1.86), so the aggregate barely moves while each
+ * chip is now scored against its own lie.
+ *
+ * The chip OUTCOME table above stays shared across difficulties: where the ball
+ * finished (inside 2 m / outside 2 m) does not depend on the lie it came from;
+ * only the BASELINE that outcome is scored against does.
+ *
+ * FROZEN, exactly like v1: tune by adding a V3, never by editing these.
+ */
+export const CHIP_EXPECTED_PUTTS_V2: Readonly<ChipExpectedPutts> = Object.freeze({
+    standard: 1.7,
+    hard: 2.1,
+});
+
+/** v1 as a per-difficulty table — both difficulties share the single 1.85. */
+export const CHIP_EXPECTED_PUTTS_V1_BY_DIFFICULTY: Readonly<ChipExpectedPutts> = Object.freeze({
+    standard: CHIP_EXPECTED_PUTTS_V1,
+    hard: CHIP_EXPECTED_PUTTS_V1,
+});
 
 // ---------------------------------------------------------------------------
 // The strokes-lost waterfall (proposal §2)
@@ -690,19 +834,24 @@ export const PUTTING_COVERAGE_FLOOR = 0.8;
  * are all additive).
  *
  *  putting    = Σ puttsTotal{bucket}Resolved − Σ firstPutt{bucket}Resolved × E[bucket]
- *  shortGame  = Σ chip outcomes × (E[outcome] − CHIP_EXPECTED_PUTTS)
- *                 + holed chips × (1 − (1 + CHIP_EXPECTED_PUTTS))
+ *  shortGame  = Σ over {standard, hard} of
+ *                 chip outcomes × (E[outcome] − chipBaseline[difficulty])
+ *                   + holed chips × (1 − (1 + chipBaseline[difficulty]))
  *  penalties  = penaltiesTotal            (one penalty ≈ one stroke, directly)
  *  longGame   = total − putting − shortGame − penalties
  *  total      = strokesTotal − parTotal
  *
+ * The short-game term is summed PER DIFFICULTY (v2): the outcome table is
+ * shared — where the ball finished does not depend on the lie it came from —
+ * while the baseline it is scored against is the one the recorded lie earns.
+ *
  * The holed-chip term is the same subtraction as the other two outcomes, just
  * with the chip itself inside it. An average short-game shot costs 1 stroke and
- * leaves `CHIP_EXPECTED_PUTTS` putts behind it — 2.85 strokes to get down. A
- * chip-in costs 1 and leaves nothing, so it gains 1.85 strokes. Without the term
- * a hole-out is invisible to the short game (there is no first putt to bucket)
- * and its whole gain lands in the long-game residual, which reads as "great
- * approach play" for a shot that MISSED the green.
+ * leaves its baseline in putts behind it — 2.70 strokes to get down from a
+ * standard lie. A chip-in costs 1 and leaves nothing, so it gains 1.70 strokes.
+ * Without the term a hole-out is invisible to the short game (there is no first
+ * putt to bucket) and its whole gain lands in the long-game residual, which
+ * reads as "great approach play" for a shot that MISSED the green.
  *
  * Null rules, all of them deliberate:
  * - `putting` is null when NO bucket resolved. Resolved-only is what keeps the
@@ -722,7 +871,7 @@ export function strokesLost(
     m: StatMeasures,
     expected: Readonly<Record<PuttBucket, number>> = EXPECTED_PUTTS_V1,
     chipExpected: Readonly<{ inside2m: number; outside2m: number }> = CHIP_OUTCOME_EXPECTED_PUTTS_V1,
-    chipBaseline: number = CHIP_EXPECTED_PUTTS_V1,
+    chipBaseline: Readonly<ChipExpectedPutts> = CHIP_EXPECTED_PUTTS_V2,
 ): StrokesLost {
     let resolvedHoles = 0;
     let puttsTaken = 0;
@@ -735,22 +884,45 @@ export function strokesLost(
     }
     const putting = resolvedHoles === 0 ? null : puttsTaken - puttsExpected;
 
-    const chipsInside2m = m.scrambleInside2mStandard + m.scrambleInside2mHard;
+    // One difficulty's whole contribution. Clamped: `scrambleInside2m*` is a
+    // subset of `scrambleFirstPutt*` by construction, so this cannot go negative
+    // on coherent data — but a mixed window (a v2 numerator summed over pre-044
+    // rows) could, and a negative count here would credit the short game for
+    // chips that were never hit. The clamp is per difficulty, so one leg's
+    // incoherence cannot be cancelled by the other's slack.
+    const term = (inside2m: number, measured: number, holed: number, baseline: number): number => {
+        const outside2m = Math.max(0, measured - inside2m);
+        return (
+            inside2m * (chipExpected.inside2m - baseline) +
+            outside2m * (chipExpected.outside2m - baseline) +
+            // 1 stroke taken where an average chip + its putts expects
+            // 1 + baseline. Negative, i.e. a gain.
+            holed * (1 - (1 + baseline))
+        );
+    };
+
+    // The absence gate stays ACROSS difficulties: "no short-game signal at all"
+    // is one question, and asking it per leg would null a window that recorded
+    // only hard chips.
     const chipsMeasured = m.scrambleFirstPuttStandard + m.scrambleFirstPuttHard;
-    // Clamped: `scrambleInside2m*` is a subset of `scrambleFirstPutt*` by
-    // construction, so this cannot go negative on coherent data — but a mixed
-    // window (a v2 numerator summed over pre-044 rows) could, and a negative
-    // count here would credit the short game for chips that were never hit.
-    const chipsOutside2m = Math.max(0, chipsMeasured - chipsInside2m);
     const chipsHoled = m.scrambleHoledStandard + m.scrambleHoledHard;
     const shortGame =
         chipsMeasured === 0 && chipsHoled === 0
             ? null
-            : chipsInside2m * (chipExpected.inside2m - chipBaseline) +
-              chipsOutside2m * (chipExpected.outside2m - chipBaseline) +
-              // 1 stroke taken where an average chip + its putts expects
-              // 1 + chipBaseline. Negative, i.e. a gain.
-              chipsHoled * (1 - (1 + chipBaseline));
+            : // Standard before hard on both platforms, so floating-point
+              // accumulation is identical to the Swift twin's.
+              term(
+                  m.scrambleInside2mStandard,
+                  m.scrambleFirstPuttStandard,
+                  m.scrambleHoledStandard,
+                  chipBaseline.standard,
+              ) +
+              term(
+                  m.scrambleInside2mHard,
+                  m.scrambleFirstPuttHard,
+                  m.scrambleHoledHard,
+                  chipBaseline.hard,
+              );
 
     const penalties = m.penaltiesTotal;
     const total = m.holesScored === 0 ? null : m.strokesTotal - m.parTotal;
@@ -890,6 +1062,7 @@ export type InsightId =
     | 'component_worst_vs_baseline'
     | 'penalties_spike'
     | 'scramble_streak'
+    | 'hard_scramble_streak'
     | 'three_putt_free'
     | 'best_putting_round'
     | 'bounce_back_perfect';
@@ -908,6 +1081,8 @@ export const INSIGHT_COMPONENT_DELTA_STROKES = 1;
 export const INSIGHT_PENALTY_SPIKE_OVER_MEAN = 2;
 export const INSIGHT_SCRAMBLE_STREAK_RATE = 0.75;
 export const INSIGHT_SCRAMBLE_STREAK_MIN_ATTEMPTS = 4;
+/** Below three hard misses, "all of them" is a coincidence, not a streak. */
+export const INSIGHT_HARD_SCRAMBLE_STREAK_MIN_ATTEMPTS = 3;
 /** Below this many putts, "no three-putts" is a short round, not a good one. */
 export const INSIGHT_THREE_PUTT_FREE_MIN_PUTTS = 12;
 /** "Best in your last N" needs an N worth comparing against. */
@@ -990,7 +1165,26 @@ export function insightLines(
         );
     }
 
-    // 4. A scrambling round, on a sample big enough to mean it.
+    // 4. Every HARD spot saved. Ranked above the all-in scramble line, which it
+    // usually co-occurs with: "you got up and down from all three bad lies" is
+    // the sharper sentence, and both carry magnitude 0, so push order decides.
+    if (
+        measures.scrambleAttemptsHard >= INSIGHT_HARD_SCRAMBLE_STREAK_MIN_ATTEMPTS &&
+        measures.scrambleSuccessesHard === measures.scrambleAttemptsHard
+    ) {
+        push(
+            {
+                id: 'hard_scramble_streak',
+                params: {
+                    successes: measures.scrambleSuccessesHard,
+                    attempts: measures.scrambleAttemptsHard,
+                },
+            },
+            0,
+        );
+    }
+
+    // 5. A scrambling round, on a sample big enough to mean it.
     const attempts = measures.scrambleAttemptsStandard + measures.scrambleAttemptsHard;
     const successes = measures.scrambleSuccessesStandard + measures.scrambleSuccessesHard;
     if (
@@ -1000,7 +1194,7 @@ export function insightLines(
         push({ id: 'scramble_streak', params: { successes, attempts } }, 0);
     }
 
-    // 5. No three-putts, over enough putts for that to be an achievement.
+    // 6. No three-putts, over enough putts for that to be an achievement.
     if (measures.threePutts === 0 && measures.puttsTotal >= INSIGHT_THREE_PUTT_FREE_MIN_PUTTS) {
         push(
             {
@@ -1011,7 +1205,7 @@ export function insightLines(
         );
     }
 
-    // 6. Best putting round in the window: strictly better than every round in
+    // 7. Best putting round in the window: strictly better than every round in
     // it that has a putting term, over a window worth the claim.
     const windowPutting = window.map(pickPutting).filter((v): v is number => v !== null);
     if (
@@ -1028,7 +1222,7 @@ export function insightLines(
         );
     }
 
-    // 7. Every bounce-back chance taken.
+    // 8. Every bounce-back chance taken.
     if (
         measures.bounceBackOpportunities >= INSIGHT_BOUNCE_BACK_MIN_OPPORTUNITIES &&
         measures.bounceBackSuccesses === measures.bounceBackOpportunities
