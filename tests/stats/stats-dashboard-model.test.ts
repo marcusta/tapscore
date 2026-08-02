@@ -13,7 +13,7 @@ import {
     TREND_MIN_POINTS,
     waterfallMagnitude,
 } from '../../src/stats/stats-dashboard-model';
-import { strokesLostV3, ZERO_MEASURES } from '../../src/round/stat-measures';
+import { SG_BASELINES_V1, strokesLostV3, ZERO_MEASURES } from '../../src/round/stat-measures';
 import type { PlayerRoundStats, StatMeasures } from '../../src/api/player-stats.gen';
 
 // The (rows → screen) reduction. Pure: no service, no DOM, no clock. Twin of
@@ -349,6 +349,46 @@ test('putting trends on strokes lost, where lower is better', () => {
     const trend = trends.find((t) => t.id === 'putting')!;
     expect(trend.kind).toBe('strokesLost');
     expect(trend.points).toHaveLength(3);
+});
+
+// --- Handicap cohorts --------------------------------------------------------
+
+// One bundle prices the WHOLE model. This is the wiring test for that claim:
+// every strokes-lost figure the screen shows has to move when the tier does, or
+// a card is quietly still on the shipped table while the sheet above it names
+// another one.
+test('the baseline bundle reaches every strokes-lost figure on the screen', () => {
+    // Nine par-3 greens hit, two putts each — over the per-18 floor, so the
+    // trend and the priorities both report.
+    const m = measures({
+        holesScored: 9,
+        attHolesPar3Gir: 9,
+        attStrokes: 27,
+        attPutts: 18,
+        attGirFirstPutt2To4m: 9,
+    });
+    const rows = ['c', 'b', 'a'].map((id, i) =>
+        row({ roundId: id, date: `2026-05-0${3 - i}`, measures: m }),
+    );
+
+    const scratch = buildDashboardModel(rows, SG_BASELINES_V1.scratch);
+    const soft = buildDashboardModel(rows, SG_BASELINES_V1.hcp20);
+
+    // The window total, the per-round strips, the priorities and the putting
+    // trend — four separate call sites, all of which have to have been threaded.
+    expect(scratch.waterfall.total!).toBeGreaterThan(soft.waterfall.total!);
+    expect(scratch.rounds[0]!.waterfall.total!).toBeGreaterThan(soft.rounds[0]!.waterfall.total!);
+    const putt = (model: typeof scratch) =>
+        model.priorities.find((p) => p.component === 'putting')!.per18!;
+    expect(putt(scratch)).toBeGreaterThan(putt(soft));
+    const trendPoints = (model: typeof scratch) =>
+        model.trends.find((t) => t.id === 'putting')!.points;
+    expect(trendPoints(scratch)[0]!).toBeGreaterThan(trendPoints(soft)[0]!);
+
+    // …and the default is the tier the app shipped with, so an un-threaded
+    // caller reads exactly as it did before cohorts existed.
+    expect(buildDashboardModel(rows)).toEqual(buildDashboardModel(rows, SG_BASELINES_V1.hcp12));
+    expect(buildTrends(rows)).toEqual(buildTrends(rows, SG_BASELINES_V1.hcp12));
 });
 
 // --- Magnitudes --------------------------------------------------------------

@@ -217,6 +217,223 @@ enum SgTablesV1 {
         rowCounts: rowCounts)
 }
 
+// MARK: - Handicap-cohort baselines
+
+/// Which reference player a waterfall is measured against.
+///
+/// The raw values are the STORAGE spelling and are identical on both clients —
+/// the device preference stores one of these strings bare. The anchors are 0, 5,
+/// 12 and 20; the v1 tables above ARE the `hcp12` tier, so a reader with no
+/// handicap on file and no override keeps exactly today's numbers.
+enum SgCohort: String, CaseIterable, Sendable {
+    case scratch
+    case hcp5
+    case hcp12
+    case hcp20
+
+    /// The tier a handicap index falls in. The boundaries are the MIDPOINTS
+    /// between the anchors (2.5, 8.5, 16), so every index is scored against the
+    /// nearest reference rather than the one below it.
+    ///
+    /// A negative index is a plus handicap and lands on `scratch` — the only
+    /// tier that can be right for it. `nil` (no handicap on file, or nobody
+    /// signed in) is `hcp12`: the honest middle, and today's behaviour.
+    static func forHandicap(_ index: Double?) -> SgCohort {
+        guard let index else { return .hcp12 }
+        if index < 2.5 { return .scratch }
+        if index < 8.5 { return .hcp5 }
+        if index < 16 { return .hcp12 }
+        return .hcp20
+    }
+}
+
+/// One cohort's complete baseline: the hole/tee tables, the expected putts, the
+/// chip OUTCOME table and the chip BASELINE table.
+///
+/// They travel together and are never mixed across tiers. Pairing a scratch hole
+/// table with amateur expected putts would not measure a scratch player against
+/// anything — it would push the difference between two references into whichever
+/// term happened to touch both tables.
+struct SgBaselineBundle: Equatable, Sendable {
+    var cohort: SgCohort
+    var tables: SgTables
+    var expected: ExpectedPuttsTable
+    var chipExpected: ChipOutcomeExpectedPutts
+    var chipBaseline: ChipExpectedPutts
+}
+
+/// Tapscore reference baseline v1, SCRATCH tier — what a 0-handicap player is
+/// expected to take.
+///
+/// PROVISIONAL_PENDING_OWNER_CALIBRATION, exactly like the v1 tier above: the
+/// values are anchored on published amateur scoring means, NOT on this app's
+/// data. `calibratedAt` is nil precisely because nobody has calibrated it yet,
+/// and every `rowCounts` cell is zero because no cell was fitted from play.
+///
+/// TODO(owner, v1 freeze): calibrate per cohort with the rest of the tiers.
+///
+/// Internally consistent by the same identity the v1 tier states:
+/// `eHole[par] ≈ 1 + 0.55·fairway + 0.30·in_play + 0.15·trouble` (±0.02). Over
+/// 4×par 3, 10×par 4 and 4×par 5 it totals 73.9 — about two over a par 72.
+enum SgTablesScratchV1 {
+    static let version = "v1-provisional-scratch"
+    static let calibratedAt: String? = nil
+
+    static let eHole: [Int: Double] = [3: 3.25, 4: 4.15, 5: 4.85]
+
+    static let eAfterTee: [Int: [TeeResult: Double]] = [
+        4: [.fairway: 2.95, .inPlay: 3.25, .trouble: 3.70],
+        5: [.fairway: 3.65, .inPlay: 3.95, .trouble: 4.40],
+    ]
+
+    /// Rows behind each cell. All zero: no cell was fitted from play.
+    static let rowCounts = SgTableRowCounts(
+        eHole: [3: 0, 4: 0, 5: 0],
+        eAfterTee: [
+            4: [.fairway: 0, .inPlay: 0, .trouble: 0],
+            5: [.fairway: 0, .inPlay: 0, .trouble: 0],
+        ])
+
+    static let tables = SgTables(
+        version: version, calibratedAt: calibratedAt, eHole: eHole, eAfterTee: eAfterTee,
+        rowCounts: rowCounts)
+
+    /// Expected putts from each first-putt bucket. Frozen with the tables.
+    static let expectedPutts = ExpectedPuttsTable(
+        inside1m: 1.02, oneTo2m: 1.35, twoTo4m: 1.72, fourTo8m: 1.95, over8m: 2.20)
+
+    /// What a chip is observed to have left, derived from `expectedPutts` by the
+    /// v1 rule: inside 2 m = mean of the first two buckets, outside 2 m = mean of
+    /// the last three, at the table's two-decimal precision.
+    static let chipOutcomeExpectedPutts = ChipOutcomeExpectedPutts(
+        inside2m: 1.19, outside2m: 1.96)
+
+    /// What an AVERAGE short-game shot leaves, by the difficulty recorded.
+    static let chipExpectedPutts = ChipExpectedPutts(
+        standard: 1.55, hard: 1.90, bunker: 1.75)
+}
+
+/// Tapscore reference baseline v1, 5-HANDICAP tier.
+///
+/// PROVISIONAL_PENDING_OWNER_CALIBRATION on the same terms as the scratch tier:
+/// published amateur means, `calibratedAt` nil, `rowCounts` all zero. Totals
+/// 78.5 over a par 72 — about six and a half over.
+enum SgTablesHcp5V1 {
+    static let version = "v1-provisional-hcp5"
+    static let calibratedAt: String? = nil
+
+    static let eHole: [Int: Double] = [3: 3.40, 4: 4.45, 5: 5.10]
+
+    static let eAfterTee: [Int: [TeeResult: Double]] = [
+        4: [.fairway: 3.20, .inPlay: 3.60, .trouble: 4.05],
+        5: [.fairway: 3.90, .inPlay: 4.25, .trouble: 4.55],
+    ]
+
+    static let rowCounts = SgTableRowCounts(
+        eHole: [3: 0, 4: 0, 5: 0],
+        eAfterTee: [
+            4: [.fairway: 0, .inPlay: 0, .trouble: 0],
+            5: [.fairway: 0, .inPlay: 0, .trouble: 0],
+        ])
+
+    static let tables = SgTables(
+        version: version, calibratedAt: calibratedAt, eHole: eHole, eAfterTee: eAfterTee,
+        rowCounts: rowCounts)
+
+    static let expectedPutts = ExpectedPuttsTable(
+        inside1m: 1.03, oneTo2m: 1.40, twoTo4m: 1.78, fourTo8m: 2.02, over8m: 2.30)
+
+    static let chipOutcomeExpectedPutts = ChipOutcomeExpectedPutts(
+        inside2m: 1.22, outside2m: 2.03)
+
+    static let chipExpectedPutts = ChipExpectedPutts(
+        standard: 1.62, hard: 2.00, bunker: 1.85)
+}
+
+/// Tapscore reference baseline v1, 20-AND-ABOVE tier.
+///
+/// PROVISIONAL_PENDING_OWNER_CALIBRATION on the same terms as the tiers above:
+/// published amateur means, `calibratedAt` nil, `rowCounts` all zero. Totals
+/// 90.2 over a par 72 — about eighteen over.
+enum SgTablesHcp20V1 {
+    static let version = "v1-provisional-hcp20"
+    static let calibratedAt: String? = nil
+
+    static let eHole: [Int: Double] = [3: 3.90, 4: 5.10, 5: 5.90]
+
+    static let eAfterTee: [Int: [TeeResult: Double]] = [
+        4: [.fairway: 3.85, .inPlay: 4.20, .trouble: 4.85],
+        5: [.fairway: 4.65, .inPlay: 5.00, .trouble: 5.65],
+    ]
+
+    static let rowCounts = SgTableRowCounts(
+        eHole: [3: 0, 4: 0, 5: 0],
+        eAfterTee: [
+            4: [.fairway: 0, .inPlay: 0, .trouble: 0],
+            5: [.fairway: 0, .inPlay: 0, .trouble: 0],
+        ])
+
+    static let tables = SgTables(
+        version: version, calibratedAt: calibratedAt, eHole: eHole, eAfterTee: eAfterTee,
+        rowCounts: rowCounts)
+
+    static let expectedPutts = ExpectedPuttsTable(
+        inside1m: 1.08, oneTo2m: 1.50, twoTo4m: 1.92, fourTo8m: 2.20, over8m: 2.55)
+
+    static let chipOutcomeExpectedPutts = ChipOutcomeExpectedPutts(
+        inside2m: 1.29, outside2m: 2.22)
+
+    static let chipExpectedPutts = ChipExpectedPutts(
+        standard: 1.80, hard: 2.25, bunker: 2.08)
+}
+
+/// The four bundles, by cohort.
+///
+/// `hcp12` is not a new table: it IS the existing frozen constants, assembled.
+/// The "add a V2, never edit" rule holds — no shipped number moved to make room
+/// for the tiers around it, so a player whose handicap puts them in the middle
+/// sees the same history they saw yesterday.
+enum SgBaselines {
+    static let scratch = SgBaselineBundle(
+        cohort: .scratch,
+        tables: SgTablesScratchV1.tables,
+        expected: SgTablesScratchV1.expectedPutts,
+        chipExpected: SgTablesScratchV1.chipOutcomeExpectedPutts,
+        chipBaseline: SgTablesScratchV1.chipExpectedPutts)
+
+    static let hcp5 = SgBaselineBundle(
+        cohort: .hcp5,
+        tables: SgTablesHcp5V1.tables,
+        expected: SgTablesHcp5V1.expectedPutts,
+        chipExpected: SgTablesHcp5V1.chipOutcomeExpectedPutts,
+        chipBaseline: SgTablesHcp5V1.chipExpectedPutts)
+
+    /// The shipped v1 constants, verbatim — and the default everywhere a cohort
+    /// has not been resolved yet.
+    static let hcp12 = SgBaselineBundle(
+        cohort: .hcp12,
+        tables: SgTablesV1.tables,
+        expected: StatMeasuresMath.expectedPuttsV1,
+        chipExpected: StatMeasuresMath.chipOutcomeExpectedPuttsV1,
+        chipBaseline: StatMeasuresMath.chipExpectedPuttsV2)
+
+    static let hcp20 = SgBaselineBundle(
+        cohort: .hcp20,
+        tables: SgTablesHcp20V1.tables,
+        expected: SgTablesHcp20V1.expectedPutts,
+        chipExpected: SgTablesHcp20V1.chipOutcomeExpectedPutts,
+        chipBaseline: SgTablesHcp20V1.chipExpectedPutts)
+
+    static func bundle(for cohort: SgCohort) -> SgBaselineBundle {
+        switch cohort {
+        case .scratch: return scratch
+        case .hcp5: return hcp5
+        case .hcp12: return hcp12
+        case .hcp20: return hcp20
+        }
+    }
+}
+
 // MARK: - The strokes-lost waterfall
 
 /// The five attribution terms, in canonical order. Declaration order IS
@@ -1438,6 +1655,17 @@ enum StatMeasuresMath {
             penalties: m.attPenalties,
             total: m.attStrokes - sumEHole,
             coverage: coverage)
+    }
+
+    /// The same waterfall against ONE cohort's bundle.
+    ///
+    /// The four tables of a cohort are only ever right together, so this is the
+    /// call every model makes: passing a bundle cannot half-apply a tier the way
+    /// four independent arguments can.
+    static func strokesLostV3(_ m: StatMeasures, baseline: SgBaselineBundle) -> StrokesLost {
+        strokesLostV3(
+            m, tables: baseline.tables, expected: baseline.expected,
+            chipExpected: baseline.chipExpected, chipBaseline: baseline.chipBaseline)
     }
 
     // MARK: Per-18 normalization

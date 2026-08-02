@@ -5,6 +5,7 @@ import {
     CHIP_EXPECTED_PUTTS_V1_BY_DIFFICULTY,
     CHIP_EXPECTED_PUTTS_V2,
     CHIP_OUTCOME_EXPECTED_PUTTS_V1,
+    DEFAULT_SG_BASELINE,
     EXPECTED_PUTTS_V1,
     INSIGHT_BEST_PUTTING_MIN_WINDOW,
     MIN_ATTRIBUTED_FOR_DELTA,
@@ -12,6 +13,8 @@ import {
     PUTT_BUCKETS,
     PUTT_COUNT_BUCKETS,
     SCORE_TYPES,
+    SG_BASELINES_V1,
+    SG_COHORTS,
     SG_TABLES_V1,
     STROKES_LOST_COMPONENTS,
     ZERO_MEASURES,
@@ -53,10 +56,12 @@ import {
     resultsSummary,
     sandSaveRate,
     scrambleRate,
+    cohortForHandicap,
     sgPer18,
     sgTotalPer18,
     strokesLostV3,
     strokesLostComponent,
+    strokesLostForBundle,
     strokesVsParByTee,
     sumMeasures,
     teeMissDispersion,
@@ -913,6 +918,165 @@ test('SG_TABLES_V1 is frozen, provisional, and ordered by lie quality', () => {
 function telescopes(w: ReturnType<typeof strokesLostV3>): number {
     return w.tee! + w.approach! + w.shortGame! + w.putting! + w.penalties!;
 }
+
+// --- Handicap cohorts ---------------------------------------------------------
+//
+// Four tiers, one bundle each. The tables themselves are provisional, so these
+// assertions are about SHAPE — identity with the shipped constants, ordering
+// between tiers and within one, and the telescope surviving a swap — not about
+// any cell being the right number, which only calibration can say.
+
+/**
+ * `SG_ROUND_A` with the bunker leg exercised: two of the four missed par-4/5
+ * greens become bunker misses, each taking one short-game stroke, one finishing
+ * inside 2 m and one outside. Without this no cohort test would touch
+ * `chipBaseline.bunker` or the bunker chip-outcome terms at all.
+ */
+const SG_ROUND_BUNKER: StatMeasures = measures({
+    ...SG_ROUND_A,
+    attMissStandard: 1,
+    attChipInside2mStandard: 1,
+    attChipOutside2mStandard: 0,
+    attSgStrokesEffectiveStandard: 1,
+    attMissBunker: 2,
+    attChipInside2mBunker: 1,
+    attChipOutside2mBunker: 1,
+    attSgStrokesEffectiveBunker: 2,
+});
+
+const COHORT_FIXTURES: readonly StatMeasures[] = [
+    SG_ROUND_A,
+    SG_ROUND_BUNKER,
+    I1_PAR4_GIR,
+    I2_PAR5_STANDARD_CHIP,
+    I4_PAR3_CHIP_IN,
+];
+
+test('the hcp12 bundle IS the shipped constants, by identity', () => {
+    // Not `toEqual`: a COPY with the same values would pass a value check and
+    // then drift the first time one of the four is edited without the other.
+    expect(SG_BASELINES_V1.hcp12.tables).toBe(SG_TABLES_V1);
+    expect(SG_BASELINES_V1.hcp12.expected).toBe(EXPECTED_PUTTS_V1);
+    expect(SG_BASELINES_V1.hcp12.chipOutcome).toBe(CHIP_OUTCOME_EXPECTED_PUTTS_V1);
+    expect(SG_BASELINES_V1.hcp12.chipBaseline).toBe(CHIP_EXPECTED_PUTTS_V2);
+    // …so the default bundle really is today's behaviour, unchanged.
+    expect(DEFAULT_SG_BASELINE).toBe(SG_BASELINES_V1.hcp12);
+    expect(strokesLostForBundle(SG_ROUND_A)).toEqual(strokesLostV3(SG_ROUND_A));
+
+    // Every tier is frozen and provisional, and names itself.
+    expect(SG_COHORTS).toEqual(['scratch', 'hcp5', 'hcp12', 'hcp20']);
+    for (const cohort of SG_COHORTS) {
+        const b = SG_BASELINES_V1[cohort];
+        expect(b.tables.calibratedAt).toBeNull();
+        expect(Object.isFrozen(b.tables)).toBe(true);
+        expect(Object.isFrozen(b.expected)).toBe(true);
+        expect(Object.isFrozen(b.chipBaseline)).toBe(true);
+        expect(b.tables.version).toBe(cohort === 'hcp12' ? 'v1-provisional' : `v1-provisional-${cohort}`);
+        // Unfitted means unfitted: no tier may claim a row count it does not have.
+        expect(b.tables.rowCounts.eHole).toEqual({ 3: 0, 4: 0, 5: 0 });
+    }
+});
+
+test('every cell rises strictly from scratch to 20+ handicap', () => {
+    const ordered = SG_COHORTS.map((c) => SG_BASELINES_V1[c]);
+    // The cell name rides on the assertion so a failure names the CELL, not an
+    // index into an array of bare numbers.
+    const rising = (cell: string, pick: (b: (typeof ordered)[number]) => number) => {
+        const values = ordered.map(pick);
+        for (let i = 1; i < values.length; i++) {
+            expect({ cell, tier: SG_COHORTS[i], rises: values[i]! > values[i - 1]! }).toEqual({
+                cell,
+                tier: SG_COHORTS[i],
+                rises: true,
+            });
+        }
+    };
+
+    for (const par of [3, 4, 5] as const) rising(`eHole ${par}`, (b) => b.tables.eHole[par]);
+    for (const par of [4, 5] as const) {
+        for (const lie of ['fairway', 'in_play', 'trouble'] as const) {
+            rising(`eAfterTee ${par} ${lie}`, (b) => b.tables.eAfterTee[par][lie]);
+        }
+    }
+    for (const bucket of PUTT_BUCKETS) rising(`putts ${bucket}`, (b) => b.expected[bucket]);
+    for (const outcome of ['inside2m', 'outside2m'] as const) {
+        rising(`chip outcome ${outcome}`, (b) => b.chipOutcome[outcome]);
+    }
+    for (const difficulty of ['standard', 'hard', 'bunker'] as const) {
+        rising(`chip baseline ${difficulty}`, (b) => b.chipBaseline[difficulty]);
+    }
+});
+
+test('each tier is internally ordered the way v1 is', () => {
+    for (const cohort of SG_COHORTS) {
+        const b = SG_BASELINES_V1[cohort];
+
+        for (const par of [4, 5] as const) {
+            const cells = b.tables.eAfterTee[par];
+            expect(cells.fairway).toBeLessThan(cells.in_play);
+            expect(cells.in_play).toBeLessThan(cells.trouble);
+            // A tee shot is always worth taking.
+            expect(1 + cells.fairway).toBeLessThan(b.tables.eHole[par]);
+            // …and the hole table agrees with the lie table at v1's own 55/30/15
+            // mix, which is what stops a tier's tee term from being a constant
+            // bias against everything else.
+            const implied =
+                1 + 0.55 * cells.fairway + 0.3 * cells.in_play + 0.15 * cells.trouble;
+            expect(Math.abs(implied - b.tables.eHole[par])).toBeLessThanOrEqual(0.02);
+        }
+        expect(b.tables.eHole[3]).toBeLessThan(b.tables.eHole[4]);
+        expect(b.tables.eHole[4]).toBeLessThan(b.tables.eHole[5]);
+
+        // Further is never cheaper.
+        for (let i = 1; i < PUTT_BUCKETS.length; i++) {
+            expect(b.expected[PUTT_BUCKETS[i - 1]!]).toBeLessThan(b.expected[PUTT_BUCKETS[i]!]);
+        }
+        expect(b.chipOutcome.inside2m).toBeLessThan(b.chipOutcome.outside2m);
+
+        // A bunker is a known lie with a known technique; `hard` is the
+        // short-sided catch-all, and it is the worst of the three.
+        expect(b.chipBaseline.standard).toBeLessThan(b.chipBaseline.bunker);
+        expect(b.chipBaseline.bunker).toBeLessThan(b.chipBaseline.hard);
+    }
+});
+
+// The proof says the constants cancel whatever they are. This says nobody wired
+// one leg to a tier's table and the leg beside it to another's.
+test('the five terms telescope under every cohort', () => {
+    for (const cohort of SG_COHORTS) {
+        for (const fixture of COHORT_FIXTURES) {
+            const w = strokesLostForBundle(fixture, SG_BASELINES_V1[cohort]);
+            expect(telescopes(w)).toBeCloseTo(w.total!, 9);
+        }
+    }
+});
+
+// Direction sanity: the same round measured against better players costs more.
+test('a harder cohort forgives the same round more than an easier one', () => {
+    for (const fixture of COHORT_FIXTURES) {
+        const totals = SG_COHORTS.map(
+            (c) => strokesLostForBundle(fixture, SG_BASELINES_V1[c]).total!,
+        );
+        for (let i = 1; i < totals.length; i++) {
+            expect(totals[i]!).toBeLessThan(totals[i - 1]!);
+        }
+    }
+});
+
+test('cohortForHandicap picks the nearest published tier', () => {
+    // No handicap keeps today's table rather than guessing at the player.
+    expect(cohortForHandicap(null)).toBe('hcp12');
+    // A plus handicap is better than scratch, and lands there.
+    expect(cohortForHandicap(-1)).toBe('scratch');
+    // The boundaries are the midpoints between the anchors 0 / 5 / 12 / 20.
+    expect(cohortForHandicap(2.4)).toBe('scratch');
+    expect(cohortForHandicap(2.5)).toBe('hcp5');
+    expect(cohortForHandicap(8.4)).toBe('hcp5');
+    expect(cohortForHandicap(8.5)).toBe('hcp12');
+    expect(cohortForHandicap(15.9)).toBe('hcp12');
+    expect(cohortForHandicap(16)).toBe('hcp20');
+    expect(cohortForHandicap(30)).toBe('hcp20');
+});
 
 test('the identity holes attribute exactly, and the five terms telescope', () => {
     // I1 — par 4, fairway, green hit, first putt 4–8m, two putts, 5 strokes.

@@ -20,11 +20,17 @@ import {
     PUTT_BUCKETS,
     rate,
     SCORE_TYPES,
-    SG_TABLES_V1,
+    SG_BASELINES_V1,
     type Rate,
     type ResultsSummary,
     type ScoreType,
 } from '../round/stat-measures';
+import {
+    cohortLabel,
+    DEFAULT_SG_BASELINE_INFO,
+    formatHandicap,
+    type SgBaselineInfo,
+} from './sg-baseline';
 import type { StatMeasures } from '../api/player-stats.gen';
 import {
     averageWithSample,
@@ -126,6 +132,11 @@ export const STATS_COPY = {
     filterRoundType: 'Round type',
     filterCourses: 'Courses',
     filterRoundsHint: 'Uncheck a round below to leave it out of a custom window.',
+    // Not a filter — it changes what the rounds in the window are COMPARED
+    // WITH, which is why it sits below the Clear button rather than above it.
+    filterBaseline: 'Compared to',
+    filterBaselineHint:
+        'Which player the strokes-gained rows measure you against. It does not change which rounds are in the window.',
     troubleTax:
         'Extra strokes per hole when the tee shot finds trouble, against your own fairway holes.',
     recovery: 'Holes where the shot after trouble got you back in play.',
@@ -910,6 +921,13 @@ export interface SgInfoInput {
      * same, and both drop the card.
      */
     penaltySource?: { recorded: number; tee: number; approach: number; short: number };
+    /**
+     * Which handicap cohort the rows above were priced against, and how that
+     * tier was chosen. Optional for the same reason `penaltySource` is — the
+     * sheet predates cohorts — and an omission reads as the shipping tier under
+     * `auto`, which is exactly what a caller with no choice resolved is showing.
+     */
+    baseline?: SgBaselineInfo;
 }
 
 /**
@@ -939,10 +957,39 @@ export const SG_INFO_COPY = {
         return 'Each row is what that part of your game cost you against the Tapscore reference baseline v1 \u2014 a strokes gained-style method, worked out from the answers you tap rather than from shot distances. The five rows add up to your score against the baseline exactly; there is no leftover row.';
     },
 
-    baseline(calibratedAt: string | null = SG_TABLES_V1.calibratedAt): string {
+    /**
+     * Names the tier IN FORCE and how it was picked, because "the baseline" is
+     * no longer one table: two readers of the same round can be measured
+     * against different populations, and a sentence that did not say which
+     * would be the one place in the sheet not quoting the reader's own setting.
+     */
+    baseline(input?: SgInfoInput, calibratedAtOverride?: string | null): string {
+        const info = input?.baseline ?? DEFAULT_SG_BASELINE_INFO;
+        // The tier's own `calibratedAt`, unless a caller states one. The
+        // override exists so the calibrated wording stays PROVABLE while every
+        // shipped tier is still provisional — the alternative is a branch no
+        // test can reach until the day it goes live.
+        const calibratedAt =
+            calibratedAtOverride === undefined
+                ? SG_BASELINES_V1[info.cohort].tables.calibratedAt
+                : calibratedAtOverride;
+        // Where the reader changes it. The one platform-specific fragment in
+        // these strings: the twin sheet on iOS points at the dashboard's own
+        // control, which is not in a Filters panel.
+        const pointer = `under “${STATS_COPY.filterBaseline}” in Filters`;
+        const tier = cohortLabel(info.cohort);
+        const opening =
+            info.choice !== 'auto'
+                ? `Measured against the ${tier} reference — you picked this ${pointer}.`
+                : info.handicapIndex === null
+                  ? `Measured against the ${tier} reference — no handicap on your profile yet. Change it ${pointer}.`
+                  : `Measured against the ${tier} reference — matched to your ${formatHandicap(
+                        info.handicapIndex,
+                    )} handicap. Change it ${pointer}.`;
+        const what = 'Each tier is one set of expected scores per hole and per lie.';
         return calibratedAt === null
-            ? 'Tapscore reference baseline v1 is one set of expected scores per hole and per lie. It is still provisional, so treat the order of the rows as the reading and the sizes as rough.'
-            : `Tapscore reference baseline v1 is one set of expected scores per hole and per lie, frozen on ${calibratedAt}. Everyone is measured against the same table, so your rows can be compared with each other and with your own earlier rounds.`;
+            ? `${opening} ${what} The tiers are still provisional, so treat the order of the rows as the reading and the sizes as rough.`
+            : `${opening} ${what} This tier was frozen on ${calibratedAt}. Everyone on this reference is measured against the same table, so your rows can be compared with each other and with your own earlier rounds.`;
     },
 
     per18(): string {
@@ -1009,7 +1056,7 @@ export function sgInfoCards(input: SgInfoInput): SgInfoCard[] {
     const cards: SgInfoCard[] = [
         { id: 'holes', title: 'Holes counted', body: SG_INFO_COPY.holesCounted(input) },
         { id: 'rows', title: 'The five rows', body: SG_INFO_COPY.fiveRows() },
-        { id: 'baseline', title: 'The baseline', body: SG_INFO_COPY.baseline() },
+        { id: 'baseline', title: 'The baseline', body: SG_INFO_COPY.baseline(input) },
         { id: 'per18', title: 'Per 18 holes', body: SG_INFO_COPY.per18() },
     ];
     const total = SG_INFO_COPY.total(input);

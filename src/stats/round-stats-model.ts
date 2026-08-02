@@ -27,9 +27,11 @@ import type {
 import type { MarkerTemplate } from '../round/marker-tokens';
 import {
     baselineDeltas,
+    DEFAULT_SG_BASELINE,
     insightLines,
-    strokesLostV3,
+    strokesLostForBundle,
     type InsightLine,
+    type SgBaselineBundle,
     type StrokesLost,
     type StrokesLostDeltas,
 } from '../round/stat-measures';
@@ -237,6 +239,12 @@ export function buildRoundStatsModel(args: {
     history: readonly PlayerRoundStats[];
     windowSize?: number;
     insightLimit?: number;
+    /**
+     * The handicap cohort this screen is priced against. The round's waterfall
+     * AND the personal baseline it is compared with must come from the same
+     * bundle: a delta between two different populations is not a delta.
+     */
+    bundle?: SgBaselineBundle;
 }): RoundStatsModel {
     const {
         round,
@@ -244,11 +252,12 @@ export function buildRoundStatsModel(args: {
         history,
         windowSize = DEFAULT_ROUND_WINDOW,
         insightLimit = DEFAULT_INSIGHT_LIMIT,
+        bundle = DEFAULT_SG_BASELINE,
     } = args;
-    const panels = buildDashboardModel([round]);
+    const panels = buildDashboardModel([round], bundle);
     const waterfall = panels.waterfall;
     const window = priorRounds(round, history, windowSize);
-    const windowLosts = window.map((r) => strokesLostV3(r.measures));
+    const windowLosts = window.map((r) => strokesLostForBundle(r.measures, bundle));
     const row = panels.rounds[0];
     return {
         roundId: round.roundId,

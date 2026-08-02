@@ -8,10 +8,13 @@ import {
 import {
     MIN_ATTRIBUTED_FOR_DELTA,
     sgPer18,
+    SG_BASELINES_V1,
+    SG_COHORTS,
     SG_TABLES_V1,
     STROKES_LOST_COMPONENTS,
     type StrokesLost,
 } from '../../src/round/stat-measures';
+import { sgBaselineInfo } from '../../src/stats/sg-baseline';
 
 // The info popover is the ONE place either client explains the waterfall, and
 // the owner ruling is that every sentence quotes the reader's own data. These
@@ -113,22 +116,60 @@ test('no coverage says there is nothing to show, and why', () => {
 
 // --- Card 3: the baseline ----------------------------------------------------
 
-// The v1 table is unfitted, and the copy says so instead of implying a
-// precision the numbers do not have.
+// No tier is fitted, and the copy says so instead of implying a precision the
+// numbers do not have.
 test('an uncalibrated baseline admits it is provisional', () => {
-    const sentence = SG_INFO_COPY.baseline(null);
+    const sentence = SG_INFO_COPY.baseline();
     expect(sentence).toBe(
-        'Tapscore reference baseline v1 is one set of expected scores per hole and per lie. It is still provisional, so treat the order of the rows as the reading and the sizes as rough.'
+        'Measured against the 12 handicap reference — no handicap on your profile yet. Change it under \u201cCompared to\u201d in Filters. Each tier is one set of expected scores per hole and per lie. The tiers are still provisional, so treat the order of the rows as the reading and the sizes as rough.'
     );
-    // The shipping default is the provisional one, so this is what a reader
-    // actually sees today.
+    // Every shipped tier is provisional today, so this is what a reader
+    // actually sees whichever one they are on.
     expect(SG_TABLES_V1.calibratedAt).toBe(null);
-    expect(SG_INFO_COPY.baseline()).toBe(sentence);
+    for (const cohort of SG_COHORTS) {
+        expect(SG_BASELINES_V1[cohort].tables.calibratedAt).toBe(null);
+    }
+});
+
+// The tier is NAMED, and so is the reason it is that tier — a reader on the
+// scratch tables and a reader on the 20+ tables are looking at different
+// numbers, and the sheet has to say which.
+test('the baseline card names the tier and how it was chosen', () => {
+    expect(
+        SG_INFO_COPY.baseline({
+            ...input(lost({ total: -2 }), 3),
+            baseline: sgBaselineInfo('auto', 6.0),
+        })
+    ).toBe(
+        'Measured against the 5 handicap reference — matched to your 6.0 handicap. Change it under \u201cCompared to\u201d in Filters. Each tier is one set of expected scores per hole and per lie. The tiers are still provisional, so treat the order of the rows as the reading and the sizes as rough.'
+    );
+    // A plus handicap reads as a plus, the way it does everywhere else.
+    expect(
+        SG_INFO_COPY.baseline({
+            ...input(lost({ total: -2 }), 3),
+            baseline: sgBaselineInfo('auto', -1.4),
+        })
+    ).toContain('matched to your +1.4 handicap');
+    // A hand-picked tier says the reader picked it, and never quotes a handicap
+    // it did not use.
+    const chosen = SG_INFO_COPY.baseline({
+        ...input(lost({ total: -2 }), 3),
+        baseline: sgBaselineInfo('hcp20', 2.0),
+    });
+    expect(chosen).toContain(
+        'Measured against the 20+ handicap reference \u2014 you picked this under \u201cCompared to\u201d in Filters.'
+    );
+    expect(chosen).not.toContain('2.0');
 });
 
 test('a calibrated baseline quotes the date it was frozen', () => {
-    expect(SG_INFO_COPY.baseline('2026-09-01')).toBe(
-        'Tapscore reference baseline v1 is one set of expected scores per hole and per lie, frozen on 2026-09-01. Everyone is measured against the same table, so your rows can be compared with each other and with your own earlier rounds.'
+    expect(
+        SG_INFO_COPY.baseline(
+            { ...input(lost({ total: -2 }), 3), baseline: sgBaselineInfo('auto', 6.0) },
+            '2026-09-01'
+        )
+    ).toBe(
+        'Measured against the 5 handicap reference — matched to your 6.0 handicap. Change it under \u201cCompared to\u201d in Filters. Each tier is one set of expected scores per hole and per lie. This tier was frozen on 2026-09-01. Everyone on this reference is measured against the same table, so your rows can be compared with each other and with your own earlier rounds.'
     );
 });
 

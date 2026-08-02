@@ -1,7 +1,8 @@
 import { beforeEach, expect, mock, test } from 'bun:test';
 import { di } from '@basics/core/client/core';
-import { ZERO_MEASURES } from '../../src/round/stat-measures';
+import { SG_BASELINES_V1, ZERO_MEASURES } from '../../src/round/stat-measures';
 import type { PlayerRoundStats, PlayerStatsSummary } from '../../src/api/player-stats.gen';
+import type { Player } from '../../src/api/players.gen';
 
 // The dashboard's transparent paging. Mirrors the per-round harness: mock
 // `../../src/api`, then import the service.
@@ -54,6 +55,24 @@ const apiMock = {
 mock.module('../../src/api', () => ({ api: apiMock }));
 
 const { StatsDashboardService } = await import('../../src/stats/stats-dashboard.service');
+const { ProfileService } = await import('../../src/profile/profile.service');
+
+/** A profile row with only the field the cohort resolution reads. */
+function player(handicapIndex: number | null): Player {
+    return {
+        id: 'p1',
+        username: 'me',
+        displayName: 'Me',
+        nickname: null,
+        avatarUrl: null,
+        avatarVersion: null,
+        homeClubId: null,
+        handicapIndex,
+        gender: null,
+        handicapConfirmedAt: null,
+        deletedAt: null,
+    };
+}
 
 function service(): InstanceType<typeof StatsDashboardService> {
     const svc = di.get(StatsDashboardService);
@@ -149,4 +168,65 @@ test('a window switch that pages successfully clears a banner from an earlier fa
 
     expect(svc.extendError.get()).toBeNull();
     expect(svc.loadedRounds.get()).toHaveLength(35);
+});
+
+// --- The baseline cohort -----------------------------------------------------
+//
+// One resolved cohort per client, and it lives here because this is where the
+// two stats surfaces already meet: `RoundStatsService` injects this service, so
+// the round screen reads the same bundle the dashboard does.
+
+test('the cohort follows the handicap under auto, and the choice otherwise', () => {
+    const svc = service();
+    const profile = di.get(ProfileService);
+
+    // No profile loaded yet: today's tier, not a guess and not a blank screen.
+    expect(svc.sgChoice.get()).toBe('auto');
+    expect(svc.handicapIndex.get()).toBeNull();
+    expect(svc.sgCohort.get()).toBe('hcp12');
+    expect(svc.sgBundle.get()).toBe(SG_BASELINES_V1.hcp12);
+
+    profile.player.set(player(6));
+    expect(svc.sgCohort.get()).toBe('hcp5');
+    expect(svc.sgInfo.get()).toEqual({ cohort: 'hcp5', choice: 'auto', handicapIndex: 6 });
+
+    // A hand-picked tier ignores the handicap.
+    svc.selectSgBaseline('scratch');
+    expect(svc.sgCohort.get()).toBe('scratch');
+    expect(svc.sgBundle.get()).toBe(SG_BASELINES_V1.scratch);
+
+    // A player with no index on file falls back the same way an absent profile
+    // does — through `cohortForHandicap(null)`, never through a made-up number.
+    svc.selectSgBaseline('auto');
+    profile.player.set(player(null));
+    expect(svc.sgCohort.get()).toBe('hcp12');
+});
+
+test('switching cohort re-prices the model without refetching a single page', async () => {
+    // Nine par-3 greens, two putts each — enough measures for a priced round.
+    const measures = {
+        ...ZERO_MEASURES,
+        holesScored: 9,
+        attHolesPar3Gir: 9,
+        attStrokes: 27,
+        attPutts: 18,
+        attGirFirstPutt2To4m: 9,
+    };
+    state.responses = [page([round({ roundId: 'r1', measures })], null)];
+    const svc = service();
+    await svc.load();
+    const pages = state.calls.length;
+
+    const before = svc.model.get().waterfall.total!;
+    svc.selectSgBaseline('scratch');
+    const after = svc.model.get().waterfall.total!;
+
+    // The rows are the same rows; only what they are measured against moved.
+    expect(after).toBeGreaterThan(before);
+    expect(state.calls.length).toBe(pages);
+    expect(svc.loadedRounds.get()).toHaveLength(1);
+
+    // The choice is device-persisted, so leave the default behind for whatever
+    // constructs the service next.
+    svc.selectSgBaseline('auto');
 });

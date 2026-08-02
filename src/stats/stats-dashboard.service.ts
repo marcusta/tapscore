@@ -1,7 +1,17 @@
-import { Computed, Signal } from '@basics/core/client/core';
+import { Computed, di, Signal } from '@basics/core/client/core';
 import { request, type RequestError } from '@basics/core/client/request';
 import { api } from '../api';
 import type { PlayerRoundStats } from '../api/player-stats.gen';
+import { ProfileService } from '../profile/profile.service';
+import { SG_BASELINES_V1, type SgCohort } from '../round/stat-measures';
+import {
+    FALLBACK_SG_CHOICE,
+    loadSgChoice,
+    resolveCohort,
+    saveSgChoice,
+    sgBaselineInfo,
+    type SgBaselineChoice,
+} from './sg-baseline';
 import {
     applyWindow,
     courseOptions,
@@ -58,6 +68,43 @@ export class StatsDashboardService {
     readonly filter = new Signal<StatsRoundFilter>(EMPTY_FILTER);
 
     /**
+     * Which handicap cohort the strokes-lost rows are priced against — the
+     * player's saved choice, `auto` until they say otherwise.
+     *
+     * This lives HERE, on the dashboard service, rather than in a store of its
+     * own, because it is the one place both stats surfaces already meet:
+     * `RoundStatsService` injects this service for its history seed, so the
+     * round screen reads the same `sgBundle` the dashboard does and the two can
+     * never be measured against different populations. There is deliberately no
+     * per-screen override.
+     */
+    readonly sgChoice = new Signal<SgBaselineChoice>(loadSgChoice());
+
+    private profile = di.get(ProfileService);
+
+    /**
+     * The signed-in player's handicap, or null while the profile has not
+     * loaded. Null resolves to the tier the app shipped with, so a screen drawn
+     * before the profile arrives shows today's baseline and then settles.
+     */
+    readonly handicapIndex = new Computed<number | null>(
+        () => this.profile.player.get()?.handicapIndex ?? null,
+    );
+
+    /** The tier in force: the choice, or the handicap's tier under `auto`. */
+    readonly sgCohort = new Computed<SgCohort>(() =>
+        resolveCohort(this.sgChoice.get(), this.handicapIndex.get()),
+    );
+
+    /** That tier's whole bundle — what every model on either screen is given. */
+    readonly sgBundle = new Computed(() => SG_BASELINES_V1[this.sgCohort.get()]);
+
+    /** The same resolution, in the form the "How this works" sheet speaks it. */
+    readonly sgInfo = new Computed(() =>
+        sgBaselineInfo(this.sgChoice.get(), this.handicapIndex.get()),
+    );
+
+    /**
      * A background page fetch. Deliberately NOT `loading`: the screen already
      * has rows to draw, and swapping the whole dashboard for a spinner because
      * an older page is on the way is worse than a quiet line at the top.
@@ -74,7 +121,9 @@ export class StatsDashboardService {
         applyWindow(this.preset.get(), this.filter.get(), this.loadedRounds.get(), new Date()),
     );
 
-    readonly model = new Computed(() => buildDashboardModel(this.windowRounds.get()));
+    readonly model = new Computed(() =>
+        buildDashboardModel(this.windowRounds.get(), this.sgBundle.get()),
+    );
 
     /** Courses the FETCHED rows mention — the filter panel's list. */
     readonly courses = new Computed(() => courseOptions(this.loadedRounds.get()));
@@ -124,6 +173,28 @@ export class StatsDashboardService {
         this.preset.set(preset);
         saveWindowPreset(preset);
         void this.extendIfNeeded();
+    }
+
+    /**
+     * Switch the baseline cohort; persists the choice.
+     *
+     * No paging and no refetch: the tier changes what the rows already in hand
+     * are PRICED against, not which rows the window holds.
+     */
+    selectSgBaseline(choice: SgBaselineChoice): void {
+        this.sgChoice.set(choice);
+        saveSgChoice(choice);
+    }
+
+    /**
+     * Make sure a handicap is on hand for the `auto` tier.
+     *
+     * Load-once inside `ProfileService`, and its failure costs this screen
+     * nothing: no profile means no index means `hcp12`, which is what an
+     * un-resolved `auto` already shows.
+     */
+    async loadHandicap(): Promise<void> {
+        await this.profile.load();
     }
 
     /**

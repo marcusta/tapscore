@@ -59,19 +59,24 @@ struct HomeStatsCardModel: Equatable, Sendable {
     ///   changes the LABEL, and only for a window that is not count-bounded:
     ///   "This year" over the newest twenty rounds is a claim the card cannot
     ///   back, so it says which twenty.
+    /// - Parameter baseline: the reference the priority line is ranked against —
+    ///   the same cohort bundle the dashboard uses, resolved from the same stored
+    ///   choice. A card that ranked against one table while the screen it opens
+    ///   ranked against another would name a different worst component.
     static func build(
         rows: [PlayerRoundStats],
         preset: StatsWindowPreset,
         hasMore: Bool,
         now: Date,
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        baseline: SgBaselineBundle = SgBaselines.hcp12
     ) -> HomeStatsCardModel? {
         let window = effective(preset)
         let rounds = StatsWindow.apply(
             preset: window, filter: StatsRoundFilter(), to: rows, now: now, calendar: calendar)
         guard !rounds.isEmpty else { return nil }
 
-        let model = StatsDashboardModel.build(rows: rounds)
+        let model = StatsDashboardModel.build(rows: rounds, baseline: baseline)
         let tiles = tiles(model)
         // Rule 21: three empty tiles is a card with nothing in it, and rule 19
         // says that is the same as no card. The priority line alone does not
@@ -223,7 +228,11 @@ final class HomeStatsStore {
                 preset: StatsWindowPreference.load(defaults: defaults),
                 hasMore: page.nextCursor != nil,
                 now: now(),
-                calendar: calendar)
+                calendar: calendar,
+                // The stored baseline choice, resolved against the handicap of
+                // the player this load ran for — read exactly the way the window
+                // preset above it is.
+                baseline: SgBaselinePreference.context(auth: auth, defaults: defaults).bundle)
         } catch APIError.unauthorized {
             // Rule 19: a dead session's card is absent, silently — and stays
             // absent, because a dead bearer is not something a retry fixes.

@@ -60,9 +60,17 @@ struct StatsDashboardView: View {
         .accessibilityIdentifier("stats-dashboard")
         .task {
             guard store == nil else { return }
-            let created = StatsDashboardStore(api: environment.api)
+            let created = StatsDashboardStore(
+                api: environment.api,
+                handicapIndex: SgBaselinePreference.handicapIndex(environment.authState))
             store = created
             await created.load()
+        }
+        // The store has no session of its own, and the profile can resolve after
+        // this screen is already drawn — a handicap that arrives late must still
+        // move an `auto` baseline onto the right tier.
+        .onChange(of: SgBaselinePreference.handicapIndex(environment.authState)) { _, next in
+            store?.setHandicapIndex(next)
         }
         .sheet(isPresented: $filterOpen) {
             if let store {
@@ -102,6 +110,7 @@ struct StatsDashboardView: View {
     @ViewBuilder
     private func content(_ store: StatsDashboardStore) -> some View {
         windowPicker(store)
+        baselinePicker(store)
         if let problem = store.extendProblem {
             // The rows already fetched are still true; this says the window may
             // be short, and does not pretend the screen is broken.
@@ -117,7 +126,7 @@ struct StatsDashboardView: View {
             message(store.windowIsOverFiltered ? StatsCopy.windowEmpty : StatsCopy.noStats)
         } else {
             results(model)
-            priorities(model)
+            priorities(model, baseline: store.baseline)
             trends(model)
             StatsPanelsView(model: model, expanded: $expanded)
             roundList(model, history: store.loadedRounds)
@@ -178,6 +187,57 @@ struct StatsDashboardView: View {
                 Spacer(minLength: 0)
             }
         }
+    }
+
+    // MARK: - Baseline picker
+
+    /// Which reference the strokes-gained rows are measured against.
+    ///
+    /// Five options — "Match my handicap" plus the four tiers — so a DROPDOWN,
+    /// by the same standing rule the window picker cites (`ios/AGENTS.md`, chips
+    /// are for three or four short options). Each row explains itself in words:
+    /// the tiers say what they are expected to shoot, and the auto row says which
+    /// tier THIS reader's handicap lands on.
+    ///
+    /// Deliberately NOT part of the filter sheet. Applying a filter switches the
+    /// window to `.custom`; choosing a reference says nothing about which rounds
+    /// are in the window, and must never move it.
+    @ViewBuilder
+    private func baselinePicker(_ store: StatsDashboardStore) -> some View {
+        let baseline = store.baseline
+        TapDropdown(
+            label: SgBaselineCopy.pickerLabel,
+            placeholder: SgBaselineCopy.autoTitle,
+            title: SgBaselineCopy.pickerTitle,
+            selection: store.baselineChoice,
+            groups: [
+                TapDropdownGroup(
+                    id: "baseline",
+                    header: nil,
+                    rows: SgBaselineChoice.allCases.map {
+                        Self.baselineRow($0, handicapIndex: baseline.handicapIndex)
+                    })
+            ],
+            selectedRow: TapDropdownRow(
+                value: store.baselineChoice,
+                title: SgBaselineCopy.rowTitle(store.baselineChoice),
+                // On `auto` the field repeats the tier it resolved to — the
+                // answer to "compared to what", which the option's own name does
+                // not give.
+                marker: SgBaselineCopy.fieldMarker(baseline))
+        ) { next in
+            store.selectBaseline(next)
+        }
+        .accessibilityIdentifier("stats-baseline-picker")
+    }
+
+    private static func baselineRow(
+        _ choice: SgBaselineChoice, handicapIndex: Double?
+    ) -> TapDropdownRow<SgBaselineChoice> {
+        TapDropdownRow(
+            value: choice,
+            title: SgBaselineCopy.rowTitle(choice),
+            subtitle: SgBaselineCopy.rowSubtitle(choice, handicapIndex: handicapIndex))
     }
 
     private static func row(_ preset: StatsWindowPreset) -> TapDropdownRow<StatsWindowPreset> {
@@ -376,7 +436,9 @@ struct StatsDashboardView: View {
 
     /// The waterfall, ranked worst first — the one panel that answers "what
     /// should I work on".
-    private func priorities(_ model: StatsDashboardModel) -> some View {
+    private func priorities(
+        _ model: StatsDashboardModel, baseline: SgBaselineContext
+    ) -> some View {
         let magnitude =
             model.priorities.compactMap { $0.per18.map(abs) }.max() ?? 0
         return VStack(alignment: .leading, spacing: TapSpacing.sm) {
@@ -410,6 +472,7 @@ struct StatsDashboardView: View {
                 // reader can actually see and add up.
                 rowsPer18: model.priorities.map(\.per18),
                 windowRounds: model.roundCount,
+                baseline: baseline,
                 penaltySource: PenaltySourceCounts(model.totals))
         }
     }
@@ -632,14 +695,42 @@ enum StatsCopy {
     static let sgInfoFiveRows =
         "Each row is what that part of your game cost you against the Tapscore reference baseline v1 \u{2014} a strokes gained-style method, worked out from the answers you tap rather than from shot distances. The five rows add up to your score against the baseline exactly; there is no leftover row."
 
-    /// Card 3. The baseline is NAMED here, and only here.
-    static func sgInfoBaseline(calibratedAt: String?) -> String {
-        guard let calibratedAt else {
-            return
-                "Tapscore reference baseline v1 is one set of expected scores per hole and per lie. It is still provisional, so treat the order of the rows as the reading and the sizes as rough."
+    /// Card 3. The baseline is NAMED here, and only here — and since the tiers
+    /// landed, the name is a TIER: which of the four references this reader is
+    /// on, and how they got there. Live data per the ⓘ ruling.
+    ///
+    /// CANONICAL COPY, string for string with the web client. The calibrated
+    /// branch says "everyone ON THIS REFERENCE", not "everyone" — that stopped
+    /// being true the moment a scratch player and a 20-handicap read different
+    /// tables.
+    static func sgInfoBaseline(
+        calibratedAt: String?, baseline: SgBaselineContext = .fallback
+    ) -> String {
+        let closing =
+            calibratedAt.map {
+                "This tier was frozen on \($0). Everyone on this reference is measured against the same table, so your rows can be compared with each other and with your own earlier rounds."
+            }
+            ?? "The tiers are still provisional, so treat the order of the rows as the reading and the sizes as rough."
+        return [
+            sgInfoBaselineChoice(baseline),
+            "Each tier is one set of expected scores per hole and per lie.", closing,
+        ].joined(separator: " ")
+    }
+
+    /// The opening sentence of card 3: which tier, and how this reader ended up
+    /// on it. The control is named in words, so the sentence tells them where to
+    /// go.
+    static func sgInfoBaselineChoice(_ baseline: SgBaselineContext) -> String {
+        let lead = "Measured against the \(baseline.cohort.title) reference \u{2014} "
+        let pointer = "under \u{201C}\(SgBaselineCopy.pickerLabel)\u{201D}"
+        guard baseline.choice == .auto else {
+            return lead + "you picked this \(pointer)."
         }
-        return
-            "Tapscore reference baseline v1 is one set of expected scores per hole and per lie, frozen on \(calibratedAt). Everyone is measured against the same table, so your rows can be compared with each other and with your own earlier rounds."
+        guard let handicapIndex = baseline.handicapIndex else {
+            return lead + "no handicap on your profile yet. Change it \(pointer)."
+        }
+        return lead
+            + "matched to your \(ProfileFormat.index(handicapIndex)) handicap. Change it \(pointer)."
     }
 
     /// Card 4.

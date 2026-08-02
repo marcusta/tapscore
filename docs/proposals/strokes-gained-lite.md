@@ -246,6 +246,72 @@ Details:
   they price *within-phase* outcomes, and the identities hold for any table
   values — but the benchmark mode must swap ALL tables per cohort together.
 
+## 6.1 Handicap cohorts (shipped 2026-08-02)
+
+§5's "benchmark mode (v2)" landed early, because one baseline for every
+player made the attribution read wrong at both ends: a scratch player's
+rows were all green, a 25-handicap's all red, and in both cases the ORDER
+of the five terms — the actual reading — was drowned by a constant offset.
+
+**Four tiers, one bundle each.** `SgBaselineBundle` is the unit that gets
+swapped, and it swaps ALL FOUR tables together (§6's last bullet, honoured):
+`SgTables` + `EXPECTED_PUTTS` + `CHIP_OUTCOME_EXPECTED_PUTTS` +
+`CHIP_EXPECTED_PUTTS`. `SG_BASELINES_V1` in `src/round/stat-measures.ts`
+holds them:
+
+| cohort    | reads as        | ~score over par |
+| --------- | --------------- | --------------- |
+| `scratch` | Scratch         | ~+2             |
+| `hcp5`    | 5 handicap      | ~+7             |
+| `hcp12`   | 12 handicap     | ~+11            |
+| `hcp20`   | 20+ handicap    | ~+18            |
+
+`hcp12` is not a new object: it references `SG_TABLES_V1`,
+`EXPECTED_PUTTS_V1`, `CHIP_OUTCOME_EXPECTED_PUTTS_V1` and
+`CHIP_EXPECTED_PUTTS_V2` **by identity**, so the tier the app already
+shipped with is bit-for-bit the tier it shipped with, and every default
+argument (`DEFAULT_SG_BASELINE`) resolves to it. Frozen constants were
+added, never edited.
+
+(The over-par column is `4·eHole[3] + 10·eHole[4] + 4·eHole[5] − 72`,
+derived by `expectedOnParSeventyTwo()` rather than typed — the picker quotes
+the same figure as "About 90 shots on a par 72", so a recalibration cannot
+leave the copy behind.)
+
+**Selection is automatic with a manual override.** `cohortForHandicap()`
+maps the signed-in player's `handicapIndex` to a tier at the boundaries
+2.5 / 8.5 / 16 (negative index = plus handicap → `scratch`; no index on
+file → `hcp12`). A five-option override ("Match my handicap" plus the four
+tiers) is offered under the label **"Compared to"**; the choice is
+device-local (`tapscore.stats.sgBaseline.v1`, the same key on both clients)
+and anything unreadable degrades to "Match my handicap".
+
+Where that control SITS is per-platform, deliberately — each client puts it
+where its own dashboard already keeps settings:
+
+- **web** — in the stats filter panel, below the Clear button, as a
+  dropdown rather than chips (five options, per `docs/design-guidelines.md`).
+- **iOS** — beside the window picker on the dashboard.
+
+Neither the round-stats screen nor the landing's statistics card gets a
+control of its own: both read the tier the dashboard resolved, so one
+player never sees two baselines at once, and the landing's "Costing you
+most" line cannot rank the five terms differently from the screen it links
+to.
+
+**Every tier is PROVISIONAL** — `calibratedAt: null` on all four,
+including the one that was already shipping, and zero row counts on the
+new three. They are shaped from published amateur references and internal
+consistency, not from §6's calibration script. The ⓘ says so, in those
+words, for as long as `calibratedAt` is null. What survives calibration is
+the ORDER of the rows within a round; the sizes are rough, and no tier's
+numbers are comparable to another vendor's strokes-gained figures.
+
+The identities are unaffected by construction: the five terms telescope for
+ANY table values (§2.3), so `tee + approach + shortGame + putting +
+penalties === total` holds under every cohort, and the test suite asserts
+it under all four on every fixture.
+
 ## 7. Deliberately not doing
 
 - Shot coordinates, club data, distance capture — the input boundary stands.

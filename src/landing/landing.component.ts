@@ -884,9 +884,10 @@ export class LandingComponent extends Component {
             void this.profile.load();
             // Best-effort: a failed feed read leaves both sections absent.
             void this.activity.load();
-            // The window is persisted by /stats and re-read HERE, on the way
-            // back: the router's $swap remounts the landing on every return, so
-            // a window switched on the dashboard is the window the card names.
+            // The window AND the strokes-gained baseline tier are persisted by
+            // /stats and re-read HERE, on the way back: the router's $swap
+            // remounts the landing on every return, so a window or a tier
+            // switched on the dashboard is the one the card is folded against.
             // (Read in render, never in a field initializer — see the $swap
             // footgun note in the framework docs.)
             this.homeStats.refreshPreset();

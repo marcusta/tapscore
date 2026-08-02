@@ -150,17 +150,24 @@ struct RoundStatsModel: Equatable, Sendable {
 
     var hasHoleStrip: Bool { !cells.isEmpty }
 
+    /// - Parameter baseline: the handicap-cohort bundle this round and its
+    ///   personal window are both weighed against. ONE value for both: a round
+    ///   measured against one table and its own baseline against another would
+    ///   put the difference between two references into every delta.
     static func build(
         round: PlayerRoundStats,
         holes: [PlayerRoundHoleStats],
         history: [PlayerRoundStats],
         windowSize: Int = RoundStatsModel.defaultWindow,
-        insightLimit: Int = 3
+        insightLimit: Int = 3,
+        baseline: SgBaselineBundle = SgBaselines.hcp12
     ) -> RoundStatsModel {
-        let panels = StatsDashboardModel.build(rows: [round])
+        let panels = StatsDashboardModel.build(rows: [round], baseline: baseline)
         let waterfall = panels.waterfall
         let window = priorRounds(of: round, in: history, limit: windowSize)
-        let windowLosts = window.map { StatMeasuresMath.strokesLostV3($0.measures) }
+        let windowLosts = window.map {
+            StatMeasuresMath.strokesLostV3($0.measures, baseline: baseline)
+        }
         let row = panels.rounds.first
         return RoundStatsModel(
             roundId: round.roundId,

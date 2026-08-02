@@ -12,7 +12,7 @@ import {
     roundStatsTitle,
     scoreMarkerForm,
 } from '../../src/stats/round-stats-model';
-import { ZERO_MEASURES } from '../../src/round/stat-measures';
+import { SG_BASELINES_V1, ZERO_MEASURES } from '../../src/round/stat-measures';
 import type {
     PlayerHoleStats,
     PlayerRoundHoleStats,
@@ -214,6 +214,39 @@ test('the FIRST round with stats has no personal baseline, rather than a zeroed 
     expect(model.deltas).toBeNull();
     expect(model.windowCount).toBe(0);
     expect(model.insights).toEqual([]);
+});
+
+// The round and the history it is compared with must be priced by the SAME
+// bundle: a delta between a round on one tier and a baseline on another is not
+// a delta at all.
+test('the baseline bundle prices the round and its personal baseline alike', () => {
+    // Nine par-3 greens hit, two putts each — over the per-18 floor on both
+    // sides, so the deltas and the insights actually report.
+    const m = measures({
+        holesScored: 9,
+        attHolesPar3Gir: 9,
+        attStrokes: 27,
+        attPutts: 18,
+        attGirFirstPutt2To4m: 9,
+    });
+    const args = {
+        round: round({ roundId: 'r1', date: '2026-05-02', measures: m }),
+        holes: [],
+        history: [round({ roundId: 'r0', date: '2026-05-01', measures: m })],
+    };
+
+    const scratch = buildRoundStatsModel({ ...args, bundle: SG_BASELINES_V1.scratch });
+    const soft = buildRoundStatsModel({ ...args, bundle: SG_BASELINES_V1.hcp20 });
+
+    expect(scratch.waterfall.total!).toBeGreaterThan(soft.waterfall.total!);
+    // Identical rounds on either side, so the delta is zero WHICHEVER tier is in
+    // force — that is the point: the two halves moved together.
+    expect(scratch.deltas!.putting!).toBeCloseTo(0, 9);
+    expect(soft.deltas!.putting!).toBeCloseTo(0, 9);
+    // …and the default is the tier the app shipped with.
+    expect(buildRoundStatsModel(args)).toEqual(
+        buildRoundStatsModel({ ...args, bundle: SG_BASELINES_V1.hcp12 }),
+    );
 });
 
 // --- The window --------------------------------------------------------------

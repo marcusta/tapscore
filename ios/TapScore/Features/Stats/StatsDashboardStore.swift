@@ -63,6 +63,18 @@ final class StatsDashboardStore {
     private(set) var preset: StatsWindowPreset
     private(set) var filter = StatsRoundFilter()
 
+    /// Which reference the strokes-gained rows are measured against. Written only
+    /// through `persist(baseline:)`, for the same reason `preset` is — and
+    /// deliberately NOT routed through `apply(filter:)`: applying a filter moves
+    /// the window to `.custom`, and choosing a baseline is not a statement about
+    /// which rounds are in the window.
+    private(set) var baselineChoice: SgBaselineChoice
+
+    /// The signed-in player's handicap index, handed in by the view (the store
+    /// has no session of its own). nil while signed out or before the profile
+    /// resolves, which `auto` reads as the middle tier.
+    private(set) var handicapIndex: Double?
+
     /// True while more history is being pulled in behind an already-drawn
     /// screen — a footer note, never a blank screen.
     private(set) var isExtending = false
@@ -97,6 +109,7 @@ final class StatsDashboardStore {
         api: TapScoreAPI,
         defaults: UserDefaults = .standard,
         calendar: Calendar = .current,
+        handicapIndex: Double? = nil,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.api = api
@@ -104,6 +117,8 @@ final class StatsDashboardStore {
         self.calendar = calendar
         self.now = now
         self.preset = StatsWindowPreference.load(defaults: defaults)
+        self.baselineChoice = SgBaselinePreference.load(defaults: defaults)
+        self.handicapIndex = handicapIndex
     }
 
     // MARK: - Derived state
@@ -118,7 +133,14 @@ final class StatsDashboardStore {
     /// few hundred rows of integer columns, and a cached model is a cache to
     /// invalidate on every one of the four things that can change it.
     var model: StatsDashboardModel {
-        StatsDashboardModel.build(rows: windowRounds)
+        StatsDashboardModel.build(rows: windowRounds, baseline: baseline.bundle)
+    }
+
+    /// The baseline in force — the choice, the handicap it was resolved with, and
+    /// therefore the cohort. The screen, the ⓘ sheet and the round screen all
+    /// read this rather than resolving a cohort of their own.
+    var baseline: SgBaselineContext {
+        SgBaselineContext(choice: baselineChoice, handicapIndex: handicapIndex)
     }
 
     /// The filter sheet's course list, built from fetched rows only.
@@ -272,6 +294,32 @@ final class StatsDashboardStore {
     private func persist(_ next: StatsWindowPreset) {
         preset = next
         StatsWindowPreference.save(next, defaults: defaults)
+    }
+
+    // MARK: - Baseline selection
+
+    /// Pick the reference the rows are measured against.
+    ///
+    /// Nothing is fetched and the WINDOW does not move: every figure is a pure
+    /// function of the rows in hand and the bundle, so this is a recompute, not a
+    /// reload. It must never touch `preset` — a baseline that silently switched
+    /// the window to `.custom` would drop the reader's "Last 10" for a filter
+    /// they never set.
+    func selectBaseline(_ next: SgBaselineChoice) {
+        guard next != baselineChoice else { return }
+        persist(baseline: next)
+    }
+
+    /// The signed-in player's handicap, from the view that has the auth state.
+    func setHandicapIndex(_ index: Double?) {
+        handicapIndex = index
+    }
+
+    /// The only writer of `baselineChoice` — selection and persistence move
+    /// together, exactly as they do for the window.
+    private func persist(baseline next: SgBaselineChoice) {
+        baselineChoice = next
+        SgBaselinePreference.save(next, defaults: defaults)
     }
 
     /// Toggle one round in or out of the custom window's checklist.

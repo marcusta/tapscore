@@ -1,5 +1,9 @@
 import { expect, test } from 'bun:test';
-import { ZERO_MEASURES } from '../../src/round/stat-measures';
+import {
+    SG_BASELINES_V1,
+    ZERO_MEASURES,
+    type SgBaselineBundle,
+} from '../../src/round/stat-measures';
 import type { PlayerRoundStats, StatMeasures } from '../../src/api/player-stats.gen';
 import {
     buildHomeStatsCard,
@@ -186,6 +190,43 @@ test('a positive leader still renders when it is penalties', () => {
     });
     expect(card([row('r1', '2026-07-20', penalised)]).priorityLine).toBe(
         'Costing you most: Penalties',
+    );
+});
+
+// The line RANKS the five terms, and the ranking is against the tier — so the
+// card has to be handed the same resolved bundle the dashboard resolved. Left
+// on the default, the landing would name one component and the screen it links
+// to would name another for the same rounds.
+test('the baseline bundle reaches the priority line', () => {
+    const m = measures({
+        holesScored: 18,
+        strokesTotal: 88,
+        parTotal: 72,
+        teeRecorded: 14,
+        fairwayHits: 10,
+        girRecorded: 18,
+        girHits: 12,
+        puttsRecorded: 18,
+        puttsTotal: 36,
+        firstPutt2To4mResolved: 18,
+        puttsTotal2To4mResolved: 36,
+        attHolesPar45Gir: 18,
+        attStrokes: 88,
+        attPutts: 36,
+        attFairwayPar4: 18,
+        attGirFirstPutt2To4m: 18,
+    });
+    const rows = [row('r1', '2026-07-20', m)];
+    const under = (bundle: SgBaselineBundle) =>
+        buildHomeStatsCard({ rows, preset: 'last10', hasMore: false, now, bundle })!.priorityLine;
+
+    // Two putts a green is expensive against scratch expectations and ordinary
+    // against 20+ ones, so the leader genuinely changes tier to tier.
+    expect(under(SG_BASELINES_V1.scratch)).toBe('Costing you most: Approach');
+    expect(under(SG_BASELINES_V1.hcp20)).toBe('Costing you most: Putting');
+    // An un-threaded caller still reads exactly as it did before cohorts.
+    expect(build(rows)).toEqual(
+        buildHomeStatsCard({ rows, preset: 'last10', hasMore: false, now, bundle: SG_BASELINES_V1.hcp12 }),
     );
 });
 

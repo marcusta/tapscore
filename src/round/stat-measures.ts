@@ -1395,6 +1395,285 @@ export const SG_TABLES_V1: SgTables = Object.freeze({
 });
 
 // ---------------------------------------------------------------------------
+// Handicap-cohort baselines (docs/proposals/strokes-gained-lite.md, "Handicap
+// cohorts")
+// ---------------------------------------------------------------------------
+
+/**
+ * The four reference populations a player's attribution may be measured
+ * against. `hcp12` is the tier the app shipped with — it IS `SG_TABLES_V1` and
+ * its sibling constants, unchanged — and the other three are new tables around
+ * it.
+ *
+ * The raw strings are the persisted vocabulary: the Swift twin is
+ * `enum SgCohort: String` with these exact values, and the device-store key
+ * holds one of them verbatim.
+ */
+export type SgCohort = 'scratch' | 'hcp5' | 'hcp12' | 'hcp20';
+
+/** Easiest population first — the order every picker and every table lists. */
+export const SG_COHORTS: readonly SgCohort[] = ['scratch', 'hcp5', 'hcp12', 'hcp20'];
+
+/**
+ * The tier a handicap index falls in.
+ *
+ * The boundaries are the MIDPOINTS between the four anchors (0, 5, 12, 20), so
+ * a player is always measured against the nearest published tier rather than
+ * against the one their index happens to round down to. A negative index is a
+ * plus handicap, which is better than scratch and lands there.
+ *
+ * `null` — no handicap on the profile, or no profile loaded yet — answers
+ * `hcp12`: the tier the whole app used before cohorts existed, and the honest
+ * middle of the field. It is not a guess about the player, it is a refusal to
+ * make one.
+ */
+export function cohortForHandicap(index: number | null): SgCohort {
+    if (index === null) return 'hcp12';
+    if (index < 2.5) return 'scratch';
+    if (index < 8.5) return 'hcp5';
+    if (index < 16) return 'hcp12';
+    return 'hcp20';
+}
+
+/**
+ * What a tier's `eHole` table adds up to over a standard par-72 layout —
+ * 4 par-3s, 10 par-4s, 4 par-5s — rounded to a whole stroke.
+ *
+ * DERIVED, never typed: the picker says "About 90 shots on a par 72" so a
+ * player can recognise their own game in a tier without knowing what "hcp20"
+ * means, and a hand-written number would drift the first time a table is
+ * recalibrated. The layout is the conventional one, not any real course; the
+ * word "about" in the copy is carrying that.
+ */
+export function expectedOnParSeventyTwo(tables: SgTables): number {
+    return Math.round(4 * tables.eHole[3] + 10 * tables.eHole[4] + 4 * tables.eHole[5]);
+}
+
+/**
+ * One coherent set of baseline constants: the tables the five terms are priced
+ * against, from the tee to the last putt.
+ *
+ * A bundle is used WHOLE or not at all. Half of a tier's tables with half of
+ * another's would still telescope (the proof in this file's header does not
+ * care which constants are used), and it would still be nonsense — a player
+ * scored against a scratch approach and a 20-handicap putter.
+ */
+export interface SgBaselineBundle {
+    readonly tables: SgTables;
+    readonly expected: Readonly<Record<PuttBucket, number>>;
+    readonly chipOutcome: Readonly<{ inside2m: number; outside2m: number }>;
+    readonly chipBaseline: Readonly<ChipExpectedPutts>;
+}
+
+/**
+ * Scratch reference baseline, v1.
+ *
+ * PROVISIONAL_PENDING_OWNER_CALIBRATION, exactly like `SG_TABLES_V1`: anchored
+ * on published scoring means for the population, NOT on this app's data, so
+ * `calibratedAt` is null and every `rowCounts` cell is zero. Frozen on the same
+ * terms — tune by adding a v2 tier, never by editing these numbers, because a
+ * player's history must not shift under them.
+ *
+ * Internal consistency at the same 55 / 30 / 15 lie mix v1 uses:
+ * par 4 → 1 + 0.55·2.95 + 0.30·3.25 + 0.15·3.70 = 4.15; par 5 →
+ * 1 + 0.55·3.65 + 0.30·3.95 + 0.15·4.40 = 4.85. Over 4 × par 3, 10 × par 4 and
+ * 4 × par 5 the table totals 73.9 — about two over a par 72.
+ */
+export const SG_TABLES_SCRATCH_V1: SgTables = Object.freeze({
+    version: 'v1-provisional-scratch',
+    calibratedAt: null,
+    eHole: Object.freeze({ 3: 3.25, 4: 4.15, 5: 4.85 }),
+    eAfterTee: Object.freeze({
+        4: Object.freeze({ fairway: 2.95, in_play: 3.25, trouble: 3.7 }),
+        5: Object.freeze({ fairway: 3.65, in_play: 3.95, trouble: 4.4 }),
+    }),
+    rowCounts: Object.freeze({
+        eHole: Object.freeze({ 3: 0, 4: 0, 5: 0 }),
+        eAfterTee: Object.freeze({
+            4: Object.freeze({ fairway: 0, in_play: 0, trouble: 0 }),
+            5: Object.freeze({ fairway: 0, in_play: 0, trouble: 0 }),
+        }),
+    }),
+});
+
+/**
+ * 5-handicap reference baseline, v1. PROVISIONAL_PENDING_OWNER_CALIBRATION.
+ *
+ * par 4 → 1 + 0.55·3.20 + 0.30·3.60 + 0.15·4.05 = 4.45; par 5 →
+ * 1 + 0.55·3.90 + 0.30·4.25 + 0.15·4.55 = 5.10. Eighteen-hole total 78.5.
+ */
+export const SG_TABLES_HCP5_V1: SgTables = Object.freeze({
+    version: 'v1-provisional-hcp5',
+    calibratedAt: null,
+    eHole: Object.freeze({ 3: 3.4, 4: 4.45, 5: 5.1 }),
+    eAfterTee: Object.freeze({
+        4: Object.freeze({ fairway: 3.2, in_play: 3.6, trouble: 4.05 }),
+        5: Object.freeze({ fairway: 3.9, in_play: 4.25, trouble: 4.55 }),
+    }),
+    rowCounts: Object.freeze({
+        eHole: Object.freeze({ 3: 0, 4: 0, 5: 0 }),
+        eAfterTee: Object.freeze({
+            4: Object.freeze({ fairway: 0, in_play: 0, trouble: 0 }),
+            5: Object.freeze({ fairway: 0, in_play: 0, trouble: 0 }),
+        }),
+    }),
+});
+
+/**
+ * 20+-handicap reference baseline, v1. PROVISIONAL_PENDING_OWNER_CALIBRATION.
+ *
+ * par 4 → 1 + 0.55·3.85 + 0.30·4.20 + 0.15·4.85 = 5.11; par 5 →
+ * 1 + 0.55·4.65 + 0.30·5.00 + 0.15·5.65 = 5.91 — both inside the ±0.02 the
+ * other tiers hold to. Eighteen-hole total 90.2, about eighteen over a par 72.
+ */
+export const SG_TABLES_HCP20_V1: SgTables = Object.freeze({
+    version: 'v1-provisional-hcp20',
+    calibratedAt: null,
+    eHole: Object.freeze({ 3: 3.9, 4: 5.1, 5: 5.9 }),
+    eAfterTee: Object.freeze({
+        4: Object.freeze({ fairway: 3.85, in_play: 4.2, trouble: 4.85 }),
+        5: Object.freeze({ fairway: 4.65, in_play: 5.0, trouble: 5.65 }),
+    }),
+    rowCounts: Object.freeze({
+        eHole: Object.freeze({ 3: 0, 4: 0, 5: 0 }),
+        eAfterTee: Object.freeze({
+            4: Object.freeze({ fairway: 0, in_play: 0, trouble: 0 }),
+            5: Object.freeze({ fairway: 0, in_play: 0, trouble: 0 }),
+        }),
+    }),
+});
+
+/** Expected putts per bucket, scratch. PROVISIONAL, frozen like v1's. */
+export const EXPECTED_PUTTS_SCRATCH_V1: Readonly<Record<PuttBucket, number>> = Object.freeze({
+    inside_1m: 1.02,
+    '1_to_2m': 1.35,
+    '2_to_4m': 1.72,
+    '4_to_8m': 1.95,
+    over_8m: 2.2,
+});
+
+/** Expected putts per bucket, 5 handicap. PROVISIONAL. */
+export const EXPECTED_PUTTS_HCP5_V1: Readonly<Record<PuttBucket, number>> = Object.freeze({
+    inside_1m: 1.03,
+    '1_to_2m': 1.4,
+    '2_to_4m': 1.78,
+    '4_to_8m': 2.02,
+    over_8m: 2.3,
+});
+
+/** Expected putts per bucket, 20+ handicap. PROVISIONAL. */
+export const EXPECTED_PUTTS_HCP20_V1: Readonly<Record<PuttBucket, number>> = Object.freeze({
+    inside_1m: 1.08,
+    '1_to_2m': 1.5,
+    '2_to_4m': 1.92,
+    '4_to_8m': 2.2,
+    over_8m: 2.55,
+});
+
+/**
+ * Chip outcomes, scratch — DERIVED from `EXPECTED_PUTTS_SCRATCH_V1` by v1's own
+ * rule: inside 2 m = mean of the two short buckets, outside 2 m = mean of the
+ * three long ones, at the table's two-decimal precision.
+ * - inside 2m  = mean(1.02, 1.35) = 1.185 → 1.19
+ * - outside 2m = mean(1.72, 1.95, 2.20) = 1.9566… → 1.96
+ */
+export const CHIP_OUTCOME_EXPECTED_PUTTS_SCRATCH_V1: Readonly<{
+    inside2m: number;
+    outside2m: number;
+}> = Object.freeze({ inside2m: 1.19, outside2m: 1.96 });
+
+/**
+ * Chip outcomes, 5 handicap. Same derivation.
+ * - inside 2m  = mean(1.03, 1.40) = 1.215 → 1.22
+ * - outside 2m = mean(1.78, 2.02, 2.30) = 2.0333… → 2.03
+ */
+export const CHIP_OUTCOME_EXPECTED_PUTTS_HCP5_V1: Readonly<{
+    inside2m: number;
+    outside2m: number;
+}> = Object.freeze({ inside2m: 1.22, outside2m: 2.03 });
+
+/**
+ * Chip outcomes, 20+ handicap. Same derivation.
+ * - inside 2m  = mean(1.08, 1.50) = 1.29
+ * - outside 2m = mean(1.92, 2.20, 2.55) = 2.2233… → 2.22
+ */
+export const CHIP_OUTCOME_EXPECTED_PUTTS_HCP20_V1: Readonly<{
+    inside2m: number;
+    outside2m: number;
+}> = Object.freeze({ inside2m: 1.29, outside2m: 2.22 });
+
+/**
+ * What an average short-game shot leaves, scratch. PROVISIONAL, and ordered the
+ * way `CHIP_EXPECTED_PUTTS_V2` is: a clean chip is easiest, a greenside bunker
+ * is a known lie with a known technique, and the `hard` catch-all (short-sided,
+ * downhill, long grass) is worst.
+ */
+export const CHIP_EXPECTED_PUTTS_SCRATCH_V1: Readonly<ChipExpectedPutts> = Object.freeze({
+    standard: 1.55,
+    hard: 1.9,
+    bunker: 1.75,
+});
+
+/** The same, 5 handicap. PROVISIONAL. */
+export const CHIP_EXPECTED_PUTTS_HCP5_V1: Readonly<ChipExpectedPutts> = Object.freeze({
+    standard: 1.62,
+    hard: 2.0,
+    bunker: 1.85,
+});
+
+/** The same, 20+ handicap. PROVISIONAL. */
+export const CHIP_EXPECTED_PUTTS_HCP20_V1: Readonly<ChipExpectedPutts> = Object.freeze({
+    standard: 1.8,
+    hard: 2.25,
+    bunker: 2.08,
+});
+
+/**
+ * The four bundles, keyed by cohort — the ONE place a tier is assembled.
+ *
+ * `hcp12` holds the EXISTING objects by identity, not copies of their values:
+ * the tier a player was on before cohorts existed must be the same table, not
+ * an equal one, so that a refactor which edits one and forgets the other stops
+ * compiling into agreement.
+ *
+ * All four are PROVISIONAL_PENDING_OWNER_CALIBRATION. When calibration happens
+ * it happens per tier: a fitted table replaces one entry here, sets its own
+ * `calibratedAt`, and the other three keep saying they are provisional.
+ */
+export const SG_BASELINES_V1: Readonly<Record<SgCohort, SgBaselineBundle>> = Object.freeze({
+    scratch: Object.freeze({
+        tables: SG_TABLES_SCRATCH_V1,
+        expected: EXPECTED_PUTTS_SCRATCH_V1,
+        chipOutcome: CHIP_OUTCOME_EXPECTED_PUTTS_SCRATCH_V1,
+        chipBaseline: CHIP_EXPECTED_PUTTS_SCRATCH_V1,
+    }),
+    hcp5: Object.freeze({
+        tables: SG_TABLES_HCP5_V1,
+        expected: EXPECTED_PUTTS_HCP5_V1,
+        chipOutcome: CHIP_OUTCOME_EXPECTED_PUTTS_HCP5_V1,
+        chipBaseline: CHIP_EXPECTED_PUTTS_HCP5_V1,
+    }),
+    hcp12: Object.freeze({
+        tables: SG_TABLES_V1,
+        expected: EXPECTED_PUTTS_V1,
+        chipOutcome: CHIP_OUTCOME_EXPECTED_PUTTS_V1,
+        chipBaseline: CHIP_EXPECTED_PUTTS_V2,
+    }),
+    hcp20: Object.freeze({
+        tables: SG_TABLES_HCP20_V1,
+        expected: EXPECTED_PUTTS_HCP20_V1,
+        chipOutcome: CHIP_OUTCOME_EXPECTED_PUTTS_HCP20_V1,
+        chipBaseline: CHIP_EXPECTED_PUTTS_HCP20_V1,
+    }),
+});
+
+/**
+ * The bundle every caller that has not been told otherwise uses — today's
+ * behaviour, unchanged.
+ */
+export const DEFAULT_SG_BASELINE: SgBaselineBundle = SG_BASELINES_V1.hcp12;
+
+// ---------------------------------------------------------------------------
 // The strokes-lost waterfall (docs/proposals/strokes-gained-lite.md)
 // ---------------------------------------------------------------------------
 
@@ -1585,6 +1864,21 @@ export function strokesLostV3(
     const total = m.attStrokes - sumEHole;
 
     return { tee, approach, shortGame, putting, penalties, total, coverage };
+}
+
+/**
+ * `strokesLostV3` against one cohort's whole bundle.
+ *
+ * The ONLY way a caller should choose a tier. Passing the four tables
+ * positionally is how a leg ends up priced against a different population than
+ * the leg beside it — the arithmetic still telescopes, and the reading is
+ * still nonsense. Take the bundle, spread the bundle.
+ */
+export function strokesLostForBundle(
+    m: StatMeasures,
+    bundle: SgBaselineBundle = DEFAULT_SG_BASELINE,
+): StrokesLost {
+    return strokesLostV3(m, bundle.tables, bundle.expected, bundle.chipOutcome, bundle.chipBaseline);
 }
 
 /**

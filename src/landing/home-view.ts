@@ -5,6 +5,8 @@
 // the two clients show the same home, so the caps and the pill's notation are
 // stated once per client and nowhere else.
 
+import { formatHandicap } from '../stats/sg-baseline';
+
 /** How many finished rounds the home card shows before "All rounds →" is the
  *  rest of the answer. */
 export const FINISHED_PREVIEW_LIMIT = 3;
@@ -22,14 +24,15 @@ export const ONGOING_PREVIEW_LIMIT = 4;
  * dash. A pill reading "HCP –" states nothing and takes a line to do it, so a
  * player who has never entered an index simply has no pill.
  *
- * Notation is the profile screen's: the domain stores a plus handicap
- * negative, so −2.0 reads "+2.0".
+ * Notation is `formatHandicap`'s, shared with the stats baseline picker rather
+ * than restated here: the domain stores a plus handicap negative, so −2.0 reads
+ * "+2.0", and one formatter means the pill and the ⓘ can never disagree about
+ * the same player's index.
  */
 export function handicapPill(handicapIndex: number | null | undefined): string | null {
     if (handicapIndex === null || handicapIndex === undefined) return null;
     if (!Number.isFinite(handicapIndex)) return null;
-    const text = handicapIndex < 0 ? `+${(-handicapIndex).toFixed(1)}` : handicapIndex.toFixed(1);
-    return `HCP ${text}`;
+    return `HCP ${formatHandicap(handicapIndex)}`;
 }
 
 /** Counts the home's gates read — the LOADED row count plus the two partition

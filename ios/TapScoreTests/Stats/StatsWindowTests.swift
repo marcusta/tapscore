@@ -354,4 +354,84 @@ final class StatsWindowTests: XCTestCase {
 
         XCTAssertEqual(StatsWindowPreference.load(defaults: defaults), .last10)
     }
+
+    // MARK: - The strokes-gained baseline preference
+
+    /// The key is a CONTRACT with the web client — both store the same bare
+    /// string under it — so it is asserted literally rather than derived.
+    func testTheBaselineKeyAndStoredStringsAreTheOnesTheWebWrites() {
+        XCTAssertEqual(SgBaselinePreference.key, "tapscore.stats.sgBaseline.v1")
+        XCTAssertEqual(
+            SgBaselineChoice.allCases.map(\.rawValue),
+            ["auto", "scratch", "hcp5", "hcp12", "hcp20"])
+    }
+
+    func testTheBaselineChoiceSurvivesARelaunch() {
+        let defaults = UserDefaults(suiteName: "sg-baseline-\(UUID().uuidString)")!
+        defer { defaults.removeObject(forKey: SgBaselinePreference.key) }
+
+        XCTAssertEqual(SgBaselinePreference.load(defaults: defaults), .auto)
+
+        for choice in SgBaselineChoice.allCases {
+            SgBaselinePreference.save(choice, defaults: defaults)
+            XCTAssertEqual(SgBaselinePreference.load(defaults: defaults), choice)
+        }
+    }
+
+    /// A string from a future version pins nobody to a table this build cannot
+    /// name: it decodes to `auto`, which resolves from the handicap.
+    func testAnUnknownStoredBaselineFallsBackToAuto() {
+        let defaults = UserDefaults(suiteName: "sg-baseline-\(UUID().uuidString)")!
+        defer { defaults.removeObject(forKey: SgBaselinePreference.key) }
+        defaults.set("hcp36", forKey: SgBaselinePreference.key)
+
+        XCTAssertEqual(SgBaselinePreference.load(defaults: defaults), .auto)
+    }
+
+    /// `auto` follows the handicap; a pinned tier ignores it entirely. One rule,
+    /// read by the dashboard, the round screen and the home card alike.
+    func testTheChoiceResolvesThroughTheHandicapOnlyOnAuto() {
+        XCTAssertEqual(SgBaselineChoice.auto.resolved(handicapIndex: 18), .hcp20)
+        XCTAssertEqual(SgBaselineChoice.auto.resolved(handicapIndex: nil), .hcp12)
+        XCTAssertEqual(SgBaselineChoice.scratch.resolved(handicapIndex: 18), .scratch)
+        XCTAssertEqual(SgBaselineChoice.hcp20.resolved(handicapIndex: nil), .hcp20)
+
+        // …and the context carries both, so the bundle and the sentence about it
+        // come from one value.
+        let auto = SgBaselineContext(choice: .auto, handicapIndex: 4.0)
+        XCTAssertEqual(auto.cohort, .hcp5)
+        XCTAssertEqual(auto.bundle, SgBaselines.hcp5)
+        XCTAssertEqual(SgBaselineContext.fallback.bundle, SgBaselines.hcp12)
+    }
+
+    /// The picker's words, including the live sentence under "Match my
+    /// handicap" — the ⓘ ruling applies to an option's explanation too.
+    func testThePickerNamesTheTiersInWordsAndSaysWhereAutoLands() {
+        XCTAssertEqual(
+            SgBaselineChoice.allCases.map(SgBaselineCopy.rowTitle),
+            ["Match my handicap", "Scratch", "5 handicap", "12 handicap", "20+ handicap"])
+        XCTAssertEqual(
+            SgBaselineCopy.rowSubtitle(.auto, handicapIndex: 12.3),
+            "Your 12.3 handicap puts you on the 12 handicap reference.")
+        // A plus handicap reads "+2.4" and lands on scratch.
+        XCTAssertEqual(
+            SgBaselineCopy.rowSubtitle(.auto, handicapIndex: -2.4),
+            "Your +2.4 handicap puts you on the Scratch reference.")
+        XCTAssertEqual(
+            SgBaselineCopy.rowSubtitle(.auto, handicapIndex: nil),
+            "No handicap on your profile yet, so this uses the 12 handicap reference.")
+        XCTAssertEqual(
+            SgBaselineCopy.rowSubtitle(.scratch, handicapIndex: nil),
+            "About 74 shots on a par 72.")
+        XCTAssertEqual(
+            SgBaselineCopy.rowSubtitle(.hcp20, handicapIndex: nil),
+            "About 90 shots on a par 72.")
+        // The collapsed field qualifies an `auto` answer with the tier it
+        // resolved to, and says nothing extra when the title already is one.
+        XCTAssertEqual(
+            SgBaselineCopy.fieldMarker(SgBaselineContext(choice: .auto, handicapIndex: 20)),
+            "20+ handicap")
+        XCTAssertNil(
+            SgBaselineCopy.fieldMarker(SgBaselineContext(choice: .hcp5, handicapIndex: 20)))
+    }
 }

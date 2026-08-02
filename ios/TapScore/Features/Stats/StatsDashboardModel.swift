@@ -304,13 +304,22 @@ struct StatsDashboardModel: Equatable, Sendable {
     ///
     /// - Parameter rows: the window, in any order. Sorted newest-first here so a
     ///   caller cannot get the round list backwards.
-    static func build(rows: [PlayerRoundStats]) -> StatsDashboardModel {
+    /// - Parameter baseline: the handicap-cohort bundle every strokes-gained
+    ///   figure on the screen is weighed against — the per-round waterfalls, the
+    ///   window waterfall, the priorities and the putting trend, all from the one
+    ///   value. Defaults to the shipped v1 constants, so a caller that has not
+    ///   resolved a cohort gets exactly today's numbers.
+    static func build(
+        rows: [PlayerRoundStats], baseline: SgBaselineBundle = SgBaselines.hcp12
+    ) -> StatsDashboardModel {
         let ordered = StatsWindow.sorted(rows)
         guard !ordered.isEmpty else { return .empty }
 
         let totals = StatMeasuresMath.sum(ordered.map(\.measures))
-        let perRound = ordered.map { StatMeasuresMath.strokesLostV3($0.measures) }
-        let windowWaterfall = StatMeasuresMath.strokesLostV3(totals)
+        let perRound = ordered.map {
+            StatMeasuresMath.strokesLostV3($0.measures, baseline: baseline)
+        }
+        let windowWaterfall = StatMeasuresMath.strokesLostV3(totals, baseline: baseline)
 
         return StatsDashboardModel(
             rounds: zip(ordered, perRound).map { row, waterfall in
@@ -333,7 +342,7 @@ struct StatsDashboardModel: Equatable, Sendable {
             totals: totals,
             waterfall: windowWaterfall,
             priorities: priorities(perRound: perRound),
-            trends: trends(rows: ordered),
+            trends: trends(rows: ordered, baseline: baseline),
             results: StatMeasuresMath.resultsSummary(
                 ordered.map { ResultsRow(holeCount: $0.holeCount, measures: $0.measures) }),
             tee: teePanel(totals, roundCount: Double(ordered.count)),
@@ -401,7 +410,9 @@ struct StatsDashboardModel: Equatable, Sendable {
     /// recorded, e.g. a one-hole partial round) is not plotted and cannot
     /// become the tile's headline — a 1-of-1 round would otherwise front the
     /// fairway tile as "100%" with the authority of a full round.
-    static func trends(rows: [PlayerRoundStats]) -> [StatsTrend] {
+    static func trends(
+        rows: [PlayerRoundStats], baseline: SgBaselineBundle = SgBaselines.hcp12
+    ) -> [StatsTrend] {
         // Oldest first — time runs left to right.
         let chrono = Array(rows.reversed())
 
@@ -427,7 +438,8 @@ struct StatsDashboardModel: Equatable, Sendable {
                 solid(StatMeasuresMath.girRate($0))
             },
             series("putting", "Putting", .strokesLost) {
-                StatMeasuresMath.sgPer18(StatMeasuresMath.strokesLostV3($0), .putting)
+                StatMeasuresMath.sgPer18(
+                    StatMeasuresMath.strokesLostV3($0, baseline: baseline), .putting)
             },
             series("scramble", "Scrambling", .percentage) {
                 solid(StatMeasuresMath.scrambleRate($0).overall)

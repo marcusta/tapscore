@@ -36,13 +36,14 @@ struct RoundStoryEntry: View {
         // failure all render nothing: this is a flourish on top of a round that
         // works logged out, and it never gets to put an error in front of one.
         if let statsStore, statsStore.phase == .ready, let model = statsStore.model {
-            RoundStoryCard(model: model)
+            RoundStoryCard(model: model, baseline: baseline)
         } else if !settled {
             Color.clear
                 .frame(height: 0)
                 .task(id: roundId) {
                     guard statsStore?.roundId != roundId else { return }
-                    let created = RoundStatsStore(roundId: roundId, api: environment.api)
+                    let created = RoundStatsStore(
+                        roundId: roundId, api: environment.api, baseline: baseline)
                     statsStore = created
                     await created.load()
                     settled = true
@@ -56,12 +57,20 @@ struct RoundStoryEntry: View {
         if case let .signedIn(player) = environment.authState { return player.id }
         return nil
     }
+
+    /// The reference the story is measured against — the dashboard's persisted
+    /// choice, resolved through the one shared helper.
+    private var baseline: SgBaselineContext {
+        SgBaselinePreference.context(auth: environment.authState)
+    }
 }
 
 /// The story itself: what the round cost, where against your own normal, and
 /// two or three sentences about it.
 struct RoundStoryCard: View {
     var model: RoundStatsModel
+    /// The reference the waterfall was measured against, for the ⓘ sheet to name.
+    var baseline: SgBaselineContext = .fallback
 
     @State private var showsDetail = false
 
@@ -72,7 +81,8 @@ struct RoundStoryCard: View {
                 RoundWaterfallSection(
                     waterfall: model.waterfall, deltas: model.deltas,
                     windowCount: model.windowCount, showsHint: false,
-                    penaltySource: PenaltySourceCounts(model.panels.totals))
+                    penaltySource: PenaltySourceCounts(model.panels.totals),
+                    baseline: baseline)
                 lines
                 Button {
                     showsDetail = true

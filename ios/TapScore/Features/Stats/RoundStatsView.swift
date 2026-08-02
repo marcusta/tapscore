@@ -62,10 +62,18 @@ struct RoundStatsView: View {
         .task {
             guard preloaded == nil, store == nil else { return }
             let created = RoundStatsStore(
-                roundId: roundId, api: environment.api, preloadedHistory: preloadedHistory)
+                roundId: roundId, api: environment.api, preloadedHistory: preloadedHistory,
+                baseline: baseline)
             store = created
             await created.load()
         }
+    }
+
+    /// The reference in force. This screen has NO control of its own — it reads
+    /// the choice the dashboard persisted and resolves it against the signed-in
+    /// player's handicap, through the one helper both screens share.
+    private var baseline: SgBaselineContext {
+        SgBaselinePreference.context(auth: environment.authState)
     }
 
     private func message(_ text: String) -> some View {
@@ -86,7 +94,8 @@ struct RoundStatsView: View {
         }
         RoundWaterfallSection(
             waterfall: model.waterfall, deltas: model.deltas, windowCount: model.windowCount,
-            penaltySource: PenaltySourceCounts(model.panels.totals))
+            penaltySource: PenaltySourceCounts(model.panels.totals),
+            baseline: baseline)
         StatsPanelsView(model: model.panels, expanded: $expanded, idPrefix: "round-stats")
     }
 
@@ -356,6 +365,10 @@ struct RoundWaterfallSection: View {
     /// The labelled-penalty breakdown for THIS round, or nil (§E.6). It reaches
     /// the ⓘ sheet only; the penalty bar is untouched.
     var penaltySource: PenaltySourceCounts? = nil
+    /// The reference the bars were measured against. Presentation only — the
+    /// numbers were already computed against this bundle by the model — but the
+    /// ⓘ sheet has to be able to NAME it.
+    var baseline: SgBaselineContext = .fallback
 
     /// The per-round "How this works" popover.
     @State private var infoOpen = false
@@ -391,7 +404,8 @@ struct RoundWaterfallSection: View {
         .accessibilityIdentifier("round-stats-waterfall")
         .sheet(isPresented: $infoOpen) {
             StrokesGainedInfoSheet(
-                waterfall: waterfall, perRound: true, penaltySource: penaltySource)
+                waterfall: waterfall, perRound: true, baseline: baseline,
+                penaltySource: penaltySource)
         }
     }
 

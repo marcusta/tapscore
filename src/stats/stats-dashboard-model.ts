@@ -23,6 +23,7 @@ import {
     bounceBackRate,
     chipInside2mRate,
     costOfMissedGreen,
+    DEFAULT_SG_BASELINE,
     doubleBogeyPlusPerRound,
     EXPECTED_PUTTS_V1,
     extraShortGameStrokes,
@@ -56,6 +57,7 @@ import {
     STROKES_LOST_COMPONENTS,
     strokesLostV3,
     strokesLostComponent,
+    strokesLostForBundle,
     sgPer18,
     strokesVsParByTee,
     sumMeasures,
@@ -76,6 +78,7 @@ import {
     type PuttCountBucket,
     type Rate,
     type ResultsSummary,
+    type SgBaselineBundle,
     type StrokesLost,
     type StrokesLostComponent,
     type TeeMissDispersion,
@@ -412,13 +415,21 @@ export function presentPanels(model: StatsDashboardModel): StatsPanelId[] {
  *
  * `rows` may arrive in any order; they are sorted newest-first here so a caller
  * cannot get the round list backwards.
+ *
+ * `bundle` is the handicap cohort every strokes-lost figure on the screen is
+ * priced against — ONE bundle for the whole model, so the waterfall, the
+ * priorities and the putting trend can never disagree about who the reader is
+ * being compared with. Defaults to the tier the app shipped with.
  */
-export function buildDashboardModel(rows: readonly PlayerRoundStats[]): StatsDashboardModel {
+export function buildDashboardModel(
+    rows: readonly PlayerRoundStats[],
+    bundle: SgBaselineBundle = DEFAULT_SG_BASELINE,
+): StatsDashboardModel {
     const ordered = sortRows(rows);
     if (ordered.length === 0) return EMPTY_DASHBOARD_MODEL;
 
     const totals = sumMeasures(ordered.map((r) => r.measures));
-    const perRound = ordered.map((r) => strokesLostV3(r.measures));
+    const perRound = ordered.map((r) => strokesLostForBundle(r.measures, bundle));
     const roundCount = ordered.length;
 
     return {
@@ -443,9 +454,9 @@ export function buildDashboardModel(rows: readonly PlayerRoundStats[]): StatsDas
             };
         }),
         totals,
-        waterfall: strokesLostV3(totals),
+        waterfall: strokesLostForBundle(totals, bundle),
         priorities: buildPriorities(perRound),
-        trends: buildTrends(ordered),
+        trends: buildTrends(ordered, bundle),
         tee: teePanel(totals, roundCount),
         approach: approachPanel(totals),
         putting: puttingPanel(totals),
@@ -524,8 +535,15 @@ function solid(r: Rate): number | null {
  * A gap is a SKIP, not a zero and not an interpolation: the line connects the
  * rounds where you recorded the thing. A series shorter than
  * `TREND_MIN_POINTS` is omitted entirely rather than drawn short.
+ *
+ * `bundle` prices the putting series. It must be the SAME bundle the model's
+ * waterfall used, or the line under a card would be measured against a
+ * different population than the card above it.
  */
-export function buildTrends(rows: readonly PlayerRoundStats[]): StatsTrend[] {
+export function buildTrends(
+    rows: readonly PlayerRoundStats[],
+    bundle: SgBaselineBundle = DEFAULT_SG_BASELINE,
+): StatsTrend[] {
     // Oldest first — time runs left to right.
     const chrono = [...rows].reverse();
 
@@ -549,7 +567,9 @@ export function buildTrends(rows: readonly PlayerRoundStats[]): StatsTrend[] {
         // A trend point is a cross-round comparison, so it normalizes and
         // inherits the >= 9-attributed floor. A round under it plots nothing,
         // which the sparkline already skips.
-        series('putting', 'Putting', 'strokesLost', (m) => sgPer18(strokesLostV3(m), 'putting')),
+        series('putting', 'Putting', 'strokesLost', (m) =>
+            sgPer18(strokesLostForBundle(m, bundle), 'putting'),
+        ),
         series('scramble', 'Scrambling', 'percentage', (m) => solid(scrambleRate(m).overall)),
     ].filter((t): t is StatsTrend => t !== null);
 }

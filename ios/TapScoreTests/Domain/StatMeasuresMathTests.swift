@@ -868,6 +868,179 @@ final class StatMeasuresMathTests: XCTestCase {
         }
     }
 
+    // MARK: - Handicap-cohort baselines
+
+    /// The `hcp12` tier is not a new table — it IS the shipped constants,
+    /// assembled. Nothing a player has already seen moved to make room for the
+    /// tiers around it.
+    func testTheMiddleTierIsTheShippedConstantsVerbatim() {
+        let hcp12 = SgBaselines.bundle(for: .hcp12)
+        XCTAssertEqual(hcp12.tables, SgTablesV1.tables)
+        XCTAssertEqual(hcp12.expected, StatMeasuresMath.expectedPuttsV1)
+        XCTAssertEqual(hcp12.chipExpected, StatMeasuresMath.chipOutcomeExpectedPuttsV1)
+        XCTAssertEqual(hcp12.chipBaseline, StatMeasuresMath.chipExpectedPuttsV2)
+        // …and it is what an unresolved caller gets, so the defaulted call and
+        // the middle tier are the same numbers.
+        XCTAssertEqual(
+            StatMeasuresMath.strokesLostV3(sgRoundA, baseline: hcp12),
+            StatMeasuresMath.strokesLostV3(sgRoundA))
+    }
+
+    /// Every tier is PROVISIONAL in the data — `calibratedAt` nil, every
+    /// `rowCounts` cell zero — and internally ordered the way the v1 tier is.
+    func testEveryCohortBaselineIsProvisionalAndInternallyOrdered() throws {
+        for cohort in SgCohort.allCases {
+            let bundle = SgBaselines.bundle(for: cohort)
+            XCTAssertEqual(bundle.cohort, cohort)
+            XCTAssertNil(bundle.tables.calibratedAt, "\(cohort)")
+            XCTAssertTrue(bundle.tables.version.hasPrefix("v1-provisional"), "\(cohort)")
+            XCTAssertEqual(bundle.tables.rowCounts.eHole, [3: 0, 4: 0, 5: 0], "\(cohort)")
+            for par in [4, 5] {
+                XCTAssertEqual(
+                    bundle.tables.rowCounts.eAfterTee[par],
+                    [.fairway: 0, .inPlay: 0, .trouble: 0], "\(cohort)")
+            }
+
+            let e3 = try XCTUnwrap(bundle.tables.eHole[3])
+            let e4 = try XCTUnwrap(bundle.tables.eHole[4])
+            let e5 = try XCTUnwrap(bundle.tables.eHole[5])
+            XCTAssertLessThan(e3, e4, "\(cohort)")
+            XCTAssertLessThan(e4, e5, "\(cohort)")
+            for e in [e3, e4, e5] { XCTAssertGreaterThan(e, 3.0, "\(cohort)") }
+
+            for par in [4, 5] {
+                let cells = try XCTUnwrap(bundle.tables.eAfterTee[par])
+                let fairway = try XCTUnwrap(cells[.fairway])
+                let inPlay = try XCTUnwrap(cells[.inPlay])
+                let trouble = try XCTUnwrap(cells[.trouble])
+                XCTAssertLessThan(fairway, inPlay, "\(cohort) par \(par)")
+                XCTAssertLessThan(inPlay, trouble, "\(cohort) par \(par)")
+                let eHole = try XCTUnwrap(bundle.tables.eHole[par])
+                // The tee term has both signs available in every tier: a fairway
+                // is a gain, trouble is a loss.
+                XCTAssertLessThan(1 + fairway, eHole, "\(cohort) par \(par)")
+                XCTAssertGreaterThan(1 + trouble, eHole, "\(cohort) par \(par)")
+                // …and the hole table is the tee table's own mixture, to ±0.02:
+                // `eHole ≈ 1 + 0.55·fairway + 0.30·in play + 0.15·trouble`. A
+                // tier that failed this would show a tee row that never nets to
+                // zero over an average distribution of drives.
+                XCTAssertEqual(
+                    1 + 0.55 * fairway + 0.30 * inPlay + 0.15 * trouble, eHole, accuracy: 0.02,
+                    "\(cohort) par \(par)")
+            }
+
+            // Putting gets strictly harder with distance…
+            let buckets = PuttBucket.allCases.map { bundle.expected[$0] }
+            for (near, far) in zip(buckets, buckets.dropFirst()) {
+                XCTAssertLessThan(near, far, "\(cohort)")
+            }
+            // …a chip left closer is worth strictly less than one left long…
+            XCTAssertLessThan(
+                bundle.chipExpected.inside2m, bundle.chipExpected.outside2m, "\(cohort)")
+            // …and the outcome table is the v1 DERIVATION of this tier's putting
+            // table, rather than an independent guess: inside 2 m is the mean of
+            // the first two buckets, outside is the mean of the last three. The
+            // tolerance is a published cell's rounding step (the tables are
+            // two-decimal, and hcp5's 1.215 sits exactly on the half), not room
+            // for a different number.
+            let inside = (bundle.expected.inside1m + bundle.expected.oneTo2m) / 2
+            let outside =
+                (bundle.expected.twoTo4m + bundle.expected.fourTo8m + bundle.expected.over8m) / 3
+            XCTAssertEqual(bundle.chipExpected.inside2m, inside, accuracy: 0.01, "\(cohort)")
+            XCTAssertEqual(bundle.chipExpected.outside2m, outside, accuracy: 0.01, "\(cohort)")
+            // A bunker sits between a clean lie and the hard catch-all.
+            XCTAssertLessThan(
+                bundle.chipBaseline.standard, bundle.chipBaseline.bunker, "\(cohort)")
+            XCTAssertLessThan(bundle.chipBaseline.bunker, bundle.chipBaseline.hard, "\(cohort)")
+        }
+    }
+
+    /// Every cell of every table gets strictly harder as the handicap rises. A
+    /// tier that crossed another anywhere would make the picker's order a lie.
+    func testEveryCellStrictlyIncreasesFromScratchToTwentyPlus() throws {
+        let ladder: [SgCohort] = [.scratch, .hcp5, .hcp12, .hcp20]
+        for (lower, higher) in zip(ladder, ladder.dropFirst()) {
+            let a = SgBaselines.bundle(for: lower)
+            let b = SgBaselines.bundle(for: higher)
+            let step = "\(lower) → \(higher)"
+            for par in [3, 4, 5] {
+                XCTAssertLessThan(
+                    try XCTUnwrap(a.tables.eHole[par]), try XCTUnwrap(b.tables.eHole[par]),
+                    "\(step) eHole \(par)")
+            }
+            for par in [4, 5] {
+                for result in [TeeResult.fairway, .inPlay, .trouble] {
+                    XCTAssertLessThan(
+                        try XCTUnwrap(a.tables.eAfterTee[par]?[result]),
+                        try XCTUnwrap(b.tables.eAfterTee[par]?[result]),
+                        "\(step) eAfterTee \(par) \(result)")
+                }
+            }
+            for bucket in PuttBucket.allCases {
+                XCTAssertLessThan(a.expected[bucket], b.expected[bucket], "\(step) \(bucket)")
+            }
+            XCTAssertLessThan(a.chipExpected.inside2m, b.chipExpected.inside2m, step)
+            XCTAssertLessThan(a.chipExpected.outside2m, b.chipExpected.outside2m, step)
+            XCTAssertLessThan(a.chipBaseline.standard, b.chipBaseline.standard, step)
+            XCTAssertLessThan(a.chipBaseline.hard, b.chipBaseline.hard, step)
+            XCTAssertLessThan(a.chipBaseline.bunker, b.chipBaseline.bunker, step)
+        }
+    }
+
+    /// What each tier is expected to shoot on a par 72 — the figure the picker
+    /// quotes, and the sanity check on the whole ladder.
+    func testTheTiersShootTheScoresTheirAnchorsImply() {
+        XCTAssertEqual(SgCohort.scratch.expectedOnParSeventyTwo, 73.9, accuracy: 0.001)
+        XCTAssertEqual(SgCohort.hcp5.expectedOnParSeventyTwo, 78.5, accuracy: 0.001)
+        XCTAssertEqual(SgCohort.hcp12.expectedOnParSeventyTwo, 83.4, accuracy: 0.001)
+        XCTAssertEqual(SgCohort.hcp20.expectedOnParSeventyTwo, 90.2, accuracy: 0.001)
+    }
+
+    /// The boundaries are the MIDPOINTS between the anchors, and a negative index
+    /// is a plus handicap — the one case a naive `abs` would get backwards.
+    func testTheCohortForAHandicapIsTheNearestAnchor() {
+        XCTAssertEqual(SgCohort.forHandicap(nil), .hcp12)
+        XCTAssertEqual(SgCohort.forHandicap(-1), .scratch)
+        XCTAssertEqual(SgCohort.forHandicap(2.4), .scratch)
+        XCTAssertEqual(SgCohort.forHandicap(2.5), .hcp5)
+        XCTAssertEqual(SgCohort.forHandicap(8.4), .hcp5)
+        XCTAssertEqual(SgCohort.forHandicap(8.5), .hcp12)
+        XCTAssertEqual(SgCohort.forHandicap(15.9), .hcp12)
+        XCTAssertEqual(SgCohort.forHandicap(16), .hcp20)
+        XCTAssertEqual(SgCohort.forHandicap(30), .hcp20)
+    }
+
+    /// The five terms telescope to `total` under EVERY tier. The proof says the
+    /// constants cancel; this says nobody wired one leg to one table and its
+    /// sibling to another.
+    func testTheWaterfallTelescopesUnderEveryCohort() throws {
+        for cohort in SgCohort.allCases {
+            let bundle = SgBaselines.bundle(for: cohort)
+            for m in [sgRoundA, sgRoundB, workedExample] {
+                let w = StatMeasuresMath.strokesLostV3(m, baseline: bundle)
+                let total = try XCTUnwrap(w.total)
+                let terms = try StrokesLostComponent.allCases.map { try XCTUnwrap(w[$0]) }
+                XCTAssertEqual(terms.reduce(0, +), total, accuracy: 1e-9, "\(cohort)")
+            }
+        }
+    }
+
+    /// Direction sanity: the SAME round measured against the scratch reference
+    /// costs more than against the 20+ one, because the scratch player was
+    /// expected to shoot lower. A ladder wired backwards fails here and nowhere
+    /// else.
+    func testTheSameRoundCostsMoreAgainstAHarderReference() throws {
+        let ladder: [SgCohort] = [.scratch, .hcp5, .hcp12, .hcp20]
+        let totals = try ladder.map { cohort -> Double in
+            try XCTUnwrap(
+                StatMeasuresMath.strokesLostV3(sgRoundA, baseline: SgBaselines.bundle(for: cohort))
+                    .total)
+        }
+        for (harder, easier) in zip(totals, totals.dropFirst()) {
+            XCTAssertGreaterThan(harder, easier)
+        }
+    }
+
     /// Assert the five terms and that they telescope to `total` — the identity
     /// the whole design rests on.
     private func assertWaterfall(

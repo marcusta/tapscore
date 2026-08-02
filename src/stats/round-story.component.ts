@@ -250,6 +250,7 @@ ${SG_INFO_STYLES}
                     windowRounds: 0,
                     rowsPer18: STROKES_LOST_COMPONENTS.map((c) => sgPer18(m.waterfall, c)),
                     penaltySource: sgPenaltySource(m.panels.totals),
+                    baseline: this.stats.sgInfo.get(),
                 });
             },
             (c: SgInfoCard, _i, track) =>

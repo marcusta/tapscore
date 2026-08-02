@@ -1,9 +1,12 @@
-import { Computed, Signal } from '@basics/core/client/core';
+import { Computed, di, Signal } from '@basics/core/client/core';
 import { ApiError } from '@basics/core/client/api-error';
 import { api } from '../api';
 import type { PlayerRoundStats } from '../api/player-stats.gen';
 import { loadWindowPreset, type StatsWindowPreset } from '../stats/stats-window';
+import { loadSgChoice, resolveCohort, type SgBaselineChoice } from '../stats/sg-baseline';
+import { SG_BASELINES_V1 } from '../round/stat-measures';
 import { statsShapeProblem } from '../stats/measures-shape';
+import { ProfileService } from '../profile/profile.service';
 import { buildHomeStatsCard, type HomeStatsCardModel } from './home-stats';
 
 /**
@@ -46,6 +49,21 @@ export class HomeStatsService {
     readonly preset = new Signal<StatsWindowPreset>(loadWindowPreset());
 
     /**
+     * The persisted strokes-gained baseline choice, re-read on the same landing
+     * render that re-reads the window and for the same reason: /stats writes it,
+     * and the card's "Costing you most" line ranks the five terms against
+     * whichever tier is in force.
+     */
+    readonly sgChoice = new Signal<SgBaselineChoice>(loadSgChoice());
+
+    /**
+     * The handicap the `auto` choice matches. Injected here, resolved inside
+     * `card` — the profile can land after the landing has drawn, and the card
+     * has to re-fold when it does.
+     */
+    private profile = di.get(ProfileService);
+
+    /**
      * Plain fields, not signals: nothing renders them, and the card's whole
      * error vocabulary is its own absence.
      */
@@ -56,17 +74,27 @@ export class HomeStatsService {
     readonly card = new Computed<HomeStatsCardModel | null>(() => {
         const rows = this.rows.get();
         if (rows === null) return null;
+        const cohort = resolveCohort(
+            this.sgChoice.get(),
+            this.profile.player.get()?.handicapIndex ?? null,
+        );
         return buildHomeStatsCard({
             rows,
             preset: this.preset.get(),
             hasMore: this.hasMore.get(),
             now: new Date(),
+            bundle: SG_BASELINES_V1[cohort],
         });
     });
 
-    /** Re-read the window the dashboard persisted. Cheap and idempotent. */
+    /**
+     * Re-read what the dashboard persisted — the window and the baseline tier.
+     * Cheap and idempotent, and called from the landing's render rather than a
+     * field initializer (the `$swap` footgun).
+     */
     refreshPreset(): void {
         this.preset.set(loadWindowPreset());
+        this.sgChoice.set(loadSgChoice());
     }
 
     /**

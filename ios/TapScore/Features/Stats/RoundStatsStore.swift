@@ -48,6 +48,12 @@ final class RoundStatsStore {
     private let windowSize: Int
     private let preloadedHistory: [PlayerRoundStats]
 
+    /// The reference this round is weighed against. The round screen has no
+    /// control of its own — it follows the choice made on the dashboard, resolved
+    /// by the caller through `SgBaselinePreference.context(auth:)`, so the two
+    /// screens cannot disagree about which table a waterfall used.
+    private let baseline: SgBaselineContext
+
     /// - Parameter preloadedHistory: summary rows the CALLER already fetched off
     ///   the same endpoint — the dashboard has a window's worth in memory when it
     ///   pushes this screen. They seed the walk, which then makes no request at
@@ -57,12 +63,14 @@ final class RoundStatsStore {
     ///   preload just fails `isSatisfied` and the walk proceeds.
     init(
         roundId: String, api: TapScoreAPI, windowSize: Int = RoundStatsModel.defaultWindow,
-        preloadedHistory: [PlayerRoundStats] = []
+        preloadedHistory: [PlayerRoundStats] = [],
+        baseline: SgBaselineContext = .fallback
     ) {
         self.roundId = roundId
         self.api = api
         self.windowSize = windowSize
         self.preloadedHistory = preloadedHistory
+        self.baseline = baseline
     }
 
     func load() async {
@@ -93,7 +101,8 @@ final class RoundStatsStore {
             return
         }
         model = RoundStatsModel.build(
-            round: round, holes: holes, history: history, windowSize: windowSize)
+            round: round, holes: holes, history: history, windowSize: windowSize,
+            baseline: baseline.bundle)
         phase = .ready
     }
 

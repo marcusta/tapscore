@@ -63,6 +63,13 @@ export class RoundStatsService {
     private dashboard = di.get(StatsDashboardService);
     private inFlight: string | null = null;
 
+    /**
+     * The tier in force, for this screen's "How this works" sheet — the
+     * dashboard's own Computed, passed through rather than re-derived, so the
+     * sheet cannot name a different tier than the rows were priced with.
+     */
+    readonly sgInfo = this.dashboard.sgInfo;
+
     readonly model = new Computed<RoundStatsModel | null>(() => {
         const round = this.round.get();
         if (round === null) return null;
@@ -70,6 +77,12 @@ export class RoundStatsService {
             round,
             holes: this.holes.get(),
             history: this.history.get(),
+            // The dashboard's resolved cohort, not a second copy of the
+            // resolution: this screen has no baseline control of its own, and a
+            // round's rows must read the same as the same round's rows on the
+            // dashboard. Read inside the Computed so a change in Filters
+            // re-prices this screen without a reload.
+            bundle: this.dashboard.sgBundle.get(),
         });
     });
 
@@ -81,6 +94,12 @@ export class RoundStatsService {
      */
     async load(roundId: string, force = false): Promise<void> {
         if (!force && (this.roundId.get() === roundId || this.inFlight === roundId)) return;
+        // Fire-and-forget, and deliberately not awaited: the handicap only
+        // decides which cohort `auto` resolves to, and this screen is often
+        // reached by a deep link that never passed through the profile. Late is
+        // fine — the model re-prices when it lands — and a failure leaves the
+        // shipping tier in place.
+        void this.dashboard.loadHandicap();
         this.inFlight = roundId;
         this.phase.set('loading');
         this.failure.set(null);

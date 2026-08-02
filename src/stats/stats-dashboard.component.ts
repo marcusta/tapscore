@@ -6,6 +6,12 @@ import { s, btn, input, card } from '../css';
 import { StatsDashboardService } from './stats-dashboard.service';
 import { STROKES_LOST_COMPONENTS, sgPer18 } from '../round/stat-measures';
 import {
+    choiceHint,
+    choiceLabel,
+    SG_BASELINE_CHOICES,
+    type SgBaselineChoice,
+} from './sg-baseline';
+import {
     sgInfoCardTpl,
     SG_INFO_SHEET_MARKUP,
     SG_INFO_STYLES,
@@ -127,6 +133,13 @@ const tpl = template(`
                     <div bind="courses" class="stats__courses"></div>
                 </div>
                 <button bind="clearFilter" class="stats__clear" type="button"></button>
+
+                <div class="stats__filterrow stats__filterrow--baseline">
+                    <span class="stats__filterlabel" bind="sgLabel"></span>
+                    <p bind="sgWhat" class="stats__filterhint"></p>
+                    <div bind="sgPicker" class="stats__picker"></div>
+                    <p bind="sgHint" class="stats__filterhint"></p>
+                </div>
             </section>
 
             <div bind="empty" class="stats__empty"></div>
@@ -313,6 +326,17 @@ export class StatsDashboardComponent extends Component {
             & .stats__filterlabel {
                 font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em;
                 text-transform: uppercase; color: ${t('text-muted')};
+            }
+            /* The baseline sits BELOW the Clear button, behind a hairline: it is
+               not filter criteria, and clearing the filter must not look like it
+               resets the cohort too. */
+            & .stats__filterrow--baseline {
+                border-top: 1px solid ${t('border')};
+                padding-top: ${s('md')};
+            }
+            & .stats__filterhint {
+                margin: 0;
+                font-size: 0.78rem; line-height: 1.35; color: ${t('text-muted')};
             }
             & .stats__dates { display: flex; gap: ${s('md')}; }
             & .stats__date {
@@ -539,7 +563,12 @@ ${SG_INFO_STYLES}
 
     render(): DocumentFragment {
         const loggedIn = () => this.auth.currentUser.get() !== null;
-        if (loggedIn()) void this.svc.load();
+        if (loggedIn()) {
+            void this.svc.load();
+            // The handicap only decides which tier `auto` resolves to, so it is
+            // not awaited and its failure costs the screen nothing.
+            void this.svc.loadHandicap();
+        }
 
         const model = () => this.svc.model.get();
         const custom = () => this.svc.preset.get() === 'custom';
@@ -573,6 +602,11 @@ ${SG_INFO_STYLES}
                 textContent: () => STATS_COPY.filterClear,
                 onclick: () => this.svc.clearFilter(),
             },
+            sgLabel: () => STATS_COPY.filterBaseline,
+            sgWhat: () => STATS_COPY.filterBaselineHint,
+            // The chosen row's own consequence, in the reader's numbers: which
+            // tier is actually in force and why it is that one.
+            sgHint: () => choiceHint(this.svc.sgChoice.get(), this.svc.handicapIndex.get()),
             empty: () => this.emptyLine(),
             resultsSec: {
                 className: () =>
@@ -632,6 +666,7 @@ ${SG_INFO_STYLES}
         this.setHeading(frag, 'roundsSec', STATS_COPY.roundsHeading);
 
         this.mountPicker(frag);
+        this.mountBaselinePicker(frag);
         this.mountFilterLists(frag);
 
         // --- Results ---------------------------------------------------------
@@ -748,6 +783,7 @@ ${SG_INFO_STYLES}
                     // the reader can actually see and add up.
                     rowsPer18: model().priorities.map((p) => p.per18),
                     penaltySource: sgPenaltySource(model().totals),
+                    baseline: this.svc.sgInfo.get(),
                 }),
             (c: SgInfoCard, _i, track) =>
                 this.wireEl(
@@ -913,6 +949,41 @@ ${SG_INFO_STYLES}
         this.track(() => select.destroy());
     }
 
+    // --- Baseline picker -----------------------------------------------------
+
+    /**
+     * Five options — "Match my handicap" plus the four tiers — so a DROPDOWN,
+     * not chips: the design guidelines cap chips at three or four, and this list
+     * is one past that even before the auto row.
+     *
+     * Two-way on the same terms as `mountPicker`, and for the same reason: the
+     * service owns the choice, and a signal→service write is deferred so this
+     * effect never tracks the service's own writes.
+     */
+    private mountBaselinePicker(frag: DocumentFragment): void {
+        const value = new Signal<string>(this.svc.sgChoice.get());
+        this.track(effect(() => value.set(this.svc.sgChoice.get())));
+        this.track(
+            effect(() => {
+                const v = value.get() as SgBaselineChoice;
+                queueMicrotask(() => {
+                    if (v === this.svc.sgChoice.get()) return;
+                    this.svc.selectSgBaseline(v);
+                });
+            }),
+        );
+
+        const select = new SelectComponent({
+            value,
+            options: SG_BASELINE_CHOICES.map(
+                (choice): SelectOption => ({ value: choice, label: choiceLabel(choice) }),
+            ),
+            placeholder: choiceLabel('auto'),
+        });
+        select.mount(this.ref(frag, 'sgPicker'));
+        this.track(() => select.destroy());
+    }
+
     // --- Filter panel --------------------------------------------------------
 
     private mountFilterLists(frag: DocumentFragment): void {
@@ -1031,6 +1102,7 @@ ${SG_INFO_STYLES}
             windowRounds: m.rounds.length,
             rowsPer18: m.priorities.map((p) => p.per18),
             penaltySource: sgPenaltySource(m.totals),
+            baseline: this.svc.sgInfo.get(),
         }).find((c) => c.id === id);
     }
 

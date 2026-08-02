@@ -23,8 +23,10 @@ struct StrokesGainedInfoSheet: View {
     var windowRounds: Int = 1
     /// The per-round variant: "this round's holes", and no window wording.
     var perRound: Bool = false
-    /// `SgTables.calibratedAt` of the baseline in force.
-    var calibratedAt: String? = SgTablesV1.calibratedAt
+    /// The baseline in force, and how the reader ended up on it. The freeze date
+    /// is READ OFF the resolved bundle rather than passed alongside it, so a
+    /// caller cannot name one tier and quote another tier's calibration.
+    var baseline: SgBaselineContext = .fallback
     /// The labelled-penalty breakdown, or nil. The penalty BAR does not change
     /// — no stacked segments, no extra label; the breakdown lives here (§E.6).
     var penaltySource: PenaltySourceCounts? = nil
@@ -115,7 +117,7 @@ struct StrokesGainedInfoSheet: View {
         rowsPer18: [Double?]? = nil,
         windowRounds: Int = 1,
         perRound: Bool = false,
-        calibratedAt: String? = SgTablesV1.calibratedAt,
+        baseline: SgBaselineContext = .fallback,
         penaltySource: PenaltySourceCounts? = nil
     ) -> [(title: String, sentence: String)] {
         var out: [(title: String, sentence: String)] = [
@@ -127,7 +129,11 @@ struct StrokesGainedInfoSheet: View {
                     perRound: perRound)
             ),
             (StatsCopy.sgInfoFiveRowsTitle, StatsCopy.sgInfoFiveRows),
-            (StatsCopy.sgInfoBaselineTitle, StatsCopy.sgInfoBaseline(calibratedAt: calibratedAt)),
+            (
+                StatsCopy.sgInfoBaselineTitle,
+                StatsCopy.sgInfoBaseline(
+                    calibratedAt: baseline.bundle.tables.calibratedAt, baseline: baseline)
+            ),
             (
                 StatsCopy.sgInfoPer18Title,
                 StatsCopy.sgInfoPer18(minAttributed: StatMeasuresMath.minAttributedForDelta)
@@ -167,7 +173,7 @@ struct StrokesGainedInfoSheet: View {
     private var cards: [Card] {
         Self.sentences(
             waterfall: waterfall, rowsPer18: rowsPer18, windowRounds: windowRounds,
-            perRound: perRound, calibratedAt: calibratedAt, penaltySource: penaltySource
+            perRound: perRound, baseline: baseline, penaltySource: penaltySource
         ).map { Card(title: $0.title, sentence: $0.sentence) }
     }
 }

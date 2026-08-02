@@ -78,24 +78,67 @@ final class StrokesGainedInfoSheetTests: XCTestCase {
 
     // MARK: - Card 3: the baseline
 
-    /// The v1 table is unfitted, and the copy says so instead of implying a
+    /// The v1 tables are unfitted, and the copy says so instead of implying a
     /// precision the numbers do not have.
     func testAnUncalibratedBaselineAdmitsItIsProvisional() {
         let sentence = StatsCopy.sgInfoBaseline(calibratedAt: nil)
         XCTAssertEqual(
             sentence,
-            "Tapscore reference baseline v1 is one set of expected scores per hole and per lie. It is still provisional, so treat the order of the rows as the reading and the sizes as rough."
+            "Measured against the 12 handicap reference \u{2014} no handicap on your profile yet. Change it under \u{201C}Compared to\u{201D}. Each tier is one set of expected scores per hole and per lie. The tiers are still provisional, so treat the order of the rows as the reading and the sizes as rough."
         )
         // The shipping default is the provisional one, so this is what a reader
         // actually sees today.
         XCTAssertEqual(StatsCopy.sgInfoBaseline(calibratedAt: SgTablesV1.calibratedAt), sentence)
     }
 
-    func testACalibratedBaselineQuotesTheDateItWasFrozen() {
+    /// Since the tiers landed the card must name WHICH of the four references
+    /// this reader is on, and how they got there — the ⓘ ruling, applied to the
+    /// one sentence that used to be the same for everyone.
+    func testTheBaselineCardNamesTheTierAndHowTheReaderLandedOnIt() {
+        // Auto, with a handicap: the tier and the number that chose it.
         XCTAssertEqual(
-            StatsCopy.sgInfoBaseline(calibratedAt: "2026-09-01"),
-            "Tapscore reference baseline v1 is one set of expected scores per hole and per lie, frozen on 2026-09-01. Everyone is measured against the same table, so your rows can be compared with each other and with your own earlier rounds."
+            StatsCopy.sgInfoBaseline(
+                calibratedAt: nil,
+                baseline: SgBaselineContext(choice: .auto, handicapIndex: -1.2)),
+            "Measured against the Scratch reference \u{2014} matched to your +1.2 handicap. Change it under \u{201C}Compared to\u{201D}. Each tier is one set of expected scores per hole and per lie. The tiers are still provisional, so treat the order of the rows as the reading and the sizes as rough."
         )
+        // Pinned by hand: the handicap is not mentioned, because it did not
+        // decide anything.
+        let pinned = StatsCopy.sgInfoBaseline(
+            calibratedAt: nil, baseline: SgBaselineContext(choice: .hcp20, handicapIndex: 3.0))
+        XCTAssertTrue(
+            pinned.hasPrefix(
+                "Measured against the 20+ handicap reference \u{2014} you picked this under \u{201C}Compared to\u{201D}."
+            ))
+        XCTAssertFalse(pinned.contains("3.0"))
+    }
+
+    /// The unqualified "everyone is measured against the same table" claim died
+    /// with the single baseline; a scratch player and a 20-handicap read
+    /// different tables. The sentence survives ONLY narrowed to this reference.
+    func testACalibratedBaselineQuotesTheDateAndNarrowsTheSameTableClaim() {
+        let sentence = StatsCopy.sgInfoBaseline(
+            calibratedAt: "2026-09-01",
+            baseline: SgBaselineContext(choice: .hcp5, handicapIndex: 6.0))
+        XCTAssertEqual(
+            sentence,
+            "Measured against the 5 handicap reference \u{2014} you picked this under \u{201C}Compared to\u{201D}. Each tier is one set of expected scores per hole and per lie. This tier was frozen on 2026-09-01. Everyone on this reference is measured against the same table, so your rows can be compared with each other and with your own earlier rounds."
+        )
+        XCTAssertFalse(sentence.contains("Everyone is measured against the same table"))
+    }
+
+    /// The date and the tier name come from ONE value, so the sheet cannot name
+    /// one reference and quote another's freeze date.
+    func testTheSheetQuotesTheResolvedTiersOwnFreezeDate() throws {
+        let baseline = SgBaselineContext(choice: .scratch, handicapIndex: 25)
+        let cards = StrokesGainedInfoSheet.sentences(
+            waterfall: lost(attributed: 18, holesScored: 18, total: -2), baseline: baseline)
+        let card = try XCTUnwrap(cards.first { $0.title == "The baseline" })
+        XCTAssertEqual(
+            card.sentence,
+            StatsCopy.sgInfoBaseline(
+                calibratedAt: baseline.bundle.tables.calibratedAt, baseline: baseline))
+        XCTAssertTrue(card.sentence.hasPrefix("Measured against the Scratch reference"))
     }
 
     // MARK: - Card 4: per 18

@@ -22,7 +22,13 @@
 // null out.
 
 import type { PlayerRoundStats, StatMeasures } from '../api/player-stats.gen';
-import { rate, rateDisplay, type Rate } from '../round/stat-measures';
+import {
+    DEFAULT_SG_BASELINE,
+    rate,
+    rateDisplay,
+    type Rate,
+    type SgBaselineBundle,
+} from '../round/stat-measures';
 import {
     buildDashboardModel,
     type StatsDashboardModel,
@@ -183,18 +189,25 @@ export function homeStatsPriorityLine(model: StatsDashboardModel): string | null
  * Reduce one page of rows to the card.
  *
  * `hasMore` = the server handed back a `nextCursor` for the page in hand.
+ *
+ * `bundle` is the resolved handicap-cohort baseline. It has to be threaded even
+ * though the card shows no strokes-lost NUMBER: "Costing you most" names the
+ * worst of the five terms, and the ranking is against the tier — a card left on
+ * the default while the dashboard is on the player's own tier would name a
+ * different component than the screen it links to.
  */
 export function buildHomeStatsCard(args: {
     rows: readonly PlayerRoundStats[];
     preset: StatsWindowPreset;
     hasMore: boolean;
     now: Date;
+    bundle?: SgBaselineBundle;
 }): HomeStatsCardModel | null {
     const preset = effectiveHomeStatsPreset(args.preset);
     const rounds = applyWindow(preset, EMPTY_FILTER, args.rows, args.now);
     if (rounds.length === 0) return null;
 
-    const model = buildDashboardModel(rounds);
+    const model = buildDashboardModel(rounds, args.bundle ?? DEFAULT_SG_BASELINE);
     const tiles = homeStatsTiles(model);
     // Rule 21: three empty tiles is a card with nothing in it, and rule 19 says
     // that is the same as no card. The priority line alone does not earn one —
