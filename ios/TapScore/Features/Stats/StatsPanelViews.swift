@@ -98,11 +98,12 @@ struct ResultsHistogramRow: Identifiable, Equatable, Sendable {
     var value: String
 }
 
-/// The score-type histogram: a label, a neutral proportional bar, a count.
+/// The score-type histogram: a label, a neutral proportional bar, a share.
 ///
-/// Deliberately NOT `StatsMiniBarRows` — that one formats a `Rate` into a
-/// percentage, and this row's headline is the COUNT with the share in
-/// parentheses behind it.
+/// Deliberately NOT `StatsMiniBarRows` — that one takes a `Rate` and applies the
+/// display policy itself. Here the caller has already formatted the value (and
+/// decided whether the bar may be drawn), because the denominator is the
+/// section's scored-hole count rather than each row's own.
 struct StatsScoreTypeRows: View {
     var items: [ResultsHistogramRow]
 
@@ -122,7 +123,9 @@ struct StatsScoreTypeRows: View {
                         .font(TapFont.ui(size: 13.6))
                         .monospacedDigit()
                         .foregroundStyle(TapColors.text)
-                        .frame(width: 82, alignment: .trailing)
+                        // Sized for the percentage the value now is ("100%"),
+                        // not the "33 (65%)" pair it used to be.
+                        .frame(width: 56, alignment: .trailing)
                 }
                 .accessibilityElement(children: .combine)
             }

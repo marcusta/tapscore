@@ -213,18 +213,17 @@ final class StatsPanelViewsTests: XCTestCase {
         XCTAssertEqual(tiles.map(\.hero), [true, false, false])
 
         // An AVERAGE, so the signed-average voice: 504 / 51 = 9.88…
-        XCTAssertEqual(tiles[0].label, "Average vs par per 18")
+        XCTAssertEqual(tiles[0].label, "Average vs par")
         XCTAssertEqual(tiles[0].value, "+9.9")
-        // 51 scored holes against the 81 those five rounds could have carried —
-        // the divergence is what puts the line there at all.
-        XCTAssertEqual(tiles[0].qualifier, "over 51 holes")
+        // 51 scored holes against the 81 those five rounds could have carried,
+        // and a nine in the mix — so the line carries both halves.
+        XCTAssertEqual(tiles[0].qualifier, "over 51 holes, scaled to 18")
 
         // One real round each, so the scorecard voice, and the absolute total is
-        // demoted to the annotation.
+        // demoted to the annotation — the strokes alone, one line.
         XCTAssertEqual(tiles[1].label, "Best 18")
         XCTAssertEqual(tiles[1].value, "+7")
-        XCTAssertEqual(tiles[1].qualifier, "79 strokes, from 2 complete rounds")
-        // Every nine in the window was complete, so no "from …" half.
+        XCTAssertEqual(tiles[1].qualifier, "79 strokes")
         XCTAssertEqual(tiles[2].label, "Best 9")
         XCTAssertEqual(tiles[2].value, "+8")
         XCTAssertEqual(tiles[2].qualifier, "44 strokes")
@@ -236,9 +235,8 @@ final class StatsPanelViewsTests: XCTestCase {
             ["Eagle or better", "Birdie", "Par", "Bogey", "Doubles or worse"])
         // 1/51 = 2%, 5/51 = 10%, 11/51 = 22%, 33/51 = 65%. They sum to 101, and
         // no correction is applied — a rounded percentage is a reading, not a
-        // budget.
-        XCTAssertEqual(
-            histogram.map(\.value), ["1 (2%)", "5 (10%)", "11 (22%)", "33 (65%)", "1 (2%)"])
+        // budget. The raw count is NOT printed: the bar beside it is the count.
+        XCTAssertEqual(histogram.map(\.value), ["2%", "10%", "22%", "65%", "2%"])
         for (row, count) in zip(histogram, [1.0, 5, 11, 33, 1]) {
             guard let share = row.share else {
                 return XCTFail("51 scored holes clears the floor, so every bar is drawn")
@@ -264,10 +262,14 @@ final class StatsPanelViewsTests: XCTestCase {
         XCTAssertEqual(tiles.map(\.id), ["avgVsPar"])
         // Level par prints without a sign, and never as "−0.0".
         XCTAssertEqual(tiles[0].value, "0.0")
+        // An 18-hole window scales to itself, so the line says nothing about 18.
         XCTAssertEqual(tiles[0].qualifier, "over 3 holes")
 
         let histogram = StatsDashboardView.resultsHistogram(summary)
-        XCTAssertEqual(histogram.map(\.value), ["0", "1", "1", "1", "0"])
+        // Under the display policy's floor the share degrades to its fraction —
+        // three scored holes cannot carry a percentage.
+        XCTAssertEqual(
+            histogram.map(\.value), ["0 of 3", "1 of 3", "1 of 3", "1 of 3", "0 of 3"])
         XCTAssertTrue(histogram.allSatisfy { $0.share == nil })
     }
 
@@ -285,6 +287,56 @@ final class StatsPanelViewsTests: XCTestCase {
         XCTAssertEqual(StatsFormat.resultsSubtitle(nil), "")
         XCTAssertEqual(StatsDashboardView.resultsTiles(nil), [])
         XCTAssertEqual(StatsDashboardView.resultsHistogram(nil), [])
+    }
+
+    /// The common window: every round a complete eighteen. The hero carries NO
+    /// qualifier at all — nothing diverged, and nothing was scaled.
+    func testAnAllEighteenWindowSaysNothingAboutScaling() {
+        let summary = StatMeasuresMath.resultsSummary([
+            scoringRow(
+                holeCount: 18, scored: 18, strokes: 84, par: 72,
+                birdie: 1, pars: 4, bogey: 13),
+            scoringRow(
+                holeCount: 18, scored: 18, strokes: 79, par: 72,
+                eagle: 1, birdie: 2, pars: 4, bogey: 11),
+        ])
+        let tiles = StatsDashboardView.resultsTiles(summary)
+        XCTAssertEqual(tiles[0].label, "Average vs par")
+        XCTAssertNil(tiles[0].qualifier)
+        XCTAssertEqual(tiles[1].qualifier, "79 strokes")
+    }
+
+    /// A complete window that still holds a nine: nothing diverged, but the
+    /// per-18 normalisation moved the number, so the line has to say so.
+    func testAMixedLengthWindowSaysItWasScaledEvenWhenEveryRoundIsComplete() {
+        let summary = StatMeasuresMath.resultsSummary([
+            scoringRow(
+                holeCount: 18, scored: 18, strokes: 84, par: 72,
+                birdie: 1, pars: 4, bogey: 13),
+            scoringRow(holeCount: 9, scored: 9, strokes: 44, par: 36, pars: 1, bogey: 8),
+        ])
+        let summaryTiles = StatsDashboardView.resultsTiles(summary)
+        XCTAssertEqual(summaryTiles[0].qualifier, "over 27 holes, scaled to 18")
+    }
+
+    /// The one line under a priority row is its sample, or the absence sentence
+    /// — never an explainer for what the component means.
+    func testAPriorityRowSaysHowManyRoundsItRestsOn() {
+        XCTAssertEqual(
+            StatsCopy.priorityCoverage(
+                StatsPriority(
+                    component: .putting, perRound: 1.4, roundsCovered: 7, roundsInWindow: 10)),
+            "over 7 rounds")
+        XCTAssertEqual(
+            StatsCopy.priorityCoverage(
+                StatsPriority(
+                    component: .putting, perRound: 0.5, roundsCovered: 1, roundsInWindow: 1)),
+            "over 1 round")
+        XCTAssertEqual(
+            StatsCopy.priorityCoverage(
+                StatsPriority(
+                    component: .penalties, perRound: nil, roundsCovered: 0, roundsInWindow: 4)),
+            "None of these 4 rounds has data for it.")
     }
 
     /// The view keys its rows on these ids, so a collision would drop a tile.

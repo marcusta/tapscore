@@ -476,7 +476,8 @@ final class StatsDashboardModelTests: XCTestCase {
             [.eagleOrBetter: 1, .birdie: 3, .par: 9, .bogey: 32, .doubleBogeyPlus: 0])
         XCTAssertEqual(StatsFormat.resultsSubtitle(r), "4 rounds — 3 × 18 holes, 1 × 9 holes")
         XCTAssertEqual(StatsDashboardView.resultsTiles(r).first?.value, "+10.8")
-        XCTAssertEqual(StatsDashboardView.resultsTiles(r).first?.qualifier, "over 45 holes")
+        XCTAssertEqual(
+            StatsDashboardView.resultsTiles(r).first?.qualifier, "over 45 holes, scaled to 18")
         // Results is a SECTION, not a module: it changes nothing about which
         // panels the window produces.
         XCTAssertEqual(model.presentPanels, [.scoring])

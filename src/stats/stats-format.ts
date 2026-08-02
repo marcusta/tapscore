@@ -116,9 +116,6 @@ export const UNIT_ROUNDS = regularUnit('round');
 export const UNIT_HOLES = regularUnit('hole');
 export const UNIT_GREENS = regularUnit('green');
 
-/** The denominator of the best-round qualifier. Not a regular plural. */
-export const UNIT_COMPLETE_ROUNDS: SampleUnit = { one: 'complete round', many: 'complete rounds' };
-
 /**
  * What a thin sample is called, in words. The app's standing rule: an
  * annotation is a word, never a glyph.
@@ -269,19 +266,10 @@ export function componentTitle(component: StrokesLostComponent): string {
     }
 }
 
-/** The sentence under a priority row, saying what the number covers. */
-export function componentSubtitle(component: StrokesLostComponent): string {
-    switch (component) {
-        case 'putting':
-            return 'Putts taken vs expected from where you started';
-        case 'shortGame':
-            return 'Chips and pitches vs an average short-game shot';
-        case 'penalties':
-            return 'Strokes added by penalties';
-        case 'longGame':
-            return 'Tee shots and approaches — what the rest did not explain';
-    }
-}
+// A priority row carries NO explainer sentence. The component names are the
+// four terms of the waterfall the section intro already describes, and four
+// sentences repeating "strokes vs an average" under four names was the noise
+// the one-card redesign removed (owner ruling, 2026-08-02).
 
 export function bucketTitle(bucket: PuttBucket): string {
     switch (bucket) {

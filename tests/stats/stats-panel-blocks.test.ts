@@ -351,11 +351,12 @@ test('the results tiles lead with the hero average and split best by length', ()
     expect(tiles).toEqual([
         {
             id: 'avgVsPar',
-            label: 'Average vs par per 18',
+            label: 'Average vs par',
             // An AVERAGE, so `signedNumber` and not the scorecard voice.
             value: '+9.9',
-            // 51 scored of 81 expected, so the denominator earns its line.
-            qualifier: 'over 51 holes',
+            // 51 scored of 81 expected, so the denominator earns its line — and
+            // the window holds a nine, so the figure says it was normalised.
+            qualifier: 'over 51 holes, scaled to 18',
             hero: true,
         },
         {
@@ -363,14 +364,15 @@ test('the results tiles lead with the hero average and split best by length', ()
             label: 'Best 18',
             // One real round's score, so the scorecard voice.
             value: '+7',
-            qualifier: '79 strokes, from 2 complete rounds',
+            // The strokes annotation and nothing else — how many rounds of the
+            // class were complete is not a fact about THIS round.
+            qualifier: '79 strokes',
             hero: false,
         },
         {
             id: 'best-9',
             label: 'Best 9',
             value: '+8',
-            // The only nine was complete, so nothing to qualify but the strokes.
             qualifier: '44 strokes',
             hero: false,
         },
@@ -380,14 +382,31 @@ test('the results tiles lead with the hero average and split best by length', ()
     expect(resultsTiles(null)).toEqual([]);
 });
 
+test('the hero qualifier says "scaled to 18" only when a length other than 18 is in the window', () => {
+    const hero = (rows: Parameters<typeof resultsSummary>[0]) =>
+        resultsTiles(resultsSummary(rows))[0]?.qualifier;
+
+    // The common case: every round eighteen holes and every hole scored. No
+    // denominator to explain and no normalisation to announce — no line at all.
+    expect(hero([RESULTS_ROWS[1]!, RESULTS_ROWS[4]!])).toBe(null);
+
+    // A complete nine: nothing diverges, but ×2 got it to eighteen and the
+    // label no longer says "per 18", so the qualifier has to.
+    expect(hero([RESULTS_ROWS[2]!])).toBe('over 9 holes, scaled to 18');
+
+    // Eighteens only, one of them part-scored: the denominator line, no scaling.
+    expect(hero(RESULTS_ROWS.filter((_, i) => i !== 2))).toBe('over 42 holes');
+});
+
 test('the results histogram keeps its five rows, and drops the bars on a thin window', () => {
     const rows = resultsHistogram(resultsSummary(RESULTS_ROWS));
+    // The share alone — the counts are not the comparison the row is making.
     expect(rows.map((r) => [r.id, r.title, r.value])).toEqual([
-        ['eagleOrBetter', 'Eagle or better', '1 (2%)'],
-        ['birdie', 'Birdie', '5 (10%)'],
-        ['par', 'Par', '11 (22%)'],
-        ['bogey', 'Bogey', '33 (65%)'],
-        ['doubleBogeyPlus', 'Doubles or worse', '1 (2%)'],
+        ['eagleOrBetter', 'Eagle or better', '2%'],
+        ['birdie', 'Birdie', '10%'],
+        ['par', 'Par', '22%'],
+        ['bogey', 'Bogey', '65%'],
+        ['doubleBogeyPlus', 'Doubles or worse', '2%'],
     ]);
     // Rounded percentages sum to 101, and that is fine — no correction is applied.
     expect(rows.map((r) => r.share)).toEqual([1 / 51, 5 / 51, 11 / 51, 33 / 51, 1 / 51]);
@@ -410,17 +429,19 @@ test('the results histogram keeps its five rows, and drops the bars on a thin wi
     expect(resultsTiles(thin)).toEqual([
         {
             id: 'avgVsPar',
-            label: 'Average vs par per 18',
+            label: 'Average vs par',
             // Level par over the holes it has — and `signedNumber` normalises
             // the sign away at zero.
             value: '0.0',
+            // All-18 window: the denominator diverges, but there is no scaling
+            // across lengths to announce.
             qualifier: 'over 3 holes',
             hero: true,
         },
     ]);
     const thinRows = resultsHistogram(thin);
     expect(thinRows.map((r) => r.share)).toEqual([null, null, null, null, null]);
-    expect(thinRows.map((r) => r.value)).toEqual(['0', '1', '1', '1', '0']);
+    expect(thinRows.map((r) => r.value)).toEqual(['0 of 3', '1 of 3', '1 of 3', '1 of 3', '0 of 3']);
 
     // Nothing scored anywhere: no histogram at all, and the view hides the card.
     expect(resultsHistogram(resultsSummary([{ holeCount: 18, measures: ZERO_MEASURES }]))).toEqual(

@@ -214,13 +214,13 @@ struct StatsDashboardView: View {
             tiles.append(
                 ResultsTile(
                     id: "avgVsPar",
-                    label: "Average vs par per 18",
+                    // "per 18" is gone from the LABEL: the normalisation is a
+                    // detail of how the figure is computed, and the common window
+                    // — every round an eighteen — normalises to itself. Where it
+                    // does something, the qualifier says so in words.
+                    label: "Average vs par",
                     value: StatsFormat.signedNumber(value, decimals: 1),
-                    // Shown only when the figure's denominator diverges from the
-                    // section's — a window whose every round was scored right
-                    // through needs no qualifier at all.
-                    qualifier: r.holesScored == r.holesExpected
-                        ? nil : "over \(StatsFormat.quantity(r.holesScored, .holes))",
+                    qualifier: avgVsParQualifier(r),
                     hero: true))
         }
         for length in r.lengths {
@@ -231,21 +231,35 @@ struct StatsDashboardView: View {
             case 9: label = "Best 9"
             default: label = "Best \(StatsFormat.count(length.holeCount)) holes"
             }
-            var qualifier = "\(StatsFormat.count(best.strokes)) strokes"
-            if length.completeRounds != length.rounds {
-                qualifier +=
-                    ", from "
-                    + StatsFormat.quantity(Double(length.completeRounds), .completeRounds)
-            }
             tiles.append(
                 ResultsTile(
                     id: "best-\(StatsFormat.count(length.holeCount))",
                     label: label,
                     value: StatsFormat.vsPar(best.vsPar),
-                    qualifier: qualifier,
+                    // Exactly the strokes, one short line. The old ", from N
+                    // complete rounds" clause said how many rounds the minimum
+                    // was taken over — a sample the section subtitle already
+                    // carries, and long enough to wrap a two-up tile into rags.
+                    qualifier: "\(StatsFormat.count(best.strokes)) strokes",
                     hero: false))
         }
         return tiles
+    }
+
+    /// The line under the hero number, or nil.
+    ///
+    /// Two different jobs, one line. It says how many holes the average rests on
+    /// whenever that diverges from what the window's rounds could have carried —
+    /// a part-scored window. And it says "scaled to 18" whenever the window holds
+    /// ANY length other than eighteen, because that is the only case where the
+    /// per-18 normalisation moves the number away from what was actually shot.
+    /// An all-18 window (the common one) normalises to itself, so it must not
+    /// mention scaling at all.
+    static func avgVsParQualifier(_ r: ResultsSummary) -> String? {
+        let scaled = r.lengths.contains { $0.holeCount != 18 }
+        guard scaled || r.holesScored != r.holesExpected else { return nil }
+        let head = "over \(StatsFormat.quantity(r.holesScored, .holes))"
+        return scaled ? "\(head), scaled to 18" : head
     }
 
     /// The five score-type buckets, ALWAYS all five once anything was scored.
@@ -257,17 +271,16 @@ struct StatsDashboardView: View {
         return ScoreType.allCases.map { type in
             let count = r.scoreTypeCounts[type] ?? 0
             let share = StatMeasuresMath.rate(count, r.holesScored)
-            // Under the floor the reading is the bare count: a percentage off
-            // three holes is a number pretending to be a measurement, and a bar
-            // would give three holes the visual weight of thirty.
-            let thin = r.holesScored < StatMeasuresMath.minRateDenominator
-            let percent = Int(((count / r.holesScored) * 100).rounded())
+            // The reading is the SHARE and nothing else — the raw count beside it
+            // was answering a question the bar already answers. Under the display
+            // policy's floor `StatsFormat.rate` degrades to "n of d" on its own,
+            // which is the one case where the count comes back; `holesScored > 0`
+            // above rules out the absent case, so the fallback never fires.
             return ResultsHistogramRow(
                 id: type,
                 title: StatsFormat.title(type),
                 share: StatsFormat.isThin(share) ? nil : share.value,
-                value: thin
-                    ? StatsFormat.count(count) : "\(StatsFormat.count(count)) (\(percent)%)")
+                value: StatsFormat.rate(share) ?? StatsFormat.count(count))
         }
     }
 
@@ -340,14 +353,18 @@ struct StatsDashboardView: View {
             Text(tile.value)
                 .font(TapFont.ui(size: 20, weight: .bold))
                 .foregroundStyle(TapColors.text)
+            // Both lines are short by construction ("Best 18", "79 strokes"), so
+            // neither may wrap: two tiles side by side, one of them ragged over
+            // two lines, is what the owner rejected.
             Text(tile.label)
                 .font(TapFont.ui(size: 13.6))
                 .foregroundStyle(TapColors.textMuted)
+                .lineLimit(1)
             if let qualifier = tile.qualifier {
                 Text(qualifier)
                     .font(TapFont.ui(size: 12.0))
                     .foregroundStyle(TapColors.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
             }
         }
         .accessibilityElement(children: .combine)
@@ -402,14 +419,15 @@ struct StatsDashboardView: View {
             if let perRound = priority.perRound {
                 StatsSignedBar(value: perRound, magnitude: magnitude)
             }
-            Text(
-                priority.hasData
-                    ? StatsFormat.subtitle(priority.component)
-                    : StatsCopy.coverage(priority)
-            )
-            .font(TapFont.ui(size: 12.8))
-            .foregroundStyle(TapColors.textMuted)
-            .fixedSize(horizontal: false, vertical: true)
+            // The only line under a priority row is its COVERAGE — how many
+            // rounds the average was taken over, or why there is no average at
+            // all. The per-component explainer sentences are gone (owner ruling,
+            // 2026-08-02): the section intro above the card explains the
+            // waterfall once, and the component name says the rest.
+            Text(StatsCopy.priorityCoverage(priority))
+                .font(TapFont.ui(size: 12.8))
+                .foregroundStyle(TapColors.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
     }
@@ -586,6 +604,14 @@ enum StatsCopy {
         priority.roundsInWindow == 1
             ? "This round has no data for it."
             : "None of these \(priority.roundsInWindow) rounds has data for it."
+    }
+
+    /// The one line under a priority row: the sample the average rests on, or
+    /// — when there is no average — why there is not one.
+    static func priorityCoverage(_ priority: StatsPriority) -> String {
+        priority.hasData
+            ? "over \(StatsFormat.quantity(Double(priority.roundsCovered), .rounds))"
+            : coverage(priority)
     }
 
     /// The trend card's number: the latest point, in the measure's own units.

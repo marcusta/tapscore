@@ -94,10 +94,6 @@ enum StatsFormat {
         static let rounds = SampleUnit.regular("round")
         static let holes = SampleUnit.regular("hole")
         static let greens = SampleUnit.regular("green")
-
-        /// The denominator of the best-round qualifier. Not a regular plural —
-        /// the adjective sits in front of the noun that takes the `s`.
-        static let completeRounds = SampleUnit("complete round", "complete rounds")
     }
 
     /// What a thin sample is called, in words. The app's standing rule: an
@@ -253,15 +249,11 @@ enum StatsFormat {
         }
     }
 
-    /// The sentence under a priority row, saying what the number covers.
-    static func subtitle(_ component: StrokesLostComponent) -> String {
-        switch component {
-        case .putting: return "Putts taken vs expected from where you started"
-        case .shortGame: return "Chips and pitches vs an average short-game shot"
-        case .penalties: return "Strokes added by penalties"
-        case .longGame: return "Tee shots and approaches — what the rest did not explain"
-        }
-    }
+    // A priority row carries NO explainer sentence (owner ruling, 2026-08-02):
+    // the component name stands alone, and the section intro above the card is
+    // the one place the waterfall is explained. The per-component sentences that
+    // used to live here are deleted, not commented out — the same four strings
+    // were removed from the web twin's `stats-format.ts`.
 
     static func title(_ bucket: PuttBucket) -> String {
         switch bucket {

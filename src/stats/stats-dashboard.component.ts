@@ -30,7 +30,6 @@ import {
 import { STATS_COLORS } from './stats-palette';
 import { StatsPanelsComponent } from './stats-panels.component';
 import {
-    componentSubtitle,
     componentTitle,
     formatDay,
     formatNumber,
@@ -134,7 +133,7 @@ const tpl = template(`
             <section bind="prioritiesSec" class="stats__section">
                 <h2></h2>
                 <p bind="prioritiesHint" class="stats__hint"></p>
-                <div bind="priorities" class="stats__priorities"></div>
+                <div bind="priorities" class="priorities"></div>
             </section>
 
             <section bind="trendsSec" class="stats__section">
@@ -185,10 +184,7 @@ const scoreTypeTpl = template(`
 
 const priorityTpl = template(`
     <div class="priority">
-        <div class="priority__text">
-            <span bind="title" class="priority__title"></span>
-            <span bind="subtitle" class="priority__subtitle"></span>
-        </div>
+        <span bind="title" class="priority__title"></span>
         <span bind="chart" class="priority__chart"></span>
         <div class="priority__figures">
             <span bind="value" class="priority__value"></span>
@@ -376,14 +372,20 @@ export class StatsDashboardComponent extends Component {
                 display: grid; grid-template-columns: repeat(2, 1fr); gap: ${s('md')};
             }
             & .rtile {
-                display: flex; flex-direction: column; gap: 2px;
+                display: flex; flex-direction: column; gap: 2px; min-width: 0;
                 & .rtile__value {
                     font-weight: 700; font-size: 1.3rem;
                     font-variant-numeric: tabular-nums;
                 }
-                & .rtile__label { font-size: 0.82rem; color: ${t('text-muted')}; }
+                /* Both stacked lines are short by construction — a two-word
+                   label and a strokes annotation — so they stay on one line
+                   each. Letting them wrap gave the half-width tiles ragged
+                   two-line breaks that read as a layout fault. */
+                & .rtile__label {
+                    font-size: 0.82rem; color: ${t('text-muted')}; white-space: nowrap;
+                }
                 & .rtile__qualifier {
-                    font-size: 0.72rem; color: ${t('text-muted')};
+                    font-size: 0.72rem; color: ${t('text-muted')}; white-space: nowrap;
                     &:empty { display: none; }
                 }
             }
@@ -392,6 +394,9 @@ export class StatsDashboardComponent extends Component {
             & .rtile--hero {
                 grid-column: 1 / -1;
                 & .rtile__value { font-size: 2.1rem; line-height: 1.1; }
+                /* Full width, and its qualifier is the only long one on the
+                   card ("over 51 holes, scaled to 18") — it may wrap. */
+                & .rtile__qualifier { white-space: normal; }
             }
             & .results__subhead {
                 margin: 0; font-size: 0.72rem; font-weight: 700;
@@ -405,21 +410,25 @@ export class StatsDashboardComponent extends Component {
                 & .stype__title { flex: 1; min-width: 0; font-size: 0.85rem; }
                 & .stype__bar { width: 84px; flex-shrink: 0; & svg { width: 100%; display: block; } }
                 & .stype__value {
-                    width: 82px; flex-shrink: 0; text-align: right;
+                    width: 56px; flex-shrink: 0; text-align: right;
                     font-size: 0.85rem; font-variant-numeric: tabular-nums;
                 }
             }
 
-            & .stats__priorities { display: flex; flex-direction: column; gap: ${s('sm')}; }
+            /* ONE card, exactly like Results above: the four terms are one
+               answer to one question ("what is costing me shots?"), and four
+               separate cards made the reader pick which of four equal boxes to
+               read first — when the ORDER already answered that. */
+            & .priorities {
+                ${card()}
+                display: flex; flex-direction: column; gap: ${s('md')};
+                padding: ${s('lg')};
+            }
 
             & .priority {
-                ${card()}
                 display: flex; align-items: center; gap: ${s('md')};
-                padding: ${s('md')} ${s('lg')};
 
-                & .priority__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-                & .priority__title { font-weight: 600; font-size: 0.98rem; }
-                & .priority__subtitle { color: ${t('text-muted')}; font-size: 0.78rem; }
+                & .priority__title { flex: 1; min-width: 0; font-weight: 600; font-size: 0.98rem; }
                 & .priority__chart { width: 84px; flex-shrink: 0; & svg { width: 100%; display: block; } }
                 & .priority__figures {
                     width: 92px; flex-shrink: 0;
@@ -649,7 +658,6 @@ export class StatsDashboardComponent extends Component {
                     priorityTpl,
                     {
                         title: () => componentTitle(p.component),
-                        subtitle: () => componentSubtitle(p.component),
                         chart: {
                             innerHTML: () => {
                                 const live = this.priorityNow(p.component);

@@ -34,7 +34,6 @@ import {
     formatRate,
     signedNumber,
     troubleTaxSample,
-    UNIT_COMPLETE_ROUNDS,
     UNIT_GREENS,
     UNIT_HOLES,
     UNIT_ROUNDS,
@@ -441,6 +440,31 @@ function bestLabel(holeCount: number): string {
     return `Best ${formatCount(holeCount)} holes`;
 }
 
+/** How many holes an eighteen-hole normalisation is expressed over. */
+const NORMALISED_HOLES = 18;
+
+/**
+ * The hero's one muted line.
+ *
+ * Two independent reasons to print it, and either alone is enough:
+ *
+ * - the denominator DIVERGES from the round count the subtitle already gave, so
+ *   "over 51 holes" says which holes the average is actually over;
+ * - the window holds a length class that is not eighteen, so the figure is a
+ *   NORMALISATION rather than a plain per-round reading, and the label —
+ *   "Average vs par", no longer "per 18" — no longer says so on its own.
+ *
+ * An all-18 window says nothing about scaling: there is none to see, and a
+ * standing "scaled to 18" on the common case is the noise this card removed.
+ */
+function heroQualifier(results: ResultsSummary): string | null {
+    const scaled = results.lengths.some((cls) => cls.holeCount !== NORMALISED_HOLES);
+    const diverges = results.holesScored !== results.holesExpected;
+    if (!scaled && !diverges) return null;
+    const over = `over ${quantity(results.holesScored, UNIT_HOLES)}`;
+    return scaled ? `${over}, scaled to 18` : over;
+}
+
 /**
  * The card's figures: the hero average first, then one best-round tile per
  * length class that has a complete round in it, longest first.
@@ -454,15 +478,12 @@ export function resultsTiles(results: ResultsSummary | null): ResultsTile[] {
     if (results.avgVsParPer18.value !== null) {
         tiles.push({
             id: 'avgVsPar',
-            label: 'Average vs par per 18',
+            label: 'Average vs par',
             // `signedNumber`, never `vsPar()`: this is an AVERAGE, and it has to
             // read like every other signed average on the screen rather than in
             // the scorecard's "E" voice.
             value: signedNumber(results.avgVsParPer18.value, 1),
-            qualifier:
-                results.holesScored === results.holesExpected
-                    ? null
-                    : `over ${quantity(results.holesScored, UNIT_HOLES)}`,
+            qualifier: heroQualifier(results),
             hero: true,
         });
     }
@@ -470,20 +491,16 @@ export function resultsTiles(results: ResultsSummary | null): ResultsTile[] {
     for (const cls of results.lengths) {
         const best = cls.best;
         if (!best) continue;
-        // At most ONE line, so the two facts share it. The absolute total is the
-        // demoted annotation; the complete-round count joins it only when it
-        // differs from the class's round count.
-        const parts = [`${formatCount(best.strokes)} strokes`];
-        if (cls.completeRounds !== cls.rounds) {
-            parts.push(`from ${quantity(cls.completeRounds, UNIT_COMPLETE_ROUNDS)}`);
-        }
         tiles.push({
             id: `best-${cls.holeCount}`,
             label: bestLabel(cls.holeCount),
             // `vsPar()` here, not `signedNumber`: this is one real round's score,
             // so it takes the scorecard voice and reads "E" at level par.
             value: vsParScore(best.vsPar),
-            qualifier: parts.join(', '),
+            // ONE short line, and only the absolute total: how many complete
+            // rounds the class held is a fact about the SAMPLE, and the tile is
+            // reporting a single round.
+            qualifier: `${formatCount(best.strokes)} strokes`,
             hero: false,
         });
     }
@@ -523,10 +540,13 @@ export function resultsHistogram(results: ResultsSummary | null): ResultsHistogr
             // floor no bar is drawn at all, because a bar would give three holes
             // the visual weight of thirty.
             share: barShare(rate(count, holes)),
-            value:
-                holes < MIN_RATE_DENOMINATOR
-                    ? formatCount(count)
-                    : `${formatCount(count)} (${Math.round((count / holes) * 100)}%)`,
+            // The SHARE alone: five rows of "33 (65%)" made the reader add up
+            // counts they were never asked to compare. Under the display
+            // policy's floor the shared formatter falls back to the honest
+            // fraction ("1 of 3") — unreachable in practice (a window with
+            // fewer than five scored holes), kept because the floor is the
+            // rule and the Swift twin routes through the same policy.
+            value: formatRate(rate(count, holes)) ?? formatCount(count),
         };
     });
 }
