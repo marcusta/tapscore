@@ -195,58 +195,162 @@ struct StatsDashboardView: View {
 
     // MARK: - Results
 
-    /// What the window actually shot.
+    /// What the window actually shot, as tiles.
     ///
     /// A SECTION, not a module panel: it is gated on nothing but the window
     /// having rounds in it, and it leads the screen because "how am I scoring"
     /// is the question a player brings to the page before "what should I
-    /// practise". Rows are appended conditionally — an omitted row is ABSENT,
-    /// not "Not recorded": a window of nine-holers has no 18-hole average, and
-    /// printing a placeholder for it invents a question nobody asked.
-    static func resultsFigures(_ r: ResultsSummary) -> [StatsFigure] {
-        var items: [StatsFigure] = [
-            StatsFigure("Rounds", StatsFormat.count(Double(r.rounds)))
-        ]
-        if r.completeRounds > 0 {
-            items.append(
-                StatsFigure(
-                    "Average score",
-                    StatsFormat.averageWithSample(r.averageScore, decimals: 1, unit: .rounds),
-                    StatsCopy.averageScore))
+    /// practise".
+    ///
+    /// The hero is an AVERAGE vs par, normalised per eighteen holes so a nine
+    /// and a part round are comparable to a full one; the best tiles are ONE
+    /// REAL ROUND each, which is why they take the scorecard voice (`vsPar`, so
+    /// level par reads "E") while the hero takes the signed-average one. The
+    /// absolute strokes survive only as the annotation under a best tile.
+    static func resultsTiles(_ results: ResultsSummary?) -> [ResultsTile] {
+        guard let r = results else { return [] }
+        var tiles: [ResultsTile] = []
+        if let value = r.avgVsParPer18.value {
+            tiles.append(
+                ResultsTile(
+                    id: "avgVsPar",
+                    label: "Average vs par per 18",
+                    value: StatsFormat.signedNumber(value, decimals: 1),
+                    // Shown only when the figure's denominator diverges from the
+                    // section's — a window whose every round was scored right
+                    // through needs no qualifier at all.
+                    qualifier: r.holesScored == r.holesExpected
+                        ? nil : "over \(StatsFormat.quantity(r.holesScored, .holes))",
+                    hero: true))
         }
-        if let best = r.bestScore {
-            items.append(StatsFigure("Best score", StatsFormat.count(best), StatsCopy.bestScore))
+        for length in r.lengths {
+            guard let best = length.best else { continue }
+            let label: String
+            switch length.holeCount {
+            case 18: label = "Best 18"
+            case 9: label = "Best 9"
+            default: label = "Best \(StatsFormat.count(length.holeCount)) holes"
+            }
+            var qualifier = "\(StatsFormat.count(best.strokes)) strokes"
+            if length.completeRounds != length.rounds {
+                qualifier +=
+                    ", from "
+                    + StatsFormat.quantity(Double(length.completeRounds), .completeRounds)
+            }
+            tiles.append(
+                ResultsTile(
+                    id: "best-\(StatsFormat.count(length.holeCount))",
+                    label: label,
+                    value: StatsFormat.vsPar(best.vsPar),
+                    qualifier: qualifier,
+                    hero: false))
         }
-        if r.avgVsParPerRound.d > 0 {
-            items.append(
-                StatsFigure(
-                    "Average vs par",
-                    StatsFormat.averageWithSample(
-                        r.avgVsParPerRound, decimals: 1, signed: true, unit: .rounds),
-                    StatsCopy.avgVsParPerRound))
+        return tiles
+    }
+
+    /// The five score-type buckets, ALWAYS all five once anything was scored.
+    ///
+    /// A zero bucket is information ("no eagles"), and dropping it would make
+    /// the block change height between windows.
+    static func resultsHistogram(_ results: ResultsSummary?) -> [ResultsHistogramRow] {
+        guard let r = results, r.holesScored > 0 else { return [] }
+        return ScoreType.allCases.map { type in
+            let count = r.scoreTypeCounts[type] ?? 0
+            let share = StatMeasuresMath.rate(count, r.holesScored)
+            // Under the floor the reading is the bare count: a percentage off
+            // three holes is a number pretending to be a measurement, and a bar
+            // would give three holes the visual weight of thirty.
+            let thin = r.holesScored < StatMeasuresMath.minRateDenominator
+            let percent = Int(((count / r.holesScored) * 100).rounded())
+            return ResultsHistogramRow(
+                id: type,
+                title: StatsFormat.title(type),
+                share: StatsFormat.isThin(share) ? nil : share.value,
+                value: thin
+                    ? StatsFormat.count(count) : "\(StatsFormat.count(count)) (\(percent)%)")
         }
-        return items
     }
 
     @ViewBuilder
     private func results(_ model: StatsDashboardModel) -> some View {
         if let summary = model.results {
+            let tiles = Self.resultsTiles(summary)
+            let histogram = Self.resultsHistogram(summary)
             VStack(alignment: .leading, spacing: TapSpacing.sm) {
                 SectionHeader(title: StatsCopy.resultsHeading)
-                TapCard {
-                    VStack(alignment: .leading, spacing: TapSpacing.md) {
-                        Text(StatsCopy.resultsHint)
-                            .font(TapFont.ui(size: 12.8))
-                            .foregroundStyle(TapColors.textMuted)
-                            .fixedSize(horizontal: false, vertical: true)
-                        StatsFigureRows(items: Self.resultsFigures(summary))
+                // The subtitle labels the SECTION, so it sits under the heading
+                // rather than inside the card — and it carries the round count,
+                // which is why no "Rounds" row exists inside.
+                Text(StatsFormat.resultsSubtitle(summary))
+                    .font(TapFont.ui(size: 12.8))
+                    .foregroundStyle(TapColors.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                // A window whose rounds carry no score at all has nothing to put
+                // in a card, and an empty card is worse than none.
+                if !tiles.isEmpty || !histogram.isEmpty {
+                    TapCard {
+                        VStack(alignment: .leading, spacing: TapSpacing.md) {
+                            ForEach(tiles.filter(\.hero)) { tile in
+                                Self.heroTile(tile)
+                            }
+                            let rest = tiles.filter { !$0.hero }
+                            if !rest.isEmpty {
+                                HStack(alignment: .top, spacing: TapSpacing.lg) {
+                                    ForEach(rest) { tile in
+                                        Self.bestTile(tile)
+                                    }
+                                    Spacer(minLength: 0)
+                                }
+                            }
+                            if !histogram.isEmpty {
+                                StatsSubhead(text: StatsCopy.scoreTypesHead)
+                                StatsScoreTypeRows(items: histogram)
+                            }
+                        }
+                        .padding(TapSpacing.md)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding(TapSpacing.md)
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .accessibilityIdentifier("stats-results")
         }
+    }
+
+    /// The number IS the answer, so it gets the size and the whole row.
+    private static func heroTile(_ tile: ResultsTile) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(tile.value)
+                .font(TapFont.ui(size: 34, weight: .bold))
+                .foregroundStyle(TapColors.text)
+            Text(tile.label)
+                .font(TapFont.ui(size: 13.6))
+                .foregroundStyle(TapColors.textMuted)
+            if let qualifier = tile.qualifier {
+                Text(qualifier)
+                    .font(TapFont.ui(size: 12.0))
+                    .foregroundStyle(TapColors.textMuted)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private static func bestTile(_ tile: ResultsTile) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(tile.value)
+                .font(TapFont.ui(size: 20, weight: .bold))
+                .foregroundStyle(TapColors.text)
+            Text(tile.label)
+                .font(TapFont.ui(size: 13.6))
+                .foregroundStyle(TapColors.textMuted)
+            if let qualifier = tile.qualifier {
+                Text(qualifier)
+                    .font(TapFont.ui(size: 12.0))
+                    .foregroundStyle(TapColors.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Practice priorities
@@ -448,12 +552,7 @@ enum StatsCopy {
     static let notRecorded = "Not recorded"
 
     static let resultsHeading = "Results"
-    static let resultsHint = "Your scoring across the rounds in this window."
-    static let averageScore =
-        "Complete 18-hole rounds only — part rounds and nine-holers are left out."
-    static let bestScore = "Your lowest complete 18-hole round in this window."
-    static let avgVsParPerRound =
-        "Per round, over every round with a score — nine-hole rounds included."
+    static let scoreTypesHead = "Holes by score"
 
     static let prioritiesHint =
         "Strokes lost per round against a fixed baseline, worst first. Positive costs you shots."

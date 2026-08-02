@@ -3,14 +3,16 @@ import {
     panelBlocks,
     panelHeadline,
     priorityCoverage,
-    resultsBlocks,
+    resultsHistogram,
+    resultsSubtitle,
+    resultsTiles,
     roundLabel,
 } from '../../src/stats/stats-panel-blocks';
 import {
     buildDashboardModel,
     EMPTY_DASHBOARD_MODEL,
 } from '../../src/stats/stats-dashboard-model';
-import { ZERO_MEASURES } from '../../src/round/stat-measures';
+import { resultsSummary, ZERO_MEASURES, type ResultsRow } from '../../src/round/stat-measures';
 import type { PlayerRoundStats, StatMeasures } from '../../src/api/player-stats.gen';
 
 // The panel catalog: which figures a module shows, and the two display-policy
@@ -278,31 +280,154 @@ test('the hard-chip share sits on the approach card, and only once there is a mi
     expect(panelBlocks('approach', noChips).map((b) => b.id)).not.toContain('hardChipShare');
 });
 
-test('the results section omits a row it cannot say honestly, rather than printing "Not recorded"', () => {
-    // A nine and a stats-only round: rounds and vs par can be said, an 18-hole
-    // average and a best score cannot.
-    const model = buildDashboardModel([
-        round({ roundId: 'r1', holeCount: 9, measures: measures({ holesScored: 9, strokesTotal: 44, parTotal: 36 }) }),
-        round({ roundId: 'r2', date: '2026-04-01', measures: ZERO_MEASURES }),
-    ]);
-    const rows = resultsBlocks(model.results);
-    expect(rows.map((b) => b.id)).toEqual(['rounds', 'avgVsPar']);
-    expect(rows[0]!.kind === 'figure' && rows[0]!.value).toBe('2');
-    expect(rows[1]!.kind === 'figure' && rows[1]!.value).toBe('+8.0 (over 1 round — thin sample)');
+// The five-row window from the parity oracle: a part eighteen, a complete
+// eighteen, a nine, a stats-only round with no card at all, and the low round.
+// The iOS twin asserts the same strings off the same numbers — if the two ever
+// disagree, one of them is wrong, not both.
+const RESULTS_ROWS: readonly ResultsRow[] = [
+    {
+        holeCount: 18,
+        measures: measures({
+            holesScored: 6,
+            strokesTotal: 25,
+            parTotal: 24,
+            holesBirdie: 2,
+            holesPar: 2,
+            holesBogey: 1,
+            doubleBogeyPlus: 1,
+        }),
+    },
+    {
+        holeCount: 18,
+        measures: measures({
+            holesScored: 18,
+            strokesTotal: 84,
+            parTotal: 72,
+            holesBirdie: 1,
+            holesPar: 4,
+            holesBogey: 13,
+        }),
+    },
+    {
+        holeCount: 9,
+        measures: measures({
+            holesScored: 9,
+            strokesTotal: 44,
+            parTotal: 36,
+            holesPar: 1,
+            holesBogey: 8,
+        }),
+    },
+    { holeCount: 18, measures: ZERO_MEASURES },
+    {
+        holeCount: 18,
+        measures: measures({
+            holesScored: 18,
+            strokesTotal: 79,
+            parTotal: 72,
+            holesEagleOrBetter: 1,
+            holesBirdie: 2,
+            holesPar: 4,
+            holesBogey: 11,
+        }),
+    },
+];
 
-    // A complete eighteen unlocks the other two.
-    const full = buildDashboardModel([
-        round({ measures: measures({ holesScored: 18, strokesTotal: 79, parTotal: 72 }) }),
-    ]);
-    expect(resultsBlocks(full.results).map((b) => b.id)).toEqual([
-        'rounds',
-        'averageScore',
-        'bestScore',
-        'avgVsPar',
+test('the results subtitle carries the round count and the window\u2019s mix of lengths', () => {
+    expect(resultsSubtitle(resultsSummary(RESULTS_ROWS))).toBe(
+        '5 rounds — 4 × 18 holes, 1 × 9 holes',
+    );
+    // One length: the mix would say the count twice, so it just names the length.
+    expect(resultsSubtitle(resultsSummary(RESULTS_ROWS.slice(2, 3)))).toBe('1 round — 9 holes');
+    expect(resultsSubtitle(resultsSummary([RESULTS_ROWS[1]!, RESULTS_ROWS[4]!]))).toBe(
+        '2 rounds — 18 holes',
+    );
+    expect(resultsSubtitle(resultsSummary([]))).toBe('');
+    expect(resultsSubtitle(null)).toBe('');
+});
+
+test('the results tiles lead with the hero average and split best by length', () => {
+    const tiles = resultsTiles(resultsSummary(RESULTS_ROWS));
+    expect(tiles).toEqual([
+        {
+            id: 'avgVsPar',
+            label: 'Average vs par per 18',
+            // An AVERAGE, so `signedNumber` and not the scorecard voice.
+            value: '+9.9',
+            // 51 scored of 81 expected, so the denominator earns its line.
+            qualifier: 'over 51 holes',
+            hero: true,
+        },
+        {
+            id: 'best-18',
+            label: 'Best 18',
+            // One real round's score, so the scorecard voice.
+            value: '+7',
+            qualifier: '79 strokes, from 2 complete rounds',
+            hero: false,
+        },
+        {
+            id: 'best-9',
+            label: 'Best 9',
+            value: '+8',
+            // The only nine was complete, so nothing to qualify but the strokes.
+            qualifier: '44 strokes',
+            hero: false,
+        },
     ]);
 
-    // An empty window has no section at all.
-    expect(resultsBlocks(EMPTY_DASHBOARD_MODEL.results)).toEqual([]);
+    expect(resultsTiles(resultsSummary([]))).toEqual([]);
+    expect(resultsTiles(null)).toEqual([]);
+});
+
+test('the results histogram keeps its five rows, and drops the bars on a thin window', () => {
+    const rows = resultsHistogram(resultsSummary(RESULTS_ROWS));
+    expect(rows.map((r) => [r.id, r.title, r.value])).toEqual([
+        ['eagleOrBetter', 'Eagle or better', '1 (2%)'],
+        ['birdie', 'Birdie', '5 (10%)'],
+        ['par', 'Par', '11 (22%)'],
+        ['bogey', 'Bogey', '33 (65%)'],
+        ['doubleBogeyPlus', 'Doubles or worse', '1 (2%)'],
+    ]);
+    // Rounded percentages sum to 101, and that is fine — no correction is applied.
+    expect(rows.map((r) => r.share)).toEqual([1 / 51, 5 / 51, 11 / 51, 33 / 51, 1 / 51]);
+
+    // A thin window: three scored holes on an eighteen. Every row survives (a
+    // zero bucket is information), no bar is drawn, and the value is a bare count.
+    const thin = resultsSummary([
+        {
+            holeCount: 18,
+            measures: measures({
+                holesScored: 3,
+                strokesTotal: 11,
+                parTotal: 11,
+                holesBirdie: 1,
+                holesPar: 1,
+                holesBogey: 1,
+            }),
+        },
+    ]);
+    expect(resultsTiles(thin)).toEqual([
+        {
+            id: 'avgVsPar',
+            label: 'Average vs par per 18',
+            // Level par over the holes it has — and `signedNumber` normalises
+            // the sign away at zero.
+            value: '0.0',
+            qualifier: 'over 3 holes',
+            hero: true,
+        },
+    ]);
+    const thinRows = resultsHistogram(thin);
+    expect(thinRows.map((r) => r.share)).toEqual([null, null, null, null, null]);
+    expect(thinRows.map((r) => r.value)).toEqual(['0', '1', '1', '1', '0']);
+
+    // Nothing scored anywhere: no histogram at all, and the view hides the card.
+    expect(resultsHistogram(resultsSummary([{ holeCount: 18, measures: ZERO_MEASURES }]))).toEqual(
+        [],
+    );
+    expect(resultsHistogram(resultsSummary([]))).toEqual([]);
+    expect(resultsHistogram(null)).toEqual([]);
 });
 
 test('every block id inside a panel is unique — the view keys its rows on them', () => {
@@ -323,6 +448,13 @@ test('every block id inside a panel is unique — the view keys its rows on them
         const ids = panelBlocks(panel, model).map((b) => b.id);
         expect(new Set(ids).size).toBe(ids.length);
     }
+
+    // The Results card keys its two lists the same way.
+    const results = resultsSummary(RESULTS_ROWS);
+    const tileIds = resultsTiles(results).map((tile) => tile.id);
+    expect(new Set(tileIds).size).toBe(tileIds.length);
+    const histIds = resultsHistogram(results).map((r) => r.id);
+    expect(new Set(histIds).size).toBe(histIds.length);
 });
 
 test('coverage and round labels are worded, never a glyph', () => {

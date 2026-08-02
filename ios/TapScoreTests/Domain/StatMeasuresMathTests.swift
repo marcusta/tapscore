@@ -72,6 +72,11 @@ final class StatMeasuresMathTests: XCTestCase {
         m.strokesPar4 = 17
         m.holesScoredPar5 = 1
         m.strokesPar5 = 6
+        // The score-type histogram: H3 and H5 are birdies, H1 and H6 pars, H4 a
+        // bogey, H2 a double. 0 + 2 + 2 + 1 + 1 = 6 = holesScored.
+        m.holesBirdie = 2
+        m.holesPar = 2
+        m.holesBogey = 1
         m.doubleBogeyPlus = 1
         m.girHolesScored = 3
         m.birdiesOnGir = 1
@@ -147,13 +152,21 @@ final class StatMeasuresMathTests: XCTestCase {
         m.holesScored = 18
         m.strokesTotal = 84
         m.parTotal = 72
+        // 0 + 1 + 4 + 13 + 0 = 18 holes, and −1 + 0 + 13 = +12 vs par.
+        m.holesBirdie = 1
+        m.holesPar = 4
+        m.holesBogey = 13
     }
 
-    /// A nine-holer: a real round, and NOT a complete eighteen.
+    /// A nine-holer: a real round, and a first-class one — nothing in v2 gates
+    /// on eighteen.
     private lazy var nineHole: StatMeasures = measures { m in
         m.holesScored = 9
         m.strokesTotal = 44
         m.parTotal = 36
+        // 0 + 0 + 1 + 8 + 0 = 9 holes, and +8 vs par.
+        m.holesPar = 1
+        m.holesBogey = 8
     }
 
     /// The window's best card.
@@ -161,6 +174,11 @@ final class StatMeasuresMathTests: XCTestCase {
         m.holesScored = 18
         m.strokesTotal = 79
         m.parTotal = 72
+        // 1 + 2 + 4 + 11 + 0 = 18 holes, and −2 − 2 + 0 + 11 = +7 vs par.
+        m.holesEagleOrBetter = 1
+        m.holesBirdie = 2
+        m.holesPar = 4
+        m.holesBogey = 11
     }
 
     /// Five rounds covering every branch of `resultsSummary`: a part round on an
@@ -300,36 +318,40 @@ final class StatMeasuresMathTests: XCTestCase {
         m.strokesPar4 = 47
         m.holesScoredPar5 = 48
         m.strokesPar5 = 49
-        m.doubleBogeyPlus = 50
-        m.girHolesScored = 51
-        m.birdiesOnGir = 52
-        m.bounceBackOpportunities = 53
-        m.bounceBackSuccesses = 54
-        m.holesScoredFairway = 55
-        m.strokesVsParFairway = 56
-        m.holesScoredInPlay = 57
-        m.strokesVsParInPlay = 58
-        m.holesScoredTrouble = 59
-        m.strokesVsParTrouble = 60
-        m.girRecordedFairway = 61
-        m.girHitsFairway = 62
-        m.girRecordedInPlay = 63
-        m.girHitsInPlay = 64
-        m.girRecordedTrouble = 65
-        m.girHitsTrouble = 66
-        m.girFirstPuttRecorded = 67
-        m.girFirstPuttInside1m = 68
-        m.girFirstPutt1To2m = 69
-        m.girFirstPutt2To4m = 70
-        m.girFirstPutt4To8m = 71
-        m.girFirstPuttOver8m = 72
-        m.puttsRecordedGir = 73
-        m.puttsTotalGir = 74
-        m.puttsTotalInside1mResolved = 75
-        m.puttsTotal1To2mResolved = 76
-        m.puttsTotal2To4mResolved = 77
-        m.puttsTotal4To8mResolved = 78
-        m.puttsTotalOver8mResolved = 79
+        m.holesEagleOrBetter = 50
+        m.holesBirdie = 51
+        m.holesPar = 52
+        m.holesBogey = 53
+        m.doubleBogeyPlus = 54
+        m.girHolesScored = 55
+        m.birdiesOnGir = 56
+        m.bounceBackOpportunities = 57
+        m.bounceBackSuccesses = 58
+        m.holesScoredFairway = 59
+        m.strokesVsParFairway = 60
+        m.holesScoredInPlay = 61
+        m.strokesVsParInPlay = 62
+        m.holesScoredTrouble = 63
+        m.strokesVsParTrouble = 64
+        m.girRecordedFairway = 65
+        m.girHitsFairway = 66
+        m.girRecordedInPlay = 67
+        m.girHitsInPlay = 68
+        m.girRecordedTrouble = 69
+        m.girHitsTrouble = 70
+        m.girFirstPuttRecorded = 71
+        m.girFirstPuttInside1m = 72
+        m.girFirstPutt1To2m = 73
+        m.girFirstPutt2To4m = 74
+        m.girFirstPutt4To8m = 75
+        m.girFirstPuttOver8m = 76
+        m.puttsRecordedGir = 77
+        m.puttsTotalGir = 78
+        m.puttsTotalInside1mResolved = 79
+        m.puttsTotal1To2mResolved = 80
+        m.puttsTotal2To4mResolved = 81
+        m.puttsTotal4To8mResolved = 82
+        m.puttsTotalOver8mResolved = 83
     }
 
     func testEveryMeasureColumnIsAdditiveIncludingTheOnesNoRateReads() throws {
@@ -346,8 +368,8 @@ final class StatMeasuresMathTests: XCTestCase {
         // The count is asserted (and mirrored in the TypeScript twin) so that a
         // field added to the server's measure set and forgotten in the fixture
         // is caught, rather than sweeping a smaller set and passing.
-        XCTAssertEqual(singleFields.count, 79)
-        XCTAssertEqual(Set(singleFields.values).count, 79)
+        XCTAssertEqual(singleFields.count, 83)
+        XCTAssertEqual(Set(singleFields.values).count, 83)
         for (key, single) in singleFields {
             XCTAssertEqual(doubledFields[key], single * 2, "column \(key) is not additive")
         }
@@ -359,7 +381,7 @@ final class StatMeasuresMathTests: XCTestCase {
         let doubledExample = try decoder.decode(
             [String: Double].self,
             from: encoder.encode(StatMeasuresMath.sum([workedExample, workedExample])))
-        XCTAssertEqual(exampleFields.count, 79)
+        XCTAssertEqual(exampleFields.count, 83)
         for (key, single) in exampleFields {
             XCTAssertEqual(doubledExample[key], single * 2, "column \(key) is not additive")
         }
@@ -570,28 +592,51 @@ final class StatMeasuresMathTests: XCTestCase {
 
     // MARK: - Results over a window of rounds
 
-    func testResultsSummaryCountsEveryRoundButAveragesOnlyWhatItCan() {
+    func testResultsSummaryNormalisesVsParPerEighteenHoles() {
         let r = StatMeasuresMath.resultsSummary(resultsRows)
         // Every row is a round the player played, including the one with no card.
         XCTAssertEqual(r.rounds, 5)
-        // Only the two full eighteens whose card is complete: 84 and 79.
-        XCTAssertEqual(r.completeRounds, 2)
-        assertRate(r.averageScore, 81.5, 163, 2)
-        XCTAssertEqual(StatMeasuresMath.rateDisplay(r.averageScore), .fraction)
-        XCTAssertEqual(r.bestScore, 79)
-        // Vs par is over every round WITH a score, nines included: rows 1, 2, 3
-        // and 5 → 1 + 12 + 8 + 7 = 28 over 4.
-        assertRate(r.avgVsParPerRound, 7, 28, 4)
-        XCTAssertEqual(StatMeasuresMath.rateDisplay(r.avgVsParPerRound), .fraction)
+        XCTAssertEqual(r.scoredRounds, 4)
+        // No round is excluded for being short or partial: 6 + 18 + 9 + 0 + 18.
+        XCTAssertEqual(r.holesScored, 51)
+        // What it would have been had every round been scored right through.
+        XCTAssertEqual(r.holesExpected, 81)
+
+        // Longest first, and EVERY row of a length counts toward its `rounds` —
+        // the part round and the cardless one are 18-hole rounds too.
+        XCTAssertEqual(
+            r.lengths,
+            [
+                ResultsLengthClass(
+                    holeCount: 18, rounds: 4, completeRounds: 2,
+                    best: ResultsBest(vsPar: 7, strokes: 79)),
+                ResultsLengthClass(
+                    holeCount: 9, rounds: 1, completeRounds: 1,
+                    best: ResultsBest(vsPar: 8, strokes: 44)),
+            ])
+
+        // Σ vs par = 1 + 12 + 8 + 7 = 28, over 51 scored HOLES, × 18.
+        assertRate(r.avgVsParPer18, 504.0 / 51.0, 504, 51)
+
+        XCTAssertEqual(
+            r.scoreTypeCounts,
+            [.eagleOrBetter: 1, .birdie: 5, .par: 11, .bogey: 33, .doubleBogeyPlus: 1])
+        // The five buckets partition the scored holes — the property every
+        // percentage the card prints rests on.
+        XCTAssertEqual(r.scoreTypeCounts.values.reduce(0, +), r.holesScored)
     }
 
     func testAnEmptyWindowHasNoScoreRatherThanAZeroOne() {
         let r = StatMeasuresMath.resultsSummary([])
         XCTAssertEqual(r.rounds, 0)
-        XCTAssertEqual(r.completeRounds, 0)
-        assertRate(r.averageScore, nil, 0, 0)
-        XCTAssertNil(r.bestScore)
-        assertRate(r.avgVsParPerRound, nil, 0, 0)
+        XCTAssertEqual(r.scoredRounds, 0)
+        XCTAssertEqual(r.holesScored, 0)
+        XCTAssertEqual(r.holesExpected, 0)
+        XCTAssertEqual(r.lengths, [])
+        assertRate(r.avgVsParPer18, nil, 0, 0)
+        XCTAssertEqual(
+            r.scoreTypeCounts,
+            [.eagleOrBetter: 0, .birdie: 0, .par: 0, .bogey: 0, .doubleBogeyPlus: 0])
     }
 
     // MARK: - The strokes-lost waterfall

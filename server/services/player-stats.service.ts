@@ -221,6 +221,14 @@ export interface StatMeasures {
     strokesPar4: number;
     holesScoredPar5: number;
     strokesPar5: number;
+    /**
+     * The score-type histogram. The five buckets partition `holesScored`:
+     * eagle-or-better, birdie, par, bogey, double-or-worse.
+     */
+    holesEagleOrBetter: number;
+    holesBirdie: number;
+    holesPar: number;
+    holesBogey: number;
     doubleBogeyPlus: number;
     girHolesScored: number;
     birdiesOnGir: number;
@@ -435,9 +443,11 @@ function absentHoleStats(roundId: string, playHoleId: string, playerId: string):
 }
 
 /**
- * The `stat_players` test from migration 043, in TypeScript: a projection row
- * survives its own clearing with all seven answers NULL, and such a row means
- * the player recorded nothing.
+ * The STAT ARM of the `round_players` admission test (migration 052), in
+ * TypeScript: a projection row survives its own clearing with all seven answers
+ * NULL, and such a row means the player recorded nothing. Only half the test —
+ * admission is "scored a hole OR recorded an answer", and the score arm is
+ * applied beside this one at `roundHoleStatsForPlayer`.
  */
 function hasRecordedStat(row: HoleStatsRow): boolean {
     return (
@@ -521,6 +531,10 @@ function toMeasures(row: PlayerRoundStatsV3View | PlayerStatTotalsV3View): StatM
         strokesPar4: row.strokes_par4,
         holesScoredPar5: row.holes_scored_par5,
         strokesPar5: row.strokes_par5,
+        holesEagleOrBetter: row.holes_eagle_or_better,
+        holesBirdie: row.holes_birdie,
+        holesPar: row.holes_par,
+        holesBogey: row.holes_bogey,
         doubleBogeyPlus: row.double_bogey_plus,
         girHolesScored: row.gir_holes_scored,
         birdiesOnGir: row.birdies_on_gir,
@@ -614,6 +628,10 @@ function zeroMeasures(): StatMeasures {
         strokesPar4: 0,
         holesScoredPar5: 0,
         strokesPar5: 0,
+        holesEagleOrBetter: 0,
+        holesBirdie: 0,
+        holesPar: 0,
+        holesBogey: 0,
         doubleBogeyPlus: 0,
         girHolesScored: 0,
         birdiesOnGir: 0,
@@ -935,7 +953,12 @@ export class PlayerStatsService {
                            OR s2.source_player_id = bp.player_id)
                 )`,
             )
-            .select(['sc.play_hole_id as play_hole_id', 'sc.strokes as strokes']);
+            .select([
+                'sc.play_hole_id as play_hole_id',
+                // Same canonicalisation as migration 043's `hole_scores`: 0 is
+                // a pickup, which is "no score" everywhere in statistics.
+                sql<number | null>`NULLIF(sc.strokes, 0)`.as('strokes'),
+            ]);
     }
 
     // --- Queries (write) ---
@@ -1280,24 +1303,35 @@ export class PlayerStatsService {
      * strip wants all N cells, and a hole nothing was recorded on comes back as
      * an all-NULL stat row rather than as a gap the client has to reconstruct.
      *
-     * Returns null when the player has no RECORDED stat in the round — the same
-     * "at least one non-NULL column" test the views' `stat_players` CTE applies,
-     * so this endpoint exists for exactly the rounds the summary lists. The
-     * caller turns that into a 404; a cleared-to-empty round is not a round with
-     * stats.
+     * Returns null when the round is unknown, or when the player neither scored
+     * a hole nor recorded an answer in it — the same admission test the views'
+     * `round_players` CTE applies (migration 052), so this endpoint exists for
+     * exactly the rounds the summary lists. The caller turns that into a 404; a
+     * cleared-to-empty, unscored round is not a round the player played.
      */
     async roundHoleStatsForPlayer(
         roundId: string,
         playerId: string,
     ): Promise<PlayerRoundHoleStats[] | null> {
-        const statRows = await this.holeStatsByRoundPlayer(roundId, playerId).execute();
-        if (!statRows.some(hasRecordedStat)) return null;
-
-        const [holes, lengths, scores] = await Promise.all([
+        const [statRows, holes, lengths, scores] = await Promise.all([
+            this.holeStatsByRoundPlayer(roundId, playerId).execute(),
             this.playHolesInRound(roundId).execute(),
             this.teeHoleLengthsForPlayer(roundId, playerId).execute(),
             this.holeScoresForPlayer(roundId, playerId).execute(),
         ]);
+
+        // Unknown round: no itinerary, so there is nothing to be about. Checked
+        // before the content gate, or an unknown id would return an empty
+        // array (a 200) instead of a 404.
+        if (holes.length === 0) return null;
+        // The same admission test migration 052 gave the views' `round_players`
+        // CTE: a scored hole OR a recorded answer. This endpoint exists for
+        // exactly the rounds the summary lists, and a list row that 404s when
+        // tapped is a bug. `strokes` is already NULLIF'd, so a round of nothing
+        // but pickups does not admit itself.
+        if (!statRows.some(hasRecordedStat) && !scores.some((r) => r.strokes !== null)) {
+            return null;
+        }
 
         const statByHole = new Map(statRows.map((row) => [row.play_hole_id, row]));
         const scoreByHole = new Map(scores.map((row) => [row.play_hole_id, row.strokes]));

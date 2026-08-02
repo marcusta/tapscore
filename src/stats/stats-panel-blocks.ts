@@ -14,7 +14,15 @@
 // SwiftUI, so its blocks are inline views rather than data — same catalog,
 // same order, same wording).
 
-import { PUTT_BUCKETS, type Rate, type ResultsSummary } from '../round/stat-measures';
+import {
+    MIN_RATE_DENOMINATOR,
+    PUTT_BUCKETS,
+    rate,
+    SCORE_TYPES,
+    type Rate,
+    type ResultsSummary,
+    type ScoreType,
+} from '../round/stat-measures';
 import {
     averageWithSample,
     bucketTitle,
@@ -24,10 +32,13 @@ import {
     quantity,
     rateWithSample,
     formatRate,
+    signedNumber,
     troubleTaxSample,
+    UNIT_COMPLETE_ROUNDS,
     UNIT_GREENS,
     UNIT_HOLES,
     UNIT_ROUNDS,
+    vsPar as vsParScore,
 } from './stats-format';
 import type { StatsDashboardModel, StatsPanelId, StatsTeePanel } from './stats-dashboard-model';
 
@@ -105,12 +116,7 @@ export const STATS_COPY = {
     hardChipShare:
         'How often a missed green left a hard chip or pitch rather than a standard one.',
     resultsHeading: 'Results',
-    resultsHint: 'Your scoring across the rounds in this window.',
-    averageScore:
-        'Complete 18-hole rounds only — part rounds and nine-holers are left out.',
-    bestScore: 'Your lowest complete 18-hole round in this window.',
-    avgVsParPerRound:
-        'Per round, over every round with a score — nine-hole rounds included.',
+    scoreTypesHead: 'Holes by score',
     doubleBogeyPlus: 'Holes at double bogey or worse, per round.',
     bounceBack: 'Holes after a bogey or worse that came back at par or better.',
 } as const;
@@ -372,49 +378,157 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
     }
 }
 
+// --- Results -----------------------------------------------------------------
+//
+// ONE card, and the NUMBER is the hero. No explanation sentences: the label says
+// what the figure is, and at most one small muted qualifier line says what its
+// denominator was — but only when that denominator DIVERGES from the round count
+// in the section subtitle. A qualifier that repeats what the subtitle already
+// said is noise, and a sentence explaining the maths is the thing this redesign
+// removed.
+//
+// "Thin sample" as words never appears here. The qualifier line IS the thinness
+// signal, so `averageSample` / `averageWithSample` / `rateWithSample` are
+// deliberately not called from this section.
+
+/** One figure in the Results card. Exactly one tile in a list is the hero. */
+export interface ResultsTile {
+    /** `'avgVsPar'` or `` `best-${holeCount}` `` — the view's key. */
+    id: string;
+    label: string;
+    value: string;
+    /** The one small muted line. Null unless the denominator diverges. */
+    qualifier: string | null;
+    /** True for exactly one tile: the view spans and enlarges it. */
+    hero: boolean;
+}
+
+/** One bucket of the score-type histogram — label, bar, count. */
+export interface ResultsHistogramRow {
+    id: ScoreType;
+    title: string;
+    /** Bar length in [0,1]; null draws NO bar (thin sample, or no scores). */
+    share: number | null;
+    value: string;
+}
+
 /**
- * The Results section's rows — figures, exactly like a panel's, but not a panel:
- * `results` is gated on nothing but an empty window, so it is not a
- * `StatsPanelId` and does not collapse.
+ * "5 rounds — 4 × 18 holes, 1 × 9 holes" — the section subtitle, which carries
+ * the round count so no "Rounds" figure has to exist inside the card.
  *
- * A row that cannot be said honestly is ABSENT rather than "Not recorded": every
- * one of these has a real answer for any window that has rounds in it, so an
- * empty row here would only ever mean "this window is nines" or "no scorecard",
- * which the remaining rows already say.
+ * The count is EVERY row in the window, so it agrees with the round list below
+ * it: a score-only or stats-only round is still a round the player played.
  */
-export function resultsBlocks(results: ResultsSummary | null): StatsBlock[] {
+export function resultsSubtitle(results: ResultsSummary | null): string {
+    if (!results || results.rounds === 0) return '';
+    const head = quantity(results.rounds, UNIT_ROUNDS);
+    const first = results.lengths[0];
+    // One length: the mix would read "5 rounds — 5 × 18 holes", which says the
+    // five twice. Just name the length.
+    if (results.lengths.length === 1 && first) {
+        return `${head} — ${quantity(first.holeCount, UNIT_HOLES)}`;
+    }
+    const mix = results.lengths
+        .map((l) => `${formatCount(l.rounds)} × ${quantity(l.holeCount, UNIT_HOLES)}`)
+        .join(', ');
+    return `${head} — ${mix}`;
+}
+
+/** `'Best 18'` / `'Best 9'`, and a spelled-out fallback for anything else. */
+function bestLabel(holeCount: number): string {
+    if (holeCount === 18) return 'Best 18';
+    if (holeCount === 9) return 'Best 9';
+    return `Best ${formatCount(holeCount)} holes`;
+}
+
+/**
+ * The card's figures: the hero average first, then one best-round tile per
+ * length class that has a complete round in it, longest first.
+ *
+ * Empty when the window has no score at all — the view then hides the card.
+ */
+export function resultsTiles(results: ResultsSummary | null): ResultsTile[] {
     if (!results) return [];
-    const blocks: StatsBlock[] = [figure('rounds', 'Rounds', formatCount(results.rounds))];
-    if (results.completeRounds > 0) {
-        blocks.push(
-            figure(
-                'averageScore',
-                'Average score',
-                averageWithSample(results.averageScore, { unit: UNIT_ROUNDS, decimals: 1 }),
-                STATS_COPY.averageScore,
-            ),
-        );
+    const tiles: ResultsTile[] = [];
+
+    if (results.avgVsParPer18.value !== null) {
+        tiles.push({
+            id: 'avgVsPar',
+            label: 'Average vs par per 18',
+            // `signedNumber`, never `vsPar()`: this is an AVERAGE, and it has to
+            // read like every other signed average on the screen rather than in
+            // the scorecard's "E" voice.
+            value: signedNumber(results.avgVsParPer18.value, 1),
+            qualifier:
+                results.holesScored === results.holesExpected
+                    ? null
+                    : `over ${quantity(results.holesScored, UNIT_HOLES)}`,
+            hero: true,
+        });
     }
-    if (results.bestScore !== null) {
-        blocks.push(
-            figure('bestScore', 'Best score', formatCount(results.bestScore), STATS_COPY.bestScore),
-        );
+
+    for (const cls of results.lengths) {
+        const best = cls.best;
+        if (!best) continue;
+        // At most ONE line, so the two facts share it. The absolute total is the
+        // demoted annotation; the complete-round count joins it only when it
+        // differs from the class's round count.
+        const parts = [`${formatCount(best.strokes)} strokes`];
+        if (cls.completeRounds !== cls.rounds) {
+            parts.push(`from ${quantity(cls.completeRounds, UNIT_COMPLETE_ROUNDS)}`);
+        }
+        tiles.push({
+            id: `best-${cls.holeCount}`,
+            label: bestLabel(cls.holeCount),
+            // `vsPar()` here, not `signedNumber`: this is one real round's score,
+            // so it takes the scorecard voice and reads "E" at level par.
+            value: vsParScore(best.vsPar),
+            qualifier: parts.join(', '),
+            hero: false,
+        });
     }
-    if (results.avgVsParPerRound.d > 0) {
-        blocks.push(
-            figure(
-                'avgVsPar',
-                'Average vs par',
-                averageWithSample(results.avgVsParPerRound, {
-                    unit: UNIT_ROUNDS,
-                    decimals: 1,
-                    signed: true,
-                }),
-                STATS_COPY.avgVsParPerRound,
-            ),
-        );
+
+    return tiles;
+}
+
+function scoreTypeTitle(type: ScoreType): string {
+    switch (type) {
+        case 'eagleOrBetter':
+            return 'Eagle or better';
+        case 'birdie':
+            return 'Birdie';
+        case 'par':
+            return 'Par';
+        case 'bogey':
+            return 'Bogey';
+        case 'doubleBogeyPlus':
+            return 'Doubles or worse';
     }
-    return blocks;
+}
+
+/**
+ * The five score-type rows, ALWAYS all five when there is anything to show. A
+ * zero bucket is information ("no eagles"), and dropping it would make the block
+ * change height as the window changes.
+ */
+export function resultsHistogram(results: ResultsSummary | null): ResultsHistogramRow[] {
+    if (!results || results.holesScored === 0) return [];
+    const holes = results.holesScored;
+    return SCORE_TYPES.map((type) => {
+        const count = results.scoreTypeCounts[type];
+        return {
+            id: type,
+            title: scoreTypeTitle(type),
+            // The same `barShare` rule the rest of the screen uses: under the
+            // floor no bar is drawn at all, because a bar would give three holes
+            // the visual weight of thirty.
+            share: barShare(rate(count, holes)),
+            value:
+                holes < MIN_RATE_DENOMINATOR
+                    ? formatCount(count)
+                    : `${formatCount(count)} (${Math.round((count / holes) * 100)}%)`,
+        };
+    });
 }
 
 /** Why a priority row has no number, in the reader's terms. */

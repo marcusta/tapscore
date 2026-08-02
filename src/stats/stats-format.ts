@@ -116,6 +116,9 @@ export const UNIT_ROUNDS = regularUnit('round');
 export const UNIT_HOLES = regularUnit('hole');
 export const UNIT_GREENS = regularUnit('green');
 
+/** The denominator of the best-round qualifier. Not a regular plural. */
+export const UNIT_COMPLETE_ROUNDS: SampleUnit = { one: 'complete round', many: 'complete rounds' };
+
 /**
  * What a thin sample is called, in words. The app's standing rule: an
  * annotation is a word, never a glyph.

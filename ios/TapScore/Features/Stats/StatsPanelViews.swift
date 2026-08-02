@@ -72,6 +72,64 @@ struct StatsFigureRows: View {
     }
 }
 
+/// One figure of the Results card: the NUMBER first, its label under it, and at
+/// most one small muted qualifier line.
+///
+/// The qualifier is nil unless this figure's denominator diverges from the
+/// section's round count — the divergence IS the signal, which is why the card
+/// carries no "thin sample" wording anywhere. There are no explanation
+/// sentences here at all: labels, not sentences.
+struct ResultsTile: Identifiable, Equatable, Sendable {
+    /// `avgVsPar`, or `best-<holeCount>`.
+    var id: String
+    var label: String
+    var value: String
+    var qualifier: String?
+    /// True for exactly one tile: the view enlarges it and gives it the row.
+    var hero: Bool
+}
+
+/// One bucket of the score-type histogram.
+struct ResultsHistogramRow: Identifiable, Equatable, Sendable {
+    var id: ScoreType
+    var title: String
+    /// Bar length in [0,1]; nil draws NO bar (thin sample, or no scores).
+    var share: Double?
+    var value: String
+}
+
+/// The score-type histogram: a label, a neutral proportional bar, a count.
+///
+/// Deliberately NOT `StatsMiniBarRows` — that one formats a `Rate` into a
+/// percentage, and this row's headline is the COUNT with the share in
+/// parentheses behind it.
+struct StatsScoreTypeRows: View {
+    var items: [ResultsHistogramRow]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: TapSpacing.xs) {
+            ForEach(items) { item in
+                HStack(spacing: TapSpacing.sm) {
+                    Text(item.title)
+                        .font(TapFont.ui(size: 13.6))
+                        .foregroundStyle(TapColors.text)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    // No new colour: these are shares of a whole, not
+                    // judgements, and the label already says which end is good.
+                    StatsMiniBar(share: item.share)
+                        .frame(width: 84)
+                    Text(item.value)
+                        .font(TapFont.ui(size: 13.6))
+                        .monospacedDigit()
+                        .foregroundStyle(TapColors.text)
+                        .frame(width: 82, alignment: .trailing)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+    }
+}
+
 /// A colour swatch, a name and a reading — the key under a split bar.
 struct StatsLegendItem: Identifiable {
     var title: String

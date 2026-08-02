@@ -428,6 +428,14 @@ export interface PlayerStatMeasureColumns {
     strokes_par4: number;
     holes_scored_par5: number;
     strokes_par5: number;
+    /**
+     * The score-type histogram. The five buckets partition `holes_scored`:
+     * eagle-or-better, birdie, par, bogey, double-or-worse.
+     */
+    holes_eagle_or_better: number;
+    holes_birdie: number;
+    holes_par: number;
+    holes_bogey: number;
     double_bogey_plus: number;
     gir_holes_scored: number;
     birdies_on_gir: number;

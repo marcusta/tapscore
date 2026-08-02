@@ -222,8 +222,17 @@ struct StrokesLostDeltas: Equatable, Sendable {
 
 // MARK: - Results over a window of rounds
 
-/// A full round, in holes. The gate the score figures are computed over.
-///
+/// The five score types, in reading order. The buckets PARTITION the scored
+/// holes: a hole with a score falls in exactly one, so the five counts sum to
+/// `holesScored` and the shares printed off them add up.
+enum ScoreType: String, CaseIterable, Sendable {
+    case eagleOrBetter
+    case birdie
+    case par
+    case bogey
+    case doubleBogeyPlus
+}
+
 /// One row of the window as `resultsSummary` needs it. `holeCount` is the
 /// round's own length, which no `StatMeasures` column carries — a round can be
 /// eighteen holes long and have six of them scored.
@@ -232,25 +241,58 @@ struct ResultsRow: Equatable, Sendable {
     var measures: StatMeasures
 }
 
-/// The scoring headline for a window: how much golf, how well, and how well at
-/// best.
-///
-/// The two denominators are deliberately different. `averageScore` and
-/// `bestScore` are COMPLETE-18-only, because a total is only comparable at a
-/// fixed hole count, and the copy on screen says so. `avgVsParPerRound` covers
-/// every round with a score, nine-holers included, because vs par is already
-/// normalised against the holes it was played over.
-struct ResultsSummary: Equatable, Sendable {
-    /// Every round in the window, whatever it holds.
+/// The best round of one length class, expressed vs par.
+struct ResultsBest: Equatable, Sendable {
+    /// `strokesTotal − parTotal` of that round. Negative is good.
+    var vsPar: Double
+    /// Its absolute total, for the small annotation beside the figure only.
+    var strokes: Double
+}
+
+/// One round length present in the window — 18 and 9 are the ones that occur.
+struct ResultsLengthClass: Equatable, Sendable {
+    var holeCount: Double
+    /// EVERY row of this length, scored or not. The subtitle's mix is over these.
     var rounds: Int
-    /// Rounds that are a COMPLETE 18: `holeCount == holesScored == 18`.
+    /// Rows of this length that scored every one of their holes.
     var completeRounds: Int
-    /// Mean strokes over the complete rounds. `d` is `completeRounds`.
-    var averageScore: Rate
-    /// Lowest complete-18 total, or nil when there is none.
-    var bestScore: Double?
-    /// Mean (strokes − par) per round over every round with a score.
-    var avgVsParPerRound: Rate
+    /// Best COMPLETE round of this length. nil when the class has none.
+    var best: ResultsBest?
+}
+
+/// The scoring headline for a window: how much golf, and how well.
+///
+/// Vs par, never an absolute: courses differ in par, so a total says less than
+/// an over/under, and the headline is normalised per eighteen holes so a
+/// nine-holer is directly comparable to a full round. Nothing here gates on
+/// eighteen — a round is never excluded for being short or for having gaps in
+/// it; the maths simply works over the holes that were scored.
+struct ResultsSummary: Equatable, Sendable {
+    /// Every row in the window, whatever it holds. This is the number the
+    /// section subtitle prints, and it must equal the length of the round list
+    /// below it — including score-only and stats-only rounds.
+    var rounds: Int
+    /// Rows with at least one scored hole. The scoring figures' round sample.
+    var scoredRounds: Int
+    /// Scored holes across the window — the denominator of `avgVsParPer18`.
+    var holesScored: Double
+    /// What `holesScored` would be if every round in the window had scored
+    /// every one of its holes: `Σ (class.rounds × class.holeCount)`. The view
+    /// shows the hero's denominator line only when the two differ.
+    var holesExpected: Double
+    /// One entry per hole count present, LONGEST FIRST.
+    var lengths: [ResultsLengthClass]
+    /// Average (strokes − par) normalised to eighteen holes:
+    /// `Σ (strokes − par) / Σ holesScored × 18`.
+    ///
+    /// `n` is `Σ (strokes − par) × 18` and `d` is `holesScored`, so the `Rate`
+    /// invariant `value == n / d` holds and `d` is the honest sample — HOLES,
+    /// not rounds. Absent (`d == 0`) when the window scored nothing.
+    var avgVsParPer18: Rate
+    /// The histogram over every scored hole in the window. Fully populated:
+    /// every `ScoreType` key is present, zero where empty, so a lookup never
+    /// needs a `?? 0` at the call site.
+    var scoreTypeCounts: [ScoreType: Double]
 }
 
 // MARK: - Insight lines
@@ -365,6 +407,10 @@ enum StatMeasuresMath {
         strokesPar4: 0,
         holesScoredPar5: 0,
         strokesPar5: 0,
+        holesEagleOrBetter: 0,
+        holesBirdie: 0,
+        holesPar: 0,
+        holesBogey: 0,
         doubleBogeyPlus: 0,
         girHolesScored: 0,
         birdiesOnGir: 0,
@@ -456,6 +502,10 @@ enum StatMeasuresMath {
             strokesPar4: a.strokesPar4 + b.strokesPar4,
             holesScoredPar5: a.holesScoredPar5 + b.holesScoredPar5,
             strokesPar5: a.strokesPar5 + b.strokesPar5,
+            holesEagleOrBetter: a.holesEagleOrBetter + b.holesEagleOrBetter,
+            holesBirdie: a.holesBirdie + b.holesBirdie,
+            holesPar: a.holesPar + b.holesPar,
+            holesBogey: a.holesBogey + b.holesBogey,
             doubleBogeyPlus: a.doubleBogeyPlus + b.doubleBogeyPlus,
             girHolesScored: a.girHolesScored + b.girHolesScored,
             birdiesOnGir: a.birdiesOnGir + b.birdiesOnGir,
@@ -916,39 +966,78 @@ enum StatMeasuresMath {
 
     // MARK: Results over a window of rounds
 
-    /// What counts as a whole round for the score figures.
-    static let fullRoundHoles: Double = 18
-
     /// The window's scoring headline.
     ///
-    /// Operates on ROWS, not on a summed `StatMeasures`: the 18-hole gate and
-    /// the best score are per-round facts that a sum destroys — eighteen nines
-    /// add up to nine eighteens, and the lowest total in a window is not a
-    /// column anybody can add.
+    /// Operates on ROWS, not on a summed `StatMeasures`: completeness, length
+    /// class and the best card are per-round facts that a sum destroys —
+    /// eighteen nines add up to nine eighteens, and the lowest round in a window
+    /// is not a column anybody can add.
+    ///
+    /// No round is ever excluded. A nine, a part round and a round with three
+    /// picked-up balls all contribute the holes they DID score to
+    /// `avgVsParPer18`; the only narrowing anywhere is `best`, which considers
+    /// rounds complete for their own length, because an incomplete card is not
+    /// comparable as "a round".
     static func resultsSummary(_ rows: [ResultsRow]) -> ResultsSummary {
-        var completeRounds: Double = 0
-        var strokes: Double = 0
-        var best: Double?
-        var vsPar: Double = 0
-        var scoredRounds: Double = 0
+        var scoredRounds = 0
+        var holesScored: Double = 0
+        var vsParTotal: Double = 0
+        var counts: [ScoreType: Double] = [:]
+        for type in ScoreType.allCases { counts[type] = 0 }
+
+        // Grouped by length in FIRST-SEEN order, then sorted longest first, so
+        // the sort is the only thing deciding order and a dictionary's
+        // enumeration never leaks into the output.
+        var lengthOrder: [Double] = []
+        var groups: [Double: ResultsLengthClass] = [:]
+
         for row in rows {
             let m = row.measures
+            holesScored += m.holesScored
             if m.holesScored > 0 {
                 scoredRounds += 1
-                vsPar += m.strokesTotal - m.parTotal
+                vsParTotal += m.strokesTotal - m.parTotal
             }
-            if row.holeCount == fullRoundHoles, m.holesScored == fullRoundHoles {
-                completeRounds += 1
-                strokes += m.strokesTotal
-                if best == nil || m.strokesTotal < best! { best = m.strokesTotal }
+            counts[.eagleOrBetter]! += m.holesEagleOrBetter
+            counts[.birdie]! += m.holesBirdie
+            counts[.par]! += m.holesPar
+            counts[.bogey]! += m.holesBogey
+            counts[.doubleBogeyPlus]! += m.doubleBogeyPlus
+
+            if groups[row.holeCount] == nil {
+                lengthOrder.append(row.holeCount)
+                groups[row.holeCount] = ResultsLengthClass(
+                    holeCount: row.holeCount, rounds: 0, completeRounds: 0, best: nil)
+            }
+            groups[row.holeCount]!.rounds += 1
+            // Complete FOR ITS OWN LENGTH. A complete row is necessarily scored.
+            if row.holeCount > 0, m.holesScored == row.holeCount {
+                groups[row.holeCount]!.completeRounds += 1
+                let vsPar = m.strokesTotal - m.parTotal
+                // Strictly better wins, so on a tie the FIRST row in input order
+                // keeps the tile. Callers pass rows newest-first, which makes a
+                // tie report the more recent round — and both clients have to
+                // break it the same way or the `strokes` annotation diverges
+                // while `vsPar` agrees.
+                if groups[row.holeCount]!.best == nil || vsPar < groups[row.holeCount]!.best!.vsPar {
+                    groups[row.holeCount]!.best = ResultsBest(
+                        vsPar: vsPar, strokes: m.strokesTotal)
+                }
             }
         }
+
+        let lengths = lengthOrder.sorted(by: >).map { groups[$0]! }
+        var holesExpected: Double = 0
+        for length in lengths { holesExpected += Double(length.rounds) * length.holeCount }
+
         return ResultsSummary(
             rounds: rows.count,
-            completeRounds: Int(completeRounds),
-            averageScore: rate(strokes, completeRounds),
-            bestScore: best,
-            avgVsParPerRound: rate(vsPar, scoredRounds))
+            scoredRounds: scoredRounds,
+            holesScored: holesScored,
+            holesExpected: holesExpected,
+            lengths: lengths,
+            avgVsParPer18: rate(vsParTotal * 18, holesScored),
+            scoreTypeCounts: counts)
     }
 
     // MARK: Personal baseline

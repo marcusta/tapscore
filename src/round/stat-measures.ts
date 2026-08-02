@@ -140,6 +140,10 @@ export const ZERO_MEASURES: StatMeasures = Object.freeze({
         strokesPar4: 0,
         holesScoredPar5: 0,
         strokesPar5: 0,
+        holesEagleOrBetter: 0,
+        holesBirdie: 0,
+        holesPar: 0,
+        holesBogey: 0,
         doubleBogeyPlus: 0,
         girHolesScored: 0,
         birdiesOnGir: 0,
@@ -233,6 +237,10 @@ export function addMeasures(a: StatMeasures, b: StatMeasures): StatMeasures {
         strokesPar4: a.strokesPar4 + b.strokesPar4,
         holesScoredPar5: a.holesScoredPar5 + b.holesScoredPar5,
         strokesPar5: a.strokesPar5 + b.strokesPar5,
+        holesEagleOrBetter: a.holesEagleOrBetter + b.holesEagleOrBetter,
+        holesBirdie: a.holesBirdie + b.holesBirdie,
+        holesPar: a.holesPar + b.holesPar,
+        holesBogey: a.holesBogey + b.holesBogey,
         doubleBogeyPlus: a.doubleBogeyPlus + b.doubleBogeyPlus,
         girHolesScored: a.girHolesScored + b.girHolesScored,
         birdiesOnGir: a.birdiesOnGir + b.birdiesOnGir,
@@ -638,12 +646,25 @@ export function bounceBackRate(m: StatMeasures): Rate {
 // --- Results (the headline scoring figures) ---
 //
 // These operate on ROWS rather than on a summed `StatMeasures`, because the
-// 18-hole gate and the best score are per-ROUND facts that a sum destroys: a
-// window of two nines sums to eighteen holes and is not a round, and the lowest
-// total in a window cannot be recovered from the window's own total.
+// per-ROUND facts a sum destroys are exactly what this section is about: a
+// window of two nines sums to eighteen holes and is not a round, and the best
+// round in a window cannot be recovered from the window's own total.
+//
+// Two rulings shape everything here:
+//
+//  - **Vs par over absolute.** Courses differ in par, so the headline is
+//    average (strokes − par) NORMALISED PER 18 HOLES over every scored hole in
+//    the window. An absolute stroke total survives only as an annotation beside
+//    a best round.
+//  - **No eighteen-hole gate.** Nine-hole rounds are first class, and a round
+//    with gaps (picked-up balls, holes nobody entered) still contributes the
+//    holes it does have. The only gate left is on "best round", which compares
+//    rounds COMPLETE FOR THEIR OWN LENGTH — an unfinished round is not a round
+//    to be best.
 
-/** A full round, in holes. The gate the score figures are computed over. */
-export const FULL_ROUND_HOLES = 18;
+/** The five score types, in reading order. The buckets partition scored holes. */
+export const SCORE_TYPES = ['eagleOrBetter', 'birdie', 'par', 'bogey', 'doubleBogeyPlus'] as const;
+export type ScoreType = (typeof SCORE_TYPES)[number];
 
 /** The one row shape `resultsSummary` needs. `PlayerRoundStats` satisfies it. */
 export interface ResultsRow {
@@ -651,52 +672,133 @@ export interface ResultsRow {
     measures: StatMeasures;
 }
 
-export interface ResultsSummary {
-    /** Every round in the window, whatever it holds. */
-    rounds: number;
-    /** Rounds that are a COMPLETE 18: `holeCount === holesScored === 18`. */
-    completeRounds: number;
-    /** Mean strokes over the complete rounds. `d` is `completeRounds`. */
-    averageScore: Rate;
-    /** Lowest complete-18 total, or null when there is none. */
-    bestScore: number | null;
-    /** Mean (strokes − par) per round over every round with a score. */
-    avgVsParPerRound: Rate;
+/** The best round of one length class, expressed the way the ruling wants it. */
+export interface ResultsBest {
+    /** `strokesTotal − parTotal` of that round. Negative is good. */
+    vsPar: number;
+    /** Its absolute total, for the small annotation beside the figure only. */
+    strokes: number;
 }
 
+/** One round length present in the window — 18 and 9 are the ones that occur. */
+export interface ResultsLengthClass {
+    holeCount: number;
+    /** EVERY row of this length, scored or not. The subtitle's mix is over these. */
+    rounds: number;
+    /** Rows of this length that scored every one of their holes. */
+    completeRounds: number;
+    /** Best COMPLETE round of this length. Null when the class has none. */
+    best: ResultsBest | null;
+}
+
+export interface ResultsSummary {
+    /**
+     * Every row in the window, whatever it holds. This is the number the
+     * section subtitle prints, and it must equal the length of the round list
+     * below it — including score-only and stats-only rounds.
+     */
+    rounds: number;
+    /** Rows with at least one scored hole. The scoring figures' round sample. */
+    scoredRounds: number;
+    /** Scored holes across the window — the denominator of `avgVsParPer18`. */
+    holesScored: number;
+    /**
+     * What `holesScored` would be if every round in the window had scored every
+     * one of its holes: `sum(class.rounds × class.holeCount)`. The view shows
+     * the hero's denominator line only when the two differ, which is the whole
+     * "qualifier on divergence" rule.
+     */
+    holesExpected: number;
+    /** One entry per hole count present, LONGEST FIRST. */
+    lengths: ResultsLengthClass[];
+    /**
+     * Average (strokes − par) normalised to eighteen holes:
+     * `sum(strokes − par) / sum(holesScored) × 18`.
+     *
+     * `n` is `sum(strokes − par) × 18` and `d` is `holesScored`, so the `Rate`
+     * invariant `value === n / d` holds and `d` is the honest sample — HOLES,
+     * not rounds. Absent (`d === 0`) when the window scored nothing.
+     */
+    avgVsParPer18: Rate;
+    /** The histogram over every scored hole in the window. Zeroes, never null. */
+    scoreTypeCounts: Record<ScoreType, number>;
+}
+
+/** How many holes an eighteen-hole normalisation is expressed over. */
+const NORMALISED_HOLES = 18;
+
 /**
- * The window's scoring headline.
+ * The window's scoring headline, its best round per length, and its score-type
+ * histogram.
  *
- * The two denominators are deliberately different. Average score and best score
- * are only comparable at a fixed hole count, so they are 18-hole-only and the
- * screen says so. Vs par is already a per-hole-normalised quantity, so it is
- * taken over every round that has a score at all — nines and part rounds
- * included — divided by the number of those rounds.
+ * Nothing is excluded for missing data: a row with three scored holes out of
+ * eighteen contributes those three holes to `holesScored`, to the vs-par
+ * numerator and to the histogram. What it does NOT contribute to is `best`,
+ * which needs a round complete for its own length to be comparable at all.
  */
 export function resultsSummary(rows: readonly ResultsRow[]): ResultsSummary {
-    let completeRounds = 0;
-    let strokes = 0;
-    let best: number | null = null;
-    let vsPar = 0;
     let scoredRounds = 0;
+    let holesScored = 0;
+    let vsParTotal = 0;
+    const counts: Record<ScoreType, number> = {
+        eagleOrBetter: 0,
+        birdie: 0,
+        par: 0,
+        bogey: 0,
+        doubleBogeyPlus: 0,
+    };
+
+    // Insertion order is input order; the sort below imposes the reading one.
+    const classes = new Map<number, ResultsLengthClass>();
+
     for (const row of rows) {
         const m = row.measures;
+        holesScored += m.holesScored;
+        counts.eagleOrBetter += m.holesEagleOrBetter;
+        counts.birdie += m.holesBirdie;
+        counts.par += m.holesPar;
+        counts.bogey += m.holesBogey;
+        counts.doubleBogeyPlus += m.doubleBogeyPlus;
+
+        // An unscored row contributes 0 − 0 either way; restricted explicitly so
+        // the intent reads rather than relying on the arithmetic.
         if (m.holesScored > 0) {
             scoredRounds += 1;
-            vsPar += m.strokesTotal - m.parTotal;
+            vsParTotal += m.strokesTotal - m.parTotal;
         }
-        if (row.holeCount === FULL_ROUND_HOLES && m.holesScored === FULL_ROUND_HOLES) {
-            completeRounds += 1;
-            strokes += m.strokesTotal;
-            if (best === null || m.strokesTotal < best) best = m.strokesTotal;
+
+        let cls = classes.get(row.holeCount);
+        if (!cls) {
+            cls = { holeCount: row.holeCount, rounds: 0, completeRounds: 0, best: null };
+            classes.set(row.holeCount, cls);
+        }
+        cls.rounds += 1;
+
+        const complete = row.holeCount > 0 && m.holesScored === row.holeCount;
+        if (!complete) continue;
+        cls.completeRounds += 1;
+        const vsPar = m.strokesTotal - m.parTotal;
+        // Strictly better, so a tie leaves the FIRST such row in place. Callers
+        // pass rows newest-first, so a tie reports the more recent round — and
+        // the Swift twin ties the same way, or the `strokes` annotation could
+        // differ between platforms while `vsPar` agreed.
+        if (cls.best === null || vsPar < cls.best.vsPar) {
+            cls.best = { vsPar, strokes: m.strokesTotal };
         }
     }
+
+    const lengths = [...classes.values()].sort((a, b) => b.holeCount - a.holeCount);
+    let holesExpected = 0;
+    for (const cls of lengths) holesExpected += cls.rounds * cls.holeCount;
+
     return {
         rounds: rows.length,
-        completeRounds,
-        averageScore: rate(strokes, completeRounds),
-        bestScore: best,
-        avgVsParPerRound: rate(vsPar, scoredRounds),
+        scoredRounds,
+        holesScored,
+        holesExpected,
+        lengths,
+        avgVsParPer18: rate(vsParTotal * NORMALISED_HOLES, holesScored),
+        scoreTypeCounts: counts,
     };
 }
 

@@ -8,8 +8,15 @@ import { type Kysely, sql } from 'kysely';
  * the arithmetic that would otherwise be copy-pasted into every caller, kept in
  * one place where the denominators can be argued about once.
  *
- *   v_player_round_stats — one row per (player, round) the player has stats in.
+ *   v_player_round_stats — one row per (player, round) the player SCORED OR
+ *                          ANSWERED something in (grain widened from
+ *                          stats-only by migration 052).
  *   v_player_stat_totals — the same measures summed per player, across rounds.
+ *
+ * `hole_scores` CANONICALISES PICKUPS. `scorecards.strokes = 0` means the ball
+ * was picked up (REWRITE_DOMAIN_SPEC.md §14 item 7), which is "no score" for
+ * every statistic here, so the CTE projects `NULLIF(strokes, 0)` once and every
+ * measure below reads the canonical value. See the CTE's own comment.
  *
  * Three rules the SELECTs follow throughout:
  *
@@ -60,7 +67,7 @@ import { type Kysely, sql } from 'kysely';
  * on the caller lands OUTSIDE them — so a profile read grows with the size of
  * the DATABASE, not with the caller's own history (order 25ms at a few hundred
  * rounds; fine at this app's scale). If that ever stops being true, the fix is
- * to push a player predicate down into `stat_players` and `hole_scores` — a
+ * to push a player predicate down into `round_players` and `hole_scores` — a
  * parameterised query in the service rather than a view, or a materialised
  * round table maintained alongside the projection. Indexes will not save a
  * full recompute.
@@ -95,7 +102,15 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             SELECT b.round_id AS round_id,
                    bp.player_id AS player_id,
                    sc.play_hole_id AS play_hole_id,
-                   sc.strokes AS strokes
+                   -- A PICKED-UP ball, canonicalised once for the whole file.
+                   -- REWRITE_DOMAIN_SPEC.md §14 item 7: 'null' means the hole
+                   -- was not played, '0' means the ball was picked up. Both are
+                   -- "no score" for statistics; only the FORMAT ENGINE reads 0
+                   -- as a value (a stableford zero, a net max), and it does not
+                   -- come through here. Summed raw, a pickup on a par 4 reads
+                   -- as four under par, which is why this is the only place 0
+                   -- is allowed to survive as itself.
+                   NULLIF(sc.strokes, 0) AS strokes
             FROM ball_players bp
             JOIN balls b ON b.id = bp.ball_id
             JOIN scorecards sc ON sc.ball_id = bp.ball_id
@@ -112,18 +127,23 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
               )
         ),
         -- The view's grain: a (player, round) pair exists here iff the player
-        -- has at least one RECORDED stat in that round. A round with no stats
-        -- produces NO row at all, rather than a row of zeroes that would drag
-        -- every career average down.
+        -- has at least one SCORED HOLE **or** at least one recorded stat answer
+        -- in that round. A round that has neither produces NO row at all.
         --
-        -- "Recorded" has to be checked column by column, not merely "a
+        -- Widened from stats-only in migration 052. A round you scored is a
+        -- round you played, and the scoring measures are computable from the
+        -- card alone — excluding it would drop real golf out of the history
+        -- purely because the player had every stat module switched off. The
+        -- stat measures on such a row are all zero WITH zero denominators, so
+        -- nothing enters a numerator or a denominator that was not recorded.
+        --
+        -- "Recorded" still has to be checked column by column rather than "a
         -- projection row exists": clearing every answer on a hole leaves the
-        -- row behind with all seven columns NULL (migration 042 keeps the row
-        -- so the event log's clears stay projectable). Such a row means the
-        -- player recorded nothing, and must not readmit the round — with the
-        -- round admitted, its SCORING measures would flow into career totals
-        -- off a round that tracks no stats at all.
-        stat_players AS (
+        -- row behind with all seven columns NULL (migration 042 keeps it so the
+        -- event log's clears stay projectable). Such a row alone no longer
+        -- readmits the round — but a SCORE now does, which is the intended
+        -- change.
+        round_players AS (
             SELECT DISTINCT round_id, player_id
             FROM player_hole_stats
             WHERE tee_result IS NOT NULL
@@ -133,6 +153,10 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
                OR short_game_difficulty IS NOT NULL
                OR penalties IS NOT NULL
                OR recovery_ok IS NOT NULL
+            UNION
+            SELECT DISTINCT round_id, player_id
+            FROM hole_scores
+            WHERE strokes IS NOT NULL
         ),
         -- Holes per round, for the shotgun-start rotation below.
         round_holes AS (
@@ -191,7 +215,7 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
                    -- are treated as unrecorded.
                    CASE WHEN phs.putts = 0 AND phs.first_putt IS NOT NULL
                         THEN 0 ELSE 1 END AS putting_coherent
-            FROM stat_players sp
+            FROM round_players sp
             JOIN round_play_holes rph ON rph.round_id = sp.round_id
             LEFT JOIN player_hole_stats phs
                    ON phs.round_id = rph.round_id
@@ -329,6 +353,17 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             COALESCE(SUM(CASE WHEN par = 4 THEN strokes END), 0) AS strokes_par4,
             COUNT(CASE WHEN strokes IS NOT NULL AND par >= 5 THEN 1 END) AS holes_scored_par5,
             COALESCE(SUM(CASE WHEN par >= 5 THEN strokes END), 0) AS strokes_par5,
+            -- Score-type histogram (proposal §2.2). The five buckets PARTITION
+            -- the scored holes: a hole with a score falls in exactly one, and
+            --   holes_eagle_or_better + holes_birdie + holes_par + holes_bogey
+            --   + double_bogey_plus = holes_scored
+            -- identically, which is what lets the client print percentages that
+            -- add up. A NULL 'strokes' (unplayed, cleared, or picked up) makes
+            -- every comparison NULL and so falls in no bucket at all.
+            COUNT(CASE WHEN strokes <= par - 2 THEN 1 END) AS holes_eagle_or_better,
+            COUNT(CASE WHEN strokes = par - 1 THEN 1 END) AS holes_birdie,
+            COUNT(CASE WHEN strokes = par THEN 1 END) AS holes_par,
+            COUNT(CASE WHEN strokes = par + 1 THEN 1 END) AS holes_bogey,
             COUNT(CASE WHEN strokes >= par + 2 THEN 1 END) AS double_bogey_plus,
 
             -- Birdie conversion: the denominator is greens hit that were also
@@ -411,6 +446,10 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             SUM(strokes_par4) AS strokes_par4,
             SUM(holes_scored_par5) AS holes_scored_par5,
             SUM(strokes_par5) AS strokes_par5,
+            SUM(holes_eagle_or_better) AS holes_eagle_or_better,
+            SUM(holes_birdie) AS holes_birdie,
+            SUM(holes_par) AS holes_par,
+            SUM(holes_bogey) AS holes_bogey,
             SUM(double_bogey_plus) AS double_bogey_plus,
             SUM(gir_holes_scored) AS gir_holes_scored,
             SUM(birdies_on_gir) AS birdies_on_gir,

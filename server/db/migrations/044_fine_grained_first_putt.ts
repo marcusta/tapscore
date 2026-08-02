@@ -187,7 +187,19 @@ export async function up(db: Kysely<any>): Promise<void> {
     `.execute(db);
 
     await createPlayerStatsViews(db);
+    await createFineGrainedPuttingViews(db);
+}
 
+/**
+ * The fine-putting overlay (migration 044) as a re-runnable recipe.
+ *
+ * Exported for the same reason `createPlayerStatsViews` and
+ * `createPlayerStatsV3Views` are: a later migration that has to rebuild the
+ * layer UNDERNEATH this one must be able to re-create it verbatim rather than
+ * fork a second spelling of the same measures. Migration 052 is the first
+ * caller.
+ */
+export async function createFineGrainedPuttingViews(db: Kysely<any>): Promise<void> {
     await sql`
         CREATE VIEW v_player_round_stats_v2 AS
         WITH fine AS (

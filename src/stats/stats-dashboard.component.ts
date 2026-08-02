@@ -13,12 +13,20 @@ import {
 } from './stats-dashboard-model';
 import {
     priorityCoverage,
-    resultsBlocks,
+    resultsHistogram,
+    resultsSubtitle,
+    resultsTiles,
     roundLabel,
     STATS_COPY,
-    type StatsBlock,
+    type ResultsHistogramRow,
+    type ResultsTile,
 } from './stats-panel-blocks';
-import { renderSignedBar, renderSparkline, renderWaterfallStrip } from './stats-charts';
+import {
+    renderMiniBar,
+    renderSignedBar,
+    renderSparkline,
+    renderWaterfallStrip,
+} from './stats-charts';
 import { STATS_COLORS } from './stats-palette';
 import { StatsPanelsComponent } from './stats-panels.component';
 import {
@@ -115,8 +123,12 @@ const tpl = template(`
 
             <section bind="resultsSec" class="stats__section">
                 <h2></h2>
-                <p bind="resultsHint" class="stats__hint"></p>
-                <div bind="results" class="stats__results"></div>
+                <p bind="resultsSub" class="stats__hint"></p>
+                <div bind="resultsCard" class="results">
+                    <div bind="resultTiles" class="results__tiles"></div>
+                    <p bind="histHead" class="results__subhead"></p>
+                    <div bind="resultHist" class="results__hist"></div>
+                </div>
             </section>
 
             <section bind="prioritiesSec" class="stats__section">
@@ -155,13 +167,19 @@ const courseTpl = template(`
     </label>
 `);
 
-const resultTpl = template(`
-    <div class="result">
-        <div class="result__text">
-            <span bind="title" class="result__title"></span>
-            <span bind="hint" class="result__hint"></span>
-        </div>
-        <span bind="value" class="result__value"></span>
+const resultTileTpl = template(`
+    <div bind="tile" class="rtile">
+        <span bind="value" class="rtile__value"></span>
+        <span bind="label" class="rtile__label"></span>
+        <span bind="qualifier" class="rtile__qualifier"></span>
+    </div>
+`);
+
+const scoreTypeTpl = template(`
+    <div class="stype">
+        <span bind="title" class="stype__title"></span>
+        <span bind="bar" class="stype__bar"></span>
+        <span bind="value" class="stype__value"></span>
     </div>
 `);
 
@@ -345,26 +363,50 @@ export class StatsDashboardComponent extends Component {
                 &:empty { display: none; }
             }
 
-            & .stats__results { display: flex; flex-direction: column; gap: ${s('sm')}; }
-
-            /* The module cards' figure row, in this component's own CSS scope:
-               .block--figure lives in StatsPanelsComponent and does not reach
-               here. Same shape, same sizes. */
-            & .result {
+            /* ONE card for the whole section: these figures are one answer to
+               one question, and a card each would make the reader choose which
+               of four equal boxes to read first. */
+            & .results {
                 ${card()}
-                display: flex; align-items: flex-start; gap: ${s('md')};
-                padding: ${s('md')} ${s('lg')};
-
-                & .result__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-                & .result__title { font-size: 0.9rem; }
-                & .result__hint {
-                    font-size: 0.76rem; color: ${t('text-muted')};
+                display: flex; flex-direction: column; gap: ${s('md')};
+                padding: ${s('lg')};
+                &.hidden { display: none; }
+            }
+            & .results__tiles {
+                display: grid; grid-template-columns: repeat(2, 1fr); gap: ${s('md')};
+            }
+            & .rtile {
+                display: flex; flex-direction: column; gap: 2px;
+                & .rtile__value {
+                    font-weight: 700; font-size: 1.3rem;
+                    font-variant-numeric: tabular-nums;
+                }
+                & .rtile__label { font-size: 0.82rem; color: ${t('text-muted')}; }
+                & .rtile__qualifier {
+                    font-size: 0.72rem; color: ${t('text-muted')};
                     &:empty { display: none; }
                 }
-                & .result__value {
-                    flex-shrink: 0; text-align: right;
-                    font-size: 0.9rem; font-weight: 700;
-                    font-variant-numeric: tabular-nums;
+            }
+            /* The hero owns the row: the number IS the answer, and two equal
+               tiles beside it would make the reader choose which to read. */
+            & .rtile--hero {
+                grid-column: 1 / -1;
+                & .rtile__value { font-size: 2.1rem; line-height: 1.1; }
+            }
+            & .results__subhead {
+                margin: 0; font-size: 0.72rem; font-weight: 700;
+                letter-spacing: 0.06em; text-transform: uppercase;
+                color: ${t('text-muted')};
+                &:empty { display: none; }
+            }
+            & .results__hist { display: flex; flex-direction: column; gap: ${s('xs')}; }
+            & .stype {
+                display: flex; align-items: center; gap: ${s('md')};
+                & .stype__title { flex: 1; min-width: 0; font-size: 0.85rem; }
+                & .stype__bar { width: 84px; flex-shrink: 0; & svg { width: 100%; display: block; } }
+                & .stype__value {
+                    width: 82px; flex-shrink: 0; text-align: right;
+                    font-size: 0.85rem; font-variant-numeric: tabular-nums;
                 }
             }
 
@@ -501,7 +543,18 @@ export class StatsDashboardComponent extends Component {
                 className: () =>
                     model().results !== null ? 'stats__section' : 'stats__section hidden',
             },
-            resultsHint: () => STATS_COPY.resultsHint,
+            resultsSub: () => resultsSubtitle(model().results),
+            // A window whose rounds carry no score at all: the section still
+            // exists (there ARE rounds), but the card would be empty.
+            resultsCard: {
+                className: () =>
+                    resultsTiles(model().results).length === 0 &&
+                    resultsHistogram(model().results).length === 0
+                        ? 'results hidden'
+                        : 'results',
+            },
+            histHead: () =>
+                resultsHistogram(model().results).length === 0 ? '' : STATS_COPY.scoreTypesHead,
             prioritiesSec: {
                 className: () =>
                     model().priorities.length > 0 ? 'stats__section' : 'stats__section hidden',
@@ -533,33 +586,58 @@ export class StatsDashboardComponent extends Component {
         this.mountFilterLists(frag);
 
         // --- Results ---------------------------------------------------------
+        //
+        // Both lists re-read from the live model inside every value binding:
+        // `$each` keeps a row while its key survives, so the closed-over tile is
+        // the one built for the window the row FIRST appeared in.
         this.$each(
-            this.ref(frag, 'results'),
-            () => resultsBlocks(model().results),
-            (block: StatsBlock, _i, track) =>
+            this.ref(frag, 'resultTiles'),
+            () => resultsTiles(model().results),
+            (tile: ResultsTile, _i, track) =>
                 this.wireEl(
-                    resultTpl,
+                    resultTileTpl,
                     {
-                        title: () => (block.kind === 'figure' ? block.title : ''),
-                        hint: () => (block.kind === 'figure' ? (block.hint ?? '') : ''),
-                        // Re-read from the live model so a window change refreshes
-                        // the row in place; the id list decides only whether it is
-                        // there at all.
+                        tile: {
+                            className: () =>
+                                (this.tileNow(tile.id) ?? tile).hero ? 'rtile rtile--hero' : 'rtile',
+                        },
                         value: {
-                            textContent: () => {
-                                const live = resultsBlocks(model().results).find(
-                                    (b) => b.id === block.id,
-                                );
-                                const b = live ?? block;
-                                return b.kind === 'figure'
-                                    ? (b.value ?? STATS_COPY.notRecorded)
-                                    : '';
-                            },
+                            textContent: () => (this.tileNow(tile.id) ?? tile).value,
+                        },
+                        label: {
+                            textContent: () => (this.tileNow(tile.id) ?? tile).label,
+                        },
+                        qualifier: {
+                            textContent: () => (this.tileNow(tile.id) ?? tile).qualifier ?? '',
                         },
                     },
                     track,
                 ),
-            (block) => block.id,
+            (tile) => tile.id,
+        );
+
+        this.$each(
+            this.ref(frag, 'resultHist'),
+            () => resultsHistogram(model().results),
+            (row: ResultsHistogramRow, _i, track) =>
+                this.wireEl(
+                    scoreTypeTpl,
+                    {
+                        title: () => row.title,
+                        bar: {
+                            // Neutral (brass) for every bucket: these are shares
+                            // of a whole, not judgements, and the label already
+                            // says which end is good.
+                            innerHTML: () =>
+                                renderMiniBar((this.histNow(row.id) ?? row).share, this.colors),
+                        },
+                        value: {
+                            textContent: () => (this.histNow(row.id) ?? row).value,
+                        },
+                    },
+                    track,
+                ),
+            (row) => row.id,
         );
 
         // --- Practice priorities ---------------------------------------------
@@ -855,6 +933,14 @@ export class StatsDashboardComponent extends Component {
 
     private roundNow(id: string): StatsRoundRow | undefined {
         return this.svc.model.get().rounds.find((r) => r.id === id);
+    }
+
+    private tileNow(id: string): ResultsTile | undefined {
+        return resultsTiles(this.svc.model.get().results).find((tile) => tile.id === id);
+    }
+
+    private histNow(id: ResultsHistogramRow['id']): ResultsHistogramRow | undefined {
+        return resultsHistogram(this.svc.model.get().results).find((row) => row.id === id);
     }
 
     // --- Copy ----------------------------------------------------------------

@@ -266,7 +266,12 @@ test('the round view is the hand-computed arithmetic of the worked example', asy
         strokesPar4: 17,
         holesScoredPar5: 1,
         strokesPar5: 6,
-        doubleBogeyPlus: 1,
+        // The five score-type buckets partition the six scored holes.
+        holesEagleOrBetter: 0,
+        holesBirdie: 2, // H3 (2 on a par 3), H5 (3 on a par 4)
+        holesPar: 2, // H1, H6
+        holesBogey: 1, // H4 (6 on a par 5)
+        doubleBogeyPlus: 1, // H2 (6 on a par 4)
         girHolesScored: 3,
         birdiesOnGir: 1,
         // H3 follows H2's double and is a birdie.
@@ -312,6 +317,95 @@ test('the round view is the hand-computed arithmetic of the worked example', asy
         puttsTotal4To8mResolved: 0,
         puttsTotalOver8mResolved: 3,
     });
+});
+
+test('the five score-type buckets partition the scored holes', async () => {
+    const f = await workedExample();
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(
+        m.holesEagleOrBetter + m.holesBirdie + m.holesPar + m.holesBogey + m.doubleBogeyPlus,
+    ).toBe(m.holesScored);
+});
+
+/**
+ * Five holes, all par 4 (H1, H2, H5, H6, H7 of `PARS`):
+ *
+ *  H1 4 strokes — green hit                              → par
+ *  H2 PICKED UP — green hit, then the ball came up
+ *  H5 6 strokes — off the fairway                        → double bogey
+ *  H6 PICKED UP — off the fairway, immediately after the double
+ *  H7 4 strokes — nothing recorded                       → par
+ */
+test('a picked-up ball is unscored, not a hole in zero', async () => {
+    const f = await fixture();
+    await f.stat(1, 'gir', '1');
+    await f.score(1, 4); // par 4 in 4
+    await f.stat(2, 'gir', '1'); // green hit …
+    await f.score(2, 0); // … then picked up: par 4, strokes 0
+    await f.stat(5, 'tee_result', 'fairway');
+    await f.score(5, 6); // double bogey
+    await f.stat(6, 'tee_result', 'fairway');
+    await f.score(6, 0); // picked up off the fairway
+    await f.score(7, 4);
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    // The pickup holes are outside every scoring denominator …
+    expect(m.holesScored).toBe(3);
+    expect(m.strokesTotal).toBe(14);
+    expect(m.parTotal).toBe(12);
+    expect(m.holesScoredPar4).toBe(3);
+    expect(m.strokesPar4).toBe(14);
+    // … and in no histogram bucket.
+    expect(m.holesPar).toBe(2);
+    expect(m.holesEagleOrBetter).toBe(0);
+    expect(m.holesBirdie).toBe(0);
+    expect(m.holesBogey).toBe(0);
+    expect(m.doubleBogeyPlus).toBe(1);
+    // The loudest instance of the old bug: `0 <= par - 1` counted a pickup on a
+    // green hit as a birdie.
+    expect(m.girHolesScored).toBe(1);
+    expect(m.birdiesOnGir).toBe(0);
+    // The GIR ANSWER on the pickup hole is still recorded — canonicalising the
+    // score does not erase a stat.
+    expect(m.girRecorded).toBe(2);
+    expect(m.girHits).toBe(2);
+    // A pickup breaks the bounce-back chain from BOTH sides: H6 follows the
+    // double but has no score of its own, and H7's previous hole has no score
+    // to compare to par. Neither is an opportunity, so the double goes
+    // unanswered rather than being scored against an invented hole.
+    expect(m.bounceBackOpportunities).toBe(0);
+    expect(m.bounceBackSuccesses).toBe(0);
+    // Cost of trouble reads the same way: H6 was a fairway hit, but an unscored
+    // hole has no cost, so only H5's +2 lands here.
+    expect(m.holesScoredFairway).toBe(1);
+    expect(m.strokesVsParFairway).toBe(2);
+    // The tee ANSWER survives on both, like the GIR answer above.
+    expect(m.teeRecorded).toBe(2);
+    expect(m.fairwayHits).toBe(2);
+});
+
+test('a round of nothing but pickups is not a round the player played', async () => {
+    const f = await fixture();
+    await f.score(1, 0);
+    await f.score(2, 0);
+
+    // `round_players` unions the stat arm with scored holes, and the score arm
+    // reads `hole_scores` — where the pickup has ALREADY been NULLIF'd away.
+    // Union the raw scorecard instead and this round would readmit itself with
+    // every measure at zero.
+    const summary = await f.ctx.playerStatsService.summaryForPlayer(f.playerId);
+    expect(summary.rounds).toEqual([]);
+    expect(summary.roundsWithStats).toBe(0);
+});
+
+test('the per-hole read shows a pickup as no score, like the aggregates do', async () => {
+    const f = await fixture();
+    await f.stat(1, 'gir', '1');
+    await f.score(1, 0);
+    const holes = await f.ctx.playerStatsService.roundHoleStatsForPlayer(f.roundId, f.playerId);
+    expect(holes![0]!.score).toBeNull();
 });
 
 test('unrecorded columns stay out of every denominator', async () => {
@@ -546,6 +640,12 @@ test('totals are the sum of every round measure, newest round first', async () =
         strokesPar4: 17,
         holesScoredPar5: 1,
         strokesPar5: 5,
+        // A: birdie (3 on the par 4), double (6 on the par 4), par (3 on the
+        // par 3). B: three pars. 0 + 1 + 4 + 0 + 1 = 6 = holesScored.
+        holesEagleOrBetter: 0,
+        holesBirdie: 1,
+        holesPar: 4,
+        holesBogey: 0,
         doubleBogeyPlus: 1,
         girHolesScored: 3,
         birdiesOnGir: 1,
@@ -934,7 +1034,7 @@ test('the cursor breaks ties within a date instead of dropping a round', async (
     expect(page2.nextCursor).toBeNull();
 });
 
-test('a round with scores but no stats produces no row at all', async () => {
+test('a round with scores but no stats is admitted, with scoring measures only', async () => {
     const withStats = await fixture({ date: '2026-06-01' });
     await withStats.stat(1, 'gir', '1');
 
@@ -943,32 +1043,49 @@ test('a round with scores but no stats produces no row at all', async () => {
         playerId: withStats.playerId,
         date: '2026-06-08',
     });
-    for (const hole of [1, 2, 3]) await bare.score(hole, 4);
+    for (const hole of [1, 2, 3]) await bare.score(hole, 4); // pars 4, 4, 3
 
     const summary = await withStats.ctx.playerStatsService.summaryForPlayer(withStats.playerId);
-    // A row of zeroes would drag every career average toward zero; an absent
-    // round is the honest shape.
-    expect(summary.rounds.map((r) => r.roundId)).toEqual([withStats.roundId]);
-    expect(summary.roundsWithStats).toBe(1);
-    expect(summary.totals!.holesScored).toBe(0);
+    // Newest first. A round you scored is a round you played (migration 052).
+    expect(summary.rounds.map((r) => r.roundId)).toEqual([bare.roundId, withStats.roundId]);
+    expect(summary.roundsWithStats).toBe(2);
+
+    const bareRow = summary.rounds[0]!.measures;
+    expect(bareRow.holesScored).toBe(3);
+    expect(bareRow.strokesTotal).toBe(12);
+    expect(bareRow.parTotal).toBe(11); // 4 + 4 + 3
+    expect(bareRow.holesPar).toBe(2);
+    expect(bareRow.holesBogey).toBe(1); // 4 on the par 3
+    // Every stat measure is zero WITH a zero denominator — nothing entered a
+    // numerator or a denominator that was not recorded.
+    expect(bareRow.teeRecorded).toBe(0);
+    expect(bareRow.girRecorded).toBe(0);
+    expect(bareRow.puttsRecorded).toBe(0);
+    expect(summary.totals!.holesScored).toBe(3);
 });
 
-test('a round whose every answer was cleared drops back out of the summary', async () => {
+test('clearing every answer empties the stat measures but keeps a scored round', async () => {
     const f = await fixture();
     await f.stat(1, 'gir', '1');
     await f.score(1, 4);
-    expect((await f.ctx.playerStatsService.summaryForPlayer(f.playerId)).rounds).toHaveLength(1);
-
     // Clearing leaves the projection ROW in place (migration 042 keeps it so
-    // the event log's clears stay projectable) with every column NULL. The
-    // round recorded nothing, so it must not keep feeding its SCORES into
-    // career totals.
+    // the event log's clears stay projectable) with every column NULL.
+    await f.stat(1, 'gir', null);
+
+    const summary = await f.ctx.playerStatsService.summaryForPlayer(f.playerId);
+    expect(summary.rounds).toHaveLength(1); // the SCORE keeps it in
+    expect(summary.totals!.girRecorded).toBe(0); // the cleared answer is gone
+    expect(summary.totals!.holesScored).toBe(1);
+});
+
+test('a round with neither a score nor an answer produces no row at all', async () => {
+    const f = await fixture();
+    await f.stat(1, 'gir', '1');
     await f.stat(1, 'gir', null);
 
     const summary = await f.ctx.playerStatsService.summaryForPlayer(f.playerId);
     expect(summary.rounds).toEqual([]);
     expect(summary.roundsWithStats).toBe(0);
-    expect(summary.totals!.holesScored).toBe(0);
 });
 
 test('a hole scored in two shapes reports the newer strokes, not the smaller', async () => {

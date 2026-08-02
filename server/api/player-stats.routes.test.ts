@@ -460,6 +460,31 @@ test('the per-round read is 404 for a round the caller recorded nothing in', asy
     expect(unknown.status).toBe(404);
 });
 
+test('the per-round read serves a round the caller only scored', async () => {
+    const { ctx, courseId, teeId } = await setup();
+    const player = await register(ctx, 'scoredonly');
+    await ctx.playerStatsService.putConfig(player.id, ALL_ON);
+    const { roundId, ballId, playHoles } = await roundFor(ctx, courseId, teeId, player.id);
+    const cookie = await loginAs(ctx.app, 'scoredonly', 'password123');
+
+    // No stat answer anywhere — just a score. Migration 052 admits it, and a
+    // list row that 404s when tapped would be a bug.
+    await ctx.scoreEventService.append({
+        roundId,
+        ballId,
+        playHoleId: playHoles[0]!.id,
+        strokes: 4,
+        eventType: 'score_entered',
+        clientEventId: 'scoredonly-1',
+    });
+
+    const res = await req(ctx.app, 'GET', `/api/players/me/rounds/${roundId}/stats`, undefined, cookie);
+    expect(res.status).toBe(200);
+    const holes = await res.json();
+    expect(holes[0].score).toBe(4);
+    expect(holes[0].stats.gir).toBeNull();
+});
+
 test('the per-round read never returns another player’s round', async () => {
     const { ctx, courseId, teeId } = await setup();
     const mine = await register(ctx, 'holemine');

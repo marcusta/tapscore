@@ -398,6 +398,10 @@ struct StatMeasures: Codable, Sendable, Equatable {
     var strokesPar4: Double
     var holesScoredPar5: Double
     var strokesPar5: Double
+    var holesEagleOrBetter: Double
+    var holesBirdie: Double
+    var holesPar: Double
+    var holesBogey: Double
     var doubleBogeyPlus: Double
     var girHolesScored: Double
     var birdiesOnGir: Double
@@ -479,6 +483,10 @@ struct StatMeasures: Codable, Sendable, Equatable {
         case strokesPar4 = "strokesPar4"
         case holesScoredPar5 = "holesScoredPar5"
         case strokesPar5 = "strokesPar5"
+        case holesEagleOrBetter = "holesEagleOrBetter"
+        case holesBirdie = "holesBirdie"
+        case holesPar = "holesPar"
+        case holesBogey = "holesBogey"
         case doubleBogeyPlus = "doubleBogeyPlus"
         case girHolesScored = "girHolesScored"
         case birdiesOnGir = "birdiesOnGir"
@@ -511,7 +519,7 @@ struct StatMeasures: Codable, Sendable, Equatable {
         case puttsTotalOver8mResolved = "puttsTotalOver8mResolved"
     }
 
-    init(teeRecorded: Double, fairwayHits: Double, inPlayHits: Double, troubleCount: Double, girRecorded: Double, girHits: Double, firstPuttRecorded: Double, firstPuttInside1m: Double, firstPutt1To2m: Double, firstPutt2To4m: Double, firstPutt4To8m: Double, firstPuttOver8m: Double, firstPuttInside1mResolved: Double, firstPutt1To2mResolved: Double, firstPutt2To4mResolved: Double, firstPutt4To8mResolved: Double, firstPuttOver8mResolved: Double, onePuttInside1m: Double, onePutt1To2m: Double, onePutt2To4m: Double, onePutt4To8m: Double, onePuttOver8m: Double, puttsRecorded: Double, puttsTotal: Double, threePutts: Double, threePuttsFromOver8m: Double, scrambleAttemptsStandard: Double, scrambleSuccessesStandard: Double, scrambleAttemptsHard: Double, scrambleSuccessesHard: Double, scrambleFirstPuttStandard: Double, scrambleInside2mStandard: Double, scrambleFirstPuttHard: Double, scrambleInside2mHard: Double, scrambleHoledStandard: Double, scrambleHoledHard: Double, penaltiesRecorded: Double, penaltiesTotal: Double, recoveryAttempts: Double, recoverySuccesses: Double, holesScored: Double, strokesTotal: Double, parTotal: Double, holesScoredPar3: Double, strokesPar3: Double, holesScoredPar4: Double, strokesPar4: Double, holesScoredPar5: Double, strokesPar5: Double, doubleBogeyPlus: Double, girHolesScored: Double, birdiesOnGir: Double, bounceBackOpportunities: Double, bounceBackSuccesses: Double, holesScoredFairway: Double, strokesVsParFairway: Double, holesScoredInPlay: Double, strokesVsParInPlay: Double, holesScoredTrouble: Double, strokesVsParTrouble: Double, girRecordedFairway: Double, girHitsFairway: Double, girRecordedInPlay: Double, girHitsInPlay: Double, girRecordedTrouble: Double, girHitsTrouble: Double, girFirstPuttRecorded: Double, girFirstPuttInside1m: Double, girFirstPutt1To2m: Double, girFirstPutt2To4m: Double, girFirstPutt4To8m: Double, girFirstPuttOver8m: Double, puttsRecordedGir: Double, puttsTotalGir: Double, puttsTotalInside1mResolved: Double, puttsTotal1To2mResolved: Double, puttsTotal2To4mResolved: Double, puttsTotal4To8mResolved: Double, puttsTotalOver8mResolved: Double) {
+    init(teeRecorded: Double, fairwayHits: Double, inPlayHits: Double, troubleCount: Double, girRecorded: Double, girHits: Double, firstPuttRecorded: Double, firstPuttInside1m: Double, firstPutt1To2m: Double, firstPutt2To4m: Double, firstPutt4To8m: Double, firstPuttOver8m: Double, firstPuttInside1mResolved: Double, firstPutt1To2mResolved: Double, firstPutt2To4mResolved: Double, firstPutt4To8mResolved: Double, firstPuttOver8mResolved: Double, onePuttInside1m: Double, onePutt1To2m: Double, onePutt2To4m: Double, onePutt4To8m: Double, onePuttOver8m: Double, puttsRecorded: Double, puttsTotal: Double, threePutts: Double, threePuttsFromOver8m: Double, scrambleAttemptsStandard: Double, scrambleSuccessesStandard: Double, scrambleAttemptsHard: Double, scrambleSuccessesHard: Double, scrambleFirstPuttStandard: Double, scrambleInside2mStandard: Double, scrambleFirstPuttHard: Double, scrambleInside2mHard: Double, scrambleHoledStandard: Double, scrambleHoledHard: Double, penaltiesRecorded: Double, penaltiesTotal: Double, recoveryAttempts: Double, recoverySuccesses: Double, holesScored: Double, strokesTotal: Double, parTotal: Double, holesScoredPar3: Double, strokesPar3: Double, holesScoredPar4: Double, strokesPar4: Double, holesScoredPar5: Double, strokesPar5: Double, holesEagleOrBetter: Double, holesBirdie: Double, holesPar: Double, holesBogey: Double, doubleBogeyPlus: Double, girHolesScored: Double, birdiesOnGir: Double, bounceBackOpportunities: Double, bounceBackSuccesses: Double, holesScoredFairway: Double, strokesVsParFairway: Double, holesScoredInPlay: Double, strokesVsParInPlay: Double, holesScoredTrouble: Double, strokesVsParTrouble: Double, girRecordedFairway: Double, girHitsFairway: Double, girRecordedInPlay: Double, girHitsInPlay: Double, girRecordedTrouble: Double, girHitsTrouble: Double, girFirstPuttRecorded: Double, girFirstPuttInside1m: Double, girFirstPutt1To2m: Double, girFirstPutt2To4m: Double, girFirstPutt4To8m: Double, girFirstPuttOver8m: Double, puttsRecordedGir: Double, puttsTotalGir: Double, puttsTotalInside1mResolved: Double, puttsTotal1To2mResolved: Double, puttsTotal2To4mResolved: Double, puttsTotal4To8mResolved: Double, puttsTotalOver8mResolved: Double) {
         self.teeRecorded = teeRecorded
         self.fairwayHits = fairwayHits
         self.inPlayHits = inPlayHits
@@ -561,6 +569,10 @@ struct StatMeasures: Codable, Sendable, Equatable {
         self.strokesPar4 = strokesPar4
         self.holesScoredPar5 = holesScoredPar5
         self.strokesPar5 = strokesPar5
+        self.holesEagleOrBetter = holesEagleOrBetter
+        self.holesBirdie = holesBirdie
+        self.holesPar = holesPar
+        self.holesBogey = holesBogey
         self.doubleBogeyPlus = doubleBogeyPlus
         self.girHolesScored = girHolesScored
         self.birdiesOnGir = birdiesOnGir
@@ -644,6 +656,10 @@ struct StatMeasures: Codable, Sendable, Equatable {
         self.strokesPar4 = try c.decode(Double.self, forKey: .strokesPar4)
         self.holesScoredPar5 = try c.decode(Double.self, forKey: .holesScoredPar5)
         self.strokesPar5 = try c.decode(Double.self, forKey: .strokesPar5)
+        self.holesEagleOrBetter = try c.decode(Double.self, forKey: .holesEagleOrBetter)
+        self.holesBirdie = try c.decode(Double.self, forKey: .holesBirdie)
+        self.holesPar = try c.decode(Double.self, forKey: .holesPar)
+        self.holesBogey = try c.decode(Double.self, forKey: .holesBogey)
         self.doubleBogeyPlus = try c.decode(Double.self, forKey: .doubleBogeyPlus)
         self.girHolesScored = try c.decode(Double.self, forKey: .girHolesScored)
         self.birdiesOnGir = try c.decode(Double.self, forKey: .birdiesOnGir)
@@ -727,6 +743,10 @@ struct StatMeasures: Codable, Sendable, Equatable {
         try c.encode(strokesPar4, forKey: .strokesPar4)
         try c.encode(holesScoredPar5, forKey: .holesScoredPar5)
         try c.encode(strokesPar5, forKey: .strokesPar5)
+        try c.encode(holesEagleOrBetter, forKey: .holesEagleOrBetter)
+        try c.encode(holesBirdie, forKey: .holesBirdie)
+        try c.encode(holesPar, forKey: .holesPar)
+        try c.encode(holesBogey, forKey: .holesBogey)
         try c.encode(doubleBogeyPlus, forKey: .doubleBogeyPlus)
         try c.encode(girHolesScored, forKey: .girHolesScored)
         try c.encode(birdiesOnGir, forKey: .birdiesOnGir)

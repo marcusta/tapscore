@@ -419,21 +419,30 @@ final class StatsDashboardModelTests: XCTestCase {
 
     // MARK: - 8. Results
 
-    func testResultsCountEveryRoundAndAverageOnlyTheCompleteEighteens() throws {
+    func testResultsNormaliseVsParAndSplitBestByLength() throws {
         let complete = measures {
             $0.holesScored = 18
             $0.strokesTotal = 84
             $0.parTotal = 72
+            $0.holesBirdie = 1
+            $0.holesPar = 4
+            $0.holesBogey = 13
         }
         let low = measures {
             $0.holesScored = 18
             $0.strokesTotal = 79
             $0.parTotal = 72
+            $0.holesEagleOrBetter = 1
+            $0.holesBirdie = 2
+            $0.holesPar = 4
+            $0.holesBogey = 11
         }
         var nine = row("c", date: "2026-07-01", measures {
             $0.holesScored = 9
             $0.strokesTotal = 44
             $0.parTotal = 36
+            $0.holesPar = 1
+            $0.holesBogey = 8
         })
         nine.holeCount = 9
 
@@ -447,11 +456,27 @@ final class StatsDashboardModelTests: XCTestCase {
 
         let r = try XCTUnwrap(model.results)
         XCTAssertEqual(r.rounds, 4)
-        XCTAssertEqual(r.completeRounds, 2)
-        XCTAssertEqual(r.averageScore, Rate(value: 81.5, n: 163, d: 2))
-        XCTAssertEqual(r.bestScore, 79)
-        // Vs par takes the nine in: 12 + 7 + 8 over three scored rounds.
-        XCTAssertEqual(r.avgVsParPerRound, Rate(value: 9, n: 27, d: 3))
+        XCTAssertEqual(r.scoredRounds, 3)
+        XCTAssertEqual(r.holesScored, 45)
+        XCTAssertEqual(r.holesExpected, 63)
+        XCTAssertEqual(
+            r.lengths,
+            [
+                ResultsLengthClass(
+                    holeCount: 18, rounds: 3, completeRounds: 2,
+                    best: ResultsBest(vsPar: 7, strokes: 79)),
+                ResultsLengthClass(
+                    holeCount: 9, rounds: 1, completeRounds: 1,
+                    best: ResultsBest(vsPar: 8, strokes: 44)),
+            ])
+        // The nine is first class: 12 + 7 + 8 = 27 over 45 scored holes, × 18.
+        XCTAssertEqual(r.avgVsParPer18, Rate(value: 10.8, n: 486, d: 45))
+        XCTAssertEqual(
+            r.scoreTypeCounts,
+            [.eagleOrBetter: 1, .birdie: 3, .par: 9, .bogey: 32, .doubleBogeyPlus: 0])
+        XCTAssertEqual(StatsFormat.resultsSubtitle(r), "4 rounds — 3 × 18 holes, 1 × 9 holes")
+        XCTAssertEqual(StatsDashboardView.resultsTiles(r).first?.value, "+10.8")
+        XCTAssertEqual(StatsDashboardView.resultsTiles(r).first?.qualifier, "over 45 holes")
         // Results is a SECTION, not a module: it changes nothing about which
         // panels the window produces.
         XCTAssertEqual(model.presentPanels, [.scoring])

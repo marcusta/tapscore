@@ -94,6 +94,10 @@ enum StatsFormat {
         static let rounds = SampleUnit.regular("round")
         static let holes = SampleUnit.regular("hole")
         static let greens = SampleUnit.regular("green")
+
+        /// The denominator of the best-round qualifier. Not a regular plural —
+        /// the adjective sits in front of the noun that takes the `s`.
+        static let completeRounds = SampleUnit("complete round", "complete rounds")
     }
 
     /// What a thin sample is called, in words. The app's standing rule: an
@@ -210,6 +214,30 @@ enum StatsFormat {
         return signedNumber(value, decimals: value == value.rounded() ? 0 : 1)
     }
 
+    // MARK: Results
+
+    /// The line under the Results heading: how many rounds, and of what lengths.
+    ///
+    /// The round COUNT lives here rather than in a figure row inside the card,
+    /// because it is the sample every figure below it is drawn from and it has
+    /// to agree with the round list further down the screen — including
+    /// score-only and stats-only rounds.
+    ///
+    /// `—` is U+2014 with a space either side; `×` is U+00D7 with a space either
+    /// side. Both are shared verbatim with the web twin.
+    static func resultsSubtitle(_ results: ResultsSummary?) -> String {
+        guard let results, results.rounds > 0 else { return "" }
+        let head = quantity(Double(results.rounds), .rounds)
+        // One length: naming the mix would just repeat the count.
+        if results.lengths.count == 1 {
+            return "\(head) \u{2014} \(quantity(results.lengths[0].holeCount, .holes))"
+        }
+        let mix = results.lengths
+            .map { "\(count(Double($0.rounds))) \u{00D7} \(quantity($0.holeCount, .holes))" }
+            .joined(separator: ", ")
+        return "\(head) \u{2014} \(mix)"
+    }
+
     // MARK: Vocabulary
 
     static func title(_ component: StrokesLostComponent) -> String {
@@ -242,6 +270,16 @@ enum StatsFormat {
         case .twoTo4m: return "2–4 m"
         case .fourTo8m: return "4–8 m"
         case .over8m: return "Over 8 m"
+        }
+    }
+
+    static func title(_ type: ScoreType) -> String {
+        switch type {
+        case .eagleOrBetter: return "Eagle or better"
+        case .birdie: return "Birdie"
+        case .par: return "Par"
+        case .bogey: return "Bogey"
+        case .doubleBogeyPlus: return "Doubles or worse"
         }
     }
 

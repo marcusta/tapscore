@@ -9,6 +9,7 @@ import {
     INSIGHT_BEST_PUTTING_MIN_WINDOW,
     MIN_RATE_DENOMINATOR,
     PUTT_BUCKETS,
+    SCORE_TYPES,
     STROKES_LOST_COMPONENTS,
     ZERO_MEASURES,
     avgVsParByParGroup,
@@ -119,6 +120,13 @@ const WORKED_EXAMPLE: StatMeasures = measures({
     strokesPar4: 17,
     holesScoredPar5: 1,
     strokesPar5: 6,
+    // The five buckets partition the six scored holes: 0 + 2 + 2 + 1 + 1 = 6.
+    // H3 (2 on a par 3) and H5 (3 on a par 4) are the birdies; H1 and H6 the
+    // pars; H4 (6 on a par 5) the bogey; H2 (6 on a par 4) the double.
+    holesEagleOrBetter: 0,
+    holesBirdie: 2,
+    holesPar: 2,
+    holesBogey: 1,
     doubleBogeyPlus: 1,
     girHolesScored: 3,
     birdiesOnGir: 1,
@@ -192,18 +200,39 @@ const CHIP_MIX: StatMeasures = measures({
     holesScored: 18,
     strokesTotal: 84,
     parTotal: 72,
+    // 0 + 1 + 4 + 13 + 0 = 18 scored holes, and −1 + 0 + 13 = +12 vs par, which
+    // is `strokesTotal − parTotal`. A histogram has to reproduce both or the
+    // card's percentages and its headline would be telling different stories.
+    holesEagleOrBetter: 0,
+    holesBirdie: 1,
+    holesPar: 4,
+    holesBogey: 13,
+    doubleBogeyPlus: 0,
 });
 
-/** A nine: a real round, and never a complete eighteen. */
-const NINE_HOLE: StatMeasures = measures({ holesScored: 9, strokesTotal: 44, parTotal: 36 });
+/** A nine: a real round, and a first-class one. Buckets 0+0+1+8+0 = 9, vs par +8. */
+const NINE_HOLE: StatMeasures = measures({
+    holesScored: 9,
+    strokesTotal: 44,
+    parTotal: 36,
+    holesPar: 1,
+    holesBogey: 8,
+});
 
-/** The window's best eighteen. */
-const LOW_ROUND: StatMeasures = measures({ holesScored: 18, strokesTotal: 79, parTotal: 72 });
+/** The window's best eighteen. Buckets 1+2+4+11+0 = 18, vs par −2 − 2 + 11 = +7. */
+const LOW_ROUND: StatMeasures = measures({
+    holesScored: 18,
+    strokesTotal: 79,
+    parTotal: 72,
+    holesEagleOrBetter: 1,
+    holesBirdie: 2,
+    holesPar: 4,
+    holesBogey: 11,
+});
 
 /**
- * Five rounds covering every branch of the two denominators: a part round, a
- * complete eighteen, a nine, a stats-only round with no card at all, and the low
- * round.
+ * Five rounds covering every branch: a part round, a complete eighteen, a nine,
+ * a stats-only round with no card at all, and the low round.
  */
 const RESULTS_ROWS: readonly ResultsRow[] = [
     { holeCount: 18, measures: WORKED_EXAMPLE },
@@ -308,36 +337,40 @@ const SWEEP: StatMeasures = {
     strokesPar4: 47,
     holesScoredPar5: 48,
     strokesPar5: 49,
-    doubleBogeyPlus: 50,
-    girHolesScored: 51,
-    birdiesOnGir: 52,
-    bounceBackOpportunities: 53,
-    bounceBackSuccesses: 54,
-    holesScoredFairway: 55,
-    strokesVsParFairway: 56,
-    holesScoredInPlay: 57,
-    strokesVsParInPlay: 58,
-    holesScoredTrouble: 59,
-    strokesVsParTrouble: 60,
-    girRecordedFairway: 61,
-    girHitsFairway: 62,
-    girRecordedInPlay: 63,
-    girHitsInPlay: 64,
-    girRecordedTrouble: 65,
-    girHitsTrouble: 66,
-    girFirstPuttRecorded: 67,
-    girFirstPuttInside1m: 68,
-    girFirstPutt1To2m: 69,
-    girFirstPutt2To4m: 70,
-    girFirstPutt4To8m: 71,
-    girFirstPuttOver8m: 72,
-    puttsRecordedGir: 73,
-    puttsTotalGir: 74,
-    puttsTotalInside1mResolved: 75,
-    puttsTotal1To2mResolved: 76,
-    puttsTotal2To4mResolved: 77,
-    puttsTotal4To8mResolved: 78,
-    puttsTotalOver8mResolved: 79,
+    holesEagleOrBetter: 50,
+    holesBirdie: 51,
+    holesPar: 52,
+    holesBogey: 53,
+    doubleBogeyPlus: 54,
+    girHolesScored: 55,
+    birdiesOnGir: 56,
+    bounceBackOpportunities: 57,
+    bounceBackSuccesses: 58,
+    holesScoredFairway: 59,
+    strokesVsParFairway: 60,
+    holesScoredInPlay: 61,
+    strokesVsParInPlay: 62,
+    holesScoredTrouble: 63,
+    strokesVsParTrouble: 64,
+    girRecordedFairway: 65,
+    girHitsFairway: 66,
+    girRecordedInPlay: 67,
+    girHitsInPlay: 68,
+    girRecordedTrouble: 69,
+    girHitsTrouble: 70,
+    girFirstPuttRecorded: 71,
+    girFirstPuttInside1m: 72,
+    girFirstPutt1To2m: 73,
+    girFirstPutt2To4m: 74,
+    girFirstPutt4To8m: 75,
+    girFirstPuttOver8m: 76,
+    puttsRecordedGir: 77,
+    puttsTotalGir: 78,
+    puttsTotalInside1mResolved: 79,
+    puttsTotal1To2mResolved: 80,
+    puttsTotal2To4mResolved: 81,
+    puttsTotal4To8mResolved: 82,
+    puttsTotalOver8mResolved: 83,
 };
 
 test('every measure column is additive, including the ones no rate reads', () => {
@@ -345,8 +378,8 @@ test('every measure column is additive, including the ones no rate reads', () =>
     // The count is asserted (and mirrored in the Swift twin) so that a field
     // added to the server's measure set and forgotten here is caught, rather
     // than sweeping a smaller set and passing.
-    expect(keys).toHaveLength(79);
-    expect(new Set(Object.values(SWEEP)).size).toBe(79);
+    expect(keys).toHaveLength(83);
+    expect(new Set(Object.values(SWEEP)).size).toBe(83);
 
     // Key-by-key rather than spot checks: a column missing from `addMeasures`
     // would read as its first round's value forever, and only a full sweep sees
@@ -800,30 +833,77 @@ test('the raw first-putt spread shares the putting card denominator and sums to 
     expect(firstPuttMix(ZERO_MEASURES, 'inside_1m')).toEqual({ value: null, n: 0, d: 0 });
 });
 
-test('the results summary keeps its two denominators apart', () => {
+test('the results summary normalises vs par per eighteen holes', () => {
     const r = resultsSummary(RESULTS_ROWS);
     // Every row is a round the player played, including the one with no card.
     expect(r.rounds).toBe(5);
-    // Only the two COMPLETE eighteens: 84 and 79.
-    expect(r.completeRounds).toBe(2);
-    expect([r.averageScore.value, r.averageScore.n, r.averageScore.d]).toEqual([81.5, 163, 2]);
-    expect(rateDisplay(r.averageScore)).toBe('fraction');
-    expect(r.bestScore).toBe(79);
-    // Vs par is already per-hole-normalised, so it takes every round with a
-    // score — the six-hole partial and the nine included, the cardless one not.
-    expect([r.avgVsParPerRound.value, r.avgVsParPerRound.n, r.avgVsParPerRound.d]).toEqual([
-        7, 28, 4,
+    expect(r.scoredRounds).toBe(4);
+    // Postel: the six-hole part round contributes its six holes, it is not
+    // thrown away for being incomplete.
+    expect(r.holesScored).toBe(6 + 18 + 9 + 0 + 18);
+    // What the window WOULD have scored had every round finished: 4 × 18 + 9.
+    expect(r.holesExpected).toBe(81);
+
+    // Longest first, and every row counted in its class whether it scored or not.
+    expect(r.lengths).toEqual([
+        { holeCount: 18, rounds: 4, completeRounds: 2, best: { vsPar: 7, strokes: 79 } },
+        { holeCount: 9, rounds: 1, completeRounds: 1, best: { vsPar: 8, strokes: 44 } },
     ]);
-    expect(rateDisplay(r.avgVsParPerRound)).toBe('fraction');
+
+    // Σ vs par = 1 + 12 + 8 + 7 = 28, over 51 scored holes, scaled to eighteen.
+    expect([r.avgVsParPer18.n, r.avgVsParPer18.d]).toEqual([504, 51]);
+    expect(r.avgVsParPer18.value).toBeCloseTo(504 / 51, 10);
+
+    expect(r.scoreTypeCounts).toEqual({
+        eagleOrBetter: 1,
+        birdie: 5,
+        par: 11,
+        bogey: 33,
+        doubleBogeyPlus: 1,
+    });
+    // The five buckets partition the scored holes — the property the card's
+    // percentages rest on.
+    const bucketed = SCORE_TYPES.reduce((acc, k) => acc + r.scoreTypeCounts[k], 0);
+    expect(bucketed).toBe(r.holesScored);
 });
 
 test('an empty window of rounds summarises as absent, never as zero', () => {
     const r = resultsSummary([]);
     expect(r.rounds).toBe(0);
-    expect(r.completeRounds).toBe(0);
-    expect(r.averageScore).toEqual({ value: null, n: 0, d: 0 });
-    expect(r.bestScore).toBeNull();
-    expect(r.avgVsParPerRound).toEqual({ value: null, n: 0, d: 0 });
+    expect(r.scoredRounds).toBe(0);
+    expect(r.holesScored).toBe(0);
+    expect(r.holesExpected).toBe(0);
+    expect(r.lengths).toEqual([]);
+    expect(r.avgVsParPer18).toEqual({ value: null, n: 0, d: 0 });
+    expect(r.scoreTypeCounts).toEqual({
+        eagleOrBetter: 0,
+        birdie: 0,
+        par: 0,
+        bogey: 0,
+        doubleBogeyPlus: 0,
+    });
+});
+
+test('best round is per length class, and only over rounds complete for their length', () => {
+    // A nine and a part eighteen: the nine has a best, the eighteen has none —
+    // an unfinished round is not a round to be best, whatever its total says.
+    const r = resultsSummary([
+        { holeCount: 18, measures: WORKED_EXAMPLE },
+        { holeCount: 9, measures: NINE_HOLE },
+    ]);
+    expect(r.lengths).toEqual([
+        { holeCount: 18, rounds: 1, completeRounds: 0, best: null },
+        { holeCount: 9, rounds: 1, completeRounds: 1, best: { vsPar: 8, strokes: 44 } },
+    ]);
+
+    // A tie goes to the FIRST row in input order — callers pass newest first,
+    // so the more recent round is the one whose strokes are annotated. Both
+    // platforms tie the same way or the annotation could differ.
+    const tied = resultsSummary([
+        { holeCount: 18, measures: measures({ holesScored: 18, strokesTotal: 79, parTotal: 72 }) },
+        { holeCount: 18, measures: measures({ holesScored: 18, strokesTotal: 80, parTotal: 73 }) },
+    ]);
+    expect(tied.lengths[0]!.best).toEqual({ vsPar: 7, strokes: 79 });
 });
 
 test('the waterfall is additive, so a window sums the same way the counts do', () => {

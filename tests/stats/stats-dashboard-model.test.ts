@@ -103,8 +103,9 @@ test('short game opens on scramble ATTEMPTS across both difficulties', () => {
 });
 
 test('the results summary is built from the ROWS, not from the window sum', () => {
-    // Two nines sum to eighteen holes and are not a round: the 18-hole gate and
-    // the best score are per-round facts a summed window would destroy.
+    // Two nines sum to eighteen holes and are not a round: the best round is a
+    // per-round fact a summed window would destroy. Nines are first class —
+    // wave 1 reported no best score at all here, because neither was an 18.
     const model = buildDashboardModel([
         row({
             roundId: 'a',
@@ -120,11 +121,15 @@ test('the results summary is built from the ROWS, not from the window sum', () =
         }),
     ]);
     expect(model.results!.rounds).toBe(2);
-    expect(model.results!.completeRounds).toBe(0);
-    expect(model.results!.bestScore).toBeNull();
-    expect(model.results!.averageScore).toEqual({ value: null, n: 0, d: 0 });
-    // Vs par is per-hole-normalised, so the nines count: (8 + 7) / 2.
-    expect(model.results!.avgVsParPerRound).toEqual({ value: 7.5, n: 15, d: 2 });
+    expect(model.results!.scoredRounds).toBe(2);
+    expect(model.results!.holesScored).toBe(18);
+    // Nothing is missing, so the hero prints no denominator line.
+    expect(model.results!.holesExpected).toBe(18);
+    expect(model.results!.lengths).toEqual([
+        { holeCount: 9, rounds: 2, completeRounds: 2, best: { vsPar: 7, strokes: 43 } },
+    ]);
+    // (8 + 7) vs par over 18 scored holes, scaled to eighteen: 15 per 18.
+    expect(model.results!.avgVsParPer18).toEqual({ value: 15, n: 270, d: 18 });
     // Not a panel — it is gated on nothing but an empty window.
     expect(presentPanels(model)).toEqual(['scoring']);
     expect(EMPTY_DASHBOARD_MODEL.results).toBeNull();

@@ -103,6 +103,10 @@ export interface StatMeasures {
     strokesPar4: number;
     holesScoredPar5: number;
     strokesPar5: number;
+    holesEagleOrBetter: number;
+    holesBirdie: number;
+    holesPar: number;
+    holesBogey: number;
     doubleBogeyPlus: number;
     girHolesScored: number;
     birdiesOnGir: number;

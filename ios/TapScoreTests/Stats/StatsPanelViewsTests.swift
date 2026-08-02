@@ -160,28 +160,139 @@ final class StatsPanelViewsTests: XCTestCase {
 
     // MARK: - Results
 
-    /// An omitted results row is ABSENT, not "Not recorded": a window of
-    /// nine-holers has no 18-hole average, and a placeholder for it answers a
-    /// question nobody asked.
-    func testTheResultsRowsAppearOnlyWhenTheyHaveSomethingToSay() {
-        let nothing = StatMeasuresMath.resultsSummary([
+    /// A scored round of a given length, with its score-type histogram. The
+    /// buckets sum to `scored` and reproduce `strokes − par`, exactly as the
+    /// server's five partitioning columns do.
+    private func scoringRow(
+        holeCount: Double, scored: Double, strokes: Double, par: Double,
+        eagle: Double = 0, birdie: Double = 0, pars: Double = 0, bogey: Double = 0,
+        double: Double = 0
+    ) -> ResultsRow {
+        var m = StatMeasuresMath.zero
+        m.holesScored = scored
+        m.strokesTotal = strokes
+        m.parTotal = par
+        m.holesEagleOrBetter = eagle
+        m.holesBirdie = birdie
+        m.holesPar = pars
+        m.holesBogey = bogey
+        m.doubleBogeyPlus = double
+        return ResultsRow(holeCount: holeCount, measures: m)
+    }
+
+    /// The shared five-row window, field for field the web twin's fixture: a
+    /// part round on an 18-hole card, two complete eighteens, a nine, and a
+    /// stats-only round with no score at all. Every string below is the parity
+    /// oracle — the web implementation must produce them byte for byte.
+    private var resultsRows: [ResultsRow] {
+        [
+            scoringRow(
+                holeCount: 18, scored: 6, strokes: 25, par: 24,
+                birdie: 2, pars: 2, bogey: 1, double: 1),
+            scoringRow(
+                holeCount: 18, scored: 18, strokes: 84, par: 72,
+                birdie: 1, pars: 4, bogey: 13),
+            scoringRow(holeCount: 9, scored: 9, strokes: 44, par: 36, pars: 1, bogey: 8),
+            ResultsRow(holeCount: 18, measures: StatMeasuresMath.zero),
+            scoringRow(
+                holeCount: 18, scored: 18, strokes: 79, par: 72,
+                eagle: 1, birdie: 2, pars: 4, bogey: 11),
+        ]
+    }
+
+    func testTheResultsCardReadsAsTheHeadlineNumberItsLabelAndOneQualifier() {
+        let summary = StatMeasuresMath.resultsSummary(resultsRows)
+
+        // The round count lives in the SECTION subtitle, so no "Rounds" row has
+        // to compete with the figures inside the card.
+        XCTAssertEqual(
+            StatsFormat.resultsSubtitle(summary), "5 rounds — 4 × 18 holes, 1 × 9 holes")
+
+        let tiles = StatsDashboardView.resultsTiles(summary)
+        XCTAssertEqual(tiles.map(\.id), ["avgVsPar", "best-18", "best-9"])
+        XCTAssertEqual(tiles.map(\.hero), [true, false, false])
+
+        // An AVERAGE, so the signed-average voice: 504 / 51 = 9.88…
+        XCTAssertEqual(tiles[0].label, "Average vs par per 18")
+        XCTAssertEqual(tiles[0].value, "+9.9")
+        // 51 scored holes against the 81 those five rounds could have carried —
+        // the divergence is what puts the line there at all.
+        XCTAssertEqual(tiles[0].qualifier, "over 51 holes")
+
+        // One real round each, so the scorecard voice, and the absolute total is
+        // demoted to the annotation.
+        XCTAssertEqual(tiles[1].label, "Best 18")
+        XCTAssertEqual(tiles[1].value, "+7")
+        XCTAssertEqual(tiles[1].qualifier, "79 strokes, from 2 complete rounds")
+        // Every nine in the window was complete, so no "from …" half.
+        XCTAssertEqual(tiles[2].label, "Best 9")
+        XCTAssertEqual(tiles[2].value, "+8")
+        XCTAssertEqual(tiles[2].qualifier, "44 strokes")
+
+        let histogram = StatsDashboardView.resultsHistogram(summary)
+        XCTAssertEqual(histogram.map(\.id), ScoreType.allCases)
+        XCTAssertEqual(
+            histogram.map(\.title),
+            ["Eagle or better", "Birdie", "Par", "Bogey", "Doubles or worse"])
+        // 1/51 = 2%, 5/51 = 10%, 11/51 = 22%, 33/51 = 65%. They sum to 101, and
+        // no correction is applied — a rounded percentage is a reading, not a
+        // budget.
+        XCTAssertEqual(
+            histogram.map(\.value), ["1 (2%)", "5 (10%)", "11 (22%)", "33 (65%)", "1 (2%)"])
+        for (row, count) in zip(histogram, [1.0, 5, 11, 33, 1]) {
+            guard let share = row.share else {
+                return XCTFail("51 scored holes clears the floor, so every bar is drawn")
+            }
+            XCTAssertEqual(share, count / 51, accuracy: 1e-12)
+        }
+    }
+
+    /// A window too thin for a percentage still says everything it honestly
+    /// can: the average exists, the counts print bare, and no bar is drawn.
+    func testAThinWindowKeepsItsFiguresAndDropsItsBars() {
+        // One 18-hole card with three holes on it: par 4 in 4, par 4 in 5, par 3
+        // in 2 — level par over the holes that were scored.
+        let summary = StatMeasuresMath.resultsSummary([
+            scoringRow(holeCount: 18, scored: 3, strokes: 11, par: 11, birdie: 1, pars: 1, bogey: 1)
+        ])
+
+        XCTAssertEqual(StatsFormat.resultsSubtitle(summary), "1 round — 18 holes")
+
+        let tiles = StatsDashboardView.resultsTiles(summary)
+        // No best tile: the round is not complete for its own length, so it is
+        // not comparable as a round.
+        XCTAssertEqual(tiles.map(\.id), ["avgVsPar"])
+        // Level par prints without a sign, and never as "−0.0".
+        XCTAssertEqual(tiles[0].value, "0.0")
+        XCTAssertEqual(tiles[0].qualifier, "over 3 holes")
+
+        let histogram = StatsDashboardView.resultsHistogram(summary)
+        XCTAssertEqual(histogram.map(\.value), ["0", "1", "1", "1", "0"])
+        XCTAssertTrue(histogram.allSatisfy { $0.share == nil })
+    }
+
+    /// A window whose rounds carry no score at all has nothing to put in the
+    /// card, and the section renders its heading and subtitle without one.
+    func testAWindowWithNoScoresProducesNoTilesAndNoHistogram() {
+        let summary = StatMeasuresMath.resultsSummary([
             ResultsRow(holeCount: 18, measures: StatMeasuresMath.zero)
         ])
-        XCTAssertEqual(StatsDashboardView.resultsFigures(nothing).map(\.title), ["Rounds"])
+        XCTAssertEqual(StatsDashboardView.resultsTiles(summary), [])
+        XCTAssertEqual(StatsDashboardView.resultsHistogram(summary), [])
+        XCTAssertEqual(StatsFormat.resultsSubtitle(summary), "1 round — 18 holes")
 
-        var complete = StatMeasuresMath.zero
-        complete.holesScored = 18
-        complete.strokesTotal = 84
-        complete.parTotal = 72
-        let full = StatMeasuresMath.resultsSummary([
-            ResultsRow(holeCount: 18, measures: complete)
-        ])
-        let figures = StatsDashboardView.resultsFigures(full)
-        XCTAssertEqual(
-            figures.map(\.title), ["Rounds", "Average score", "Best score", "Average vs par"])
-        XCTAssertEqual(figures[0].value, "1")
-        XCTAssertEqual(figures[1].value, "84.0 (over 1 round — thin sample)")
-        XCTAssertEqual(figures[2].value, "84")
-        XCTAssertEqual(figures[3].value, "+12.0 (over 1 round — thin sample)")
+        // And an absent summary says nothing at all.
+        XCTAssertEqual(StatsFormat.resultsSubtitle(nil), "")
+        XCTAssertEqual(StatsDashboardView.resultsTiles(nil), [])
+        XCTAssertEqual(StatsDashboardView.resultsHistogram(nil), [])
+    }
+
+    /// The view keys its rows on these ids, so a collision would drop a tile.
+    func testEveryResultsIdIsUnique() {
+        let summary = StatMeasuresMath.resultsSummary(resultsRows)
+        let tileIDs = StatsDashboardView.resultsTiles(summary).map(\.id)
+        XCTAssertEqual(Set(tileIDs).count, tileIDs.count)
+        let rowIDs = StatsDashboardView.resultsHistogram(summary).map(\.id)
+        XCTAssertEqual(Set(rowIDs).count, rowIDs.count)
     }
 }

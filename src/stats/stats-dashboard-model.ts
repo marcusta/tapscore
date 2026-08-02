@@ -358,8 +358,9 @@ export function buildDashboardModel(rows: readonly PlayerRoundStats[]): StatsDas
         putting: puttingPanel(totals),
         shortGame: shortGamePanel(totals),
         scoring: scoringPanel(totals, roundCount),
-        // From the ROWS, not the totals: the 18-hole gate and the best score are
-        // per-round facts a sum destroys.
+        // From the ROWS, not the totals: the best round and the window's mix of
+        // round lengths are per-round facts a sum destroys — two nines add up to
+        // eighteen holes and are still not a round.
         results: resultsSummary(ordered),
     };
 }
