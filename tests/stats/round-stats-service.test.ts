@@ -262,6 +262,21 @@ test('a failed history walk fails the load rather than showing a baseline-free r
     expect(svc.round.get()).toBeNull();
 });
 
+test('a history page with truncated measures fails the load rather than a NaN baseline', async () => {
+    // The stale-view payload: rows missing measure columns this build computes
+    // rates from. iOS refuses these at decode; the web guard refuses them here.
+    const { attStrokes: _, ...rest } = ZERO_MEASURES;
+    const bad = round({ roundId: 'r1', date: '2026-07-20' });
+    bad.measures = rest as typeof ZERO_MEASURES;
+    state.pages = [page([bad, ...older(10)], null)];
+    const svc = service();
+    await svc.load('r1');
+
+    expect(svc.phase.get()).toBe('failed');
+    expect(svc.failure.get()).toContain('attStrokes');
+    expect(svc.round.get()).toBeNull();
+});
+
 test('holes without a summary row are notFound — the same answer as no round', async () => {
     // The server does not distinguish "no such round" from "nothing of yours in
     // it", and neither does this: the difference only interests someone probing

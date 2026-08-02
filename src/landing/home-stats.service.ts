@@ -3,6 +3,7 @@ import { ApiError } from '@basics/core/client/api-error';
 import { api } from '../api';
 import type { PlayerRoundStats } from '../api/player-stats.gen';
 import { loadWindowPreset, type StatsWindowPreset } from '../stats/stats-window';
+import { statsShapeProblem } from '../stats/measures-shape';
 import { buildHomeStatsCard, type HomeStatsCardModel } from './home-stats';
 
 /**
@@ -87,6 +88,11 @@ export class HomeStatsService {
         this.loading = true;
         try {
             const page = await api.playerStats.myStats({ limit: HomeStatsService.PAGE_SIZE });
+            // Rows missing measure columns would render as NaN on the card.
+            // This card's whole error vocabulary is its own absence, so a bad
+            // shape is treated like any other non-401 failure: keep what is on
+            // screen, leave `loaded` false for a natural retry.
+            if (statsShapeProblem(page.rounds) !== null) return;
             this.rows.set(page.rounds);
             this.hasMore.set(page.nextCursor !== null);
             this.loaded = true;

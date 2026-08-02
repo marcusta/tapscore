@@ -13,6 +13,7 @@ import {
     historySatisfied,
     type RoundStatsModel,
 } from './round-stats-model';
+import { statsShapeProblem } from './measures-shape';
 
 /**
  * One round's stats screen (§4.2) and the round-end story's data (§4.1).
@@ -164,6 +165,12 @@ export class RoundStatsService {
                 limit: RoundStatsService.PAGE_SIZE,
                 cursor: cursor ?? undefined,
             });
+            // Rows missing measure columns would surface as NaN on the
+            // baseline. Throwing routes through the caller's phaseFor →
+            // 'failed', with this message as the failure line. The dashboard
+            // seed above needs no check: its service refused bad rows already.
+            const shapeProblem = statsShapeProblem(result.rounds);
+            if (shapeProblem !== null) throw new Error(shapeProblem);
             append(result.rounds);
             if (historySatisfied(rows, roundId, DEFAULT_ROUND_WINDOW)) return rows;
             // From the CURSOR, not from how many rows came back: a short page is

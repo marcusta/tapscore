@@ -14,6 +14,7 @@ import {
     type StatsWindowPreset,
 } from './stats-window';
 import { buildDashboardModel, EMPTY_DASHBOARD_MODEL } from './stats-dashboard-model';
+import { statsShapeProblem } from './measures-shape';
 
 /**
  * The `/stats` screen's state. DI singleton; every read is session-scoped
@@ -100,6 +101,15 @@ export class StatsDashboardService {
             api.playerStats.myStats({ limit: StatsDashboardService.PAGE_SIZE }),
         );
         if (!page) return;
+        // A payload missing measure columns would not fail here — it would
+        // fail later, as NaN% on the cards. Refuse it up front, the way the
+        // iOS decode guards do; `loaded` stays false so a fixed server gets a
+        // clean retry on the next visit.
+        const shapeProblem = statsShapeProblem(page.rounds);
+        if (shapeProblem !== null) {
+            this.error.set({ code: 'server', message: shapeProblem });
+            return;
+        }
         this.pagesFetched = 1;
         this.roundsWithStats.set(page.roundsWithStats);
         this.loadedRounds.set(page.rounds);
@@ -175,6 +185,13 @@ export class StatsDashboardService {
                         code: 'network',
                         message: 'Could not load older rounds.',
                     });
+                    return;
+                }
+                // Same refusal as `load()`'s, surfaced on the extend path: the
+                // rows already in hand are whole, so they stay on screen.
+                const shapeProblem = statsShapeProblem(page.rounds);
+                if (shapeProblem !== null) {
+                    this.extendError.set({ code: 'server', message: shapeProblem });
                     return;
                 }
                 this.pagesFetched += 1;

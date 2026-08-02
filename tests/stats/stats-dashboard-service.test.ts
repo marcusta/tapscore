@@ -79,6 +79,38 @@ beforeEach(() => {
     state.calls = [];
 });
 
+test('a first page with truncated measures is refused, not rendered as NaN', async () => {
+    // The stale-view payload: a row whose measures object is missing columns
+    // this build computes rates from.
+    const { attStrokes: _, ...rest } = ZERO_MEASURES;
+    const bad = round({ roundId: 'bad-1' });
+    bad.measures = rest as typeof ZERO_MEASURES;
+    state.responses = [page([bad], null)];
+    const svc = service();
+    await svc.load();
+
+    expect(svc.error.get()).not.toBeNull();
+    expect(svc.error.get()!.code).toBe('server');
+    expect(svc.error.get()!.message).toContain('attStrokes');
+    expect(svc.loadedRounds.get()).toHaveLength(0);
+    // `loaded` stays false: a fixed server gets a clean retry on the next visit.
+    expect(svc.loaded.get()).toBe(false);
+});
+
+test('an older page with truncated measures keeps the whole rows and flags the extend', async () => {
+    const { girHits: _, ...rest } = ZERO_MEASURES;
+    const bad = round({ roundId: 'bad-1' });
+    bad.measures = rest as typeof ZERO_MEASURES;
+    state.responses = [page(rounds(5, 'a'), 'cursor-1'), page([bad], null)];
+    const svc = service();
+    await svc.load();
+
+    expect(svc.error.get()).toBeNull();
+    expect(svc.extendError.get()).not.toBeNull();
+    expect(svc.extendError.get()!.message).toContain('girHits');
+    expect(svc.loadedRounds.get()).toHaveLength(5);
+});
+
 test('a failed older page leaves the rows on screen and says the window may be short', async () => {
     state.responses = [page(rounds(5, 'a'), 'cursor-1'), new Error('Network request failed')];
     const svc = service();
