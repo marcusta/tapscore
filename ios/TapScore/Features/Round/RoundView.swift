@@ -210,7 +210,7 @@ struct RoundHeaderView: View {
             // ONE band, not three. The back link, the title and the meta line
             // used to stack, which spent ~110pt of a phone screen on chrome
             // before the first score row. They are now one row — back, a title
-            // stack, the status — and the title itself is small (Golf GameBook's
+            // stack and management — and the title itself is small (Golf GameBook's
             // header, which the owner picked as the reference): the round's NAME
             // at 19.2pt with the course and date under it at 12.8pt, rather than
             // a 28.8pt course name and nothing else.
@@ -245,7 +245,6 @@ struct RoundHeaderView: View {
                 if store.loading {
                     ProgressView().controlSize(.small).tint(TapColors.accent)
                 }
-                statusBadge
                 manageButton
             }
             .padding(.leading, TapSpacing.sm)
@@ -346,39 +345,6 @@ struct RoundHeaderView: View {
         out.dateStyle = .medium
         out.timeStyle = .none
         return out.string(from: date)
-    }
-
-    /// Web: `.round-view__status` — one accent pill carrying the round's state.
-    ///
-    /// It stays honest about degrade, which the web has no equivalent for: a
-    /// round that quietly fell back to a 20 s poll says "Delayed" rather than
-    /// claiming to be live.
-    @ViewBuilder
-    private var statusBadge: some View {
-        if store.round?.status == .active, store.liveState != .degraded, store.liveState != .connecting {
-            LiveBadge()
-        } else {
-            // Same pill, same tone — the web draws every round state in accent;
-            // only the copy (and the announced label) differ.
-            TapPillLabel(
-                text: statusText,
-                background: TapColors.accentSoft,
-                foreground: TapColors.accent
-            )
-        }
-    }
-
-    private var statusText: String {
-        switch store.liveState {
-        case .connecting: return "Connecting"
-        case .degraded: return "Delayed"
-        case .idle, .live, .finished: break
-        }
-        switch store.round?.status {
-        case .active: return RoundStatusTone.active.title
-        case .complete: return RoundStatusTone.complete.title
-        default: return RoundStatusTone.notStarted.title
-        }
     }
 
     /// Web: `.round-view__formats` — a horizontally scrolling chip row. The

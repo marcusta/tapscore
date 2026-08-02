@@ -111,6 +111,33 @@ function roundPayload(
     };
 }
 
+/** A three-hole active round, small enough to make entry-position assertions plain. */
+function onCourseRoundPayload(token: string): unknown {
+    return {
+        friendlyRound: { id: `fr-${token}`, roundId: `round-${token}`, shareToken: token },
+        round: {
+            id: `round-${token}`,
+            courseNameSnapshot: 'Course',
+            completedAt: null,
+            date: '2026-06-28',
+            status: 'active',
+            playHoles: [],
+            playingGroups: [
+                {
+                    id: 'group-1',
+                    ballIds: ['ball-1', 'ball-2'],
+                    playedOrder: [
+                        { playHoleId: 'ph-1' },
+                        { playHoleId: 'ph-2' },
+                        { playHoleId: 'ph-3' },
+                    ],
+                },
+            ],
+            formatSlots: [],
+        },
+    };
+}
+
 /** Minimal FormatSlot fixture — only the fields selection resolution reads. */
 function slot(slotDefId: string, slotIndex: number): unknown {
     return {
@@ -192,6 +219,39 @@ test('a slow stale token response cannot overwrite the latest loaded round', asy
     await slowLoad;
 
     expect(svc.round.get()?.id).toBe('round-latest');
+});
+
+test('an ongoing round opens on the first incomplete hole, ignoring pending seats', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    ballsByToken.set('tok', [
+        { id: 'ball-1', pending: false, players: [] },
+        { id: 'ball-2', pending: true, players: [] },
+    ]);
+    scorecardsByToken.set('tok', [
+        { ballId: 'ball-1', holes: [{ playHoleId: 'ph-1', strokes: 4 }, { playHoleId: 'ph-2', strokes: 5 }] },
+    ]);
+
+    const load = svc.loadByToken('tok');
+    byToken.get('tok')!.resolve(onCourseRoundPayload('tok'));
+    await load;
+
+    expect(svc.holeIndex()).toBe(2);
+});
+
+test('an explicit link hole wins over automatic ongoing-round positioning', async () => {
+    const svc = new RoundViewService();
+    byToken.set('tok', deferred());
+    ballsByToken.set('tok', [{ id: 'ball-1', pending: false, players: [] }]);
+    scorecardsByToken.set('tok', [
+        { ballId: 'ball-1', holes: [{ playHoleId: 'ph-1', strokes: 4 }, { playHoleId: 'ph-2', strokes: 5 }] },
+    ]);
+
+    const load = svc.loadByToken('tok', { holeIdx: 0 });
+    byToken.get('tok')!.resolve(onCourseRoundPayload('tok'));
+    await load;
+
+    expect(svc.holeIndex()).toBe(0);
 });
 
 // --- Slot selection resolves by slotDefId, never by positional index (2.7b) ---

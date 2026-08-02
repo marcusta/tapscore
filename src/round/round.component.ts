@@ -54,7 +54,6 @@ const tpl = template(`
                         <span bind="course" class="round-view__course"></span>
                     </div>
                     <div class="round-view__chrome">
-                        <span bind="status" class="round-view__status"></span>
                         <button bind="manageBtn" class="round-view__manage" type="button" aria-label="Manage round">⋯</button>
                     </div>
                 </header>
@@ -189,10 +188,10 @@ export class RoundComponent extends Component {
                 }
             }
 
-            /* Header chrome: the status badge and the "⋯" manage affordance,
-               which is the single entry point to every round-level management
-               action (edit / leave / finish / delete). It lives HERE, not in
-               the score panel, so it is reachable from both tabs. */
+            /* Header chrome: the "⋯" manage affordance, which is the single
+               entry point to every round-level management action (edit / leave
+               / finish / delete). It lives HERE, not in the score panel, so it
+               is reachable from both tabs. */
             & .round-view__chrome {
                 display: flex;
                 align-items: center;
@@ -216,18 +215,6 @@ export class RoundComponent extends Component {
 
                 &:hover, &:active { background: ${t('surface-sunken')}; color: ${t('text')}; }
                 &:focus-visible { outline: 2px solid ${t('accent')}; outline-offset: 2px; }
-            }
-
-            & .round-view__status {
-                font-size: 0.7rem;
-                font-weight: 700;
-                text-transform: uppercase;
-                letter-spacing: 0.08em;
-                border-radius: ${t('radius-pill')};
-                padding: 2px 10px;
-                flex-shrink: 0;
-                background: ${t('accent-soft')};
-                color: ${t('accent')};
             }
 
             & .round-view__formats {
@@ -668,12 +655,6 @@ export class RoundComponent extends Component {
             }),
         );
 
-        const statusText: Record<string, string> = {
-            not_started: 'Not started',
-            active: 'Live',
-            complete: 'Finished',
-        };
-
         const frag = this.wire(tpl, {
             back: { onclick: () => this.router.navigate('/') },
             notfound: {
@@ -688,10 +669,6 @@ export class RoundComponent extends Component {
             },
             title: () => roundHeaderTitle(this.svc.round.get()),
             course: () => this.svc.round.get()?.courseNameSnapshot ?? '',
-            status: () => {
-                const st = this.svc.round.get()?.status ?? 'not_started';
-                return statusText[st] ?? st;
-            },
             scorePanel: {
                 className: () =>
                     this.tab.get() === 'score' ? 'round-view__panel' : 'round-view__panel hidden',
@@ -853,7 +830,10 @@ export class RoundComponent extends Component {
         return {
             tab: params.get('tab') === 'board' ? 'leaderboard' : 'score',
             selectedSlot: parseSlotParam(slotParam),
-            holeIdx: Number.isFinite(hole) && hole > 0 ? hole - 1 : 0,
+            // Absent and explicit hole 1 are different: an absent position lets
+            // an ongoing round choose its first incomplete hole after scores
+            // load, whereas a shared `?hole=1` link must land on hole 1.
+            holeIdx: Number.isFinite(hole) && hole > 0 ? hole - 1 : undefined,
         };
     }
 

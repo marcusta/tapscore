@@ -144,6 +144,9 @@ final class RoundStore {
     private(set) var groupIndex = 0
     private(set) var holeIndex = 0
     private(set) var currentBallIndex = 0
+    /// A fresh round open gets one automatic resume position. Later reloads
+    /// preserve the golfer's deliberate navigation.
+    private var choseInitialHole = false
     /// Selection is by the slot's stable `slotDefId`, NEVER a positional index —
     /// `round.formatSlots` and `result.slots` are not guaranteed to line up.
     var selectedSlot: String?
@@ -448,6 +451,10 @@ final class RoundStore {
         cells = [:]
         applyScorecards(loadedCards ?? [], ticket: cardsTicket)
         balls = loadedBalls ?? []
+        if !choseInitialHole, round?.status == .active {
+            holeIndex = firstIncompleteHoleIndex()
+        }
+        choseInitialHole = true
         clampPosition()
 
         // Replay writes a previous launch never got acked (dead-zone kill).
@@ -1637,6 +1644,20 @@ final class RoundStore {
         groupIndex = groupCount == 0 ? 0 : min(max(groupIndex, 0), groupCount - 1)
         let ballCount = ballsInGroup.count
         currentBallIndex = ballCount == 0 ? 0 : min(max(currentBallIndex, 0), ballCount - 1)
+    }
+
+    /// The first group hole not scored by every scoreable ball; none → hole 1.
+    private func firstIncompleteHoleIndex() -> Int {
+        guard let group else { return 0 }
+        let scoreable = Set(group.ballIds.filter { ballId in
+            balls.first(where: { $0.id == ballId })?.pending == false
+        })
+        guard !scoreable.isEmpty else { return 0 }
+        return group.playedOrder.firstIndex { hole in
+            scoreable.contains { ballId in
+                strokes(ballId: ballId, playHoleId: hole.playHoleId) == nil
+            }
+        } ?? 0
     }
 
     /// Manual hole navigation — chevrons, the pager, anything the user drives.

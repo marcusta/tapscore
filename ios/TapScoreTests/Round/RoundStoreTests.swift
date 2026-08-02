@@ -166,6 +166,18 @@ final class RoundStoreTests: XCTestCase {
         XCTAssertEqual(store.par(of: "ph-1"), 4)
     }
 
+    func testOngoingRoundOpensAtFirstIncompleteHoleIgnoringPendingSeats() async {
+        routeHappyPath(
+            secondPending: true,
+            scorecards: RoundFixtures.scorecards(ballId: "ball-1", playHoleId: "ph-1", strokes: 4)
+        )
+        let store = makeStore()
+
+        await store.load()
+
+        XCTAssertEqual(store.holeIndex, 1)
+    }
+
     /// A format chip SELECTS a presentation context; it does not navigate
     /// (`selectSlot`). On the score tab that is a handicap-line change and
     /// nothing else — no tab move, and no fetch OF ITS OWN. (`load()` fetches

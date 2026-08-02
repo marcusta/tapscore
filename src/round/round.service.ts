@@ -409,6 +409,12 @@ export class RoundViewService {
         this.cells.set(new Map());
         this.scorecards.set(cards);
         this.balls.set(balls);
+        // A plain open of an ongoing round resumes at the first hole that the
+        // current group has not completely scored. A supplied URL position is
+        // intentional navigation (including `?hole=1`) and therefore wins.
+        if (tokenChanged && initial?.holeIdx === undefined && data.round.status === 'active') {
+            this.holeIdx.set(this.firstIncompleteHoleIndex());
+        }
         // Replay writes a previous page load never got acked (dead-zone reload).
         // Each reuses its stored clientEventId, so an event that actually landed
         // before the reload dedupes server-side instead of double-counting.
@@ -938,6 +944,22 @@ export class RoundViewService {
     }
     nextHole(): void {
         this.holeIdx.set(clampIndex(this.holeIndex() + 1, this.playedOrder().length));
+    }
+
+    /** The first group hole not scored by every scoreable ball; none → hole 1. */
+    private firstIncompleteHoleIndex(): number {
+        const group = this.group();
+        if (!group) return 0;
+        const balls = this.balls.get().filter((ball) => group.ballIds.includes(ball.id) && !ball.pending);
+        if (balls.length === 0) return 0;
+        const cards = new Map(this.scorecards.get().map((card) => [card.ballId, card]));
+        const index = group.playedOrder.findIndex((hole) =>
+            balls.some((ball) => {
+                const score = cards.get(ball.id)?.holes.find((entry) => entry.playHoleId === hole.playHoleId);
+                return score?.strokes === null || score === undefined;
+            }),
+        );
+        return index === -1 ? 0 : index;
     }
 
     /** The strokes to display for a cell: the optimistic overlay wins, else the loaded card. */
