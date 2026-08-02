@@ -160,8 +160,8 @@ export const roundSummaryMarkup = `
     <span class="round-summary__bottom">
         <span bind="date"></span>
         <span bind="progress" class="round-summary__progress"></span>
-        <span bind="formats" class="round-summary__formats"></span>
     </span>
+    <span bind="formats" class="round-summary__formats"></span>
 `;
 
 const rowTpl = template(`
@@ -430,12 +430,13 @@ export class LandingComponent extends Component {
                     font-size: 0.85rem;
                 }
                 & .round-summary__formats {
+                    min-width: 0;
+                    max-width: 100%;
                     overflow: hidden;
                     text-overflow: ellipsis;
                     white-space: nowrap;
                 }
-                & .round-summary__progress::before,
-                & .round-summary__formats::before { content: '·'; margin-right: ${s('sm')}; }
+                & .round-summary__progress::before { content: '·'; margin-right: ${s('sm')}; }
                 & .round-summary__progress.hidden,
                 & .round-summary__formats.hidden { display: none; }
             }

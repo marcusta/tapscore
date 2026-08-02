@@ -696,13 +696,15 @@ final class LandingLoader {
 // MARK: - Row
 
 /// The common hierarchy for every full round summary: what it was called,
-/// where it was played, and the quiet date / format facts below. Its callers
-/// decide the tap destination and whether a destructive swipe exists; the
-/// visual shape stays one thing across Ongoing, Finished, and friends' lists.
+/// where it was played, then its date/progress and formats on separate quiet
+/// lines. Its callers decide the tap destination and whether a destructive
+/// swipe exists; the visual shape stays one thing across Ongoing, Finished,
+/// and friends' lists.
 struct RoundSummaryContent: View {
     let title: String
     let subtitle: String?
     let metadata: [String]
+    let formats: String?
     var leadingPadding: CGFloat = TapSpacing.lg
     var trailingPadding: CGFloat = TapSpacing.lg
 
@@ -726,6 +728,13 @@ struct RoundSummaryContent: View {
 
             if !metadata.isEmpty {
                 Text(metadata.joined(separator: " · "))
+                    .font(TapFont.ui(size: 12))
+                    .foregroundStyle(TapColors.textMuted)
+                    .lineLimit(1)
+            }
+
+            if let formats, !formats.isEmpty {
+                Text(formats)
                     .font(TapFont.ui(size: 12))
                     .foregroundStyle(TapColors.textMuted)
                     .lineLimit(1)
@@ -807,6 +816,7 @@ struct RoundRow: View {
                 title: row.label,
                 subtitle: row.courseSubtitle,
                 metadata: metadata,
+                formats: row.formatsText,
                 trailingPadding: isRemovable ? 0 : TapSpacing.lg
             )
         }
@@ -819,7 +829,6 @@ struct RoundRow: View {
     private var metadata: [String] {
         var facts = [row.displayDate].compactMap { $0 }
         if showProgress, let progress = row.progressText { facts.append(progress) }
-        if let formats = row.formatsText { facts.append(formats) }
         return facts
     }
 
@@ -971,7 +980,8 @@ private struct RecentFriendRowView: View {
                 RoundSummaryContent(
                     title: row.friendLabel,
                     subtitle: row.title,
-                    metadata: [row.displayDate, formats].compactMap { $0 },
+                    metadata: [row.displayDate].compactMap { $0 },
+                    formats: formats,
                     leadingPadding: 0,
                     trailingPadding: TapSpacing.lg
                 )
