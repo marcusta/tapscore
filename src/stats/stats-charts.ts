@@ -312,7 +312,7 @@ export interface WaterfallSegmentGeometry {
 }
 
 /**
- * One round's four waterfall terms as a signed strip, for the round list.
+ * One round's five waterfall terms as a signed strip, for the round list.
  *
  * Every segment shares one scale across the whole list so two rows are
  * comparable. A null term draws NOTHING — not a zero-width sliver, which would
@@ -322,7 +322,9 @@ export interface WaterfallSegmentGeometry {
 export function waterfallStripGeometry(
     waterfall: StrokesLost,
     magnitude: number,
-    height = 8,
+    // Five rows and four 1px gaps: (12 - 4) / 5 = 1.6 fits exactly. At the old
+    // 8 the row height clamped to 1 and the strip overflowed its own box.
+    height = 12,
 ): WaterfallSegmentGeometry[] {
     const half = CHART_WIDTH / 2;
     const gaps = STROKES_LOST_COMPONENTS.length - 1;
@@ -351,7 +353,7 @@ export function renderWaterfallStrip(
     waterfall: StrokesLost,
     magnitude: number,
     colors: StatsChartColors,
-    height = 8,
+    height = 12,
 ): string {
     const parts = waterfallStripGeometry(waterfall, magnitude, height)
         .filter((s) => s.width > 0)

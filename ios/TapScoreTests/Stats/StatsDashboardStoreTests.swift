@@ -87,6 +87,16 @@ final class StatsDashboardStoreTests: XCTestCase {
         "holesScoredPenaltyFree", "strokesVsParPenaltyFree", "teeRecordedPar4",
         "fairwayHitsPar4", "inPlayHitsPar4", "troubleCountPar4", "teeRecordedPar5",
         "fairwayHitsPar5", "inPlayHitsPar5", "troubleCountPar5",
+        // The wave-4 attribution cohort: every column the strokes-lost
+        // waterfall reads. A hole is in the cohort or in none of these.
+        "attHolesPar3Gir", "attHolesPar3Miss", "attHolesPar45Gir", "attHolesPar45Miss",
+        "attStrokes", "attPutts", "attPenalties", "attFairwayPar4", "attInPlayPar4",
+        "attTroublePar4", "attFairwayPar5", "attInPlayPar5", "attTroublePar5",
+        "attGirFirstPuttInside1m", "attGirFirstPutt1To2m", "attGirFirstPutt2To4m",
+        "attGirFirstPutt4To8m", "attGirFirstPuttOver8m", "attGirHoled", "attMissStandard",
+        "attMissHard", "attChipInside2mStandard", "attChipOutside2mStandard",
+        "attChipHoledStandard", "attChipInside2mHard", "attChipOutside2mHard",
+        "attChipHoledHard", "attSgStrokesEffectiveStandard", "attSgStrokesEffectiveHard",
     ]
 
     private static func page(

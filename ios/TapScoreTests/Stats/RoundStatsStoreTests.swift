@@ -57,6 +57,16 @@ final class RoundStatsStoreTests: XCTestCase {
         "holesScoredPenaltyFree", "strokesVsParPenaltyFree", "teeRecordedPar4",
         "fairwayHitsPar4", "inPlayHitsPar4", "troubleCountPar4", "teeRecordedPar5",
         "fairwayHitsPar5", "inPlayHitsPar5", "troubleCountPar5",
+        // The wave-4 attribution cohort: every column the strokes-lost
+        // waterfall reads. A hole is in the cohort or in none of these.
+        "attHolesPar3Gir", "attHolesPar3Miss", "attHolesPar45Gir", "attHolesPar45Miss",
+        "attStrokes", "attPutts", "attPenalties", "attFairwayPar4", "attInPlayPar4",
+        "attTroublePar4", "attFairwayPar5", "attInPlayPar5", "attTroublePar5",
+        "attGirFirstPuttInside1m", "attGirFirstPutt1To2m", "attGirFirstPutt2To4m",
+        "attGirFirstPutt4To8m", "attGirFirstPuttOver8m", "attGirHoled", "attMissStandard",
+        "attMissHard", "attChipInside2mStandard", "attChipOutside2mStandard",
+        "attChipHoledStandard", "attChipInside2mHard", "attChipOutside2mHard",
+        "attChipHoledHard", "attSgStrokesEffectiveStandard", "attSgStrokesEffectiveHard",
     ]
 
     private static func roundJSON(
@@ -66,6 +76,10 @@ final class RoundStatsStoreTests: XCTestCase {
             "holesScored": 18, "strokesTotal": strokes, "parTotal": 72,
             "puttsRecorded": 18, "puttsTotal": putts, "firstPutt2To4mResolved": 18,
             "puttsTotal2To4mResolved": putts, "penaltiesRecorded": 18,
+            // Fully attributed: eighteen par 4s off the fairway, greens hit,
+            // first putt 2-4 m. Without a cohort the waterfall is all nil.
+            "attHolesPar45Gir": 18, "attStrokes": strokes, "attPutts": putts,
+            "attFairwayPar4": 18, "attGirFirstPutt2To4m": 18,
         ]
         let fields = Self.measureFields.map { "\"\($0)\":\(overrides[$0] ?? 0)" }
         return """

@@ -24,14 +24,15 @@
 ///     numerator with the matching `*Resolved` / fine-bucket denominator. Mixing
 ///     a v2 numerator over the coarse `firstPuttRecorded` is what makes a ratio
 ///     exceed 1 on pre-044 data, so it is never done here.
-///  3. **nil propagates, it never defaults.** A missing component of the
-///     strokes-lost waterfall makes the residual nil too, rather than silently
-///     charging its strokes to the long game.
-///  4. **The residual is gated on coverage.** `longGame` is a residual, so every
-///     hole with no putt count donates its putting to it. It is therefore nil
-///     unless at least `puttingCoverageFloor` (0.8) of the scored holes carry
-///     one — three recorded holes out of eighteen would otherwise be reported as
-///     a long-game number that is mostly fifteen holes of unseen putting.
+///  3. **nil propagates, it never defaults.** A term with no sample is nil, not
+///     zero; nothing is silently charged to a neighbouring term to keep a sum
+///     balanced.
+///  4. **One cohort, no residual.** The five strokes-lost terms are all measured
+///     over the same attribution cohort — the holes that carry a score, a green
+///     answer, a coherent putt count and (on par 4/5) a tee answer. They
+///     telescope exactly to `Σ(score − E_HOLE[par])` over that cohort, so there
+///     is no leftover term to blame the driver with, and every term is nil iff
+///     the cohort is empty.
 
 // MARK: - Guarded rates
 
@@ -152,71 +153,140 @@ struct ChipExpectedPutts: Equatable, Sendable {
     var hard: Double
 }
 
-// MARK: - The strokes-lost waterfall
-
-/// The four attributable buckets, in the order a waterfall draws them.
-enum StrokesLostComponent: String, CaseIterable, Sendable {
-    case putting
-    case shortGame
-    case penalties
-    case longGame
+/// Rows behind each cell of an `SgTables`. Mirrors its shape field for field.
+struct SgTableRowCounts: Equatable, Sendable {
+    var eHole: [Int: Int]
+    var eAfterTee: [Int: [TeeResult: Int]]
 }
 
-/// One round's score vs par, split into attributable buckets. Positive =
-/// strokes LOST; negative = gained.
-///
-/// nil means "not computable from what was recorded", and it propagates: a round
-/// with no putting data has a nil putting term AND a nil long game, because the
-/// residual would otherwise absorb every putt the player never told us about.
-/// `penalties` is a plain count, so it is never nil — an unrecorded penalty
-/// reads as zero penalties, the same way it does everywhere else in the app.
-///
-/// `coverage` is not a term of the waterfall: it is the sample the residual was
-/// judged against (invariant 4), carried so a UI can say WHY `longGame` is nil
-/// without recomputing it.
-struct StrokesLost: Equatable, Sendable {
-    /// How much of the round has a putt count. `puttsRecorded` is the coarse
-    /// per-hole count — every hole with a putt answer, bucketed or not — which
-    /// is exactly the coverage question the residual cares about.
-    struct Coverage: Equatable, Sendable {
-        var holesScored: Double
-        var puttsRecorded: Double
+/// One expected-score baseline: what a hole is worth from the tee, and what it
+/// is worth once the tee shot has finished somewhere.
+struct SgTables: Equatable, Sendable {
+    var version: String
+    var calibratedAt: String?
+    /// Expected strokes from the tee, by par.
+    var eHole: [Int: Double]
+    /// Expected strokes to hole out from where the tee shot finished.
+    var eAfterTee: [Int: [TeeResult: Double]]
+    /// Rows behind each cell.
+    var rowCounts: SgTableRowCounts
+}
 
-        init(holesScored: Double = 0, puttsRecorded: Double = 0) {
-            self.holesScored = holesScored
-            self.puttsRecorded = puttsRecorded
-        }
+/// Tapscore reference baseline v1 — the expected-score tables the five
+/// attribution terms are measured against.
+///
+/// PROVISIONAL_PENDING_OWNER_CALIBRATION. The values below are anchored on
+/// published amateur scoring means, NOT on this app's data. `calibratedAt` is
+/// nil precisely because nobody has calibrated it yet: a date here would claim
+/// a freeze that has not happened.
+///
+/// TODO(owner, v1 freeze): run `bun run sg:calibrate` on the production box
+/// (the machine holding `data/app.sqlite`), paste its emitted block over this
+/// one, set `calibratedAt` to the run date and drop the PROVISIONAL marker.
+/// Nothing else in the codebase changes — the fixture oracle tests the MATH, so
+/// a table swap moves displayed magnitudes and breaks no test.
+///
+/// Do NOT blend the two sources. Proposal §6: published tables are a
+/// sanity-check, never mixed in.
+enum SgTablesV1 {
+    static let version = "v1-provisional"
+    static let calibratedAt: String? = nil
+
+    /// Expected strokes from the tee, by par.
+    static let eHole: [Int: Double] = [3: 3.60, 4: 4.70, 5: 5.50]
+
+    /// Expected strokes to hole out from where the tee shot finished.
+    static let eAfterTee: [Int: [TeeResult: Double]] = [
+        4: [.fairway: 3.45, .inPlay: 3.80, .trouble: 4.35],
+        5: [.fairway: 4.25, .inPlay: 4.60, .trouble: 5.15],
+    ]
+
+    /// Rows behind each cell. All zero: no cell was fitted from play.
+    static let rowCounts = SgTableRowCounts(
+        eHole: [3: 0, 4: 0, 5: 0],
+        eAfterTee: [
+            4: [.fairway: 0, .inPlay: 0, .trouble: 0],
+            5: [.fairway: 0, .inPlay: 0, .trouble: 0],
+        ])
+
+    /// The same tables as one value, for passing to `strokesLostV3`.
+    static let tables = SgTables(
+        version: version, calibratedAt: calibratedAt, eHole: eHole, eAfterTee: eAfterTee,
+        rowCounts: rowCounts)
+}
+
+// MARK: - The strokes-lost waterfall
+
+/// The five attribution terms, in canonical order. Declaration order IS
+/// `allCases` order, and `allCases` order is what rankings, strips and every
+/// iteration read — including the strict `>` / `<` tie-breaks in `insightLines`,
+/// where an exact tie resolves to the EARLIER component here. Both clients
+/// iterate this list, so a reorder is a cross-platform behaviour change.
+enum StrokesLostComponent: String, CaseIterable, Sendable {
+    case tee
+    case approach
+    case shortGame
+    case putting
+    case penalties
+}
+
+/// The sample a waterfall was computed over.
+struct StrokesLostCoverage: Equatable, Sendable {
+    /// Holes in the attribution cohort — the common hole set every term is
+    /// measured over.
+    var attributed: Double
+    /// Holes with a canonicalised score, cohort or not. The denominator the
+    /// info popover quotes.
+    var holesScored: Double
+
+    init(attributed: Double = 0, holesScored: Double = 0) {
+        self.attributed = attributed
+        self.holesScored = holesScored
     }
+}
 
-    var putting: Double?
+/// One round's score vs the reference baseline over the attribution cohort,
+/// split into five terms. Positive = strokes LOST; negative = gained.
+///
+/// **All five or none.** Every field is nil iff `coverage.attributed == 0`, and
+/// non-nil otherwise. There is no partial state: the cohort is one common hole
+/// set by construction, so a term cannot be "not measured" while its siblings
+/// are. There is no residual — the five terms telescope to `total` exactly.
+struct StrokesLost: Equatable, Sendable {
+    var tee: Double?
+    var approach: Double?
     var shortGame: Double?
-    var penalties: Double
-    var longGame: Double?
+    var putting: Double?
+    var penalties: Double?
+    /// `Σ(score − E_HOLE[par])` over the cohort. Equals the sum of the five.
     var total: Double?
-    var coverage: Coverage
+    var coverage: StrokesLostCoverage
 
     init(
-        putting: Double? = nil,
+        tee: Double? = nil,
+        approach: Double? = nil,
         shortGame: Double? = nil,
-        penalties: Double = 0,
-        longGame: Double? = nil,
+        putting: Double? = nil,
+        penalties: Double? = nil,
         total: Double? = nil,
-        coverage: Coverage = Coverage()
+        coverage: StrokesLostCoverage = StrokesLostCoverage()
     ) {
-        self.putting = putting
+        self.tee = tee
+        self.approach = approach
         self.shortGame = shortGame
+        self.putting = putting
         self.penalties = penalties
-        self.longGame = longGame
         self.total = total
         self.coverage = coverage
     }
 
     subscript(component: StrokesLostComponent) -> Double? {
         switch component {
-        case .putting: return putting
+        case .tee: return tee
+        case .approach: return approach
         case .shortGame: return shortGame
+        case .putting: return putting
         case .penalties: return penalties
-        case .longGame: return longGame
         }
     }
 }
@@ -227,18 +297,20 @@ struct StrokesLost: Equatable, Sendable {
 /// nil where the comparison cannot be made: either this round has no value for
 /// the component, or no round in the window does.
 struct StrokesLostDeltas: Equatable, Sendable {
-    var putting: Double?
+    var tee: Double?
+    var approach: Double?
     var shortGame: Double?
+    var putting: Double?
     var penalties: Double?
-    var longGame: Double?
     var total: Double?
 
     subscript(component: StrokesLostComponent) -> Double? {
         switch component {
-        case .putting: return putting
+        case .tee: return tee
+        case .approach: return approach
         case .shortGame: return shortGame
+        case .putting: return putting
         case .penalties: return penalties
-        case .longGame: return longGame
         }
     }
 }
@@ -494,7 +566,36 @@ enum StatMeasuresMath {
         teeRecordedPar5: 0,
         fairwayHitsPar5: 0,
         inPlayHitsPar5: 0,
-        troubleCountPar5: 0
+        troubleCountPar5: 0,
+        attHolesPar3Gir: 0,
+        attHolesPar3Miss: 0,
+        attHolesPar45Gir: 0,
+        attHolesPar45Miss: 0,
+        attStrokes: 0,
+        attPutts: 0,
+        attPenalties: 0,
+        attFairwayPar4: 0,
+        attInPlayPar4: 0,
+        attTroublePar4: 0,
+        attFairwayPar5: 0,
+        attInPlayPar5: 0,
+        attTroublePar5: 0,
+        attGirFirstPuttInside1m: 0,
+        attGirFirstPutt1To2m: 0,
+        attGirFirstPutt2To4m: 0,
+        attGirFirstPutt4To8m: 0,
+        attGirFirstPuttOver8m: 0,
+        attGirHoled: 0,
+        attMissStandard: 0,
+        attMissHard: 0,
+        attChipInside2mStandard: 0,
+        attChipOutside2mStandard: 0,
+        attChipHoledStandard: 0,
+        attChipInside2mHard: 0,
+        attChipOutside2mHard: 0,
+        attChipHoledHard: 0,
+        attSgStrokesEffectiveStandard: 0,
+        attSgStrokesEffectiveHard: 0
     )
 
     /// Field-by-field addition. Written out rather than iterated on purpose: the
@@ -620,7 +721,37 @@ enum StatMeasuresMath {
             teeRecordedPar5: a.teeRecordedPar5 + b.teeRecordedPar5,
             fairwayHitsPar5: a.fairwayHitsPar5 + b.fairwayHitsPar5,
             inPlayHitsPar5: a.inPlayHitsPar5 + b.inPlayHitsPar5,
-            troubleCountPar5: a.troubleCountPar5 + b.troubleCountPar5
+            troubleCountPar5: a.troubleCountPar5 + b.troubleCountPar5,
+            attHolesPar3Gir: a.attHolesPar3Gir + b.attHolesPar3Gir,
+            attHolesPar3Miss: a.attHolesPar3Miss + b.attHolesPar3Miss,
+            attHolesPar45Gir: a.attHolesPar45Gir + b.attHolesPar45Gir,
+            attHolesPar45Miss: a.attHolesPar45Miss + b.attHolesPar45Miss,
+            attStrokes: a.attStrokes + b.attStrokes,
+            attPutts: a.attPutts + b.attPutts,
+            attPenalties: a.attPenalties + b.attPenalties,
+            attFairwayPar4: a.attFairwayPar4 + b.attFairwayPar4,
+            attInPlayPar4: a.attInPlayPar4 + b.attInPlayPar4,
+            attTroublePar4: a.attTroublePar4 + b.attTroublePar4,
+            attFairwayPar5: a.attFairwayPar5 + b.attFairwayPar5,
+            attInPlayPar5: a.attInPlayPar5 + b.attInPlayPar5,
+            attTroublePar5: a.attTroublePar5 + b.attTroublePar5,
+            attGirFirstPuttInside1m: a.attGirFirstPuttInside1m + b.attGirFirstPuttInside1m,
+            attGirFirstPutt1To2m: a.attGirFirstPutt1To2m + b.attGirFirstPutt1To2m,
+            attGirFirstPutt2To4m: a.attGirFirstPutt2To4m + b.attGirFirstPutt2To4m,
+            attGirFirstPutt4To8m: a.attGirFirstPutt4To8m + b.attGirFirstPutt4To8m,
+            attGirFirstPuttOver8m: a.attGirFirstPuttOver8m + b.attGirFirstPuttOver8m,
+            attGirHoled: a.attGirHoled + b.attGirHoled,
+            attMissStandard: a.attMissStandard + b.attMissStandard,
+            attMissHard: a.attMissHard + b.attMissHard,
+            attChipInside2mStandard: a.attChipInside2mStandard + b.attChipInside2mStandard,
+            attChipOutside2mStandard: a.attChipOutside2mStandard + b.attChipOutside2mStandard,
+            attChipHoledStandard: a.attChipHoledStandard + b.attChipHoledStandard,
+            attChipInside2mHard: a.attChipInside2mHard + b.attChipInside2mHard,
+            attChipOutside2mHard: a.attChipOutside2mHard + b.attChipOutside2mHard,
+            attChipHoledHard: a.attChipHoledHard + b.attChipHoledHard,
+            attSgStrokesEffectiveStandard: a.attSgStrokesEffectiveStandard
+                + b.attSgStrokesEffectiveStandard,
+            attSgStrokesEffectiveHard: a.attSgStrokesEffectiveHard + b.attSgStrokesEffectiveHard
         )
     }
 
@@ -1014,118 +1145,142 @@ enum StatMeasuresMath {
 
     // MARK: The strokes-lost waterfall (proposal §2)
 
-    /// The share of scored holes that must carry a putt count before the long
-    /// game is reported at all (invariant 4). Below it, `longGame` is nil.
+    /// The waterfall for ONE round (or, harmlessly, for a summed window — every
+    /// term is a linear function of counts, so a sum of rows is the row of the
+    /// sum).
     ///
-    /// Not a statistical threshold — an honesty one. `putting` only claims the
-    /// holes whose bucket resolved, so every unrecorded hole's putting falls
-    /// into the residual by construction. Three recorded holes out of eighteen
-    /// would produce a "long game" that is mostly fifteen holes of invisible
-    /// putting, blaming the driver for the putter. 0.8 admits the ordinary case
-    /// (a few holes skipped in a hurry) and refuses the partial-entry one.
-    static let puttingCoverageFloor: Double = 0.8
-
-    /// The waterfall for ONE round (or, harmlessly, for a summed window — the
-    /// terms are all additive).
+    /// Five terms over ONE attribution cohort — the holes that carry a score, a
+    /// green answer, a coherent putt count and, on par 4/5, a tee answer. The
+    /// server counts that cohort; this function only weighs it.
     ///
-    ///     putting   = Σ puttsTotal{bucket}Resolved
-    ///                 − Σ firstPutt{bucket}Resolved × E[bucket]
-    ///     shortGame = Σ over {standard, hard} of
-    ///                   chip outcomes × (E[outcome] − chipBaseline[difficulty])
-    ///                 + holed chips  × (1 − (1 + chipBaseline[difficulty]))
-    ///     penalties = penaltiesTotal      (one penalty ≈ one stroke, directly)
-    ///     longGame  = total − putting − shortGame − penalties
-    ///     total     = strokesTotal − parTotal
+    ///     tee       = Σ over the 6 tee cells of
+    ///                   count × (1 + E_AFTER_TEE[par][result] − E_HOLE[par])
+    ///     approach  = (attStrokes − attPutts − attPenalties − teeStrokes − sumC)
+    ///                 + Σ E[arrival bucket] + Σ chip entry − Σ E_REF
+    ///     shortGame = (sumC − nMiss) + Σ E[chip outcome] − Σ chip baseline
+    ///     putting   = attPutts − (Σ E[arrival bucket] + Σ E[chip outcome])
+    ///     penalties = attPenalties
+    ///     total     = attStrokes − Σ E_HOLE[par]
     ///
-    /// The holed-chip term is the same subtraction as the other two outcomes,
-    /// just with the chip itself inside it. An average short-game shot costs 1
-    /// stroke and leaves its difficulty's baseline in putts behind it — 2.70
-    /// strokes to get down from a standard lie, 3.10 from a hard one. A chip-in
-    /// costs 1 and leaves nothing, so it gains 1.70 or 2.10 strokes.
-    /// Without the term a hole-out is invisible to the short game (there is no
-    /// first putt to bucket) and its whole gain lands in the long-game residual,
-    /// which reads as "great approach play" for a shot that MISSED the green.
+    /// The five telescope to `total` exactly, by construction — there is no
+    /// residual and no leftover row. That is the whole point of v3: the term
+    /// nobody measures directly used to be the term that absorbed every gap.
     ///
-    /// nil rules, all of them deliberate:
-    /// - `putting` is nil when NO bucket resolved. Resolved-only is what keeps
-    ///   the two halves of the subtraction over the same holes (invariant 2): a
-    ///   hole with a bucket and no putt count is in neither half.
-    /// - `shortGame` is nil when there is no scramble signal at all — neither a
-    ///   chip with a bucketed first putt nor a holed chip.
-    /// - `total` is nil when `holesScored == 0` — a stats-only round (answers
-    ///   recorded, no scorecard) exists, and `0 − 0 = 0` would report it as a
-    ///   level-par round that never happened.
-    /// - `longGame` is the residual, so it is nil unless everything it subtracts
-    ///   is non-nil AND putting coverage clears `puttingCoverageFloor`. It is
-    ///   the only term nobody measures directly; letting it default would
-    ///   quietly blame the driver for missing putting data.
-    static func strokesLost(
+    /// nil rule, and there is only one: every field is nil iff the cohort is
+    /// empty (`coverage.attributed == 0`). All five or none.
+    static func strokesLostV3(
         _ m: StatMeasures,
+        tables: SgTables = SgTablesV1.tables,
         expected: ExpectedPuttsTable = expectedPuttsV1,
         chipExpected: ChipOutcomeExpectedPutts = chipOutcomeExpectedPuttsV1,
         chipBaseline: ChipExpectedPutts = chipExpectedPuttsV2
     ) -> StrokesLost {
-        var resolvedHoles: Double = 0
-        var puttsTaken: Double = 0
-        var puttsExpected: Double = 0
-        for bucket in PuttBucket.allCases {
-            let holes = firstPuttResolved(m, bucket)
-            resolvedHoles += holes
-            puttsTaken += puttsTotalResolved(m, bucket)
-            puttsExpected += holes * expected[bucket]
-        }
-        let putting: Double? = resolvedHoles == 0 ? nil : puttsTaken - puttsExpected
+        let cohortPar3 = m.attHolesPar3Gir + m.attHolesPar3Miss
+        let cohortPar4 = m.attFairwayPar4 + m.attInPlayPar4 + m.attTroublePar4
+        let cohortPar5 = m.attFairwayPar5 + m.attInPlayPar5 + m.attTroublePar5
+        let attributed = cohortPar3 + cohortPar4 + cohortPar5
+        let coverage = StrokesLostCoverage(
+            attributed: attributed, holesScored: m.holesScored)
+        guard attributed > 0 else { return StrokesLost(coverage: coverage) }
 
-        // One difficulty's contribution, scored against ITS OWN baseline. The
-        // clamp is per difficulty for the same reason it used to be per window:
-        // `scrambleInside2m*` is a subset of `scrambleFirstPutt*` by
-        // construction, so this cannot go negative on coherent data — but a
-        // mixed window (a v2 numerator summed over pre-044 rows) could, and a
-        // negative count here would credit the short game for chips that were
-        // never hit.
-        func term(_ inside2m: Double, _ measured: Double, _ holed: Double, _ baseline: Double)
-            -> Double
-        {
-            let outside2m = max(0, measured - inside2m)
-            return inside2m * (chipExpected.inside2m - baseline)
-                + outside2m * (chipExpected.outside2m - baseline)
-                // 1 stroke taken where an average chip + its putts expects
-                // 1 + baseline. Negative, i.e. a gain.
-                + holed * (1 - (1 + baseline))
+        func eHole(_ par: Int) -> Double { tables.eHole[par] ?? 0 }
+        func eAfterTee(_ par: Int, _ result: TeeResult) -> Double {
+            tables.eAfterTee[par]?[result] ?? 0
         }
 
-        let chipsMeasured = m.scrambleFirstPuttStandard + m.scrambleFirstPuttHard
-        let chipsHoled = m.scrambleHoledStandard + m.scrambleHoledHard
-        // Standard before hard, on both clients, so the floating-point
-        // accumulation is identical down to the last bit.
-        let shortGame: Double? =
-            chipsMeasured == 0 && chipsHoled == 0
-            ? nil
-            : term(
-                m.scrambleInside2mStandard, m.scrambleFirstPuttStandard, m.scrambleHoledStandard,
-                chipBaseline.standard)
-                + term(
-                    m.scrambleInside2mHard, m.scrambleFirstPuttHard, m.scrambleHoledHard,
-                    chipBaseline.hard)
+        /// One modeled tee stroke per par-4/5 hole. Par 3 has no tee cell: its
+        /// tee shot IS its approach, and splitting them would invent a term.
+        let teeStrokes = cohortPar4 + cohortPar5
 
-        let penalties = m.penaltiesTotal
-        let total: Double? = m.holesScored == 0 ? nil : m.strokesTotal - m.parTotal
+        // The six tee cells, par 4 before par 5 and fairway/in play/trouble
+        // within each, on both clients — so the floating-point accumulation is
+        // identical down to the last bit.
+        let teeCells: [(count: Double, par: Int, result: TeeResult)] = [
+            (m.attFairwayPar4, 4, .fairway),
+            (m.attInPlayPar4, 4, .inPlay),
+            (m.attTroublePar4, 4, .trouble),
+            (m.attFairwayPar5, 5, .fairway),
+            (m.attInPlayPar5, 5, .inPlay),
+            (m.attTroublePar5, 5, .trouble),
+        ]
 
-        // The residual absorbs the putting of every hole `putting` could not
-        // claim, so it is only honest when most of the round carries a putt
-        // count.
-        let coverage = StrokesLost.Coverage(
-            holesScored: m.holesScored, puttsRecorded: m.puttsRecorded)
-        let puttingCovered = m.puttsRecorded >= puttingCoverageFloor * m.holesScored
+        let sumC = m.attSgStrokesEffectiveStandard + m.attSgStrokesEffectiveHard
+        let nMiss = m.attMissStandard + m.attMissHard
 
-        var longGame: Double?
-        if let total, let putting, let shortGame, puttingCovered {
-            longGame = total - putting - shortGame - penalties
+        let sumEHole = cohortPar3 * eHole(3) + cohortPar4 * eHole(4) + cohortPar5 * eHole(5)
+
+        var sumEAfterTee: Double = 0
+        for cell in teeCells { sumEAfterTee += cell.count * eAfterTee(cell.par, cell.result) }
+        /// What the cohort was expected to take from where each hole's second
+        /// shot begins: after the tee on par 4/5, from the tee itself on par 3.
+        let sumERef = sumEAfterTee + cohortPar3 * eHole(3)
+
+        let sumEGirArrival =
+            m.attGirFirstPuttInside1m * expected.inside1m
+            + m.attGirFirstPutt1To2m * expected.oneTo2m
+            + m.attGirFirstPutt2To4m * expected.twoTo4m
+            + m.attGirFirstPutt4To8m * expected.fourTo8m
+            + m.attGirFirstPuttOver8m * expected.over8m
+        // A green hit and holed leaves nothing to putt: + attGirHoled × 0.
+
+        let sumEChipOutcome =
+            (m.attChipInside2mStandard + m.attChipInside2mHard) * chipExpected.inside2m
+            + (m.attChipOutside2mStandard + m.attChipOutside2mHard) * chipExpected.outside2m
+        // A holed chip leaves nothing to putt either: + holed × 0.
+
+        let sumEChipBaseline =
+            m.attMissStandard * chipBaseline.standard + m.attMissHard * chipBaseline.hard
+        /// What a missed green was expected to cost from the moment the approach
+        /// ended: one short-game stroke plus the putts it leaves.
+        let sumChipEntry =
+            m.attMissStandard * (1 + chipBaseline.standard)
+            + m.attMissHard * (1 + chipBaseline.hard)
+
+        var tee: Double = 0
+        for cell in teeCells {
+            tee += cell.count * (1 + eAfterTee(cell.par, cell.result) - eHole(cell.par))
         }
+
+        let approach =
+            (m.attStrokes - m.attPutts - m.attPenalties - teeStrokes - sumC)
+            + sumEGirArrival + sumChipEntry
+            - sumERef
+
+        let shortGame = (sumC - nMiss) + sumEChipOutcome - sumEChipBaseline
+
+        let putting = m.attPutts - (sumEGirArrival + sumEChipOutcome)
 
         return StrokesLost(
-            putting: putting, shortGame: shortGame, penalties: penalties, longGame: longGame,
-            total: total, coverage: coverage)
+            tee: tee,
+            approach: approach,
+            shortGame: shortGame,
+            putting: putting,
+            penalties: m.attPenalties,
+            total: m.attStrokes - sumEHole,
+            coverage: coverage)
+    }
+
+    // MARK: Per-18 normalization
+
+    /// A round under this many attributed holes takes part in no cross-round
+    /// comparison — not a baseline delta, not a component insight, not a trend
+    /// point. Half a round is the floor at which "per 18" stops being a scaling
+    /// and starts being an extrapolation. Inclusive: exactly 9 qualifies.
+    static let minAttributedForDelta: Double = 9
+
+    /// One term scaled to 18 attributed holes, so a nine and an eighteen sit on
+    /// the same axis. nil below the floor, or when the term itself is nil.
+    static func sgPer18(_ sg: StrokesLost, _ component: StrokesLostComponent) -> Double? {
+        guard let value = sg[component], sg.coverage.attributed >= minAttributedForDelta
+        else { return nil }
+        return value * 18 / sg.coverage.attributed
+    }
+
+    /// `sgPer18` for the total. Same floor, same scaling.
+    static func sgTotalPer18(_ sg: StrokesLost) -> Double? {
+        guard let value = sg.total, sg.coverage.attributed >= minAttributedForDelta
+        else { return nil }
+        return value * 18 / sg.coverage.attributed
     }
 
     // MARK: Results over a window of rounds
@@ -1220,6 +1375,12 @@ enum StatMeasuresMath {
 
     /// A round's waterfall against the mean of a window of earlier ones.
     ///
+    /// BOTH SIDES ARE NORMALIZED with `sgPer18` before subtracting: a delta is a
+    /// cross-round comparison, and comparing a nine's raw terms with an
+    /// eighteen's would read the round's LENGTH as a change in form. That also
+    /// means a round under `minAttributedForDelta` contributes nothing and
+    /// receives nothing — every field nil, never zero.
+    ///
     /// The mean IGNORES nil window entries rather than treating them as zero — a
     /// window of ten rounds where three recorded no putting is a
     /// three-round-smaller putting sample, not three average-putting rounds.
@@ -1232,11 +1393,12 @@ enum StatMeasuresMath {
     /// better than itself.
     static func baselineDeltas(round: StrokesLost, window: [StrokesLost]) -> StrokesLostDeltas {
         StrokesLostDeltas(
-            putting: delta(round.putting, window.map(\.putting)),
-            shortGame: delta(round.shortGame, window.map(\.shortGame)),
-            penalties: delta(round.penalties, window.map { $0.penalties }),
-            longGame: delta(round.longGame, window.map(\.longGame)),
-            total: delta(round.total, window.map(\.total)))
+            tee: delta(sgPer18(round, .tee), window.map { sgPer18($0, .tee) }),
+            approach: delta(sgPer18(round, .approach), window.map { sgPer18($0, .approach) }),
+            shortGame: delta(sgPer18(round, .shortGame), window.map { sgPer18($0, .shortGame) }),
+            putting: delta(sgPer18(round, .putting), window.map { sgPer18($0, .putting) }),
+            penalties: delta(sgPer18(round, .penalties), window.map { sgPer18($0, .penalties) }),
+            total: delta(sgTotalPer18(round), window.map { sgTotalPer18($0) }))
     }
 
     private static func delta(_ value: Double?, _ window: [Double?]) -> Double? {
@@ -1318,14 +1480,21 @@ enum StatMeasuresMath {
         }
 
         // 3. Penalties well above the personal mean. Needs a window to have a mean.
+        //
+        // BOTH SIDES ARE THE WATERFALL PENALTIES TERM — the cohort figure, not
+        // `m.penaltiesTotal`. The round-wide count and a window mean of
+        // cohort-only terms are different units, and under partial coverage the
+        // round-wide side is systematically the larger of the two, which fired
+        // the line on rounds that had no spike at all.
         if let penaltyBaseline = meanOfPresent(window.map { $0.penalties }),
-            m.penaltiesTotal >= penaltyBaseline + insightPenaltySpikeOverMean
+            let roundPenalties = waterfall.penalties,
+            roundPenalties >= penaltyBaseline + insightPenaltySpikeOverMean
         {
             push(
                 InsightLine(
                     id: .penaltiesSpike,
                     params: [
-                        "penalties": .number(m.penaltiesTotal),
+                        "penalties": .number(roundPenalties),
                         "baseline": .number(penaltyBaseline),
                     ]),
                 0)
@@ -1373,8 +1542,12 @@ enum StatMeasuresMath {
 
         // 7. Best putting round in the window: strictly better than every round
         // in it that has a putting term, over a window worth the claim.
-        let windowPutting = window.compactMap(\.putting)
-        if let putting = waterfall.putting,
+        //
+        // Cross-round, so BOTH SIDES read `sgPer18` and inherit the
+        // minAttributedForDelta floor (§D.4). Raw terms would have handed the
+        // title to whichever round putted the fewest holes.
+        let windowPutting = window.compactMap { sgPer18($0, .putting) }
+        if let putting = sgPer18(waterfall, .putting),
             windowPutting.count >= insightBestPuttingMinWindow,
             windowPutting.allSatisfy({ putting < $0 })
         {

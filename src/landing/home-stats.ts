@@ -174,8 +174,8 @@ export function homeStatsTiles(model: StatsDashboardModel): HomeStatsTile[] {
  * says nothing.
  */
 export function homeStatsPriorityLine(model: StatsDashboardModel): string | null {
-    const leader = model.priorities.find((p) => p.perRound !== null);
-    if (!leader || leader.perRound === null || leader.perRound <= 0) return null;
+    const leader = model.priorities.find((p) => p.per18 !== null);
+    if (!leader || leader.per18 === null || leader.per18 <= 0) return null;
     return `Costing you most: ${componentTitle(leader.component)}`;
 }
 

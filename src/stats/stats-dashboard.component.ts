@@ -4,6 +4,13 @@ import { SelectComponent, type SelectOption } from '@basics/core/client/ui/selec
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { StatsDashboardService } from './stats-dashboard.service';
+import { STROKES_LOST_COMPONENTS, sgPer18 } from '../round/stat-measures';
+import {
+    sgInfoCardTpl,
+    SG_INFO_SHEET_MARKUP,
+    SG_INFO_STYLES,
+    SG_INFO_TRIGGER_MARKUP,
+} from './sg-info-sheet';
 import {
     priorityMagnitude,
     waterfallMagnitude,
@@ -17,9 +24,12 @@ import {
     resultsSubtitle,
     resultsTiles,
     roundLabel,
+    sgInfoCards,
+    SG_INFO_COPY,
     STATS_COPY,
     type ResultsHistogramRow,
     type ResultsTile,
+    type SgInfoCard,
 } from './stats-panel-blocks';
 import {
     renderMiniBar,
@@ -36,7 +46,7 @@ import {
     quantity,
     roundTypeTitle,
     signedNumber,
-    strokesPerRound,
+    strokesPer18,
     UNIT_ROUNDS,
     venueTitle,
     vsPar,
@@ -131,7 +141,10 @@ const tpl = template(`
             </section>
 
             <section bind="prioritiesSec" class="stats__section">
-                <h2></h2>
+                <div class="stats__sechead">
+                    <h2></h2>
+                    ${SG_INFO_TRIGGER_MARKUP}
+                </div>
                 <p bind="prioritiesHint" class="stats__hint"></p>
                 <div bind="priorities" class="priorities"></div>
             </section>
@@ -151,6 +164,7 @@ const tpl = template(`
                 <div bind="rounds" class="stats__rounds"></div>
             </section>
         </div>
+${SG_INFO_SHEET_MARKUP}
     </div>
 `);
 
@@ -353,6 +367,9 @@ export class StatsDashboardComponent extends Component {
                     font-family: ${t('font-display')};
                     font-weight: 600; font-size: 1.2rem;
                 }
+                /* Outranks the same reset in SG_INFO_STYLES, which this nested
+                   rule would otherwise beat and leave the flex row unbalanced. */
+                & .stats__sechead h2 { margin-bottom: 0; }
             }
             & .stats__hint {
                 margin: 0 0 ${s('md')}; font-size: 0.82rem; color: ${t('text-muted')};
@@ -415,9 +432,9 @@ export class StatsDashboardComponent extends Component {
                 }
             }
 
-            /* ONE card, exactly like Results above: the four terms are one
-               answer to one question ("what is costing me shots?"), and four
-               separate cards made the reader pick which of four equal boxes to
+            /* ONE card, exactly like Results above: the five terms are one
+               answer to one question ("what is costing me shots?"), and five
+               separate cards made the reader pick which of five equal boxes to
                read first — when the ORDER already answered that. */
             & .priorities {
                 ${card()}
@@ -500,6 +517,8 @@ export class StatsDashboardComponent extends Component {
                 }
             }
         }
+
+${SG_INFO_STYLES}
     `;
 
     private svc = this.inject(StatsDashboardService);
@@ -508,6 +527,12 @@ export class StatsDashboardComponent extends Component {
 
     /** Whether the custom-window criteria panel is showing. */
     private filterOpen = new Signal(false);
+    /**
+     * The "How this works" sheet. Gated on a signal like the handicap
+     * derivation dialog, so the sheet's copy re-reads the live model every time
+     * it opens — every sentence in it quotes the reader's own coverage.
+     */
+    private prioritiesInfoOpen = new Signal(false);
 
     private colors = STATS_COLORS;
 
@@ -569,6 +594,20 @@ export class StatsDashboardComponent extends Component {
                     model().priorities.length > 0 ? 'stats__section' : 'stats__section hidden',
             },
             prioritiesHint: () => STATS_COPY.prioritiesHint,
+            infoTrigger: {
+                textContent: () => STATS_COPY.prioritiesInfo,
+                onclick: () => this.prioritiesInfoOpen.set(true),
+            },
+            infoSheet: {
+                className: () =>
+                    this.prioritiesInfoOpen.get() ? 'stats-info' : 'stats-info hidden',
+                onclick: (e: Event) => {
+                    // Backdrop press closes; a press inside the panel does not.
+                    if (e.target === e.currentTarget) this.prioritiesInfoOpen.set(false);
+                },
+            },
+            infoTitle: () => SG_INFO_COPY.title,
+            infoDone: { onclick: () => this.prioritiesInfoOpen.set(false) },
             trendsSec: {
                 className: () =>
                     model().trends.length > 0 ? 'stats__section' : 'stats__section hidden',
@@ -661,10 +700,10 @@ export class StatsDashboardComponent extends Component {
                         chart: {
                             innerHTML: () => {
                                 const live = this.priorityNow(p.component);
-                                return live?.perRound === null || live === undefined
+                                return live?.per18 === null || live === undefined
                                     ? ''
                                     : renderSignedBar(
-                                          live.perRound,
+                                          live.per18,
                                           priorityMagnitude(model().priorities),
                                           this.colors,
                                       );
@@ -673,8 +712,8 @@ export class StatsDashboardComponent extends Component {
                         value: {
                             textContent: () => {
                                 const live = this.priorityNow(p.component);
-                                return live && live.perRound !== null
-                                    ? strokesPerRound(live.perRound)
+                                return live && live.per18 !== null
+                                    ? strokesPer18(live.per18)
                                     : STATS_COPY.notEnoughData;
                             },
                         },
@@ -682,7 +721,7 @@ export class StatsDashboardComponent extends Component {
                             textContent: () => {
                                 const live = this.priorityNow(p.component);
                                 if (!live) return '';
-                                return live.perRound === null
+                                return live.per18 === null
                                     ? priorityCoverage(live.roundsInWindow)
                                     : `over ${quantity(live.roundsCovered, UNIT_ROUNDS)}`;
                             },
@@ -691,6 +730,33 @@ export class StatsDashboardComponent extends Component {
                     track,
                 ),
             (p) => p.component,
+        );
+
+        // --- The "How this works" sheet ---------------------------------------
+        //
+        // Rebuilt from the live model on every read: the cards quote the
+        // reader's own attribution coverage, which changes with the window.
+        this.$each(
+            this.ref(frag, 'infoCards'),
+            () =>
+                sgInfoCards({
+                    attributed: model().waterfall.coverage.attributed,
+                    holesScored: model().waterfall.coverage.holesScored,
+                    windowRounds: model().rounds.length,
+                    // The rows the card above is showing, so card 5 totals what
+                    // the reader can actually see and add up.
+                    rowsPer18: model().priorities.map((p) => p.per18),
+                }),
+            (c: SgInfoCard, _i, track) =>
+                this.wireEl(
+                    sgInfoCardTpl,
+                    {
+                        ctitle: () => (this.sgCardNow(c.id) ?? c).title,
+                        ctext: () => (this.sgCardNow(c.id) ?? c).body,
+                    },
+                    track,
+                ),
+            (c) => c.id,
         );
 
         // --- Trends ----------------------------------------------------------
@@ -949,6 +1015,20 @@ export class StatsDashboardComponent extends Component {
 
     private histNow(id: ResultsHistogramRow['id']): ResultsHistogramRow | undefined {
         return resultsHistogram(this.svc.model.get().results).find((row) => row.id === id);
+    }
+
+    /** Live card lookup, same idiom as `tileNow`: cards 1–4 exist from the
+     * empty model on, so a captured `c` would freeze their mount-time text
+     * (card 5 alone is created after data lands, which made the staleness
+     * asymmetric and easy to miss). */
+    private sgCardNow(id: string): SgInfoCard | undefined {
+        const m = this.svc.model.get();
+        return sgInfoCards({
+            attributed: m.waterfall.coverage.attributed,
+            holesScored: m.waterfall.coverage.holesScored,
+            windowRounds: m.rounds.length,
+            rowsPer18: m.priorities.map((p) => p.per18),
+        }).find((c) => c.id === id);
     }
 
     // --- Copy ----------------------------------------------------------------

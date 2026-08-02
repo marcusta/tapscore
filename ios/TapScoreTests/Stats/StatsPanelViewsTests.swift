@@ -554,17 +554,17 @@ final class StatsPanelViewsTests: XCTestCase {
         XCTAssertEqual(
             StatsCopy.priorityCoverage(
                 StatsPriority(
-                    component: .putting, perRound: 1.4, roundsCovered: 7, roundsInWindow: 10)),
+                    component: .putting, per18: 1.4, roundsCovered: 7, roundsInWindow: 10)),
             "over 7 rounds")
         XCTAssertEqual(
             StatsCopy.priorityCoverage(
                 StatsPriority(
-                    component: .putting, perRound: 0.5, roundsCovered: 1, roundsInWindow: 1)),
+                    component: .putting, per18: 0.5, roundsCovered: 1, roundsInWindow: 1)),
             "over 1 round")
         XCTAssertEqual(
             StatsCopy.priorityCoverage(
                 StatsPriority(
-                    component: .penalties, perRound: nil, roundsCovered: 0, roundsInWindow: 4)),
+                    component: .penalties, per18: nil, roundsCovered: 0, roundsInWindow: 4)),
             "None of these 4 rounds has data for it.")
     }
 

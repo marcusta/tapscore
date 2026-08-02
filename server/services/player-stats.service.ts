@@ -331,6 +331,62 @@ export interface StatMeasures {
     fairwayHitsPar5: number;
     inPlayHitsPar5: number;
     troubleCountPar5: number;
+
+    /**
+     * STROKES-GAINED-LITE (054, docs/proposals/strokes-gained-lite.md §4).
+     * Every field below is restricted to the ATTRIBUTION COHORT — holes where
+     * every state the hole's branch needs was recorded — because the five terms
+     * of the decomposition only sum to `Σ(score − E_HOLE[par])` when all five
+     * are computed over one common set of holes. The client twins turn these
+     * counts into strokes against the frozen `SG_TABLES_V1`; nothing here
+     * knows a table value.
+     *
+     * The measures above are NOT re-cohorted: a rate wants a maximal
+     * denominator, only the summable decomposition wants the common cohort.
+     */
+    /** The four cohort counts PARTITION the cohort. */
+    attHolesPar3Gir: number;
+    attHolesPar3Miss: number;
+    attHolesPar45Gir: number;
+    attHolesPar45Miss: number;
+    /**
+     * Cohort sums. `attPenalties` is the one documented default (proposal §3):
+     * an unanswered penalty prompt contributes zero and its hidden stroke
+     * lands in approach.
+     */
+    attStrokes: number;
+    attPutts: number;
+    attPenalties: number;
+    /** Tee cells, par 4/5 only. STRICT — these six partition the par-4/5 cohort. */
+    attFairwayPar4: number;
+    attInPlayPar4: number;
+    attTroublePar4: number;
+    attFairwayPar5: number;
+    attInPlayPar5: number;
+    attTroublePar5: number;
+    /** GIR arrival. The five buckets plus `attGirHoled` partition the GIR cohort. */
+    attGirFirstPuttInside1m: number;
+    attGirFirstPutt1To2m: number;
+    attGirFirstPutt2To4m: number;
+    attGirFirstPutt4To8m: number;
+    attGirFirstPuttOver8m: number;
+    attGirHoled: number;
+    /** Missed greens by difficulty, holed chips included. */
+    attMissStandard: number;
+    attMissHard: number;
+    /** Chip outcomes. These six partition the two miss counts. */
+    attChipInside2mStandard: number;
+    attChipOutside2mStandard: number;
+    attChipHoledStandard: number;
+    attChipInside2mHard: number;
+    attChipOutside2mHard: number;
+    attChipHoledHard: number;
+    /**
+     * Σ COALESCE(shortGameStrokes, 1) over the miss cohort — equal to the miss
+     * counts until wave 4 starts counting chips.
+     */
+    attSgStrokesEffectiveStandard: number;
+    attSgStrokesEffectiveHard: number;
 }
 
 /**
@@ -497,6 +553,7 @@ function absentHoleStats(roundId: string, playHoleId: string, playerId: string):
         short_game_difficulty: null,
         penalties: null,
         recovery_ok: null,
+        short_game_strokes: null,
     };
 }
 
@@ -654,6 +711,35 @@ function toMeasures(row: PlayerRoundStatsV3View | PlayerStatTotalsV3View): StatM
         fairwayHitsPar5: row.fairway_hits_par5,
         inPlayHitsPar5: row.in_play_hits_par5,
         troubleCountPar5: row.trouble_count_par5,
+        attHolesPar3Gir: row.att_holes_par3_gir,
+        attHolesPar3Miss: row.att_holes_par3_miss,
+        attHolesPar45Gir: row.att_holes_par45_gir,
+        attHolesPar45Miss: row.att_holes_par45_miss,
+        attStrokes: row.att_strokes,
+        attPutts: row.att_putts,
+        attPenalties: row.att_penalties,
+        attFairwayPar4: row.att_fairway_par4,
+        attInPlayPar4: row.att_in_play_par4,
+        attTroublePar4: row.att_trouble_par4,
+        attFairwayPar5: row.att_fairway_par5,
+        attInPlayPar5: row.att_in_play_par5,
+        attTroublePar5: row.att_trouble_par5,
+        attGirFirstPuttInside1m: row.att_gir_first_putt_inside_1m,
+        attGirFirstPutt1To2m: row.att_gir_first_putt_1_to_2m,
+        attGirFirstPutt2To4m: row.att_gir_first_putt_2_to_4m,
+        attGirFirstPutt4To8m: row.att_gir_first_putt_4_to_8m,
+        attGirFirstPuttOver8m: row.att_gir_first_putt_over_8m,
+        attGirHoled: row.att_gir_holed,
+        attMissStandard: row.att_miss_standard,
+        attMissHard: row.att_miss_hard,
+        attChipInside2mStandard: row.att_chip_inside2m_standard,
+        attChipOutside2mStandard: row.att_chip_outside2m_standard,
+        attChipHoledStandard: row.att_chip_holed_standard,
+        attChipInside2mHard: row.att_chip_inside2m_hard,
+        attChipOutside2mHard: row.att_chip_outside2m_hard,
+        attChipHoledHard: row.att_chip_holed_hard,
+        attSgStrokesEffectiveStandard: row.att_sg_strokes_effective_standard,
+        attSgStrokesEffectiveHard: row.att_sg_strokes_effective_hard,
     };
 }
 
@@ -782,6 +868,35 @@ function zeroMeasures(): StatMeasures {
         fairwayHitsPar5: 0,
         inPlayHitsPar5: 0,
         troubleCountPar5: 0,
+        attHolesPar3Gir: 0,
+        attHolesPar3Miss: 0,
+        attHolesPar45Gir: 0,
+        attHolesPar45Miss: 0,
+        attStrokes: 0,
+        attPutts: 0,
+        attPenalties: 0,
+        attFairwayPar4: 0,
+        attInPlayPar4: 0,
+        attTroublePar4: 0,
+        attFairwayPar5: 0,
+        attInPlayPar5: 0,
+        attTroublePar5: 0,
+        attGirFirstPuttInside1m: 0,
+        attGirFirstPutt1To2m: 0,
+        attGirFirstPutt2To4m: 0,
+        attGirFirstPutt4To8m: 0,
+        attGirFirstPuttOver8m: 0,
+        attGirHoled: 0,
+        attMissStandard: 0,
+        attMissHard: 0,
+        attChipInside2mStandard: 0,
+        attChipOutside2mStandard: 0,
+        attChipHoledStandard: 0,
+        attChipInside2mHard: 0,
+        attChipOutside2mHard: 0,
+        attChipHoledHard: 0,
+        attSgStrokesEffectiveStandard: 0,
+        attSgStrokesEffectiveHard: 0,
     };
 }
 

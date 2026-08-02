@@ -47,6 +47,18 @@ final class StatsDashboardModelTests: XCTestCase {
             $0.scrambleAttemptsStandard = 1
             $0.scrambleFirstPuttStandard = 1
             $0.scrambleInside2mStandard = 1
+            // The whole card is in the attribution cohort: eighteen par 4s off
+            // the fairway, seventeen greens hit, the one miss chipped inside 2 m.
+            $0.attHolesPar45Gir = 17
+            $0.attHolesPar45Miss = 1
+            $0.attStrokes = strokes
+            $0.attPutts = putts
+            $0.attPenalties = penalties
+            $0.attFairwayPar4 = 18
+            $0.attGirFirstPutt2To4m = 17
+            $0.attMissStandard = 1
+            $0.attChipInside2mStandard = 1
+            $0.attSgStrokesEffectiveStandard = 1
         }
     }
 
@@ -179,26 +191,72 @@ final class StatsDashboardModelTests: XCTestCase {
 
     // MARK: - 4. Priorities
 
+    /// An eighteen-hole waterfall, so `sgPer18` is the identity and these
+    /// fixtures read in the units they are written in.
+    private func lost(
+        tee: Double? = 0,
+        approach: Double? = 0,
+        shortGame: Double? = 0,
+        putting: Double? = 0,
+        penalties: Double? = 0,
+        attributed: Double = 18
+    ) -> StrokesLost {
+        StrokesLost(
+            tee: tee, approach: approach, shortGame: shortGame, putting: putting,
+            penalties: penalties,
+            total: [tee, approach, shortGame, putting, penalties].compactMap { $0 }.reduce(0, +),
+            coverage: StrokesLostCoverage(attributed: attributed, holesScored: attributed))
+    }
+
     func testPrioritiesRankWorstFirst() {
         let waterfalls = [
-            StrokesLost(putting: 2, shortGame: 0.5, penalties: 1, longGame: 3),
-            StrokesLost(putting: 2, shortGame: 0.5, penalties: 1, longGame: 3),
+            lost(tee: 3, approach: -0.5, shortGame: 0.5, putting: 2, penalties: 1),
+            lost(tee: 3, approach: -0.5, shortGame: 0.5, putting: 2, penalties: 1),
         ]
 
         let ranked = StatsDashboardModel.priorities(perRound: waterfalls)
 
-        XCTAssertEqual(ranked.map(\.component), [.longGame, .putting, .penalties, .shortGame])
-        XCTAssertEqual(ranked.first?.perRound, 3)
+        XCTAssertEqual(
+            ranked.map(\.component), [.tee, .putting, .penalties, .shortGame, .approach])
+        XCTAssertEqual(ranked.first?.per18, 3)
     }
 
     /// A gain is a NEGATIVE cost and must sort below every loss — the list is
     /// "what to work on", so a strength cannot lead it.
     func testAGainedComponentSinksBelowTheLostOnes() {
         let ranked = StatsDashboardModel.priorities(perRound: [
-            StrokesLost(putting: -1.2, shortGame: 0.1, penalties: 0, longGame: 2)
+            lost(tee: 2, approach: 0.05, shortGame: 0.1, putting: -1.2, penalties: 0)
         ])
 
-        XCTAssertEqual(ranked.map(\.component), [.longGame, .shortGame, .penalties, .putting])
+        XCTAssertEqual(
+            ranked.map(\.component), [.tee, .shortGame, .approach, .penalties, .putting])
+    }
+
+    /// A round under the per-18 floor contributes to no row: half a round is
+    /// where "per 18" stops being a scaling and starts being an extrapolation.
+    func testARoundUnderThePer18FloorContributesToNothing() {
+        let ranked = StatsDashboardModel.priorities(perRound: [
+            lost(putting: 3, attributed: 18),
+            lost(putting: 99, attributed: 4),
+        ])
+
+        let putting = ranked.first { $0.component == .putting }
+        XCTAssertEqual(putting?.per18, 3)
+        XCTAssertEqual(putting?.roundsCovered, 1)
+        XCTAssertEqual(putting?.roundsInWindow, 2)
+    }
+
+    /// A nine and an eighteen weigh the same, because both are scaled to 18
+    /// attributed holes before the mean is taken.
+    func testANineAndAnEighteenAreComparedOnTheSameAxis() {
+        let ranked = StatsDashboardModel.priorities(perRound: [
+            lost(putting: 2, attributed: 18),
+            lost(putting: 1, attributed: 9),
+        ])
+
+        // The nine-hole round lost 1 stroke over 9 holes = 2 per 18. The mean of
+        // the two is 2, not the 1.5 the raw terms would give.
+        XCTAssertEqual(ranked.first { $0.component == .putting }?.per18, 2)
     }
 
     /// The mean is over the rounds that HAVE the component, not over the window.
@@ -206,12 +264,12 @@ final class StatsDashboardModelTests: XCTestCase {
     /// toward zero and flatten the ranking.
     func testTheMeanIgnoresRoundsWithNoValueForTheComponent() {
         let ranked = StatsDashboardModel.priorities(perRound: [
-            StrokesLost(putting: 3, penalties: 0),
-            StrokesLost(putting: nil, penalties: 0),
+            lost(putting: 3, penalties: 0),
+            lost(putting: nil, penalties: 0),
         ])
 
         let putting = ranked.first { $0.component == .putting }
-        XCTAssertEqual(putting?.perRound, 3)
+        XCTAssertEqual(putting?.per18, 3)
         XCTAssertEqual(putting?.roundsCovered, 1)
         XCTAssertEqual(putting?.roundsInWindow, 2)
     }
@@ -220,24 +278,26 @@ final class StatsDashboardModelTests: XCTestCase {
     /// ranked list reads as "exactly average", which the data does not say.
     func testAnUnrecordedComponentIsAbsentNotZero() {
         let ranked = StatsDashboardModel.priorities(perRound: [
-            StrokesLost(putting: nil, shortGame: nil, penalties: 1, longGame: nil)
+            lost(tee: nil, approach: nil, shortGame: nil, putting: nil, penalties: 1)
         ])
 
         XCTAssertEqual(ranked.first?.component, .penalties)
         for row in ranked where row.component != .penalties {
-            XCTAssertNil(row.perRound)
+            XCTAssertNil(row.per18)
             XCTAssertFalse(row.hasData)
             XCTAssertEqual(row.roundsCovered, 0)
         }
         // Absent rows sink, and do so in a stable canonical order.
-        XCTAssertEqual(ranked.map(\.component).dropFirst(), [.longGame, .putting, .shortGame])
+        XCTAssertEqual(
+            ranked.map(\.component).dropFirst(), [.tee, .approach, .shortGame, .putting])
     }
 
     func testEveryComponentAlwaysGetsARow() {
         let ranked = StatsDashboardModel.priorities(perRound: [])
 
         XCTAssertEqual(ranked.count, StrokesLostComponent.allCases.count)
-        XCTAssertTrue(ranked.allSatisfy { $0.perRound == nil })
+        XCTAssertEqual(ranked.count, 5)
+        XCTAssertTrue(ranked.allSatisfy { $0.per18 == nil })
     }
 
     // MARK: - 5. Trends

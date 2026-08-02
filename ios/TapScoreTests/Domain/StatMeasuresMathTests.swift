@@ -146,6 +146,30 @@ final class StatMeasuresMathTests: XCTestCase {
         m.fairwayHitsPar5 = 0
         m.inPlayHitsPar5 = 1
         m.troubleCountPar5 = 0
+        // The attribution cohort: H1-H5. H6 was scored with nothing recorded,
+        // so it is in `holesScored` and in no `att*` column — the whole reason
+        // the waterfall reports its coverage.
+        m.attHolesPar3Gir = 0
+        m.attHolesPar3Miss = 1
+        m.attHolesPar45Gir = 3
+        m.attHolesPar45Miss = 1
+        m.attStrokes = 21
+        m.attPutts = 7
+        m.attPenalties = 1
+        // Tee cells are EXCLUSIVE here, unlike the cumulative `inPlayHits`
+        // above: H1 and H5 fairway, H2 trouble, H4 (the par 5) in play.
+        m.attFairwayPar4 = 2
+        m.attTroublePar4 = 1
+        m.attInPlayPar5 = 1
+        m.attGirFirstPuttInside1m = 1
+        m.attGirFirstPutt2To4m = 1
+        m.attGirFirstPuttOver8m = 1
+        m.attMissStandard = 1
+        m.attMissHard = 1
+        m.attChipInside2mStandard = 1
+        m.attChipHoledHard = 1
+        m.attSgStrokesEffectiveStandard = 1
+        m.attSgStrokesEffectiveHard = 1
     }
 
     /// A full eighteen with every short-game term populated.
@@ -426,6 +450,35 @@ final class StatMeasuresMathTests: XCTestCase {
         m.fairwayHitsPar5 = 112
         m.inPlayHitsPar5 = 113
         m.troubleCountPar5 = 114
+        m.attHolesPar3Gir = 115
+        m.attHolesPar3Miss = 116
+        m.attHolesPar45Gir = 117
+        m.attHolesPar45Miss = 118
+        m.attStrokes = 119
+        m.attPutts = 120
+        m.attPenalties = 121
+        m.attFairwayPar4 = 122
+        m.attInPlayPar4 = 123
+        m.attTroublePar4 = 124
+        m.attFairwayPar5 = 125
+        m.attInPlayPar5 = 126
+        m.attTroublePar5 = 127
+        m.attGirFirstPuttInside1m = 128
+        m.attGirFirstPutt1To2m = 129
+        m.attGirFirstPutt2To4m = 130
+        m.attGirFirstPutt4To8m = 131
+        m.attGirFirstPuttOver8m = 132
+        m.attGirHoled = 133
+        m.attMissStandard = 134
+        m.attMissHard = 135
+        m.attChipInside2mStandard = 136
+        m.attChipOutside2mStandard = 137
+        m.attChipHoledStandard = 138
+        m.attChipInside2mHard = 139
+        m.attChipOutside2mHard = 140
+        m.attChipHoledHard = 141
+        m.attSgStrokesEffectiveStandard = 142
+        m.attSgStrokesEffectiveHard = 143
     }
 
     func testEveryMeasureColumnIsAdditiveIncludingTheOnesNoRateReads() throws {
@@ -442,8 +495,8 @@ final class StatMeasuresMathTests: XCTestCase {
         // The count is asserted (and mirrored in the TypeScript twin) so that a
         // field added to the server's measure set and forgotten in the fixture
         // is caught, rather than sweeping a smaller set and passing.
-        XCTAssertEqual(singleFields.count, 114)
-        XCTAssertEqual(Set(singleFields.values).count, 114)
+        XCTAssertEqual(singleFields.count, 143)
+        XCTAssertEqual(Set(singleFields.values).count, 143)
         for (key, single) in singleFields {
             XCTAssertEqual(doubledFields[key], single * 2, "column \(key) is not additive")
         }
@@ -455,7 +508,7 @@ final class StatMeasuresMathTests: XCTestCase {
         let doubledExample = try decoder.decode(
             [String: Double].self,
             from: encoder.encode(StatMeasuresMath.sum([workedExample, workedExample])))
-        XCTAssertEqual(exampleFields.count, 114)
+        XCTAssertEqual(exampleFields.count, 143)
         for (key, single) in exampleFields {
             XCTAssertEqual(doubledExample[key], single * 2, "column \(key) is not additive")
         }
@@ -746,237 +799,556 @@ final class StatMeasuresMathTests: XCTestCase {
             ChipOutcomeExpectedPutts(inside2m: 1.25, outside2m: 2.12))
     }
 
-    func testTheWorkedExampleWaterfallIsTheHandComputedArithmetic() throws {
-        let w = StatMeasuresMath.strokesLost(workedExample)
-
-        // Putting: 7 putts taken over the resolved buckets (2 + 2 + 3) against
-        // 2×1.05 + 1×1.85 + 1×2.40 = 6.35 expected → +0.65 lost.
-        assertClose(w.putting, 0.65)
-        // Short game, two terms, each against ITS OWN difficulty's baseline:
-        //   H2's standard chip finished inside 2m → 1 × (1.25 − 1.70) = −0.45
-        //   H3's hard chip was HOLED              → 1 × (1 − 3.10)    = −2.10
-        // giving −2.55. The hole-out has no first-putt bucket, so before
-        // migration 047 it contributed nothing here and its baseline sat in the
-        // long game.
-        assertClose(w.shortGame, -2.55)
-        XCTAssertEqual(w.penalties, 1)
-        // Total: 25 strokes over par 24 → +1.
-        XCTAssertEqual(w.total, 1)
-        // Long game is the residual: 1 − 0.65 − (−2.55) − 1 = +1.90.
-        assertClose(w.longGame, 1.9)
-        // …and the four parts add back to the total, which is the whole point.
-        let putting = try XCTUnwrap(w.putting)
-        let shortGame = try XCTUnwrap(w.shortGame)
-        let longGame = try XCTUnwrap(w.longGame)
-        assertClose(putting + shortGame + w.penalties + longGame, 1)
-        // 5 of 6 scored holes carry a putt count, clearing the residual's floor.
-        XCTAssertEqual(w.coverage, StrokesLost.Coverage(holesScored: 6, puttsRecorded: 5))
-    }
-
-    func testAHoledChipIsAShortGameGainNotALongGameOne() throws {
-        // The same round twice over, once with the chip holed and once with it
-        // simply never recorded, so the whole difference is the hole-out.
-        let base = measures { m in
-            m.holesScored = 9
-            m.strokesTotal = 40
-            m.parTotal = 36
-            m.puttsRecorded = 9
-            m.firstPuttInside1mResolved = 2
-            m.puttsTotalInside1mResolved = 2
-            m.scrambleFirstPuttStandard = 1
-            m.scrambleInside2mStandard = 1
+    /// The reference baseline is PROVISIONAL, and says so in the data rather
+    /// than only in a comment: `calibratedAt` nil and every `rowCounts` cell
+    /// zero is the machine-readable form of "nobody has fitted this yet".
+    func testTheReferenceBaselineIsProvisionalAndInternallyOrdered() throws {
+        XCTAssertEqual(SgTablesV1.version, "v1-provisional")
+        XCTAssertNil(SgTablesV1.calibratedAt)
+        XCTAssertEqual(SgTablesV1.rowCounts.eHole, [3: 0, 4: 0, 5: 0])
+        for par in [4, 5] {
+            XCTAssertEqual(
+                SgTablesV1.rowCounts.eAfterTee[par], [.fairway: 0, .inPlay: 0, .trouble: 0])
         }
-        var withHoleOut = base
-        withHoleOut.scrambleHoledHard = 1
 
-        let plain = StatMeasuresMath.strokesLost(base)
-        let holed = StatMeasuresMath.strokesLost(withHoleOut)
-        // The HARD baseline (2.10) moves OUT of the residual and INTO the short
-        // game. The total is untouched: attribution changed, the score did not.
-        assertClose(try XCTUnwrap(holed.shortGame) - (try XCTUnwrap(plain.shortGame)), -2.10)
-        assertClose(try XCTUnwrap(holed.longGame) - (try XCTUnwrap(plain.longGame)), 2.10)
-        XCTAssertEqual(holed.total, plain.total)
+        XCTAssertEqual(SgTablesV1.eHole, [3: 3.60, 4: 4.70, 5: 5.50])
+        let e3 = try XCTUnwrap(SgTablesV1.eHole[3])
+        let e4 = try XCTUnwrap(SgTablesV1.eHole[4])
+        let e5 = try XCTUnwrap(SgTablesV1.eHole[5])
+        // A longer hole costs more, and no hole is a two-shot hole.
+        XCTAssertLessThan(e3, e4)
+        XCTAssertLessThan(e4, e5)
+        for e in [e3, e4, e5] { XCTAssertGreaterThan(e, 3.0) }
 
-        // And a holed chip is a scramble signal on its own: no bucketed first
-        // putt anywhere, yet the short game is a number rather than nil. A
-        // STANDARD hole-out is worth its own baseline, 1.70.
-        let holeOutOnly = measures { m in m.scrambleHoledStandard = 1 }
-        assertClose(StatMeasuresMath.strokesLost(holeOutOnly).shortGame, -1.70)
-        // Neither signal → still nil, not 0.
-        XCTAssertNil(StatMeasuresMath.strokesLost(measures()).shortGame)
-    }
-
-    func testTheResidualIsNilWhenMostOfTheRoundHasNoPuttCount() {
-        // Three holes of putting recorded out of eighteen scored. `putting`
-        // claims only those three, so a residual would silently blame the long
-        // game for fifteen holes of putting nobody saw.
-        let sparse = measures { m in
-            m.holesScored = 18
-            m.strokesTotal = 90
-            m.parTotal = 72
-            m.puttsRecorded = 3
-            m.puttsTotal = 6
-            m.firstPuttInside1mResolved = 3
-            m.puttsTotalInside1mResolved = 6
-            m.scrambleFirstPuttStandard = 1
-            m.scrambleInside2mStandard = 1
+        for par in [4, 5] {
+            let cells = try XCTUnwrap(SgTablesV1.eAfterTee[par])
+            let fairway = try XCTUnwrap(cells[.fairway])
+            let inPlay = try XCTUnwrap(cells[.inPlay])
+            let trouble = try XCTUnwrap(cells[.trouble])
+            // A better lie is worth strictly fewer strokes.
+            XCTAssertLessThan(fairway, inPlay)
+            XCTAssertLessThan(inPlay, trouble)
+            let eHole = try XCTUnwrap(SgTablesV1.eHole[par])
+            // …and the tee term has both signs available: a fairway is a gain,
+            // trouble is a loss. A table where every drive lost strokes would
+            // make the row meaningless.
+            XCTAssertLessThan(1 + fairway, eHole)
+            XCTAssertGreaterThan(1 + trouble, eHole)
         }
-        let w = StatMeasuresMath.strokesLost(sparse)
-        // Every measured term still stands — coverage gates the RESIDUAL only.
-        assertClose(w.putting, 6 - 3 * 1.05)
-        assertClose(w.shortGame, -0.45)
-        XCTAssertEqual(w.total, 18)
-        XCTAssertNil(w.longGame)
-        XCTAssertEqual(
-            w.coverage, StrokesLost.Coverage(holesScored: 18, puttsRecorded: 3))
-
-        // Exactly at the floor (0.8 × 18 = 14.4, so 15 holes) it is reported
-        // again.
-        var covered = sparse
-        covered.puttsRecorded = 15
-        XCTAssertNotNil(StatMeasuresMath.strokesLost(covered).longGame)
-        // …and one hole below it, it is not.
-        var short = sparse
-        short.puttsRecorded = 14
-        XCTAssertNil(StatMeasuresMath.strokesLost(short).longGame)
     }
 
-    func testAStatsOnlyRoundHasNoTotalAndNoResidualAndProducesNoNaN() throws {
-        // Answers recorded, scorecard empty — a real shape: holesScored 0 means
-        // strokesTotal - parTotal is 0 - 0, which is NOT a level-par round.
-        let statsOnly = measures { m in
-            m.firstPuttInside1mResolved = 1
-            m.puttsTotalInside1mResolved = 2
-            m.puttsRecorded = 1
-            m.puttsTotal = 2
-            m.scrambleFirstPuttStandard = 1
-            m.scrambleInside2mStandard = 1
-            m.penaltiesTotal = 1
+    /// Assert the five terms and that they telescope to `total` — the identity
+    /// the whole design rests on.
+    private func assertWaterfall(
+        _ w: StrokesLost,
+        tee: Double,
+        approach: Double,
+        shortGame: Double,
+        putting: Double,
+        penalties: Double,
+        total: Double,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        assertClose(w.tee, tee, file: file, line: line)
+        assertClose(w.approach, approach, file: file, line: line)
+        assertClose(w.shortGame, shortGame, file: file, line: line)
+        assertClose(w.putting, putting, file: file, line: line)
+        assertClose(w.penalties, penalties, file: file, line: line)
+        assertClose(w.total, total, file: file, line: line)
+        let terms: [Double] = StrokesLostComponent.allCases.map { w[$0] ?? Double.nan }
+        assertClose(terms.reduce(0, +), total, file: file, line: line)
+    }
+
+    // MARK: The four identity holes (spec §F.1)
+
+    /// I1 — par 4, fairway, green hit, first putt 4–8 m, two putts, five strokes.
+    func testIdentityHoleParFourGreenInRegulation() {
+        let m = measures {
+            $0.holesScored = 1
+            $0.attHolesPar45Gir = 1
+            $0.attStrokes = 5
+            $0.attPutts = 2
+            $0.attFairwayPar4 = 1
+            $0.attGirFirstPutt4To8m = 1
         }
-        let w = StatMeasuresMath.strokesLost(statsOnly)
-        // The measured terms still stand: 2 putts against 1.05 expected.
-        assertClose(w.putting, 0.95)
-        assertClose(w.shortGame, -0.45)
-        XCTAssertEqual(w.penalties, 1)
-        XCTAssertNil(w.total)
-        XCTAssertNil(w.longGame)
-        // Not just "not NaN": the unwrap is what makes a nil fail here too, and
-        // the TypeScript twin asserts the same two things separately.
-        XCTAssertEqual(try XCTUnwrap(w.putting).isNaN, false)
-        XCTAssertEqual(try XCTUnwrap(w.putting).isFinite, true)
-        XCTAssertEqual(try XCTUnwrap(w.shortGame).isNaN, false)
-        XCTAssertEqual(try XCTUnwrap(w.shortGame).isFinite, true)
+        assertWaterfall(
+            StatMeasuresMath.strokesLostV3(m),
+            tee: -0.25, approach: 0.65, shortGame: 0, putting: -0.10, penalties: 0, total: 0.30)
     }
 
-    func testAWaterfallComponentCanBeReadByNameTheSameWayTheDeltasCan() {
-        let w = StrokesLost(putting: 1, shortGame: -2, penalties: 3, longGame: nil, total: 2)
-        XCTAssertEqual(StrokesLostComponent.allCases.map { w[$0] }, [1, -2, 3, nil])
-        // The subscript and the field are the same value, for every component.
-        XCTAssertEqual(w[.putting], w.putting)
-        XCTAssertEqual(w[.shortGame], w.shortGame)
-        XCTAssertEqual(w[.penalties], w.penalties)
-        XCTAssertEqual(w[.longGame], w.longGame)
-    }
-
-    func testAnUnmeasuredTermNilsTheResidualInsteadOfChargingItToTheLongGame() {
-        // Scored, penalties known, no putting and no chip data at all.
-        let scoreOnly = measures { m in
-            m.holesScored = 18
-            m.strokesTotal = 90
-            m.parTotal = 72
+    /// I2 — par 5, in play off the tee, green missed, one standard chip left
+    /// 1–2 m, two putts, six strokes.
+    func testIdentityHoleParFiveMissedGreenStandardChip() {
+        let m = measures {
+            $0.holesScored = 1
+            $0.attHolesPar45Miss = 1
+            $0.attStrokes = 6
+            $0.attPutts = 2
+            $0.attInPlayPar5 = 1
+            $0.attMissStandard = 1
+            $0.attChipInside2mStandard = 1
+            $0.attSgStrokesEffectiveStandard = 1
         }
-        let w = StatMeasuresMath.strokesLost(scoreOnly)
-        XCTAssertNil(w.putting)
-        XCTAssertNil(w.shortGame)
-        XCTAssertEqual(w.penalties, 0)
-        XCTAssertEqual(w.total, 18)
-        // +18 vs par is NOT 18 strokes of long game.
-        XCTAssertNil(w.longGame)
-
-        // Putting present, chips absent → still no residual.
-        let puttingOnly = measures { m in
-            m.holesScored = 18
-            m.strokesTotal = 90
-            m.parTotal = 72
-            m.firstPuttInside1mResolved = 1
-            m.puttsTotalInside1mResolved = 1
-        }
-        assertClose(StatMeasuresMath.strokesLost(puttingOnly).putting, -0.05)
-        XCTAssertNil(StatMeasuresMath.strokesLost(puttingOnly).shortGame)
-        XCTAssertNil(StatMeasuresMath.strokesLost(puttingOnly).longGame)
+        assertWaterfall(
+            StatMeasuresMath.strokesLostV3(m),
+            tee: 0.10, approach: 0.10, shortGame: -0.45, putting: 0.75, penalties: 0, total: 0.50)
     }
 
+    /// I3 — par 3, green hit, first putt 2–4 m, two putts. No tee cell: a par 3
+    /// has no modeled tee stroke, and the term is a clean zero rather than nil.
+    func testIdentityHoleParThreeGreenInRegulation() {
+        let m = measures {
+            $0.holesScored = 1
+            $0.attHolesPar3Gir = 1
+            $0.attStrokes = 3
+            $0.attPutts = 2
+            $0.attGirFirstPutt2To4m = 1
+        }
+        assertWaterfall(
+            StatMeasuresMath.strokesLostV3(m),
+            tee: 0, approach: -0.75, shortGame: 0, putting: 0.15, penalties: 0, total: -0.60)
+    }
+
+    /// I4 — par 3, green missed, chipped in from a hard lie.
+    func testAHoledChipIsAShortGameGainAndLeavesPuttingAtExactlyZero() throws {
+        let m = measures {
+            $0.holesScored = 1
+            $0.attHolesPar3Miss = 1
+            $0.attStrokes = 3
+            $0.attPutts = 0
+            $0.attMissHard = 1
+            $0.attChipHoledHard = 1
+            $0.attSgStrokesEffectiveHard = 1
+        }
+        let w = StatMeasuresMath.strokesLostV3(m)
+        assertWaterfall(
+            w, tee: 0, approach: 1.50, shortGame: -2.10, putting: 0, penalties: 0, total: -0.60)
+        // The claim the term exists to make: holing out from off the green is
+        // SHORT GAME, never approach play, and it leaves nothing to putt.
+        XCTAssertLessThan(try XCTUnwrap(w.shortGame), 0)
+        XCTAssertEqual(w.putting, 0)
+    }
+
+    // MARK: The stress cases (spec §F.2)
+
+    /// S1 — the schema tops out at three putts, so a four-putt is recorded as
+    /// three. The lost stroke lands in APPROACH, and this pins by how much.
+    func testAFourPuttTopCodeChargesExactlyOneStrokeToApproach() throws {
+        func hole(putts: Double) -> StatMeasures {
+            measures {
+                $0.holesScored = 1
+                $0.attHolesPar45Gir = 1
+                $0.attStrokes = 6
+                $0.attPutts = putts
+                $0.attFairwayPar4 = 1
+                $0.attGirFirstPuttOver8m = 1
+            }
+        }
+        let topCoded = StatMeasuresMath.strokesLostV3(hole(putts: 3))
+        assertWaterfall(
+            topCoded,
+            tee: -0.25, approach: 0.95, shortGame: 0, putting: 0.60, penalties: 0, total: 1.30)
+        let honest = StatMeasuresMath.strokesLostV3(hole(putts: 4))
+        assertClose(honest.approach, -0.05)
+        assertClose(honest.putting, 1.60)
+        // Exactly one stroke, moved from putting to approach. Proposal §3
+        // documents this distortion; the assertion stops anyone "fixing" it by
+        // accident.
+        assertClose(try XCTUnwrap(topCoded.approach) - (try XCTUnwrap(honest.approach)), 1)
+        assertClose(try XCTUnwrap(topCoded.putting) - (try XCTUnwrap(honest.putting)), -1)
+        XCTAssertEqual(topCoded.total, honest.total)
+    }
+
+    /// S2 — a second short-game stroke on one hole. The wave-4 shape: the count
+    /// of effective short-game strokes is what moves, not the outcome.
+    func testASecondShortGameStrokeMovesExactlyOneStrokeFromApproachToShortGame() throws {
+        func hole(sgStrokes: Double) -> StatMeasures {
+            measures {
+                $0.holesScored = 1
+                $0.attHolesPar45Miss = 1
+                $0.attStrokes = 6
+                $0.attPutts = 2
+                $0.attFairwayPar4 = 1
+                $0.attMissStandard = 1
+                $0.attChipOutside2mStandard = 1
+                $0.attSgStrokesEffectiveStandard = sgStrokes
+            }
+        }
+        let two = StatMeasuresMath.strokesLostV3(hole(sgStrokes: 2))
+        assertWaterfall(
+            two,
+            tee: -0.25, approach: 0.25, shortGame: 1.42, putting: -0.12, penalties: 0, total: 1.30)
+        let one = StatMeasuresMath.strokesLostV3(hole(sgStrokes: 1))
+        assertClose(one.approach, 1.25)
+        assertClose(one.shortGame, 0.42)
+        assertClose(try XCTUnwrap(two.approach) - (try XCTUnwrap(one.approach)), -1)
+        assertClose(try XCTUnwrap(two.shortGame) - (try XCTUnwrap(one.shortGame)), 1)
+        // Nothing else moves — the stroke was reattributed, not invented.
+        XCTAssertEqual(two.tee, one.tee)
+        XCTAssertEqual(two.putting, one.putting)
+        XCTAssertEqual(two.penalties, one.penalties)
+        XCTAssertEqual(two.total, one.total)
+    }
+
+    /// A chip left outside 2 m charges the short game; one left inside credits
+    /// it. Same hole, same score, different outcome cell.
     func testAChipLeftOutside2mChargesTheShortGameAChipLeftInsideCreditsIt() {
-        let far = measures { m in
-            m.scrambleFirstPuttHard = 4
-            m.scrambleInside2mHard = 1
+        func hole(inside: Bool) -> StatMeasures {
+            measures {
+                $0.holesScored = 1
+                $0.attHolesPar45Miss = 1
+                $0.attStrokes = 5
+                $0.attPutts = 2
+                $0.attFairwayPar4 = 1
+                $0.attMissStandard = 1
+                $0.attChipInside2mStandard = inside ? 1 : 0
+                $0.attChipOutside2mStandard = inside ? 0 : 1
+                $0.attSgStrokesEffectiveStandard = 1
+            }
         }
-        // Hard lies, against the hard baseline:
-        // 1 × (1.25 − 2.10) + 3 × (2.12 − 2.10) = −0.85 + 0.06 = −0.79.
-        assertClose(StatMeasuresMath.strokesLost(far).shortGame, -0.79)
-        let close = measures { m in
-            m.scrambleFirstPuttStandard = 4
-            m.scrambleInside2mStandard = 4
-        }
-        // 4 × (1.25 − 1.70) = −1.80.
-        assertClose(StatMeasuresMath.strokesLost(close).shortGame, -1.8)
+        // Inside: 1.25 − 1.70 = −0.45, a gain. Outside: 2.12 − 1.70 = +0.42.
+        assertClose(StatMeasuresMath.strokesLostV3(hole(inside: true)).shortGame, -0.45)
+        assertClose(StatMeasuresMath.strokesLostV3(hole(inside: false)).shortGame, 0.42)
     }
 
-    func testTheChipMixWaterfallExercisesAllSixShortGameTerms() throws {
-        let w = StatMeasuresMath.strokesLost(chipMix)
+    /// S3 — stroke and distance off the tee. The re-hit SWING distorts approach;
+    /// the penalty STROKE does not.
+    func testAReplayedTeeShotDistortsApproachWhileThePenaltyStrokeDoesNot() throws {
+        func hole(strokes: Double) -> StatMeasures {
+            measures {
+                $0.holesScored = 1
+                $0.attHolesPar45Miss = 1
+                $0.attStrokes = strokes
+                $0.attPutts = 2
+                $0.attPenalties = 1
+                $0.attTroublePar4 = 1
+                $0.attMissStandard = 1
+                $0.attChipOutside2mStandard = 1
+                $0.attSgStrokesEffectiveStandard = 1
+            }
+        }
+        let replay = StatMeasuresMath.strokesLostV3(hole(strokes: 7))
+        assertWaterfall(
+            replay,
+            tee: 0.65, approach: 0.35, shortGame: 0.42, putting: -0.12, penalties: 1, total: 2.30)
+        let drop = StatMeasuresMath.strokesLostV3(hole(strokes: 6))
+        assertClose(drop.approach, -0.65)
+        assertClose(try XCTUnwrap(replay.approach) - (try XCTUnwrap(drop.approach)), 1)
+        // The penalty term is identical: it counts strokes, not swings.
+        XCTAssertEqual(replay.penalties, 1)
+        XCTAssertEqual(drop.penalties, 1)
+    }
 
-        // Putting: 5×1.05 + 3×1.45 + 4×1.85 + 3×2.10 + 3×2.40 = 30.50 expected
-        // against 32 taken → +1.50.
-        assertClose(w.putting, 1.5)
-        // Short game, standard against 1.70:
-        //   3 × (1.25 − 1.70) + 1 × (2.12 − 1.70) + 2 × (1 − 2.70) = −4.33
-        // hard against 2.10:
-        //   1 × (1.25 − 2.10) + 2 × (2.12 − 2.10) + 1 × (1 − 3.10) = −2.91
-        assertClose(w.shortGame, -7.24)
-        XCTAssertEqual(w.penalties, 3)
-        XCTAssertEqual(w.total, 12)
-        // Residual: 12 − 1.50 − (−7.24) − 3 = +14.74.
-        assertClose(w.longGame, 14.74)
-        XCTAssertEqual(w.coverage, StrokesLost.Coverage(holesScored: 18, puttsRecorded: 18))
+    /// S4 — the Postel exception. A missing penalty answer models as ZERO, and
+    /// the stroke it does not claim lands in approach. The one place the app
+    /// defaults instead of skipping.
+    func testAnUnrecordedPenaltyModelsAsZeroAndLandsInApproach() throws {
+        func hole(penalties: Double) -> StatMeasures {
+            measures {
+                $0.holesScored = 1
+                $0.attHolesPar45Gir = 1
+                $0.attStrokes = 6
+                $0.attPutts = 2
+                $0.attPenalties = penalties
+                $0.attFairwayPar4 = 1
+                $0.attGirFirstPutt2To4m = 1
+            }
+        }
+        let unanswered = StatMeasuresMath.strokesLostV3(hole(penalties: 0))
+        assertWaterfall(
+            unanswered,
+            tee: -0.25, approach: 1.40, shortGame: 0, putting: 0.15, penalties: 0, total: 1.30)
+        let answered = StatMeasuresMath.strokesLostV3(hole(penalties: 1))
+        assertClose(answered.approach, 0.40)
+        assertClose(try XCTUnwrap(unanswered.approach) - (try XCTUnwrap(answered.approach)), 1)
+        assertClose(
+            try XCTUnwrap(unanswered.penalties) - (try XCTUnwrap(answered.penalties)), -1)
+    }
+
+    // MARK: Whole rounds (spec §F.3–F.5)
+
+    /// An eighteen with fourteen holes attributed — every tee cell, every
+    /// arrival bucket and every chip outcome populated at once. Twin of
+    /// `SG_ROUND_A` in `tests/round/stat-measures.test.ts`, field for field.
+    private lazy var sgRoundA: StatMeasures = measures { m in
+        m.holesScored = 18
+        m.attHolesPar3Gir = 2
+        m.attHolesPar3Miss = 1
+        m.attHolesPar45Gir = 7
+        m.attHolesPar45Miss = 4
+        m.attStrokes = 66
+        m.attPutts = 21
+        m.attPenalties = 2
+        m.attFairwayPar4 = 4
+        m.attInPlayPar4 = 2
+        m.attTroublePar4 = 2
+        m.attFairwayPar5 = 1
+        m.attInPlayPar5 = 1
+        m.attTroublePar5 = 1
+        m.attGirFirstPuttInside1m = 2
+        m.attGirFirstPutt1To2m = 1
+        m.attGirFirstPutt2To4m = 3
+        m.attGirFirstPutt4To8m = 1
+        m.attGirFirstPuttOver8m = 1
+        m.attGirHoled = 1
+        m.attMissStandard = 3
+        m.attMissHard = 2
+        m.attChipInside2mStandard = 2
+        m.attChipOutside2mStandard = 1
+        m.attChipHoledStandard = 0
+        m.attChipInside2mHard = 0
+        m.attChipOutside2mHard = 1
+        m.attChipHoledHard = 1
+        m.attSgStrokesEffectiveStandard = 3
+        m.attSgStrokesEffectiveHard = 2
+    }
+
+    /// `SG_ROUND_A` with four strokes taken off and no penalties — the window a
+    /// baseline delta is measured against.
+    private lazy var sgRoundB: StatMeasures = {
+        var m = self.sgRoundA
+        m.attStrokes = 62
+        m.attPenalties = 0
+        return m
+    }()
+
+    func testTheAttributionCountsPartitionTheCohort() {
+        let m = sgRoundA
+        // GIR holes: the par-3 and par-4/5 counts equal the arrival buckets.
+        XCTAssertEqual(
+            m.attHolesPar3Gir + m.attHolesPar45Gir,
+            m.attGirFirstPuttInside1m + m.attGirFirstPutt1To2m + m.attGirFirstPutt2To4m
+                + m.attGirFirstPutt4To8m + m.attGirFirstPuttOver8m + m.attGirHoled)
+        // Missed greens equal the chips hit from them, by difficulty.
+        XCTAssertEqual(m.attHolesPar3Miss + m.attHolesPar45Miss, m.attMissStandard + m.attMissHard)
+        XCTAssertEqual(
+            m.attMissStandard,
+            m.attChipInside2mStandard + m.attChipOutside2mStandard + m.attChipHoledStandard)
+        XCTAssertEqual(
+            m.attMissHard, m.attChipInside2mHard + m.attChipOutside2mHard + m.attChipHoledHard)
+        // The six tee cells equal the par-4/5 cohort.
+        XCTAssertEqual(
+            m.attFairwayPar4 + m.attInPlayPar4 + m.attTroublePar4 + m.attFairwayPar5
+                + m.attInPlayPar5 + m.attTroublePar5,
+            m.attHolesPar45Gir + m.attHolesPar45Miss)
+    }
+
+    func testTheFourteenHoleRoundIsTheHandComputedArithmetic() {
+        let w = StatMeasuresMath.strokesLostV3(sgRoundA)
+        assertWaterfall(
+            w, tee: 1.00, approach: 0.00, shortGame: -2.56, putting: 0.66, penalties: 2,
+            total: 1.10)
+        XCTAssertEqual(
+            w.coverage, StrokesLostCoverage(attributed: 14, holesScored: 18))
+        // Fourteen attributed holes, scaled to eighteen: × 9/7.
+        assertClose(StatMeasuresMath.sgPer18(w, .tee), 1.2857142857142858)
+        assertClose(StatMeasuresMath.sgPer18(w, .approach), 0)
+        assertClose(StatMeasuresMath.sgPer18(w, .shortGame), -3.2914285714285715)
+        assertClose(StatMeasuresMath.sgPer18(w, .putting), 0.8485714285714286)
+        assertClose(StatMeasuresMath.sgPer18(w, .penalties), 2.5714285714285716)
+        assertClose(StatMeasuresMath.sgTotalPer18(w), 1.4142857142857144)
+    }
+
+    func testTheBaselineRoundIsTheSameHolesFourStrokesBetter() {
+        let w = StatMeasuresMath.strokesLostV3(sgRoundB)
+        assertWaterfall(
+            w, tee: 1.00, approach: -2.00, shortGame: -2.56, putting: 0.66, penalties: 0,
+            total: -2.90)
+        assertClose(StatMeasuresMath.sgPer18(w, .approach), -2.5714285714285716)
+        assertClose(StatMeasuresMath.sgTotalPer18(w), -3.7285714285714286)
+    }
+
+    func testTheSameHolesFourStrokesBetterMoveApproachAndPenaltiesAndNothingElse() {
+        let a = StatMeasuresMath.strokesLostV3(sgRoundA)
+        let b = StatMeasuresMath.strokesLostV3(sgRoundB)
+        let d = StatMeasuresMath.baselineDeltas(round: a, window: [b])
+        // Identical tee shots, identical greens, identical chips: those three
+        // rows do not move at all. The four extra strokes are two penalties and
+        // two swings, and they land in exactly those two rows.
+        assertClose(d.tee, 0)
+        assertClose(d.shortGame, 0)
+        assertClose(d.putting, 0)
+        assertClose(d.approach, 2.5714285714285716)
+        assertClose(d.penalties, 2.5714285714285716)
+        assertClose(d.total, 5.142857142857143)
+    }
+
+    /// The tie-break, and the reason it is asserted: with two components exactly
+    /// equal, "worst" is decided by canonical component order alone. A platform
+    /// iterating its enum differently fails this and nothing else.
+    func testAnExactDeltaTieResolvesToTheEarlierComponentInCanonicalOrder() throws {
+        let round = waterfall(approach: 2, penalties: 2, total: 4)
+        let window = [waterfall()]
+        let deltas = StatMeasuresMath.baselineDeltas(round: round, window: window)
+        XCTAssertEqual(deltas.approach, deltas.penalties)
+
+        let worst = try XCTUnwrap(
+            lines(measures(), round, window, 10).first { $0.id == .componentWorstVsBaseline })
+        XCTAssertEqual(worst.params["component"], .component(.approach))
+        // …and the same tie the other way: "best" also takes the earlier one.
+        let gained = waterfall(approach: -2, penalties: -2, total: -4)
+        let best = try XCTUnwrap(
+            lines(measures(), gained, window, 10).first { $0.id == .componentBestVsBaseline })
+        XCTAssertEqual(best.params["component"], .component(.approach))
+    }
+
+    func testTheCanonicalComponentOrderIsTeeApproachShortGamePuttingPenalties() {
+        XCTAssertEqual(
+            StrokesLostComponent.allCases, [.tee, .approach, .shortGame, .putting, .penalties])
+    }
+
+    func testTheWorkedExampleWaterfallIsTheHandComputedArithmetic() {
+        let w = StatMeasuresMath.strokesLostV3(workedExample)
+        // Five of the six holes attribute — H6 was scored with nothing recorded.
+        assertWaterfall(
+            w, tee: 0.25, approach: -1.35, shortGame: -2.55, putting: 0.45, penalties: 1,
+            total: -2.20)
+        XCTAssertEqual(w.coverage, StrokesLostCoverage(attributed: 5, holesScored: 6))
+    }
+
+    /// A short round DRAWS a waterfall and CONTRIBUTES no comparison. That
+    /// distinction is the floor's whole purpose.
+    func testARoundUnderTheFloorHasRawTermsButNoPer18AndNoDeltas() {
+        let w = StatMeasuresMath.strokesLostV3(workedExample)
+        XCTAssertNotNil(w.total)
+        for component in StrokesLostComponent.allCases {
+            XCTAssertNotNil(w[component])
+            XCTAssertNil(StatMeasuresMath.sgPer18(w, component))
+        }
+        XCTAssertNil(StatMeasuresMath.sgTotalPer18(w))
+
+        let d = StatMeasuresMath.baselineDeltas(
+            round: w, window: [StatMeasuresMath.strokesLostV3(sgRoundA)])
+        for component in StrokesLostComponent.allCases { XCTAssertNil(d[component]) }
+        XCTAssertNil(d.total)
+    }
+
+    func testTheCoverageSentenceQuotesTheReadersOwnHoles() {
+        let w = StatMeasuresMath.strokesLostV3(workedExample)
+        XCTAssertEqual(
+            StatsCopy.sgInfoHolesCounted(
+                attributed: w.coverage.attributed, holesScored: w.coverage.holesScored,
+                perRound: false),
+            "5 of your 6 holes could be fully attributed \u{2014} the others are missing a tee, green or putt answer, so they are left out of every row rather than guessed at."
+        )
     }
 
     func testTheV1TableReplaysTheOldFlatShortGameExactly() {
-        let v1 = StatMeasuresMath.strokesLost(
-            chipMix, chipBaseline: StatMeasuresMath.chipExpectedPuttsV1ByDifficulty)
-        // Standard 3×(−0.60) + 1×(0.27) + 2×(−1.85) = −5.23; hard
-        // 1×(−0.60) + 2×(0.27) + 1×(−1.85) = −1.91.
-        assertClose(v1.shortGame, -7.14)
-        // …which is the legacy FLAT formula over the pooled counts, term for
-        // term: 4×(−0.60) + 3×(0.27) + 3×(−1.85). That equality is what makes
-        // the split a re-parameterisation rather than a new measure.
-        let flat =
-            4 * (1.25 - 1.85) + 3 * (2.12 - 1.85) + 3 * (1 - (1 + 1.85))
+        let v1 = StatMeasuresMath.strokesLostV3(
+            sgRoundA, chipBaseline: StatMeasuresMath.chipExpectedPuttsV1ByDifficulty)
+        // The legacy FLAT formula over the pooled outcome counts, term for term:
+        // 2 inside, 2 outside, 1 holed, all against the single 1.85.
+        let flat = 2 * (1.25 - 1.85) + 2 * (2.12 - 1.85) + 1 * (1 - (1 + 1.85))
         assertClose(v1.shortGame, flat)
+        assertClose(v1.shortGame, -2.51)
+    }
+
+    // MARK: Zero and degenerate cases (spec §F.6)
+
+    func testAnEmptyCohortNilsEveryTermRatherThanReportingZeros() {
+        let w = StatMeasuresMath.strokesLostV3(StatMeasuresMath.zero)
+        for component in StrokesLostComponent.allCases { XCTAssertNil(w[component]) }
+        XCTAssertNil(w.total)
+        XCTAssertEqual(w.coverage, StrokesLostCoverage(attributed: 0, holesScored: 0))
+
+        // A stats-only round: answers recorded, nothing attributable. It renders
+        // the "nothing to show" branch, not a level-par round that never
+        // happened.
+        let statsOnly = measures {
+            $0.puttsRecorded = 1
+            $0.puttsTotal = 2
+            $0.penaltiesTotal = 1
+            $0.holesScored = 4
+        }
+        let s = StatMeasuresMath.strokesLostV3(statsOnly)
+        for component in StrokesLostComponent.allCases { XCTAssertNil(s[component]) }
+        XCTAssertNil(s.total)
+        XCTAssertEqual(s.coverage, StrokesLostCoverage(attributed: 0, holesScored: 4))
+    }
+
+    func testNoTermIsEverNaNOrNegativeZero() throws {
+        for m in [sgRoundA, sgRoundB, workedExample] {
+            let w = StatMeasuresMath.strokesLostV3(m)
+            for component in StrokesLostComponent.allCases {
+                let value = try XCTUnwrap(w[component])
+                XCTAssertFalse(value.isNaN)
+                XCTAssertTrue(value.isFinite)
+                // −0 prints as "−0.0", which reads as a small loss when it is
+                // neither a loss nor a gain.
+                XCTAssertFalse(value.sign == .minus && value == 0)
+            }
+            let total = try XCTUnwrap(w.total)
+            XCTAssertTrue(total.isFinite)
+        }
+    }
+
+    /// The floor is INCLUSIVE: exactly nine attributed holes is half a round,
+    /// which is where "per 18" is still a scaling.
+    func testExactlyNineAttributedHolesIsInsideTheFloor() {
+        func round(_ par3Holes: Double) -> StrokesLost {
+            StatMeasuresMath.strokesLostV3(
+                measures {
+                    $0.holesScored = 18
+                    $0.attHolesPar3Gir = par3Holes
+                    $0.attStrokes = 3 * par3Holes
+                    $0.attPutts = par3Holes
+                    $0.attGirFirstPuttInside1m = par3Holes
+                })
+        }
+        XCTAssertEqual(StatMeasuresMath.minAttributedForDelta, 9)
+        XCTAssertNotNil(StatMeasuresMath.sgPer18(round(9), .putting))
+        XCTAssertNotNil(StatMeasuresMath.sgTotalPer18(round(9)))
+        XCTAssertNil(StatMeasuresMath.sgPer18(round(8), .putting))
+        XCTAssertNil(StatMeasuresMath.sgTotalPer18(round(8)))
+    }
+
+    func testAWaterfallComponentCanBeReadByNameTheSameWayTheDeltasCan() {
+        let w = StrokesLost(
+            tee: 1, approach: -2, shortGame: 3, putting: -4, penalties: 5, total: 3)
+        XCTAssertEqual(StrokesLostComponent.allCases.map { w[$0] }, [1, -2, 3, -4, 5])
+        // The subscript and the field are the same value, for every component.
+        XCTAssertEqual(w[.tee], w.tee)
+        XCTAssertEqual(w[.approach], w.approach)
+        XCTAssertEqual(w[.shortGame], w.shortGame)
+        XCTAssertEqual(w[.putting], w.putting)
+        XCTAssertEqual(w[.penalties], w.penalties)
     }
 
     func testTheWaterfallIsAdditiveSoAWindowSumsTheSameWayTheCountsDo() throws {
-        let single = StatMeasuresMath.strokesLost(workedExample)
-        let window = StatMeasuresMath.strokesLost(
-            StatMeasuresMath.sum([workedExample, workedExample]))
-        assertClose(window.putting, try XCTUnwrap(single.putting) * 2)
-        assertClose(window.shortGame, try XCTUnwrap(single.shortGame) * 2)
-        XCTAssertEqual(window.penalties, 2)
-        XCTAssertEqual(window.total, 2)
-        assertClose(window.longGame, try XCTUnwrap(single.longGame) * 2)
+        let single = StatMeasuresMath.strokesLostV3(sgRoundA)
+        let window = StatMeasuresMath.strokesLostV3(StatMeasuresMath.sum([sgRoundA, sgRoundA]))
+        for component in StrokesLostComponent.allCases {
+            assertClose(window[component], try XCTUnwrap(single[component]) * 2)
+        }
+        assertClose(window.total, try XCTUnwrap(single.total) * 2)
+        XCTAssertEqual(window.coverage, StrokesLostCoverage(attributed: 28, holesScored: 36))
+        // …and per 18 it is the SAME round twice, so the normalized figures are
+        // unchanged. That is what makes a window comparable with a round.
+        for component in StrokesLostComponent.allCases {
+            assertClose(
+                StatMeasuresMath.sgPer18(window, component),
+                try XCTUnwrap(StatMeasuresMath.sgPer18(single, component)))
+        }
     }
 
     // MARK: - Personal baseline
 
+    /// A waterfall with eighteen attributed holes, so `sgPer18` is the identity
+    /// and the insight tests read in the units they are written in.
     private func waterfall(
-        putting: Double? = 0,
+        tee: Double? = 0,
+        approach: Double? = 0,
         shortGame: Double? = 0,
-        penalties: Double = 0,
-        longGame: Double? = 0,
-        total: Double? = 0
+        putting: Double? = 0,
+        penalties: Double? = 0,
+        total: Double? = 0,
+        attributed: Double = 18
     ) -> StrokesLost {
         StrokesLost(
-            putting: putting, shortGame: shortGame, penalties: penalties, longGame: longGame,
-            total: total)
+            tee: tee, approach: approach, shortGame: shortGame, putting: putting,
+            penalties: penalties, total: total,
+            coverage: StrokesLostCoverage(attributed: attributed, holesScored: attributed))
     }
 
     func testTheMeanIgnoresAbsentEntriesRatherThanCountingThemAsZero() {
@@ -987,20 +1359,24 @@ final class StatMeasuresMathTests: XCTestCase {
 
     func testBaselineDeltasCompareARoundWithTheRoundsThatRecordedTheSameThing() {
         let window = [
-            waterfall(putting: 2, shortGame: nil, penalties: 1, longGame: 3, total: 6),
-            waterfall(putting: 4, shortGame: 1, penalties: 1, longGame: 1, total: 7),
-            waterfall(putting: nil, shortGame: nil, penalties: 0, longGame: nil, total: 4),
+            waterfall(tee: 3, approach: 1, shortGame: nil, putting: 2, penalties: 1, total: 6),
+            waterfall(tee: 1, approach: 1, shortGame: 1, putting: 4, penalties: 1, total: 7),
+            // Under the floor: it contributes to nothing, whatever it recorded.
+            waterfall(
+                tee: 9, approach: 9, shortGame: 9, putting: 9, penalties: 9, total: 9,
+                attributed: 4),
         ]
-        let round = waterfall(putting: 1, shortGame: 2, penalties: 3, longGame: 0, total: 6)
+        let round = waterfall(
+            tee: 0, approach: 1, shortGame: 2, putting: 1, penalties: 3, total: 6)
         let d = StatMeasuresMath.baselineDeltas(round: round, window: window)
-        // Putting baseline is (2 + 4)/2 = 3 — the third round recorded none.
+        // Putting baseline is (2 + 4)/2 = 3 — the third round is under the floor.
         XCTAssertEqual(d.putting, -2)
+        XCTAssertEqual(d.tee, -2)
+        XCTAssertEqual(d.approach, 0)
         // Short game has exactly ONE window sample, and one is enough.
         XCTAssertEqual(d.shortGame, 1)
-        // Penalties are a count, so every round has one: (1 + 1 + 0)/3 = 0.666…
-        assertClose(d.penalties, 3 - 2.0 / 3.0)
-        XCTAssertEqual(d.longGame, -2)
-        assertClose(d.total, 6 - 17.0 / 3.0)
+        XCTAssertEqual(d.penalties, 2)
+        assertClose(d.total, 6 - 6.5)
     }
 
     func testADeltaIsNilWhenEitherSideHasNoValueNeverZero() {
@@ -1012,11 +1388,15 @@ final class StatMeasuresMathTests: XCTestCase {
             round: waterfall(putting: nil),
             window: [waterfall(putting: 2), waterfall(putting: 4)])
         XCTAssertNil(roundBlind.putting)
-        XCTAssertEqual(roundBlind.longGame, 0)
+        XCTAssertEqual(roundBlind.tee, 0)
         // And the mirror: the window recorded none.
         let windowBlind = StatMeasuresMath.baselineDeltas(
             round: waterfall(putting: 1), window: [waterfall(putting: nil)])
         XCTAssertNil(windowBlind.putting)
+        // A window entirely under the floor is no window at all.
+        let tooShort = StatMeasuresMath.baselineDeltas(
+            round: waterfall(putting: 1), window: [waterfall(putting: 2, attributed: 8)])
+        XCTAssertNil(tooShort.putting)
     }
 
     // MARK: - Insight lines
@@ -1050,11 +1430,12 @@ final class StatMeasuresMathTests: XCTestCase {
 
     func testTheRankingIsDeltaMagnitudeFirstThenTheFixedRuleOrder() {
         let richWaterfall = waterfall(
-            putting: -2, shortGame: 0, penalties: 3, longGame: 0.5, total: 1.5)
+            tee: 0.5, approach: 0, shortGame: 0, putting: -2, penalties: 3, total: 1.5)
         let richWindow = Array(
-            repeating: waterfall(putting: 1, shortGame: 0, penalties: 1, longGame: 0, total: 2),
+            repeating: waterfall(
+                tee: 0, approach: 0, shortGame: 0, putting: 1, penalties: 1, total: 2),
             count: 6)
-        // Deltas vs the window: putting -3 (best), penalties +2 (worst), long game
+        // Deltas vs the window: putting -3 (best), penalties +2 (worst), tee
         // +0.5 (under the 1.0 threshold, so no line).
         XCTAssertEqual(
             ids(lines(richMeasures, richWaterfall, richWindow, 10)),
@@ -1078,20 +1459,20 @@ final class StatMeasuresMathTests: XCTestCase {
         // Four rounds: enough for a baseline, one short of the "best putting
         // round" window, so the two component rules are alone under test.
         let window = Array(repeating: waterfall(), count: 4)
-        // putting -2 and long game +2: identical magnitude, opposite signs.
-        let round = waterfall(putting: -2, longGame: 2, total: 0)
+        // putting -2 and tee +2: identical magnitude, opposite signs.
+        let round = waterfall(tee: 2, putting: -2, total: 0)
         let forward = ids(lines(measures(), round, window, 10))
         XCTAssertEqual(
             Array(forward.prefix(2)), [.componentBestVsBaseline, .componentWorstVsBaseline])
         // Swapping which component is which does not swap the ORDER: "best" is
         // rule 1 whatever component fills it.
-        let swapped = waterfall(putting: 2, longGame: -2, total: 0)
+        let swapped = waterfall(tee: -2, putting: 2, total: 0)
         XCTAssertEqual(
             Array(ids(lines(measures(), swapped, window, 10)).prefix(2)),
             [.componentBestVsBaseline, .componentWorstVsBaseline])
         let best = try XCTUnwrap(lines(measures(), swapped, window, 1).first)
         XCTAssertEqual(
-            best.params, ["component": .component(.longGame), "delta": .number(-2)])
+            best.params, ["component": .component(.tee), "delta": .number(-2)])
     }
 
     func testTheComponentRulesNeedAFullStrokeOfMovementEachWay() {
@@ -1106,14 +1487,23 @@ final class StatMeasuresMathTests: XCTestCase {
     func testEachThresholdRuleHoldsItsOwnLineBackUntilItsBarIsCleared() {
         let window = Array(repeating: waterfall(), count: 4)
 
-        // Penalties: the mean is 0, so 2 is a spike and 1 is not.
-        XCTAssertEqual(
-            ids(lines(measures { $0.penaltiesTotal = 1 }, waterfall(), window, 10)), [])
-        XCTAssertEqual(
-            ids(lines(measures { $0.penaltiesTotal = 2 }, waterfall(), window, 10)),
-            [.penaltiesSpike])
+        // Penalties: the window mean is 0, so a round's own ATTRIBUTED penalties
+        // term of 2 is a spike and 1 is not. Both sides of the comparison are
+        // the waterfall term — feeding the rule `measures.penaltiesTotal` would
+        // hold a round-wide count against a cohort-only mean. A 2-stroke term
+        // also moves the component rules, so this asserts membership, not the
+        // whole list.
+        func spike(_ penalties: Double, _ w: [StrokesLost]) -> [InsightID] {
+            ids(lines(measures(), waterfall(penalties: penalties, total: penalties), w, 10))
+        }
+        XCTAssertFalse(spike(1, window).contains(.penaltiesSpike))
+        XCTAssertTrue(spike(2, window).contains(.penaltiesSpike))
+        // A round-wide count of 9 with nothing attributed to it says nothing…
+        XCTAssertFalse(
+            ids(lines(measures { $0.penaltiesTotal = 9 }, waterfall(), window, 10))
+                .contains(.penaltiesSpike))
         // …and with no window there is no personal mean to spike above.
-        XCTAssertEqual(ids(lines(measures { $0.penaltiesTotal = 9 }, waterfall(), [], 10)), [])
+        XCTAssertEqual(spike(9, []), [])
 
         // Scrambling: 3 of 4 clears the bar; 2 of 3 is the same rate on too small
         // a sample; 2 of 4 is a big enough sample at too low a rate.
@@ -1155,7 +1545,7 @@ final class StatMeasuresMathTests: XCTestCase {
 
     func testTheHardScrambleStreakNeedsThreeHardMissesAndAllOfThemSaved() throws {
         let window = Array(repeating: waterfall(), count: 4)
-        let w = StatMeasuresMath.strokesLost(chipMix)
+        let w = StatMeasuresMath.strokesLostV3(chipMix)
         let fired = lines(chipMix, w, window, 10)
         // 4 hard misses, all saved. The OVERALL rate is 7 of 10 = 0.70, under
         // the 0.75 the plain streak asks for, so only the hard line fires.
@@ -1177,7 +1567,7 @@ final class StatMeasuresMathTests: XCTestCase {
         XCTAssertFalse(ids(lines(hard(4, 3), waterfall(), window, 10)).contains(.hardScrambleStreak))
         // One hard attempt is why the worked example never fires it.
         XCTAssertFalse(
-            ids(lines(workedExample, StatMeasuresMath.strokesLost(workedExample), window, 10))
+            ids(lines(workedExample, StatMeasuresMath.strokesLostV3(workedExample), window, 10))
                 .contains(.hardScrambleStreak))
     }
 
@@ -1218,6 +1608,16 @@ final class StatMeasuresMathTests: XCTestCase {
             ids(lines(measures(), waterfall(putting: -1), tied, 10)), [.componentBestVsBaseline])
         // And a round with no putting term of its own can never win.
         XCTAssertEqual(ids(lines(measures(), waterfall(putting: nil), five, 10)), [])
+
+        // The claim is cross-round, so both sides go through `sgPer18` and
+        // inherit its attributed floor (§D.4). A six-hole round neither pads
+        // the window…
+        let thin = waterfall(putting: -5, attributed: 6)
+        XCTAssertEqual(
+            ids(lines(measures(), waterfall(putting: -1), Array(five.prefix(4)) + [thin], 10)),
+            [.componentBestVsBaseline])
+        // …nor wins the title itself, however good its raw term looks.
+        XCTAssertEqual(ids(lines(measures(), thin, five, 10)), [])
     }
 
     func testTheWindowIsThePriorRoundsTheRoundUnderEvaluationIsNotInIt() {
@@ -1410,26 +1810,44 @@ final class StatMeasuresMathTests: XCTestCase {
         XCTAssertEqual(cost.delta.value, -1)
     }
 
-    func testTheWorkedExampleEndToEndCountsInRankedLinesOut() throws {
+    func testTheWorkedExampleEndToEndCountsInRankedLinesOut() {
         // The same round the server test asserts, played against five flat rounds.
         let window = Array(
-            repeating: waterfall(putting: 2, shortGame: 0, penalties: 0, longGame: 1, total: 3),
-            count: 5)
-        let w = StatMeasuresMath.strokesLost(workedExample)
-        let ranked = lines(workedExample, w, window, 3)
-        // Deltas vs the flat window: short game −2.55 − 0 = −2.55 (best, and it
-        // is the holed chip that puts it there); penalties 1 − 0 = +1 (worst);
-        // putting 0.65 − 2 = −1.35 and long game 1.90 − 1 = +0.90 lose to them.
-        // The round also putted better than all five, which is the third line.
+            repeating: waterfall(tee: 1, putting: 2, total: 3), count: 5)
+        let w = StatMeasuresMath.strokesLostV3(workedExample)
+        // Five attributed holes is under the floor, so EVERY cross-round rule is
+        // silent however far this round moved: a six-hole round does not get to
+        // tell the player their short game changed. "Best putting round" is one
+        // of them now that it normalizes too (§D.4) — this round's raw +0.45 of
+        // putting is smaller than the window's +2 only because it was measured
+        // over five holes rather than eighteen.
+        XCTAssertEqual(ids(lines(workedExample, w, window, 3)), [])
+    }
+
+    func testAFullRoundEndToEndCountsInRankedLinesOut() {
+        let window = Array(
+            repeating: waterfall(tee: 0, putting: 2, total: 2), count: 5)
+        let w = StatMeasuresMath.strokesLostV3(sgRoundA)
+        let ranked = lines(sgRoundA, w, window, 3)
+        // Deltas per 18 against the flat window: short game −3.29 (best, and it
+        // is the holed chip and the two chips inside 2 m that put it there);
+        // penalties +2.57 (worst); tee +1.29 and putting −1.15 lose to them on
+        // magnitude. Third place goes to the penalty spike — two ATTRIBUTED
+        // penalty strokes against a window that took none — which carries
+        // magnitude 0 and so beats the equally weightless putting line on push
+        // order alone.
         XCTAssertEqual(
             ids(ranked),
-            [.componentBestVsBaseline, .componentWorstVsBaseline, .bestPuttingRound])
+            [.componentBestVsBaseline, .componentWorstVsBaseline, .penaltiesSpike])
+        // The round did also putt better than all five; it is the limit of three
+        // that drops it, not the rule.
+        XCTAssertTrue(ids(lines(sgRoundA, w, window, 10)).contains(.bestPuttingRound))
         XCTAssertEqual(ranked[0].params["component"], .component(.shortGame))
-        assertClose(number(ranked[0].params["delta"]), -2.55)
-        // "Worst" is a genuine regression here: +1 penalty stroke against a
+        assertClose(number(ranked[0].params["delta"]), -3.2914285714285715)
+        // "Worst" is a genuine regression here: two penalty strokes against a
         // baseline of none. (It is only ever the component furthest ABOVE the
         // baseline — which on a good round can still be a gain.)
         XCTAssertEqual(ranked[1].params["component"], .component(.penalties))
-        XCTAssertEqual(number(ranked[1].params["delta"]), 1)
+        assertClose(number(ranked[1].params["delta"]), 2.5714285714285716)
     }
 }

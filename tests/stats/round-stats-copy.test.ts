@@ -328,8 +328,9 @@ test('singulars are not left as "1 penalty strokes" or "the last 1 rounds"', () 
 });
 
 test('the component nouns read as sentence subjects, not column heads', () => {
+    expect(insightComponentName('tee')).toBe('Your tee shots');
+    expect(insightComponentName('approach')).toBe('Your approach play');
     expect(insightComponentName('shortGame')).toBe('Your short game');
-    expect(insightComponentName('longGame')).toBe('Tee to green');
     expect(insightComponentName('putting')).toBe('Putting');
     expect(insightComponentName('penalties')).toBe('Penalties');
 });

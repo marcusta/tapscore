@@ -33,7 +33,10 @@ final class RoundStatsModelTests: XCTestCase {
             measures: measures)
     }
 
-    /// A round with enough recorded to give the waterfall all four terms.
+    /// A round with enough recorded to give the waterfall all five terms: an
+    /// eighteen of par 4s, every tee shot in the fairway, one green missed and
+    /// chipped to inside 2 m. The whole card is in the attribution cohort, so
+    /// the per-18 floor is cleared and the round takes part in comparisons.
     private func fullRound(strokes: Double, putts: Double, penalties: Double = 0) -> StatMeasures {
         measures {
             $0.holesScored = 18
@@ -48,6 +51,16 @@ final class RoundStatsModelTests: XCTestCase {
             $0.scrambleAttemptsStandard = 1
             $0.scrambleFirstPuttStandard = 1
             $0.scrambleInside2mStandard = 1
+            $0.attHolesPar45Gir = 17
+            $0.attHolesPar45Miss = 1
+            $0.attStrokes = strokes
+            $0.attPutts = putts
+            $0.attPenalties = penalties
+            $0.attFairwayPar4 = 18
+            $0.attGirFirstPutt2To4m = 17
+            $0.attMissStandard = 1
+            $0.attChipInside2mStandard = 1
+            $0.attSgStrokesEffectiveStandard = 1
         }
     }
 
@@ -440,10 +453,16 @@ final class RoundStatsModelTests: XCTestCase {
         XCTAssertFalse(free.contains("29.0"), free)
     }
 
-    func testEveryWaterfallComponentHasAReadersName() {
+    func testEveryWaterfallComponentHasAReadersName() throws {
         for component in StrokesLostComponent.allCases {
-            XCTAssertFalse(RoundStoryCopy.name(component).isEmpty)
-            XCTAssertFalse(RoundStoryCopy.name(component).contains(component.rawValue))
+            let name = RoundStoryCopy.name(component)
+            XCTAssertFalse(name.isEmpty)
+            // Prose, not the identifier: never the bare case name, and never a
+            // camelCase token leaking out of the enum.
+            XCTAssertNotEqual(name, component.rawValue)
+            XCTAssertFalse(name.contains("shortGame"))
+            let first = try XCTUnwrap(name.first)
+            XCTAssertTrue(first.isUppercase)
         }
     }
 

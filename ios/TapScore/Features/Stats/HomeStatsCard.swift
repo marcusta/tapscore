@@ -144,15 +144,15 @@ struct HomeStatsCardModel: Equatable, Sendable {
     /// first with the no-data components sunk to the bottom, so the leader is the
     /// first row that `hasData`.
     ///
-    /// It must also actually COST something. `penalties` is the one term that is
-    /// never nil — a round with no penalties records 0.0, not "unknown" — so a
-    /// window with nothing else measured always has a leader, and the card would
-    /// say "Costing you most: Penalties" to a player who took none. The card
-    /// prints no number beside the name, so a non-positive leader has nothing to
-    /// say and says nothing.
+    /// It must also actually COST something. Every term of an attributed round
+    /// is non-nil, `penalties` included — a round with no penalties records 0.0,
+    /// not "unknown" — so a window with anything attributed always has a leader,
+    /// and the card would say "Costing you most: Penalties" to a player who took
+    /// none. The card prints no number beside the name, so a non-positive leader
+    /// has nothing to say and says nothing.
     static func priorityLine(_ model: StatsDashboardModel) -> String? {
         guard let leader = model.priorities.first(where: \.hasData),
-            let cost = leader.perRound, cost > 0
+            let cost = leader.per18, cost > 0
         else { return nil }
         return "Costing you most: \(StatsFormat.title(leader.component))"
     }

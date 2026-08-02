@@ -6,6 +6,7 @@ import { MARKER_TOKENS } from '../round/marker-tokens';
 import {
     STROKES_LOST_COMPONENTS,
     deltaComponent,
+    sgPer18,
     strokesLostComponent,
 } from '../round/stat-measures';
 import { RoundStatsService } from './round-stats.service';
@@ -14,6 +15,13 @@ import { renderSignedBar, toneColor, toneForStrokesLost } from './stats-charts';
 import { STATS_COLORS } from './stats-palette';
 import { StatsPanelsComponent } from './stats-panels.component';
 import { componentTitle, signedNumber } from './stats-format';
+import { sgInfoCards, SG_INFO_COPY, STATS_COPY, type SgInfoCard } from './stats-panel-blocks';
+import {
+    sgInfoCardTpl,
+    SG_INFO_SHEET_MARKUP,
+    SG_INFO_STYLES,
+    SG_INFO_TRIGGER_MARKUP,
+} from './sg-info-sheet';
 import {
     cellHasPenalty,
     roundStatsTitle,
@@ -77,7 +85,10 @@ const tpl = template(`
             </section>
 
             <section class="roundstats__section">
-                <h2 bind="wfHeading"></h2>
+                <div class="stats__sechead">
+                    <h2 bind="wfHeading"></h2>
+                    ${SG_INFO_TRIGGER_MARKUP}
+                </div>
                 <p bind="wfHint" class="roundstats__hint"></p>
                 <div bind="deltas" class="roundstats__deltas"></div>
             </section>
@@ -91,6 +102,7 @@ const tpl = template(`
         </div>
 
         <button bind="finishClose" class="roundstats__closebtn hidden" type="button">Close</button>
+${SG_INFO_SHEET_MARKUP}
     </div>
 `);
 
@@ -215,6 +227,9 @@ export class RoundStatsComponent extends Component {
                     font-family: ${t('font-display')};
                     font-weight: 600; font-size: 1.2rem;
                 }
+                /* Outranks the same reset in SG_INFO_STYLES, which this nested
+                   rule would otherwise beat and leave the flex row unbalanced. */
+                & .stats__sechead h2 { margin-bottom: 0; }
             }
             & .roundstats__subhead {
                 margin: ${s('lg')} 0 ${s('sm')};
@@ -323,6 +338,8 @@ export class RoundStatsComponent extends Component {
                 color: ${t('text-muted')}; font-size: 0.82rem;
             }
         }
+
+${SG_INFO_STYLES}
     `;
 
     private svc = this.inject(RoundStatsService);
@@ -332,6 +349,8 @@ export class RoundStatsComponent extends Component {
 
     /** The hole whose stat line is expanded, or null. */
     private openHole = new Signal<string | null>(null);
+    /** The "How this works" sheet — the per-round variant of the copy. */
+    private infoOpen = new Signal(false);
 
     render(): DocumentFragment {
         const idQ = this.router.query('id');
@@ -389,6 +408,18 @@ export class RoundStatsComponent extends Component {
             },
             wfHeading: () => ROUND_STATS_COPY.waterfallHeading,
             wfHint: () => ROUND_STATS_COPY.waterfallHint,
+            infoTrigger: {
+                textContent: () => STATS_COPY.prioritiesInfo,
+                onclick: () => this.infoOpen.set(true),
+            },
+            infoSheet: {
+                className: () => (this.infoOpen.get() ? 'stats-info' : 'stats-info hidden'),
+                onclick: (e: Event) => {
+                    if (e.target === e.currentTarget) this.infoOpen.set(false);
+                },
+            },
+            infoTitle: () => SG_INFO_COPY.title,
+            infoDone: { onclick: () => this.infoOpen.set(false) },
             legendHeading: () => ROUND_STATS_COPY.legendHeading,
             detail: {
                 className: () => (this.selected() === null ? 'holedetail hidden' : 'holedetail'),
@@ -534,6 +565,27 @@ export class RoundStatsComponent extends Component {
                     track,
                 ),
             (component) => component,
+        );
+
+        // --- The "How this works" sheet ---------------------------------------
+        //
+        // The per-round variant: `windowRounds: 0` makes card 1 say "this
+        // round's" and card 5 drop the window wording.
+        this.$each(
+            this.ref(frag, 'infoCards'),
+            () => {
+                const m = model();
+                if (m === null) return [];
+                return sgInfoCards({
+                    attributed: m.waterfall.coverage.attributed,
+                    holesScored: m.waterfall.coverage.holesScored,
+                    windowRounds: 0,
+                    rowsPer18: STROKES_LOST_COMPONENTS.map((c) => sgPer18(m.waterfall, c)),
+                });
+            },
+            (c: SgInfoCard, _i, track) =>
+                this.wireEl(sgInfoCardTpl, { ctitle: () => c.title, ctext: () => c.body }, track),
+            (c) => c.id,
         );
 
         // --- Module cards ----------------------------------------------------

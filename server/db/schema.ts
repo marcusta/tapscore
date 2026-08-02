@@ -354,6 +354,13 @@ export interface PlayerHoleStatsTable {
     penalties: number | null;
     /** 0/1. */
     recovery_ok: number | null;
+    /**
+     * 1..5 short-game strokes on a missed green (migration 054). ALWAYS NULL
+     * today — no capture writes it. The aggregates read it through
+     * `COALESCE(…, 1)`, so a hole without a count models exactly one chip and
+     * wave 4's stroke counter is a capture change, not a second migration.
+     */
+    short_game_strokes: number | null;
 }
 
 /**
@@ -505,6 +512,70 @@ export interface PlayerStatMeasureColumns {
     fairway_hits_par5: number;
     in_play_hits_par5: number;
     trouble_count_par5: number;
+
+    /**
+     * STROKES-GAINED-LITE (migration 054,
+     * docs/proposals/strokes-gained-lite.md §4). Every column below is
+     * restricted to the ATTRIBUTION COHORT — the holes where every state the
+     * hole's branch needs was recorded — because the five terms of the
+     * decomposition only sum to `Σ(score − E_HOLE[par])` when all five are
+     * computed over one common set of holes.
+     *
+     * They do NOT re-cohort the measures above: a rate wants a maximal
+     * denominator, only the summable decomposition wants the common cohort, and
+     * the two live side by side (proposal §5).
+     */
+    /** The four cohort counts PARTITION the cohort. */
+    att_holes_par3_gir: number;
+    att_holes_par3_miss: number;
+    att_holes_par45_gir: number;
+    att_holes_par45_miss: number;
+    /**
+     * Cohort sums. `att_penalties` is the one documented default in the whole
+     * file (proposal §3): a hole with no penalty answer contributes zero and
+     * its hidden stroke lands in the approach term.
+     */
+    att_strokes: number;
+    att_putts: number;
+    att_penalties: number;
+    /**
+     * Tee cells, par 4/5 only. STRICT — unlike the cumulative
+     * `in_play_hits_par*` above, these six PARTITION the par-4/5 cohort, which
+     * is what makes the expected-score sums computable.
+     */
+    att_fairway_par4: number;
+    att_in_play_par4: number;
+    att_trouble_par4: number;
+    att_fairway_par5: number;
+    att_in_play_par5: number;
+    att_trouble_par5: number;
+    /**
+     * GIR arrival states. The five buckets plus `att_gir_holed` PARTITION the
+     * GIR cohort; a holed approach (or an ace) has no bucket because the ball
+     * is in, and its arrival value is zero expected putts.
+     */
+    att_gir_first_putt_inside_1m: number;
+    att_gir_first_putt_1_to_2m: number;
+    att_gir_first_putt_2_to_4m: number;
+    att_gir_first_putt_4_to_8m: number;
+    att_gir_first_putt_over_8m: number;
+    att_gir_holed: number;
+    /** Missed greens by difficulty, holed chips included. */
+    att_miss_standard: number;
+    att_miss_hard: number;
+    /** Chip outcomes. These six PARTITION the two miss counts. */
+    att_chip_inside2m_standard: number;
+    att_chip_outside2m_standard: number;
+    att_chip_holed_standard: number;
+    att_chip_inside2m_hard: number;
+    att_chip_outside2m_hard: number;
+    att_chip_holed_hard: number;
+    /**
+     * Σ COALESCE(short_game_strokes, 1) over the miss cohort. Equal to the
+     * miss counts until wave 4 starts counting chips.
+     */
+    att_sg_strokes_effective_standard: number;
+    att_sg_strokes_effective_hard: number;
 }
 
 /**

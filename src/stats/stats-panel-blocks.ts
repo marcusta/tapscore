@@ -15,10 +15,12 @@
 // same order, same wording).
 
 import {
+    MIN_ATTRIBUTED_FOR_DELTA,
     MIN_RATE_DENOMINATOR,
     PUTT_BUCKETS,
     rate,
     SCORE_TYPES,
+    SG_TABLES_V1,
     type Rate,
     type ResultsSummary,
     type ScoreType,
@@ -79,12 +81,12 @@ export const STATS_COPY = {
     notEnoughData: 'Not enough data',
     notRecorded: 'Not recorded',
     priorities: 'Practice priorities',
-    prioritiesHint:
-        'Strokes lost per round against a fixed baseline, worst first. Positive costs you shots.',
+    prioritiesHint: 'Where your shots go, worst first. Positive costs you shots.',
+    prioritiesInfo: 'How this works',
     trends: 'Trends',
     trendsHint: 'Oldest round on the left. A round with no reading is skipped, never plotted as zero.',
     roundsHeading: 'Rounds in this window',
-    roundsHint: 'Each strip is that round’s four waterfall terms, on one shared scale.',
+    roundsHint: 'Each strip is that round’s five terms, on one shared scale.',
     filter: 'Filter',
     filterClear: 'Clear filter',
     filterDates: 'Dates',
@@ -677,4 +679,120 @@ export function roundLabel(row: { name: string | null; courseName: string | null
     if (named) return named;
     const course = (row.courseName ?? '').trim();
     return course || 'Round';
+}
+
+
+// --- The strokes-lost info sheet ---------------------------------------------
+
+/**
+ * One card of the "How this works" sheet. Same anatomy on both clients: a short
+ * title, one paragraph.
+ */
+export interface SgInfoCard {
+    id: string;
+    title: string;
+    body: string;
+}
+
+/**
+ * What the sheet needs to speak about the reader's OWN data.
+ *
+ * `windowRounds` is 0 for the per-round variant, which says "this round"
+ * instead of counting rounds.
+ *
+ * `rowsPer18` is the five row figures EXACTLY AS THE CARD ABOVE PRINTS THEM, in
+ * whatever order it prints them. Card 5 sums them rather than quoting
+ * `sgTotalPer18` of the window, because the two are not the same number: the
+ * rows are means over rounds of each round's per-18, and the window total is a
+ * ratio of sums. Summing what is on screen is what makes "the five rows add up
+ * to …" a true sentence rather than an approximately true one. (For one round
+ * the two agree by construction, so the per-round variant is unchanged.) A null
+ * row means the window never cleared the attribution floor and the card is
+ * dropped rather than printing a total nothing supports.
+ */
+export interface SgInfoInput {
+    attributed: number;
+    holesScored: number;
+    /** 0 = the per-round variant. */
+    windowRounds: number;
+    rowsPer18: readonly (number | null)[];
+}
+
+/**
+ * The info sheet's copy, as FUNCTIONS: every sentence interpolates the reader's
+ * actual coverage, so there is no static string to keep in sync with the data
+ * (owner ruling 2026-08-02). The one permitted mention of "a strokes gained-style
+ * method" is in `fiveRows`; it appears nowhere else in the client.
+ *
+ * Twin of `StatsCopy`'s sg-info block on iOS, branch for branch.
+ */
+export const SG_INFO_COPY = {
+    title: 'How practice priorities work',
+
+    holesCounted(input: SgInfoInput): string {
+        const { attributed, holesScored, windowRounds } = input;
+        const whose = windowRounds === 0 ? 'this round\u2019s ' : 'your ';
+        if (attributed === 0) {
+            return `None of ${windowRounds === 0 ? 'this round\u2019s' : 'your'} ${holesScored} holes has the full set of answers yet, so there is nothing to show. A hole counts once it has a tee answer, a green answer and a putt answer.`;
+        }
+        if (attributed === holesScored) {
+            return `All ${holesScored} of ${windowRounds === 0 ? 'this round\u2019s' : 'your'} holes could be fully attributed.`;
+        }
+        return `${attributed} of ${whose}${holesScored} holes could be fully attributed \u2014 the others are missing a tee, green or putt answer, so they are left out of every row rather than guessed at.`;
+    },
+
+    fiveRows(): string {
+        return 'Each row is what that part of your game cost you against the Tapscore reference baseline v1 \u2014 a strokes gained-style method, worked out from the answers you tap rather than from shot distances. The five rows add up to your score against the baseline exactly; there is no leftover row.';
+    },
+
+    baseline(calibratedAt: string | null = SG_TABLES_V1.calibratedAt): string {
+        return calibratedAt === null
+            ? 'Tapscore reference baseline v1 is one set of expected scores per hole and per lie. It is still provisional, so treat the order of the rows as the reading and the sizes as rough.'
+            : `Tapscore reference baseline v1 is one set of expected scores per hole and per lie, frozen on ${calibratedAt}. Everyone is measured against the same table, so your rows can be compared with each other and with your own earlier rounds.`;
+    },
+
+    per18(): string {
+        return `Rows are scaled to 18 attributed holes, so a nine and an eighteen sit on the same scale. A round with fewer than ${MIN_ATTRIBUTED_FOR_DELTA} attributed holes is left out of the comparison entirely.`;
+    },
+
+    total(input: SgInfoInput): string | null {
+        const total = sgInfoRowSum(input.rowsPer18);
+        if (total === null) return null;
+        const signed = signedNumber(total);
+        if (input.windowRounds === 0) {
+            return `The five rows add up to ${signed} strokes against the baseline.`;
+        }
+        if (input.windowRounds === 1) {
+            return `Over this round the five rows add up to ${signed} strokes against the baseline.`;
+        }
+        return `Over these ${input.windowRounds} rounds the five rows add up to ${signed} strokes against the baseline.`;
+    },
+};
+
+/**
+ * The figure card 5 quotes: the sum of the rows on screen. Null when any row is
+ * absent — the five are all-present or all-absent by construction, so a null
+ * here means there is nothing to total, never a partial sum.
+ */
+export function sgInfoRowSum(rows: readonly (number | null)[]): number | null {
+    if (rows.length === 0) return null;
+    let sum = 0;
+    for (const v of rows) {
+        if (v === null) return null;
+        sum += v;
+    }
+    return sum;
+}
+
+/** The sheet's cards, in reading order. The total card is dropped when null. */
+export function sgInfoCards(input: SgInfoInput): SgInfoCard[] {
+    const cards: SgInfoCard[] = [
+        { id: 'holes', title: 'Holes counted', body: SG_INFO_COPY.holesCounted(input) },
+        { id: 'rows', title: 'The five rows', body: SG_INFO_COPY.fiveRows() },
+        { id: 'baseline', title: 'The baseline', body: SG_INFO_COPY.baseline() },
+        { id: 'per18', title: 'Per 18 holes', body: SG_INFO_COPY.per18() },
+    ];
+    const total = SG_INFO_COPY.total(input);
+    if (total !== null) cards.push({ id: 'total', title: 'The total', body: total });
+    return cards;
 }

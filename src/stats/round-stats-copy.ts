@@ -308,14 +308,16 @@ export function baselineHeading(windowCount: number): string {
  */
 export function insightComponentName(component: StrokesLostComponent): string {
     switch (component) {
-        case 'putting':
-            return 'Putting';
+        case 'tee':
+            return 'Your tee shots';
+        case 'approach':
+            return 'Your approach play';
         case 'shortGame':
             return 'Your short game';
+        case 'putting':
+            return 'Putting';
         case 'penalties':
             return 'Penalties';
-        case 'longGame':
-            return 'Tee to green';
     }
 }
 
@@ -327,8 +329,12 @@ function count(value: unknown): string {
     return typeof value === 'number' ? String(Math.round(value)) : '';
 }
 
+// The param is typed `InsightParam`, so the non-string branch is unreachable
+// from `insightLines`. It falls back to the FIRST canonical component rather
+// than to a retired name: `'longGame'` no longer exists, and inventing an alias
+// for it is exactly the compatibility shim the no-residual rule forbids.
 function component(value: unknown): StrokesLostComponent {
-    return typeof value === 'string' ? (value as StrokesLostComponent) : 'longGame';
+    return typeof value === 'string' ? (value as StrokesLostComponent) : 'tee';
 }
 
 /**

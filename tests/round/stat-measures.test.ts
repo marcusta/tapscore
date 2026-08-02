@@ -7,10 +7,12 @@ import {
     CHIP_OUTCOME_EXPECTED_PUTTS_V1,
     EXPECTED_PUTTS_V1,
     INSIGHT_BEST_PUTTING_MIN_WINDOW,
+    MIN_ATTRIBUTED_FOR_DELTA,
     MIN_RATE_DENOMINATOR,
     PUTT_BUCKETS,
     PUTT_COUNT_BUCKETS,
     SCORE_TYPES,
+    SG_TABLES_V1,
     STROKES_LOST_COMPONENTS,
     ZERO_MEASURES,
     avgVsParByParGroup,
@@ -45,7 +47,9 @@ import {
     recoveryRate,
     resultsSummary,
     scrambleRate,
-    strokesLost,
+    sgPer18,
+    sgTotalPer18,
+    strokesLostV3,
     strokesLostComponent,
     strokesVsParByTee,
     sumMeasures,
@@ -204,7 +208,163 @@ const WORKED_EXAMPLE: StatMeasures = measures({
     fairwayHitsPar5: 0,
     inPlayHitsPar5: 1,
     troubleCountPar5: 0,
+    // The attribution cohort (wave 4). Five of the six holes carry a tee, a
+    // green and a putt answer; H6 recorded nothing, so it is scored but never
+    // attributed — which is why `attStrokes` is 21 against `strokesTotal` 25.
+    attHolesPar3Gir: 0,
+    attHolesPar3Miss: 1,
+    attHolesPar45Gir: 3,
+    attHolesPar45Miss: 1,
+    attStrokes: 21,
+    attPutts: 7,
+    attPenalties: 1,
+    attFairwayPar4: 2,
+    attInPlayPar4: 0,
+    attTroublePar4: 1,
+    attFairwayPar5: 0,
+    attInPlayPar5: 1,
+    attTroublePar5: 0,
+    attGirFirstPuttInside1m: 1,
+    attGirFirstPutt2To4m: 1,
+    attGirFirstPuttOver8m: 1,
+    attMissStandard: 1,
+    attMissHard: 1,
+    attChipInside2mStandard: 1,
+    attChipHoledHard: 1,
+    attSgStrokesEffectiveStandard: 1,
+    attSgStrokesEffectiveHard: 1,
 });
+
+/**
+ * The attribution-cohort fixtures of the strokes-gained-lite spec (§F).
+ *
+ * Each of `I1`–`I4` is ONE hole, hand-computed in the proposal, and each asserts
+ * that its five terms telescope to `total`. `S1`–`S4` are the documented
+ * distortions, each pinned against its own counterfactual so a later "fix"
+ * cannot quietly move a stroke between terms. Every unlisted field is zero: the
+ * v3 waterfall reads the `att_*` cohort and `holesScored` alone.
+ */
+const I1_PAR4_GIR: StatMeasures = measures({
+    holesScored: 1,
+    attHolesPar45Gir: 1,
+    attStrokes: 5,
+    attPutts: 2,
+    attFairwayPar4: 1,
+    attGirFirstPutt4To8m: 1,
+});
+
+const I2_PAR5_STANDARD_CHIP: StatMeasures = measures({
+    holesScored: 1,
+    attHolesPar45Miss: 1,
+    attStrokes: 6,
+    attPutts: 2,
+    attInPlayPar5: 1,
+    attMissStandard: 1,
+    attChipInside2mStandard: 1,
+    attSgStrokesEffectiveStandard: 1,
+});
+
+const I3_PAR3_GIR: StatMeasures = measures({
+    holesScored: 1,
+    attHolesPar3Gir: 1,
+    attStrokes: 3,
+    attPutts: 2,
+    attGirFirstPutt2To4m: 1,
+});
+
+const I4_PAR3_CHIP_IN: StatMeasures = measures({
+    holesScored: 1,
+    attHolesPar3Miss: 1,
+    attStrokes: 3,
+    attPutts: 0,
+    attMissHard: 1,
+    attChipHoledHard: 1,
+    attSgStrokesEffectiveHard: 1,
+});
+
+/** S1: four putts, top-coded to three by the schema (proposal §3 assumption 1). */
+const S1_TOP_CODED_PUTTS: StatMeasures = measures({
+    holesScored: 1,
+    attHolesPar45Gir: 1,
+    attStrokes: 6,
+    attPutts: 3,
+    attFairwayPar4: 1,
+    attGirFirstPuttOver8m: 1,
+});
+
+/** S2: a second short-game stroke, counted (assumption 2). */
+const S2_TWO_CHIPS: StatMeasures = measures({
+    holesScored: 1,
+    attHolesPar45Miss: 1,
+    attStrokes: 6,
+    attPutts: 2,
+    attFairwayPar4: 1,
+    attMissStandard: 1,
+    attChipOutside2mStandard: 1,
+    attSgStrokesEffectiveStandard: 2,
+});
+
+/** S3: stroke and distance off the tee — two tee swings, one penalty (assumption 4). */
+const S3_TEE_PENALTY: StatMeasures = measures({
+    holesScored: 1,
+    attHolesPar45Miss: 1,
+    attStrokes: 7,
+    attPutts: 2,
+    attPenalties: 1,
+    attTroublePar4: 1,
+    attMissStandard: 1,
+    attChipOutside2mStandard: 1,
+    attSgStrokesEffectiveStandard: 1,
+});
+
+/** S4: a penalty nobody answered — the ONE place the app defaults (assumption 3). */
+const S4_UNRECORDED_PENALTY: StatMeasures = measures({
+    holesScored: 1,
+    attHolesPar45Gir: 1,
+    attStrokes: 6,
+    attPutts: 2,
+    attFairwayPar4: 1,
+    attGirFirstPutt2To4m: 1,
+});
+
+/**
+ * An eighteen with fourteen holes attributed — the spec's §F.3 round. Four holes
+ * are scored but miss an answer, which is what makes the per-18 normalization
+ * observable at all.
+ */
+const SG_ROUND_A: StatMeasures = measures({
+    holesScored: 18,
+    attHolesPar3Gir: 2,
+    attHolesPar3Miss: 1,
+    attHolesPar45Gir: 7,
+    attHolesPar45Miss: 4,
+    attStrokes: 66,
+    attPutts: 21,
+    attPenalties: 2,
+    attFairwayPar4: 4,
+    attInPlayPar4: 2,
+    attTroublePar4: 2,
+    attFairwayPar5: 1,
+    attInPlayPar5: 1,
+    attTroublePar5: 1,
+    attGirFirstPuttInside1m: 2,
+    attGirFirstPutt1To2m: 1,
+    attGirFirstPutt2To4m: 3,
+    attGirFirstPutt4To8m: 1,
+    attGirFirstPuttOver8m: 1,
+    attGirHoled: 1,
+    attMissStandard: 3,
+    attMissHard: 2,
+    attChipInside2mStandard: 2,
+    attChipOutside2mStandard: 1,
+    attChipOutside2mHard: 1,
+    attChipHoledHard: 1,
+    attSgStrokesEffectiveStandard: 3,
+    attSgStrokesEffectiveHard: 2,
+});
+
+/** §F.4: `SG_ROUND_A`'s own baseline — the same round, four strokes better and clean. */
+const SG_ROUND_B: StatMeasures = measures({ ...SG_ROUND_A, attStrokes: 62, attPenalties: 0 });
 
 /**
  * A complete eighteen with chips of BOTH difficulties, in both outcomes, plus a
@@ -453,6 +613,36 @@ const SWEEP: StatMeasures = {
     fairwayHitsPar5: 112,
     inPlayHitsPar5: 113,
     troubleCountPar5: 114,
+    // The migration-054 attribution cohort.
+    attHolesPar3Gir: 115,
+    attHolesPar3Miss: 116,
+    attHolesPar45Gir: 117,
+    attHolesPar45Miss: 118,
+    attStrokes: 119,
+    attPutts: 120,
+    attPenalties: 121,
+    attFairwayPar4: 122,
+    attInPlayPar4: 123,
+    attTroublePar4: 124,
+    attFairwayPar5: 125,
+    attInPlayPar5: 126,
+    attTroublePar5: 127,
+    attGirFirstPuttInside1m: 128,
+    attGirFirstPutt1To2m: 129,
+    attGirFirstPutt2To4m: 130,
+    attGirFirstPutt4To8m: 131,
+    attGirFirstPuttOver8m: 132,
+    attGirHoled: 133,
+    attMissStandard: 134,
+    attMissHard: 135,
+    attChipInside2mStandard: 136,
+    attChipOutside2mStandard: 137,
+    attChipHoledStandard: 138,
+    attChipInside2mHard: 139,
+    attChipOutside2mHard: 140,
+    attChipHoledHard: 141,
+    attSgStrokesEffectiveStandard: 142,
+    attSgStrokesEffectiveHard: 143,
 };
 
 test('every measure column is additive, including the ones no rate reads', () => {
@@ -460,8 +650,8 @@ test('every measure column is additive, including the ones no rate reads', () =>
     // The count is asserted (and mirrored in the Swift twin) so that a field
     // added to the server's measure set and forgotten here is caught, rather
     // than sweeping a smaller set and passing.
-    expect(keys).toHaveLength(114);
-    expect(new Set(Object.values(SWEEP)).size).toBe(114);
+    expect(keys).toHaveLength(143);
+    expect(new Set(Object.values(SWEEP)).size).toBe(143);
 
     // Key-by-key rather than spot checks: a column missing from `addMeasures`
     // would read as its first round's value forever, and only a full sweep sees
@@ -653,125 +843,275 @@ test('the expected-putts tables are frozen at their v1 values', () => {
     expect(CHIP_EXPECTED_PUTTS_V1_BY_DIFFICULTY).toEqual({ standard: 1.85, hard: 1.85 });
 });
 
+test('SG_TABLES_V1 is frozen, provisional, and ordered by lie quality', () => {
+    expect(SG_TABLES_V1.version).toBe('v1-provisional');
+    // Provisional until the owner freezes a calibration run: the info sheet
+    // reads this field to decide which sentence it prints.
+    expect(SG_TABLES_V1.calibratedAt).toBeNull();
+    expect(SG_TABLES_V1.eHole).toEqual({ 3: 3.6, 4: 4.7, 5: 5.5 });
+    expect(SG_TABLES_V1.eAfterTee[4]).toEqual({ fairway: 3.45, in_play: 3.8, trouble: 4.35 });
+    expect(SG_TABLES_V1.eAfterTee[5]).toEqual({ fairway: 4.25, in_play: 4.6, trouble: 5.15 });
+    expect(Object.isFrozen(SG_TABLES_V1)).toBe(true);
+    expect(Object.isFrozen(SG_TABLES_V1.eHole)).toBe(true);
+    expect(Object.isFrozen(SG_TABLES_V1.eAfterTee[4])).toBe(true);
+
+    // The ordering invariants, asserted rather than trusted: a worse lie is
+    // never cheaper, and a par-4/5 tee shot is always worth taking (the whole
+    // hole costs more than one stroke plus what is left after the tee).
+    for (const par of [4, 5] as const) {
+        const cells = SG_TABLES_V1.eAfterTee[par];
+        expect(cells.fairway).toBeLessThan(cells.in_play);
+        expect(cells.in_play).toBeLessThan(cells.trouble);
+        expect(1 + cells.fairway).toBeLessThan(SG_TABLES_V1.eHole[par]);
+    }
+    expect(SG_TABLES_V1.eHole[3]).toBeLessThan(SG_TABLES_V1.eHole[4]);
+    expect(SG_TABLES_V1.eHole[4]).toBeLessThan(SG_TABLES_V1.eHole[5]);
+});
+
+/** The five terms sum to `total` — the identity the whole method rests on. */
+function telescopes(w: ReturnType<typeof strokesLostV3>): number {
+    return w.tee! + w.approach! + w.shortGame! + w.putting! + w.penalties!;
+}
+
+test('the identity holes attribute exactly, and the five terms telescope', () => {
+    // I1 — par 4, fairway, green hit, first putt 4–8m, two putts, 5 strokes.
+    const i1 = strokesLostV3(I1_PAR4_GIR);
+    expect(i1.total).toBeCloseTo(0.3, 9);
+    expect(i1.tee).toBeCloseTo(-0.25, 9);
+    expect(i1.approach).toBeCloseTo(0.65, 9);
+    expect(i1.shortGame).toBeCloseTo(0, 9);
+    expect(i1.putting).toBeCloseTo(-0.1, 9);
+    expect(i1.penalties).toBe(0);
+    expect(telescopes(i1)).toBeCloseTo(i1.total!, 9);
+    expect(i1.coverage).toEqual({ attributed: 1, holesScored: 1 });
+
+    // I2 — par 5, in play, green missed, one standard chip to inside 2m.
+    const i2 = strokesLostV3(I2_PAR5_STANDARD_CHIP);
+    expect(i2.total).toBeCloseTo(0.5, 9);
+    expect(i2.tee).toBeCloseTo(0.1, 9);
+    expect(i2.approach).toBeCloseTo(0.1, 9);
+    expect(i2.shortGame).toBeCloseTo(-0.45, 9);
+    expect(i2.putting).toBeCloseTo(0.75, 9);
+    expect(telescopes(i2)).toBeCloseTo(i2.total!, 9);
+
+    // I3 — par 3, green hit. A par 3 has no tee term at all: its tee shot IS
+    // its approach, and inventing a zero there would be a claim, not a null.
+    const i3 = strokesLostV3(I3_PAR3_GIR);
+    expect(i3.total).toBeCloseTo(-0.6, 9);
+    expect(i3.tee).toBe(0);
+    expect(i3.approach).toBeCloseTo(-0.75, 9);
+    expect(i3.putting).toBeCloseTo(0.15, 9);
+    expect(telescopes(i3)).toBeCloseTo(i3.total!, 9);
+});
+
+test('a holed chip is a short-game gain, never an approach gain', () => {
+    // I4 — par 3, green missed, hard chip HOLED.
+    const i4 = strokesLostV3(I4_PAR3_CHIP_IN);
+    expect(i4.total).toBeCloseTo(-0.6, 9);
+    expect(i4.tee).toBe(0);
+    expect(i4.approach).toBeCloseTo(1.5, 9);
+    expect(i4.shortGame).toBeCloseTo(-2.1, 9);
+    expect(i4.putting).toBe(0);
+    expect(telescopes(i4)).toBeCloseTo(i4.total!, 9);
+
+    // The claim itself: the gain sits in the short game, and the putter never
+    // touched the ball, so putting is exactly zero rather than a small credit.
+    expect(i4.shortGame).toBeLessThan(0);
+    expect(i4.putting).toBe(0);
+});
+
+test('S1: a top-coded fourth putt is charged to approach, by exactly one stroke', () => {
+    const s1 = strokesLostV3(S1_TOP_CODED_PUTTS);
+    expect(s1.total).toBeCloseTo(1.3, 9);
+    expect(s1.tee).toBeCloseTo(-0.25, 9);
+    expect(s1.approach).toBeCloseTo(0.95, 9);
+    expect(s1.putting).toBeCloseTo(0.6, 9);
+    expect(telescopes(s1)).toBeCloseTo(s1.total!, 9);
+
+    // The same hole if the schema could record the fourth putt.
+    const honest = strokesLostV3(measures({ ...S1_TOP_CODED_PUTTS, attPutts: 4 }));
+    expect(honest.approach).toBeCloseTo(-0.05, 9);
+    expect(honest.putting).toBeCloseTo(1.6, 9);
+    expect(s1.approach! - honest.approach!).toBeCloseTo(1, 9);
+    expect(s1.putting! - honest.putting!).toBeCloseTo(-1, 9);
+    // The score is the score: only the attribution moved.
+    expect(s1.total).toBeCloseTo(honest.total!, 9);
+});
+
+test('S2: a second short-game stroke moves one stroke from approach to short game', () => {
+    const s2 = strokesLostV3(S2_TWO_CHIPS);
+    expect(s2.total).toBeCloseTo(1.3, 9);
+    expect(s2.tee).toBeCloseTo(-0.25, 9);
+    expect(s2.approach).toBeCloseTo(0.25, 9);
+    expect(s2.shortGame).toBeCloseTo(1.42, 9);
+    expect(s2.putting).toBeCloseTo(-0.12, 9);
+    expect(telescopes(s2)).toBeCloseTo(s2.total!, 9);
+
+    // Today's every hole: one modeled short-game stroke.
+    const one = strokesLostV3(measures({ ...S2_TWO_CHIPS, attSgStrokesEffectiveStandard: 1 }));
+    expect(one.approach).toBeCloseTo(1.25, 9);
+    expect(one.shortGame).toBeCloseTo(0.42, 9);
+    expect(s2.approach! - one.approach!).toBeCloseTo(-1, 9);
+    expect(s2.shortGame! - one.shortGame!).toBeCloseTo(1, 9);
+    // Everything else is untouched — a duffed chip is short-game damage.
+    expect(s2.tee).toBeCloseTo(one.tee!, 9);
+    expect(s2.putting).toBeCloseTo(one.putting!, 9);
+    expect(s2.penalties).toBe(one.penalties!);
+    expect(s2.total).toBeCloseTo(one.total!, 9);
+
+    // The chip that finished outside 2m is what charges the short game; the
+    // same chip left inside 2m credits it.
+    const inside = strokesLostV3(
+        measures({ ...S2_TWO_CHIPS, attChipOutside2mStandard: 0, attChipInside2mStandard: 1 }),
+    );
+    expect(inside.shortGame).toBeCloseTo(1.42 - (2.12 - 1.25), 9);
+});
+
+test('S3: the re-hit SWING distorts approach, the penalty STROKE does not', () => {
+    const s3 = strokesLostV3(S3_TEE_PENALTY);
+    expect(s3.total).toBeCloseTo(2.3, 9);
+    expect(s3.tee).toBeCloseTo(0.65, 9);
+    expect(s3.approach).toBeCloseTo(0.35, 9);
+    expect(s3.shortGame).toBeCloseTo(0.42, 9);
+    expect(s3.putting).toBeCloseTo(-0.12, 9);
+    expect(s3.penalties).toBe(1);
+    expect(telescopes(s3)).toBeCloseTo(s3.total!, 9);
+
+    // A lateral drop instead of a replay: one tee swing, the same penalty.
+    const drop = strokesLostV3(measures({ ...S3_TEE_PENALTY, attStrokes: 6 }));
+    expect(drop.approach).toBeCloseTo(-0.65, 9);
+    expect(s3.approach! - drop.approach!).toBeCloseTo(1, 9);
+    expect(s3.penalties).toBe(drop.penalties!);
+});
+
+test('S4: a penalty nobody recorded models as zero and lands in approach', () => {
+    const s4 = strokesLostV3(S4_UNRECORDED_PENALTY);
+    expect(s4.total).toBeCloseTo(1.3, 9);
+    expect(s4.tee).toBeCloseTo(-0.25, 9);
+    expect(s4.approach).toBeCloseTo(1.4, 9);
+    expect(s4.putting).toBeCloseTo(0.15, 9);
+    expect(s4.penalties).toBe(0);
+    expect(telescopes(s4)).toBeCloseTo(s4.total!, 9);
+
+    // The same hole with the penalty answered.
+    const answered = strokesLostV3(measures({ ...S4_UNRECORDED_PENALTY, attPenalties: 1 }));
+    expect(answered.approach).toBeCloseTo(0.4, 9);
+    expect(s4.approach! - answered.approach!).toBeCloseTo(1, 9);
+    expect(s4.penalties! - answered.penalties!).toBe(-1);
+});
+
+test('SG_ROUND_A is the hand-computed eighteen, raw and per 18 attributed', () => {
+    const w = strokesLostV3(SG_ROUND_A);
+    expect(w.coverage).toEqual({ attributed: 14, holesScored: 18 });
+    expect(w.total).toBeCloseTo(1.1, 9);
+    expect(w.tee).toBeCloseTo(1, 9);
+    expect(w.approach).toBeCloseTo(0, 9);
+    expect(w.shortGame).toBeCloseTo(-2.56, 9);
+    expect(w.putting).toBeCloseTo(0.66, 9);
+    expect(w.penalties).toBe(2);
+    expect(telescopes(w)).toBeCloseTo(w.total!, 9);
+
+    // Per 18 attributed holes: ×18/14. This is the ONLY figure that may be
+    // compared across rounds — the raw terms above are this round's own story.
+    expect(sgPer18(w, 'tee')).toBeCloseTo(1.2857142857142858, 12);
+    expect(sgPer18(w, 'approach')).toBeCloseTo(0, 12);
+    expect(sgPer18(w, 'shortGame')).toBeCloseTo(-3.2914285714285715, 12);
+    expect(sgPer18(w, 'putting')).toBeCloseTo(0.8485714285714286, 12);
+    expect(sgPer18(w, 'penalties')).toBeCloseTo(2.5714285714285716, 12);
+    expect(sgTotalPer18(w)).toBeCloseTo(1.4142857142857144, 12);
+
+    // SG_ROUND_B — the same round four strokes better and clean.
+    const b = strokesLostV3(SG_ROUND_B);
+    expect(b.total).toBeCloseTo(-2.9, 9);
+    expect(b.tee).toBeCloseTo(1, 9);
+    expect(b.approach).toBeCloseTo(-2, 9);
+    expect(b.shortGame).toBeCloseTo(-2.56, 9);
+    expect(b.putting).toBeCloseTo(0.66, 9);
+    expect(b.penalties).toBe(0);
+    expect(telescopes(b)).toBeCloseTo(b.total!, 9);
+    expect(sgTotalPer18(b)).toBeCloseTo(-3.7285714285714286, 12);
+});
+
 test('the worked example waterfall is the hand-computed arithmetic', () => {
-    const w = strokesLost(WORKED_EXAMPLE);
+    const w = strokesLostV3(WORKED_EXAMPLE);
 
-    // Putting: 7 putts taken over the resolved buckets (2 + 2 + 3) against
-    // 2×1.05 + 1×1.85 + 1×2.40 = 6.35 expected → +0.65 lost.
-    expect(w.putting).toBeCloseTo(0.65, 9);
-    // Short game, two terms, each against ITS OWN difficulty's baseline (v2):
-    //   H2's standard chip finished inside 2m → 1 × (1.25 − 1.70) = −0.45
-    //   H3's HARD chip was HOLED              → 1 × (1 − 3.10)    = −2.10
-    // giving −2.55. The hole-out has no first-putt bucket, so before migration
-    // 047 it contributed nothing here and its baseline sat in the long game.
+    // Five of six holes attribute: H6 was scored with nothing recorded, so it
+    // is left out of every term rather than guessed at.
+    expect(w.coverage).toEqual({ attributed: 5, holesScored: 6 });
+    expect(w.total).toBeCloseTo(-2.2, 9);
+    expect(w.tee).toBeCloseTo(0.25, 9);
+    expect(w.approach).toBeCloseTo(-1.35, 9);
     expect(w.shortGame).toBeCloseTo(-2.55, 9);
+    expect(w.putting).toBeCloseTo(0.45, 9);
     expect(w.penalties).toBe(1);
-    // Total: 25 strokes over par 24 → +1.
-    expect(w.total).toBe(1);
-    // Long game is the residual: 1 − 0.65 − (−2.55) − 1 = +1.90.
-    expect(w.longGame).toBeCloseTo(1.9, 9);
-    // …and the four parts add back to the total, which is the whole point.
-    expect(w.putting! + w.shortGame! + w.penalties + w.longGame!).toBeCloseTo(1, 9);
-    // 5 of 6 scored holes carry a putt count, clearing the residual's floor.
-    expect(w.coverage).toEqual({ holesScored: 6, puttsRecorded: 5 });
+    expect(telescopes(w)).toBeCloseTo(w.total!, 9);
+
+    // …and NO cross-round figure, because five attributed holes is under the
+    // floor. A short round draws its own waterfall and contributes nothing to a
+    // comparison — that distinction is the floor's whole purpose.
+    for (const c of STROKES_LOST_COMPONENTS) expect(sgPer18(w, c)).toBeNull();
+    expect(sgTotalPer18(w)).toBeNull();
+    const d = baselineDeltas(w, [strokesLostV3(SG_ROUND_A)]);
+    for (const c of STROKES_LOST_COMPONENTS) expect(d[c]).toBeNull();
+    expect(d.total).toBeNull();
 });
 
-test('a holed chip is a short-game gain, not a long-game one', () => {
-    // The same round twice over, once with the chip holed and once with it
-    // simply never recorded, so the whole difference is the hole-out.
-    const base = measures({
+test('the per-18 floor is inclusive at exactly nine attributed holes', () => {
+    const nine = measures({
         holesScored: 9,
-        strokesTotal: 40,
-        parTotal: 36,
-        puttsRecorded: 9,
-        firstPuttInside1mResolved: 2,
-        puttsTotalInside1mResolved: 2,
-        scrambleFirstPuttStandard: 1,
-        scrambleInside2mStandard: 1,
+        attHolesPar3Gir: 9,
+        attStrokes: 27,
+        attPutts: 18,
+        attGirFirstPutt2To4m: 9,
     });
-    const withHoleOut = { ...base, scrambleHoledHard: 1 };
-
-    const plain = strokesLost(base);
-    const holed = strokesLost(withHoleOut);
-    // The HARD baseline, −2.10, moves OUT of the residual and INTO the short
-    // game. The total is untouched: attribution changed, the score did not.
-    expect(holed.shortGame! - plain.shortGame!).toBeCloseTo(-2.1, 9);
-    expect(holed.longGame! - plain.longGame!).toBeCloseTo(2.1, 9);
-    expect(holed.total).toBe(plain.total);
-
-    // And a holed chip is a scramble signal on its own: no bucketed first putt
-    // anywhere, yet the short game is a number rather than null.
-    const holeOutOnly = measures({ scrambleHoledStandard: 1 });
-    expect(strokesLost(holeOutOnly).shortGame).toBeCloseTo(-1.7, 9);
-    // Neither signal → still null, not 0.
-    expect(strokesLost(measures()).shortGame).toBeNull();
+    const w = strokesLostV3(nine);
+    expect(w.coverage.attributed).toBe(MIN_ATTRIBUTED_FOR_DELTA);
+    expect(sgPer18(w, 'putting')).toBeCloseTo(w.putting! * 2, 9);
+    // One hole short of the floor, and the comparison is withheld.
+    const eight = strokesLostV3(
+        measures({ ...nine, attHolesPar3Gir: 8, attGirFirstPutt2To4m: 8, attStrokes: 24, attPutts: 16 }),
+    );
+    expect(eight.coverage.attributed).toBe(8);
+    expect(sgPer18(eight, 'putting')).toBeNull();
 });
 
-test('the residual is null when most of the round has no putt count', () => {
-    // Three holes of putting recorded out of eighteen scored. `putting` claims
-    // only those three, so a residual would silently blame the long game for
-    // fifteen holes of putting nobody saw.
-    const sparse = measures({
-        holesScored: 18,
-        strokesTotal: 90,
-        parTotal: 72,
-        puttsRecorded: 3,
-        puttsTotal: 6,
-        firstPuttInside1mResolved: 3,
-        puttsTotalInside1mResolved: 6,
-        scrambleFirstPuttStandard: 1,
-        scrambleInside2mStandard: 1,
-    });
-    const w = strokesLost(sparse);
-    // Every measured term still stands — coverage gates the RESIDUAL only.
-    expect(w.putting).toBeCloseTo(6 - 3 * 1.05, 9);
-    expect(w.shortGame).toBeCloseTo(-0.45, 9);
-    expect(w.total).toBe(18);
-    expect(w.longGame).toBeNull();
-    expect(w.coverage).toEqual({ holesScored: 18, puttsRecorded: 3 });
-
-    // Exactly at the floor (0.8 × 18 = 14.4, so 15 holes) it is reported again.
-    const covered = strokesLost({ ...sparse, puttsRecorded: 15 });
-    expect(covered.longGame).not.toBeNull();
-    // …and one hole below it, it is not.
-    expect(strokesLost({ ...sparse, puttsRecorded: 14 }).longGame).toBeNull();
-});
-
-test('a stats-only round has no total and no residual, and produces no NaN', () => {
-    // Answers recorded, scorecard empty — a real shape: holesScored 0 means
-    // strokesTotal - parTotal is 0 - 0, which is NOT a level-par round.
+test('a stats-only round attributes nothing: all five terms null, no NaN, no −0', () => {
+    // Answers recorded, scorecard empty — a real shape. Nothing attributes,
+    // so every term is null TOGETHER: there is no partial state.
     const statsOnly = measures({
         firstPuttInside1mResolved: 1,
         puttsTotalInside1mResolved: 2,
         puttsRecorded: 1,
         puttsTotal: 2,
-        scrambleFirstPuttStandard: 1,
-        scrambleInside2mStandard: 1,
         penaltiesTotal: 1,
     });
-    const w = strokesLost(statsOnly);
-    // The measured terms still stand: 2 putts against 1.05 expected.
-    expect(w.putting).toBeCloseTo(0.95, 9);
-    expect(w.shortGame).toBeCloseTo(-0.45, 9);
-    expect(w.penalties).toBe(1);
+    const w = strokesLostV3(statsOnly);
+    for (const c of STROKES_LOST_COMPONENTS) expect(strokesLostComponent(w, c)).toBeNull();
     expect(w.total).toBeNull();
-    expect(w.longGame).toBeNull();
-    // Not just "not NaN": a null here would also pass `Number.isNaN(null!)`,
-    // so the value has to be a real number first. (The Swift twin's optional
-    // unwrap makes this the same assertion.)
-    expect(typeof w.putting).toBe('number');
-    expect(Number.isFinite(w.putting!)).toBe(true);
-    expect(typeof w.shortGame).toBe('number');
-    expect(Number.isFinite(w.shortGame!)).toBe(true);
+    expect(w.coverage).toEqual({ attributed: 0, holesScored: 0 });
+
+    // The same for the truly empty row, and no negative zero anywhere: −0
+    // formats as "−0.0" and would read as a loss the player never took.
+    const zero = strokesLostV3(ZERO_MEASURES);
+    for (const c of STROKES_LOST_COMPONENTS) expect(strokesLostComponent(zero, c)).toBeNull();
+    expect(zero.total).toBeNull();
+    const a = strokesLostV3(SG_ROUND_A);
+    for (const c of STROKES_LOST_COMPONENTS) {
+        const v = strokesLostComponent(a, c)!;
+        expect(Number.isFinite(v)).toBe(true);
+        expect(Object.is(v, -0)).toBe(false);
+    }
+    expect(Object.is(a.total!, -0)).toBe(false);
 });
 
 test('a waterfall component can be read by name, the same way the deltas can', () => {
-    const w = waterfall({ putting: 1, shortGame: -2, penalties: 3, longGame: null, total: 2 });
+    const w = waterfall({ tee: 1, approach: -2, shortGame: 3, putting: null, penalties: 4 });
     expect(STROKES_LOST_COMPONENTS.map((c) => strokesLostComponent(w, c))).toEqual([
         1,
         -2,
         3,
         null,
+        4,
     ]);
     // The by-name reader and the field are the same value, for every component.
     for (const c of STROKES_LOST_COMPONENTS) {
@@ -779,74 +1119,21 @@ test('a waterfall component can be read by name, the same way the deltas can', (
     }
 });
 
-test('an unmeasured term nulls the residual instead of charging it to the long game', () => {
-    // Scored, penalties known, no putting and no chip data at all.
-    const scoreOnly = measures({ holesScored: 18, strokesTotal: 90, parTotal: 72 });
-    const w = strokesLost(scoreOnly);
-    expect(w.putting).toBeNull();
-    expect(w.shortGame).toBeNull();
-    expect(w.penalties).toBe(0);
-    expect(w.total).toBe(18);
-    // +18 vs par is NOT 18 strokes of long game.
-    expect(w.longGame).toBeNull();
-
-    // Putting present, chips absent → still no residual.
-    const puttingOnly = measures({
-        holesScored: 18,
-        strokesTotal: 90,
-        parTotal: 72,
-        firstPuttInside1mResolved: 1,
-        puttsTotalInside1mResolved: 1,
-    });
-    expect(strokesLost(puttingOnly).putting).toBeCloseTo(-0.05, 9);
-    expect(strokesLost(puttingOnly).shortGame).toBeNull();
-    expect(strokesLost(puttingOnly).longGame).toBeNull();
-});
-
-test('a chip left outside 2m charges the short game, a chip left inside credits it', () => {
-    const far = measures({ scrambleFirstPuttHard: 4, scrambleInside2mHard: 1 });
-    // Against the HARD baseline: 1 × (1.25 − 2.10) + 3 × (2.12 − 2.10)
-    // = −0.85 + 0.06 = −0.79. Under v1's flat 1.85 the same round read +0.21 —
-    // the hard lie was being charged a standard lie's expectation.
-    expect(strokesLost(far).shortGame).toBeCloseTo(-0.79, 9);
-    const close = measures({ scrambleFirstPuttStandard: 4, scrambleInside2mStandard: 4 });
-    // 4 × (1.25 − 1.70) = −1.80.
-    expect(strokesLost(close).shortGame).toBeCloseTo(-1.8, 9);
-});
-
-test('the chip-mix round exercises all six terms of the per-difficulty short game', () => {
-    const w = strokesLost(CHIP_MIX);
-
-    // Putting: 5×1.05 + 3×1.45 + 4×1.85 + 3×2.10 + 3×2.40 = 30.50 expected
-    // against 32 taken → +1.50.
-    expect(w.putting).toBeCloseTo(1.5, 9);
-    // Short game, each leg against its own baseline:
-    //   standard  3×(1.25−1.70) + 1×(2.12−1.70) + 2×(1−2.70) = −4.33
-    //   hard      1×(1.25−2.10) + 2×(2.12−2.10) + 1×(1−3.10) = −2.91
-    expect(w.shortGame).toBeCloseTo(-7.24, 9);
-    expect(w.penalties).toBe(3);
-    expect(w.total).toBe(12);
-    // Residual: 12 − 1.50 − (−7.24) − 3 = +14.74.
-    expect(w.longGame).toBeCloseTo(14.74, 9);
-    expect(w.coverage).toEqual({ holesScored: 18, puttsRecorded: 18 });
-});
-
 test('the v1 table reproduces the old FLAT short-game formula exactly', () => {
-    // Compatibility, stated as arithmetic: hand v2's per-difficulty sum a table
-    // whose two entries are both 1.85 and it collapses onto the single-baseline
-    // formula it replaced — 4 chips inside, 3 outside, 3 holed, over one 1.85.
-    const v1 = strokesLost(
-        CHIP_MIX,
+    // Compatibility, stated as arithmetic: hand v3 a chip baseline whose two
+    // entries are both 1.85 and the short-game term collapses onto the
+    // single-baseline formula it replaced.
+    const v1 = strokesLostV3(
+        SG_ROUND_A,
+        SG_TABLES_V1,
         EXPECTED_PUTTS_V1,
         CHIP_OUTCOME_EXPECTED_PUTTS_V1,
         CHIP_EXPECTED_PUTTS_V1_BY_DIFFICULTY,
     );
-    const flat =
-        4 * (1.25 - CHIP_EXPECTED_PUTTS_V1) +
-        3 * (2.12 - CHIP_EXPECTED_PUTTS_V1) +
-        3 * (1 - (1 + CHIP_EXPECTED_PUTTS_V1));
-    expect(flat).toBeCloseTo(-7.14, 9);
-    expect(v1.shortGame).toBeCloseTo(-7.14, 9);
+    // Five misses, all priced at one flat 1.85: 6.74 of outcome against 9.25.
+    const flat = 2 * 1.25 + 2 * 2.12 - 5 * CHIP_EXPECTED_PUTTS_V1;
+    expect(flat).toBeCloseTo(-2.51, 9);
+    expect(v1.shortGame).toBeCloseTo(-2.51, 9);
 });
 
 test('the hard-chip share is a property of the approach miss, not of the chip', () => {
@@ -989,25 +1276,34 @@ test('best round is per length class, and only over rounds complete for their le
 });
 
 test('the waterfall is additive, so a window sums the same way the counts do', () => {
-    const single = strokesLost(WORKED_EXAMPLE);
-    const window = strokesLost(sumMeasures([WORKED_EXAMPLE, WORKED_EXAMPLE]));
-    expect(window.putting).toBeCloseTo(single.putting! * 2, 9);
-    expect(window.shortGame).toBeCloseTo(single.shortGame! * 2, 9);
-    expect(window.penalties).toBe(2);
-    expect(window.total).toBe(2);
-    expect(window.longGame).toBeCloseTo(single.longGame! * 2, 9);
+    const single = strokesLostV3(WORKED_EXAMPLE);
+    const window = strokesLostV3(sumMeasures([WORKED_EXAMPLE, WORKED_EXAMPLE]));
+    for (const c of STROKES_LOST_COMPONENTS) {
+        expect(strokesLostComponent(window, c)).toBeCloseTo(strokesLostComponent(single, c)! * 2, 9);
+    }
+    expect(window.total).toBeCloseTo(single.total! * 2, 9);
+    expect(window.coverage).toEqual({ attributed: 10, holesScored: 12 });
+    // The five-term identity survives the sum, which is what makes a window
+    // legible at all: every screen adds counts, never rates.
+    expect(telescopes(window)).toBeCloseTo(window.total!, 9);
 });
 
 // --- Personal baseline ---------------------------------------------------------
 
+/**
+ * A hand-built waterfall. Coverage defaults to a full eighteen ATTRIBUTED, so
+ * `sgPer18` is the identity on these fixtures and the delta arithmetic below
+ * reads as written — the floor itself is tested on real cohorts above.
+ */
 function waterfall(over: Partial<StrokesLost> = {}): StrokesLost {
     return {
-        putting: 0,
+        tee: 0,
+        approach: 0,
         shortGame: 0,
+        putting: 0,
         penalties: 0,
-        longGame: 0,
         total: 0,
-        coverage: { holesScored: 0, puttsRecorded: 0 },
+        coverage: { attributed: 18, holesScored: 18 },
         ...over,
     };
 }
@@ -1020,11 +1316,11 @@ test('the mean ignores absent entries rather than counting them as zero', () => 
 
 test('baseline deltas compare a round with the rounds that recorded the same thing', () => {
     const window = [
-        waterfall({ putting: 2, shortGame: null, penalties: 1, longGame: 3, total: 6 }),
-        waterfall({ putting: 4, shortGame: 1, penalties: 1, longGame: 1, total: 7 }),
-        waterfall({ putting: null, shortGame: null, penalties: 0, longGame: null, total: 4 }),
+        waterfall({ putting: 2, shortGame: null, penalties: 1, tee: 3, total: 6 }),
+        waterfall({ putting: 4, shortGame: 1, penalties: 1, tee: 1, total: 7 }),
+        waterfall({ putting: null, shortGame: null, penalties: 0, tee: null, total: 4 }),
     ];
-    const round = waterfall({ putting: 1, shortGame: 2, penalties: 3, longGame: 0, total: 6 });
+    const round = waterfall({ putting: 1, shortGame: 2, penalties: 3, tee: 0, total: 6 });
     const d = baselineDeltas(round, window);
     // Putting baseline is (2 + 4)/2 = 3 — the third round recorded none.
     expect(d.putting).toBe(-2);
@@ -1032,8 +1328,59 @@ test('baseline deltas compare a round with the rounds that recorded the same thi
     expect(d.shortGame).toBe(1);
     // Penalties are a count, so every round has one: (1 + 1 + 0)/3 = 0.666…
     expect(d.penalties).toBeCloseTo(3 - 2 / 3, 9);
-    expect(d.longGame).toBe(-2);
+    expect(d.tee).toBe(-2);
     expect(d.total).toBeCloseTo(6 - 17 / 3, 9);
+});
+
+test('baseline deltas normalize both sides, and tie by canonical component order', () => {
+    // The spec's §F.4 pair: SG_ROUND_A against a window of one SG_ROUND_B.
+    // Both sides go through `sgPer18`, so a 14-hole round and an 18-hole one
+    // are comparable at all.
+    const d = baselineDeltas(strokesLostV3(SG_ROUND_A), [strokesLostV3(SG_ROUND_B)]);
+    expect(d.tee).toBeCloseTo(0, 12);
+    expect(d.approach).toBeCloseTo(2.5714285714285716, 12);
+    expect(d.shortGame).toBeCloseTo(0, 12);
+    expect(d.putting).toBeCloseTo(0, 12);
+    expect(d.penalties).toBeCloseTo(2.5714285714285716, 12);
+    expect(d.total).toBeCloseTo(5.142857142857143, 12);
+
+    // approach and penalties agree to twelve places — the pair the spec picks
+    // precisely because they collide. They are NOT bit-identical: `approach` is
+    // a sum of eight table terms and lands one ULP below the exact 36/14 that
+    // `penalties` reaches by a single multiplication. So the WINNER of this
+    // particular pair is decided by that last bit, and the canonical-order
+    // tie-break is asserted on bit-equal deltas in the next test instead.
+    expect(d.approach).toBeCloseTo(d.penalties!, 12);
+    const worst = insightLines(
+        measures(),
+        strokesLostV3(SG_ROUND_A),
+        [strokesLostV3(SG_ROUND_B)],
+        10,
+    ).find((l) => l.id === 'component_worst_vs_baseline');
+    expect(['approach', 'penalties']).toContain(String(worst!.params.component));
+    expect(worst!.params.delta).toBeCloseTo(2.5714285714285716, 12);
+});
+
+test('an exact tie between components is broken by canonical order, not by luck', () => {
+    // Hand-built so the two deltas are bit-for-bit equal: with strict `>` over
+    // `STROKES_LOST_COMPONENTS`, the EARLIER component wins. A platform that
+    // iterates its enum in a different order fails here rather than silently
+    // naming a different part of the reader's game.
+    const window = Array.from({ length: 4 }, () => waterfall());
+    const round = waterfall({ approach: 2, penalties: 2, total: 4 });
+    const d = baselineDeltas(round, window);
+    expect(d.approach).toBe(d.penalties);
+    const worst = insightLines(measures(), round, window, 10).find(
+        (l) => l.id === 'component_worst_vs_baseline',
+    );
+    expect(worst!.params.component).toBe('approach');
+
+    // The mirror, for the "best" rule: two equal gains, earliest wins.
+    const gains = waterfall({ approach: -2, penalties: -2, total: -4 });
+    const best = insightLines(measures(), gains, window, 10).find(
+        (l) => l.id === 'component_best_vs_baseline',
+    );
+    expect(best!.params.component).toBe('approach');
 });
 
 test('a delta is null when either side has no value, never zero', () => {
@@ -1046,7 +1393,7 @@ test('a delta is null when either side has no value, never zero', () => {
         [waterfall({ putting: 2 }), waterfall({ putting: 4 })],
     );
     expect(roundBlind.putting).toBeNull();
-    expect(roundBlind.longGame).toBe(0);
+    expect(roundBlind.tee).toBe(0);
     // And the mirror: the window recorded none.
     const windowBlind = baselineDeltas(waterfall({ putting: 1 }), [waterfall({ putting: null })]);
     expect(windowBlind.putting).toBeNull();
@@ -1075,15 +1422,15 @@ const RICH_WATERFALL = waterfall({
     putting: -2,
     shortGame: 0,
     penalties: 3,
-    longGame: 0.5,
+    tee: 0.5,
     total: 1.5,
 });
 const RICH_WINDOW: StrokesLost[] = Array.from({ length: 6 }, () =>
-    waterfall({ putting: 1, shortGame: 0, penalties: 1, longGame: 0, total: 2 }),
+    waterfall({ putting: 1, shortGame: 0, penalties: 1, tee: 0, total: 2 }),
 );
 
 test('the ranking is delta magnitude first, then the fixed rule order', () => {
-    // Deltas vs the window: putting -3 (best), penalties +2 (worst), long game
+    // Deltas vs the window: putting -3 (best), penalties +2 (worst), tee
     // +0.5 (under the 1.0 threshold, so no line).
     expect(ids(insightLines(RICH_MEASURES, RICH_WATERFALL, RICH_WINDOW, 10))).toEqual([
         'component_best_vs_baseline',
@@ -1106,8 +1453,8 @@ test('equal magnitudes break by rule order, in both directions of the input', ()
     // Four rounds: enough for a baseline, one short of the "best putting round"
     // window, so the two component rules are alone under test.
     const window = Array.from({ length: 4 }, () => waterfall());
-    // putting -2 and long game +2: identical magnitude, opposite signs.
-    const round = waterfall({ putting: -2, longGame: 2, total: 0 });
+    // putting -2 and tee +2: identical magnitude, opposite signs.
+    const round = waterfall({ putting: -2, tee: 2, total: 0 });
     const forward = ids(insightLines(measures(), round, window, 10));
     expect(forward.slice(0, 2)).toEqual([
         'component_best_vs_baseline',
@@ -1115,13 +1462,13 @@ test('equal magnitudes break by rule order, in both directions of the input', ()
     ]);
     // Swapping which component is which does not swap the ORDER: "best" is
     // rule 1 whatever component fills it.
-    const swapped = waterfall({ putting: 2, longGame: -2, total: 0 });
+    const swapped = waterfall({ putting: 2, tee: -2, total: 0 });
     expect(ids(insightLines(measures(), swapped, window, 10)).slice(0, 2)).toEqual([
         'component_best_vs_baseline',
         'component_worst_vs_baseline',
     ]);
     const best = insightLines(measures(), swapped, window, 1)[0]!;
-    expect(best.params).toEqual({ component: 'longGame', delta: -2 });
+    expect(best.params).toEqual({ component: 'tee', delta: -2 });
 });
 
 test('the component rules need a full stroke of movement, each way', () => {
@@ -1138,13 +1485,21 @@ test('the component rules need a full stroke of movement, each way', () => {
 test('each threshold rule holds its own line back until its bar is cleared', () => {
     const window = Array.from({ length: 4 }, () => waterfall());
 
-    // Penalties: the mean is 0, so 2 is a spike and 1 is not.
-    expect(ids(insightLines(measures({ penaltiesTotal: 1 }), waterfall(), window, 10))).toEqual([]);
-    expect(ids(insightLines(measures({ penaltiesTotal: 2 }), waterfall(), window, 10))).toEqual([
-        'penalties_spike',
-    ]);
+    // Penalties: the window mean is 0, so a round's own ATTRIBUTED penalties
+    // term of 2 is a spike and 1 is not. Both sides of the comparison are the
+    // waterfall term — feeding the rule `measures.penaltiesTotal` would hold a
+    // round-wide count against a cohort-only mean. A 2-stroke term also moves
+    // the component rules, so this asserts membership, not the whole list.
+    const spike = (penalties: number, w: StrokesLost[] = window) =>
+        ids(insightLines(measures(), waterfall({ penalties, total: penalties }), w, 10));
+    expect(spike(1)).not.toContain('penalties_spike');
+    expect(spike(2)).toContain('penalties_spike');
+    // A round-wide count of 9 with nothing attributed to it says nothing…
+    expect(
+        ids(insightLines(measures({ penaltiesTotal: 9 }), waterfall(), window, 10)),
+    ).not.toContain('penalties_spike');
     // …and with no window there is no personal mean to spike above.
-    expect(ids(insightLines(measures({ penaltiesTotal: 9 }), waterfall(), [], 10))).toEqual([]);
+    expect(spike(9, [])).toEqual([]);
 
     // Scrambling: 3 of 4 clears the bar; 2 of 3 is the same rate on too small a
     // sample; 2 of 4 is a big enough sample at too low a rate.
@@ -1197,6 +1552,15 @@ test('"best putting round" needs a window worth the claim, and a strict win', ()
     ]);
     // And a round with no putting term of its own can never win.
     expect(ids(insightLines(measures(), waterfall({ putting: null }), five, 10))).toEqual([]);
+
+    // The claim is cross-round, so both sides go through `sgPer18` and inherit
+    // its attributed floor (§D.4). A six-hole round neither pads the window…
+    const thin = waterfall({ putting: -5, coverage: { attributed: 6, holesScored: 6 } });
+    expect(
+        ids(insightLines(measures(), waterfall({ putting: -1 }), [...five.slice(0, 4), thin], 10)),
+    ).toEqual(['component_best_vs_baseline']);
+    // …nor wins the title itself, however good its raw term looks.
+    expect(ids(insightLines(measures(), thin, five, 10))).toEqual([]);
 });
 
 test('the window is the PRIOR rounds — the round under evaluation is not in it', () => {
@@ -1225,10 +1589,10 @@ test('a perfect run out of HARD spots is its own line, ranked above the general 
     // 4 of 4 hard saves clears the rule's floor of 3; the round's OVERALL rate,
     // 7 of 10 = 0.70, is under the 0.75 the general rule wants, so only the
     // sharper line fires.
-    expect(ids(insightLines(CHIP_MIX, strokesLost(CHIP_MIX), window, 10))).toContain(
+    expect(ids(insightLines(CHIP_MIX, strokesLostV3(CHIP_MIX), window, 10))).toContain(
         'hard_scramble_streak',
     );
-    expect(ids(insightLines(CHIP_MIX, strokesLost(CHIP_MIX), window, 10))).not.toContain(
+    expect(ids(insightLines(CHIP_MIX, strokesLostV3(CHIP_MIX), window, 10))).not.toContain(
         'scramble_streak',
     );
 
@@ -1256,34 +1620,30 @@ test('a perfect run out of HARD spots is its own line, ranked above the general 
     expect(ids(insightLines(hard(2, 2), waterfall(), window, 10))).toEqual([]);
     expect(ids(insightLines(hard(4, 3), waterfall(), window, 10))).toEqual(['scramble_streak']);
     // The worked example has one hard attempt, which is not a run.
-    expect(ids(insightLines(WORKED_EXAMPLE, strokesLost(WORKED_EXAMPLE), window, 10))).not.toContain(
-        'hard_scramble_streak',
-    );
+    expect(
+        ids(insightLines(WORKED_EXAMPLE, strokesLostV3(WORKED_EXAMPLE), window, 10)),
+    ).not.toContain('hard_scramble_streak');
 });
 
-test('the worked example, end to end: counts in, ranked lines out', () => {
+test('the worked example, end to end: a short round makes no cross-round claim', () => {
     // The same round the server test asserts, played against five flat rounds.
     const window: StrokesLost[] = Array.from({ length: 5 }, () =>
-        waterfall({ putting: 2, shortGame: 0, penalties: 0, longGame: 1, total: 3 }),
+        waterfall({ putting: 2, shortGame: 0, penalties: 0, tee: 1, total: 3 }),
     );
-    const w = strokesLost(WORKED_EXAMPLE);
+    const w = strokesLostV3(WORKED_EXAMPLE);
     const lines = insightLines(WORKED_EXAMPLE, w, window, 3);
-    // Deltas vs the flat window: short game −2.55 − 0 = −2.55 (best, and it is
-    // the holed chip that puts it there); penalties 1 − 0 = +1 (worst); putting
-    // 0.65 − 2 = −1.35 and long game 1.90 − 1 = +0.90 lose to them. The round
-    // also putted better than all five, which is the third line.
-    expect(ids(lines)).toEqual([
-        'component_best_vs_baseline',
-        'component_worst_vs_baseline',
-        'best_putting_round',
-    ]);
-    expect(lines[0]!.params.component).toBe('shortGame');
-    expect(lines[0]!.params.delta).toBeCloseTo(-2.55, 9);
-    // "Worst" is a genuine regression here: +1 penalty stroke against a
-    // baseline of none. (It is only ever the component furthest ABOVE the
-    // baseline — which on a good round can still be a gain.)
-    expect(lines[1]!.params.component).toBe('penalties');
-    expect(lines[1]!.params.delta).toBe(1);
+    // Five attributed holes is under the per-18 floor, so EVERY cross-round
+    // rule is silent — a six-hole round is not evidence about a part of a game.
+    // "Best putting round" is one of them now that it normalizes too (§D.4):
+    // this round's raw +0.45 of putting is smaller than the window's +2 only
+    // because it was measured over five holes rather than eighteen.
+    expect(ids(lines)).toEqual([]);
+    // One penalty stroke against a baseline of none is not a spike either.
+    expect(ids(lines)).not.toContain('penalties_spike');
+
+    // Give the same shape a full cohort and the component rules speak again.
+    const long = insightLines(SG_ROUND_A, strokesLostV3(SG_ROUND_A), [strokesLostV3(SG_ROUND_B)], 3);
+    expect(ids(long)).toContain('component_worst_vs_baseline');
 });
 
 // --- Cross-tab measures (wave 3) ---------------------------------------------

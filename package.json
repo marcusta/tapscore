@@ -27,6 +27,7 @@
         "seed:formats": "bun scripts/seed-formats.ts",
         "check:format-fixtures": "bun scripts/check-format-fixtures.ts",
         "grant:role": "bun ./scripts/grant-role.ts",
+        "sg:calibrate": "bun scripts/sg-calibrate.ts",
         "db:migrate": "bun ./scripts/migrate.ts",
         "db:health": "bun ./scripts/health.ts",
         "fw:update": "bun scripts/fw.ts update",

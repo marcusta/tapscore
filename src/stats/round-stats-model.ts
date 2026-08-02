@@ -28,7 +28,7 @@ import type { MarkerTemplate } from '../round/marker-tokens';
 import {
     baselineDeltas,
     insightLines,
-    strokesLost,
+    strokesLostV3,
     type InsightLine,
     type StrokesLost,
     type StrokesLostDeltas,
@@ -248,7 +248,7 @@ export function buildRoundStatsModel(args: {
     const panels = buildDashboardModel([round]);
     const waterfall = panels.waterfall;
     const window = priorRounds(round, history, windowSize);
-    const windowLosts = window.map((r) => strokesLost(r.measures));
+    const windowLosts = window.map((r) => strokesLostV3(r.measures));
     const row = panels.rounds[0];
     return {
         roundId: round.roundId,

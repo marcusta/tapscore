@@ -1,4 +1,4 @@
-import { Component, Router, effect, template, untrack } from '@basics/core/client/core';
+import { Component, Router, Signal, effect, template, untrack } from '@basics/core/client/core';
 import { AuthService } from '@basics/core/client/auth';
 import { t } from '../theme';
 import { s, btn, card } from '../css';
@@ -6,7 +6,13 @@ import { RoundViewService } from '../round/round.service';
 import { RoundStatsService } from './round-stats.service';
 import { toneColor, toneForStrokesLost } from './stats-charts';
 import { STATS_COLORS } from './stats-palette';
-import { STATS_COPY } from './stats-panel-blocks';
+import { sgInfoCards, SG_INFO_COPY, STATS_COPY, type SgInfoCard } from './stats-panel-blocks';
+import {
+    sgInfoCardTpl,
+    SG_INFO_SHEET_MARKUP,
+    SG_INFO_STYLES,
+    SG_INFO_TRIGGER_MARKUP,
+} from './sg-info-sheet';
 import { componentTitle, signedNumber } from './stats-format';
 import { evaluateStoryEligibility, holesUnscoredFor } from './round-stats-model';
 import {
@@ -19,6 +25,7 @@ import {
 import {
     STROKES_LOST_COMPONENTS,
     deltaComponent,
+    sgPer18,
     strokesLostComponent,
     type StrokesLostComponent,
 } from '../round/stat-measures';
@@ -52,9 +59,13 @@ const tpl = template(`
             <span bind="score" class="story__score"></span>
         </div>
         <ul bind="values" class="story__values"></ul>
-        <p bind="hint" class="story__hint"></p>
+        <div class="story__hintrow">
+            <p bind="hint" class="story__hint"></p>
+            ${SG_INFO_TRIGGER_MARKUP}
+        </div>
         <ul bind="lines" class="story__lines"></ul>
         <button bind="open" class="story__open" type="button"></button>
+${SG_INFO_SHEET_MARKUP}
     </section>
 `);
 
@@ -90,7 +101,7 @@ export class RoundStoryComponent extends Component {
                 font-variant-numeric: tabular-nums;
                 &:empty { display: none; }
             }
-            /* The four terms, stated in text. Two-up on a phone, tabular
+            /* The five terms, stated in text. Two-up on a phone, tabular
                numerals so the signs line up. (There used to be an aria-hidden
                waterfall strip above — stretched to card width it read as a
                broken divider, and the rows already say everything it drew.) */
@@ -112,6 +123,10 @@ export class RoundStoryComponent extends Component {
                     font-weight: 400; font-size: 0.78rem; color: ${t('text-muted')};
                 }
             }
+            & .story__hintrow {
+                display: flex; align-items: baseline; justify-content: space-between;
+                gap: ${s('md')};
+            }
             & .story__hint { margin: 0; font-size: 0.78rem; color: ${t('text-muted')}; }
             & .story__lines {
                 margin: 0; padding: 0; list-style: none;
@@ -126,6 +141,8 @@ export class RoundStoryComponent extends Component {
                 font-family: inherit; font-size: 0.82rem; font-weight: 700;
             }
         }
+
+${SG_INFO_STYLES}
     `;
 
     private round = this.inject(RoundViewService);
@@ -133,6 +150,8 @@ export class RoundStoryComponent extends Component {
     private auth = this.inject(AuthService);
     private router = this.inject(Router);
     private colors = STATS_COLORS;
+    /** The "How this works" sheet — the per-round variant of the copy. */
+    private infoOpen = new Signal(false);
 
     render(): DocumentFragment {
         // Signals are read inside the effect, never in a field initializer: the
@@ -157,6 +176,18 @@ export class RoundStoryComponent extends Component {
                 return m === null ? '' : (totalScoreLine(m.strokes, m.vsPar) ?? '');
             },
             hint: () => (model() === null ? '' : this.hint()),
+            infoTrigger: {
+                textContent: () => STATS_COPY.prioritiesInfo,
+                onclick: () => this.infoOpen.set(true),
+            },
+            infoSheet: {
+                className: () => (this.infoOpen.get() ? 'stats-info' : 'stats-info hidden'),
+                onclick: (e: Event) => {
+                    if (e.target === e.currentTarget) this.infoOpen.set(false);
+                },
+            },
+            infoTitle: () => SG_INFO_COPY.title,
+            infoDone: { onclick: () => this.infoOpen.set(false) },
             open: {
                 textContent: () => ROUND_STORY_COPY.seeWholeRound,
                 onclick: () => {
@@ -166,7 +197,7 @@ export class RoundStoryComponent extends Component {
             },
         });
 
-        // --- The four terms, in words ---------------------------------------
+        // --- The five terms, in words ---------------------------------------
         //
         // iOS states them the same way (`RoundWaterfallSection`,
         // `showsHint: false`). The colour is a second channel only: the sign
@@ -205,6 +236,24 @@ export class RoundStoryComponent extends Component {
                     track,
                 ),
             (component) => component,
+        );
+
+        // --- The "How this works" sheet ---------------------------------------
+        this.$each(
+            this.ref(frag, 'infoCards'),
+            () => {
+                const m = model();
+                if (m === null) return [];
+                return sgInfoCards({
+                    attributed: m.waterfall.coverage.attributed,
+                    holesScored: m.waterfall.coverage.holesScored,
+                    windowRounds: 0,
+                    rowsPer18: STROKES_LOST_COMPONENTS.map((c) => sgPer18(m.waterfall, c)),
+                });
+            },
+            (c: SgInfoCard, _i, track) =>
+                this.wireEl(sgInfoCardTpl, { ctitle: () => c.title, ctext: () => c.body }, track),
+            (c) => c.id,
         );
 
         // Two or three sentences, already ranked and already chosen by

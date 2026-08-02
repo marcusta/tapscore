@@ -160,7 +160,7 @@ struct StatsSparkline: View {
 
 // MARK: - Round waterfall strip
 
-/// One round's four waterfall terms as a signed strip, for the round list.
+/// One round's five waterfall terms as a signed strip, for the round list.
 ///
 /// Every segment shares one scale across the whole list so two rows are
 /// comparable. A nil term draws NOTHING — not a zero-width sliver, which would
@@ -169,7 +169,7 @@ struct StatsWaterfallStrip: View {
     var waterfall: StrokesLost
     /// Largest absolute single-term value across the list.
     var magnitude: Double
-    var height: CGFloat = 8
+    var height: CGFloat = 12
 
     var body: some View {
         GeometryReader { geo in
@@ -182,7 +182,7 @@ struct StatsWaterfallStrip: View {
                 VStack(spacing: 1) {
                     ForEach(StrokesLostComponent.allCases, id: \.rawValue) { component in
                         segment(component, half: half)
-                            .frame(height: max(1, (height - 3) / 4))
+                            .frame(height: max(1, (height - 4) / 5))
                     }
                 }
             }

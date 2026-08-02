@@ -4,6 +4,7 @@ import {
     averageWithSample,
     bucketTitle,
     componentTitle,
+    strokesPer18,
     formatAverage,
     formatCount,
     formatRate,
@@ -15,7 +16,6 @@ import {
     rateWithSample,
     roundTypeTitle,
     signedNumber,
-    strokesPerRound,
     taxSample,
     THIN_SAMPLE,
     troubleTaxSample,
@@ -73,7 +73,6 @@ test('signed numbers use a typographic minus and normalise −0.0 away', () => {
     expect(signedNumber(-1.84)).toBe('−1.8');
     expect(signedNumber(-0.04)).toBe('0.0');
     expect(signedNumber(0)).toBe('0.0');
-    expect(strokesPerRound(1.8)).toBe('+1.8/round');
 });
 
 test('vsPar says E at level and drops decimals when whole', () => {
@@ -112,9 +111,21 @@ test('a missing side has no honest reading at all', () => {
 
 // --- Vocabulary --------------------------------------------------------------
 
-test('the residual term is called Long game, not Tee', () => {
-    expect(componentTitle('longGame')).toBe('Long game');
+test('every one of the five components has a plain title', () => {
+    // No residual any more: the tee shot and the approach are measured, so they
+    // are named for themselves rather than lumped into a "long game".
+    expect(componentTitle('tee')).toBe('Tee');
+    expect(componentTitle('approach')).toBe('Approach');
     expect(componentTitle('shortGame')).toBe('Short game');
+    expect(componentTitle('putting')).toBe('Putting');
+    expect(componentTitle('penalties')).toBe('Penalties');
+});
+
+test('a priority figure is stated per 18 attributed holes, with a typographic minus', () => {
+    expect(strokesPer18(1.25)).toBe('+1.3 per 18');
+    expect(strokesPer18(-1.25)).toBe('\u22121.2 per 18');
+    // −0.0 normalises: a rounding artefact must not read as a loss.
+    expect(strokesPer18(-0.04)).toBe('0.0 per 18');
 });
 
 test('bucket, venue and round type titles', () => {

@@ -14,7 +14,7 @@ import {
     waterfallStripGeometry,
     type StatsChartColors,
 } from '../../src/stats/stats-charts';
-import { strokesLost, ZERO_MEASURES, type StrokesLost } from '../../src/round/stat-measures';
+import { strokesLostV3, ZERO_MEASURES, type StrokesLost } from '../../src/round/stat-measures';
 
 // Geometry only — the SVG string builders are covered by a couple of smoke
 // assertions. Colours are injected, never resolved here, which is also what
@@ -128,12 +128,12 @@ test('the sparkline marks the newest point', () => {
 // --- Waterfall strip ---------------------------------------------------------
 
 function waterfall(over: Partial<StrokesLost>): StrokesLost {
-    return { ...strokesLost(ZERO_MEASURES), ...over };
+    return { ...strokesLostV3(ZERO_MEASURES), ...over };
 }
 
 test('a null term draws NOTHING, so "no data" never reads as "no cost"', () => {
     const geo = waterfallStripGeometry(
-        waterfall({ putting: null, shortGame: 0, penalties: 1, longGame: null }),
+        waterfall({ tee: null, approach: null, shortGame: 0, penalties: 1, putting: null }),
         2,
     );
     expect(geo.map((s) => s.component)).toEqual(['shortGame', 'penalties']);
@@ -144,13 +144,21 @@ test('a null term draws NOTHING, so "no data" never reads as "no cost"', () => {
 
 test('waterfall rows stack in canonical component order with a gap between', () => {
     const geo = waterfallStripGeometry(
-        waterfall({ putting: 1, shortGame: 1, penalties: 1, longGame: 1 }),
+        waterfall({ tee: 1, approach: 1, shortGame: 1, putting: 1, penalties: 1 }),
         1,
-        8,
     );
-    expect(geo.map((s) => s.component)).toEqual(['putting', 'shortGame', 'penalties', 'longGame']);
-    expect(geo.map((s) => s.y)).toEqual([0, 2.25, 4.5, 6.75]);
-    expect(geo[0]!.height).toBe(1.25);
+    expect(geo.map((s) => s.component)).toEqual([
+        'tee',
+        'approach',
+        'shortGame',
+        'putting',
+        'penalties',
+    ]);
+    // Five rows and four 1px gaps in a 12px box: (12 − 4) / 5 = 1.6, which fits
+    // exactly. At the old default of 8 the row height clamped to 1 and the
+    // strip overflowed itself.
+    expect(geo.map((s) => s.y)).toEqual([0, 2.6, 5.2, 7.800000000000001, 10.4]);
+    expect(geo[0]!.height).toBe(1.6);
 });
 
 test('a degenerate waterfall scale draws no segments at all', () => {

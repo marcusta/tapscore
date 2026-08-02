@@ -160,7 +160,7 @@ struct RoundStatsModel: Equatable, Sendable {
         let panels = StatsDashboardModel.build(rows: [round])
         let waterfall = panels.waterfall
         let window = priorRounds(of: round, in: history, limit: windowSize)
-        let windowLosts = window.map { StatMeasuresMath.strokesLost($0.measures) }
+        let windowLosts = window.map { StatMeasuresMath.strokesLostV3($0.measures) }
         let row = panels.rounds.first
         return RoundStatsModel(
             roundId: round.roundId,

@@ -21,6 +21,8 @@ struct StatsDashboardView: View {
     @State private var store: StatsDashboardStore?
     @State private var expanded: Set<StatsPanelID> = []
     @State private var filterOpen = false
+    /// The "How this works" popover behind the practice-priorities card.
+    @State private var prioritiesInfoOpen = false
 
     var body: some View {
         NavigationStack {
@@ -376,9 +378,16 @@ struct StatsDashboardView: View {
     /// should I work on".
     private func priorities(_ model: StatsDashboardModel) -> some View {
         let magnitude =
-            model.priorities.compactMap { $0.perRound.map(abs) }.max() ?? 0
+            model.priorities.compactMap { $0.per18.map(abs) }.max() ?? 0
         return VStack(alignment: .leading, spacing: TapSpacing.sm) {
-            SectionHeader(title: "Practice priorities")
+            HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
+                SectionHeader(title: "Practice priorities")
+                // Words, never a glyph (`docs/design-guidelines.md` §4).
+                Button(StatsCopy.prioritiesInfo) { prioritiesInfoOpen = true }
+                    .buttonStyle(.tap(.ghost))
+                    .font(TapFont.ui(size: 12.8))
+                    .accessibilityIdentifier("stats-priorities-info")
+            }
             TapCard {
                 VStack(alignment: .leading, spacing: TapSpacing.md) {
                     Text(StatsCopy.prioritiesHint)
@@ -394,6 +403,14 @@ struct StatsDashboardView: View {
             }
         }
         .accessibilityIdentifier("stats-priorities")
+        .sheet(isPresented: $prioritiesInfoOpen) {
+            StrokesGainedInfoSheet(
+                waterfall: model.waterfall,
+                // The rows the card above is showing, so card 5 totals what the
+                // reader can actually see and add up.
+                rowsPer18: model.priorities.map(\.per18),
+                windowRounds: model.roundCount)
+        }
     }
 
     private func priorityRow(_ priority: StatsPriority, magnitude: Double) -> some View {
@@ -403,10 +420,10 @@ struct StatsDashboardView: View {
                     .font(TapFont.ui(size: 14.4, weight: .bold))
                     .foregroundStyle(TapColors.text)
                 Spacer(minLength: 0)
-                if let perRound = priority.perRound {
-                    Text(StatsFormat.strokesPerRound(perRound))
+                if let per18 = priority.per18 {
+                    Text(StatsFormat.strokesPer18(per18))
                         .font(TapFont.ui(size: 14.4, weight: .bold))
-                        .foregroundStyle(StatsChartColor.forStrokesLost(perRound))
+                        .foregroundStyle(StatsChartColor.forStrokesLost(per18))
                 } else {
                     // Words, not a zero bar. "Not enough data" and "exactly
                     // average" are different sentences and must not share a
@@ -416,8 +433,8 @@ struct StatsDashboardView: View {
                         .foregroundStyle(TapColors.textMuted)
                 }
             }
-            if let perRound = priority.perRound {
-                StatsSignedBar(value: perRound, magnitude: magnitude)
+            if let per18 = priority.per18 {
+                StatsSignedBar(value: per18, magnitude: magnitude)
             }
             // The only line under a priority row is its COVERAGE — how many
             // rounds the average was taken over, or why there is no average at
@@ -573,7 +590,73 @@ enum StatsCopy {
     static let scoreTypesHead = "Holes by score"
 
     static let prioritiesHint =
-        "Strokes lost per round against a fixed baseline, worst first. Positive costs you shots."
+        "Where your shots go, worst first. Positive costs you shots."
+    /// The popover trigger. WORDS, not a glyph (`docs/design-guidelines.md` §4).
+    static let prioritiesInfo = "How this works"
+
+    // MARK: Strokes-gained info popover
+    //
+    // Every sentence interpolates the reader's ACTUAL data (owner ruling,
+    // 2026-08-02). There is no static explainer here on purpose: a card that
+    // says the same thing to a player with 51 holes and a player with 3 is
+    // telling one of them something untrue. Twin of the web's `SG_INFO_COPY`.
+
+    static let sgInfoTitle = "How practice priorities work"
+    static let sgInfoHolesCountedTitle = "Holes counted"
+    static let sgInfoFiveRowsTitle = "The five rows"
+    static let sgInfoBaselineTitle = "The baseline"
+    static let sgInfoPer18Title = "Per 18 holes"
+    static let sgInfoTotalTitle = "The total"
+
+    /// Card 1. `perRound` swaps the window's "your holes" for "this round's".
+    static func sgInfoHolesCounted(
+        attributed: Double, holesScored: Double, perRound: Bool
+    ) -> String {
+        let holes = StatsFormat.count(holesScored)
+        let whose = perRound ? "this round\u{2019}s" : "your"
+        if attributed <= 0 {
+            return
+                "None of \(whose) \(holes) holes has the full set of answers yet, so there is nothing to show. A hole counts once it has a tee answer, a green answer and a putt answer."
+        }
+        if attributed >= holesScored {
+            return perRound
+                ? "All \(holes) of this round\u{2019}s holes could be fully attributed."
+                : "All \(holes) of your holes could be fully attributed."
+        }
+        return
+            "\(StatsFormat.count(attributed)) of \(whose) \(holes) holes could be fully attributed \u{2014} the others are missing a tee, green or putt answer, so they are left out of every row rather than guessed at."
+    }
+
+    /// Card 2. The ONE place either client says "a strokes gained-style method".
+    static let sgInfoFiveRows =
+        "Each row is what that part of your game cost you against the Tapscore reference baseline v1 \u{2014} a strokes gained-style method, worked out from the answers you tap rather than from shot distances. The five rows add up to your score against the baseline exactly; there is no leftover row."
+
+    /// Card 3. The baseline is NAMED here, and only here.
+    static func sgInfoBaseline(calibratedAt: String?) -> String {
+        guard let calibratedAt else {
+            return
+                "Tapscore reference baseline v1 is one set of expected scores per hole and per lie. It is still provisional, so treat the order of the rows as the reading and the sizes as rough."
+        }
+        return
+            "Tapscore reference baseline v1 is one set of expected scores per hole and per lie, frozen on \(calibratedAt). Everyone is measured against the same table, so your rows can be compared with each other and with your own earlier rounds."
+    }
+
+    /// Card 4.
+    static func sgInfoPer18(minAttributed: Double) -> String {
+        "Rows are scaled to 18 attributed holes, so a nine and an eighteen sit on the same scale. A round with fewer than \(StatsFormat.count(minAttributed)) attributed holes is left out of the comparison entirely."
+    }
+
+    /// Card 5, shown only when the total is non-nil.
+    static func sgInfoTotal(signedTotal: String, windowRounds: Int, perRound: Bool) -> String {
+        if perRound {
+            return "The five rows add up to \(signedTotal) strokes against the baseline."
+        }
+        if windowRounds == 1 {
+            return "Over this round the five rows add up to \(signedTotal) strokes against the baseline."
+        }
+        return
+            "Over these \(windowRounds) rounds the five rows add up to \(signedTotal) strokes against the baseline."
+    }
     static let vsParByTee =
         "What each kind of tee shot actually cost you, per hole. The trouble tax below is the difference between the last row and the first."
     static let troubleTax =

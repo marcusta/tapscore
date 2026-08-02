@@ -48,8 +48,9 @@ import {
     resultsSummary,
     scrambleRate,
     STROKES_LOST_COMPONENTS,
-    strokesLost,
+    strokesLostV3,
     strokesLostComponent,
+    sgPer18,
     strokesVsParByTee,
     sumMeasures,
     threePuttRate,
@@ -113,17 +114,23 @@ export function panelTitle(id: StatsPanelId): string {
 // --- Practice priorities -----------------------------------------------------
 
 /**
- * One component of the fixed-baseline waterfall, averaged per round.
+ * One component of the fixed-baseline attribution, averaged over the window.
  *
- * `perRound` is null when NO round in the window produced the component. That
- * is the "not enough data" row — printed as a sentence, never as a bar at zero,
- * because a zero-length bar in a ranked list reads as "this part of your game
- * is exactly average", which is a claim the data does not make.
+ * `per18` is null when NO round in the window produced the component — either
+ * because nothing attributed, or because every round fell under
+ * `MIN_ATTRIBUTED_FOR_DELTA`. That is the "not enough data" row — printed as a
+ * sentence, never as a bar at zero, because a zero-length bar in a ranked list
+ * reads as "this part of your game is exactly average", which is a claim the
+ * data does not make.
  */
 export interface StatsPriority {
     component: StrokesLostComponent;
-    /** Mean strokes lost per round. Positive = lost, negative = gained. */
-    perRound: number | null;
+    /**
+     * Mean strokes lost per 18 ATTRIBUTED holes. Positive = lost, negative =
+     * gained. Renamed from `perRound`: a round is no longer the unit, because
+     * rounds differ in how much of them could be attributed.
+     */
+    per18: number | null;
     /** How many rounds in the window contributed a value. */
     roundsCovered: number;
     /** How many rounds are in the window at all. */
@@ -325,7 +332,7 @@ export interface StatsDashboardModel {
 export const EMPTY_DASHBOARD_MODEL: StatsDashboardModel = {
     rounds: [],
     totals: ZERO_MEASURES,
-    waterfall: strokesLost(ZERO_MEASURES),
+    waterfall: strokesLostV3(ZERO_MEASURES),
     priorities: [],
     trends: [],
     tee: null,
@@ -352,7 +359,7 @@ export function buildDashboardModel(rows: readonly PlayerRoundStats[]): StatsDas
     if (ordered.length === 0) return EMPTY_DASHBOARD_MODEL;
 
     const totals = sumMeasures(ordered.map((r) => r.measures));
-    const perRound = ordered.map((r) => strokesLost(r.measures));
+    const perRound = ordered.map((r) => strokesLostV3(r.measures));
     const roundCount = ordered.length;
 
     return {
@@ -365,12 +372,19 @@ export function buildDashboardModel(rows: readonly PlayerRoundStats[]): StatsDas
                 name: row.name,
                 holeCount: row.holeCount,
                 strokes: row.measures.holesScored === 0 ? null : row.measures.strokesTotal,
-                vsPar: waterfall.total,
+                // vs PAR, straight off the scorecard columns — NOT
+                // `waterfall.total`, which is now vs the reference baseline over
+                // the attributed cohort. Vs-par stays the language of the round
+                // list and the Results card (proposal §1).
+                vsPar:
+                    row.measures.holesScored === 0
+                        ? null
+                        : row.measures.strokesTotal - row.measures.parTotal,
                 waterfall,
             };
         }),
         totals,
-        waterfall: strokesLost(totals),
+        waterfall: strokesLostV3(totals),
         priorities: buildPriorities(perRound),
         trends: buildTrends(ordered),
         tee: teePanel(totals, roundCount),
@@ -388,22 +402,27 @@ export function buildDashboardModel(rows: readonly PlayerRoundStats[]): StatsDas
 // --- Priorities --------------------------------------------------------------
 
 /**
- * Worst first: the component costing the most strokes per round leads.
+ * Worst first: the component costing the most strokes per 18 attributed holes
+ * leads.
  *
- * Averaged PER ROUND rather than taken from the summed window so the list says
- * "putting costs you 1.8 shots a round", which is a practice instruction,
+ * Averaged over the ROUNDS rather than taken from the summed window so the list
+ * says "putting costs you 1.8 shots per 18", which is a practice instruction,
  * rather than "putting has cost you 21.6 shots", which is a number you have to
  * divide before it means anything. The mean is over the rounds that HAVE the
  * component (`meanOfPresent`), not over the window — dividing by rounds that
- * never recorded a putt would dilute the estimate toward zero and flatten the
+ * attributed nothing would dilute the estimate toward zero and flatten the
  * ranking.
+ *
+ * Each round is normalized FIRST (`sgPer18`), so the mean is a mean of
+ * comparable numbers rather than a mean over rounds of different lengths, and a
+ * round under `MIN_ATTRIBUTED_FOR_DELTA` contributes to no row at all.
  */
 export function buildPriorities(perRound: readonly StrokesLost[]): StatsPriority[] {
     const rows = STROKES_LOST_COMPONENTS.map((component): StatsPriority => {
-        const values = perRound.map((w) => strokesLostComponent(w, component));
+        const values = perRound.map((w) => sgPer18(w, component));
         return {
             component,
-            perRound: meanOfPresent(values),
+            per18: meanOfPresent(values),
             roundsCovered: values.filter((v) => v !== null).length,
             roundsInWindow: perRound.length,
         };
@@ -413,13 +432,13 @@ export function buildPriorities(perRound: readonly StrokesLost[]): StatsPriority
     // and sorting them among the numbers would imply otherwise.
     const canonical = (c: StrokesLostComponent): number => STROKES_LOST_COMPONENTS.indexOf(c);
     return rows.sort((l, r) => {
-        if (l.perRound !== null && r.perRound !== null) {
-            return l.perRound === r.perRound
+        if (l.per18 !== null && r.per18 !== null) {
+            return l.per18 === r.per18
                 ? canonical(l.component) - canonical(r.component)
-                : r.perRound - l.perRound;
+                : r.per18 - l.per18;
         }
-        if (l.perRound !== null) return -1;
-        if (r.perRound !== null) return 1;
+        if (l.per18 !== null) return -1;
+        if (r.per18 !== null) return 1;
         return canonical(l.component) - canonical(r.component);
     });
 }
@@ -468,7 +487,10 @@ export function buildTrends(rows: readonly PlayerRoundStats[]): StatsTrend[] {
     return [
         series('fairway', 'Fairways', 'percentage', (m) => solid(fairwayRate(m))),
         series('gir', 'Greens', 'percentage', (m) => solid(girRate(m))),
-        series('putting', 'Putting', 'strokesLost', (m) => strokesLost(m).putting),
+        // A trend point is a cross-round comparison, so it normalizes and
+        // inherits the >= 9-attributed floor. A round under it plots nothing,
+        // which the sparkline already skips.
+        series('putting', 'Putting', 'strokesLost', (m) => sgPer18(strokesLostV3(m), 'putting')),
         series('scramble', 'Scrambling', 'percentage', (m) => solid(scrambleRate(m).overall)),
     ].filter((t): t is StatsTrend => t !== null);
 }
@@ -586,6 +608,6 @@ export function waterfallMagnitude(waterfalls: readonly StrokesLost[]): number {
 /** The same, for the practice-priorities list's shared scale. */
 export function priorityMagnitude(priorities: readonly StatsPriority[]): number {
     let max = 0;
-    for (const p of priorities) if (p.perRound !== null) max = Math.max(max, Math.abs(p.perRound));
+    for (const p of priorities) if (p.per18 !== null) max = Math.max(max, Math.abs(p.per18));
     return max;
 }

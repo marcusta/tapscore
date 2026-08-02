@@ -7,6 +7,7 @@
 // are only reviewable if the fixture is small enough to add up in your head.
 
 import { test, expect, beforeEach } from 'bun:test';
+import { sql } from 'kysely';
 import { createTestDb, type TestContext } from '../testing/db';
 import { createCompiledRound } from '../testing/compiler-rounds';
 import { registerBuiltInBallCreationStrategies } from '../domain/strategies/ball-creation';
@@ -364,6 +365,49 @@ test('the round view is the hand-computed arithmetic of the worked example', asy
         fairwayHitsPar5: 0,
         inPlayHitsPar5: 1,
         troubleCountPar5: 0,
+
+        // The strokes-gained-lite attribution cohort (migration 054). FIVE of
+        // the six holes attribute: H1/H4/H5 are greens hit with a fine bucket
+        // and a putt count, H2 is a missed green with a difficulty, a bucket
+        // and a putt count, H3 is a chip-in (difficulty, putts 0, no bucket —
+        // coherent, and the branch's best outcome). H6 has a score and nothing
+        // else, so it contributes to NOTHING here, not even attStrokes.
+        //
+        // These are the exact counts the client twins' WORKED_EXAMPLE fixture
+        // reads, so server counts → client rates → waterfall stay one
+        // continuous, verified story.
+        attHolesPar3Gir: 0,
+        attHolesPar3Miss: 1, // H3
+        attHolesPar45Gir: 3, // H1, H4, H5
+        attHolesPar45Miss: 1, // H2
+        // 4 + 6 + 2 + 6 + 3 = 21, and H6's 4 is NOT in it.
+        attStrokes: 21,
+        attPutts: 7,
+        // H2's 1. H1 answered 0; H3/H4/H5 never answered and model as zero.
+        attPenalties: 1,
+        attFairwayPar4: 2, // H1, H5
+        attInPlayPar4: 0,
+        attTroublePar4: 1, // H2
+        attFairwayPar5: 0,
+        attInPlayPar5: 1, // H4
+        attTroublePar5: 0,
+        attGirFirstPuttInside1m: 1, // H5
+        attGirFirstPutt1To2m: 0,
+        attGirFirstPutt2To4m: 1, // H1
+        attGirFirstPutt4To8m: 0,
+        attGirFirstPuttOver8m: 1, // H4
+        attGirHoled: 0,
+        attMissStandard: 1, // H2
+        attMissHard: 1, // H3
+        attChipInside2mStandard: 1, // H2 left an inside-1m putt
+        attChipOutside2mStandard: 0,
+        attChipHoledStandard: 0,
+        attChipInside2mHard: 0,
+        attChipOutside2mHard: 0,
+        attChipHoledHard: 1, // H3 went in
+        // Nothing writes short_game_strokes yet, so each is its miss count.
+        attSgStrokesEffectiveStandard: 1,
+        attSgStrokesEffectiveHard: 1,
     });
 });
 
@@ -848,6 +892,45 @@ test('totals are the sum of every round measure, newest round first', async () =
         fairwayHitsPar5: 0,
         inPlayHitsPar5: 0,
         troubleCountPar5: 0,
+
+        // The attribution cohort across both rounds is three holes: A.H1 (par
+        // 4, fairway, green hit, 2-4m, 1 putt), A.H2 (par 4, trouble, green
+        // missed, hard, inside 1m, 2 putts) and B.H1 (par 4, in play, green
+        // hit, over 8m, 1 putt). The other three drop out for one reason each,
+        // and each reason is a different arm of the predicate:
+        //   A.H3 — a missed green with a putt count but NO first-putt bucket
+        //          and putts <> 0, so neither miss branch fits;
+        //   B.H2 — a green hit with a bucket but no putt count;
+        //   B.H4 — a penalty answer and a score, and nothing else.
+        attHolesPar3Gir: 0,
+        attHolesPar3Miss: 0,
+        attHolesPar45Gir: 2,
+        attHolesPar45Miss: 1,
+        attStrokes: 13, // 3 + 6 + 4
+        attPutts: 4, // 1 + 2 + 1
+        attPenalties: 1, // A.H2 alone; the other two never answered
+        attFairwayPar4: 1,
+        attInPlayPar4: 1,
+        attTroublePar4: 1,
+        attFairwayPar5: 0,
+        attInPlayPar5: 0,
+        attTroublePar5: 0,
+        attGirFirstPuttInside1m: 0,
+        attGirFirstPutt1To2m: 0,
+        attGirFirstPutt2To4m: 1, // A.H1
+        attGirFirstPutt4To8m: 0,
+        attGirFirstPuttOver8m: 1, // B.H1
+        attGirHoled: 0,
+        attMissStandard: 0,
+        attMissHard: 1, // A.H2
+        attChipInside2mStandard: 0,
+        attChipOutside2mStandard: 0,
+        attChipHoledStandard: 0,
+        attChipInside2mHard: 1, // A.H2 chipped to inside 1m
+        attChipOutside2mHard: 0,
+        attChipHoledHard: 0,
+        attSgStrokesEffectiveStandard: 0,
+        attSgStrokesEffectiveHard: 1,
     });
 
     // And the per-round split behind them.
@@ -1435,4 +1518,333 @@ test('a player who has never recorded a stat gets zeroes, not an error', async (
     expect(summary.totals!.strokesTotal).toBe(0);
     // Every denominator is zero, so no client can render a misleading 0%.
     expect(Object.values(summary.totals!).every((v) => v === 0)).toBe(true);
+});
+
+// --- The migration-054 attribution cohort ---------------------------------------
+//
+// docs/proposals/strokes-gained-lite.md §2.1. The five terms of the
+// decomposition sum EXACTLY to `Σ(score − E_HOLE[par])` only because all five
+// are computed over ONE set of holes. That guarantee is structural, and the
+// structure is these partitions: if any of them stops holding, some hole is
+// counted in one term and not in another, and the client's waterfall grows a
+// silent residual it has no row for.
+
+/** The cohort columns, by name — the ones a partition assertion ranges over. */
+function attKeys(m: Record<string, number>): string[] {
+    return Object.keys(m).filter((k) => k.startsWith('att'));
+}
+
+test('the arrival states partition the greens hit in the cohort', async () => {
+    const f = await workedExample();
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    // A1. Every attributed green hit left the ball in exactly one place: one of
+    // the five first-putt buckets, or in the hole.
+    expect(
+        m.attGirFirstPuttInside1m +
+            m.attGirFirstPutt1To2m +
+            m.attGirFirstPutt2To4m +
+            m.attGirFirstPutt4To8m +
+            m.attGirFirstPuttOver8m +
+            m.attGirHoled,
+    ).toBe(m.attHolesPar3Gir + m.attHolesPar45Gir);
+});
+
+test('the two difficulties partition the greens missed in the cohort', async () => {
+    const f = await workedExample();
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    // A2. A missed green is in the cohort only with a difficulty answer, so
+    // the two difficulty counts cannot leave one behind.
+    expect(m.attMissStandard + m.attMissHard).toBe(
+        m.attHolesPar3Miss + m.attHolesPar45Miss,
+    );
+    // A3. …and each difficulty's three chip outcomes partition it.
+    expect(
+        m.attChipInside2mStandard + m.attChipOutside2mStandard + m.attChipHoledStandard,
+    ).toBe(m.attMissStandard);
+    expect(m.attChipInside2mHard + m.attChipOutside2mHard + m.attChipHoledHard).toBe(
+        m.attMissHard,
+    );
+});
+
+test('the six tee cells partition the par 4 and par 5 cohort', async () => {
+    const f = await workedExample();
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    // A4. This is the assertion the CUMULATIVE wave-3 columns cannot satisfy:
+    // `inPlayHitsPar4` includes the fairways, so summing that family would
+    // double-count. These six are strict, which is what makes the expected
+    // score after the tee shot a plain Σ count × constant.
+    expect(
+        m.attFairwayPar4 +
+            m.attInPlayPar4 +
+            m.attTroublePar4 +
+            m.attFairwayPar5 +
+            m.attInPlayPar5 +
+            m.attTroublePar5,
+    ).toBe(m.attHolesPar45Gir + m.attHolesPar45Miss);
+});
+
+test('effective short-game strokes are at least one per missed green', async () => {
+    const f = await workedExample();
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    // A5. C >= 1 always, and equal today because nothing writes
+    // `short_game_strokes` — the COALESCE default IS one chip per missed green.
+    // When wave 4 starts counting, these grow and the equality goes; the
+    // inequality is the invariant that has to survive it.
+    expect(m.attSgStrokesEffectiveStandard).toBeGreaterThanOrEqual(m.attMissStandard);
+    expect(m.attSgStrokesEffectiveHard).toBeGreaterThanOrEqual(m.attMissHard);
+    expect(m.attSgStrokesEffectiveStandard).toBe(m.attMissStandard);
+    expect(m.attSgStrokesEffectiveHard).toBe(m.attMissHard);
+});
+
+test('effective short-game strokes SUM the column, they do not count the holes', async () => {
+    const f = await fixture();
+    // Two standard misses and one hard miss. H1 and H2 are par 4s, H5 too.
+    await f.stat(1, 'tee_result', 'fairway');
+    await f.stat(1, 'gir', '0');
+    await f.stat(1, 'short_game_difficulty', 'standard');
+    await f.stat(1, 'first_putt', 'inside_1m');
+    await f.stat(1, 'putts', '1');
+    await f.score(1, 5);
+
+    await f.stat(2, 'tee_result', 'fairway');
+    await f.stat(2, 'gir', '0');
+    await f.stat(2, 'short_game_difficulty', 'standard');
+    await f.stat(2, 'first_putt', '2_to_4m');
+    await f.stat(2, 'putts', '2');
+    await f.score(2, 6);
+
+    await f.stat(5, 'tee_result', 'trouble');
+    await f.stat(5, 'gir', '0');
+    await f.stat(5, 'short_game_difficulty', 'hard');
+    await f.stat(5, 'first_putt', 'inside_1m');
+    await f.stat(5, 'putts', '1');
+    await f.score(5, 6);
+
+    // Wave 4's shape, planted by hand: nothing in the app writes
+    // `short_game_strokes` yet, so with every row NULL a SUM of
+    // `COALESCE(short_game_strokes, 1)` and a COUNT of the miss holes are the
+    // same number and the view could be either. One row with a 2 in it is what
+    // makes the two distinguishable — and it is the whole reason the column
+    // shipped in migration 054 ahead of the capture change.
+    await sql`
+        UPDATE player_hole_stats SET short_game_strokes = 2
+        WHERE play_hole_id = ${f.hole(1)} AND player_id = ${f.playerId}
+    `.execute(f.ctx.db);
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(m.attMissStandard).toBe(2);
+    expect(m.attMissHard).toBe(1);
+    // Two standard misses, one of which took two chips: 1 + 2 = 3, exactly one
+    // more than the hole count. A COUNT-based view would still say 2.
+    expect(m.attSgStrokesEffectiveStandard).toBe(3);
+    expect(m.attSgStrokesEffectiveStandard - m.attMissStandard).toBe(1);
+    // The hard row is untouched, so it still equals its miss count — the two
+    // difficulties are summed independently.
+    expect(m.attSgStrokesEffectiveHard).toBe(1);
+});
+
+test('every cohort column on the totals view is the sum of the round rows', async () => {
+    const first = await workedExample();
+    const second = await fixture({
+        ctx: first.ctx,
+        playerId: first.playerId,
+        date: '2026-06-08',
+    });
+    await second.stat(4, 'tee_result', 'fairway');
+    await second.stat(4, 'gir', '1');
+    await second.stat(4, 'first_putt', '1_to_2m');
+    await second.stat(4, 'putts', '2');
+    await second.score(4, 5);
+
+    const summary = await first.ctx.playerStatsService.summaryForPlayer(first.playerId);
+    const totals = summary.totals as unknown as Record<string, number>;
+    const rounds = summary.rounds.map((r) => r.measures as unknown as Record<string, number>);
+
+    // A6. The whole "counts on the server, rates on the client" rule rests on
+    // this: a client-side window over rounds must equal a server-side total, or
+    // the same player reads differently depending on which surface asked.
+    const keys = attKeys(totals);
+    expect(keys).toHaveLength(29);
+    for (const key of keys) {
+        expect([key, totals[key]]).toEqual([
+            key,
+            rounds.reduce((sum, r) => sum + r[key]!, 0),
+        ]);
+    }
+});
+
+test('a hole outside the cohort contributes to no cohort column at all', async () => {
+    const f = await fixture();
+    // A7. A tee answer and a score, and nothing else — the shape a player who
+    // switched every other module off produces. It is a real hole with a real
+    // score, and it is in `holesScored`, `teeRecorded` and `strokesTotal`; the
+    // cohort must not see one stroke of it, because pricing an approach it
+    // never observed is exactly the guesswork Postel forbids.
+    await f.stat(1, 'tee_result', 'fairway');
+    await f.score(1, 5);
+
+    const { measures } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(measures.holesScored).toBe(1);
+    expect(measures.teeRecorded).toBe(1);
+    expect(measures.strokesTotal).toBe(5);
+
+    const m = measures as unknown as Record<string, number>;
+    for (const key of attKeys(m)) expect([key, m[key]]).toEqual([key, 0]);
+});
+
+test('a coarse first-putt bucket keeps a missed green and drops a green hit', async () => {
+    const f = await fixture();
+    // The asymmetry is deliberate (proposal §2.1). A chip outcome only needs
+    // inside-or-outside 2 m, and the legacy buckets map onto that cleanly, so
+    // a pre-044 missed green still attributes. A green HIT is priced from the
+    // five-state putting table, which a coarse bucket cannot address — so it
+    // is dropped rather than promoted into a precision it never had.
+    await f.stat(1, 'tee_result', 'fairway');
+    await f.stat(1, 'gir', '0');
+    await f.stat(1, 'short_game_difficulty', 'standard');
+    await f.stat(1, 'putts', '2');
+    await f.score(1, 5);
+    await f.stat(2, 'tee_result', 'fairway');
+    await f.stat(2, 'gir', '1');
+    await f.stat(2, 'putts', '2');
+    await f.score(2, 4);
+    // The service refuses the legacy vocabulary, so both go in as raw events
+    // the way pre-044 capture left them.
+    let seqNo = 9100;
+    for (const holeNumber of [1, 2]) {
+        await f.ctx.db
+            .insertInto('stat_events')
+            .values({
+                id: crypto.randomUUID(),
+                round_id: f.roundId,
+                play_hole_id: f.hole(holeNumber),
+                player_id: f.playerId,
+                seq: seqNo++,
+                key: 'first_putt',
+                value: '2_to_6m',
+                recorded_by_player_id: null,
+                client_event_id: `coarse-cohort-${holeNumber}`,
+            })
+            .execute();
+    }
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    // H1 is in, priced as a chip left outside 2 m.
+    expect(m.attHolesPar45Miss).toBe(1);
+    expect(m.attMissStandard).toBe(1);
+    expect(m.attChipOutside2mStandard).toBe(1);
+    // H2 is out — and so is its whole hole, not merely its arrival state.
+    expect(m.attHolesPar45Gir).toBe(0);
+    expect(m.attStrokes).toBe(5);
+    expect(m.attPutts).toBe(2);
+});
+
+test('a picked-up ball is outside the cohort even with a full stat row', async () => {
+    const f = await fixture();
+    // `strokes = 0` is a pickup, canonicalised to NULL at the `hole_scores`
+    // boundary. Every answer the branch needs is present, and the hole still
+    // cannot attribute: without a score there is nothing to decompose.
+    await f.stat(1, 'tee_result', 'fairway');
+    await f.stat(1, 'gir', '1');
+    await f.stat(1, 'first_putt', '2_to_4m');
+    await f.stat(1, 'putts', '2');
+    await f.score(1, 0);
+
+    const { measures } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(measures.firstPutt2To4m).toBe(1);
+    const m = measures as unknown as Record<string, number>;
+    for (const key of attKeys(m)) expect([key, m[key]]).toEqual([key, 0]);
+});
+
+test('an incoherent putting answer drops the hole from the cohort', async () => {
+    const f = await fixture();
+    // `putts = 0` says the ball never reached the putter; a bucket says it did.
+    // The view already refuses to read this pair anywhere else, and the cohort
+    // refuses it too rather than picking whichever answer suits the branch.
+    await f.stat(1, 'tee_result', 'fairway');
+    await f.stat(1, 'gir', '1');
+    await f.stat(1, 'first_putt', '2_to_4m');
+    await f.stat(1, 'putts', '0');
+    await f.score(1, 3);
+
+    const { measures } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    const m = measures as unknown as Record<string, number>;
+    for (const key of attKeys(m)) expect([key, m[key]]).toEqual([key, 0]);
+});
+
+test('a par 4 with no tee answer is outside the cohort, a par 3 is not', async () => {
+    const f = await fixture();
+    // The tee shot is a term of its own on a par 4/5, so a hole with no tee
+    // answer cannot be decomposed. On a par 3 the question is never asked at
+    // all (TEE_APPLIES) and its absence means nothing is missing.
+    await f.stat(1, 'gir', '1');
+    await f.stat(1, 'first_putt', '1_to_2m');
+    await f.stat(1, 'putts', '2');
+    await f.score(1, 4);
+    await f.stat(3, 'gir', '1'); // hole 3 is the par 3
+    await f.stat(3, 'first_putt', '1_to_2m');
+    await f.stat(3, 'putts', '2');
+    await f.score(3, 3);
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(m.attHolesPar45Gir).toBe(0);
+    expect(m.attHolesPar3Gir).toBe(1);
+    expect(m.attStrokes).toBe(3);
+    expect(m.attGirFirstPutt1To2m).toBe(1);
+});
+
+test('a holed approach is in the cohort with no first-putt bucket', async () => {
+    const f = await fixture();
+    // The green hit with `putts = 0` and no bucket: an eagle holed from the
+    // fairway, or an ace. It is the GIR branch's BEST outcome, so leaving it
+    // out would bias the approach term by dropping exactly its triumphs.
+    await f.stat(1, 'tee_result', 'fairway');
+    await f.stat(1, 'gir', '1');
+    await f.stat(1, 'putts', '0');
+    await f.score(1, 2);
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(m.attHolesPar45Gir).toBe(1);
+    expect(m.attGirHoled).toBe(1);
+    expect(m.attStrokes).toBe(2);
+    expect(m.attPutts).toBe(0);
+    // …and it is still in exactly one arrival state.
+    expect(
+        m.attGirFirstPuttInside1m +
+            m.attGirFirstPutt1To2m +
+            m.attGirFirstPutt2To4m +
+            m.attGirFirstPutt4To8m +
+            m.attGirFirstPuttOver8m +
+            m.attGirHoled,
+    ).toBe(m.attHolesPar3Gir + m.attHolesPar45Gir);
+});
+
+test('an unanswered penalty prompt models as zero inside the cohort', async () => {
+    const f = await fixture();
+    // The ONE documented default in the whole file (proposal §3). An untouched
+    // prompt emits no event, so requiring an explicit zero would empty the
+    // cohort of most of its history; the cost is that a hidden penalty lands in
+    // the approach term, which the client twins pin as a stress case.
+    await f.stat(1, 'tee_result', 'fairway');
+    await f.stat(1, 'gir', '1');
+    await f.stat(1, 'first_putt', '2_to_4m');
+    await f.stat(1, 'putts', '2');
+    await f.score(1, 5);
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(m.penaltiesRecorded).toBe(0);
+    expect(m.attHolesPar45Gir).toBe(1);
+    expect(m.attPenalties).toBe(0);
 });

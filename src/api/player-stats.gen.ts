@@ -168,6 +168,35 @@ export interface StatMeasures {
     fairwayHitsPar5: number;
     inPlayHitsPar5: number;
     troubleCountPar5: number;
+    attHolesPar3Gir: number;
+    attHolesPar3Miss: number;
+    attHolesPar45Gir: number;
+    attHolesPar45Miss: number;
+    attStrokes: number;
+    attPutts: number;
+    attPenalties: number;
+    attFairwayPar4: number;
+    attInPlayPar4: number;
+    attTroublePar4: number;
+    attFairwayPar5: number;
+    attInPlayPar5: number;
+    attTroublePar5: number;
+    attGirFirstPuttInside1m: number;
+    attGirFirstPutt1To2m: number;
+    attGirFirstPutt2To4m: number;
+    attGirFirstPutt4To8m: number;
+    attGirFirstPuttOver8m: number;
+    attGirHoled: number;
+    attMissStandard: number;
+    attMissHard: number;
+    attChipInside2mStandard: number;
+    attChipOutside2mStandard: number;
+    attChipHoledStandard: number;
+    attChipInside2mHard: number;
+    attChipOutside2mHard: number;
+    attChipHoledHard: number;
+    attSgStrokesEffectiveStandard: number;
+    attSgStrokesEffectiveHard: number;
 }
 
 export interface PlayerRoundStats {

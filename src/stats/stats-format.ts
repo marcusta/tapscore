@@ -272,14 +272,19 @@ export function signedNumber(value: number, decimals = 1): string {
 }
 
 /**
- * Strokes lost or gained, per round. Positive = lost.
+ * Strokes lost or gained, per 18 attributed holes. Positive = lost.
  *
  * Worded rather than coloured alone: the sign is doing semantic work (`+1.8`
  * costs you strokes) that is the opposite of the usual reading of a plus, so
  * the label beside it always says which way is good.
+ *
+ * "per 18" rather than "/round": the figure is scaled to eighteen ATTRIBUTED
+ * holes, so a nine and an eighteen sit on one scale, and a round is no longer
+ * the unit. Spelled out with a space because "/18" beside a signed decimal
+ * reads as a fraction.
  */
-export function strokesPerRound(value: number): string {
-    return `${signedNumber(value)}/round`;
+export function strokesPer18(value: number): string {
+    return `${signedNumber(value)} per 18`;
 }
 
 /** A score relative to par, in the app's usual scorecard voice. */
@@ -292,25 +297,25 @@ export function vsPar(value: number): string {
 
 export function componentTitle(component: StrokesLostComponent): string {
     switch (component) {
-        case 'putting':
-            return 'Putting';
+        case 'tee':
+            return 'Tee';
+        case 'approach':
+            return 'Approach';
         case 'shortGame':
             return 'Short game';
+        case 'putting':
+            return 'Putting';
         case 'penalties':
             return 'Penalties';
-        // Named for what it actually contains. The waterfall's residual is
-        // everything the other three terms did not claim — tee shots AND
-        // approaches together — and there is no column that would split them.
-        // Calling it "Tee" would name a cause the arithmetic never isolated.
-        case 'longGame':
-            return 'Long game';
     }
 }
 
 // A priority row carries NO explainer sentence. The component names are the
-// four terms of the waterfall the section intro already describes, and four
-// sentences repeating "strokes vs an average" under four names was the noise
-// the one-card redesign removed (owner ruling, 2026-08-02).
+// five terms of the waterfall the section intro already describes, and five
+// sentences repeating "strokes vs an average" under five names was the noise
+// the one-card redesign removed (owner ruling, 2026-08-02). What the terms mean
+// lives behind the "How this works" link, interpolated with the reader's own
+// numbers.
 
 export function bucketTitle(bucket: PuttBucket): string {
     switch (bucket) {

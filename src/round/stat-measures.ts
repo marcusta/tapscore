@@ -25,14 +25,13 @@
 //     numerator with the matching `*Resolved` / fine-bucket denominator. Mixing
 //     a v2 numerator over the coarse `firstPuttRecorded` is what makes a ratio
 //     exceed 1 on pre-044 data, so it is never done here.
-//  3. **Null propagates, it never defaults.** A missing component of the
-//     strokes-lost waterfall makes the residual null too, rather than silently
-//     charging its strokes to the long game.
-//  4. **The residual is gated on coverage.** `longGame` is a residual, so every
-//     hole with no putt count donates its putting to it. It is therefore null
-//     unless at least `PUTTING_COVERAGE_FLOOR` (0.8) of the scored holes carry
-//     one — three recorded holes out of eighteen would otherwise be reported as
-//     a long-game number that is mostly fifteen holes of unseen putting.
+//  3. **Null propagates, it never defaults.** A hole missing any state its
+//     branch needs is dropped from the attribution cohort, never guessed at.
+//     The ONE documented exception is penalties (proposal §3 assumption 3).
+//  4. **One cohort, five terms, no residual.** Every term of `strokesLostV3` is
+//     measured over the SAME hole set, so the five telescope exactly to
+//     `total`. All five are null together (`coverage.attributed === 0`) or none
+//     is: there is no partial state, and a leftover row would be a bug.
 import type { StatMeasures } from '../api/player-stats.gen';
 
 // ---------------------------------------------------------------------------
@@ -205,6 +204,37 @@ export const ZERO_MEASURES: StatMeasures = Object.freeze({
         fairwayHitsPar5: 0,
         inPlayHitsPar5: 0,
         troubleCountPar5: 0,
+        // The migration-054 attribution cohort: one common hole set every
+        // strokes-lost term is measured over.
+        attHolesPar3Gir: 0,
+        attHolesPar3Miss: 0,
+        attHolesPar45Gir: 0,
+        attHolesPar45Miss: 0,
+        attStrokes: 0,
+        attPutts: 0,
+        attPenalties: 0,
+        attFairwayPar4: 0,
+        attInPlayPar4: 0,
+        attTroublePar4: 0,
+        attFairwayPar5: 0,
+        attInPlayPar5: 0,
+        attTroublePar5: 0,
+        attGirFirstPuttInside1m: 0,
+        attGirFirstPutt1To2m: 0,
+        attGirFirstPutt2To4m: 0,
+        attGirFirstPutt4To8m: 0,
+        attGirFirstPuttOver8m: 0,
+        attGirHoled: 0,
+        attMissStandard: 0,
+        attMissHard: 0,
+        attChipInside2mStandard: 0,
+        attChipOutside2mStandard: 0,
+        attChipHoledStandard: 0,
+        attChipInside2mHard: 0,
+        attChipOutside2mHard: 0,
+        attChipHoledHard: 0,
+        attSgStrokesEffectiveStandard: 0,
+        attSgStrokesEffectiveHard: 0,
 });
 
 /**
@@ -333,6 +363,37 @@ export function addMeasures(a: StatMeasures, b: StatMeasures): StatMeasures {
         fairwayHitsPar5: a.fairwayHitsPar5 + b.fairwayHitsPar5,
         inPlayHitsPar5: a.inPlayHitsPar5 + b.inPlayHitsPar5,
         troubleCountPar5: a.troubleCountPar5 + b.troubleCountPar5,
+        // The migration-054 attribution cohort: one common hole set every
+        // strokes-lost term is measured over.
+        attHolesPar3Gir: a.attHolesPar3Gir + b.attHolesPar3Gir,
+        attHolesPar3Miss: a.attHolesPar3Miss + b.attHolesPar3Miss,
+        attHolesPar45Gir: a.attHolesPar45Gir + b.attHolesPar45Gir,
+        attHolesPar45Miss: a.attHolesPar45Miss + b.attHolesPar45Miss,
+        attStrokes: a.attStrokes + b.attStrokes,
+        attPutts: a.attPutts + b.attPutts,
+        attPenalties: a.attPenalties + b.attPenalties,
+        attFairwayPar4: a.attFairwayPar4 + b.attFairwayPar4,
+        attInPlayPar4: a.attInPlayPar4 + b.attInPlayPar4,
+        attTroublePar4: a.attTroublePar4 + b.attTroublePar4,
+        attFairwayPar5: a.attFairwayPar5 + b.attFairwayPar5,
+        attInPlayPar5: a.attInPlayPar5 + b.attInPlayPar5,
+        attTroublePar5: a.attTroublePar5 + b.attTroublePar5,
+        attGirFirstPuttInside1m: a.attGirFirstPuttInside1m + b.attGirFirstPuttInside1m,
+        attGirFirstPutt1To2m: a.attGirFirstPutt1To2m + b.attGirFirstPutt1To2m,
+        attGirFirstPutt2To4m: a.attGirFirstPutt2To4m + b.attGirFirstPutt2To4m,
+        attGirFirstPutt4To8m: a.attGirFirstPutt4To8m + b.attGirFirstPutt4To8m,
+        attGirFirstPuttOver8m: a.attGirFirstPuttOver8m + b.attGirFirstPuttOver8m,
+        attGirHoled: a.attGirHoled + b.attGirHoled,
+        attMissStandard: a.attMissStandard + b.attMissStandard,
+        attMissHard: a.attMissHard + b.attMissHard,
+        attChipInside2mStandard: a.attChipInside2mStandard + b.attChipInside2mStandard,
+        attChipOutside2mStandard: a.attChipOutside2mStandard + b.attChipOutside2mStandard,
+        attChipHoledStandard: a.attChipHoledStandard + b.attChipHoledStandard,
+        attChipInside2mHard: a.attChipInside2mHard + b.attChipInside2mHard,
+        attChipOutside2mHard: a.attChipOutside2mHard + b.attChipOutside2mHard,
+        attChipHoledHard: a.attChipHoledHard + b.attChipHoledHard,
+        attSgStrokesEffectiveStandard: a.attSgStrokesEffectiveStandard + b.attSgStrokesEffectiveStandard,
+        attSgStrokesEffectiveHard: a.attSgStrokesEffectiveHard + b.attSgStrokesEffectiveHard,
     };
 }
 
@@ -1045,182 +1106,326 @@ export const CHIP_EXPECTED_PUTTS_V1_BY_DIFFICULTY: Readonly<ChipExpectedPutts> =
 });
 
 // ---------------------------------------------------------------------------
-// The strokes-lost waterfall (proposal §2)
+// Tapscore reference baseline v1
 // ---------------------------------------------------------------------------
 
-/** The four attributable buckets, in the order a waterfall draws them. */
-export type StrokesLostComponent = 'putting' | 'shortGame' | 'penalties' | 'longGame';
+/** One par's three post-tee cells, keyed by the recorded tee result. */
+export interface SgTeeCells {
+    readonly fairway: number;
+    readonly in_play: number;
+    readonly trouble: number;
+}
+
+/** By par group: 3 / 4 / 5, where `3` is "par 3 or shorter" and `5` is "par 5+". */
+export interface SgParTable {
+    readonly 3: number;
+    readonly 4: number;
+    readonly 5: number;
+}
+
+export interface SgTables {
+    readonly version: string;
+    /** The date the tables were fitted, or null while they are provisional. */
+    readonly calibratedAt: string | null;
+    readonly eHole: SgParTable;
+    readonly eAfterTee: { readonly 4: SgTeeCells; readonly 5: SgTeeCells };
+    readonly rowCounts: {
+        readonly eHole: SgParTable;
+        readonly eAfterTee: { readonly 4: SgTeeCells; readonly 5: SgTeeCells };
+    };
+}
+
+/**
+ * Tapscore reference baseline v1 — the expected-score tables the five
+ * attribution terms are measured against.
+ *
+ * PROVISIONAL_PENDING_OWNER_CALIBRATION. The values below are anchored on
+ * published amateur scoring means, NOT on this app's data. `calibratedAt` is
+ * null precisely because nobody has calibrated it yet: a date here would claim
+ * a freeze that has not happened.
+ *
+ * TODO(owner, v1 freeze): run `bun run sg:calibrate` on the production box
+ * (the machine holding `data/app.sqlite`), paste its emitted block over this
+ * one, set `calibratedAt` to the run date and drop the PROVISIONAL marker.
+ * Nothing else in the codebase changes — the fixture oracle tests the MATH, so
+ * a table swap moves displayed magnitudes and breaks no test.
+ *
+ * Do NOT blend the two sources. Proposal §6: published tables are a
+ * sanity-check, never mixed in.
+ *
+ * Internal consistency of the shipped provisional values: at a 55 / 30 / 15
+ * fairway / in-play / trouble lie mix, `1 + Σ(mix × eAfterTee)` reproduces
+ * `eHole` for par 4 (1 + 0.55·3.45 + 0.30·3.80 + 0.15·4.35 = 4.70) and par 5
+ * (1 + 0.55·4.25 + 0.30·4.60 + 0.15·5.15 = 5.50).
+ *
+ * Smoke-run evidence, and why the fitted tables are NOT here: `sg-calibrate`
+ * run against the seeded dev DB produced a par-5 group whose `in_play` cell
+ * scored BETTER than `fairway`, i.e. hitting the fairway would price as a
+ * strokes LOSS. The dev DB is synthetic scenario-seed data, not play; the
+ * script's ordering self-check refused the table, which is the refusal working.
+ */
+export const SG_TABLES_V1: SgTables = Object.freeze({
+    version: 'v1-provisional',
+    calibratedAt: null,
+
+    /** Expected strokes from the tee, by par. */
+    eHole: Object.freeze({ 3: 3.6, 4: 4.7, 5: 5.5 }),
+
+    /** Expected strokes to hole out from where the tee shot finished. */
+    eAfterTee: Object.freeze({
+        4: Object.freeze({ fairway: 3.45, in_play: 3.8, trouble: 4.35 }),
+        5: Object.freeze({ fairway: 4.25, in_play: 4.6, trouble: 5.15 }),
+    }),
+
+    /** Rows behind each cell. All zero: no cell was fitted from play. */
+    rowCounts: Object.freeze({
+        eHole: Object.freeze({ 3: 0, 4: 0, 5: 0 }),
+        eAfterTee: Object.freeze({
+            4: Object.freeze({ fairway: 0, in_play: 0, trouble: 0 }),
+            5: Object.freeze({ fairway: 0, in_play: 0, trouble: 0 }),
+        }),
+    }),
+});
+
+// ---------------------------------------------------------------------------
+// The strokes-lost waterfall (docs/proposals/strokes-gained-lite.md)
+// ---------------------------------------------------------------------------
+
+/**
+ * The five attributed terms, in the order a waterfall draws them and in the
+ * order every ranking iterates them.
+ *
+ * CANONICAL ORDER IS LOAD-BEARING. `component_worst_vs_baseline` picks with a
+ * strict `>`, so on an exact tie the EARLIER component here wins — and the
+ * Swift twin's enum is ordered identically for that reason alone.
+ */
+export type StrokesLostComponent = 'tee' | 'approach' | 'shortGame' | 'putting' | 'penalties';
 
 export const STROKES_LOST_COMPONENTS: readonly StrokesLostComponent[] = [
-    'putting',
+    'tee',
+    'approach',
     'shortGame',
+    'putting',
     'penalties',
-    'longGame',
 ];
 
+export interface StrokesLostCoverage {
+    /** Holes in the attribution cohort. */
+    attributed: number;
+    /**
+     * Holes with a canonicalised score, cohort or not. The denominator the info
+     * popover quotes ("41 of your 51 holes could be fully attributed").
+     */
+    holesScored: number;
+}
+
 /**
- * One round's score vs par, split into attributable buckets. Positive = strokes
- * LOST; negative = gained.
+ * One round's score against the Tapscore reference baseline, split into five
+ * attributed terms. Positive = strokes LOST; negative = gained.
  *
- * Null means "not computable from what was recorded", and it propagates: a round
- * with no putting data has a null putting term AND a null long game, because the
- * residual would otherwise absorb every putt the player never told us about.
- * `penalties` is a plain count, so it is never null — an unrecorded penalty
- * reads as zero penalties, the same way it does everywhere else in the app.
- *
- * `coverage` is not a term of the waterfall: it is the sample the residual was
- * judged against (invariant 4), carried so a UI can say WHY `longGame` is null
- * without recomputing it.
+ * ALL FIVE OR NONE. Every field is null iff `coverage.attributed === 0`, and
+ * non-null otherwise. There is no partial state and there is no residual: the
+ * cohort is ONE common hole set by construction (a hole enters it only when
+ * every state its branch needs was recorded), so a term cannot be "not
+ * measured" while its siblings are. The five terms telescope EXACTLY to
+ * `total`; a leftover row would be a bug, not a fallback.
  */
 export interface StrokesLost {
-    putting: number | null;
+    tee: number | null;
+    approach: number | null;
     shortGame: number | null;
-    penalties: number;
-    longGame: number | null;
+    putting: number | null;
+    penalties: number | null;
+    /** Σ(score − eHole[par]) over the cohort. Equals the sum of the five. */
     total: number | null;
-    /**
-     * How much of the round has a putt count. `puttsRecorded` is the coarse
-     * per-hole count — every hole with a putt answer, bucketed or not — which is
-     * exactly the coverage question the residual cares about.
-     */
-    coverage: { holesScored: number; puttsRecorded: number };
+    coverage: StrokesLostCoverage;
 }
 
 /**
- * The share of scored holes that must carry a putt count before the long game is
- * reported at all (invariant 4). Below it, `longGame` is null.
+ * The five-term attribution for ONE round (or, harmlessly, for a summed window —
+ * every input is a count or a sum, so the terms are all additive).
  *
- * Not a statistical threshold — an honesty one. `putting` only claims the holes
- * whose bucket resolved, so every unrecorded hole's putting falls into the
- * residual by construction. Three recorded holes out of eighteen would produce a
- * "long game" that is mostly fifteen holes of invisible putting, blaming the
- * driver for the putter. 0.8 admits the ordinary case (a few holes skipped in a
- * hurry) and refuses the partial-entry one.
+ * Per attributable hole, with `S` = strokes, `U` = putts, `X` = penalty strokes,
+ * one modeled tee stroke on par 4/5 and `C = COALESCE(short_game_strokes, 1)`
+ * short-game strokes on a green miss:
+ *
+ *   tee       = 1 + eAfterTee[par][result] − eHole[par]                  (par 4/5)
+ *   approach  = (S − U − X − teeStroke − C) + E_arrival − E_ref
+ *   shortGame = (C − 1) + E_outcome − chipBaseline[difficulty]           (miss only)
+ *   putting   = U − E_outcome
+ *   penalties = X
+ *   total     = S − eHole[par]
+ *
+ * where `E_arrival` is the expected putts the approach left (0 for a holed
+ * approach), `E_ref` is `eAfterTee[par][result]` on par 4/5 and `eHole[3]` on a
+ * par 3, and a green miss enters approach at `1 + chipBaseline[difficulty]`
+ * instead of a first-putt bucket. Summed over the cohort this telescopes to
+ * `total` exactly — proposal §2.3.
+ *
+ * Everything here is `Σ count × constant` plus the three cohort sums, which is
+ * why "counts on the server, rates on the client" survives: a client-side
+ * window equals a server-side one.
+ *
+ * `attPenalties` is the ONE documented default in the whole module (proposal §3
+ * assumption 3): a hole with no penalty answer contributes zero, and the hidden
+ * stroke lands in approach. Every other unrecorded state drops the hole from the
+ * cohort instead of guessing at it.
  */
-export const PUTTING_COVERAGE_FLOOR = 0.8;
-
-/**
- * The waterfall for ONE round (or, harmlessly, for a summed window — the terms
- * are all additive).
- *
- *  putting    = Σ puttsTotal{bucket}Resolved − Σ firstPutt{bucket}Resolved × E[bucket]
- *  shortGame  = Σ over {standard, hard} of
- *                 chip outcomes × (E[outcome] − chipBaseline[difficulty])
- *                   + holed chips × (1 − (1 + chipBaseline[difficulty]))
- *  penalties  = penaltiesTotal            (one penalty ≈ one stroke, directly)
- *  longGame   = total − putting − shortGame − penalties
- *  total      = strokesTotal − parTotal
- *
- * The short-game term is summed PER DIFFICULTY (v2): the outcome table is
- * shared — where the ball finished does not depend on the lie it came from —
- * while the baseline it is scored against is the one the recorded lie earns.
- *
- * The holed-chip term is the same subtraction as the other two outcomes, just
- * with the chip itself inside it. An average short-game shot costs 1 stroke and
- * leaves its baseline in putts behind it — 2.70 strokes to get down from a
- * standard lie. A chip-in costs 1 and leaves nothing, so it gains 1.70 strokes.
- * Without the term a hole-out is invisible to the short game (there is no first
- * putt to bucket) and its whole gain lands in the long-game residual, which
- * reads as "great approach play" for a shot that MISSED the green.
- *
- * Null rules, all of them deliberate:
- * - `putting` is null when NO bucket resolved. Resolved-only is what keeps the
- *   two halves of the subtraction over the same holes (invariant 2): a hole with
- *   a bucket and no putt count is in neither half.
- * - `shortGame` is null when there is no scramble signal at all — neither a chip
- *   with a bucketed first putt nor a holed chip.
- * - `total` is null when `holesScored === 0` — a stats-only round (answers
- *   recorded, no scorecard) exists, and `0 − 0 = 0` would report it as a level-par
- *   round that never happened.
- * - `longGame` is the residual, so it is null unless everything it subtracts is
- *   non-null AND putting coverage clears `PUTTING_COVERAGE_FLOOR`. It is the only
- *   term nobody measures directly; letting it default would quietly blame the
- *   driver for missing putting data.
- */
-export function strokesLost(
+export function strokesLostV3(
     m: StatMeasures,
+    tables: SgTables = SG_TABLES_V1,
     expected: Readonly<Record<PuttBucket, number>> = EXPECTED_PUTTS_V1,
-    chipExpected: Readonly<{ inside2m: number; outside2m: number }> = CHIP_OUTCOME_EXPECTED_PUTTS_V1,
+    chipOutcome: Readonly<{ inside2m: number; outside2m: number }> = CHIP_OUTCOME_EXPECTED_PUTTS_V1,
     chipBaseline: Readonly<ChipExpectedPutts> = CHIP_EXPECTED_PUTTS_V2,
 ): StrokesLost {
-    let resolvedHoles = 0;
-    let puttsTaken = 0;
-    let puttsExpected = 0;
-    for (const bucket of PUTT_BUCKETS) {
-        const holes = firstPuttResolved(m, bucket);
-        resolvedHoles += holes;
-        puttsTaken += puttsTotalResolved(m, bucket);
-        puttsExpected += holes * expected[bucket];
+    // The cohort, counted two ways. The par-4/5 legs come from the STRICT tee
+    // cells (which partition the par-4/5 cohort) rather than from
+    // `attHolesPar45Gir + attHolesPar45Miss`: the tee sum is what `sumEAfterTee`
+    // is priced over, so deriving the cohort from it keeps the two halves of
+    // every subtraction over the same holes even on a mixed window.
+    const cohortPar3 = m.attHolesPar3Gir + m.attHolesPar3Miss;
+    const cohortPar4 = m.attFairwayPar4 + m.attInPlayPar4 + m.attTroublePar4;
+    const cohortPar5 = m.attFairwayPar5 + m.attInPlayPar5 + m.attTroublePar5;
+    const attributed = cohortPar3 + cohortPar4 + cohortPar5;
+    const coverage: StrokesLostCoverage = { attributed, holesScored: m.holesScored };
+
+    if (attributed === 0) {
+        return {
+            tee: null,
+            approach: null,
+            shortGame: null,
+            putting: null,
+            penalties: null,
+            total: null,
+            coverage,
+        };
     }
-    const putting = resolvedHoles === 0 ? null : puttsTaken - puttsExpected;
 
-    // One difficulty's whole contribution. Clamped: `scrambleInside2m*` is a
-    // subset of `scrambleFirstPutt*` by construction, so this cannot go negative
-    // on coherent data — but a mixed window (a v2 numerator summed over pre-044
-    // rows) could, and a negative count here would credit the short game for
-    // chips that were never hit. The clamp is per difficulty, so one leg's
-    // incoherence cannot be cancelled by the other's slack.
-    const term = (inside2m: number, measured: number, holed: number, baseline: number): number => {
-        const outside2m = Math.max(0, measured - inside2m);
-        return (
-            inside2m * (chipExpected.inside2m - baseline) +
-            outside2m * (chipExpected.outside2m - baseline) +
-            // 1 stroke taken where an average chip + its putts expects
-            // 1 + baseline. Negative, i.e. a gain.
-            holed * (1 - (1 + baseline))
-        );
-    };
+    /** One modeled tee stroke per par-4/5 hole. A par 3's tee shot IS its approach. */
+    const teeStrokes = cohortPar4 + cohortPar5;
+    /** Σ COALESCE(short_game_strokes, 1) over the miss cohort. */
+    const sumC = m.attSgStrokesEffectiveStandard + m.attSgStrokesEffectiveHard;
+    const nMiss = m.attMissStandard + m.attMissHard;
 
-    // The absence gate stays ACROSS difficulties: "no short-game signal at all"
-    // is one question, and asking it per leg would null a window that recorded
-    // only hard chips.
-    const chipsMeasured = m.scrambleFirstPuttStandard + m.scrambleFirstPuttHard;
-    const chipsHoled = m.scrambleHoledStandard + m.scrambleHoledHard;
-    const shortGame =
-        chipsMeasured === 0 && chipsHoled === 0
-            ? null
-            : // Standard before hard on both platforms, so floating-point
-              // accumulation is identical to the Swift twin's.
-              term(
-                  m.scrambleInside2mStandard,
-                  m.scrambleFirstPuttStandard,
-                  m.scrambleHoledStandard,
-                  chipBaseline.standard,
-              ) +
-              term(
-                  m.scrambleInside2mHard,
-                  m.scrambleFirstPuttHard,
-                  m.scrambleHoledHard,
-                  chipBaseline.hard,
-              );
+    const sumEHole =
+        cohortPar3 * tables.eHole[3] + cohortPar4 * tables.eHole[4] + cohortPar5 * tables.eHole[5];
 
-    const penalties = m.penaltiesTotal;
-    const total = m.holesScored === 0 ? null : m.strokesTotal - m.parTotal;
+    const sumEAfterTee =
+        m.attFairwayPar4 * tables.eAfterTee[4].fairway +
+        m.attInPlayPar4 * tables.eAfterTee[4].in_play +
+        m.attTroublePar4 * tables.eAfterTee[4].trouble +
+        m.attFairwayPar5 * tables.eAfterTee[5].fairway +
+        m.attInPlayPar5 * tables.eAfterTee[5].in_play +
+        m.attTroublePar5 * tables.eAfterTee[5].trouble;
 
-    // The residual absorbs the putting of every hole `putting` could not claim,
-    // so it is only honest when most of the round carries a putt count.
-    const coverage = { holesScored: m.holesScored, puttsRecorded: m.puttsRecorded };
-    const puttingCovered = m.puttsRecorded >= PUTTING_COVERAGE_FLOOR * m.holesScored;
+    /** What approach is measured FROM: the post-tee lie, or the par-3 tee. */
+    const sumERef = sumEAfterTee + cohortPar3 * tables.eHole[3];
 
-    const longGame =
-        total === null || putting === null || shortGame === null || !puttingCovered
-            ? null
-            : total - putting - shortGame - penalties;
+    // A holed approach (or an ace) arrives at 0 expected putts, so it needs no
+    // term of its own here — but it IS in the cohort, deliberately: dropping the
+    // branch's best outcome would bias approach by exactly its triumphs.
+    const sumEGirArrival =
+        m.attGirFirstPuttInside1m * expected.inside_1m +
+        m.attGirFirstPutt1To2m * expected['1_to_2m'] +
+        m.attGirFirstPutt2To4m * expected['2_to_4m'] +
+        m.attGirFirstPutt4To8m * expected['4_to_8m'] +
+        m.attGirFirstPuttOver8m * expected.over_8m;
 
-    return { putting, shortGame, penalties, longGame, total, coverage };
+    // Where the chip left the ball. A chip-in leaves nothing, hence no term.
+    const sumEChipOutcome =
+        (m.attChipInside2mStandard + m.attChipInside2mHard) * chipOutcome.inside2m +
+        (m.attChipOutside2mStandard + m.attChipOutside2mHard) * chipOutcome.outside2m;
+
+    const sumEChipBaseline =
+        m.attMissStandard * chipBaseline.standard + m.attMissHard * chipBaseline.hard;
+
+    /** What a missed green is worth on arrival: one chip plus the putts it leaves. */
+    const sumChipEntry =
+        m.attMissStandard * (1 + chipBaseline.standard) +
+        m.attMissHard * (1 + chipBaseline.hard);
+
+    const tee =
+        m.attFairwayPar4 * (1 + tables.eAfterTee[4].fairway - tables.eHole[4]) +
+        m.attInPlayPar4 * (1 + tables.eAfterTee[4].in_play - tables.eHole[4]) +
+        m.attTroublePar4 * (1 + tables.eAfterTee[4].trouble - tables.eHole[4]) +
+        m.attFairwayPar5 * (1 + tables.eAfterTee[5].fairway - tables.eHole[5]) +
+        m.attInPlayPar5 * (1 + tables.eAfterTee[5].in_play - tables.eHole[5]) +
+        m.attTroublePar5 * (1 + tables.eAfterTee[5].trouble - tables.eHole[5]);
+
+    const approach =
+        (m.attStrokes - m.attPutts - m.attPenalties - teeStrokes - sumC) +
+        sumEGirArrival +
+        sumChipEntry -
+        sumERef;
+
+    // An extra short-game stroke charges the SHORT GAME, not approach: a duffed
+    // chip is short-game damage. Both terms use the same effective `C`, or the
+    // telescope breaks by `C − 1`.
+    const shortGame = (sumC - nMiss) + sumEChipOutcome - sumEChipBaseline;
+
+    const putting = m.attPutts - (sumEGirArrival + sumEChipOutcome);
+
+    const penalties = m.attPenalties;
+
+    const total = m.attStrokes - sumEHole;
+
+    return { tee, approach, shortGame, putting, penalties, total, coverage };
 }
 
-/** One component of a waterfall, by name — the Swift twin's `subscript`. */
+/**
+ * A round under this many attributed holes takes part in no cross-round
+ * comparison — not a baseline delta, not a component insight, not a trend point.
+ * Half a round is the floor at which "per 18" stops being a scaling and starts
+ * being an extrapolation.
+ *
+ * The twin of `MIN_RATE_DENOMINATOR`'s role: a number small enough to admit a
+ * played nine, large enough to refuse a three-hole fragment.
+ */
+export const MIN_ATTRIBUTED_FOR_DELTA = 9;
+
+/**
+ * One term, scaled to 18 attributed holes — the unit EVERY cross-round
+ * comparison uses.
+ *
+ * Raw totals flatter a short round against eighteen-hole history: six
+ * attributed holes of putting is not a better putting round, it is a third of
+ * one. Null below `MIN_ATTRIBUTED_FOR_DELTA`, so a fragment produces no
+ * comparison at all rather than a scaled-up guess.
+ */
+export function sgPer18(sg: StrokesLost, component: StrokesLostComponent): number | null {
+    return per18(sg, strokesLostComponent(sg, component));
+}
+
+/** The same scaling, for the five terms' total. */
+export function sgTotalPer18(sg: StrokesLost): number | null {
+    return per18(sg, sg.total);
+}
+
+function per18(sg: StrokesLost, value: number | null): number | null {
+    if (value === null) return null;
+    if (sg.coverage.attributed < MIN_ATTRIBUTED_FOR_DELTA) return null;
+    return (value * 18) / sg.coverage.attributed;
+}
+
+/**
+ * One term of an attribution, by name — the Swift twin's `subscript`.
+ *
+ * RAW, never normalized: this is what the round-detail waterfall and the
+ * round-list strips read, because those describe the round in front of you.
+ * Everything cross-round reads `sgPer18` instead.
+ */
 export function strokesLostComponent(w: StrokesLost, c: StrokesLostComponent): number | null {
     switch (c) {
-        case 'putting':
-            return w.putting;
+        case 'tee':
+            return w.tee;
+        case 'approach':
+            return w.approach;
         case 'shortGame':
             return w.shortGame;
+        case 'putting':
+            return w.putting;
         case 'penalties':
             return w.penalties;
-        case 'longGame':
-            return w.longGame;
     }
 }
 
@@ -1239,10 +1444,11 @@ export function strokesLostComponent(w: StrokesLost, c: StrokesLostComponent): n
  * average-putting rounds.
  */
 export interface StrokesLostDeltas {
-    putting: number | null;
+    tee: number | null;
+    approach: number | null;
     shortGame: number | null;
+    putting: number | null;
     penalties: number | null;
-    longGame: number | null;
     total: number | null;
 }
 
@@ -1253,31 +1459,46 @@ export interface StrokesLostDeltas {
  * drags the baseline toward the round being measured and makes
  * `best_putting_round` unreachable, since no round is strictly better than
  * itself.
+ *
+ * BOTH SIDES ARE PER 18 ATTRIBUTED HOLES (`sgPer18`). Comparing raw totals
+ * across rounds of different coverage was the shipped bug: a six-attributed-hole
+ * round read as three strokes better than an eighteen-hole one for having played
+ * a third as much golf. A round under `MIN_ATTRIBUTED_FOR_DELTA` therefore
+ * yields nulls here, which is the floor's whole purpose — it still shows its own
+ * waterfall, it just contributes no comparison.
  */
 export function baselineDeltas(
     round: StrokesLost,
     window: readonly StrokesLost[],
 ): StrokesLostDeltas {
+    const term = (c: StrokesLostComponent): number | null =>
+        delta(
+            sgPer18(round, c),
+            window.map((w) => sgPer18(w, c)),
+        );
     return {
-        putting: delta(round.putting, window.map(pickPutting)),
-        shortGame: delta(round.shortGame, window.map(pickShortGame)),
-        penalties: delta(round.penalties, window.map(pickPenalties)),
-        longGame: delta(round.longGame, window.map(pickLongGame)),
-        total: delta(round.total, window.map(pickTotal)),
+        tee: term('tee'),
+        approach: term('approach'),
+        shortGame: term('shortGame'),
+        putting: term('putting'),
+        penalties: term('penalties'),
+        total: delta(sgTotalPer18(round), window.map(sgTotalPer18)),
     };
 }
 
 /** One component of a delta set, by name. */
 export function deltaComponent(d: StrokesLostDeltas, c: StrokesLostComponent): number | null {
     switch (c) {
-        case 'putting':
-            return d.putting;
+        case 'tee':
+            return d.tee;
+        case 'approach':
+            return d.approach;
         case 'shortGame':
             return d.shortGame;
+        case 'putting':
+            return d.putting;
         case 'penalties':
             return d.penalties;
-        case 'longGame':
-            return d.longGame;
     }
 }
 
@@ -1299,20 +1520,8 @@ function delta(value: number | null, window: readonly (number | null)[]): number
     return mean === null ? null : value - mean;
 }
 
-function pickPutting(w: StrokesLost): number | null {
-    return w.putting;
-}
-function pickShortGame(w: StrokesLost): number | null {
-    return w.shortGame;
-}
 function pickPenalties(w: StrokesLost): number | null {
     return w.penalties;
-}
-function pickLongGame(w: StrokesLost): number | null {
-    return w.longGame;
-}
-function pickTotal(w: StrokesLost): number | null {
-    return w.total;
 }
 
 // ---------------------------------------------------------------------------
@@ -1345,7 +1554,11 @@ export interface InsightLine {
     params: Readonly<Record<string, InsightParam>>;
 }
 
-/** A component must move at least this many strokes to be worth a line. */
+/**
+ * A component must move at least this many strokes to be worth a line — read
+ * against the PER-18 deltas `baselineDeltas` now returns, so the threshold means
+ * the same thing on a nine and on an eighteen.
+ */
 export const INSIGHT_COMPONENT_DELTA_STROKES = 1;
 /** Penalties this far above the personal mean is a spike. */
 export const INSIGHT_PENALTY_SPIKE_OVER_MEAN = 2;
@@ -1421,15 +1634,23 @@ export function insightLines(
     }
 
     // 3. Penalties well above the personal mean. Needs a window to have a mean.
+    //
+    // BOTH SIDES ARE THE WATERFALL PENALTIES TERM — the cohort figure, not
+    // `measures.penaltiesTotal`. The round-wide count and a window mean of
+    // cohort-only terms are different units, and under partial coverage the
+    // round-wide side is systematically the larger of the two, which fired the
+    // line on rounds that had no spike at all.
     const penaltyBaseline = meanOfPresent(window.map(pickPenalties));
+    const roundPenalties = waterfall.penalties;
     if (
         penaltyBaseline !== null &&
-        measures.penaltiesTotal >= penaltyBaseline + INSIGHT_PENALTY_SPIKE_OVER_MEAN
+        roundPenalties !== null &&
+        roundPenalties >= penaltyBaseline + INSIGHT_PENALTY_SPIKE_OVER_MEAN
     ) {
         push(
             {
                 id: 'penalties_spike',
-                params: { penalties: measures.penaltiesTotal, baseline: penaltyBaseline },
+                params: { penalties: roundPenalties, baseline: penaltyBaseline },
             },
             0,
         );
@@ -1477,16 +1698,23 @@ export function insightLines(
 
     // 7. Best putting round in the window: strictly better than every round in
     // it that has a putting term, over a window worth the claim.
-    const windowPutting = window.map(pickPutting).filter((v): v is number => v !== null);
+    //
+    // Cross-round, so BOTH SIDES read `sgPer18` and inherit the
+    // MIN_ATTRIBUTED_FOR_DELTA floor (§D.4). Raw terms would have handed the
+    // title to whichever round putted the fewest holes.
+    const roundPutting = sgPer18(waterfall, 'putting');
+    const windowPutting = window
+        .map((w) => sgPer18(w, 'putting'))
+        .filter((v): v is number => v !== null);
     if (
-        waterfall.putting !== null &&
+        roundPutting !== null &&
         windowPutting.length >= INSIGHT_BEST_PUTTING_MIN_WINDOW &&
-        windowPutting.every((v) => waterfall.putting! < v)
+        windowPutting.every((v) => roundPutting < v)
     ) {
         push(
             {
                 id: 'best_putting_round',
-                params: { putting: waterfall.putting, rounds: windowPutting.length },
+                params: { putting: roundPutting, rounds: windowPutting.length },
             },
             0,
         );

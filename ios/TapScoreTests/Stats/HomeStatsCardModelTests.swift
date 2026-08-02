@@ -47,6 +47,18 @@ final class HomeStatsCardModelTests: XCTestCase {
             $0.puttsTotal = 34
             $0.firstPutt2To4mResolved = 18
             $0.puttsTotal2To4mResolved = 34
+            // An eighteen of par 4s, fully attributed: the greens hit leave a
+            // 2-4 m first putt, the rest a standard chip to outside 2 m.
+            $0.attHolesPar45Gir = greens
+            $0.attHolesPar45Miss = 18 - greens
+            $0.attStrokes = strokes
+            $0.attPutts = 34
+            $0.attFairwayPar4 = fairways
+            $0.attInPlayPar4 = 18 - fairways
+            $0.attGirFirstPutt2To4m = greens
+            $0.attMissStandard = 18 - greens
+            $0.attChipOutside2mStandard = 18 - greens
+            $0.attSgStrokesEffectiveStandard = 18 - greens
         }
     }
 
@@ -134,9 +146,9 @@ final class HomeStatsCardModelTests: XCTestCase {
     }
 
     func testALeaderThatCostsNothingIsNotALine() throws {
-        // Scored only: no putts and no chips, so the only non-nil waterfall term
-        // is `penalties` — and it is 0.0, because none were taken. A card with
-        // no number on the line must not name that as what costs you most.
+        // Scored only: no tee, green or putt answers anywhere, so no hole is in
+        // the attribution cohort and every waterfall term is nil. A card with no
+        // number on the line must not name anything as what costs you most.
         let scoringOnly = measures {
             $0.holesScored = 18
             $0.strokesTotal = 80
@@ -154,6 +166,14 @@ final class HomeStatsCardModelTests: XCTestCase {
             $0.parTotal = 72
             $0.penaltiesRecorded = 18
             $0.penaltiesTotal = 3
+            // Eighteen par 4s, every green hit from the fairway: the only thing
+            // that cost this round anything is the three penalty strokes.
+            $0.attHolesPar45Gir = 18
+            $0.attStrokes = 84
+            $0.attPutts = 36
+            $0.attPenalties = 3
+            $0.attFairwayPar4 = 18
+            $0.attGirFirstPutt2To4m = 18
         }
         let card = try XCTUnwrap(build([row("r1", date: "2026-07-20", penalised)]))
 

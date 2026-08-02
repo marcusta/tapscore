@@ -206,10 +206,11 @@ enum RoundStoryCopy {
     /// putting", not the enum's `putting`.
     static func name(_ component: StrokesLostComponent) -> String {
         switch component {
-        case .putting: return "Putting"
+        case .tee: return "Your tee shots"
+        case .approach: return "Your approach play"
         case .shortGame: return "Your short game"
+        case .putting: return "Putting"
         case .penalties: return "Penalties"
-        case .longGame: return "Tee to green"
         }
     }
 

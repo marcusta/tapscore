@@ -56,6 +56,14 @@ function fullRound(strokes: number, fairways: number, greens: number): StatMeasu
         puttsTotal: 34,
         firstPutt2To4mResolved: 18,
         puttsTotal2To4mResolved: 34,
+        // The attribution cohort: eighteen par 4s, every one off the fairway
+        // and on the green, so the whole round attributes and the per-18
+        // figures are the raw terms.
+        attHolesPar45Gir: 18,
+        attStrokes: strokes,
+        attPutts: 34,
+        attFairwayPar4: 18,
+        attGirFirstPutt2To4m: 18,
     });
 }
 
@@ -154,9 +162,9 @@ test('the priority line names the leader in words', () => {
 
     expect(line).not.toBeNull();
     expect(line!.startsWith('Costing you most: ')).toBe(true);
-    // Whatever leads, it is one of the waterfall's four names — never a glyph,
+    // Whatever leads, it is one of the waterfall's five names — never a glyph,
     // never a number on its own.
-    expect(['Putting', 'Short game', 'Penalties', 'Long game']).toContain(
+    expect(['Tee', 'Approach', 'Short game', 'Putting', 'Penalties']).toContain(
         line!.slice('Costing you most: '.length),
     );
 });
@@ -171,11 +179,10 @@ test('a leader that costs nothing is not a line', () => {
 
 test('a positive leader still renders when it is penalties', () => {
     const penalised = measures({
-        holesScored: 18,
-        strokesTotal: 84,
-        parTotal: 72,
+        ...fullRound(84, 7, 18),
         penaltiesRecorded: 18,
         penaltiesTotal: 3,
+        attPenalties: 3,
     });
     expect(card([row('r1', '2026-07-20', penalised)]).priorityLine).toBe(
         'Costing you most: Penalties',

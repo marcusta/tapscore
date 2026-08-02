@@ -41,23 +41,26 @@ enum StatsPanelID: String, CaseIterable, Sendable {
 
 // MARK: - Practice priorities
 
-/// One component of the fixed-baseline waterfall, averaged per round.
+/// One component of the fixed-baseline waterfall, per 18 attributed holes.
 ///
-/// `perRound` is nil when NO round in the window produced the component. That is
-/// the "not enough data" row — printed as a sentence, never as a bar at zero,
-/// because a zero-length bar in a ranked list reads as "this part of your game
-/// is exactly average", which is a claim the data does not make.
+/// `per18` is nil when NO round in the window produced the component — which
+/// now includes every round under `minAttributedForDelta`, since a short round
+/// contributes no cross-round figure. That is the "not enough data" row —
+/// printed as a sentence, never as a bar at zero, because a zero-length bar in a
+/// ranked list reads as "this part of your game is exactly average", which is a
+/// claim the data does not make.
 struct StatsPriority: Equatable, Sendable, Identifiable {
     var component: StrokesLostComponent
-    /// Mean strokes lost per round. Positive = lost, negative = gained.
-    var perRound: Double?
+    /// Mean strokes lost per 18 attributed holes. Positive = lost, negative =
+    /// gained.
+    var per18: Double?
     /// How many rounds in the window contributed a value.
     var roundsCovered: Int
     /// How many rounds are in the window at all.
     var roundsInWindow: Int
 
     var id: String { component.rawValue }
-    var hasData: Bool { perRound != nil }
+    var hasData: Bool { per18 != nil }
 }
 
 // MARK: - Trends
@@ -268,8 +271,8 @@ struct StatsDashboardModel: Equatable, Sendable {
         guard !ordered.isEmpty else { return .empty }
 
         let totals = StatMeasuresMath.sum(ordered.map(\.measures))
-        let perRound = ordered.map { StatMeasuresMath.strokesLost($0.measures) }
-        let windowWaterfall = StatMeasuresMath.strokesLost(totals)
+        let perRound = ordered.map { StatMeasuresMath.strokesLostV3($0.measures) }
+        let windowWaterfall = StatMeasuresMath.strokesLostV3(totals)
 
         return StatsDashboardModel(
             rounds: zip(ordered, perRound).map { row, waterfall in
@@ -280,7 +283,13 @@ struct StatsDashboardModel: Equatable, Sendable {
                     name: row.name,
                     holeCount: Int(row.holeCount),
                     strokes: row.measures.holesScored == 0 ? nil : row.measures.strokesTotal,
-                    vsPar: waterfall.total,
+                    // vs PAR, straight off the scorecard columns — NOT
+                    // `waterfall.total`, which is now vs the reference baseline over
+                    // the attributed cohort. Vs-par stays the language of the round
+                    // list and the Results card (proposal §1).
+                    vsPar: row.measures.holesScored == 0
+                        ? nil
+                        : row.measures.strokesTotal - row.measures.parTotal,
                     waterfall: waterfall)
             },
             totals: totals,
@@ -298,33 +307,44 @@ struct StatsDashboardModel: Equatable, Sendable {
 
     // MARK: Priorities
 
-    /// Worst first: the component costing the most strokes per round leads.
+    /// Worst first: the component costing the most strokes per 18 leads.
     ///
     /// Averaged PER ROUND rather than taken from the summed window so the list
-    /// says "putting costs you 1.8 shots a round", which is a practice
+    /// says "putting costs you 1.8 shots per 18", which is a practice
     /// instruction, rather than "putting has cost you 21.6 shots", which is a
     /// number you have to divide before it means anything. The mean is over the
     /// rounds that HAVE the component (`meanOfPresent`), not over the window —
     /// dividing by rounds that never recorded a putt would dilute the estimate
     /// toward zero and flatten the ranking.
+    ///
+    /// Each round is normalized with `sgPer18` first, so a nine and an eighteen
+    /// carry the same weight and a round under the floor carries none.
     static func priorities(perRound: [StrokesLost]) -> [StatsPriority] {
         let rows = StrokesLostComponent.allCases.map { component -> StatsPriority in
-            let values = perRound.map { $0[component] }
+            let values = perRound.map { StatMeasuresMath.sgPer18($0, component) }
             return StatsPriority(
                 component: component,
-                perRound: StatMeasuresMath.meanOfPresent(values),
+                per18: StatMeasuresMath.meanOfPresent(values),
                 roundsCovered: values.compactMap { $0 }.count,
                 roundsInWindow: perRound.count)
         }
         // Present components rank by cost, descending. Absent ones sink to the
         // bottom in their canonical order — they are not "best", they are
         // unknown, and sorting them among the numbers would imply otherwise.
+        // Ties break on DECLARATION order — tee, approach, short game, putting,
+        // penalties — the one canonical order both clients rank by. Alphabetical
+        // on the raw value would put approach before tee and disagree with the
+        // insight lines about which of two equal components is "worst".
+        func order(_ component: StrokesLostComponent) -> Int {
+            StrokesLostComponent.allCases.firstIndex(of: component) ?? 0
+        }
         return rows.sorted { lhs, rhs in
-            switch (lhs.perRound, rhs.perRound) {
-            case let (l?, r?): return l == r ? lhs.component.rawValue < rhs.component.rawValue : l > r
+            switch (lhs.per18, rhs.per18) {
+            case let (l?, r?):
+                return l == r ? order(lhs.component) < order(rhs.component) : l > r
             case (_?, nil): return true
             case (nil, _?): return false
-            case (nil, nil): return lhs.component.rawValue < rhs.component.rawValue
+            case (nil, nil): return order(lhs.component) < order(rhs.component)
             }
         }
     }
@@ -369,7 +389,7 @@ struct StatsDashboardModel: Equatable, Sendable {
                 solid(StatMeasuresMath.girRate($0))
             },
             series("putting", "Putting", .strokesLost) {
-                StatMeasuresMath.strokesLost($0).putting
+                StatMeasuresMath.sgPer18(StatMeasuresMath.strokesLostV3($0), .putting)
             },
             series("scramble", "Scrambling", .percentage) {
                 solid(StatMeasuresMath.scrambleRate($0).overall)

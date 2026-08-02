@@ -13,7 +13,7 @@ import {
     TREND_MIN_POINTS,
     waterfallMagnitude,
 } from '../../src/stats/stats-dashboard-model';
-import { strokesLost, ZERO_MEASURES } from '../../src/round/stat-measures';
+import { strokesLostV3, ZERO_MEASURES } from '../../src/round/stat-measures';
 import type { PlayerRoundStats, StatMeasures } from '../../src/api/player-stats.gen';
 
 // The (rows → screen) reduction. Pure: no service, no DOM, no clock. Twin of
@@ -225,28 +225,44 @@ test('per-round figures divide by the ROW count — a nine-hole round is one rou
 // --- Priorities --------------------------------------------------------------
 
 test('priorities rank worst first and absent components sink to the bottom', () => {
+    // Coverage is a full eighteen ATTRIBUTED, so `sgPer18` is the identity here
+    // and the ranking is the arithmetic as written.
+    const cover = { attributed: 18, holesScored: 18 };
     const waterfalls = [
-        { putting: 1, shortGame: null, penalties: 2, longGame: 0.5, total: 3.5, coverage: { holesScored: 18, puttsRecorded: 18 } },
-        { putting: 3, shortGame: null, penalties: 0, longGame: 0.5, total: 3.5, coverage: { holesScored: 18, puttsRecorded: 18 } },
+        { tee: 0.5, approach: 0, shortGame: null, putting: 1, penalties: 2, total: 3.5, coverage: cover },
+        { tee: 0.5, approach: 0, shortGame: null, putting: 3, penalties: 0, total: 3.5, coverage: cover },
     ];
     const out = buildPriorities(waterfalls);
-    expect(out.map((p) => p.component)).toEqual(['putting', 'penalties', 'longGame', 'shortGame']);
-    expect(out[0]!.perRound).toBe(2); // mean of 1 and 3
+    expect(out.map((p) => p.component)).toEqual([
+        'putting',
+        'penalties',
+        'tee',
+        'approach',
+        'shortGame',
+    ]);
+    expect(out[0]!.per18).toBe(2); // mean of 1 and 3
     // The absent one is UNKNOWN, not best — it says so rather than ranking at 0.
-    expect(out[3]!.perRound).toBeNull();
-    expect(out[3]!.roundsCovered).toBe(0);
-    expect(out[3]!.roundsInWindow).toBe(2);
+    expect(out[4]!.per18).toBeNull();
+    expect(out[4]!.roundsCovered).toBe(0);
+    expect(out[4]!.roundsInWindow).toBe(2);
 });
 
 test('the mean is over the rounds that HAVE the component, not over the window', () => {
-    const base = { shortGame: null, penalties: 0, longGame: null, total: null, coverage: { holesScored: 0, puttsRecorded: 0 } };
+    const base = {
+        tee: null,
+        approach: null,
+        shortGame: null,
+        penalties: 0,
+        total: null,
+        coverage: { attributed: 18, holesScored: 18 },
+    };
     const out = buildPriorities([
         { ...base, putting: 2 },
         { ...base, putting: null },
     ]);
     // 2 over one covered round, not 1 over two. Dividing by rounds that never
     // recorded a putt would dilute the estimate and flatten the ranking.
-    expect(out[0]!.perRound).toBe(2);
+    expect(out[0]!.per18).toBe(2);
     expect(out[0]!.roundsCovered).toBe(1);
     expect(out[0]!.roundsInWindow).toBe(2);
 });
@@ -254,9 +270,9 @@ test('the mean is over the rounds that HAVE the component, not over the window',
 test('priorityMagnitude is the shared scale the signed bars are drawn against', () => {
     expect(
         priorityMagnitude([
-            { component: 'putting', perRound: 1.5, roundsCovered: 1, roundsInWindow: 1 },
-            { component: 'penalties', perRound: -2.5, roundsCovered: 1, roundsInWindow: 1 },
-            { component: 'longGame', perRound: null, roundsCovered: 0, roundsInWindow: 1 },
+            { component: 'putting', per18: 1.5, roundsCovered: 1, roundsInWindow: 1 },
+            { component: 'penalties', per18: -2.5, roundsCovered: 1, roundsInWindow: 1 },
+            { component: 'tee', per18: null, roundsCovered: 0, roundsInWindow: 1 },
         ]),
     ).toBe(2.5);
 });
@@ -312,11 +328,18 @@ test('a thin round cannot headline a trend — the percentage floor applies to p
 });
 
 test('putting trends on strokes lost, where lower is better', () => {
+    // A trend point is a CROSS-ROUND comparison, so it normalizes per 18
+    // attributed holes and inherits the floor: nine par-3 greens hit, two putts
+    // each, is the smallest round that clears it.
     const putting = measures({
         firstPuttInside1mResolved: 6,
         puttsTotalInside1mResolved: 7,
         puttsRecorded: 6,
-        holesScored: 6,
+        holesScored: 9,
+        attHolesPar3Gir: 9,
+        attStrokes: 27,
+        attPutts: 18,
+        attGirFirstPutt2To4m: 9,
     });
     const trends = buildTrends([
         row({ roundId: 'c', date: '2026-05-03', measures: putting }),
@@ -331,10 +354,18 @@ test('putting trends on strokes lost, where lower is better', () => {
 // --- Magnitudes --------------------------------------------------------------
 
 test('waterfallMagnitude ignores null terms and is zero when nothing is measurable', () => {
-    expect(waterfallMagnitude([strokesLost(ZERO_MEASURES)])).toBe(0);
+    expect(waterfallMagnitude([strokesLostV3(ZERO_MEASURES)])).toBe(0);
     expect(
         waterfallMagnitude([
-            { putting: -1.5, shortGame: null, penalties: 3, longGame: null, total: null, coverage: { holesScored: 0, puttsRecorded: 0 } },
+            {
+                tee: null,
+                approach: null,
+                shortGame: null,
+                putting: -1.5,
+                penalties: 3,
+                total: null,
+                coverage: { attributed: 0, holesScored: 0 },
+            },
         ]),
     ).toBe(3);
 });

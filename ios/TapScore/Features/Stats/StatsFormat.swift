@@ -230,13 +230,13 @@ enum StatsFormat {
         return rounded > 0 ? "+\(magnitude)" : "\u{2212}\(magnitude)"
     }
 
-    /// Strokes lost or gained, per round. Positive = lost.
+    /// Strokes lost or gained, per 18 attributed holes. Positive = lost.
     ///
     /// Worded rather than coloured alone: the sign is doing semantic work
     /// (`+1.8` costs you strokes) that is the opposite of the usual reading of
     /// a plus, so the label beside it always says which way is good.
-    static func strokesPerRound(_ value: Double) -> String {
-        "\(signedNumber(value))/round"
+    static func strokesPer18(_ value: Double) -> String {
+        "\(signedNumber(value)) per 18"
     }
 
     /// A score relative to par, in the app's usual scorecard voice.
@@ -273,21 +273,18 @@ enum StatsFormat {
 
     static func title(_ component: StrokesLostComponent) -> String {
         switch component {
-        case .putting: return "Putting"
+        case .tee: return "Tee"
+        case .approach: return "Approach"
         case .shortGame: return "Short game"
+        case .putting: return "Putting"
         case .penalties: return "Penalties"
-        // Named for what it actually contains. The waterfall's residual is
-        // everything the other three terms did not claim — tee shots AND
-        // approaches together — and there is no column that would split them.
-        // Calling it "Tee" would name a cause the arithmetic never isolated.
-        case .longGame: return "Long game"
         }
     }
 
     // A priority row carries NO explainer sentence (owner ruling, 2026-08-02):
     // the component name stands alone, and the section intro above the card is
     // the one place the waterfall is explained. The per-component sentences that
-    // used to live here are deleted, not commented out — the same four strings
+    // used to live here are deleted, not commented out — the same five strings
     // were removed from the web twin's `stats-format.ts`.
 
     static func title(_ bucket: PuttBucket) -> String {

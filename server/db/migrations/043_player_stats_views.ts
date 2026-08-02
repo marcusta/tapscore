@@ -210,11 +210,78 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
                    phs.short_game_difficulty AS short_game_difficulty,
                    phs.penalties AS penalties,
                    phs.recovery_ok AS recovery_ok,
+                   -- Always NULL until wave 4 writes it (migration 054). Read
+                   -- through COALESCE(…, 1) everywhere, so today's holes model
+                   -- exactly one short-game stroke and a counted hole needs no
+                   -- second migration.
+                   phs.short_game_strokes AS short_game_strokes,
                    hs.strokes AS strokes,
                    -- Rule 3. 0 = the putting answers contradict each other and
                    -- are treated as unrecorded.
                    CASE WHEN phs.putts = 0 AND phs.first_putt IS NOT NULL
-                        THEN 0 ELSE 1 END AS putting_coherent
+                        THEN 0 ELSE 1 END AS putting_coherent,
+                   -- Par 6 is legal (round_play_holes CHECK par BETWEEN 3 AND 6)
+                   -- and prices as a par 5; par <= 3 as a par 3. The same three
+                   -- groups the by-par measures already use.
+                   CASE WHEN rph.par <= 3 THEN 3
+                        WHEN rph.par = 4 THEN 4
+                        ELSE 5 END AS par_group,
+                   -- THE ATTRIBUTION COHORT (migration 054,
+                   -- docs/proposals/strokes-gained-lite.md §2.1). One boolean,
+                   -- computed once, that every att_* column below filters on
+                   -- — because the five strokes-gained-lite terms only sum to
+                   -- Σ(score − E_HOLE[par]) if they are computed over ONE set
+                   -- of holes. Each term over "whatever holes it happens to
+                   -- have" makes the leftover a difference of overlapping
+                   -- samples rather than a coverage measure.
+                   --
+                   -- A hole is attributable when every state its branch needs
+                   -- was recorded: a real score (a pickup is NULL here), a GIR
+                   -- answer, a coherent putt count, tee_result on par 4/5,
+                   -- and the branch's exact vocabulary. Postel: unknown or
+                   -- missing vocabulary drops the hole, it is never guessed.
+                   --
+                   -- The four accepted branches:
+                   --   GIR, non-holed  — a FINE first-putt bucket (the legacy
+                   --     coarse ones cannot price the five-state putting table)
+                   --     plus a putt count.
+                   --   GIR, holed      — a holed approach or an ace: putts = 0
+                   --     and no bucket. Coherent, and the branch's BEST outcome;
+                   --     excluding it would bias approach by dropping exactly
+                   --     its triumphs.
+                   --   MISS, non-holed — a difficulty, a putt count, and a
+                   --     bucket in EITHER vocabulary: the coarse buckets map
+                   --     cleanly onto inside/outside 2 m, which is all the chip
+                   --     outcome needs. Accepted deliberately, not by accident.
+                   --   MISS, holed     — a chip-in: difficulty, putts = 0, no
+                   --     bucket.
+                   --
+                   -- Penalties are deliberately NOT required: a missing penalty
+                   -- answer models as zero (proposal §3, the one documented
+                   -- exception to "skipped, never defaulted") because an
+                   -- untouched prompt emits no event and requiring explicit
+                   -- zeroes would destroy historical coverage.
+                   CASE WHEN
+                         hs.strokes IS NOT NULL
+                     AND phs.gir IS NOT NULL
+                     AND NOT (phs.putts = 0 AND phs.first_putt IS NOT NULL)
+                     AND (rph.par <= 3 OR phs.tee_result IS NOT NULL)
+                     AND (
+                           (phs.gir = 1 AND phs.putts IS NOT NULL
+                                        AND phs.first_putt IN ('inside_1m', '1_to_2m',
+                                                               '2_to_4m', '4_to_8m',
+                                                               'over_8m'))
+                        OR (phs.gir = 1 AND phs.putts = 0 AND phs.first_putt IS NULL)
+                        OR (phs.gir = 0 AND phs.short_game_difficulty IS NOT NULL
+                                        AND phs.putts IS NOT NULL
+                                        AND phs.first_putt IN ('inside_1m', '1_to_2m',
+                                                               '2_to_4m', '4_to_8m',
+                                                               'over_8m', 'inside_2m',
+                                                               '2_to_6m', 'over_6m'))
+                        OR (phs.gir = 0 AND phs.short_game_difficulty IS NOT NULL
+                                        AND phs.putts = 0 AND phs.first_putt IS NULL)
+                     )
+                   THEN 1 ELSE 0 END AS attributable
             FROM round_players sp
             JOIN round_play_holes rph ON rph.round_id = sp.round_id
             LEFT JOIN player_hole_stats phs
@@ -473,7 +540,136 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             COUNT(CASE WHEN tee_result = 'fairway' AND par >= 5 THEN 1 END) AS fairway_hits_par5,
             COUNT(CASE WHEN tee_result IN ('fairway', 'in_play') AND par >= 5
                        THEN 1 END) AS in_play_hits_par5,
-            COUNT(CASE WHEN tee_result = 'trouble' AND par >= 5 THEN 1 END) AS trouble_count_par5
+            COUNT(CASE WHEN tee_result = 'trouble' AND par >= 5 THEN 1 END) AS trouble_count_par5,
+
+            -- === STROKES-GAINED-LITE (migration 054) ===
+            --
+            -- 29 columns, every one of them restricted to attributable = 1.
+            -- They exist because the approach term needs sums over the COHORT,
+            -- and no combination of the independent columns above can
+            -- reconstruct one: the SG-prep tee columns are over all
+            -- tee-recorded holes (right for a rate, wrong for a cohort sum),
+            -- and a rate's denominator is deliberately maximal everywhere else
+            -- in this view. Rates and the summable decomposition want different
+            -- denominators; both ship.
+            --
+            -- Counts and sums only, so v_player_stat_totals stays a plain
+            -- SUM and a client-side window equals a server-side one. Every
+            -- term of the decomposition is then Σ count × constant plus the
+            -- three cohort sums — the arithmetic lives in the client twins
+            -- (src/round/stat-measures.ts / StatMeasuresMath.swift), never
+            -- here.
+
+            -- Cohort counts. These four PARTITION the cohort.
+            COUNT(CASE WHEN attributable = 1 AND par_group = 3 AND gir = 1
+                       THEN 1 END) AS att_holes_par3_gir,
+            COUNT(CASE WHEN attributable = 1 AND par_group = 3 AND gir = 0
+                       THEN 1 END) AS att_holes_par3_miss,
+            COUNT(CASE WHEN attributable = 1 AND par_group IN (4, 5) AND gir = 1
+                       THEN 1 END) AS att_holes_par45_gir,
+            COUNT(CASE WHEN attributable = 1 AND par_group IN (4, 5) AND gir = 0
+                       THEN 1 END) AS att_holes_par45_miss,
+
+            -- Cohort sums. strokes is the canonicalised value from
+            -- hole_scores and is never NULL when attributable = 1; nor is
+            -- putts, which every cohort branch requires. penalties is the
+            -- documented Postel exception (proposal §3): an unanswered hole
+            -- contributes zero and its hidden stroke lands in approach.
+            COALESCE(SUM(CASE WHEN attributable = 1 THEN strokes ELSE 0 END), 0)
+                AS att_strokes,
+            COALESCE(SUM(CASE WHEN attributable = 1 THEN putts ELSE 0 END), 0)
+                AS att_putts,
+            COALESCE(SUM(CASE WHEN attributable = 1 THEN COALESCE(penalties, 0) ELSE 0 END), 0)
+                AS att_penalties,
+
+            -- Tee cells, par 4/5 only. STRICT, unlike the cumulative
+            -- in_play_hits_par* above: these six PARTITION the par-4/5
+            -- cohort, which is what makes Σ E_AFTER_TEE computable. A
+            -- cumulative split would double-count the fairway.
+            COUNT(CASE WHEN attributable = 1 AND par_group = 4 AND tee_result = 'fairway'
+                       THEN 1 END) AS att_fairway_par4,
+            COUNT(CASE WHEN attributable = 1 AND par_group = 4 AND tee_result = 'in_play'
+                       THEN 1 END) AS att_in_play_par4,
+            COUNT(CASE WHEN attributable = 1 AND par_group = 4 AND tee_result = 'trouble'
+                       THEN 1 END) AS att_trouble_par4,
+            COUNT(CASE WHEN attributable = 1 AND par_group = 5 AND tee_result = 'fairway'
+                       THEN 1 END) AS att_fairway_par5,
+            COUNT(CASE WHEN attributable = 1 AND par_group = 5 AND tee_result = 'in_play'
+                       THEN 1 END) AS att_in_play_par5,
+            COUNT(CASE WHEN attributable = 1 AND par_group = 5 AND tee_result = 'trouble'
+                       THEN 1 END) AS att_trouble_par5,
+
+            -- GIR arrival states: where the approach left the ball. The five
+            -- buckets plus att_gir_holed PARTITION the GIR cohort — the
+            -- holed approach (and the ace) has no bucket because the ball is
+            -- in, and its arrival value is zero expected putts.
+            COUNT(CASE WHEN attributable = 1 AND gir = 1 AND first_putt = 'inside_1m'
+                       THEN 1 END) AS att_gir_first_putt_inside_1m,
+            COUNT(CASE WHEN attributable = 1 AND gir = 1 AND first_putt = '1_to_2m'
+                       THEN 1 END) AS att_gir_first_putt_1_to_2m,
+            COUNT(CASE WHEN attributable = 1 AND gir = 1 AND first_putt = '2_to_4m'
+                       THEN 1 END) AS att_gir_first_putt_2_to_4m,
+            COUNT(CASE WHEN attributable = 1 AND gir = 1 AND first_putt = '4_to_8m'
+                       THEN 1 END) AS att_gir_first_putt_4_to_8m,
+            COUNT(CASE WHEN attributable = 1 AND gir = 1 AND first_putt = 'over_8m'
+                       THEN 1 END) AS att_gir_first_putt_over_8m,
+            COUNT(CASE WHEN attributable = 1 AND gir = 1 AND putts = 0
+                        AND first_putt IS NULL
+                       THEN 1 END) AS att_gir_holed,
+
+            -- Missed-green counts, holed chips included.
+            COUNT(CASE WHEN attributable = 1 AND gir = 0
+                        AND short_game_difficulty = 'standard'
+                       THEN 1 END) AS att_miss_standard,
+            COUNT(CASE WHEN attributable = 1 AND gir = 0
+                        AND short_game_difficulty = 'hard'
+                       THEN 1 END) AS att_miss_hard,
+
+            -- Chip outcomes. These six PARTITION the two miss counts. Both
+            -- first-putt vocabularies map onto inside/outside 2 m: the coarse
+            -- 'inside_2m' is inside, '2_to_6m' and 'over_6m' are outside.
+            COUNT(CASE WHEN attributable = 1 AND gir = 0
+                        AND short_game_difficulty = 'standard'
+                        AND first_putt IN ('inside_1m', '1_to_2m', 'inside_2m')
+                       THEN 1 END) AS att_chip_inside2m_standard,
+            COUNT(CASE WHEN attributable = 1 AND gir = 0
+                        AND short_game_difficulty = 'standard'
+                        AND first_putt IN ('2_to_4m', '4_to_8m', 'over_8m',
+                                           '2_to_6m', 'over_6m')
+                       THEN 1 END) AS att_chip_outside2m_standard,
+            COUNT(CASE WHEN attributable = 1 AND gir = 0
+                        AND short_game_difficulty = 'standard'
+                        AND putts = 0 AND first_putt IS NULL
+                       THEN 1 END) AS att_chip_holed_standard,
+            COUNT(CASE WHEN attributable = 1 AND gir = 0
+                        AND short_game_difficulty = 'hard'
+                        AND first_putt IN ('inside_1m', '1_to_2m', 'inside_2m')
+                       THEN 1 END) AS att_chip_inside2m_hard,
+            COUNT(CASE WHEN attributable = 1 AND gir = 0
+                        AND short_game_difficulty = 'hard'
+                        AND first_putt IN ('2_to_4m', '4_to_8m', 'over_8m',
+                                           '2_to_6m', 'over_6m')
+                       THEN 1 END) AS att_chip_outside2m_hard,
+            COUNT(CASE WHEN attributable = 1 AND gir = 0
+                        AND short_game_difficulty = 'hard'
+                        AND putts = 0 AND first_putt IS NULL
+                       THEN 1 END) AS att_chip_holed_hard,
+
+            -- Effective short-game strokes, Σ COALESCE(C, 1) over the miss
+            -- cohort (proposal §3 assumption 2). Today nothing writes
+            -- short_game_strokes, so each equals its miss count; when wave 4
+            -- starts counting, approach subtracts the same effective C that
+            -- short game charges, which is the only way the telescope survives
+            -- a duffed chip. Shipping the COALESCE now makes wave 4 a capture
+            -- change and not a second view rebuild.
+            COALESCE(SUM(CASE WHEN attributable = 1 AND gir = 0
+                               AND short_game_difficulty = 'standard'
+                              THEN COALESCE(short_game_strokes, 1) ELSE 0 END), 0)
+                AS att_sg_strokes_effective_standard,
+            COALESCE(SUM(CASE WHEN attributable = 1 AND gir = 0
+                               AND short_game_difficulty = 'hard'
+                              THEN COALESCE(short_game_strokes, 1) ELSE 0 END), 0)
+                AS att_sg_strokes_effective_hard
         FROM sequenced
         GROUP BY player_id, round_id
     `.execute(db);
@@ -573,7 +769,36 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             SUM(tee_recorded_par5) AS tee_recorded_par5,
             SUM(fairway_hits_par5) AS fairway_hits_par5,
             SUM(in_play_hits_par5) AS in_play_hits_par5,
-            SUM(trouble_count_par5) AS trouble_count_par5
+            SUM(trouble_count_par5) AS trouble_count_par5,
+            SUM(att_holes_par3_gir) AS att_holes_par3_gir,
+            SUM(att_holes_par3_miss) AS att_holes_par3_miss,
+            SUM(att_holes_par45_gir) AS att_holes_par45_gir,
+            SUM(att_holes_par45_miss) AS att_holes_par45_miss,
+            SUM(att_strokes) AS att_strokes,
+            SUM(att_putts) AS att_putts,
+            SUM(att_penalties) AS att_penalties,
+            SUM(att_fairway_par4) AS att_fairway_par4,
+            SUM(att_in_play_par4) AS att_in_play_par4,
+            SUM(att_trouble_par4) AS att_trouble_par4,
+            SUM(att_fairway_par5) AS att_fairway_par5,
+            SUM(att_in_play_par5) AS att_in_play_par5,
+            SUM(att_trouble_par5) AS att_trouble_par5,
+            SUM(att_gir_first_putt_inside_1m) AS att_gir_first_putt_inside_1m,
+            SUM(att_gir_first_putt_1_to_2m) AS att_gir_first_putt_1_to_2m,
+            SUM(att_gir_first_putt_2_to_4m) AS att_gir_first_putt_2_to_4m,
+            SUM(att_gir_first_putt_4_to_8m) AS att_gir_first_putt_4_to_8m,
+            SUM(att_gir_first_putt_over_8m) AS att_gir_first_putt_over_8m,
+            SUM(att_gir_holed) AS att_gir_holed,
+            SUM(att_miss_standard) AS att_miss_standard,
+            SUM(att_miss_hard) AS att_miss_hard,
+            SUM(att_chip_inside2m_standard) AS att_chip_inside2m_standard,
+            SUM(att_chip_outside2m_standard) AS att_chip_outside2m_standard,
+            SUM(att_chip_holed_standard) AS att_chip_holed_standard,
+            SUM(att_chip_inside2m_hard) AS att_chip_inside2m_hard,
+            SUM(att_chip_outside2m_hard) AS att_chip_outside2m_hard,
+            SUM(att_chip_holed_hard) AS att_chip_holed_hard,
+            SUM(att_sg_strokes_effective_standard) AS att_sg_strokes_effective_standard,
+            SUM(att_sg_strokes_effective_hard) AS att_sg_strokes_effective_hard
         FROM v_player_round_stats
         GROUP BY player_id
     `.execute(db);

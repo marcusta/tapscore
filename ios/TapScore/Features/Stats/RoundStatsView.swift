@@ -339,7 +339,7 @@ struct RoundStatsLegend: View {
 
 // MARK: - Waterfall
 
-/// The round's four strokes-lost terms, and how each sat against the player's
+/// The round's five strokes-lost terms, and how each sat against the player's
 /// own recent rounds.
 ///
 /// Two baselines on one row, deliberately: the BAR is the fixed baseline (what
@@ -353,11 +353,21 @@ struct RoundWaterfallSection: View {
     var windowCount: Int
     var showsHint = true
 
+    /// The per-round "How this works" popover.
+    @State private var infoOpen = false
+
     var body: some View {
         let magnitude =
             StrokesLostComponent.allCases.compactMap { waterfall[$0].map(abs) }.max() ?? 0
         VStack(alignment: .leading, spacing: TapSpacing.sm) {
-            SectionHeader(title: "Where the round went")
+            HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
+                SectionHeader(title: "Where the round went")
+                // Words, never a glyph (`docs/design-guidelines.md` §4).
+                Button(StatsCopy.prioritiesInfo) { infoOpen = true }
+                    .buttonStyle(.tap(.ghost))
+                    .font(TapFont.ui(size: 12.8))
+                    .accessibilityIdentifier("round-stats-waterfall-info")
+            }
             TapCard {
                 VStack(alignment: .leading, spacing: TapSpacing.md) {
                     if showsHint {
@@ -375,6 +385,9 @@ struct RoundWaterfallSection: View {
             }
         }
         .accessibilityIdentifier("round-stats-waterfall")
+        .sheet(isPresented: $infoOpen) {
+            StrokesGainedInfoSheet(waterfall: waterfall, perRound: true)
+        }
     }
 
     @ViewBuilder
