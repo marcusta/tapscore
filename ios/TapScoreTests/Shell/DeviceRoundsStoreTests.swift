@@ -231,6 +231,32 @@ final class DeviceRoundsStoreTests: XCTestCase {
         XCTAssertEqual(store().all(), [])
     }
 
+    // MARK: - Per-server namespacing
+
+    func testTwoBackendsKeepSeparateLists() {
+        // The bug this pins: a round created against the dev server used to
+        // stay on the landing after the build was pointed back at prod, where
+        // its token 404s on open and on delete.
+        let dev = DeviceRoundsStore(configuration: .dev, defaults: defaults)
+        let prod = DeviceRoundsStore(configuration: .production, defaults: defaults)
+
+        dev.recordOpen(token: "local-only", courseName: "Linköpings GK")
+
+        XCTAssertEqual(dev.all().map(\.token), ["local-only"])
+        XCTAssertEqual(prod.all(), [], "A dev-server round is not a prod round.")
+    }
+
+    func testTheKeyNamesHostPortAndPath() {
+        // Prod is not at the domain root, so the path is part of the
+        // deployment's identity — two apps under one host must not share a list.
+        XCTAssertEqual(
+            DeviceRoundsStore.storageKey(for: .dev),
+            "tapscore.device-rounds.v1.localhost-3030-api")
+        XCTAssertEqual(
+            DeviceRoundsStore.storageKey(for: .production),
+            "tapscore.device-rounds.v1.app.swedenindoorgolf.se-tapscore-api")
+    }
+
     func testStatusSpellingMatchesTheWire() {
         // `not_started` is the server's spelling. A Swift-flavoured
         // "notStarted" in the JSON would make the stored blob and an API

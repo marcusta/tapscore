@@ -203,10 +203,10 @@ export class FriendlyRoundService {
     }
 
     /**
-     * Every friendly round, newest first, each paired with its resolved round
+     * Every friendly round, most recently active first, each paired with its resolved round
      * for a summary view. No auth — the landing page is the no-login front door.
-     * Ordered by insertion (`rowid`) rather than `created_at`, which is only
-     * second-resolution and would tie for rounds minted in the same second.
+     * `rowid` settles activity ties, including rounds created in the same clock
+     * tick, without making wrapper creation time the primary sort key.
      *
      * Competition rounds are EXCLUDED (Phase 4 Slice 2): they ride the same
      * friendly wrapper for their token front door (so the existing round
@@ -217,7 +217,8 @@ export class FriendlyRoundService {
     async list(): Promise<Array<{ friendlyRound: FriendlyRound; round: Round }>> {
         const rows = await this.db
             .selectFrom('friendly_rounds')
-            .selectAll()
+            .innerJoin('rounds', 'rounds.id', 'friendly_rounds.round_id')
+            .selectAll('friendly_rounds')
             .where(({ not, exists, selectFrom }) =>
                 not(
                     exists(
@@ -231,7 +232,8 @@ export class FriendlyRoundService {
                     ),
                 ),
             )
-            .orderBy(sql`rowid`, 'desc')
+            .orderBy('rounds.last_activity_at', 'desc')
+            .orderBy(sql`friendly_rounds.rowid`, 'desc')
             .execute();
         const out: Array<{ friendlyRound: FriendlyRound; round: Round }> = [];
         for (const row of rows) {
@@ -242,7 +244,7 @@ export class FriendlyRoundService {
     }
 
     /**
-     * Friendly rounds created by a specific player, newest first, each with
+     * Friendly rounds created by a specific player, most recently active first, each with
      * its resolved round (the "my rounds — created" dashboard half; the
      * "produced" half is the §17 ball_players query in DashboardService).
      */
@@ -251,9 +253,11 @@ export class FriendlyRoundService {
     ): Promise<Array<{ friendlyRound: FriendlyRound; round: Round }>> {
         const rows = await this.db
             .selectFrom('friendly_rounds')
-            .selectAll()
+            .innerJoin('rounds', 'rounds.id', 'friendly_rounds.round_id')
+            .selectAll('friendly_rounds')
             .where('creator_player_id', '=', playerId)
-            .orderBy(sql`rowid`, 'desc')
+            .orderBy('rounds.last_activity_at', 'desc')
+            .orderBy(sql`friendly_rounds.rowid`, 'desc')
             .execute();
         const out: Array<{ friendlyRound: FriendlyRound; round: Round }> = [];
         for (const row of rows) {

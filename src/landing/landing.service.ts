@@ -1,5 +1,6 @@
 import { Computed, Signal } from '@basics/core/client/core';
 import { request, type RequestError } from '@basics/core/client/request';
+import { ApiError } from '@basics/core/client/api-error';
 import { api } from '../api';
 import type { FriendlyRound, Round } from '../api/friendly-rounds.gen';
 import type { DashboardRoundEntry } from '../api/dashboard.gen';
@@ -104,12 +105,18 @@ export class LandingService {
      * the row disappears without a full reload. Also drops it from this
      * device's recent list. Resolves false when the server refused; the lists
      * stay untouched.
+     *
+     * A 404 is NOT a refusal — it is the same end state the delete was asking
+     * for: the server has no such round (deleted elsewhere, or the row is a
+     * leftover from a different backend this device once pointed at). Treating
+     * it as failure left those rows permanently undeletable, which is exactly
+     * the state a delete exists to escape.
      */
     async remove(token: string, roundId: string): Promise<boolean> {
         try {
             await api.friendlyRounds.remove({ token });
-        } catch {
-            return false;
+        } catch (error) {
+            if (!(error instanceof ApiError) || error.status !== 404) return false;
         }
         const mine = this.mine.get();
         if (mine) {

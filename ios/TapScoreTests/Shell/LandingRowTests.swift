@@ -15,7 +15,8 @@ final class LandingRowTests: XCTestCase {
         date: String,
         status: RoundStatus = .active,
         course: String? = "Linköpings GK",
-        completedAt: String? = nil
+        completedAt: String? = nil,
+        lastActivityAt: String? = nil
     ) -> Round {
         Round(
             id: id,
@@ -29,6 +30,7 @@ final class LandingRowTests: XCTestCase {
             visibility: .friends,
             courseNameSnapshot: course,
             completedAt: completedAt,
+            lastActivityAt: lastActivityAt.map { .value($0) } ?? .absent,
             formatSlots: [],
             playHoles: [],
             routeSi: RoundRouteSi(mode: .official, allocationCycleSize: 18),
@@ -106,6 +108,24 @@ final class LandingRowTests: XCTestCase {
         XCTAssertEqual(rows[0].courseName, "Linköpings GK")
     }
 
+    func testProducedRoundCarriesOnlyItsActualProgressIntoTheLandingRow() {
+        let r = round(id: "r1", date: "2026-07-20")
+        let mine = DashboardMyRoundsOutput(
+            produced: [DashboardRoundEntry(
+                round: r,
+                ballIds: [],
+                progress: DashboardRoundProgress(holesPlayed: 7),
+                slots: [],
+                shareToken: "t1"
+            )],
+            created: []
+        )
+
+        let row = LandingRow.merge(device: [], mine: mine)[0]
+        XCTAssertEqual(row.holesPlayed, 7)
+        XCTAssertEqual(row.progressText, "Thru 7")
+    }
+
     func testProducedOnlyAndCreatedOnlyGetTheirOwnRoles() {
         let played = round(id: "r1", date: "2026-07-20")
         let made = round(id: "r2", date: "2026-07-21")
@@ -116,7 +136,7 @@ final class LandingRowTests: XCTestCase {
 
         let rows = LandingRow.merge(device: [], mine: mine)
 
-        XCTAssertEqual(rows.map(\.id), ["r2", "r1"], "Newest round date first.")
+        XCTAssertEqual(rows.map(\.id), ["r2", "r1"], "Newest round activity first.")
         XCTAssertEqual(rows.map(\.roleLabel), ["Created", "Played"])
     }
 
@@ -127,6 +147,32 @@ final class LandingRowTests: XCTestCase {
         )
 
         XCTAssertNil(LandingRow.merge(device: [], mine: mine)[0].token)
+    }
+
+    func testARecentlyScoredRoundSortsAheadOfAMoreRecentlyScheduledRound() {
+        let mine = DashboardMyRoundsOutput(
+            produced: [
+                DashboardRoundEntry(
+                    round: round(
+                        id: "scheduled-later",
+                        date: "2026-08-15",
+                        lastActivityAt: "2026-08-01T08:00:00.000Z"
+                    ),
+                    ballIds: [], slots: [], shareToken: "t1"
+                ),
+                DashboardRoundEntry(
+                    round: round(
+                        id: "scored-now",
+                        date: "2026-07-01",
+                        lastActivityAt: "2026-08-02T10:00:00.000Z"
+                    ),
+                    ballIds: [], slots: [], shareToken: "t2"
+                ),
+            ],
+            created: []
+        )
+
+        XCTAssertEqual(LandingRow.merge(device: [], mine: mine).map(\.id), ["scored-now", "scheduled-later"])
     }
 
     func testADeviceRoundTheServerDoesNotKnowAboutIsKept() {
@@ -226,6 +272,46 @@ final class LandingRowTests: XCTestCase {
         XCTAssertEqual(row.status, .complete)
         XCTAssertEqual(row.completedAt, "2026-07-27T09:55:00Z")
         XCTAssertEqual(row.roleLabel, "Played", "…without losing what only the server knows.")
+    }
+
+    func testReReadingTheDeviceListDoesNotReplaceServerActivityOrdering() {
+        let mine = DashboardMyRoundsOutput(
+            produced: [
+                DashboardRoundEntry(
+                    round: round(
+                        id: "server-newer",
+                        date: "2026-07-01",
+                        lastActivityAt: "2026-07-28T10:00:00Z"
+                    ),
+                    ballIds: [], slots: [], shareToken: "t1"
+                ),
+                DashboardRoundEntry(
+                    round: round(
+                        id: "server-older",
+                        date: "2026-08-15",
+                        lastActivityAt: "2026-07-27T10:00:00Z"
+                    ),
+                    ballIds: [], slots: [], shareToken: "t2"
+                ),
+            ],
+            created: []
+        )
+        let rows = LandingRow.merge(device: [], mine: mine)
+
+        // Merely revisiting local entries must not overrule server activity
+        // with the order in which this phone happened to open the rounds.
+        let refreshed = LandingRow.applyingDevice(
+            [
+                device("t1", seenAt: "2026-07-20T10:00:00Z"),
+                device("t2", seenAt: "2026-07-29T10:00:00Z"),
+            ],
+            to: rows
+        )
+
+        XCTAssertEqual(
+            LandingRow.partition(refreshed, now: now).ongoing.map(\.id),
+            ["server-newer", "server-older"]
+        )
     }
 
     func testReReadingTheDeviceListAddsRoundsOpenedSinceTheFetch() {

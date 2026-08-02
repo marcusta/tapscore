@@ -92,6 +92,10 @@ export interface RoundsTable {
     /** Wall-clock time the round was FINISHED (status→complete); null until then.
      *  Set/cleared together with `status` by RoundService.finish/reopenByToken. */
     completed_at: string | null;
+    /** Canonical recency for personal round lists. Updated by migration 051's
+     *  DB triggers whenever the round is created, edited, or receives scoring
+     *  activity. Null only until an old database has been migrated. */
+    last_activity_at: string | null;
     created_at: Generated<string>;
 }
 

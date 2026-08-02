@@ -33,6 +33,7 @@ import {
 import type { RoundEventsHub } from './round-events-hub';
 import { hasFormatPlugin, findFormatPlugin } from '../domain/formats/plugin';
 import type { DerivationStep, HandicapDerivation } from '../domain/handicap-derivation';
+import { toIsoUtc } from '../domain/time';
 
 // --- Output types ---
 
@@ -180,6 +181,9 @@ export interface Round {
     /** ISO time the round was FINISHED; null until it is (drives the landing's
      *  "Recently finished" 14-day window). Set with `status='complete'`. */
     completedAt: string | null;
+    /** Canonical most-recent activity timestamp for personal round lists.
+     *  Optional while clients roll across servers that pre-date migration 051. */
+    lastActivityAt?: string | null;
     formatSlots: FormatSlot[];
     playHoles: RoundPlayHole[];
     routeSi: RoundRouteSi;
@@ -365,6 +369,8 @@ function toRound(row: RoundRow, parts: RoundParts): Round {
         visibility: row.visibility,
         courseNameSnapshot: row.course_name_snapshot,
         completedAt: row.completed_at,
+        lastActivityAt:
+            row.last_activity_at === null ? null : toIsoUtc(row.last_activity_at),
         formatSlots: parts.formatSlots,
         playHoles: parts.playHoles,
         routeSi: parts.routeSi,

@@ -234,7 +234,7 @@ final class RoundManageActionsTests: XCTestCase {
     func testDeleteFailureKeepsEverythingLocal() async {
         routeHappyPath()
         RoundStubURLProtocol.route(
-            "/friendly-rounds/\(RoundFixtures.token)", status: 404, "{\"error\":\"gone\"}")
+            "/friendly-rounds/\(RoundFixtures.token)", status: 500, "{\"error\":\"boom\"}")
         let store = makeStore()
         await store.load()
 
@@ -244,6 +244,25 @@ final class RoundManageActionsTests: XCTestCase {
         XCTAssertFalse(store.deleted)
         XCTAssertEqual(store.manageError, "Could not delete the round. Try again.")
         XCTAssertNotNil(deviceRounds.round(for: RoundFixtures.token))
+    }
+
+    func testDeleteOfAnAlreadyGoneRoundFinishesTheLocalHalf() async {
+        // A 404 is the state the delete asked for, not a refusal. Treating it
+        // as one is how a round the server no longer has became permanently
+        // undeletable: it 404'd on open AND on delete, so the row could only be
+        // read as "purely local".
+        routeHappyPath()
+        RoundStubURLProtocol.route(
+            "/friendly-rounds/\(RoundFixtures.token)", status: 404, "{\"error\":\"gone\"}")
+        let store = makeStore()
+        await store.load()
+
+        let deleted = await store.deleteRound()
+
+        XCTAssertTrue(deleted)
+        XCTAssertTrue(store.deleted)
+        XCTAssertNil(store.manageError)
+        XCTAssertNil(deviceRounds.round(for: RoundFixtures.token))
     }
 
     // MARK: - Leave

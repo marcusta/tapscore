@@ -204,12 +204,15 @@ final class AppEnvironment {
         configuration: APIConfiguration = .resolved(),
         keychain: Keychain = Keychain(),
         session: URLSession = .shared,
-        deviceRounds: DeviceRoundsStore = DeviceRoundsStore()
+        deviceRounds: DeviceRoundsStore? = nil
     ) {
         self.configuration = configuration
         self.keychain = keychain
         self.scenePhase = ScenePhaseCoordinator()
-        self.deviceRounds = deviceRounds
+        // Defaulted from the RESOLVED configuration, not from a bare
+        // `DeviceRoundsStore()`: the list is keyed per backend, and a store
+        // built without one would hand the prod build the dev server's rounds.
+        self.deviceRounds = deviceRounds ?? DeviceRoundsStore(configuration: configuration)
 
         // The API actor reads the token through a closure rather than holding a
         // copy, so a logout or a token refresh takes effect on the next request

@@ -7,8 +7,8 @@ import type { FriendlyRound, Round } from '../../src/api/friendly-rounds.gen';
 // produced entries are server-joined against `friendly_rounds` — so this is
 // a straight merge/dedupe with no client-side token join.
 
-function round(id: string, date: string): Round {
-    return { id, date } as unknown as Round;
+function round(id: string, date: string, lastActivityAt: string | null = null): Round {
+    return { id, date, lastActivityAt } as unknown as Round;
 }
 
 function friendly(roundId: string, token: string): FriendlyRound {
@@ -27,6 +27,15 @@ function listItem(id: string, date: string, token: string) {
 
 function produced(id: string, date: string, shareToken: string | null) {
     return { round: round(id, date), shareToken };
+}
+
+function producedWithActivity(
+    id: string,
+    date: string,
+    lastActivityAt: string,
+    shareToken: string | null,
+) {
+    return { round: round(id, date, lastActivityAt), shareToken };
 }
 
 test('created-only and produced-only rounds both surface, newest first', () => {
@@ -63,6 +72,18 @@ test('same-date rounds order stably by id', () => {
         [],
     );
     expect(out.map((e) => e.round.id)).toEqual(['a', 'b']);
+});
+
+test('a recently active round sorts ahead of a more recently scheduled round', () => {
+    const out = buildMyRounds(
+        [
+            producedWithActivity('scheduled-later', '2026-08-15', '2026-08-01T08:00:00.000Z', null),
+            producedWithActivity('scored-now', '2026-07-01', '2026-08-02T10:00:00.000Z', null),
+        ],
+        [],
+    );
+
+    expect(out.map((e) => e.round.id)).toEqual(['scored-now', 'scheduled-later']);
 });
 
 test('duplicate produced entries (one ball per row upstream) collapse to one', () => {

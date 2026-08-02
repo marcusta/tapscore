@@ -867,10 +867,13 @@ final class RoundStore {
                 pathValues: ["token": token]
             )
         } catch {
-            // A 404 lands here too, and reads the same: the local state is not
-            // touched on any failure, so a retry costs one tap.
-            manageError = "Could not delete the round. Try again."
-            return false
+            // A 404 means the round is already gone server-side, which is what
+            // this asked for: finish the local half and navigate home. Same
+            // ruling as the landing list's delete.
+            guard let api = error as? APIError, case .server(404, _) = api else {
+                manageError = "Could not delete the round. Try again."
+                return false
+            }
         }
         deviceRounds?.remove(token: token)
         cursors.forget(token: token)

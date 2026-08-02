@@ -84,7 +84,7 @@ struct RoundListView: View {
     /// it.
     @State private var dashboardOpen = false
 
-    /// The row whose swipe-revealed Remove action was invoked, parked while
+    /// The row whose swipe-revealed Delete action was invoked, parked while
     /// the confirmation is up.
     ///
     /// The web ALWAYS confirms before a row leaves the landing (`askDelete` in
@@ -171,6 +171,7 @@ struct RoundListView: View {
         // fetch. `LandingLoader` dedupes anything that is not a transition.
         .task(id: LandingLoader.key(environment.authState)) { await load() }
         .roundRemovalDialog(pending: $pendingRemoval) { token in remove(token: token) }
+        .roundDeleteFailureAlert(loader)
         .sheet(
             isPresented: $dashboardOpen,
             onDismiss: {
@@ -315,7 +316,8 @@ struct RoundListView: View {
                             row: row,
                             onOpen: { open(row) },
                             onRemove: { pendingRemoval = row },
-                            grouped: true
+                            grouped: true,
+                            showProgress: true
                         )
                     }
                     if sectionRows.count > HomeIdentity.ongoingPreviewLimit {
@@ -346,9 +348,9 @@ struct RoundListView: View {
     /// Home is about the round you are playing; the ones you have played are a
     /// glance and a door. So the rows are compact (no role label or lifecycle
     /// chip), they are capped at three, and the card ends in the footer that
-    /// opens the rest. Device-local rows still use the shared swipe-to-remove
-    /// action — the destructive control is hidden until the swipe, not removed
-    /// from this list. The count in the header still names how many are in the
+    /// opens the rest. Rows still use the shared swipe-to-delete action — the
+    /// destructive control is hidden until the swipe, not removed from this
+    /// list. The count in the header still names how many are in the
     /// window, so "3 of 7" is legible without a sentence saying so.
     @ViewBuilder
     private func finishedCard(_ rows: [LandingRow]) -> some View {
@@ -536,11 +538,13 @@ struct RoundListView: View {
     }
 
     private func remove(token: String) {
-        // Local only: the round is untouched server-side, and its link brings
-        // it back. Deleting somebody's round from a tap is not a thing this
-        // screen does — so a row the server also reported stays, minus its
-        // device-local flag, and only a device-only row disappears.
-        loader.applyDevice(deviceRounds.remove(token: token))
+        Task {
+            await loader.delete(
+                token: token,
+                api: environment.api,
+                deviceRounds: deviceRounds
+            )
+        }
     }
 }
 
@@ -568,6 +572,10 @@ struct RoundListView: View {
 final class LandingLoader {
     private(set) var rows: [LandingRow] = []
     private(set) var loadFailure: String?
+
+    /// Set when a confirmed delete did not reach the server. Both round lists
+    /// share the loader, so they share this one message.
+    var deleteFailure: String?
 
     /// How many rounds the DASHBOARD returned, or nil when it was never asked
     /// (signed out) or could not answer. Only a real zero from the server can
@@ -637,6 +645,53 @@ final class LandingLoader {
     func applyDevice(_ device: [DeviceRound]) {
         rows = LandingRow.applyingDevice(device, to: rows)
     }
+
+    /// Deletes a round for everyone, the same act the web landing performs
+    /// (`svc.remove` behind `askDelete`) and the same one the round's own
+    /// manage sheet performs (`RoundStore.deleteRound`).
+    ///
+    /// This used to drop the device entry only. For a signed-out viewer that
+    /// looked like a delete; for a signed-in one the row came straight back
+    /// out of `merge` — server-sourced rows survive `applyingDevice` — so
+    /// confirming appeared to do nothing at all. One meaning of "delete", on
+    /// both clients: the round is gone from the server.
+    ///
+    /// Token trust, exactly as on the round screen: the share token IS the
+    /// write credential, so there is no owner gate here either. Local state is
+    /// touched only after the server has agreed; a failure leaves the row where
+    /// it is and says so.
+    func delete(
+        token: String,
+        api: TapScoreAPI,
+        deviceRounds: DeviceRoundsStore,
+        cursors: ResultCursorStore = ResultCursorStore()
+    ) async {
+        do {
+            _ = try await api.send(
+                FriendlyRoundsEndpoints.remove,
+                FriendlyRoundsByTokenInput(token: token),
+                pathValues: ["token": token]
+            )
+        } catch {
+            // A 404 is not a failure — the server has no such round, which is
+            // the state this delete was asking for. It is also the ONLY way out
+            // for a row left behind by a different backend this device once
+            // pointed at (`-apiBaseURL`): the round list is device-local and
+            // not namespaced by server, so those rows 404 on open and used to
+            // 404 on delete too, which made them permanent.
+            guard let api = error as? APIError, case .server(404, _) = api else {
+                deleteFailure = "Could not delete the round. Try again."
+                return
+            }
+        }
+        deviceRounds.remove(token: token)
+        cursors.forget(token: token)
+        rows.removeAll { $0.token == token }
+        if serverRoundCount != nil { serverRoundCount = max(0, serverRoundCount! - 1) }
+    }
+
+    /// Dismisses the delete failure notice.
+    func clearDeleteFailure() { deleteFailure = nil }
 }
 
 // MARK: - Row
@@ -645,8 +700,8 @@ final class LandingLoader {
 /// row supplies only its content so the section's outer card can own the
 /// surface and separators. `compact` is the Recently finished landing row:
 /// it keeps the smaller metadata-only layout while sharing the same swipe
-/// behaviour. Device-local rows reveal their Remove action with a horizontal
-/// swipe instead of reserving a permanent trash column.
+/// behaviour. A row with a share token reveals its Delete action with a
+/// horizontal swipe instead of reserving a permanent trash column.
 /// Internal rather than fileprivate: `AllRoundsView` is the same list without
 /// the window, and a second copy of this row is how the two screens would start
 /// disagreeing about what a round looks like.
@@ -656,12 +711,25 @@ struct RoundRow: View {
     let onRemove: () -> Void
     var grouped = false
     var compact = false
+    /// Ongoing owns this fact. Other lists are retrospective or a new-round
+    /// alert, where repeating a partial score adds noise rather than guidance.
+    var showProgress = false
 
-    private var isRemovable: Bool { row.deviceLocal && row.token != nil }
+    /// A row can be deleted when it carries a share token — the round's write
+    /// credential, and the whole authorization for the delete. Gating on
+    /// `deviceLocal` instead (as this did while the action was a device-list
+    /// removal) would hide the action on exactly the rounds a signed-in viewer
+    /// owns but has not opened on this phone. The web gates on the token too.
+    private var isRemovable: Bool { row.token != nil }
     private let revealWidth: CGFloat = 88
     @State private var revealOffset: CGFloat = 0
     @State private var dragOrigin: CGFloat = 0
     @State private var horizontalDrag = false
+    /// `Button` and the drag gesture deliberately coexist so a normal tap
+    /// still opens the round. A horizontal drag must consume the release,
+    /// otherwise Button can race the gesture's `onEnded` and close the action
+    /// rail that the swipe just revealed.
+    @State private var suppressTapAfterSwipe = false
 
     @ViewBuilder
     var body: some View {
@@ -674,8 +742,8 @@ struct RoundRow: View {
                     // particular row actually moves left.
                     .offset(x: revealOffset)
                     .simultaneousGesture(swipeGesture)
-                    .accessibilityAction(named: "Remove") { onRemove() }
-                    .accessibilityHint("Swipe left to reveal the remove action")
+                    .accessibilityAction(named: "Delete") { onRemove() }
+                    .accessibilityHint("Swipe left to reveal the delete action")
             }
             .frame(maxWidth: .infinity)
         } else {
@@ -738,15 +806,21 @@ struct RoundRow: View {
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if row.displayDate != nil || row.formatsText != nil {
+                let progress = showProgress ? row.progressText : nil
+                if row.displayDate != nil || progress != nil || row.formatsText != nil {
                     // Web `.round-row__bottom` — date and formats
-                    // share the quiet metadata line.
+                    // and, once scoring begins, actual progress share the
+                    // quiet metadata line. There is deliberately no lifecycle
+                    // chip: Ongoing already supplies that context.
                     HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
                         if let date = row.displayDate {
                             Text(date)
                         }
+                        if let progress {
+                            Text("· \(progress)")
+                        }
                         if let formats = row.formatsText {
-                            Text(formats)
+                            Text("· \(formats)")
                                 .lineLimit(1)
                         }
                     }
@@ -755,12 +829,6 @@ struct RoundRow: View {
                 }
             }
             Spacer(minLength: TapSpacing.sm)
-            VStack(alignment: .trailing, spacing: TapSpacing.xs) {
-                if let role = row.roleLabel {
-                    RoleLabel(text: role)
-                }
-                StatusChip(status: RoundStatusTone(row.status))
-            }
         }
         .padding(.vertical, TapSpacing.md)
         .padding(.leading, TapSpacing.lg)
@@ -810,7 +878,7 @@ struct RoundRow: View {
             withAnimation(.easeOut(duration: 0.18)) { revealOffset = 0 }
             onRemove()
         } label: {
-            Label("Remove", systemImage: "trash")
+            Label("Delete", systemImage: "trash")
                 .font(TapFont.ui(size: 13.6, weight: .semibold))
                 .foregroundStyle(TapColors.onDanger)
                 .frame(width: revealWidth)
@@ -819,7 +887,7 @@ struct RoundRow: View {
         }
         .buttonStyle(.plain)
         .background(TapColors.danger)
-        .accessibilityLabel("Remove \(row.courseName.isEmpty ? "round" : row.courseName)")
+        .accessibilityLabel("Delete \(row.courseName.isEmpty ? "round" : row.courseName)")
     }
 
     private var swipeGesture: some Gesture {
@@ -830,6 +898,7 @@ struct RoundRow: View {
                     dragOrigin = revealOffset
                     horizontalDrag = true
                 }
+                suppressTapAfterSwipe = true
                 revealOffset = min(
                     0,
                     max(-revealWidth, dragOrigin + value.translation.width)
@@ -837,16 +906,23 @@ struct RoundRow: View {
             }
             .onEnded { value in
                 guard horizontalDrag else { return }
-                horizontalDrag = false
                 let reveal = value.translation.width < -(revealWidth / 3)
                     || value.predictedEndTranslation.width < -revealWidth
                 withAnimation(.easeOut(duration: 0.18)) {
                     revealOffset = reveal ? -revealWidth : 0
                 }
+                // SwiftUI may deliver the Button action after the drag ends.
+                // Keep the release suppressed for this event turn, then reset
+                // before the next real tap.
+                DispatchQueue.main.async {
+                    horizontalDrag = false
+                    suppressTapAfterSwipe = false
+                }
             }
     }
 
     private func openRow() {
+        guard !suppressTapAfterSwipe else { return }
         if revealOffset != 0 {
             withAnimation(.easeOut(duration: 0.18)) { revealOffset = 0 }
             return
@@ -855,49 +931,74 @@ struct RoundRow: View {
     }
 }
 
-/// The remove confirmation, in one place for both round lists.
+/// The delete confirmation, in one place for both round lists.
 ///
 /// The web ALWAYS confirms before a row leaves the landing (`askDelete` in
 /// `src/landing/landing.component.ts`) and does it with one shared dialog. Home
 /// and `AllRoundsView` are the same list at two lengths, so they say the same
-/// sentence — a second copy of this copy is how one of them ends up claiming
-/// the round is deleted.
+/// sentence — a second copy of this copy is how one of them ends up describing
+/// a different act than the one that runs.
+///
+/// The copy names the real consequence, and it is the web's: this deletes the
+/// round and its scores for everyone, permanently. It used to promise a
+/// device-local removal it also did not deliver.
 private struct RoundRemovalDialog: ViewModifier {
     @Binding var pending: LandingRow?
     let onRemove: (String) -> Void
 
     func body(content: Content) -> some View {
-        content.confirmationDialog(
-            "Remove this round from this device?",
+        // An ALERT, not a `confirmationDialog`. On iOS 26 the confirmation
+        // dialog renders as a small floating bubble that neither points at the
+        // row being deleted nor reads as a modal stop — a permanent,
+        // everyone-loses-it delete asked for a shrug. The alert is centred,
+        // dims the list behind it, and puts Cancel next to the destructive
+        // verb. The web uses its own centred confirm for the same reason.
+        content.alert(
+            "Delete round?",
             isPresented: Binding(
                 get: { pending != nil },
                 set: { if !$0 { pending = nil } }
             ),
-            titleVisibility: .visible,
             presenting: pending
         ) { row in
-            Button("Remove", role: .destructive) {
+            Button("Delete", role: .destructive) {
                 if let token = row.token { onRemove(token) }
                 pending = nil
             }
             Button("Cancel", role: .cancel) { pending = nil }
         } message: { row in
-            // Says the one thing that makes this safe to confirm — and it is
-            // why the copy is "Remove", not the web's "Delete": nothing leaves
-            // the server.
-            Text("\(row.courseName.isEmpty ? "This round" : row.courseName) stays on the server. Its share link brings it back.")
+            Text("Delete \(row.courseName.isEmpty ? "this round" : "“\(row.courseName)”")? This permanently removes it and all its scores for everyone. This can't be undone.")
         }
     }
 }
 
 extension View {
-    /// Attaches the shared "remove from this device" confirmation, driven by a
-    /// row's swipe-revealed Remove action.
+    /// Attaches the shared delete confirmation, driven by a
+    /// row's swipe-revealed Delete action.
     func roundRemovalDialog(
         pending: Binding<LandingRow?>,
         onRemove: @escaping (String) -> Void
     ) -> some View {
         modifier(RoundRemovalDialog(pending: pending, onRemove: onRemove))
+    }
+
+    /// Says so when a confirmed delete did not reach the server. Silence after
+    /// a destructive confirmation reads as success, and here it would be a
+    /// round that is still very much alive.
+    @MainActor
+    func roundDeleteFailureAlert(_ loader: LandingLoader) -> some View {
+        alert(
+            "Couldn't delete the round",
+            isPresented: Binding(
+                get: { loader.deleteFailure != nil },
+                set: { if !$0 { loader.clearDeleteFailure() } }
+            ),
+            presenting: loader.deleteFailure
+        ) { _ in
+            Button("OK", role: .cancel) { loader.clearDeleteFailure() }
+        } message: { message in
+            Text(message)
+        }
     }
 }
 
@@ -1019,6 +1120,9 @@ struct LandingRow: Identifiable, Equatable, Sendable {
     let completedAt: String?
     /// Ongoing-sort key — most-recently-active first.
     let lastActivityAt: String?
+    /// Furthest-scored ball for this viewer. Nil when the row is merely one
+    /// they created or opened on this device, so the row never invents progress.
+    var holesPlayed: Int? = nil
     /// "Played · Created" (signed-in rows only).
     let roleLabel: String?
     let date: String?
@@ -1047,8 +1151,9 @@ struct LandingRow: Identifiable, Equatable, Sendable {
                 status: entry.status,
                 completedAt: entry.completedAt,
                 // Device rows carry a real last-seen timestamp — the natural
-                // sort key, and better than the round date the server rows use.
+                // sort key when no server-owned activity timestamp exists.
                 lastActivityAt: entry.lastSeenAt,
+                holesPlayed: nil,
                 roleLabel: nil,
                 date: entry.date,
                 deviceLocal: true
@@ -1067,16 +1172,29 @@ struct LandingRow: Identifiable, Equatable, Sendable {
         mine: DashboardMyRoundsOutput,
         formatDescriptors: [FormatDescriptor] = []
     ) -> [LandingRow] {
-        var byRoundId: [String: (round: Round, token: String?, played: Bool, created: Bool)] = [:]
+        var byRoundId: [String: (
+            round: Round,
+            token: String?,
+            played: Bool,
+            created: Bool,
+            holesPlayed: Int?
+        )] = [:]
         for item in mine.created {
-            byRoundId[item.round.id] = (item.round, item.friendlyRound.shareToken, false, true)
+            byRoundId[item.round.id] = (item.round, item.friendlyRound.shareToken, false, true, nil)
         }
         for item in mine.produced {
             if var existing = byRoundId[item.round.id] {
                 existing.played = true
+                existing.holesPlayed = item.progress.map { Int($0.holesPlayed) }
                 byRoundId[item.round.id] = existing
             } else {
-                byRoundId[item.round.id] = (item.round, item.shareToken, true, false)
+                byRoundId[item.round.id] = (
+                    item.round,
+                    item.shareToken,
+                    true,
+                    false,
+                    item.progress.map { Int($0.holesPlayed) }
+                )
             }
         }
 
@@ -1090,9 +1208,11 @@ struct LandingRow: Identifiable, Equatable, Sendable {
                     name: entry.round.name,
                     status: DeviceRoundStatus(rawValue: entry.round.status.rawValue) ?? .notStarted,
                     completedAt: entry.round.completedAt,
-                    // No per-round activity timestamp on the payload; the round
-                    // DATE is the best recency proxy, same as the web client.
-                    lastActivityAt: entry.round.date,
+                    // The server owns this timestamp, so web and iOS rank a
+                    // newly created, edited, or scored round identically.
+                    // Keep the date fallback for a rolling server upgrade.
+                    lastActivityAt: entry.round.lastActivityAt.value ?? entry.round.date,
+                    holesPlayed: entry.holesPlayed,
                     roleLabel: roleLabel(played: entry.played, created: entry.created),
                     date: entry.round.date,
                     deviceLocal: entry.token.map(deviceTokens.contains) ?? false,
@@ -1103,9 +1223,11 @@ struct LandingRow: Identifiable, Equatable, Sendable {
                     )
                 )
             }
-            // Newest first, tie-broken by id so the order is stable across
-            // refreshes (dictionary iteration order is not).
+            // Most-recently active first, tie-broken by date then id so the
+            // order is stable across refreshes (dictionary iteration is not).
             .sorted { lhs, rhs in
+                let byActivity = compareDescending(lhs.lastActivityAt, rhs.lastActivityAt)
+                if byActivity != 0 { return byActivity < 0 }
                 let byDate = compareDescending(lhs.date, rhs.date)
                 return byDate == 0 ? lhs.id < rhs.id : byDate < 0
             }
@@ -1123,10 +1245,11 @@ struct LandingRow: Identifiable, Equatable, Sendable {
     /// server reported that this device never opened) disappear on every pop.
     ///
     /// So: server rows survive, keeping their identity and role label; the
-    /// matching device entry — the most recent local sighting, which is exactly
-    /// why we are re-reading — supplies the lifecycle and the sort key; device
-    /// entries no row covers are appended; and a device-only row whose entry is
-    /// gone (a Remove) goes with it.
+    /// matching device entry supplies the local lifecycle, but the server's
+    /// activity timestamp remains the sort key. Otherwise merely opening a
+    /// round on this phone can reshuffle server rows that have not changed.
+    /// Device entries no row covers are appended; and a device-only row whose
+    /// entry is gone (a Remove) goes with it.
     static func applyingDevice(_ device: [DeviceRound], to rows: [LandingRow]) -> [LandingRow] {
         var byToken: [String: DeviceRound] = [:]
         for entry in device where byToken[entry.token] == nil { byToken[entry.token] = entry }
@@ -1158,7 +1281,11 @@ struct LandingRow: Identifiable, Equatable, Sendable {
             name: name ?? entry.name,
             status: entry.status,
             completedAt: entry.completedAt,
-            lastActivityAt: entry.lastSeenAt,
+            // A device sighting is activity only for a device-only round. For
+            // a dashboard row the server already supplied the canonical time;
+            // retaining it makes repeated refreshes order-identical.
+            lastActivityAt: serverSourced ? lastActivityAt : entry.lastSeenAt,
+            holesPlayed: holesPlayed,
             roleLabel: roleLabel,
             date: date ?? entry.date,
             deviceLocal: true,
@@ -1170,6 +1297,14 @@ struct LandingRow: Identifiable, Equatable, Sendable {
     static func roleLabel(played: Bool, created: Bool) -> String? {
         let parts = (played ? ["Played"] : []) + (created ? ["Created"] : [])
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The only lifecycle fact worth repeating inside an Ongoing row. A zero
+    /// is intentionally silent: "Thru 0" is less useful than the section's
+    /// invitation to play, and a creator-only row has no player progress.
+    var progressText: String? {
+        guard let holesPlayed, holesPlayed > 0 else { return nil }
+        return "Thru \(holesPlayed)"
     }
 
     // MARK: Partition
@@ -1212,10 +1347,22 @@ struct LandingRow: Identifiable, Equatable, Sendable {
             }
             if at >= cutoff { result.finished.append(row) }
         }
-        // Stable sorts: equal keys keep the caller's order (server rows already
-        // arrive newest-first, device rows most-recently-seen first).
-        result.ongoing = stableSorted(result.ongoing) { compareDescending($0.lastActivityAt, $1.lastActivityAt) }
-        result.finished = stableSorted(result.finished) { compareDescending($0.completedAt, $1.completedAt) }
+        // A timestamp tie is common when several operations land in the same
+        // server tick. Use the stable row id as a final tie-break, so no input
+        // source (dictionary, device store, or fetch order) can reshuffle an
+        // unchanged list on the next refresh.
+        result.ongoing = stableSorted(result.ongoing) {
+            let byActivity = compareDescending($0.lastActivityAt, $1.lastActivityAt)
+            guard byActivity == 0 else { return byActivity }
+            guard $0.id != $1.id else { return 0 }
+            return $0.id < $1.id ? -1 : 1
+        }
+        result.finished = stableSorted(result.finished) {
+            let byCompletion = compareDescending($0.completedAt, $1.completedAt)
+            guard byCompletion == 0 else { return byCompletion }
+            guard $0.id != $1.id else { return 0 }
+            return $0.id < $1.id ? -1 : 1
+        }
         return result
     }
 

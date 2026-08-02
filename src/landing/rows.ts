@@ -27,6 +27,8 @@ export interface LandingRow {
     completedAt: string | null;
     /** Ongoing-sort key — most-recently-active first. */
     lastActivityAt: string | null;
+    /** Furthest-scored ball for this viewer; null when the row is not theirs. */
+    holesPlayed?: number | null;
     /** "Played · Created" tag (logged-in only); null for device rows. */
     roleLabel: string | null;
     /** Round date (logged-in only); null for device rows (not stored). */
@@ -44,9 +46,11 @@ function fromMyRounds(entries: readonly MyRoundEntry[]): LandingRow[] {
         courseName: e.round.courseNameSnapshot ?? '',
         status: e.round.status,
         completedAt: e.round.completedAt,
-        // No per-round activity timestamp on the round payload; the round DATE
-        // is the best available recency proxy for the ongoing sort.
-        lastActivityAt: e.round.date,
+        // Server-owned activity time keeps every signed-in device in the same
+        // order after creation, edits and scoring. The date fallback preserves
+        // a deterministic order during a rolling server upgrade.
+        lastActivityAt: e.round.lastActivityAt ?? e.round.date,
+        holesPlayed: e.holesPlayed,
         roleLabel: roleLabel(e) || null,
         date: e.round.date,
         formats: e.round.formatSlots.map(formatLabelFromSlot).join(' · '),
@@ -64,6 +68,7 @@ function fromDeviceRounds(entries: readonly DeviceRound[]): LandingRow[] {
         completedAt: e.completedAt ?? null,
         // Device rows carry a real last-seen timestamp — the natural sort key.
         lastActivityAt: e.lastSeenAt,
+        holesPlayed: null,
         roleLabel: null,
         date: e.date ?? null,
         formats: null,

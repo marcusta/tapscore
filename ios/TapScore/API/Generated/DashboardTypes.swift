@@ -5,19 +5,22 @@ import Foundation
 struct DashboardRoundEntry: Codable, Sendable, Equatable {
     var round: Round
     var ballIds: [String]
+    var progress: DashboardRoundProgress?
     var slots: [DashboardSlotEntry]
     var shareToken: String?
 
     enum CodingKeys: String, CodingKey {
         case round = "round"
         case ballIds = "ballIds"
+        case progress = "progress"
         case slots = "slots"
         case shareToken = "shareToken"
     }
 
-    init(round: Round, ballIds: [String], slots: [DashboardSlotEntry], shareToken: String? = nil) {
+    init(round: Round, ballIds: [String], progress: DashboardRoundProgress? = nil, slots: [DashboardSlotEntry], shareToken: String? = nil) {
         self.round = round
         self.ballIds = ballIds
+        self.progress = progress
         self.slots = slots
         self.shareToken = shareToken
     }
@@ -26,6 +29,7 @@ struct DashboardRoundEntry: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.round = try c.decode(Round.self, forKey: .round)
         self.ballIds = try c.decode([String].self, forKey: .ballIds)
+        self.progress = try c.decodeIfPresent(DashboardRoundProgress.self, forKey: .progress)
         self.slots = try c.decode([DashboardSlotEntry].self, forKey: .slots)
         self.shareToken = try c.decodeIfPresent(String.self, forKey: .shareToken)
     }
@@ -34,6 +38,7 @@ struct DashboardRoundEntry: Codable, Sendable, Equatable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(round, forKey: .round)
         try c.encode(ballIds, forKey: .ballIds)
+        try c.encodeIfPresent(progress, forKey: .progress)
         try c.encode(slots, forKey: .slots)
         if let shareToken {
             try c.encode(shareToken, forKey: .shareToken)
@@ -113,6 +118,28 @@ struct FriendsActivity: Codable, Sendable, Equatable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(live, forKey: .live)
         try c.encode(recent, forKey: .recent)
+    }
+}
+
+struct DashboardRoundProgress: Codable, Sendable, Equatable {
+    var holesPlayed: Double
+
+    enum CodingKeys: String, CodingKey {
+        case holesPlayed = "holesPlayed"
+    }
+
+    init(holesPlayed: Double) {
+        self.holesPlayed = holesPlayed
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.holesPlayed = try c.decode(Double.self, forKey: .holesPlayed)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(holesPlayed, forKey: .holesPlayed)
     }
 }
 

@@ -38,10 +38,21 @@ export interface DashboardSlotEntry {
     metricLabel: string | null;
 }
 
+/**
+ * The viewer's live progress in a dashboard round. A player can own more than
+ * one ball (their own plus a team ball), so this is the furthest-scored ball,
+ * never a sum that could turn three holes into "Thru 6".
+ */
+export interface DashboardRoundProgress {
+    holesPlayed: number;
+}
+
 export interface DashboardRoundEntry {
     round: Round;
     /** The player's ball ids in this round (1 own-ball + any team balls). */
     ballIds: string[];
+    /** Optional only for rolling client compatibility; the server always sends it. */
+    progress?: DashboardRoundProgress;
     slots: DashboardSlotEntry[];
     /** Share token for navigation, joined from `friendly_rounds`. Null when
      *  the round has no friendly wrapper (e.g. a round created without one). */
@@ -60,9 +71,10 @@ export class DashboardService {
         // §17: a soft/hard-deleted player has no dashboard.
         if (!(await this.playerService.isActive(playerId))) return [];
 
-        // §17 dashboard query — rounds the player produced a ball in, newest
-        // first. The NOT EXISTS soft-delete guard is already covered by the
-        // isActive() short-circuit above; kept explicit in SQL for parity.
+        // §17 dashboard query — rounds the player produced a ball in, most
+        // recently active first. The NOT EXISTS soft-delete guard is already
+        // covered by the isActive() short-circuit above; kept explicit in SQL
+        // for parity.
         const rows = await this.db
             .selectFrom('rounds as r')
             .innerJoin('balls as b', 'b.round_id', 'r.id')
@@ -80,7 +92,7 @@ export class DashboardService {
                 ),
             )
             .select(['r.id as round_id', 'b.id as ball_id'])
-            .orderBy('r.date', 'desc')
+            .orderBy('r.last_activity_at', 'desc')
             .execute();
 
         // Group the player's ball ids per round, preserving newest-first order.
@@ -106,6 +118,7 @@ export class DashboardService {
                       .where('round_id', 'in', order)
                       .execute();
         const tokenByRoundId = new Map(tokenRows.map((r) => [r.round_id, r.share_token]));
+        const progressByRoundId = await this.progressForPlayer(order, playerId);
 
         const out: DashboardRoundEntry[] = [];
         for (const roundId of order) {
@@ -145,8 +158,73 @@ export class DashboardService {
                 }
             }
             slots.sort((a, b) => (a.slotIndex ?? 0) - (b.slotIndex ?? 0));
-            out.push({ round, ballIds, slots, shareToken: tokenByRoundId.get(roundId) ?? null });
+            out.push({
+                round,
+                ballIds,
+                progress: { holesPlayed: progressByRoundId.get(roundId) ?? 0 },
+                slots,
+                shareToken: tokenByRoundId.get(roundId) ?? null,
+            });
         }
         return out;
+    }
+
+    /**
+     * Counts scored holes per ball, then selects the furthest one. A player
+     * may produce an own ball and a shared team ball in the same round; adding
+     * their counts would be a fictitious number of holes. The source filter is
+     * the same attribution rule as FriendsActivityService: keep this player's
+     * own rows plus genuinely untagged, ball-level rows (such as foursomes),
+     * never a teammate's attributed entry on the shared ball.
+     */
+    private async progressForPlayer(roundIds: string[], playerId: string): Promise<Map<string, number>> {
+        if (roundIds.length === 0) return new Map();
+        const rows = await this.db
+            .selectFrom((eb) =>
+                eb
+                    .selectFrom('scorecards as sc')
+                    .innerJoin('balls as b', 'b.id', 'sc.ball_id')
+                    .innerJoin('ball_players as bp', 'bp.ball_id', 'sc.ball_id')
+                    .where('b.round_id', 'in', roundIds)
+                    .where('bp.player_id', '=', playerId)
+                    .where('sc.strokes', 'is not', null)
+                    .where((w) =>
+                        w.or([
+                            w('sc.source_player_id', '=', playerId),
+                            w.and([
+                                w('sc.source_player_id', 'is', null),
+                                w('sc.source_guest_player_id', 'is', null),
+                            ]),
+                        ]),
+                    )
+                    .select([
+                        'b.round_id as roundId',
+                        'sc.ball_id as ballId',
+                        'sc.play_hole_id as playHoleId',
+                    ])
+                    .groupBy(['b.round_id', 'sc.ball_id', 'sc.play_hole_id'])
+                    .as('hole'),
+            )
+            .select([
+                'hole.roundId as roundId',
+                'hole.ballId as ballId',
+                (eb) => eb.fn.countAll<number>().as('holesPlayed'),
+            ])
+            .groupBy(['hole.roundId', 'hole.ballId'])
+            .execute();
+
+        const progress = new Map<string, { ballId: string; holesPlayed: number }>();
+        for (const row of rows) {
+            const current = progress.get(row.roundId);
+            const holesPlayed = Number(row.holesPlayed);
+            if (
+                current === undefined ||
+                holesPlayed > current.holesPlayed ||
+                (holesPlayed === current.holesPlayed && row.ballId < current.ballId)
+            ) {
+                progress.set(row.roundId, { ballId: row.ballId, holesPlayed });
+            }
+        }
+        return new Map([...progress].map(([roundId, value]) => [roundId, value.holesPlayed]));
     }
 }

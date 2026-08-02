@@ -156,12 +156,11 @@ const rowTpl = template(`
         <button bind="row" type="button" class="round-row__main">
             <div class="round-row__top">
                 <span bind="title" class="round-row__title"></span>
-                <span bind="role" class="round-row__role"></span>
-                <span bind="status" class="round-row__status"></span>
             </div>
             <span bind="course" class="round-row__course"></span>
             <div class="round-row__bottom">
                 <span bind="date"></span>
+                <span bind="progress" class="round-row__progress"></span>
                 <span bind="formats" class="round-row__formats"></span>
             </div>
         </button>
@@ -233,22 +232,8 @@ const recentTpl = template(`
     </button>
 `);
 
-// The lifecycle chip used by Ongoing rows. Recently finished is already
-// grouped by its section heading, so it does not repeat "Finished" per row.
-const statusChipCss = `
-    font-size: 0.7rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    border-radius: ${t('radius-pill')};
-    padding: 2px 10px;
-    flex-shrink: 0;
-
-    &.s-active { background: ${t('accent-soft')}; color: ${t('accent')}; }
-    &.s-complete { background: ${t('surface-sunken')}; color: ${t('text-muted')}; }
-    &.s-not_started { background: ${t('surface-sunken')}; color: ${t('text-muted')}; }
-`;
-
+// History still presents lifecycle states as plain text. Ongoing deliberately
+// does not: the section itself says all the state its rows need to repeat.
 export const STATUS_TEXT: Record<string, string> = {
     not_started: 'Not started',
     active: 'Live',
@@ -491,17 +476,6 @@ export class LandingComponent extends Component {
                 &.hidden { display: none; }
             }
 
-            & .round-row__role {
-                font-size: 0.7rem;
-                font-weight: 700;
-                text-transform: uppercase;
-                letter-spacing: 0.08em;
-                color: ${t('accent')};
-                flex-shrink: 0;
-
-                &.hidden { display: none; }
-            }
-
             & .landing__list {
                 display: flex;
                 flex-direction: column;
@@ -557,27 +531,28 @@ export class LandingComponent extends Component {
 
                     &.hidden { display: none; }
                 }
-                & .round-row__status { ${statusChipCss} }
                 & .round-row__bottom {
                     display: flex;
-                    justify-content: space-between;
-                    gap: ${s('md')};
+                    align-items: baseline;
+                    gap: ${s('sm')};
                     color: ${t('text-muted')};
                     font-size: 0.85rem;
 
                     &.hidden { display: none; }
                 }
                 & .round-row__formats {
-                    text-align: right;
                     overflow: hidden;
                     text-overflow: ellipsis;
                     white-space: nowrap;
                 }
+                & .round-row__progress::before,
+                & .round-row__formats::before { content: '·'; margin-right: ${s('sm')}; }
+                & .round-row__progress.hidden,
+                & .round-row__formats.hidden { display: none; }
             }
 
             /* Ongoing and Recently finished are both grouped panels. Ongoing
-               keeps its per-row lifecycle markers because the panel contains
-               more than one state; the outer card carries the grouping. */
+               expresses its only useful changing fact inline: scored progress. */
             & .landing__ongoing {
                 ${card()}
                 overflow: hidden;
@@ -1185,7 +1160,7 @@ export class LandingComponent extends Component {
         this.$each(
             this.ref(frag, 'ongoingList'),
             this.ongoingShown,
-            (row, _i, track) => this.roundRow(row, track),
+            (row, _i, track) => this.roundRow(row, track, true),
             (row) => row.key,
         );
         this.$each(
@@ -1304,7 +1279,11 @@ export class LandingComponent extends Component {
     /** One round row (shared by both sections + both auth states). A row with
      *  no token can't navigate or be deleted (logged-in produced round without
      *  a friendly wrapper); everything else taps through. */
-    private roundRow(row: LandingRow, track: (d: () => void) => void): HTMLElement {
+    private roundRow(
+        row: LandingRow,
+        track: (d: () => void) => void,
+        showProgress: boolean = false,
+    ): HTMLElement {
         return this.wireEl(
             rowTpl,
             {
@@ -1321,17 +1300,22 @@ export class LandingComponent extends Component {
                     className: () =>
                         rowCourseSubtitle(row) ? 'round-row__course' : 'round-row__course hidden',
                 },
-                role: {
-                    textContent: () => row.roleLabel ?? '',
-                    className: () =>
-                        row.roleLabel ? 'round-row__role' : 'round-row__role hidden',
-                },
-                status: {
-                    textContent: () => STATUS_TEXT[row.status] ?? row.status,
-                    className: () => `round-row__status s-${row.status}`,
-                },
                 date: () => formatRowDate(row.date),
-                formats: () => row.formats ?? '',
+                progress: {
+                    textContent: () =>
+                        showProgress && row.holesPlayed && row.holesPlayed > 0
+                            ? `Thru ${row.holesPlayed}`
+                            : '',
+                    className: () =>
+                        showProgress && row.holesPlayed && row.holesPlayed > 0
+                            ? 'round-row__progress'
+                            : 'round-row__progress hidden',
+                },
+                formats: {
+                    textContent: () => row.formats ?? '',
+                    className: () =>
+                        row.formats ? 'round-row__formats' : 'round-row__formats hidden',
+                },
                 actions: {
                     className: () =>
                         row.token === null ? 'round-row__actions hidden' : 'round-row__actions',

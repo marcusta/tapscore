@@ -59,7 +59,7 @@ async function setup() {
             eventType: 'score_entered', clientEventId: `b${n++}`,
         });
     }
-    return { ctx, round, ann, bo };
+    return { ctx, round, ann, bo, tee };
 }
 
 test('dashboard lists a player round with per-slot PH + finishing position', async () => {
@@ -74,6 +74,64 @@ test('dashboard lists a player round with per-slot PH + finishing position', asy
     expect(slot.formatId).toBe('stableford_individual');
     expect(slot.playingHandicap).toBe(10);
     expect(slot.position).toBe(1); // Ann (par every hole) beats Bo (double-bogey).
+    expect(dash[0].progress).toEqual({ holesPlayed: 18 });
+    expect(dash[0].round.lastActivityAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+});
+
+test('dashboard orders by last activity rather than scheduled round date', async () => {
+    const { ctx, round, ann, tee } = await setup();
+    const laterScheduled = await ctx.roundService.create({
+        definition: {
+            courseId: round.courseId,
+            playedAt: '2026-08-15',
+            roundType: 'full_18',
+            producers: [
+                { id: 'P1', playerRef: { kind: 'player', id: ann.id }, handicapIndex: 10, gender: 'M', teeId: tee.id },
+            ],
+            ballStrategies: [{ id: 'own', strategyId: 'own_ball_per_player', derivationConfig: { type: 'single' } }],
+            slots: [{ id: 'slot-0', formatId: 'stableford_individual', allowanceConfig: { type: 'flat', pct: 100 } }],
+        },
+    });
+
+    // This update is intentionally the timestamp column itself, so it bypasses
+    // the metadata-touch trigger and gives the sort a deterministic clock.
+    await ctx.db
+        .updateTable('rounds')
+        .set({ last_activity_at: '2026-08-20 10:00:00' })
+        .where('id', '=', round.id)
+        .execute();
+    await ctx.db
+        .updateTable('rounds')
+        .set({ last_activity_at: '2026-08-19 10:00:00' })
+        .where('id', '=', laterScheduled.id)
+        .execute();
+
+    const dash = await ctx.dashboardService.forPlayer(ann.id);
+    expect(dash.map((entry) => entry.round.id)).toEqual([round.id, laterScheduled.id]);
+    expect(dash[0]!.round.lastActivityAt).toBe('2026-08-20T10:00:00.000Z');
+});
+
+test('recording a score touches the round activity timestamp', async () => {
+    const { ctx, round } = await setup();
+    await ctx.db
+        .updateTable('rounds')
+        .set({ last_activity_at: '2000-01-01 00:00:00' })
+        .where('id', '=', round.id)
+        .execute();
+
+    const ballId = (await ctx.roundService.ballsForRound(round.id))[0]!.id;
+    await ctx.scoreEventService.append({
+        roundId: round.id,
+        ballId,
+        playHoleId: round.playHoles[0]!.id,
+        strokes: 5,
+        eventType: 'score_entered',
+        clientEventId: 'activity-touch',
+    });
+
+    expect((await ctx.roundService.getById(round.id))!.lastActivityAt).not.toBe(
+        '2000-01-01T00:00:00.000Z',
+    );
 });
 
 test('soft-deleted player drops out of their OWN dashboard, peers unaffected', async () => {

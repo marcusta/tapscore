@@ -22,6 +22,7 @@ function round(over: Partial<Round> = {}): Round {
         latestEventId: null,
         courseNameSnapshot: 'Linköping',
         completedAt: null,
+        lastActivityAt: '2026-07-04T08:00:00.000Z',
         formatSlots: [],
         playHoles: [],
         routeSi: { mode: 'official', sourceLabel: null, sourceVersion: null, allocationCycleSize: 18 },
@@ -36,6 +37,7 @@ test('fromMyRounds maps id/token/status/date + role label', () => {
     const entry: MyRoundEntry = {
         round: round({ status: 'complete', completedAt: '2026-07-05T11:00:00Z' }),
         token: 'tok-1',
+        holesPlayed: 0,
         played: true,
         created: true,
     };
@@ -48,14 +50,16 @@ test('fromMyRounds maps id/token/status/date + role label', () => {
     expect(row!.completedAt).toBe('2026-07-05T11:00:00Z');
     expect(row!.roleLabel).toBe('Played · Created');
     expect(row!.date).toBe('2026-07-04');
-    expect(row!.lastActivityAt).toBe('2026-07-04');
+    expect(row!.lastActivityAt).toBe('2026-07-04T08:00:00.000Z');
+    expect(row!.holesPlayed).toBe(0);
 });
 
 test('fromMyRounds keeps a null token (produced round with no wrapper)', () => {
-    const entry: MyRoundEntry = { round: round(), token: null, played: true, created: false };
+    const entry: MyRoundEntry = { round: round(), token: null, holesPlayed: 4, played: true, created: false };
     const [row] = landingRows.fromMyRounds([entry]);
     expect(row!.token).toBeNull();
     expect(row!.roleLabel).toBe('Played');
+    expect(row!.holesPlayed).toBe(4);
 });
 
 test('fromDeviceRounds maps token as key + lastSeenAt as the activity key', () => {
@@ -77,6 +81,7 @@ test('fromDeviceRounds maps token as key + lastSeenAt as the activity key', () =
     expect(row!.roleLabel).toBeNull();
     expect(row!.date).toBeNull();
     expect(row!.formats).toBeNull();
+    expect(row!.holesPlayed).toBeNull();
 });
 
 // The card hierarchy: the round's own NAME is the headline when it has one,

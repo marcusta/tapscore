@@ -88,15 +88,54 @@ let deviceRoundsCap = 50
 ///
 /// Lock rather than actor: reads happen while a view body is being assembled.
 final class DeviceRoundsStore: @unchecked Sendable {
+    /// The unqualified key — the whole store before it was namespaced, and
+    /// still the default for callers that name no server (tests).
     static let storageKey = "tapscore.device-rounds.v1"
+
+    /// The key for a given backend.
+    ///
+    /// **The list is per-server**, because its identities are share tokens and
+    /// a token means nothing to a backend that did not mint it. `apiBaseURL`
+    /// (launch argument or the super-admin Server screen) can point this build
+    /// at the dev server and back again; with one shared key, rounds created
+    /// against localhost stayed on the landing after the switch, 404'd when
+    /// opened, and appeared on no other client. They were not "local rounds" —
+    /// they were another server's rounds, listed by a store that never asked
+    /// which server it was looking at.
+    ///
+    /// Host, port and path all participate: prod lives under `/tapscore/api`,
+    /// so the path is part of the deployment's identity, not decoration.
+    static func storageKey(for configuration: APIConfiguration) -> String {
+        let url = configuration.baseURL
+        var scope = url.host ?? "unknown"
+        if let port = url.port { scope += "-\(port)" }
+        let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if !path.isEmpty { scope += "-" + path.replacingOccurrences(of: "/", with: "-") }
+        return "\(storageKey).\(scope)"
+    }
 
     private let defaults: UserDefaults
     private let cap: Int
+    private let key: String
     private let lock = NSLock()
 
-    init(defaults: UserDefaults = .standard, cap: Int = deviceRoundsCap) {
+    init(
+        defaults: UserDefaults = .standard,
+        cap: Int = deviceRoundsCap,
+        key: String = DeviceRoundsStore.storageKey
+    ) {
         self.defaults = defaults
         self.cap = cap
+        self.key = key
+    }
+
+    /// The store for the backend this build is pointed at.
+    convenience init(
+        configuration: APIConfiguration,
+        defaults: UserDefaults = .standard,
+        cap: Int = deviceRoundsCap
+    ) {
+        self.init(defaults: defaults, cap: cap, key: Self.storageKey(for: configuration))
     }
 
     /// The list, most-recently-seen first. A corrupt or foreign blob reads as
@@ -200,7 +239,7 @@ final class DeviceRoundsStore: @unchecked Sendable {
     func clear() {
         lock.lock()
         defer { lock.unlock() }
-        defaults.removeObject(forKey: Self.storageKey)
+        defaults.removeObject(forKey: key)
     }
 
     // MARK: - Storage
@@ -213,7 +252,7 @@ final class DeviceRoundsStore: @unchecked Sendable {
     /// does on the web (`src/device-store.ts`). A payload that is not an array
     /// at all still reads as empty.
     private func read() -> [DeviceRound] {
-        guard let data = defaults.data(forKey: Self.storageKey) else { return [] }
+        guard let data = defaults.data(forKey: key) else { return [] }
         let decoder = JSONDecoder()
         if let entries = try? decoder.decode([DeviceRound].self, from: data) { return entries }
         guard let salvaged = try? decoder.decode([SalvagedRound].self, from: data) else { return [] }
@@ -231,7 +270,7 @@ final class DeviceRoundsStore: @unchecked Sendable {
 
     private func write(_ entries: [DeviceRound]) {
         guard let data = try? JSONEncoder().encode(entries) else { return }
-        defaults.set(data, forKey: Self.storageKey)
+        defaults.set(data, forKey: key)
     }
 
     /// ISO-8601 with fractional seconds off — the spelling the server uses for

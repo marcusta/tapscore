@@ -5,8 +5,8 @@ import SwiftUI
 /// Home is deliberately short — it shows what is being played now and the last
 /// three finished rounds inside a 14-day window. This screen is the rest of
 /// that same list: the **same** `LandingLoader` rows, the same Ongoing /
-/// finished split, and the same `RoundRow` (swipe-to-remove where the row is
-/// device-local). The only difference is the window, which is `nil` here, so
+/// finished split, and the same `RoundRow` (swipe-to-delete wherever the row
+/// carries a share token). The only difference is the window, which is `nil` here, so
 /// nothing ages off.
 ///
 /// It owns no loading of its own. The loader belongs to the shell, Home keys
@@ -17,7 +17,7 @@ struct AllRoundsView: View {
     @Environment(AppEnvironment.self) private var environment
 
     /// This device's recent-rounds list — the same object Home and the shell
-    /// hold, so a Remove here is a Remove there.
+    /// hold, so a delete here clears the device entry there too.
     let deviceRounds: DeviceRoundsStore
 
     /// The shell's rows. Shared, not copied.
@@ -26,7 +26,7 @@ struct AllRoundsView: View {
     /// Asks the shell to open a round, through the same funnel a Home row uses.
     let onOpen: (RoundOpenRequest) -> Void
 
-    /// The row whose swipe-revealed Remove action was invoked, parked while the
+    /// The row whose swipe-revealed Delete action was invoked, parked while the
     /// confirmation is up.
     @State private var pendingRemoval: LandingRow?
 
@@ -76,6 +76,7 @@ struct AllRoundsView: View {
         // their role labels.
         .onAppear { loader.applyDevice(deviceRounds.all()) }
         .roundRemovalDialog(pending: $pendingRemoval) { token in remove(token: token) }
+        .roundDeleteFailureAlert(loader)
         .accessibilityIdentifier("all-rounds-screen")
     }
 
@@ -112,7 +113,8 @@ struct AllRoundsView: View {
                             row: row,
                             onOpen: { open(row) },
                             onRemove: { pendingRemoval = row },
-                            grouped: true
+                            grouped: true,
+                            showProgress: title == "Ongoing"
                         )
                     }
                 }
@@ -148,10 +150,16 @@ struct AllRoundsView: View {
         )
     }
 
-    /// Local only, exactly as on Home: the round is untouched server-side and
-    /// its share link brings it back, so a server row stays (minus its
-    /// device-local flag) and only a device-only row disappears.
+    /// A real delete, exactly as on Home: the round and its scores go from the
+    /// server for everyone, and the row leaves both screens because both hold
+    /// the same loader.
     private func remove(token: String) {
-        loader.applyDevice(deviceRounds.remove(token: token))
+        Task {
+            await loader.delete(
+                token: token,
+                api: environment.api,
+                deviceRounds: deviceRounds
+            )
+        }
     }
 }

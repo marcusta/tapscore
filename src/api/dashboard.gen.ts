@@ -4,6 +4,7 @@ import { apiFetch } from '@basics/core/client/fetch';
 export interface DashboardRoundEntry {
     round: Round;
     ballIds: string[];
+    progress?: DashboardRoundProgress;
     slots: DashboardSlotEntry[];
     shareToken: null | string;
 }
@@ -32,6 +33,7 @@ export interface Round {
     visibility: 'private' | 'friends' | 'link';
     courseNameSnapshot: null | string;
     completedAt: null | string;
+    lastActivityAt?: null | string;
     formatSlots: FormatSlot[];
     playHoles: RoundPlayHole[];
     routeSi: RoundRouteSi;
@@ -43,6 +45,10 @@ export interface Round {
 export interface FriendsActivity {
     live: FriendsActivityEntry[];
     recent: FriendsActivityEntry[];
+}
+
+export interface DashboardRoundProgress {
+    holesPlayed: number;
 }
 
 export interface DashboardSlotEntry {

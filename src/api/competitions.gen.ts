@@ -88,6 +88,7 @@ export interface Round {
     visibility: 'private' | 'friends' | 'link';
     courseNameSnapshot: null | string;
     completedAt: null | string;
+    lastActivityAt?: null | string;
     formatSlots: FormatSlot[];
     playHoles: RoundPlayHole[];
     routeSi: RoundRouteSi;

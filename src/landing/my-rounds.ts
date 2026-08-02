@@ -11,6 +11,8 @@ export interface MyRoundEntry {
     /** Share token for navigation; null when the round has no friendly
      * wrapper (the row renders but can't navigate). */
     token: string | null;
+    /** Furthest-scored ball belonging to the viewer; null when they only created the round. */
+    holesPlayed?: number | null;
     played: boolean;
     created: boolean;
 }
@@ -28,10 +30,11 @@ export function roleLabel(e: Pick<MyRoundEntry, 'played' | 'created'>): string {
  * - Tokens come straight from each half — `produced` now carries its own
  *   `shareToken` (server-joined against `friendly_rounds`), so no client-side
  *   join against the public rounds list is needed.
- * - Order: date descending, then round id for a stable tie-break.
+ * - Order: most-recent activity descending, then scheduled date and round id
+ *   for stable fallbacks while older servers are being upgraded.
  */
 export function buildMyRounds(
-    produced: readonly Pick<DashboardRoundEntry, 'round' | 'shareToken'>[],
+    produced: readonly Pick<DashboardRoundEntry, 'round' | 'shareToken' | 'progress'>[],
     created: readonly { friendlyRound: FriendlyRound; round: Round }[],
 ): MyRoundEntry[] {
     const byId = new Map<string, MyRoundEntry>();
@@ -39,6 +42,7 @@ export function buildMyRounds(
         byId.set(item.round.id, {
             round: item.round,
             token: item.friendlyRound.shareToken,
+            holesPlayed: null,
             played: false,
             created: true,
         });
@@ -47,10 +51,12 @@ export function buildMyRounds(
         const existing = byId.get(item.round.id);
         if (existing) {
             existing.played = true;
+            existing.holesPlayed = item.progress?.holesPlayed ?? null;
         } else {
             byId.set(item.round.id, {
                 round: item.round,
                 token: item.shareToken,
+                holesPlayed: item.progress?.holesPlayed ?? null,
                 played: true,
                 created: false,
             });
@@ -58,6 +64,8 @@ export function buildMyRounds(
     }
     return [...byId.values()].sort(
         (a, b) =>
-            b.round.date.localeCompare(a.round.date) || a.round.id.localeCompare(b.round.id),
+            (b.round.lastActivityAt ?? '').localeCompare(a.round.lastActivityAt ?? '') ||
+            b.round.date.localeCompare(a.round.date) ||
+            a.round.id.localeCompare(b.round.id),
     );
 }
