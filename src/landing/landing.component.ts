@@ -154,7 +154,7 @@ const moreSvg = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"
 // Every round glimpse answers the same three questions in the same order:
 // what, where, then when/how. The surrounding card decides whether the row
 // also needs actions; the summary itself stays identical across the lists.
-const roundSummaryMarkup = `
+export const roundSummaryMarkup = `
     <span bind="title" class="round-summary__title"></span>
     <span bind="course" class="round-summary__course"></span>
     <span class="round-summary__bottom">
@@ -217,14 +217,6 @@ const recentTpl = template(`
         <span class="recent-row__content">${roundSummaryMarkup}</span>
     </button>
 `);
-
-// History still presents lifecycle states as plain text. Ongoing deliberately
-// does not: the section itself says all the state its rows need to repeat.
-export const STATUS_TEXT: Record<string, string> = {
-    not_started: 'Not started',
-    active: 'Live',
-    complete: 'Finished',
-};
 
 export class LandingComponent extends Component {
     static styles = `

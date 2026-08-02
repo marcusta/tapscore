@@ -12,14 +12,29 @@ import {
     type LandingRow,
 } from '../landing/rows';
 import { sortHistory } from './sort';
-import { STATUS_TEXT } from '../landing/landing.component';
+import { roundSummaryMarkup } from '../landing/landing.component';
 
 const tpl = template(`
     <div class="history">
         <button bind="back" class="history__back" type="button">← Home</button>
         <h1 class="history__title">All rounds</h1>
         <div bind="empty" class="history__empty">No rounds yet — tap Play golf to tee off.</div>
-        <div bind="list" class="history__list"></div>
+        <div bind="sections" class="history__sections">
+            <section bind="ongoingSection" class="history__section history__ongoing">
+                <div class="history__section-head">
+                    <span class="history__section-title">Ongoing</span>
+                    <span bind="ongoingCount" class="history__count"></span>
+                </div>
+                <div bind="ongoingList" class="history__section-list"></div>
+            </section>
+            <section bind="finishedSection" class="history__section history__finished">
+                <div class="history__section-head">
+                    <span class="history__section-title">Finished</span>
+                    <span bind="finishedCount" class="history__count"></span>
+                </div>
+                <div bind="finishedList" class="history__section-list"></div>
+            </section>
+        </div>
         <div bind="confirmHost"></div>
     </div>
 `);
@@ -28,18 +43,7 @@ const trashSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 
 const rowTpl = template(`
     <div class="round-row">
-        <button bind="row" type="button" class="round-row__main">
-            <div class="round-row__top">
-                <span bind="title" class="round-row__title"></span>
-                <span bind="role" class="round-row__role"></span>
-                <span bind="status" class="round-row__status"></span>
-            </div>
-            <span bind="course" class="round-row__course"></span>
-            <div class="round-row__bottom">
-                <span bind="date"></span>
-                <span bind="formats" class="round-row__formats"></span>
-            </div>
-        </button>
+        <button bind="row" type="button" class="round-summary round-row__main">${roundSummaryMarkup}</button>
         <button bind="del" type="button" class="round-row__del" aria-label="Delete round">${trashSvg}</button>
     </div>
 `);
@@ -79,39 +83,100 @@ export class HistoryComponent extends Component {
                 &.hidden { display: none; }
             }
 
-            & .history__list {
-                ${card()}
+            & .history__sections {
                 display: flex;
                 flex-direction: column;
+                gap: ${s('xl')};
+
+                &.hidden { display: none; }
+            }
+
+            & .history__section {
+                ${card()}
                 overflow: hidden;
 
                 &.hidden { display: none; }
+            }
+            & .history__section-head {
+                display: flex;
+                align-items: baseline;
+                gap: ${s('sm')};
+                padding: ${s('md')} ${s('lg')} ${s('sm')};
+            }
+            & .history__section-title {
+                font-family: ${t('font-display')};
+                font-size: 1.1rem;
+                font-weight: 600;
+                color: ${t('text')};
+            }
+            & .history__count {
+                font-size: 0.85rem;
+                color: ${t('text-muted')};
+            }
+            & .history__section-list {
+                display: flex;
+                flex-direction: column;
+            }
+
+            /* The same round-summary markup as the landing cards: title,
+               course, then one quiet metadata line. Sections now provide the
+               lifecycle context, so rows need neither a role tag nor a status
+               chip. */
+            & .round-summary {
+                display: flex;
+                flex: 1;
+                flex-direction: column;
+                gap: ${s('xs')};
+                min-width: 0;
+                padding: ${s('md')} 0 ${s('md')} ${s('lg')};
+                background: none;
+                border: none;
+                font-family: inherit;
+                text-align: left;
+                cursor: pointer;
+
+                &:disabled { cursor: default; }
+
+                & .round-summary__title {
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    font-size: 1.05rem;
+                    font-weight: 700;
+                    color: ${t('text')};
+                }
+                & .round-summary__course {
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    font-size: 0.9rem;
+                    color: ${t('text-muted')};
+
+                    &.hidden { display: none; }
+                }
+                & .round-summary__bottom {
+                    display: flex;
+                    align-items: baseline;
+                    min-width: 0;
+                    gap: ${s('sm')};
+                    color: ${t('text-muted')};
+                    font-size: 0.85rem;
+                }
+                & .round-summary__formats {
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                & .round-summary__progress::before,
+                & .round-summary__formats::before { content: '·'; margin-right: ${s('sm')}; }
+                & .round-summary__progress.hidden,
+                & .round-summary__formats.hidden { display: none; }
             }
 
             & .round-row {
                 display: flex;
                 align-items: stretch;
-                background: none;
-                border: none;
                 border-top: 1px solid ${t('border')};
-
-                &:first-child { border-top: none; }
-                &:hover { background: ${t('hover-bg')}; }
-
-                & .round-row__main {
-                    flex: 1;
-                    min-width: 0;
-                    display: flex;
-                    flex-direction: column;
-                    gap: ${s('xs')};
-                    padding: ${s('md')} 0 ${s('md')} ${s('lg')};
-                    text-align: left;
-                    font-family: inherit;
-                    background: none;
-                    border: none;
-                    cursor: pointer;
-                    &:disabled { cursor: default; }
-                }
 
                 & .round-row__del {
                     flex: 0 0 44px;
@@ -129,62 +194,6 @@ export class HistoryComponent extends Component {
                     &:focus-visible { outline: 2px solid ${t('error')}; outline-offset: -2px; }
                     &.hidden { display: none; }
                 }
-
-                & .round-row__top {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: baseline;
-                    gap: ${s('md')};
-                }
-                /* Same three-tier hierarchy as the landing: what the round is
-                   CALLED, then where it was played, then when. */
-                & .round-row__title {
-                    font-weight: 700;
-                    font-size: 1.05rem;
-                    color: ${t('text')};
-                }
-                & .round-row__course {
-                    color: ${t('text-muted')};
-                    font-size: 0.9rem;
-
-                    &.hidden { display: none; }
-                }
-                & .round-row__role {
-                    font-size: 0.7rem;
-                    font-weight: 700;
-                    text-transform: uppercase;
-                    letter-spacing: 0.08em;
-                    color: ${t('accent')};
-                    flex-shrink: 0;
-                    &.hidden { display: none; }
-                }
-                & .round-row__status {
-                    font-size: 0.7rem;
-                    font-weight: 700;
-                    text-transform: uppercase;
-                    letter-spacing: 0.08em;
-                    border-radius: ${t('radius-pill')};
-                    padding: 2px 10px;
-                    flex-shrink: 0;
-
-                    &.s-active { background: ${t('accent-soft')}; color: ${t('accent')}; }
-                    &.s-complete { background: ${t('surface-sunken')}; color: ${t('text-muted')}; }
-                    &.s-not_started { background: ${t('surface-sunken')}; color: ${t('text-muted')}; }
-                }
-                & .round-row__bottom {
-                    display: flex;
-                    justify-content: space-between;
-                    gap: ${s('md')};
-                    color: ${t('text-muted')};
-                    font-size: 0.85rem;
-                    &.hidden { display: none; }
-                }
-                & .round-row__formats {
-                    text-align: right;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
             }
         }
 
@@ -199,14 +208,20 @@ export class HistoryComponent extends Component {
 
     private loggedIn = new Computed(() => this.auth.currentUser.get() !== null);
 
-    // Full list, newest first — no partition, no 14-day window (that's the
-    // landing's job; History shows everything).
+    // Full history, newest first. Unlike the landing's recent-finished
+    // preview, both sections retain every round here.
     private rows = new Computed<LandingRow[]>(() =>
         sortHistory(
             this.loggedIn.get()
                 ? landingRows.fromMyRounds(this.svc.myRounds.get())
                 : landingRows.fromDeviceRounds(this.svc.deviceRounds.get()),
         ),
+    );
+    private ongoingRows = new Computed(() =>
+        this.rows.get().filter((row) => row.status !== 'complete'),
+    );
+    private finishedRows = new Computed(() =>
+        this.rows.get().filter((row) => row.status === 'complete'),
     );
 
     private deleteOpen = new Signal(false);
@@ -229,15 +244,37 @@ export class HistoryComponent extends Component {
                 className: () =>
                     this.rows.get().length === 0 ? 'history__empty' : 'history__empty hidden',
             },
-            list: {
+            sections: {
                 className: () =>
-                    this.rows.get().length === 0 ? 'history__list hidden' : 'history__list',
+                    this.rows.get().length === 0
+                        ? 'history__sections hidden'
+                        : 'history__sections',
             },
+            ongoingSection: {
+                className: () =>
+                    this.ongoingRows.get().length === 0
+                        ? 'history__section history__ongoing hidden'
+                        : 'history__section history__ongoing',
+            },
+            ongoingCount: () => String(this.ongoingRows.get().length),
+            finishedSection: {
+                className: () =>
+                    this.finishedRows.get().length === 0
+                        ? 'history__section history__finished hidden'
+                        : 'history__section history__finished',
+            },
+            finishedCount: () => String(this.finishedRows.get().length),
         });
 
         this.$each(
-            this.ref(frag, 'list'),
-            this.rows,
+            this.ref(frag, 'ongoingList'),
+            this.ongoingRows,
+            (row, _i, track) => this.roundRow(row, track, true),
+            (row) => row.key,
+        );
+        this.$each(
+            this.ref(frag, 'finishedList'),
+            this.finishedRows,
             (row, _i, track) => this.roundRow(row, track),
             (row) => row.key,
         );
@@ -268,7 +305,11 @@ export class HistoryComponent extends Component {
         return frag;
     }
 
-    private roundRow(row: LandingRow, track: (d: () => void) => void): HTMLElement {
+    private roundRow(
+        row: LandingRow,
+        track: (d: () => void) => void,
+        showProgress = false,
+    ): HTMLElement {
         return this.wireEl(
             rowTpl,
             {
@@ -283,19 +324,26 @@ export class HistoryComponent extends Component {
                 course: {
                     textContent: () => rowCourseSubtitle(row) ?? '',
                     className: () =>
-                        rowCourseSubtitle(row) ? 'round-row__course' : 'round-row__course hidden',
-                },
-                role: {
-                    textContent: () => row.roleLabel ?? '',
-                    className: () =>
-                        row.roleLabel ? 'round-row__role' : 'round-row__role hidden',
-                },
-                status: {
-                    textContent: () => STATUS_TEXT[row.status] ?? row.status,
-                    className: () => `round-row__status s-${row.status}`,
+                        rowCourseSubtitle(row)
+                            ? 'round-summary__course'
+                            : 'round-summary__course hidden',
                 },
                 date: () => formatRowDate(row.date),
-                formats: () => row.formats ?? '',
+                progress: {
+                    textContent: () =>
+                        showProgress && row.holesPlayed && row.holesPlayed > 0
+                            ? `Thru ${row.holesPlayed}`
+                            : '',
+                    className: () =>
+                        showProgress && row.holesPlayed && row.holesPlayed > 0
+                            ? 'round-summary__progress'
+                            : 'round-summary__progress hidden',
+                },
+                formats: {
+                    textContent: () => row.formats ?? '',
+                    className: () =>
+                        row.formats ? 'round-summary__formats' : 'round-summary__formats hidden',
+                },
                 del: {
                     className: () =>
                         row.token === null ? 'round-row__del hidden' : 'round-row__del',
