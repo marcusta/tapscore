@@ -219,3 +219,46 @@ test('an empty cohort still explains itself and shows no total', () => {
     expect(cards.length).toBe(4);
     expect(cards[0]!.body.startsWith('None of this round’s 4 holes')).toBe(true);
 });
+
+// --- Capture v2: where the penalties came from --------------------------------
+//
+// The penalty bar itself does not change — no stacked segments, no extra label.
+// The breakdown lives in this sheet, as one appended card with live numbers.
+
+test('the penalty-source card is appended last, with absolute counts', () => {
+    const cards = sgInfoCards({
+        ...input(lost({ total: -2 }), 3),
+        penaltySource: { recorded: 5, tee: 3, approach: 1, short: 1 },
+    });
+    const card = cards[cards.length - 1]!;
+    expect(card.id).toBe('penaltySource');
+    expect(card.title).toBe('Where the penalties came from');
+    expect(card.body).toBe(
+        'Of 5 penalty holes you labelled, 3 came off the tee, 1 on the approach and 1 around the green.',
+    );
+});
+
+test('the penalty-source card is dropped, never zeroed, when nothing was labelled', () => {
+    const base = input(lost({ total: -2 }), 3);
+    const none = sgInfoCards({ ...base, penaltySource: { recorded: 0, tee: 0, approach: 0, short: 0 } });
+    expect(none.some((c) => c.id === 'penaltySource')).toBe(false);
+    // …and a caller with no measures to hand reads the same as "none".
+    expect(sgInfoCards(base).some((c) => c.id === 'penaltySource')).toBe(false);
+});
+
+// Absolute counts on purpose: the labelled sample is usually a handful of
+// holes, and the rate floor would suppress every percentage and with it the
+// whole card.
+test('the penalty-source card survives a sample too thin for any percentage', () => {
+    const cards = sgInfoCards({
+        ...input(lost({ total: -2 }), 3),
+        penaltySource: { recorded: 1, tee: 1, approach: 0, short: 0 },
+    });
+    const card = cards.find((c) => c.id === 'penaltySource')!;
+    // …and it says "hole", not "holes": a sample of one is the COMMON case for
+    // this card, so the singular is not an edge to be tolerated.
+    expect(card.body).toBe(
+        'Of 1 penalty hole you labelled, 1 came off the tee, 0 on the approach and 0 around the green.',
+    );
+    expect(card.body).not.toContain('%');
+});

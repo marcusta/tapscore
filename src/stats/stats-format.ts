@@ -218,6 +218,13 @@ const UNIT_PENALTY_HOLES: SampleUnit = {
 };
 const UNIT_PENALTY_FREE: SampleUnit = { one: 'without', many: 'without' };
 
+/**
+ * "1 penalty hole", "5 penalty holes" — the subject of the penalty-source card.
+ * Its sample is usually a handful, so the singular is the COMMON case here, not
+ * the edge one.
+ */
+export const UNIT_LABELLED_PENALTY_HOLES: SampleUnit = regularUnit('penalty hole');
+
 /** "over 34 holes with the green missed vs 26 greens hit". */
 export function missedGreenTaxSample(cost: VsParSplit): string | null {
     return taxSample(cost.miss, UNIT_GREENS_MISSED, cost.hit, UNIT_GREENS_HIT);

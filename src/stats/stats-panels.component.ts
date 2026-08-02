@@ -14,7 +14,13 @@ import {
     type StatsBlock,
     type StatsSegmentTone,
 } from './stats-panel-blocks';
-import { renderLadderRung, renderMiniBar, renderSplitBar } from './stats-charts';
+import {
+    renderGreenCompass,
+    renderLadderRung,
+    renderMiniBar,
+    renderSplitBar,
+    renderTeeFan,
+} from './stats-charts';
 import { STATS_COLORS } from './stats-palette';
 
 // The five module cards (§3) — tee, approach, putting, short game, scoring.
@@ -80,6 +86,23 @@ const figureTpl = template(`
             <span bind="hint" class="block__hint"></span>
         </div>
         <span bind="value" class="block__value"></span>
+    </div>
+`);
+
+// The two dispersion pictures. Both keep the reading in WORDS beside the
+// drawing: the SVG is `aria-hidden`, so the text line is not a caption, it is
+// the block's content for anyone the picture does not reach.
+const compassTpl = template(`
+    <div class="block block--compass">
+        <span bind="chart" class="block__compass"></span>
+        <span bind="text" class="block__chart-text"></span>
+    </div>
+`);
+
+const fanTpl = template(`
+    <div class="block block--fan">
+        <span bind="chart" class="block__fan"></span>
+        <span bind="text" class="block__chart-text"></span>
     </div>
 `);
 
@@ -161,6 +184,18 @@ export class StatsPanelsComponent extends Component<StatsPanelsProps> {
                 font-size: 0.9rem; font-weight: 700;
                 font-variant-numeric: tabular-nums;
                 &.block__value--absent { font-weight: 400; color: ${t('text-muted')}; }
+            }
+            & .block--compass, & .block--fan {
+                flex-direction: column; align-items: stretch; gap: ${s('xs')};
+            }
+            & .block__compass {
+                display: block; align-self: center;
+                & svg { display: block; }
+            }
+            & .block__fan { display: block; & svg { width: 100%; display: block; } }
+            & .block__chart-text {
+                font-size: 0.8rem; color: ${t('text-muted')};
+                font-variant-numeric: tabular-nums;
             }
             & .block--figure {
                 align-items: flex-start;
@@ -318,7 +353,52 @@ export class StatsPanelsComponent extends Component<StatsPanelsProps> {
                     },
                     track,
                 );
+            case 'compass':
+                return this.wireEl(
+                    compassTpl,
+                    {
+                        chart: {
+                            innerHTML: () => {
+                                const b = this.blockNow(panel, block.id) ?? block;
+                                if (b.kind !== 'compass') return '';
+                                return renderGreenCompass(b.sectors, b.labels, this.colors);
+                            },
+                        },
+                        text: () => {
+                            const b = this.blockNow(panel, block.id) ?? block;
+                            return b.kind === 'compass' ? b.text : block.text;
+                        },
+                    },
+                    track,
+                );
+            case 'fan':
+                return this.wireEl(
+                    fanTpl,
+                    {
+                        chart: {
+                            innerHTML: () => {
+                                const b = this.blockNow(panel, block.id) ?? block;
+                                if (b.kind !== 'fan') return '';
+                                return renderTeeFan(b.columns, this.toneColors(), this.colors);
+                            },
+                        },
+                        text: () => {
+                            const b = this.blockNow(panel, block.id) ?? block;
+                            return b.kind === 'fan' ? b.text : block.text;
+                        },
+                    },
+                    track,
+                );
         }
+    }
+
+    /** The three tone colours as one record, for the fan's stacked segments. */
+    private toneColors(): Record<StatsSegmentTone, string> {
+        return {
+            fairway: this.segmentColor('fairway'),
+            inplay: this.segmentColor('inplay'),
+            trouble: this.segmentColor('trouble'),
+        };
     }
 
     /**

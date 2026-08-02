@@ -630,4 +630,92 @@ final class RoundStatsCaptureTests: XCTestCase {
         store.openKeypad(ballId: "ball-1")
         XCTAssertTrue(store.statPrompts.isEmpty)
     }
+
+    // MARK: - Derived GIR (§3.4b)
+
+    /// The score the golfer just entered can answer the green question, so the
+    /// card says it WILL — and then it does, once, on close. Nothing is
+    /// derived at render time: the prompt list is unchanged until the step is
+    /// closed.
+    func testAnUntouchedGirIsFilledInFromTheScoreOnClose() async {
+        routeRound()
+        let store = makeStore()
+        await store.load()
+        store.openKeypad(ballId: "ball-1")
+        store.commit(5)
+        await waitUntil("the stats step to open") { store.statsOpen }
+
+        store.stepStat(.putts, by: 1)
+        store.stepStat(.putts, by: 1)
+        XCTAssertEqual(store.statDerivedGirState, .pending)
+        XCTAssertEqual(store.statDerivedGir, "0", "5 − 2 = 3 shots to a par 4 green is a miss")
+        XCTAssertNil(store.statValue(.gir), "nothing is written while the card is open")
+
+        store.statsDone()
+        await waitUntil("the batch to post") { self.statRequests().count == 1 }
+        let items = lastBatch()
+        XCTAssertEqual(items.map { $0["key"] as? String }, ["gir", "putts"])
+        XCTAssertEqual(items.map { $0["value"] as? String }, ["0", "2"])
+    }
+
+    /// A tap always wins, and the lock survives the close: the derivation never
+    /// overwrites an answer the golfer gave.
+    func testAManualGirIsNeverOverwrittenByTheScore() async {
+        routeRound()
+        let store = makeStore()
+        await store.load()
+        store.openKeypad(ballId: "ball-1")
+        store.commit(5)
+        await waitUntil("the stats step to open") { store.statsOpen }
+
+        store.stepStat(.putts, by: 1)
+        store.stepStat(.putts, by: 1)
+        store.answerStat(.gir, value: "1")
+        XCTAssertEqual(store.statDerivedGirState, .manual)
+
+        store.statsDone()
+        await waitUntil("the batch to post") { self.statRequests().count == 1 }
+        XCTAssertEqual(lastBatch().map { $0["value"] as? String }, ["1", "2"])
+    }
+
+    /// Backgrounding is a "get what we have onto disk" flush, not a close: it
+    /// must not write an answer under a card the golfer is still looking at.
+    func testABackgroundFlushDoesNotMaterialiseThePendingGir() async {
+        routeRound()
+        let store = makeStore()
+        await store.load()
+        store.openKeypad(ballId: "ball-1")
+        store.commit(5)
+        await waitUntil("the stats step to open") { store.statsOpen }
+
+        store.stepStat(.putts, by: 1)
+        store.stepStat(.putts, by: 1)
+        store.setSceneActive(false)
+        await waitUntil("the background flush to post") { self.statRequests().count == 1 }
+
+        XCTAssertEqual(lastBatch().map { $0["key"] as? String }, ["putts"])
+        XCTAssertEqual(store.statDerivedGirState, .pending, "still only a promise")
+        XCTAssertNil(store.statValue(.gir))
+    }
+
+    /// Switching group moves the cursor off this (player, hole) for good, so it
+    /// is a CLOSE like every other exit — the last site that still flushed.
+    func testSwitchingGroupClosesTheStepAndMaterialisesTheGir() async {
+        routeRound()
+        let store = makeStore()
+        await store.load()
+        store.openKeypad(ballId: "ball-1")
+        store.commit(5)
+        await waitUntil("the stats step to open") { store.statsOpen }
+
+        store.stepStat(.putts, by: 1)
+        store.stepStat(.putts, by: 1)
+        XCTAssertEqual(store.statDerivedGirState, .pending)
+
+        store.selectGroup(index: 0)
+        await waitUntil("the batch to post") { self.statRequests().count == 1 }
+        let items = lastBatch()
+        XCTAssertEqual(items.map { $0["key"] as? String }, ["gir", "putts"])
+        XCTAssertEqual(items.map { $0["value"] as? String }, ["0", "2"])
+    }
 }

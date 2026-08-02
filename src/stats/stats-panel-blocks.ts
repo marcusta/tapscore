@@ -25,6 +25,7 @@ import {
     type ResultsSummary,
     type ScoreType,
 } from '../round/stat-measures';
+import type { StatMeasures } from '../api/player-stats.gen';
 import {
     averageWithSample,
     bucketTitle,
@@ -40,10 +41,23 @@ import {
     troubleTaxSample,
     UNIT_GREENS,
     UNIT_HOLES,
+    UNIT_LABELLED_PENALTY_HOLES,
     UNIT_ROUNDS,
     vsPar as vsParScore,
 } from './stats-format';
-import type { StatsDashboardModel, StatsPanelId, StatsTeePanel } from './stats-dashboard-model';
+import {
+    greenCompassGeometry,
+    teeFanGeometry,
+    type CompassSector,
+    type CompassSectorId,
+    type FanSegment,
+} from './stats-charts';
+import type {
+    StatsApproachPanel,
+    StatsDashboardModel,
+    StatsPanelId,
+    StatsTeePanel,
+} from './stats-dashboard-model';
 
 /** Which theme family a split segment paints in. Resolved by the component. */
 export type StatsSegmentTone = 'fairway' | 'inplay' | 'trouble';
@@ -64,7 +78,23 @@ export type StatsBlock =
     /** One rung of the putting ladder: a bar against a baseline tick. */
     | { kind: 'rung'; id: string; title: string; made: number | null; baseline: number; value: string | null }
     /** Label / value / explanation. A null value prints "Not recorded". */
-    | { kind: 'figure'; id: string; title: string; value: string | null; hint: string | null };
+    | { kind: 'figure'; id: string; title: string; value: string | null; hint: string | null }
+    /**
+     * The green-miss compass. `sectors` is pure geometry from `stats-charts`;
+     * `labels` is what goes INSIDE the (aria-hidden) picture, and `text` is the
+     * same reading as words, which is what a screen reader and a reader who
+     * ignores charts actually get.
+     */
+    | {
+          kind: 'compass';
+          id: string;
+          sectors: readonly CompassSector[];
+          labels: Readonly<Record<CompassSectorId, string>>;
+          text: string;
+          recorded: number;
+      }
+    /** The tee-shot fan. Same split of picture (`columns`) and words (`text`). */
+    | { kind: 'fan'; id: string; columns: readonly FanSegment[]; text: string; recorded: number };
 
 export const STATS_COPY = {
     title: 'Your statistics',
@@ -118,6 +148,16 @@ export const STATS_COPY = {
     puttsAfterMissedGreen: 'Putts taken on holes where you missed the green.',
     hardChipShare:
         'How often a missed green left a hard chip or pitch rather than a standard one.',
+    greenMissHead: 'Where you miss the green',
+    greenMiss: 'Recorded misses only. Long is past the flag, short is in front of it.',
+    teeFanHead: 'Where your tee shots finish',
+    teeFan: 'Side is recorded whenever the drive left the fairway. The darker block is trouble.',
+    sandSave: 'Missed greens from a bunker where you still got up and down.',
+    multiChip:
+        'Missed greens that took more than one shot to reach the green. Holes where you did not count are treated as one.',
+    multiChipBunker: 'Bunker holes that took more than one shot to get out.',
+    extraShortGameStrokes: 'Short-game shots beyond one per missed green, across this window.',
+    penaltySourceInfoTitle: 'Where the penalties came from',
     resultsHeading: 'Results',
     scoreTypesHead: 'Holes by score',
     doubleBogeyPlus: 'Holes at double bogey or worse, per round.',
@@ -203,6 +243,69 @@ function vsPar(r: Rate): string | null {
     return averageWithSample(r, { unit: UNIT_HOLES, signed: true });
 }
 
+/**
+ * The green-miss compass, as a block.
+ *
+ * The labels painted inside the wheel go through the SAME `formatRate` path as
+ * the readable line beside it, so both obey `MIN_RATE_DENOMINATOR`. They have
+ * to: a wheel saying "67%" next to prose saying "2 of 3" is the screen
+ * contradicting itself, and the confident-looking number is the one that wins
+ * the reader. Under the floor the wedge carries the fraction — six characters
+ * at font-size 7 in a 100-unit box, which the mid-annulus label position takes.
+ * The wedge geometry is unaffected either way; only the words change.
+ */
+function greenMissCompass(p: StatsApproachPanel): StatsBlock {
+    const shares = {
+        long: p.greenMiss.long.value ?? 0,
+        short: p.greenMiss.short.value ?? 0,
+        left: p.greenMiss.left.value ?? 0,
+        right: p.greenMiss.right.value ?? 0,
+    };
+    // The block is gated on `greenMissRecorded > 0`, so every denominator here
+    // is non-zero and `formatRate` never returns null — but say so, rather than
+    // painting the words "Not recorded" inside a wedge.
+    const label = (r: Rate): string => formatRate(r) ?? '';
+    const word = (title: string, r: Rate): string =>
+        `${title} ${formatRate(r) ?? STATS_COPY.notRecorded}`;
+    return {
+        kind: 'compass',
+        id: 'greenMiss',
+        sectors: greenCompassGeometry(shares),
+        labels: {
+            long: label(p.greenMiss.long),
+            short: label(p.greenMiss.short),
+            left: label(p.greenMiss.left),
+            right: label(p.greenMiss.right),
+        },
+        text: [
+            word('Long', p.greenMiss.long),
+            word('Short', p.greenMiss.short),
+            word('Left', p.greenMiss.left),
+            word('Right', p.greenMiss.right),
+        ].join(' · '),
+        recorded: p.greenMissRecorded,
+    };
+}
+
+/**
+ * The tee-shot fan, as a block. Counts, not rates: the three columns partition
+ * `teeRecorded`, and the readable line is what the picture is a picture OF.
+ */
+function teeFanBlock(p: StatsTeePanel): StatsBlock {
+    const f = p.teeFan;
+    return {
+        kind: 'fan',
+        id: 'teeFan',
+        columns: teeFanGeometry(f, p.teeRecorded),
+        text: [
+            `Left ${formatCount(f.leftInPlay + f.leftTrouble)}`,
+            `Fairway ${formatCount(f.fairway)}`,
+            `Right ${formatCount(f.rightInPlay + f.rightTrouble)}`,
+        ].join(' · '),
+        recorded: p.teeRecorded,
+    };
+}
+
 /** Whether any tee bucket has a scored hole behind it. */
 function vsParByTeeRecorded(p: StatsTeePanel): boolean {
     return p.vsParByTee.fairway.d > 0 || p.vsParByTee.inPlay.d > 0 || p.vsParByTee.trouble.d > 0;
@@ -229,6 +332,17 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                         { id: 'trouble', title: 'Trouble', tone: 'trouble', share: barShare(p.trouble), value: formatRate(p.trouble) },
                     ],
                 },
+                // The fan sits directly under the split it decomposes. Absent,
+                // never "Not recorded": a side is only asked for when the drive
+                // missed, so a window of nothing but fairways has no picture to
+                // draw and no gap to explain.
+                ...(p.teeMissRecorded > 0
+                    ? [
+                          { kind: 'subhead' as const, id: 'teeFanHead', text: STATS_COPY.teeFanHead },
+                          teeFanBlock(p),
+                          { kind: 'note' as const, id: 'teeFanNote', text: STATS_COPY.teeFan },
+                      ]
+                    : []),
                 // The three absolutes the tax is a difference OF, read before it.
                 // Omitted as a group when no tee shot has a scored hole behind it;
                 // inside the group a single empty row still prints "Not recorded",
@@ -282,6 +396,22 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
             const p = model.approach;
             if (!p) return [];
             return [
+                // Directly under the card's own GIR headline, and above every
+                // breakdown: the compass says WHERE the misses went, which is
+                // the question the breakdowns below then slice. Absent when no
+                // miss carries a direction — an empty wheel would read as "you
+                // miss nowhere".
+                ...(p.greenMissRecorded > 0
+                    ? [
+                          {
+                              kind: 'subhead' as const,
+                              id: 'greenMissHead',
+                              text: STATS_COPY.greenMissHead,
+                          },
+                          greenMissCompass(p),
+                          { kind: 'note' as const, id: 'greenMissNote', text: STATS_COPY.greenMiss },
+                      ]
+                    : []),
                 { kind: 'subhead', id: 'girByTee', text: 'Greens hit, by where the tee shot finished' },
                 bar('girFairway', 'From the fairway', p.girByTee.fairway),
                 bar('girInPlay', 'From in play', p.girByTee.inPlay),
@@ -450,21 +580,78 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                 { kind: 'subhead', id: 'scrambleHead', text: 'Scrambling' },
                 bar('scrambleStandard', 'Standard', p.scramble.standard),
                 bar('scrambleHard', 'Hard', p.scramble.hard),
+                // The third leg, on the same gate as every other bunker row: a
+                // window with no sand in it has no bunker scrambling to report,
+                // and an empty row would read as "you never got up and down".
+                // `scrambleAttemptsBunker` is the denominator all three bunker
+                // rows share — a chip-in has `putts = 0`, which the attempt
+                // predicate counts, so no non-zero bunker figure can hide behind
+                // this gate.
+                ...(p.scrambleAttemptsBunker > 0
+                    ? [bar('scrambleBunker', 'Bunker', p.scramble.bunker)]
+                    : []),
+                // Sand save is the bunker scramble under the name a golfer uses
+                // for it. Absent with no bunker attempt: there is no such thing
+                // as a 0% sand save over zero bunkers.
+                ...(p.scrambleAttemptsBunker > 0
+                    ? [
+                          figure(
+                              'sandSave',
+                              'Sand save',
+                              rateWithSample(p.sandSave),
+                              STATS_COPY.sandSave,
+                          ),
+                      ]
+                    : []),
+                // The counter block, gated as a GROUP on at least one COUNTED
+                // hole: with nothing counted every hole models as one stroke, so
+                // all three numbers would be a confident restatement of the
+                // model rather than a reading of the player.
+                ...(p.shortGameStrokesRecorded > 0
+                    ? [
+                          figure(
+                              'multiChipBunker',
+                              'More than one from sand',
+                              rateWithSample(p.multiChipBunker),
+                              STATS_COPY.multiChipBunker,
+                          ),
+                          figure(
+                              'extraShortGameStrokes',
+                              'Extra short-game shots',
+                              String(p.extraShortGameStrokes),
+                              STATS_COPY.extraShortGameStrokes,
+                          ),
+                          figure(
+                              'multiChip',
+                              'More than one chip',
+                              rateWithSample(p.multiChip),
+                              STATS_COPY.multiChip,
+                          ),
+                      ]
+                    : []),
                 { kind: 'subhead', id: 'chipHead', text: 'Chipped to inside 2 m' },
                 bar('chipStandard', 'Standard', p.chipInside2m.standard),
                 bar('chipHard', 'Hard', p.chipInside2m.hard),
+                ...(p.scrambleAttemptsBunker > 0
+                    ? [bar('chipBunker', 'Bunker', p.chipInside2m.bunker)]
+                    : []),
                 figure(
                     'conversionInside2m',
                     'Holed from inside 2 m',
                     rateWithSample(p.conversionInside2m),
                     STATS_COPY.conversionInside2m,
                 ),
-                // The pair, not the sum: "Standard / Hard" matches the two groups
-                // above it, and the total is the addition of two visible rows.
+                // The legs, not the sum: the rows match the groups above them,
+                // and the total is the addition of what is visible. Bunker rides
+                // the same gate as its two siblings above, so the three sections
+                // agree about whether this window has any sand in it.
                 { kind: 'subhead', id: 'chipInsHead', text: 'Chip-ins' },
                 { kind: 'note', id: 'chipInsNote', text: STATS_COPY.chipIns },
                 figure('chipInsStandard', 'Standard', formatCount(p.chipIns.standard)),
                 figure('chipInsHard', 'Hard', formatCount(p.chipIns.hard)),
+                ...(p.scrambleAttemptsBunker > 0
+                    ? [figure('chipInsBunker', 'Bunker', formatCount(p.chipIns.bunker))]
+                    : []),
             ];
         }
         case 'scoring': {
@@ -716,6 +903,13 @@ export interface SgInfoInput {
     /** 0 = the per-round variant. */
     windowRounds: number;
     rowsPer18: readonly (number | null)[];
+    /**
+     * Where the window's penalty strokes came from, when the player labelled
+     * any. Optional because the sheet predates the question and a caller with
+     * no measures to hand may omit it; `recorded === 0` and omission read the
+     * same, and both drop the card.
+     */
+    penaltySource?: { recorded: number; tee: number; approach: number; short: number };
 }
 
 /**
@@ -767,6 +961,18 @@ export const SG_INFO_COPY = {
         }
         return `Over these ${input.windowRounds} rounds the five rows add up to ${signed} strokes against the baseline.`;
     },
+
+    /**
+     * ABSOLUTE COUNTS, not shares. The labelled sample is usually a handful of
+     * holes, and `MIN_RATE_DENOMINATOR` would suppress every percentage and with
+     * it the whole card — so the card says the three numbers, which are true at
+     * any size, and lets the reader see how small they are.
+     */
+    penaltySource(input: SgInfoInput): string | null {
+        const p = input.penaltySource;
+        if (p === undefined || p.recorded <= 0) return null;
+        return `Of ${quantity(p.recorded, UNIT_LABELLED_PENALTY_HOLES)} you labelled, ${formatCount(p.tee)} came off the tee, ${formatCount(p.approach)} on the approach and ${formatCount(p.short)} around the green.`;
+    },
 };
 
 /**
@@ -784,6 +990,20 @@ export function sgInfoRowSum(rows: readonly (number | null)[]): number | null {
     return sum;
 }
 
+/**
+ * The penalty-source field of `SgInfoInput`, lifted off the window's summed
+ * measures. One place, so the four sheets that exist cannot disagree about
+ * which counter is which.
+ */
+export function sgPenaltySource(m: StatMeasures): SgInfoInput['penaltySource'] {
+    return {
+        recorded: m.penaltySourceRecorded,
+        tee: m.penaltiesTee,
+        approach: m.penaltiesApproach,
+        short: m.penaltiesShort,
+    };
+}
+
 /** The sheet's cards, in reading order. The total card is dropped when null. */
 export function sgInfoCards(input: SgInfoInput): SgInfoCard[] {
     const cards: SgInfoCard[] = [
@@ -794,5 +1014,13 @@ export function sgInfoCards(input: SgInfoInput): SgInfoCard[] {
     ];
     const total = SG_INFO_COPY.total(input);
     if (total !== null) cards.push({ id: 'total', title: 'The total', body: total });
+    const penalties = SG_INFO_COPY.penaltySource(input);
+    if (penalties !== null) {
+        cards.push({
+            id: 'penaltySource',
+            title: STATS_COPY.penaltySourceInfoTitle,
+            body: penalties,
+        });
+    }
     return cards;
 }

@@ -358,6 +358,8 @@ export function insightSentence(line: InsightLine): string {
             const strokes = n === 1 ? '1 penalty stroke' : `${n} penalty strokes`;
             return `${strokes}, against ${num(p.baseline)} in a normal round.`;
         }
+        case 'two_way_miss':
+            return `Your tee misses are split ${count(p.left)} left and ${count(p.right)} right of ${count(p.recorded)} — you are missing both ways.`;
         case 'scramble_streak':
             return `You saved par ${count(p.successes)} of the ${count(p.attempts)} times you missed the green.`;
         case 'hard_scramble_streak':

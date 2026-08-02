@@ -66,6 +66,10 @@ const holeRows: PlayerRoundHoleStats[] = [
             shortGameDifficulty: null,
             penalties: 0,
             recoveryOk: null,
+            teeMissDir: null,
+            greenMissDir: null,
+            shortGameStrokes: null,
+            penaltySource: null,
         },
     },
 ];

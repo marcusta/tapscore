@@ -71,7 +71,8 @@ struct RoundStoryCard: View {
                 headline
                 RoundWaterfallSection(
                     waterfall: model.waterfall, deltas: model.deltas,
-                    windowCount: model.windowCount, showsHint: false)
+                    windowCount: model.windowCount, showsHint: false,
+                    penaltySource: PenaltySourceCounts(model.panels.totals))
                 lines
                 Button {
                     showsDetail = true
@@ -172,6 +173,13 @@ enum RoundStoryCopy {
             else { return "More penalty strokes than you usually take." }
             return
                 "\(strokes(penalties)) penalty \(penalties == 1 ? "stroke" : "strokes"), against \(StatsFormat.number(baseline)) in a normal round."
+
+        case .twoWayMiss:
+            guard let left = number(line, "left"), let right = number(line, "right"),
+                let recorded = number(line, "recorded")
+            else { return "Your tee misses go both ways." }
+            return
+                "Your tee misses are split \(strokes(left)) left and \(strokes(right)) right of \(strokes(recorded)) — you are missing both ways."
 
         case .hardScrambleStreak:
             guard let attempts = number(line, "attempts")

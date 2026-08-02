@@ -25,17 +25,22 @@ import {
     costOfMissedGreen,
     doubleBogeyPlusPerRound,
     EXPECTED_PUTTS_V1,
+    extraShortGameStrokes,
     fairwayRate,
     firstPuttMix,
     girByPar,
     girFirstPuttMix,
     girRate,
     girRateByTee,
+    greenMissDispersion,
     hardChipShare,
     meanOfPresent,
+    multiChipFromBunkerRate,
+    multiChipRate,
     onePuttRate,
     penaltiesPerRound,
     penaltyHoleShare,
+    penaltySourceSplit,
     penaltyTax,
     PUTT_BUCKETS,
     puttDistribution,
@@ -46,6 +51,7 @@ import {
     rateDisplay,
     recoveryRate,
     resultsSummary,
+    sandSaveRate,
     scrambleRate,
     STROKES_LOST_COMPONENTS,
     strokesLostV3,
@@ -53,6 +59,7 @@ import {
     sgPer18,
     strokesVsParByTee,
     sumMeasures,
+    teeMissDispersion,
     threePuttRate,
     threePuttsFromOver8mRate,
     troubleRate,
@@ -62,6 +69,8 @@ import {
     type ByDifficulty,
     type ByParGroup,
     type ByTee,
+    type GreenMissDispersion,
+    type PenaltySourceSplit,
     type PenaltySplit,
     type PuttBucket,
     type PuttCountBucket,
@@ -69,6 +78,7 @@ import {
     type ResultsSummary,
     type StrokesLost,
     type StrokesLostComponent,
+    type TeeMissDispersion,
     type VsParSplit,
 } from '../round/stat-measures';
 import { sortRows } from './stats-window';
@@ -189,6 +199,28 @@ export interface StatsTeePanel {
      */
     vsParByTee: ByTee<Rate>;
     recovery: Rate;
+    /**
+     * Tee-shot dispersion and its severity cross. Null-gated by
+     * `teeMissRecorded`, which the view reads directly — a player who never
+     * answers "which side" has no fan, not an empty one.
+     */
+    teeMiss: TeeMissDispersion;
+    /** Recorded sides, the fan's own denominator gate. */
+    teeMissRecorded: number;
+    /**
+     * The fan's five counts, derived HERE and not in the chart module: the
+     * chart does no arithmetic on measures. `leftInPlay` is the side minus its
+     * trouble, so the two segments of a column partition that side.
+     */
+    teeFan: {
+        leftInPlay: number;
+        leftTrouble: number;
+        fairway: number;
+        rightInPlay: number;
+        rightTrouble: number;
+    };
+    /** The fan's shared denominator: every recorded tee shot. */
+    teeRecorded: number;
     penaltiesPerRound: Rate;
     /**
      * Holes on which a penalty answer was recorded at all.
@@ -202,6 +234,12 @@ export interface StatsTeePanel {
     penaltyTax: Rate;
     /** The two samples `penaltyTax` is a DIFFERENCE of — see `troubleTax`. */
     vsParByPenalty: PenaltySplit;
+    /** Where the penalties came from, over the holes that were LABELLED. */
+    penaltySource: PenaltySourceSplit;
+    penaltySourceRecorded: number;
+    penaltiesTee: number;
+    penaltiesApproach: number;
+    penaltiesShort: number;
 }
 
 export interface StatsApproachPanel {
@@ -220,6 +258,14 @@ export interface StatsApproachPanel {
      */
     hardChipShare: Rate;
     girByPar: ByParGroup<Rate>;
+    /**
+     * Where the recorded misses finished, as four shares of one denominator.
+     * The compass's gate is `greenMissRecorded`, carried beside it.
+     */
+    greenMiss: GreenMissDispersion;
+    greenMissRecorded: number;
+    /** The four raw counts, for the readable text beside the picture. */
+    greenMissCounts: { long: number; short: number; left: number; right: number };
     /** vs-par with the green hit, with it missed, and the difference. */
     costOfMissedGreen: VsParSplit;
 }
@@ -278,6 +324,19 @@ export interface StatsShortGamePanel {
      * anything.
      */
     chipIns: ByDifficulty<number>;
+    /** Up-and-downs from sand, the figure golfers know by name. */
+    sandSave: Rate;
+    /** Its own gate: without a bunker attempt the figure is absent, not zero. */
+    scrambleAttemptsBunker: number;
+    /**
+     * The short-game COUNTER family (proposal §3.4c). All three gate on
+     * `shortGameStrokesRecorded`: with nothing counted every hole models as one
+     * shot, so the numbers would all read as a perfect window.
+     */
+    multiChip: Rate;
+    multiChipBunker: Rate;
+    extraShortGameStrokes: number;
+    shortGameStrokesRecorded: number;
 }
 
 export interface StatsScoringPanel {
@@ -518,11 +577,26 @@ export function teePanel(m: StatMeasures, roundCount: number): StatsTeePanel | n
         troubleTax: troubleTaxPerHole(m),
         vsParByTee: strokesVsParByTee(m),
         recovery: recoveryRate(m),
+        teeMiss: teeMissDispersion(m),
+        teeMissRecorded: m.teeMissRecorded,
+        teeFan: {
+            leftInPlay: Math.max(0, m.teeMissLeft - m.teeTroubleLeft),
+            leftTrouble: m.teeTroubleLeft,
+            fairway: m.fairwayHits,
+            rightInPlay: Math.max(0, m.teeMissRight - m.teeTroubleRight),
+            rightTrouble: m.teeTroubleRight,
+        },
+        teeRecorded: m.teeRecorded,
         penaltiesPerRound: penaltiesPerRound(m, roundCount),
         penaltiesRecordedHoles: m.penaltiesRecorded,
         penaltyHoleShare: penaltyHoleShare(m),
         penaltyTax: penaltyTax(m),
         vsParByPenalty: vsParByPenalty(m),
+        penaltySource: penaltySourceSplit(m),
+        penaltySourceRecorded: m.penaltySourceRecorded,
+        penaltiesTee: m.penaltiesTee,
+        penaltiesApproach: m.penaltiesApproach,
+        penaltiesShort: m.penaltiesShort,
     };
 }
 
@@ -537,6 +611,14 @@ export function approachPanel(m: StatMeasures): StatsApproachPanel | null {
         birdieConversion: birdieConversion(m),
         hardChipShare: hardChipShare(m),
         girByPar: girByPar(m),
+        greenMiss: greenMissDispersion(m),
+        greenMissRecorded: m.greenMissRecorded,
+        greenMissCounts: {
+            long: m.greenMissLong,
+            short: m.greenMissShort,
+            left: m.greenMissLeft,
+            right: m.greenMissRight,
+        },
         costOfMissedGreen: costOfMissedGreen(m),
     };
 }
@@ -562,7 +644,8 @@ export function puttingPanel(m: StatMeasures): StatsPuttingPanel | null {
 }
 
 export function shortGamePanel(m: StatMeasures): StatsShortGamePanel | null {
-    const attempts = m.scrambleAttemptsStandard + m.scrambleAttemptsHard;
+    const attempts =
+        m.scrambleAttemptsStandard + m.scrambleAttemptsHard + m.scrambleAttemptsBunker;
     if (attempts <= 0) return null;
     // The two buckets that together mean "inside 2 m", v2-resolved on both
     // sides so numerator and denominator cover the same holes.
@@ -575,8 +658,15 @@ export function shortGamePanel(m: StatMeasures): StatsShortGamePanel | null {
         chipIns: {
             standard: m.scrambleHoledStandard,
             hard: m.scrambleHoledHard,
-            overall: m.scrambleHoledStandard + m.scrambleHoledHard,
+            bunker: m.scrambleHoledBunker,
+            overall: m.scrambleHoledStandard + m.scrambleHoledHard + m.scrambleHoledBunker,
         },
+        sandSave: sandSaveRate(m),
+        scrambleAttemptsBunker: m.scrambleAttemptsBunker,
+        multiChip: multiChipRate(m),
+        multiChipBunker: multiChipFromBunkerRate(m),
+        extraShortGameStrokes: extraShortGameStrokes(m),
+        shortGameStrokesRecorded: m.shortGameStrokesRecorded,
     };
 }
 

@@ -25,6 +25,7 @@ import {
     resultsTiles,
     roundLabel,
     sgInfoCards,
+    sgPenaltySource,
     SG_INFO_COPY,
     STATS_COPY,
     type ResultsHistogramRow,
@@ -746,6 +747,7 @@ ${SG_INFO_STYLES}
                     // The rows the card above is showing, so card 5 totals what
                     // the reader can actually see and add up.
                     rowsPer18: model().priorities.map((p) => p.per18),
+                    penaltySource: sgPenaltySource(model().totals),
                 }),
             (c: SgInfoCard, _i, track) =>
                 this.wireEl(
@@ -1028,6 +1030,7 @@ ${SG_INFO_STYLES}
             holesScored: m.waterfall.coverage.holesScored,
             windowRounds: m.rounds.length,
             rowsPer18: m.priorities.map((p) => p.per18),
+            penaltySource: sgPenaltySource(m.totals),
         }).find((c) => c.id === id);
     }
 

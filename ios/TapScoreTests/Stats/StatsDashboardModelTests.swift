@@ -425,7 +425,7 @@ final class StatsDashboardModelTests: XCTestCase {
                 })
         ])
 
-        XCTAssertEqual(model.shortGame?.chipIns, ByDifficulty(standard: 2, hard: 1, overall: 3))
+        XCTAssertEqual(model.shortGame?.chipIns, ByDifficulty(standard: 2, hard: 1, bunker: 0, overall: 3))
     }
 
     // MARK: - 7. The v2 blocks

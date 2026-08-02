@@ -340,145 +340,176 @@ final class StatMeasuresMathTests: XCTestCase {
         m.fairwayHits = 2
         m.inPlayHits = 3
         m.troubleCount = 4
-        m.girRecorded = 5
-        m.girHits = 6
-        m.firstPuttRecorded = 7
-        m.firstPuttInside1m = 8
-        m.firstPutt1To2m = 9
-        m.firstPutt2To4m = 10
-        m.firstPutt4To8m = 11
-        m.firstPuttOver8m = 12
-        m.firstPuttInside1mResolved = 13
-        m.firstPutt1To2mResolved = 14
-        m.firstPutt2To4mResolved = 15
-        m.firstPutt4To8mResolved = 16
-        m.firstPuttOver8mResolved = 17
-        m.onePuttInside1m = 18
-        m.onePutt1To2m = 19
-        m.onePutt2To4m = 20
-        m.onePutt4To8m = 21
-        m.onePuttOver8m = 22
-        m.puttsRecorded = 23
-        m.puttsTotal = 24
-        m.threePutts = 25
-        m.threePuttsFromOver8m = 26
-        m.scrambleAttemptsStandard = 27
-        m.scrambleSuccessesStandard = 28
-        m.scrambleAttemptsHard = 29
-        m.scrambleSuccessesHard = 30
-        m.scrambleFirstPuttStandard = 31
-        m.scrambleInside2mStandard = 32
-        m.scrambleFirstPuttHard = 33
-        m.scrambleInside2mHard = 34
-        m.scrambleHoledStandard = 35
-        m.scrambleHoledHard = 36
-        m.penaltiesRecorded = 37
-        m.penaltiesTotal = 38
-        m.recoveryAttempts = 39
-        m.recoverySuccesses = 40
-        m.holesScored = 41
-        m.strokesTotal = 42
-        m.parTotal = 43
-        m.holesScoredPar3 = 44
-        m.strokesPar3 = 45
-        m.holesScoredPar4 = 46
-        m.strokesPar4 = 47
-        m.holesScoredPar5 = 48
-        m.strokesPar5 = 49
-        m.holesEagleOrBetter = 50
-        m.holesBirdie = 51
-        m.holesPar = 52
-        m.holesBogey = 53
-        m.doubleBogeyPlus = 54
-        m.girHolesScored = 55
-        m.birdiesOnGir = 56
-        m.bounceBackOpportunities = 57
-        m.bounceBackSuccesses = 58
-        m.holesScoredFairway = 59
-        m.strokesVsParFairway = 60
-        m.holesScoredInPlay = 61
-        m.strokesVsParInPlay = 62
-        m.holesScoredTrouble = 63
-        m.strokesVsParTrouble = 64
-        m.girRecordedFairway = 65
-        m.girHitsFairway = 66
-        m.girRecordedInPlay = 67
-        m.girHitsInPlay = 68
-        m.girRecordedTrouble = 69
-        m.girHitsTrouble = 70
-        m.girFirstPuttRecorded = 71
-        m.girFirstPuttInside1m = 72
-        m.girFirstPutt1To2m = 73
-        m.girFirstPutt2To4m = 74
-        m.girFirstPutt4To8m = 75
-        m.girFirstPuttOver8m = 76
-        m.puttsRecordedGir = 77
-        m.puttsTotalGir = 78
-        m.puttsTotalInside1mResolved = 79
-        m.puttsTotal1To2mResolved = 80
-        m.puttsTotal2To4mResolved = 81
-        m.puttsTotal4To8mResolved = 82
-        m.puttsTotalOver8mResolved = 83
-        m.strokesVsParGirHit = 84
-        m.holesScoredGirMiss = 85
-        m.strokesVsParGirMiss = 86
-        m.girRecordedPar3 = 87
-        m.girHitsPar3 = 88
-        m.girRecordedPar4 = 89
-        m.girHitsPar4 = 90
-        m.girRecordedPar5 = 91
-        m.girHitsPar5 = 92
-        m.holesZeroPutt = 93
-        m.holesOnePutt = 94
-        m.holesTwoPutt = 95
-        m.puttsRecordedPar3 = 96
-        m.puttsTotalPar3 = 97
-        m.puttsRecordedPar4 = 98
-        m.puttsTotalPar4 = 99
-        m.puttsRecordedPar5 = 100
-        m.puttsTotalPar5 = 101
-        m.holesWithPenalty = 102
-        m.holesScoredPenalty = 103
-        m.strokesVsParPenalty = 104
-        m.holesScoredPenaltyFree = 105
-        m.strokesVsParPenaltyFree = 106
-        m.teeRecordedPar4 = 107
-        m.fairwayHitsPar4 = 108
-        m.inPlayHitsPar4 = 109
-        m.troubleCountPar4 = 110
-        m.teeRecordedPar5 = 111
-        m.fairwayHitsPar5 = 112
-        m.inPlayHitsPar5 = 113
-        m.troubleCountPar5 = 114
-        m.attHolesPar3Gir = 115
-        m.attHolesPar3Miss = 116
-        m.attHolesPar45Gir = 117
-        m.attHolesPar45Miss = 118
-        m.attStrokes = 119
-        m.attPutts = 120
-        m.attPenalties = 121
-        m.attFairwayPar4 = 122
-        m.attInPlayPar4 = 123
-        m.attTroublePar4 = 124
-        m.attFairwayPar5 = 125
-        m.attInPlayPar5 = 126
-        m.attTroublePar5 = 127
-        m.attGirFirstPuttInside1m = 128
-        m.attGirFirstPutt1To2m = 129
-        m.attGirFirstPutt2To4m = 130
-        m.attGirFirstPutt4To8m = 131
-        m.attGirFirstPuttOver8m = 132
-        m.attGirHoled = 133
-        m.attMissStandard = 134
-        m.attMissHard = 135
-        m.attChipInside2mStandard = 136
-        m.attChipOutside2mStandard = 137
-        m.attChipHoledStandard = 138
-        m.attChipInside2mHard = 139
-        m.attChipOutside2mHard = 140
-        m.attChipHoledHard = 141
-        m.attSgStrokesEffectiveStandard = 142
-        m.attSgStrokesEffectiveHard = 143
+        m.teeMissRecorded = 5
+        m.teeMissLeft = 6
+        m.teeMissRight = 7
+        m.teeTroubleLeft = 8
+        m.teeTroubleRight = 9
+        m.girRecorded = 10
+        m.girHits = 11
+        m.greenMissRecorded = 12
+        m.greenMissLong = 13
+        m.greenMissShort = 14
+        m.greenMissLeft = 15
+        m.greenMissRight = 16
+        m.firstPuttRecorded = 17
+        m.firstPuttInside1m = 18
+        m.firstPutt1To2m = 19
+        m.firstPutt2To4m = 20
+        m.firstPutt4To8m = 21
+        m.firstPuttOver8m = 22
+        m.firstPuttInside1mResolved = 23
+        m.firstPutt1To2mResolved = 24
+        m.firstPutt2To4mResolved = 25
+        m.firstPutt4To8mResolved = 26
+        m.firstPuttOver8mResolved = 27
+        m.onePuttInside1m = 28
+        m.onePutt1To2m = 29
+        m.onePutt2To4m = 30
+        m.onePutt4To8m = 31
+        m.onePuttOver8m = 32
+        m.puttsRecorded = 33
+        m.puttsTotal = 34
+        m.threePutts = 35
+        m.threePuttsFromOver8m = 36
+        m.scrambleAttemptsStandard = 37
+        m.scrambleSuccessesStandard = 38
+        m.scrambleAttemptsHard = 39
+        m.scrambleSuccessesHard = 40
+        m.scrambleFirstPuttStandard = 41
+        m.scrambleInside2mStandard = 42
+        m.scrambleFirstPuttHard = 43
+        m.scrambleInside2mHard = 44
+        m.scrambleHoledStandard = 45
+        m.scrambleHoledHard = 46
+        m.scrambleAttemptsBunker = 47
+        m.scrambleSuccessesBunker = 48
+        m.scrambleFirstPuttBunker = 49
+        m.scrambleInside2mBunker = 50
+        m.scrambleHoledBunker = 51
+        m.shortGameStrokesRecorded = 52
+        m.shortGameStrokesEffective = 53
+        m.shortGameStrokesEffectiveStandard = 54
+        m.shortGameStrokesEffectiveHard = 55
+        m.shortGameStrokesEffectiveBunker = 56
+        m.holesMultiChip = 57
+        m.holesMultiChipBunker = 58
+        m.penaltiesRecorded = 59
+        m.penaltiesTotal = 60
+        m.recoveryAttempts = 61
+        m.recoverySuccesses = 62
+        m.penaltySourceRecorded = 63
+        m.penaltiesTee = 64
+        m.penaltiesApproach = 65
+        m.penaltiesShort = 66
+        m.holesScored = 67
+        m.strokesTotal = 68
+        m.parTotal = 69
+        m.holesScoredPar3 = 70
+        m.strokesPar3 = 71
+        m.holesScoredPar4 = 72
+        m.strokesPar4 = 73
+        m.holesScoredPar5 = 74
+        m.strokesPar5 = 75
+        m.holesEagleOrBetter = 76
+        m.holesBirdie = 77
+        m.holesPar = 78
+        m.holesBogey = 79
+        m.doubleBogeyPlus = 80
+        m.girHolesScored = 81
+        m.birdiesOnGir = 82
+        m.bounceBackOpportunities = 83
+        m.bounceBackSuccesses = 84
+        m.holesScoredFairway = 85
+        m.strokesVsParFairway = 86
+        m.holesScoredInPlay = 87
+        m.strokesVsParInPlay = 88
+        m.holesScoredTrouble = 89
+        m.strokesVsParTrouble = 90
+        m.girRecordedFairway = 91
+        m.girHitsFairway = 92
+        m.girRecordedInPlay = 93
+        m.girHitsInPlay = 94
+        m.girRecordedTrouble = 95
+        m.girHitsTrouble = 96
+        m.girFirstPuttRecorded = 97
+        m.girFirstPuttInside1m = 98
+        m.girFirstPutt1To2m = 99
+        m.girFirstPutt2To4m = 100
+        m.girFirstPutt4To8m = 101
+        m.girFirstPuttOver8m = 102
+        m.puttsRecordedGir = 103
+        m.puttsTotalGir = 104
+        m.puttsTotalInside1mResolved = 105
+        m.puttsTotal1To2mResolved = 106
+        m.puttsTotal2To4mResolved = 107
+        m.puttsTotal4To8mResolved = 108
+        m.puttsTotalOver8mResolved = 109
+        m.strokesVsParGirHit = 110
+        m.holesScoredGirMiss = 111
+        m.strokesVsParGirMiss = 112
+        m.girRecordedPar3 = 113
+        m.girHitsPar3 = 114
+        m.girRecordedPar4 = 115
+        m.girHitsPar4 = 116
+        m.girRecordedPar5 = 117
+        m.girHitsPar5 = 118
+        m.holesZeroPutt = 119
+        m.holesOnePutt = 120
+        m.holesTwoPutt = 121
+        m.puttsRecordedPar3 = 122
+        m.puttsTotalPar3 = 123
+        m.puttsRecordedPar4 = 124
+        m.puttsTotalPar4 = 125
+        m.puttsRecordedPar5 = 126
+        m.puttsTotalPar5 = 127
+        m.holesWithPenalty = 128
+        m.holesScoredPenalty = 129
+        m.strokesVsParPenalty = 130
+        m.holesScoredPenaltyFree = 131
+        m.strokesVsParPenaltyFree = 132
+        m.teeRecordedPar4 = 133
+        m.fairwayHitsPar4 = 134
+        m.inPlayHitsPar4 = 135
+        m.troubleCountPar4 = 136
+        m.teeRecordedPar5 = 137
+        m.fairwayHitsPar5 = 138
+        m.inPlayHitsPar5 = 139
+        m.troubleCountPar5 = 140
+        m.attHolesPar3Gir = 141
+        m.attHolesPar3Miss = 142
+        m.attHolesPar45Gir = 143
+        m.attHolesPar45Miss = 144
+        m.attStrokes = 145
+        m.attPutts = 146
+        m.attPenalties = 147
+        m.attFairwayPar4 = 148
+        m.attInPlayPar4 = 149
+        m.attTroublePar4 = 150
+        m.attFairwayPar5 = 151
+        m.attInPlayPar5 = 152
+        m.attTroublePar5 = 153
+        m.attGirFirstPuttInside1m = 154
+        m.attGirFirstPutt1To2m = 155
+        m.attGirFirstPutt2To4m = 156
+        m.attGirFirstPutt4To8m = 157
+        m.attGirFirstPuttOver8m = 158
+        m.attGirHoled = 159
+        m.attMissStandard = 160
+        m.attMissHard = 161
+        m.attChipInside2mStandard = 162
+        m.attChipOutside2mStandard = 163
+        m.attChipHoledStandard = 164
+        m.attChipInside2mHard = 165
+        m.attChipOutside2mHard = 166
+        m.attChipHoledHard = 167
+        m.attMissBunker = 168
+        m.attChipInside2mBunker = 169
+        m.attChipOutside2mBunker = 170
+        m.attChipHoledBunker = 171
+        m.attSgStrokesEffectiveStandard = 172
+        m.attSgStrokesEffectiveHard = 173
+        m.attSgStrokesEffectiveBunker = 174
     }
 
     func testEveryMeasureColumnIsAdditiveIncludingTheOnesNoRateReads() throws {
@@ -495,8 +526,8 @@ final class StatMeasuresMathTests: XCTestCase {
         // The count is asserted (and mirrored in the TypeScript twin) so that a
         // field added to the server's measure set and forgotten in the fixture
         // is caught, rather than sweeping a smaller set and passing.
-        XCTAssertEqual(singleFields.count, 143)
-        XCTAssertEqual(Set(singleFields.values).count, 143)
+        XCTAssertEqual(singleFields.count, 174)
+        XCTAssertEqual(Set(singleFields.values).count, 174)
         for (key, single) in singleFields {
             XCTAssertEqual(doubledFields[key], single * 2, "column \(key) is not additive")
         }
@@ -508,7 +539,7 @@ final class StatMeasuresMathTests: XCTestCase {
         let doubledExample = try decoder.decode(
             [String: Double].self,
             from: encoder.encode(StatMeasuresMath.sum([workedExample, workedExample])))
-        XCTAssertEqual(exampleFields.count, 143)
+        XCTAssertEqual(exampleFields.count, 174)
         for (key, single) in exampleFields {
             XCTAssertEqual(doubledExample[key], single * 2, "column \(key) is not additive")
         }
@@ -786,12 +817,12 @@ final class StatMeasuresMathTests: XCTestCase {
     func testTheV2ChipBaselineSplitsByDifficultyAndLeavesV1Alone() {
         XCTAssertEqual(
             StatMeasuresMath.chipExpectedPuttsV2,
-            ChipExpectedPutts(standard: 1.70, hard: 2.10))
+            ChipExpectedPutts(standard: 1.70, hard: 2.10, bunker: 1.95))
         // V1 read as a per-difficulty table is the FLAT table it always was —
         // this is what makes a v1 replay reproducible.
         XCTAssertEqual(
             StatMeasuresMath.chipExpectedPuttsV1ByDifficulty,
-            ChipExpectedPutts(standard: 1.85, hard: 1.85))
+            ChipExpectedPutts(standard: 1.85, hard: 1.85, bunker: 1.85))
         // The OUTCOME table is not versioned alongside the baseline: where a
         // chip finishes is measured, not modelled, so it is shared.
         XCTAssertEqual(
@@ -1849,5 +1880,185 @@ final class StatMeasuresMathTests: XCTestCase {
         // baseline — which on a good round can still be a gain.)
         XCTAssertEqual(ranked[1].params["component"], .component(.penalties))
         assertClose(number(ranked[1].params["delta"]), 2.5714285714285716)
+    }
+
+    // MARK: - Wave 4: dispersion, counters and the bunker leg
+
+    /// `WINDOW_B` of the spec's fixture oracle (§F.1). Hand-computed there; the
+    /// TypeScript twin asserts the identical table. If code disagrees with a
+    /// number below, the code is wrong.
+    private lazy var windowB: StatMeasures = measures { m in
+        m.teeRecorded = 20
+        m.fairwayHits = 8
+        m.inPlayHits = 15
+        m.troubleCount = 5
+        m.teeMissRecorded = 12
+        m.teeMissLeft = 7
+        m.teeMissRight = 5
+        m.teeTroubleLeft = 3
+        m.teeTroubleRight = 2
+
+        m.girRecorded = 20
+        m.girHits = 8
+        m.greenMissRecorded = 10
+        m.greenMissLong = 2
+        m.greenMissShort = 5
+        m.greenMissLeft = 2
+        m.greenMissRight = 1
+
+        m.scrambleAttemptsStandard = 5
+        m.scrambleSuccessesStandard = 3
+        m.scrambleAttemptsHard = 4
+        m.scrambleSuccessesHard = 1
+        m.scrambleAttemptsBunker = 3
+        m.scrambleSuccessesBunker = 2
+
+        // standard 1,1,2 + 2 unrecorded = 6; hard 2,3 + 2 unrecorded = 7;
+        // bunker 2 + 2 unrecorded = 4.
+        m.shortGameStrokesRecorded = 6
+        m.shortGameStrokesEffectiveStandard = 6
+        m.shortGameStrokesEffectiveHard = 7
+        m.shortGameStrokesEffectiveBunker = 4
+        m.shortGameStrokesEffective = 17
+        m.holesMultiChip = 4
+        m.holesMultiChipBunker = 1
+
+        m.penaltiesRecorded = 20
+        m.holesWithPenalty = 6
+        m.penaltiesTotal = 7
+        m.penaltySourceRecorded = 5
+        m.penaltiesTee = 3
+        m.penaltiesApproach = 1
+        m.penaltiesShort = 1
+    }
+
+    func testTheGreenMissCompassSharesPartitionTheRecordedMisses() {
+        let d = StatMeasuresMath.greenMissDispersion(windowB)
+        assertRate(d.long, 0.2, 2, 10)
+        assertRate(d.short, 0.5, 5, 10)
+        assertRate(d.left, 0.2, 2, 10)
+        assertRate(d.right, 0.1, 1, 10)
+        // A partition: the four numerators are the denominator.
+        XCTAssertEqual(d.long.n + d.short.n + d.left.n + d.right.n, d.long.d)
+    }
+
+    /// The two `trouble*` rates are CONDITIONAL — their denominator is that
+    /// side's misses, not all of them. That is what makes "one side is more
+    /// expensive than the other" a readable sentence.
+    func testTheTeeMissSplitIsSidesOverMissesAndTroubleOverThatSide() {
+        let d = StatMeasuresMath.teeMissDispersion(windowB)
+        assertRate(d.left, 7.0 / 12.0, 7, 12)
+        assertRate(d.right, 5.0 / 12.0, 5, 12)
+        assertRate(d.troubleLeft, 3.0 / 7.0, 3, 7)
+        assertRate(d.troubleRight, 0.4, 2, 5)
+    }
+
+    func testThePenaltySourceSplitIsOverLabelledHolesOnly() {
+        let split = StatMeasuresMath.penaltySourceSplit(windowB)
+        assertRate(split.tee, 0.6, 3, 5)
+        assertRate(split.approach, 0.2, 1, 5)
+        assertRate(split.short, 0.2, 1, 5)
+        // An UNLABELLED penalty hole is not a fourth category: the six holes
+        // with a penalty are not the denominator.
+        XCTAssertEqual(split.tee.d, 5)
+    }
+
+    func testTheBunkerCountersAndTheExtraStrokeFigure() {
+        assertRate(StatMeasuresMath.sandSaveRate(windowB), 2.0 / 3.0, 2, 3)
+        XCTAssertEqual(
+            StatMeasuresMath.rateDisplay(StatMeasuresMath.sandSaveRate(windowB)), .fraction)
+        assertRate(StatMeasuresMath.scrambleRate(windowB).overall, 0.5, 6, 12)
+        // The multi-chip denominator is ALL eligible missed-green holes, not
+        // the answered steppers: an uncounted hole is a modeled single shot,
+        // which is a real "no", not an absence.
+        assertRate(StatMeasuresMath.multiChipRate(windowB), 4.0 / 12.0, 4, 12)
+        assertRate(StatMeasuresMath.multiChipFromBunkerRate(windowB), 1.0 / 3.0, 1, 3)
+        XCTAssertEqual(StatMeasuresMath.extraShortGameStrokes(windowB), 5)
+    }
+
+    /// Boundary walk on the two-way-miss rule: 10 recorded misses, and each
+    /// side at 35% of them.
+    func testTwoWayMissFiresOnlyOnBothSidesAndEnoughSample() {
+        func teeWindow(recorded: Double, left: Double, right: Double) -> StatMeasures {
+            measures {
+                $0.teeRecorded = recorded
+                $0.teeMissRecorded = recorded
+                $0.teeMissLeft = left
+                $0.teeMissRight = right
+                $0.holesScored = 18
+            }
+        }
+        func fires(_ m: StatMeasures) -> Bool {
+            ids(lines(m, StrokesLost(), [], 5)).contains(.twoWayMiss)
+        }
+        // Nine recorded misses is under the floor whatever the split.
+        XCTAssertFalse(fires(teeWindow(recorded: 9, left: 5, right: 4)))
+        // Ten recorded, but one side is 3 — under 0.35 × 10 = 3.5.
+        XCTAssertFalse(fires(teeWindow(recorded: 10, left: 7, right: 3)))
+        XCTAssertTrue(fires(teeWindow(recorded: 10, left: 6, right: 4)))
+        XCTAssertTrue(fires(windowB), "the oracle window fires: 12 recorded, 7 and 5")
+        let line = lines(windowB, StrokesLost(), [], 5).first { $0.id == .twoWayMiss }
+        XCTAssertEqual(number(line?.params["left"]), 7)
+        XCTAssertEqual(number(line?.params["right"]), 5)
+        XCTAssertEqual(number(line?.params["recorded"]), 12)
+    }
+
+    /// `ATTRIBUTION_BUNKER` (§F.2): three holes chosen so every bunker branch
+    /// is exercised — a counted multi-shot bunker hole, an uncounted bunker
+    /// chip-in, and a par-3 GIR control.
+    private lazy var attributionBunker: StatMeasures = measures { m in
+        m.attHolesPar3Gir = 1
+        m.attFairwayPar4 = 1
+        m.attInPlayPar4 = 1
+        m.attStrokes = 12
+        m.attPutts = 4
+        m.attPenalties = 0
+        m.attGirFirstPutt2To4m = 1
+        m.attMissBunker = 2
+        m.attChipInside2mBunker = 1
+        m.attChipHoledBunker = 1
+        m.attSgStrokesEffectiveBunker = 3
+    }
+
+    func testTheBunkerLegKeepsTheTelescopeIdentity() throws {
+        let w = StatMeasuresMath.strokesLostV3(attributionBunker)
+        let tee = try XCTUnwrap(w.tee)
+        let approach = try XCTUnwrap(w.approach)
+        let shortGame = try XCTUnwrap(w.shortGame)
+        let putting = try XCTUnwrap(w.putting)
+        let penalties = try XCTUnwrap(w.penalties)
+        let total = try XCTUnwrap(w.total)
+
+        XCTAssertEqual(tee, -0.15, accuracy: 1e-9)
+        XCTAssertEqual(approach, -0.10, accuracy: 1e-9)
+        XCTAssertEqual(shortGame, -1.65, accuracy: 1e-9)
+        XCTAssertEqual(putting, 0.90, accuracy: 1e-9)
+        XCTAssertEqual(penalties, 0.0, accuracy: 1e-9)
+        XCTAssertEqual(total, -1.00, accuracy: 1e-9)
+        XCTAssertEqual(
+            abs(tee + approach + shortGame + putting + penalties - total), 0, accuracy: 1e-9,
+            "the five terms must telescope to the total")
+        XCTAssertEqual(w.coverage.attributed, 3)
+    }
+
+    /// The test that catches a leg wired into `sumChipEntry` but not into
+    /// `sumC`: one extra COUNTED short-game stroke moves exactly 1.00 from
+    /// approach to short game and leaves the total alone.
+    func testOneCountedBunkerStrokeMovesExactlyOneStrokeAndNoMore() throws {
+        var lighter = attributionBunker
+        lighter.attSgStrokesEffectiveBunker = 2
+        let w = StatMeasuresMath.strokesLostV3(lighter)
+        XCTAssertEqual(try XCTUnwrap(w.tee), -0.15, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(w.approach), 0.90, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(w.shortGame), -2.65, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(w.putting), 0.90, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(w.total), -1.00, accuracy: 1e-9)
+
+        let heavier = StatMeasuresMath.strokesLostV3(attributionBunker)
+        let approachShift = try XCTUnwrap(heavier.approach) - (try XCTUnwrap(w.approach))
+        let shortGameShift = try XCTUnwrap(heavier.shortGame) - (try XCTUnwrap(w.shortGame))
+        XCTAssertEqual(approachShift, -1.0, accuracy: 1e-9)
+        XCTAssertEqual(shortGameShift, 1.0, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(heavier.total), try XCTUnwrap(w.total), accuracy: 1e-9)
     }
 }

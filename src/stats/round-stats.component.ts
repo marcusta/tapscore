@@ -15,7 +15,7 @@ import { renderSignedBar, toneColor, toneForStrokesLost } from './stats-charts';
 import { STATS_COLORS } from './stats-palette';
 import { StatsPanelsComponent } from './stats-panels.component';
 import { componentTitle, signedNumber } from './stats-format';
-import { sgInfoCards, SG_INFO_COPY, STATS_COPY, type SgInfoCard } from './stats-panel-blocks';
+import { sgInfoCards, sgPenaltySource, SG_INFO_COPY, STATS_COPY, type SgInfoCard } from './stats-panel-blocks';
 import {
     sgInfoCardTpl,
     SG_INFO_SHEET_MARKUP,
@@ -581,6 +581,7 @@ ${SG_INFO_STYLES}
                     holesScored: m.waterfall.coverage.holesScored,
                     windowRounds: 0,
                     rowsPer18: STROKES_LOST_COMPONENTS.map((c) => sgPer18(m.waterfall, c)),
+                    penaltySource: sgPenaltySource(m.panels.totals),
                 });
             },
             (c: SgInfoCard, _i, track) =>

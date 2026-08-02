@@ -40,6 +40,10 @@ function cell(
         shortGameDifficulty: null,
         penalties: null,
         recoveryOk: null,
+        teeMissDir: null,
+        greenMissDir: null,
+        shortGameStrokes: null,
+        penaltySource: null,
         ...over,
     };
     const row: PlayerRoundHoleStats = {
@@ -257,6 +261,7 @@ const INSIGHT_IDS: readonly InsightId[] = [
     'component_best_vs_baseline',
     'component_worst_vs_baseline',
     'penalties_spike',
+    'two_way_miss',
     'scramble_streak',
     'hard_scramble_streak',
     'three_putt_free',
@@ -268,6 +273,7 @@ const SAMPLE_PARAMS: Record<InsightId, Readonly<Record<string, InsightParam>>> =
     component_best_vs_baseline: { component: 'putting', delta: -1.4 },
     component_worst_vs_baseline: { component: 'shortGame', delta: 2.1 },
     penalties_spike: { penalties: 4, baseline: 1.5 },
+    two_way_miss: { left: 7, right: 5, recorded: 12 },
     scramble_streak: { successes: 4, attempts: 5 },
     hard_scramble_streak: { successes: 3, attempts: 3 },
     three_putt_free: { putts: 29, holes: 18 },

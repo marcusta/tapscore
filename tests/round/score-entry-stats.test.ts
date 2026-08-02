@@ -152,3 +152,71 @@ test('Umbrella gives opt-out players only GIR after an opted-in player completes
     }
     component.destroy();
 });
+
+// Capture v2, §D.4: explanation lives behind ONE worded trigger. The cards on
+// the step stay wordless, and no prompt grows a glyph.
+test('the stats step carries a worded explainer trigger, not a paragraph per row', () => {
+    const service = new RoundViewService(new PendingScoreQueue(null), new PendingStatQueue(null));
+    fixture(service);
+    di.set(RoundViewService, service);
+
+    const component = new ScoreEntryComponent();
+    component.mount(document.body);
+    click(document.querySelector('.se-row__circle'));
+    click(scoreKey('4'));
+
+    const trigger = document.querySelector('[bind="statExplain"]');
+    expect(trigger?.textContent).toBe('What these mean');
+    // Closed until asked for.
+    expect(document.querySelector('[bind="infoSheet"]')?.className).toContain('hidden');
+
+    click(trigger);
+    const sheet = document.querySelector('[bind="infoSheet"]');
+    expect(sheet?.className).not.toContain('hidden');
+    const cards = document.querySelectorAll('[bind="infoCards"] [bind="ctext"]');
+    // One card per VISIBLE prompt, and every one of them has real words.
+    expect(cards.length).toBeGreaterThan(0);
+    for (const card of cards) expect((card.textContent ?? '').length).toBeGreaterThan(20);
+    expect(document.querySelector('[bind="infoTitle"]')?.textContent).toBe('What these mean');
+
+    click(document.querySelector('[bind="infoDone"]'));
+    expect(document.querySelector('[bind="infoSheet"]')?.className).toContain('hidden');
+    component.destroy();
+});
+
+// §B.5: an unanswered GIR the scorecard can settle says so, in words, next to
+// the untouched segments — it does not pre-select an answer.
+test('a derivable GIR announces itself instead of pre-selecting', () => {
+    const service = new RoundViewService(new PendingScoreQueue(null), new PendingStatQueue(null));
+    fixture(service);
+    di.set(RoundViewService, service);
+
+    const component = new ScoreEntryComponent();
+    component.mount(document.body);
+    click(document.querySelector('.se-row__circle'));
+    click(scoreKey('4'));
+
+    // Two putts on a par 4 scored 4 — the card can work GIR out on its own.
+    const steppers = [...document.querySelectorAll('.se-stats__group')].filter((g) =>
+        g.querySelector('.se-stats__step'),
+    );
+    const putts = steppers.find(
+        (g) => g.querySelector('[bind="glabel"]')?.textContent === 'Putts',
+    )!;
+    const plus = putts.querySelector('[bind="plus"]')!;
+    click(plus);
+    click(plus);
+
+    const girGroup = [...document.querySelectorAll('.se-stats__group')].find(
+        (g) => g.querySelector('[bind="glabel"]')?.textContent === 'Green in regulation',
+    )!;
+    const note = girGroup.querySelector('[bind="gnote"]')!;
+    expect(note.className).not.toContain('hidden');
+    expect(note.textContent).toBe('Will be filled in from your score when you close this.');
+    // No segment is selected — the derivation has not fired yet, and a
+    // pre-selected answer would be an answer the golfer never gave.
+    const segs = girGroup.querySelectorAll('[bind="seg"] .se-seg');
+    expect(segs.length).toBe(2);
+    for (const seg of segs) expect(seg.className).not.toContain('on-neutral');
+    component.destroy();
+});

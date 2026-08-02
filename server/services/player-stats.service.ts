@@ -7,8 +7,11 @@ import type {
     PlayerRoundStatsV3View,
     PlayerStatTotalsV3View,
     PlayerStatsConfigTable,
+    GreenMissDir,
+    PenaltySource,
     RoundType,
     ShortGameDifficulty,
+    TeeMissDir,
     StatEventsTable,
     StatKey,
     TeeResult,
@@ -99,12 +102,17 @@ export interface PlayerHoleStats {
     playHoleId: string;
     playerId: string;
     teeResult: TeeResult | null;
+    teeMissDir: TeeMissDir | null;
     gir: boolean | null;
+    greenMissDir: GreenMissDir | null;
     firstPutt: StoredFirstPuttBucket | null;
     /** 0..3, where 3 means "3 or more". */
     putts: number | null;
     shortGameDifficulty: ShortGameDifficulty | null;
+    /** 1..5 shots to reach the green. NULL means the stepper was never moved. */
+    shortGameStrokes: number | null;
     penalties: number | null;
+    penaltySource: PenaltySource | null;
     recoveryOk: boolean | null;
 }
 
@@ -151,9 +159,36 @@ export interface StatMeasures {
     inPlayHits: number;
     troubleCount: number;
 
+    /**
+     * TEE DISPERSION (capture v2, migration 055). Only asked when the drive
+     * missed the fairway, so the view guards on `tee_result IN (in_play,
+     * trouble)` as well as the direction being answered — a stale side left
+     * behind by another device cannot outvote a later `fairway`.
+     *
+     * `teeMissLeft + teeMissRight = teeMissRecorded`, and the trouble pair is a
+     * SUBSET of the side pair. In-play-by-side is the client's subtraction, not
+     * a stored column.
+     */
+    teeMissRecorded: number;
+    teeMissLeft: number;
+    teeMissRight: number;
+    teeTroubleLeft: number;
+    teeTroubleRight: number;
+
     // Approach (spec §1.4).
     girRecorded: number;
     girHits: number;
+
+    /**
+     * GREEN DISPERSION (capture v2, migration 055). Guarded by `gir = 0` for
+     * the same reason the tee pair is guarded. The four directions PARTITION
+     * `greenMissRecorded`.
+     */
+    greenMissRecorded: number;
+    greenMissLong: number;
+    greenMissShort: number;
+    greenMissLeft: number;
+    greenMissRight: number;
 
     // Putting (spec §1.2).
     firstPuttRecorded: number;
@@ -203,12 +238,57 @@ export interface StatMeasures {
      */
     scrambleHoledStandard: number;
     scrambleHoledHard: number;
+    /**
+     * The BUNKER leg (capture v2, migration 055). `bunker` is a third
+     * difficulty value, not a replacement for `hard`, so this quintet sits
+     * beside the other two rather than reinterpreting them: holes captured
+     * before 055 stay exactly where they were.
+     */
+    scrambleAttemptsBunker: number;
+    scrambleSuccessesBunker: number;
+    scrambleFirstPuttBunker: number;
+    scrambleInside2mBunker: number;
+    scrambleHoledBunker: number;
+
+    /**
+     * THE SHORT-GAME STROKE COUNTER (capture v2, proposal §3.4c). The eligible
+     * cohort is the scramble-ATTEMPT cohort, so a rate built here divides by a
+     * denominator that already exists.
+     *
+     * TOUCHES, NOT CONFIRMATIONS: the stepper defaults to 1 and emits nothing
+     * until it is moved, so `shortGameStrokesRecorded` counts the holes the
+     * golfer bothered to CORRECT. Never average over it. What is safe is
+     * `…Effective`, which is `Σ COALESCE(C, 1)` over the WHOLE attempt cohort —
+     * untouched holes model as exactly one shot, the same assumption
+     * strokes-gained-lite v1 already ships. The three splits sum to it.
+     *
+     * `holesMultiChip` counts HOLES that took more than one shot to reach the
+     * green; its denominator is every eligible attempt, computed on the client.
+     */
+    shortGameStrokesRecorded: number;
+    shortGameStrokesEffective: number;
+    shortGameStrokesEffectiveStandard: number;
+    shortGameStrokesEffectiveHard: number;
+    shortGameStrokesEffectiveBunker: number;
+    holesMultiChip: number;
+    holesMultiChipBunker: number;
 
     // Penalties + recovery (spec §1.5).
     penaltiesRecorded: number;
     penaltiesTotal: number;
     recoveryAttempts: number;
     recoverySuccesses: number;
+
+    /**
+     * PENALTY SOURCE (capture v2, migration 055). These count HOLES, not
+     * strokes — one primary source per hole — so they never reconcile against
+     * `penaltiesTotal`, only against `holesWithPenalty`. The three sources
+     * partition `penaltySourceRecorded`.
+     */
+    penaltySourceRecorded: number;
+    penaltiesTee: number;
+    penaltiesApproach: number;
+    penaltiesShort: number;
 
     // Scoring, from the scorecard join (spec §5).
     holesScored: number;
@@ -382,11 +462,23 @@ export interface StatMeasures {
     attChipOutside2mHard: number;
     attChipHoledHard: number;
     /**
+     * The BUNKER attribution leg (055). MANDATORY, not an extra: the moment the
+     * CHECK admits `bunker`, a bunker hole satisfies `attributable` and enters
+     * `attStrokes` / `attPutts`. Without these cells the five terms stop summing
+     * to `Σ(score − E_HOLE[par])` — the telescope breaks by exactly
+     * `Σ C_bunker`.
+     */
+    attMissBunker: number;
+    attChipInside2mBunker: number;
+    attChipOutside2mBunker: number;
+    attChipHoledBunker: number;
+    /**
      * Σ COALESCE(shortGameStrokes, 1) over the miss cohort — equal to the miss
-     * counts until wave 4 starts counting chips.
+     * counts on holes where the counter was never touched.
      */
     attSgStrokesEffectiveStandard: number;
     attSgStrokesEffectiveHard: number;
+    attSgStrokesEffectiveBunker: number;
 }
 
 /**
@@ -527,11 +619,15 @@ function toHoleStats(row: HoleStatsRow): PlayerHoleStats {
         playHoleId: row.play_hole_id,
         playerId: row.player_id,
         teeResult: row.tee_result,
+        teeMissDir: row.tee_miss_dir,
         gir: row.gir === null ? null : row.gir === 1,
+        greenMissDir: row.green_miss_dir,
         firstPutt: row.first_putt,
         putts: row.putts,
         shortGameDifficulty: row.short_game_difficulty,
+        shortGameStrokes: row.short_game_strokes,
         penalties: row.penalties,
+        penaltySource: row.penalty_source,
         recoveryOk: row.recovery_ok === null ? null : row.recovery_ok === 1,
     };
 }
@@ -547,19 +643,22 @@ function absentHoleStats(roundId: string, playHoleId: string, playerId: string):
         play_hole_id: playHoleId,
         player_id: playerId,
         tee_result: null,
+        tee_miss_dir: null,
         gir: null,
+        green_miss_dir: null,
         first_putt: null,
         putts: null,
         short_game_difficulty: null,
-        penalties: null,
-        recovery_ok: null,
         short_game_strokes: null,
+        penalties: null,
+        penalty_source: null,
+        recovery_ok: null,
     };
 }
 
 /**
  * The STAT ARM of the `round_players` admission test (migration 052), in
- * TypeScript: a projection row survives its own clearing with all seven answers
+ * TypeScript: a projection row survives its own clearing with all eleven answers
  * NULL, and such a row means the player recorded nothing. Only half the test —
  * admission is "scored a hole OR recorded an answer", and the score arm is
  * applied beside this one at `roundHoleStatsForPlayer`.
@@ -567,11 +666,15 @@ function absentHoleStats(roundId: string, playHoleId: string, playerId: string):
 function hasRecordedStat(row: HoleStatsRow): boolean {
     return (
         row.tee_result !== null ||
+        row.tee_miss_dir !== null ||
         row.gir !== null ||
+        row.green_miss_dir !== null ||
         row.first_putt !== null ||
         row.putts !== null ||
         row.short_game_difficulty !== null ||
+        row.short_game_strokes !== null ||
         row.penalties !== null ||
+        row.penalty_source !== null ||
         row.recovery_ok !== null
     );
 }
@@ -601,8 +704,18 @@ function toMeasures(row: PlayerRoundStatsV3View | PlayerStatTotalsV3View): StatM
         fairwayHits: row.fairway_hits,
         inPlayHits: row.in_play_hits,
         troubleCount: row.trouble_count,
+        teeMissRecorded: row.tee_miss_recorded,
+        teeMissLeft: row.tee_miss_left,
+        teeMissRight: row.tee_miss_right,
+        teeTroubleLeft: row.tee_trouble_left,
+        teeTroubleRight: row.tee_trouble_right,
         girRecorded: row.gir_recorded,
         girHits: row.gir_hits,
+        greenMissRecorded: row.green_miss_recorded,
+        greenMissLong: row.green_miss_long,
+        greenMissShort: row.green_miss_short,
+        greenMissLeft: row.green_miss_left,
+        greenMissRight: row.green_miss_right,
         firstPuttRecorded: row.first_putt_recorded_v2,
         firstPuttInside1m: row.first_putt_inside_1m,
         firstPutt1To2m: row.first_putt_1_to_2m,
@@ -633,10 +746,26 @@ function toMeasures(row: PlayerRoundStatsV3View | PlayerStatTotalsV3View): StatM
         scrambleInside2mHard: row.scramble_inside_2m_hard_v2,
         scrambleHoledStandard: row.scramble_holed_standard,
         scrambleHoledHard: row.scramble_holed_hard,
+        scrambleAttemptsBunker: row.scramble_attempts_bunker,
+        scrambleSuccessesBunker: row.scramble_successes_bunker,
+        scrambleFirstPuttBunker: row.scramble_first_putt_bunker,
+        scrambleInside2mBunker: row.scramble_inside_2m_bunker_v2,
+        scrambleHoledBunker: row.scramble_holed_bunker,
+        shortGameStrokesRecorded: row.short_game_strokes_recorded,
+        shortGameStrokesEffective: row.short_game_strokes_effective,
+        shortGameStrokesEffectiveStandard: row.short_game_strokes_effective_standard,
+        shortGameStrokesEffectiveHard: row.short_game_strokes_effective_hard,
+        shortGameStrokesEffectiveBunker: row.short_game_strokes_effective_bunker,
+        holesMultiChip: row.holes_multi_chip,
+        holesMultiChipBunker: row.holes_multi_chip_bunker,
         penaltiesRecorded: row.penalties_recorded,
         penaltiesTotal: row.penalties_total,
         recoveryAttempts: row.recovery_attempts,
         recoverySuccesses: row.recovery_successes,
+        penaltySourceRecorded: row.penalty_source_recorded,
+        penaltiesTee: row.penalties_tee,
+        penaltiesApproach: row.penalties_approach,
+        penaltiesShort: row.penalties_short,
         holesScored: row.holes_scored,
         strokesTotal: row.strokes_total,
         parTotal: row.par_total,
@@ -738,8 +867,13 @@ function toMeasures(row: PlayerRoundStatsV3View | PlayerStatTotalsV3View): StatM
         attChipInside2mHard: row.att_chip_inside2m_hard,
         attChipOutside2mHard: row.att_chip_outside2m_hard,
         attChipHoledHard: row.att_chip_holed_hard,
+        attMissBunker: row.att_miss_bunker,
+        attChipInside2mBunker: row.att_chip_inside2m_bunker,
+        attChipOutside2mBunker: row.att_chip_outside2m_bunker,
+        attChipHoledBunker: row.att_chip_holed_bunker,
         attSgStrokesEffectiveStandard: row.att_sg_strokes_effective_standard,
         attSgStrokesEffectiveHard: row.att_sg_strokes_effective_hard,
+        attSgStrokesEffectiveBunker: row.att_sg_strokes_effective_bunker,
     };
 }
 
@@ -758,8 +892,18 @@ function zeroMeasures(): StatMeasures {
         fairwayHits: 0,
         inPlayHits: 0,
         troubleCount: 0,
+        teeMissRecorded: 0,
+        teeMissLeft: 0,
+        teeMissRight: 0,
+        teeTroubleLeft: 0,
+        teeTroubleRight: 0,
         girRecorded: 0,
         girHits: 0,
+        greenMissRecorded: 0,
+        greenMissLong: 0,
+        greenMissShort: 0,
+        greenMissLeft: 0,
+        greenMissRight: 0,
         firstPuttRecorded: 0,
         firstPuttInside1m: 0,
         firstPutt1To2m: 0,
@@ -790,10 +934,26 @@ function zeroMeasures(): StatMeasures {
         scrambleInside2mHard: 0,
         scrambleHoledStandard: 0,
         scrambleHoledHard: 0,
+        scrambleAttemptsBunker: 0,
+        scrambleSuccessesBunker: 0,
+        scrambleFirstPuttBunker: 0,
+        scrambleInside2mBunker: 0,
+        scrambleHoledBunker: 0,
+        shortGameStrokesRecorded: 0,
+        shortGameStrokesEffective: 0,
+        shortGameStrokesEffectiveStandard: 0,
+        shortGameStrokesEffectiveHard: 0,
+        shortGameStrokesEffectiveBunker: 0,
+        holesMultiChip: 0,
+        holesMultiChipBunker: 0,
         penaltiesRecorded: 0,
         penaltiesTotal: 0,
         recoveryAttempts: 0,
         recoverySuccesses: 0,
+        penaltySourceRecorded: 0,
+        penaltiesTee: 0,
+        penaltiesApproach: 0,
+        penaltiesShort: 0,
         holesScored: 0,
         strokesTotal: 0,
         parTotal: 0,
@@ -895,37 +1055,71 @@ function zeroMeasures(): StatMeasures {
         attChipInside2mHard: 0,
         attChipOutside2mHard: 0,
         attChipHoledHard: 0,
+        attMissBunker: 0,
+        attChipInside2mBunker: 0,
+        attChipOutside2mBunker: 0,
+        attChipHoledBunker: 0,
         attSgStrokesEffectiveStandard: 0,
         attSgStrokesEffectiveHard: 0,
+        attSgStrokesEffectiveBunker: 0,
     };
 }
 
 // --- Vocabulary (spec §1) ---
 //
 // Closed by construction: the DB pins the same sets in CHECK constraints
-// (migration 042). These exist so a refusal reads as a structured diagnostic
-// instead of a raw SQLite ABORT.
+// (migrations 042 / 044 / 055). These exist so a refusal reads as a structured
+// diagnostic instead of a raw SQLite ABORT.
+//
+// THREE REFUSAL CODES, AND NO MORE. A bad value on any key is
+// `stat_invalid_value`; an unknown key is `stat_invalid_key`; a write to a
+// module the player has switched off is `stat_module_disabled`.
+//
+// In particular the server does NOT enforce prompt PRECONDITIONS and never
+// has — `recovery_ok` on a fairway hole is accepted today, and
+// `green_miss_dir` on a hole whose `gir` is 1 is accepted from 055 on. Which
+// questions a hole asks is a client concern (it depends on the derived-GIR
+// state machine, on what the scorer has answered so far, and on nothing the
+// server can see at insert time); the server's job is the closed vocabulary and
+// the append-only log. Do not add a `stat_precondition_unmet`. The views are
+// where a contradictory pair is resolved, by guarding each measure on its
+// parent's answer.
 
 /** Which config module has to be on for a key to be accepted. */
 const MODULE_FOR_KEY = {
     tee_result: 'tee',
+    tee_miss_dir: 'tee',
     gir: 'approach',
+    green_miss_dir: 'approach',
     first_putt: 'putting',
     putts: 'putting',
     short_game_difficulty: 'shortGame',
+    short_game_strokes: 'shortGame',
     penalties: 'penalties',
+    penalty_source: 'penalties',
     recovery_ok: 'recovery',
 } as const satisfies Record<StatKey, keyof PlayerStatsConfigInput>;
 
 const STAT_KEYS = Object.keys(MODULE_FOR_KEY) as StatKey[];
 
 const BOOLEAN_VALUES = ['0', '1'];
+// Legacy values are READ forever and OFFERED never: `first_putt` still accepts
+// the three coarse pre-044 buckets at the CHECK, but they are absent here, so
+// nothing can write one again. `short_game_difficulty` is NOT that case — all
+// three of its values are current, `bunker` being a sibling of `hard` and not
+// its replacement.
 const ENUM_VALUES: Partial<Record<StatKey, readonly string[]>> = {
     tee_result: ['fairway', 'in_play', 'trouble'],
+    tee_miss_dir: ['left', 'right'],
     gir: BOOLEAN_VALUES,
+    green_miss_dir: ['long', 'short', 'left', 'right'],
     first_putt: ['inside_1m', '1_to_2m', '2_to_4m', '4_to_8m', 'over_8m'],
     putts: ['0', '1', '2', '3'],
-    short_game_difficulty: ['standard', 'hard'],
+    short_game_difficulty: ['standard', 'hard', 'bunker'],
+    // A closed, small range — a value set, not the open-ended numeric pattern
+    // `penalties` needs.
+    short_game_strokes: ['1', '2', '3', '4', '5'],
+    penalty_source: ['tee', 'approach', 'short_or_green'],
     recovery_ok: BOOLEAN_VALUES,
 };
 

@@ -14,7 +14,12 @@ import {
 import type { HandicapDerivation, RoundBall } from '../api/friendly-rounds.gen';
 import type { MetadataInput } from '../api/setup.gen';
 import { formatLabelFromSlot } from './slot-labels';
-import { stepperText, type StatEventKey, type StatPrompt } from './stat-prompts';
+import { stepperText, statLabel, type StatEventKey, type StatPrompt } from './stat-prompts';
+import { STAT_CAPTURE_COPY, statExplainer } from './stat-explainers';
+// The sheet's ANATOMY only — the styles are this screen's own (see below): the
+// dashboard's `SG_INFO_STYLES` paints a themed `t('surface')` panel, and this
+// screen is hardcoded dark.
+import { SG_INFO_SHEET_MARKUP, sgInfoCardTpl } from '../stats/sg-info-sheet';
 
 // One score column / carousel cell is SLOT wide. The carousel is a clipped
 // window that shows exactly two cells — the previous and current hole —
@@ -72,10 +77,14 @@ const tpl = template(`
                     <span bind="statsTitle" class="se-stats__name"></span>
                     <span bind="statsScore" class="se-stats__score"></span>
                 </div>
+                <div class="se-stats__explain">
+                    <button bind="statExplain" class="se-stats__explain-btn" type="button"></button>
+                </div>
                 <div bind="statsBody" class="se-stats__body"></div>
                 <div class="se-stats__foot">
                     <button bind="statsNext" class="se-stats__next" type="button"></button>
                 </div>
+                ${SG_INFO_SHEET_MARKUP}
             </div>
         </div>
 
@@ -169,6 +178,7 @@ const statSegTpl = template(`
     <div class="se-stats__group">
         <span bind="glabel" class="se-stats__group-label"></span>
         <div bind="seg" class="se-stats__seg"></div>
+        <span bind="gnote" class="se-stats__note hidden"></span>
     </div>
 `);
 
@@ -492,6 +502,26 @@ export class ScoreEntryComponent extends Component {
             }
             & .se-stats__seg { display: flex; gap: ${s('sm')}; justify-content: center; }
 
+            /* The one line of dynamic text on the card: what the scorecard is
+               about to fill in, or that it disagrees with what is stored. Never
+               a nudge, never a validation message (§3.5). */
+            & .se-stats__note {
+                text-align: center; font-size: 0.8rem; line-height: 1.35;
+                color: rgba(255, 255, 255, 0.55);
+                &.warn { color: ${t('danger')}; }
+                &.hidden { display: none; }
+            }
+
+            /* One worded trigger for the whole step, quiet enough that it reads
+               as an aside to the player's name above it. */
+            & .se-stats__explain { display: flex; justify-content: center; padding: 0 ${s('lg')}; }
+            & .se-stats__explain-btn {
+                padding: 0; border: none; background: transparent; cursor: pointer;
+                font-family: inherit; font-size: 0.78rem; font-weight: 600;
+                color: rgba(255, 255, 255, 0.55);
+                text-decoration: underline;
+            }
+
             /* Hairline between the format's own toggles (what the round needs to
                score) and the player's own stats (what they asked to track). */
             & .se-stats__rule {
@@ -668,6 +698,65 @@ export class ScoreEntryComponent extends Component {
             box-shadow: ${t('shadow-elevated')};
             &.hidden { display: none; }
         }
+
+        /* The capture explainer sheet.
+           It reuses the SG sheet's ANATOMY (SG_INFO_SHEET_MARKUP and its class
+           names) but not SG_INFO_STYLES, which is written for a themed
+           dashboard: that block's t('surface') panel would sit as a pale slab
+           on this screen, which is hardcoded dark (#121212) and stays dark in
+           both themes because a phone held up in sunlight is what it is
+           designed for. It also carries .stats__info and .stats__sechead, a
+           trigger and a heading row this screen does not have — the capture
+           card's trigger is .se-stats__explain-btn.
+           NESTED UNDER .se-stats ON PURPOSE: these styles are injected
+           globally, and an unscoped .stats-info here would repaint the
+           dashboard's sheet, which must keep the themed look. */
+        .se-stats {
+            & .stats-info {
+                position: fixed; inset: 0; z-index: 61;
+                display: flex; align-items: flex-end; justify-content: center;
+                background: rgba(0, 0, 0, 0.6);
+                &.hidden { display: none; }
+            }
+            & .stats-info__panel {
+                width: 100%; max-width: 480px; max-height: 82dvh;
+                overflow-y: auto;
+                background: #1c1c1c; color: #fff;
+                border-radius: ${t('radius')} ${t('radius')} 0 0;
+                padding: ${s('md')} ${s('lg')} ${s('xl')};
+                display: flex; flex-direction: column; gap: ${s('sm')};
+            }
+            & .stats-info__head {
+                display: flex; align-items: center; justify-content: space-between;
+                gap: ${s('md')};
+            }
+            & .stats-info__title {
+                font-family: ${t('font-display')}; font-weight: 700; font-size: 1.15rem;
+                color: #fff;
+            }
+            & .stats-info__done {
+                flex: none;
+                padding: ${s('xs')} ${s('md')};
+                font-family: inherit; font-size: 0.85rem; font-weight: 700;
+                background: transparent; border: none;
+                color: rgba(255, 255, 255, 0.75);
+                cursor: pointer;
+                &:active { background: rgba(255, 255, 255, 0.1); border-radius: ${t('radius')}; }
+            }
+            & .stats-info__cards { display: flex; flex-direction: column; gap: ${s('sm')}; }
+            & .stats-info__card {
+                display: flex; flex-direction: column; gap: 3px;
+                border: 1px solid rgba(255, 255, 255, 0.12); border-radius: ${t('radius')};
+                padding: ${s('md')};
+            }
+            & .stats-info__card-title {
+                font-size: 0.7rem; font-weight: 600; letter-spacing: 0.06em;
+                text-transform: uppercase; color: rgba(255, 255, 255, 0.55);
+            }
+            & .stats-info__card-text {
+                font-size: 0.9rem; color: rgba(255, 255, 255, 0.92); line-height: 1.45;
+            }
+        }
     `;
 
     private svc = this.inject(RoundViewService);
@@ -693,6 +782,8 @@ export class ScoreEntryComponent extends Component {
     // After a real score on a hole that collects stats, the keypad is replaced by
     // a dedicated stats screen; "Next" persists the toggles and auto-advances.
     private statsOpen = new Signal(false);
+    /** The stats step's "What these mean" sheet. Closed with the step itself. */
+    private explainOpen = new Signal(false);
     // Per-hole metadata toggles (umbrella GIR/fairway) for the open ball+hole,
     // committed alongside strokes. Reseeded from stored state when the selected
     // ball/hole changes (`lastMetaKey` guards against clobbering live toggles).
@@ -964,7 +1055,9 @@ export class ScoreEntryComponent extends Component {
                 onclick: () => {
                     this.statsOpen.set(false);
                     this.modalOpen.set(false);
-                    this.svc.flushStats();
+                    // A keypad dismissal is an exit from the stats step like any
+                    // other — the batch, and any pending derived GIR, go out.
+                    this.svc.closeStatStep();
                 },
             },
             modal: { className: () => (this.modalOpen.get() ? 'se-modal' : 'se-modal hidden') },
@@ -1027,9 +1120,22 @@ export class ScoreEntryComponent extends Component {
             statsBack: {
                 onclick: () => {
                     this.statsOpen.set(false);
-                    this.svc.flushStats();
+                    this.explainOpen.set(false);
+                    this.svc.closeStatStep();
                 },
             },
+            statExplain: {
+                textContent: STAT_CAPTURE_COPY.explainerTrigger,
+                onclick: () => this.explainOpen.set(true),
+            },
+            infoSheet: {
+                className: () => (this.explainOpen.get() ? 'stats-info' : 'stats-info hidden'),
+                onclick: (e: Event) => {
+                    if (e.target === e.currentTarget) this.explainOpen.set(false);
+                },
+            },
+            infoTitle: { textContent: STAT_CAPTURE_COPY.explainerTitle },
+            infoDone: { onclick: () => this.explainOpen.set(false) },
             statsHole: () => {
                 const ph = this.currentHole();
                 return ph ? `Hole ${this.occLabel(ph.playHoleId)} · Par ${this.parFor(ph.playHoleId)}` : '';
@@ -1048,9 +1154,10 @@ export class ScoreEntryComponent extends Component {
                 textContent: () => (this.hasMoreUnscored() ? 'Next ›' : 'Done ›'),
                 onclick: () => {
                     this.statsOpen.set(false);
+                    this.explainOpen.set(false);
                     // Before the event: `statsDone` can move the cursor, and the
                     // batch belongs to the ball it was answered for.
-                    this.svc.flushStats();
+                    this.svc.closeStatStep();
                     this.apply({ kind: 'statsDone' });
                 },
             },
@@ -1139,6 +1246,19 @@ export class ScoreEntryComponent extends Component {
             (row, _i, track) => this.statBodyRow(row, track),
             (row) => row.key,
         );
+        // One explainer card per prompt that is on the card right now, in the
+        // same order — the sheet is a reading of THIS step, not a manual.
+        this.$each(
+            this.ref(frag, 'infoCards'),
+            new Computed(() => this.statExplainerCards()),
+            (card, _i, t2) =>
+                this.wireEl(
+                    sgInfoCardTpl,
+                    { ctitle: { textContent: card.title }, ctext: { textContent: card.text } },
+                    t2,
+                ),
+            (card) => card.key,
+        );
         // Reseed the toggles from stored state whenever the open ball/hole
         // changes (never on a same-hole cell update, so live toggles survive),
         // and keep the stats step pointed at the same cell.
@@ -1173,6 +1293,11 @@ export class ScoreEntryComponent extends Component {
         // backgrounded (or killed from the app switcher) has to be handed over
         // on the way out. `pagehide` is the reliable one on iOS Safari;
         // `visibilitychange` catches an app switch that never unloads.
+        //
+        // `flushStats`, NOT `closeStatStep`: a background hop is "get what we
+        // have onto disk", not "the golfer is finished with this hole". They
+        // come back to the same open card, so no derived GIR is materialised
+        // under them.
         const onHide = () => {
             if (document.visibilityState === 'hidden') this.svc.flushStats();
         };
@@ -1183,7 +1308,7 @@ export class ScoreEntryComponent extends Component {
             document.removeEventListener('visibilitychange', onHide);
             window.removeEventListener('pagehide', onPageHide);
             // Leaving the round view is an exit too.
-            this.svc.flushStats();
+            this.svc.closeStatStep();
         });
 
         return frag;
@@ -1441,9 +1566,9 @@ export class ScoreEntryComponent extends Component {
         }
         this.extendedOpen.set(false);
         this.statsOpen.set(false);
-        // The cell is about to change under the step; the reseed effect flushes
+        // The cell is about to change under the step; the reseed effect closes
         // too, but do it before the move so nothing depends on effect ordering.
-        this.svc.flushStats();
+        this.svc.closeStatStep();
         if (dir < 0) this.svc.prevHole();
         else this.svc.nextHole();
         this.selectBall(0);
@@ -1629,7 +1754,31 @@ export class ScoreEntryComponent extends Component {
         const options = control.kind === 'segments' ? control.options : [];
         // Four or five buckets (first putt) only fit a phone plate narrowed.
         const tight = options.length >= 4 ? ' tight' : '';
-        const el = this.wireEl(statSegTpl, { glabel: { textContent: prompt.label } }, track);
+        const el = this.wireEl(
+            statSegTpl,
+            {
+                glabel: { textContent: prompt.label },
+                // Only GIR has anything to say under its row (§3.4b); every
+                // other prompt binds the empty string and stays hidden, so the
+                // card keeps its wordless default.
+                gnote: {
+                    textContent: () => (prompt.key === 'gir' ? this.girNote() : ''),
+                    className: () =>
+                        prompt.key === 'gir' && this.girNote() !== ''
+                            ? `se-stats__note${this.svc.statGirState().state === 'disagree' ? ' warn' : ''}`
+                            : 'se-stats__note hidden',
+                },
+                // The pending/disagree distinction is carried visually by the
+                // line above; say it out loud too, on the group the buttons
+                // live in.
+                seg: {
+                    role: 'group',
+                    'aria-label': () =>
+                        prompt.key === 'gir' ? this.girAria() : prompt.label,
+                },
+            },
+            track,
+        );
         const host = this.ref(el, 'seg');
         for (const option of options) {
             const btn = this.wireEl(
@@ -1693,6 +1842,42 @@ export class ScoreEntryComponent extends Component {
             },
             track,
         );
+    }
+
+    /**
+     * The muted line under the GIR row (§3.4b). Empty in `manual`, `persisted`
+     * and `idle` — a statement of what will happen, never a request, and never
+     * a nudge to answer.
+     */
+    private girNote(): string {
+        const g = this.svc.statGirState();
+        if (g.state === 'pending') return STAT_CAPTURE_COPY.girPending;
+        if (g.state === 'disagree')
+            // The DERIVED value picks the wording, not the stored one: the line
+            // reports what the scorecard says.
+            return g.derived === '1'
+                ? STAT_CAPTURE_COPY.girDisagreeHit
+                : STAT_CAPTURE_COPY.girDisagreeMiss;
+        return '';
+    }
+
+    private girAria(): string {
+        const g = this.svc.statGirState();
+        if (g.state === 'pending') return STAT_CAPTURE_COPY.girPendingAria;
+        if (g.state === 'disagree')
+            return `${statLabel('gir')}, ${g.stored === '1' ? 'Hit' : 'Miss'}, your score disagrees`;
+        return statLabel('gir');
+    }
+
+    /**
+     * The explainer sheet's cards: one per prompt CURRENTLY on the card, in
+     * `STAT_ORDER`. One sheet behind one worded trigger, never eleven glyphs on
+     * a card that has to stay quiet.
+     */
+    private statExplainerCards(): { key: string; title: string; text: string }[] {
+        return this.svc
+            .statPrompts()
+            .map((p) => ({ key: p.key, title: p.label, text: statExplainer(p.key) }));
     }
 
     /** Answer (or, with `null`, un-answer) one stats prompt, then mirror it. */

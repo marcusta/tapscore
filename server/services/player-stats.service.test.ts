@@ -227,21 +227,28 @@ test('a hole commit projects into one typed row per (hole, player)', async () =>
         roundId,
         items: [
             item({ playHoleId: h1, playerId: player.id, key: 'tee_result', value: 'trouble' }),
+            item({ playHoleId: h1, playerId: player.id, key: 'tee_miss_dir', value: 'left' }),
             item({ playHoleId: h1, playerId: player.id, key: 'gir', value: '0' }),
+            item({ playHoleId: h1, playerId: player.id, key: 'green_miss_dir', value: 'short' }),
             item({ playHoleId: h1, playerId: player.id, key: 'first_putt', value: '2_to_4m' }),
             item({ playHoleId: h1, playerId: player.id, key: 'putts', value: '2' }),
-            item({ playHoleId: h1, playerId: player.id, key: 'short_game_difficulty', value: 'hard' }),
+            item({ playHoleId: h1, playerId: player.id, key: 'short_game_difficulty', value: 'bunker' }),
+            item({ playHoleId: h1, playerId: player.id, key: 'short_game_strokes', value: '2' }),
             item({ playHoleId: h1, playerId: player.id, key: 'penalties', value: '1' }),
+            item({ playHoleId: h1, playerId: player.id, key: 'penalty_source', value: 'tee' }),
             item({ playHoleId: h1, playerId: player.id, key: 'recovery_ok', value: '1' }),
         ],
     });
-    expect(res.events).toHaveLength(7);
+    expect(res.events).toHaveLength(11);
     expect(res.events.every((e) => e.inserted)).toBe(true);
     // seq is the total order and it is global + strictly increasing.
     const seqs = res.events.map((e) => e.event.seq);
     expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
-    expect(new Set(seqs).size).toBe(7);
+    expect(new Set(seqs).size).toBe(11);
 
+    // All ELEVEN keys — every capture-v2 key round-trips through append into
+    // its own projection column, and `short_game_strokes` arrives as a NUMBER
+    // (the trigger CASTs it) while the three new enums stay text.
     const rows = await ctx.playerStatsService.statsForRound(roundId);
     expect(rows).toEqual([
         {
@@ -249,11 +256,15 @@ test('a hole commit projects into one typed row per (hole, player)', async () =>
             playHoleId: h1,
             playerId: player.id,
             teeResult: 'trouble',
+            teeMissDir: 'left',
             gir: false,
+            greenMissDir: 'short',
             firstPutt: '2_to_4m',
             putts: 2,
-            shortGameDifficulty: 'hard',
+            shortGameDifficulty: 'bunker',
+            shortGameStrokes: 2,
             penalties: 1,
+            penaltySource: 'tee',
             recoveryOk: true,
         },
     ]);
@@ -303,6 +314,38 @@ test('a null value clears exactly one column and leaves the rest of the row alon
     expect(row!.putts).toBeNull();
     expect(row!.teeResult).toBe('fairway');
     expect(row!.penalties).toBe(2);
+});
+
+// The v1 keys above prove the CLEAR path on columns migration 042 shipped. The
+// capture-v2 columns arrive on the same trigger but through migration 055's
+// rebuilt body, and a clear only works if BOTH halves of the upsert name the
+// column — an `INSERT … ON CONFLICT DO UPDATE` that forgets one of the new keys
+// still passes every set-a-value test and silently pins the old answer forever.
+// So: set it, clear it, and read the null back.
+test('a capture-v2 key clears back to null, not to its last value', async () => {
+    const { ctx, player, roundId, hole } = await soloRound();
+    const h1 = hole(1);
+
+    await ctx.playerStatsService.appendEvents({
+        roundId,
+        items: [
+            item({ playHoleId: h1, playerId: player.id, key: 'gir', value: '0' }),
+            item({ playHoleId: h1, playerId: player.id, key: 'green_miss_dir', value: 'short' }),
+            item({ playHoleId: h1, playerId: player.id, key: 'short_game_strokes', value: '2' }),
+        ],
+    });
+    expect((await ctx.playerStatsService.statsForRound(roundId))[0]!.greenMissDir).toBe('short');
+
+    // The golfer un-answers the direction — the miss itself stands.
+    await ctx.playerStatsService.appendEvents({
+        roundId,
+        items: [item({ playHoleId: h1, playerId: player.id, key: 'green_miss_dir', value: null })],
+    });
+
+    const [row] = await ctx.playerStatsService.statsForRound(roundId);
+    expect(row!.greenMissDir).toBeNull();
+    expect(row!.gir).toBe(false);
+    expect(row!.shortGameStrokes).toBe(2);
 });
 
 test('a late event with a LOWER seq does not overwrite the projection', async () => {
@@ -799,6 +842,102 @@ test('values outside the closed vocabulary are refused, and the whole batch is r
         }),
     );
     expect(await ctx.playerStatsService.statsForRound(roundId)).toEqual([]);
+});
+
+test('the capture-v2 vocabulary is closed, and refuses with the SAME three codes', async () => {
+    const { ctx, player, roundId, hole } = await soloRound();
+    const h1 = hole(1);
+
+    // `bunker` is a third CURRENT value, not a retired one — accepted.
+    await ctx.playerStatsService.appendEvents({
+        roundId,
+        items: [
+            item({
+                playHoleId: h1,
+                playerId: player.id,
+                key: 'short_game_difficulty',
+                value: 'bunker',
+            }),
+        ],
+    });
+    expect((await ctx.playerStatsService.statsForRound(roundId))[0]!.shortGameDifficulty).toBe(
+        'bunker',
+    );
+
+    // A direction from the WRONG family. `long` is legal for a green miss and
+    // meaningless off the tee, and nothing but the closed set catches it.
+    const teeDir = await refusal(() =>
+        ctx.playerStatsService.appendEvents({
+            roundId,
+            items: [item({ playHoleId: h1, playerId: player.id, key: 'tee_miss_dir', value: 'long' })],
+        }),
+    );
+    expect(teeDir).toMatchObject({ code: 'stat_invalid_value', key: 'tee_miss_dir' });
+
+    const greenDir = await refusal(() =>
+        ctx.playerStatsService.appendEvents({
+            roundId,
+            items: [
+                item({ playHoleId: h1, playerId: player.id, key: 'green_miss_dir', value: 'wide' }),
+            ],
+        }),
+    );
+    expect(greenDir).toMatchObject({ code: 'stat_invalid_value', key: 'green_miss_dir' });
+
+    // The stepper is a closed range, checked as a value set. Both ends.
+    for (const value of ['0', '6', '2.5', '']) {
+        const bad = await refusal(() =>
+            ctx.playerStatsService.appendEvents({
+                roundId,
+                items: [
+                    item({
+                        playHoleId: h1,
+                        playerId: player.id,
+                        key: 'short_game_strokes',
+                        value,
+                    }),
+                ],
+            }),
+        );
+        expect(bad).toMatchObject({ code: 'stat_invalid_value', key: 'short_game_strokes' });
+    }
+
+    const source = await refusal(() =>
+        ctx.playerStatsService.appendEvents({
+            roundId,
+            items: [
+                item({ playHoleId: h1, playerId: player.id, key: 'penalty_source', value: 'green' }),
+            ],
+        }),
+    );
+    expect(source).toMatchObject({ code: 'stat_invalid_value', key: 'penalty_source' });
+});
+
+test('the server enforces the vocabulary and never a prompt PRECONDITION', async () => {
+    const { ctx, player, roundId, hole } = await soloRound();
+    const h1 = hole(1);
+
+    // A green miss direction on a hole whose green was HIT, and a penalty
+    // source on a hole with no penalty. Both are contradictions no client would
+    // produce, and both are ACCEPTED: which questions a hole asks depends on the
+    // client's derived-GIR state machine and on answers that may arrive in any
+    // order, none of which the server can see at insert time. There is no
+    // `stat_precondition_unmet`, by design. The VIEWS are where a contradictory
+    // pair is resolved, by guarding each measure on its parent's answer.
+    await ctx.playerStatsService.appendEvents({
+        roundId,
+        items: [
+            item({ playHoleId: h1, playerId: player.id, key: 'gir', value: '1' }),
+            item({ playHoleId: h1, playerId: player.id, key: 'green_miss_dir', value: 'left' }),
+            item({ playHoleId: h1, playerId: player.id, key: 'penalties', value: '0' }),
+            item({ playHoleId: h1, playerId: player.id, key: 'penalty_source', value: 'tee' }),
+        ],
+    });
+
+    const row = (await ctx.playerStatsService.statsForRound(roundId))[0]!;
+    expect(row.gir).toBe(true);
+    expect(row.greenMissDir).toBe('left');
+    expect(row.penaltySource).toBe('tee');
 });
 
 // --- The prompt set ------------------------------------------------------------

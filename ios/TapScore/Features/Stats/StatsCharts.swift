@@ -29,6 +29,9 @@ enum StatsChartColor {
 
     static let neutral = TapColors.accent
     static let track = TapColors.surfaceSunken
+    /// Zero lines, baseline ticks, in-picture labels. Twin of the web
+    /// palette's `rule: t('border')`.
+    static let rule = TapColors.border
 }
 
 // MARK: - Signed bar
@@ -249,6 +252,273 @@ struct StatsLadderRung: View {
         if made > baseline + 0.02 { return TapColors.primary }
         if made < baseline - 0.02 { return TapColors.danger }
         return StatsChartColor.neutral
+    }
+}
+
+// MARK: - Green-miss compass
+
+/// THE ONE CHART THAT KEEPS ITS ASPECT RATIO — a squashed compass lies about
+/// direction. Everything below is in a fixed 100 × 100 user space that the view
+/// maps with a uniform scale (SwiftUI's `.aspectRatio(1, contentMode: .fit)`,
+/// the twin of the web's `preserveAspectRatio="xMidYMid meet"`).
+///
+/// Pure geometry, no measures: the caller hands over four shares that already
+/// went through `StatMeasuresMath`. Twin of `greenCompassGeometry` in
+/// `src/stats/stats-charts.ts`.
+enum StatsCompassGeometry {
+    static let size: Double = 100
+    static let centre: Double = 50
+    /// The green glyph — a plain circle. No flag, no pin.
+    static let greenR: Double = 16
+    static let rIn: Double = 22
+    static let rOut: Double = 44
+    /// Gap between wedges, halved at each edge.
+    static let gapDeg: Double = 3
+    /// Reading text sits mid-annulus, on the always-drawn track wedge.
+    static let labelR: Double = 33
+    /// In the same fixed user space — the twin of the web's `font-size="7"`.
+    static let labelFontSize: Double = 7
+
+    /// The four directions, clockwise from 12 o'clock. Long is at the top
+    /// because the golfer is looking at the green from where the approach was
+    /// played.
+    enum Direction: String, CaseIterable, Equatable, Sendable {
+        case long, right, short, left
+
+        /// Degrees clockwise from 12, y down.
+        var span: (from: Double, to: Double) {
+            switch self {
+            case .long: return (315, 405)  // 315° → 45°, unwrapped
+            case .right: return (45, 135)
+            case .short: return (135, 225)
+            case .left: return (225, 315)
+            }
+        }
+    }
+
+    struct Sector: Equatable, Sendable, Identifiable {
+        var id: Direction
+        /// Full-extent wedge, always drawn, `track` colour.
+        var trackOuterR: Double
+        /// Value wedge, radius scaled by share / maxShare.
+        var valueOuterR: Double
+        var startDeg: Double
+        var endDeg: Double
+        var labelX: Double
+        var labelY: Double
+    }
+
+    /// `maxShare > 0` is guaranteed by the caller's gate
+    /// (`greenMissRecorded > 0` means at least one direction is non-zero).
+    static func sectors(_ shares: [Direction: Double]) -> [Sector] {
+        let maxShare = Direction.allCases.compactMap { shares[$0] }.max() ?? 0
+        return Direction.allCases.map { dir in
+            let span = dir.span
+            let start = span.from + gapDeg / 2
+            let end = span.to - gapDeg / 2
+            let share = shares[dir] ?? 0
+            let scaled = maxShare > 0 ? share / maxShare : 0
+            let mid = (span.from + span.to) / 2
+            return Sector(
+                id: dir,
+                trackOuterR: rOut,
+                valueOuterR: rIn + (rOut - rIn) * scaled,
+                startDeg: start,
+                endDeg: end,
+                labelX: centre + labelR * sin(mid * .pi / 180),
+                labelY: centre - labelR * cos(mid * .pi / 180))
+        }
+    }
+}
+
+/// An annulus wedge in the compass's fixed user space, scaled uniformly into
+/// whatever square the layout gives it.
+private struct CompassWedge: Shape {
+    var startDeg: Double
+    var endDeg: Double
+    var innerR: Double
+    var outerR: Double
+
+    func path(in rect: CGRect) -> Path {
+        let scale = min(rect.width, rect.height) / StatsCompassGeometry.size
+        let centre = CGPoint(
+            x: rect.midX, y: rect.midY)
+        // SwiftUI angles run clockwise from 3 o'clock with y down; the compass
+        // is specified clockwise from 12, so subtract a quarter turn.
+        let start = Angle(degrees: startDeg - 90)
+        let end = Angle(degrees: endDeg - 90)
+        var path = Path()
+        path.addArc(
+            center: centre, radius: outerR * scale, startAngle: start, endAngle: end,
+            clockwise: false)
+        path.addArc(
+            center: centre, radius: innerR * scale, startAngle: end, endAngle: start,
+            clockwise: true)
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// Where the approach finished when the green was missed.
+///
+/// `aria-hidden` equivalent: the whole picture is `accessibilityHidden`, because
+/// the block prints the four readings as adjacent text — the house convention,
+/// so the reading survives without the drawing.
+///
+/// `labels` are already formatted by the caller, through the SAME display policy
+/// as the adjacent text (this view never formats a rate). That is deliberate: a
+/// wheel saying "67%" beside prose saying "2 of 3" is the screen contradicting
+/// itself, and under `MIN_RATE_DENOMINATOR` the fraction is the honest one.
+struct StatsGreenCompass: View {
+    var sectors: [StatsCompassGeometry.Sector]
+    var labels: [StatsCompassGeometry.Direction: String]
+
+    var body: some View {
+        ZStack {
+            ForEach(sectors) { sector in
+                CompassWedge(
+                    startDeg: sector.startDeg, endDeg: sector.endDeg,
+                    innerR: StatsCompassGeometry.rIn, outerR: sector.trackOuterR
+                )
+                .fill(StatsChartColor.track)
+            }
+            ForEach(sectors) { sector in
+                CompassWedge(
+                    startDeg: sector.startDeg, endDeg: sector.endDeg,
+                    innerR: StatsCompassGeometry.rIn, outerR: sector.valueOuterR
+                )
+                .fill(StatsChartColor.neutral)
+            }
+            GeometryReader { geo in
+                let scale = min(geo.size.width, geo.size.height) / StatsCompassGeometry.size
+                let originX = (geo.size.width - StatsCompassGeometry.size * scale) / 2
+                let originY = (geo.size.height - StatsCompassGeometry.size * scale) / 2
+                Circle()
+                    .fill(StatsChartColor.track)
+                    .frame(
+                        width: StatsCompassGeometry.greenR * 2 * scale,
+                        height: StatsCompassGeometry.greenR * 2 * scale
+                    )
+                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                ForEach(sectors) { sector in
+                    Text(labels[sector.id] ?? "")
+                        .font(TapFont.ui(size: StatsCompassGeometry.labelFontSize * scale))
+                        .foregroundStyle(StatsChartColor.rule)
+                        .position(
+                            x: originX + sector.labelX * scale,
+                            y: originY + sector.labelY * scale)
+                }
+            }
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Tee fan
+
+/// Where the tee shots finished: three columns, stacked from a baseline upward,
+/// `inPlay` at the bottom of a side column and `trouble` above it — severity
+/// climbs. The centre column is a single `fairway` block.
+///
+/// Unlike the compass this one stretches (`preserveAspectRatio="none"`): the
+/// heights are the reading and the widths carry no quantity.
+enum StatsFanGeometry {
+    static let height: Double = 60
+    static let baseline: Double = 58
+    static let top: Double = 2
+
+    enum Column: String, CaseIterable, Equatable, Sendable {
+        case left, centre, right
+
+        /// x spans in the fixed 0…100 user space.
+        var span: (x: Double, width: Double) {
+            switch self {
+            case .left: return (6, 24)
+            case .centre: return (38, 24)
+            case .right: return (70, 24)
+            }
+        }
+    }
+
+    enum Tone: String, Equatable, Sendable { case fairway, inPlay, trouble }
+
+    struct Segment: Equatable, Sendable, Identifiable {
+        var id: String
+        var column: Column
+        var tone: Tone
+        var x: Double
+        var y: Double
+        var width: Double
+        var height: Double
+    }
+
+    /// The counts are ALREADY derived (`leftInPlay = teeMissLeft −
+    /// teeTroubleLeft`, and so on) — that subtraction belongs to
+    /// `StatsDashboardModel`, because a chart module that does arithmetic on
+    /// measures is a second implementation of the display policy.
+    static func segments(
+        leftInPlay: Double, leftTrouble: Double,
+        fairway: Double,
+        rightInPlay: Double, rightTrouble: Double,
+        recorded: Double
+    ) -> [Segment] {
+        let span = baseline - top
+        func h(_ count: Double) -> Double { recorded > 0 ? (count / recorded) * span : 0 }
+        var out: [Segment] = []
+
+        func stack(_ column: Column, _ parts: [(String, Tone, Double)]) {
+            var y = baseline
+            for (id, tone, count) in parts {
+                let barHeight = h(count)
+                y -= barHeight
+                out.append(
+                    Segment(
+                        id: id, column: column, tone: tone,
+                        x: column.span.x, y: y, width: column.span.width, height: barHeight))
+            }
+        }
+
+        stack(.left, [("left-inplay", .inPlay, leftInPlay), ("left-trouble", .trouble, leftTrouble)])
+        stack(.centre, [("fairway", .fairway, fairway)])
+        stack(
+            .right,
+            [("right-inplay", .inPlay, rightInPlay), ("right-trouble", .trouble, rightTrouble)])
+        return out
+    }
+}
+
+struct StatsTeeFan: View {
+    var segments: [StatsFanGeometry.Segment]
+
+    var body: some View {
+        GeometryReader { geo in
+            let sx = geo.size.width / 100
+            let sy = geo.size.height / StatsFanGeometry.height
+            ForEach(segments) { segment in
+                Rectangle()
+                    .fill(tint(segment.tone))
+                    .frame(
+                        width: segment.width * sx,
+                        height: max(segment.height > 0 ? 1 : 0, segment.height * sy)
+                    )
+                    .position(
+                        x: (segment.x + segment.width / 2) * sx,
+                        y: (segment.y + segment.height / 2) * sy)
+            }
+        }
+        .frame(height: StatsFanGeometry.height)
+        .accessibilityHidden(true)
+    }
+
+    /// The same three tones the fairway/in-play split bar above it already uses,
+    /// so the two pictures read as one statement.
+    private func tint(_ tone: StatsFanGeometry.Tone) -> Color {
+        switch tone {
+        case .fairway: return TapColors.primary
+        case .inPlay: return StatsChartColor.neutral
+        case .trouble: return TapColors.danger
+        }
     }
 }
 

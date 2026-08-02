@@ -334,7 +334,7 @@ final class RoundStore {
     func stop() async {
         // Leaving the screen is an exit path like any other: the draft only
         // exists in this store, which is about to go away.
-        flushStats()
+        closeStatStep()
         hooksRegistered = false
         scenePhase?.unregister(key: "round:\(token)")
         cancelJump()
@@ -1402,6 +1402,15 @@ final class RoundStore {
 
     func statIsAnswered(_ key: StatEventKey) -> Bool { statStep?.isAnswered(key) ?? false }
 
+    /// Where the GIR prompt stands against the score just entered — what the
+    /// view needs to decide between a selected segment, the pending line and
+    /// the disagreement line (§B.5). A pure read; nothing writes until close.
+    var statDerivedGirState: StatStep.DerivedGirState { statStep?.derivedGirState ?? .idle }
+
+    /// The value the score implies, `"1"` / `"0"` / nil. Which disagreement
+    /// sentence shows is decided by THIS, not by the stored answer.
+    var statDerivedGir: String? { statStep?.derivedGir }
+
     /// The FORMAT's own metadata toggles for this hole, minus any key the stats
     /// step is already asking about. One control per question: when a format
     /// wants GIR and the player tracks approach, the stats row renders it and
@@ -1447,7 +1456,7 @@ final class RoundStore {
             refreshStatStep()
             return
         }
-        flushStats()
+        closeStatStep()
         setStatCell(cell, step: cell.flatMap(makeStatStep))
     }
 
@@ -1462,6 +1471,34 @@ final class RoundStore {
             return
         }
         statStep?.refresh(modules: modules, persisted: persistedStats(for: cell))
+        syncStatScore()
+    }
+
+    /// Push the cell's stroke count into the open step. The derived-GIR rule
+    /// (proposal §3.4b) reads score + putts, and `StatStep` deliberately has no
+    /// way to see the scorecard — the host is the only place that pairing can
+    /// be made. Called on every refresh and after every write, because the score
+    /// arrives one keypad tap BEFORE the stats step is shown.
+    private func syncStatScore() {
+        guard let cell = statCell else { return }
+        let ball = balls.first { $0.players.contains { $0.playerId == cell.playerId } }
+        let value = ball.flatMap { strokes(ballId: $0.id, playHoleId: cell.playHoleId) }
+        statStep?.setScore(value.map { Int($0) })
+    }
+
+    /// Commit the open step the way a CLOSE commits it: materialise a pending
+    /// derived GIR first, so it rides the ordinary batch, then flush.
+    ///
+    /// Every exit path from the stats step goes through here — Done, the back
+    /// chevron, a keypad dismissal, leaving the screen. `flushStats()` on its
+    /// own stays the right call for the non-closing flushes (a foreground
+    /// refresh, a background hop): those are "get what we have onto disk", not
+    /// "the golfer is finished with this hole", and materialising there would
+    /// write an answer under a card the golfer is still looking at.
+    @discardableResult
+    func closeStatStep() -> Bool {
+        statStep?.materialiseDerivedGir()
+        return flushStats()
     }
 
     /// The pair moves together: a cell with no buildable step is not a cell.
@@ -1477,11 +1514,14 @@ final class RoundStore {
         guard let modules = statModules[cell.playerId], let hole = currentPlayHole else {
             return nil
         }
+        let ball = balls.first { $0.players.contains { $0.playerId == cell.playerId } }
+        let score = ball.flatMap { strokes(ballId: $0.id, playHoleId: cell.playHoleId) }
         return StatStep(
             modules: modules,
             par: hole.par,
             holeNumber: hole.courseHoleNumber,
-            persisted: persistedStats(for: cell))
+            persisted: persistedStats(for: cell),
+            strokes: score.map { Int($0) })
     }
 
     /// What is already stored for this cell: the server's projection, overridden
@@ -1504,11 +1544,15 @@ final class RoundStore {
     static func storedValues(_ row: PlayerHoleStats) -> [StatEventKey: String] {
         var out: [StatEventKey: String] = [:]
         if let v = row.teeResult { out[.teeResult] = v.rawValue }
+        if let v = row.teeMissDir { out[.teeMissDir] = v.rawValue }
         if let v = row.gir { out[.gir] = v ? "1" : "0" }
+        if let v = row.greenMissDir { out[.greenMissDir] = v.rawValue }
         if let v = row.firstPutt { out[.firstPutt] = v.rawValue }
         if let v = row.putts { out[.putts] = String(countInt(v)) }
         if let v = row.shortGameDifficulty { out[.shortGameDifficulty] = v.rawValue }
+        if let v = row.shortGameStrokes { out[.shortGameStrokes] = String(countInt(v)) }
         if let v = row.penalties { out[.penalties] = String(countInt(v)) }
+        if let v = row.penaltySource { out[.penaltySource] = v.rawValue }
         if let v = row.recoveryOk { out[.recoveryOk] = v ? "1" : "0" }
         return out
     }
@@ -1671,7 +1715,7 @@ final class RoundStore {
         let clamped = min(max(index, 0), count - 1)
         cancelJump()
         statsOpen = false
-        flushStats()
+        closeStatStep()
         guard clamped != holeIndex else { return }
         holeIndex = clamped
         currentBallIndex = 0
@@ -1682,7 +1726,9 @@ final class RoundStore {
     func selectGroup(index: Int) {
         guard groups.indices.contains(index) else { return }
         cancelJump()
-        flushStats()
+        // Switching group moves the cursor off this (player, hole) for good —
+        // an exit path, so a pending derived GIR materialises here too.
+        closeStatStep()
         groupIndex = index
         holeIndex = 0
         currentBallIndex = 0
@@ -1717,7 +1763,7 @@ final class RoundStore {
     func closeKeypad() {
         // A swipe-down on the sheet is an exit from the stats step like any
         // other — the batch goes out before the state is torn down.
-        flushStats()
+        closeStatStep()
         keypadOpen = false
         statsOpen = false
         cancelJump()
@@ -1782,7 +1828,7 @@ final class RoundStore {
         statsOpen = false
         // Before the event: `.statsDone` can move the cursor, and the batch
         // belongs to the ball it was answered for.
-        flushStats()
+        closeStatStep()
         apply(.statsDone)
     }
 
@@ -1802,7 +1848,7 @@ final class RoundStore {
     /// without it, backing out of the step would silently bin the hole.
     func statsBack() {
         statsOpen = false
-        flushStats()
+        closeStatStep()
     }
 
     private func apply(_ entry: EntryEvent) {
@@ -1842,6 +1888,10 @@ final class RoundStore {
                     )
                 }
             }
+            // The score the stats step derives GIR from just changed. Do it
+            // here rather than at render: `derivedGirState` must be a pure read
+            // of state the step already holds.
+            syncStatScore()
         }
 
         switch decision.move {

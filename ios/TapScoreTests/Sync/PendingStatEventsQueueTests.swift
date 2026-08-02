@@ -258,4 +258,52 @@ final class PendingStatEventsQueueTests: XCTestCase {
         XCTAssertEqual(pending.count, 1)
         XCTAssertEqual(pending.first?.clientEventId, "id-9")
     }
+
+    // MARK: - Wave 4 keys ride the same rails
+
+    /// The queue is key-agnostic by construction; wave 4 adds four keys and no
+    /// code. This is the proof: a `short_game_strokes` stepper coalesces per
+    /// `(token, playHoleId, playerId, key)` like every other key and mints ONE
+    /// `clientEventId` however many times the golfer nudged it.
+    func testAShortGameStrokeCounterCoalescesLikeAnyOtherKey() async {
+        let queue = makeQueue()
+        _ = await queue.enqueue(
+            token: "tok-1", playHoleId: "ph-1", playerId: "p-1", key: .shortGameStrokes,
+            value: "2", now: now)
+        _ = await queue.enqueue(
+            token: "tok-1", playHoleId: "ph-1", playerId: "p-1", key: .shortGameStrokes,
+            value: "3", now: now)
+        // A different hole is a different entry, not a coalesce.
+        _ = await queue.enqueue(
+            token: "tok-1", playHoleId: "ph-2", playerId: "p-1", key: .shortGameStrokes,
+            value: "2", now: now)
+
+        let pending = await queue.pending(for: "tok-1")
+        XCTAssertEqual(pending.count, 2)
+        XCTAssertEqual(pending.first?.value, "3", "the latest nudge wins")
+        // One ENTRY per (token, hole, player, key), carrying the id of the
+        // intent that is actually owed — a coalesce re-mints, exactly as it
+        // does for every other key.
+        XCTAssertEqual(pending.first?.clientEventId, "id-2")
+        XCTAssertEqual(pending.last?.clientEventId, "id-3", "a different hole is its own entry")
+    }
+
+    /// The other three new keys, batched exactly as the capture step closes
+    /// them — in shot order, one entry each.
+    func testTheNewDirectionAndSourceKeysRoundTripAsABatch() async {
+        let queue = makeQueue()
+        _ = await queue.enqueue(
+            token: "tok-1", playHoleId: "ph-1", playerId: "p-1",
+            batch: [
+                StatBatchItem(key: .teeMissDir, value: "left"),
+                StatBatchItem(key: .greenMissDir, value: "short"),
+                StatBatchItem(key: .penaltySource, value: "tee"),
+            ],
+            now: now)
+
+        let pending = await queue.pending(for: "tok-1")
+        XCTAssertEqual(pending.map(\.key), [.teeMissDir, .greenMissDir, .penaltySource])
+        XCTAssertEqual(pending.map(\.value), ["left", "short", "tee"])
+        XCTAssertEqual(Set(pending.map(\.clientEventId)).count, 3)
+    }
 }

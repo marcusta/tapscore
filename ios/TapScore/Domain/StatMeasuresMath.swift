@@ -70,10 +70,11 @@ struct ByTee<T: Equatable & Sendable>: Equatable, Sendable {
     var trouble: T
 }
 
-/// The short-game difficulty split, plus the two halves added together.
+/// The short-game difficulty split, plus the three legs added together.
 struct ByDifficulty<T: Equatable & Sendable>: Equatable, Sendable {
     var standard: T
     var hard: T
+    var bunker: T
     var overall: T
 }
 
@@ -151,6 +152,7 @@ struct ChipOutcomeExpectedPutts: Equatable, Sendable {
 struct ChipExpectedPutts: Equatable, Sendable {
     var standard: Double
     var hard: Double
+    var bunker: Double
 }
 
 /// Rows behind each cell of an `SgTables`. Mirrors its shape field for field.
@@ -407,6 +409,7 @@ enum InsightID: String, Equatable, Sendable, CaseIterable {
     case componentBestVsBaseline = "component_best_vs_baseline"
     case componentWorstVsBaseline = "component_worst_vs_baseline"
     case penaltiesSpike = "penalties_spike"
+    case twoWayMiss = "two_way_miss"
     case scrambleStreak = "scramble_streak"
     case hardScrambleStreak = "hard_scramble_streak"
     case threePuttFree = "three_putt_free"
@@ -457,8 +460,18 @@ enum StatMeasuresMath {
         fairwayHits: 0,
         inPlayHits: 0,
         troubleCount: 0,
+        teeMissRecorded: 0,
+        teeMissLeft: 0,
+        teeMissRight: 0,
+        teeTroubleLeft: 0,
+        teeTroubleRight: 0,
         girRecorded: 0,
         girHits: 0,
+        greenMissRecorded: 0,
+        greenMissLong: 0,
+        greenMissShort: 0,
+        greenMissLeft: 0,
+        greenMissRight: 0,
         firstPuttRecorded: 0,
         firstPuttInside1m: 0,
         firstPutt1To2m: 0,
@@ -489,10 +502,26 @@ enum StatMeasuresMath {
         scrambleInside2mHard: 0,
         scrambleHoledStandard: 0,
         scrambleHoledHard: 0,
+        scrambleAttemptsBunker: 0,
+        scrambleSuccessesBunker: 0,
+        scrambleFirstPuttBunker: 0,
+        scrambleInside2mBunker: 0,
+        scrambleHoledBunker: 0,
+        shortGameStrokesRecorded: 0,
+        shortGameStrokesEffective: 0,
+        shortGameStrokesEffectiveStandard: 0,
+        shortGameStrokesEffectiveHard: 0,
+        shortGameStrokesEffectiveBunker: 0,
+        holesMultiChip: 0,
+        holesMultiChipBunker: 0,
         penaltiesRecorded: 0,
         penaltiesTotal: 0,
         recoveryAttempts: 0,
         recoverySuccesses: 0,
+        penaltySourceRecorded: 0,
+        penaltiesTee: 0,
+        penaltiesApproach: 0,
+        penaltiesShort: 0,
         holesScored: 0,
         strokesTotal: 0,
         parTotal: 0,
@@ -594,8 +623,13 @@ enum StatMeasuresMath {
         attChipInside2mHard: 0,
         attChipOutside2mHard: 0,
         attChipHoledHard: 0,
+        attMissBunker: 0,
+        attChipInside2mBunker: 0,
+        attChipOutside2mBunker: 0,
+        attChipHoledBunker: 0,
         attSgStrokesEffectiveStandard: 0,
-        attSgStrokesEffectiveHard: 0
+        attSgStrokesEffectiveHard: 0,
+        attSgStrokesEffectiveBunker: 0
     )
 
     /// Field-by-field addition. Written out rather than iterated on purpose: the
@@ -612,8 +646,18 @@ enum StatMeasuresMath {
             fairwayHits: a.fairwayHits + b.fairwayHits,
             inPlayHits: a.inPlayHits + b.inPlayHits,
             troubleCount: a.troubleCount + b.troubleCount,
+            teeMissRecorded: a.teeMissRecorded + b.teeMissRecorded,
+            teeMissLeft: a.teeMissLeft + b.teeMissLeft,
+            teeMissRight: a.teeMissRight + b.teeMissRight,
+            teeTroubleLeft: a.teeTroubleLeft + b.teeTroubleLeft,
+            teeTroubleRight: a.teeTroubleRight + b.teeTroubleRight,
             girRecorded: a.girRecorded + b.girRecorded,
             girHits: a.girHits + b.girHits,
+            greenMissRecorded: a.greenMissRecorded + b.greenMissRecorded,
+            greenMissLong: a.greenMissLong + b.greenMissLong,
+            greenMissShort: a.greenMissShort + b.greenMissShort,
+            greenMissLeft: a.greenMissLeft + b.greenMissLeft,
+            greenMissRight: a.greenMissRight + b.greenMissRight,
             firstPuttRecorded: a.firstPuttRecorded + b.firstPuttRecorded,
             firstPuttInside1m: a.firstPuttInside1m + b.firstPuttInside1m,
             firstPutt1To2m: a.firstPutt1To2m + b.firstPutt1To2m,
@@ -644,10 +688,29 @@ enum StatMeasuresMath {
             scrambleInside2mHard: a.scrambleInside2mHard + b.scrambleInside2mHard,
             scrambleHoledStandard: a.scrambleHoledStandard + b.scrambleHoledStandard,
             scrambleHoledHard: a.scrambleHoledHard + b.scrambleHoledHard,
+            scrambleAttemptsBunker: a.scrambleAttemptsBunker + b.scrambleAttemptsBunker,
+            scrambleSuccessesBunker: a.scrambleSuccessesBunker + b.scrambleSuccessesBunker,
+            scrambleFirstPuttBunker: a.scrambleFirstPuttBunker + b.scrambleFirstPuttBunker,
+            scrambleInside2mBunker: a.scrambleInside2mBunker + b.scrambleInside2mBunker,
+            scrambleHoledBunker: a.scrambleHoledBunker + b.scrambleHoledBunker,
+            shortGameStrokesRecorded: a.shortGameStrokesRecorded + b.shortGameStrokesRecorded,
+            shortGameStrokesEffective: a.shortGameStrokesEffective + b.shortGameStrokesEffective,
+            shortGameStrokesEffectiveStandard: a.shortGameStrokesEffectiveStandard
+                + b.shortGameStrokesEffectiveStandard,
+            shortGameStrokesEffectiveHard: a.shortGameStrokesEffectiveHard
+                + b.shortGameStrokesEffectiveHard,
+            shortGameStrokesEffectiveBunker: a.shortGameStrokesEffectiveBunker
+                + b.shortGameStrokesEffectiveBunker,
+            holesMultiChip: a.holesMultiChip + b.holesMultiChip,
+            holesMultiChipBunker: a.holesMultiChipBunker + b.holesMultiChipBunker,
             penaltiesRecorded: a.penaltiesRecorded + b.penaltiesRecorded,
             penaltiesTotal: a.penaltiesTotal + b.penaltiesTotal,
             recoveryAttempts: a.recoveryAttempts + b.recoveryAttempts,
             recoverySuccesses: a.recoverySuccesses + b.recoverySuccesses,
+            penaltySourceRecorded: a.penaltySourceRecorded + b.penaltySourceRecorded,
+            penaltiesTee: a.penaltiesTee + b.penaltiesTee,
+            penaltiesApproach: a.penaltiesApproach + b.penaltiesApproach,
+            penaltiesShort: a.penaltiesShort + b.penaltiesShort,
             holesScored: a.holesScored + b.holesScored,
             strokesTotal: a.strokesTotal + b.strokesTotal,
             parTotal: a.parTotal + b.parTotal,
@@ -749,9 +812,15 @@ enum StatMeasuresMath {
             attChipInside2mHard: a.attChipInside2mHard + b.attChipInside2mHard,
             attChipOutside2mHard: a.attChipOutside2mHard + b.attChipOutside2mHard,
             attChipHoledHard: a.attChipHoledHard + b.attChipHoledHard,
+            attMissBunker: a.attMissBunker + b.attMissBunker,
+            attChipInside2mBunker: a.attChipInside2mBunker + b.attChipInside2mBunker,
+            attChipOutside2mBunker: a.attChipOutside2mBunker + b.attChipOutside2mBunker,
+            attChipHoledBunker: a.attChipHoledBunker + b.attChipHoledBunker,
             attSgStrokesEffectiveStandard: a.attSgStrokesEffectiveStandard
                 + b.attSgStrokesEffectiveStandard,
-            attSgStrokesEffectiveHard: a.attSgStrokesEffectiveHard + b.attSgStrokesEffectiveHard
+            attSgStrokesEffectiveHard: a.attSgStrokesEffectiveHard + b.attSgStrokesEffectiveHard,
+            attSgStrokesEffectiveBunker: a.attSgStrokesEffectiveBunker
+                + b.attSgStrokesEffectiveBunker
         )
     }
 
@@ -971,7 +1040,9 @@ enum StatMeasuresMath {
     /// says where the approach put you, which is why it is surfaced on the
     /// approach card.
     static func hardChipShare(_ m: StatMeasures) -> Rate {
-        rate(m.scrambleAttemptsHard, m.scrambleAttemptsStandard + m.scrambleAttemptsHard)
+        rate(
+            m.scrambleAttemptsHard,
+            m.scrambleAttemptsStandard + m.scrambleAttemptsHard + m.scrambleAttemptsBunker)
     }
 
     // MARK: Putting
@@ -1046,9 +1117,42 @@ enum StatMeasuresMath {
         ByDifficulty(
             standard: rate(m.scrambleSuccessesStandard, m.scrambleAttemptsStandard),
             hard: rate(m.scrambleSuccessesHard, m.scrambleAttemptsHard),
+            bunker: rate(m.scrambleSuccessesBunker, m.scrambleAttemptsBunker),
             overall: rate(
-                m.scrambleSuccessesStandard + m.scrambleSuccessesHard,
-                m.scrambleAttemptsStandard + m.scrambleAttemptsHard))
+                m.scrambleSuccessesStandard + m.scrambleSuccessesHard
+                    + m.scrambleSuccessesBunker,
+                m.scrambleAttemptsStandard + m.scrambleAttemptsHard + m.scrambleAttemptsBunker))
+    }
+
+    /// Up-and-downs from sand. The same construction as `scrambleRate.bunker`,
+    /// named on its own because "sand save" is what the golfer calls it.
+    static func sandSaveRate(_ m: StatMeasures) -> Rate {
+        rate(m.scrambleSuccessesBunker, m.scrambleAttemptsBunker)
+    }
+
+    /// Missed greens that took more than one shot to reach the green.
+    ///
+    /// The denominator is ALL eligible missed-green holes, not the answered
+    /// steppers: an uncounted hole is modeled as one shot (proposal §3.4c), so
+    /// this is a share of OPPORTUNITIES. Restricting it to answered holes would
+    /// make the number climb the more diligently the golfer skipped the easy
+    /// ones.
+    static func multiChipRate(_ m: StatMeasures) -> Rate {
+        rate(
+            m.holesMultiChip,
+            m.scrambleAttemptsStandard + m.scrambleAttemptsHard + m.scrambleAttemptsBunker)
+    }
+
+    static func multiChipFromBunkerRate(_ m: StatMeasures) -> Rate {
+        rate(m.holesMultiChipBunker, m.scrambleAttemptsBunker)
+    }
+
+    /// An absolute COUNT, not a rate: effective short-game strokes above one per
+    /// attempt, across the window. Zero when nothing was counted, which is why
+    /// the caller gates it on `shortGameStrokesRecorded` and never on the value.
+    static func extraShortGameStrokes(_ m: StatMeasures) -> Double {
+        m.shortGameStrokesEffective
+            - (m.scrambleAttemptsStandard + m.scrambleAttemptsHard + m.scrambleAttemptsBunker)
     }
 
     /// Chip proximity — the LEADING indicator behind `scrambleRate`: how often
@@ -1063,9 +1167,64 @@ enum StatMeasuresMath {
         ByDifficulty(
             standard: rate(m.scrambleInside2mStandard, m.scrambleFirstPuttStandard),
             hard: rate(m.scrambleInside2mHard, m.scrambleFirstPuttHard),
+            bunker: rate(m.scrambleInside2mBunker, m.scrambleFirstPuttBunker),
             overall: rate(
-                m.scrambleInside2mStandard + m.scrambleInside2mHard,
-                m.scrambleFirstPuttStandard + m.scrambleFirstPuttHard))
+                m.scrambleInside2mStandard + m.scrambleInside2mHard + m.scrambleInside2mBunker,
+                m.scrambleFirstPuttStandard + m.scrambleFirstPuttHard
+                    + m.scrambleFirstPuttBunker))
+    }
+
+    // MARK: Dispersion (wave 4)
+
+    /// Where the approach finished when the green was missed. The four shares
+    /// PARTITION the recorded misses, so they sum to 1 by construction.
+    struct GreenMissDispersion: Equatable, Sendable {
+        var long: Rate
+        var short: Rate
+        var left: Rate
+        var right: Rate
+    }
+
+    static func greenMissDispersion(_ m: StatMeasures) -> GreenMissDispersion {
+        GreenMissDispersion(
+            long: rate(m.greenMissLong, m.greenMissRecorded),
+            short: rate(m.greenMissShort, m.greenMissRecorded),
+            left: rate(m.greenMissLeft, m.greenMissRecorded),
+            right: rate(m.greenMissRight, m.greenMissRecorded))
+    }
+
+    /// Which side the tee shot finished on, and how often that side was
+    /// trouble rather than merely off the fairway. The two `trouble*` rates are
+    /// CONDITIONAL — their denominator is that side's misses, not all of them —
+    /// which is what makes "one side is more expensive than the other" readable.
+    struct TeeMissDispersion: Equatable, Sendable {
+        var left: Rate
+        var right: Rate
+        var troubleLeft: Rate
+        var troubleRight: Rate
+    }
+
+    static func teeMissDispersion(_ m: StatMeasures) -> TeeMissDispersion {
+        TeeMissDispersion(
+            left: rate(m.teeMissLeft, m.teeMissRecorded),
+            right: rate(m.teeMissRight, m.teeMissRecorded),
+            troubleLeft: rate(m.teeTroubleLeft, m.teeMissLeft),
+            troubleRight: rate(m.teeTroubleRight, m.teeMissRight))
+    }
+
+    /// Which shot the penalty strokes were labelled against. Over the LABELLED
+    /// holes only — an unlabelled penalty hole is not a fourth category.
+    struct PenaltySourceSplit: Equatable, Sendable {
+        var tee: Rate
+        var approach: Rate
+        var short: Rate
+    }
+
+    static func penaltySourceSplit(_ m: StatMeasures) -> PenaltySourceSplit {
+        PenaltySourceSplit(
+            tee: rate(m.penaltiesTee, m.penaltySourceRecorded),
+            approach: rate(m.penaltiesApproach, m.penaltySourceRecorded),
+            short: rate(m.penaltiesShort, m.penaltySourceRecorded))
     }
 
     // MARK: Scoring (always available — needs only the scorecard)
@@ -1136,12 +1295,18 @@ enum StatMeasuresMath {
     /// from, only the baseline that outcome is scored against does.
     ///
     /// FROZEN, exactly like v1: tune by adding a V3, never by editing these.
-    static let chipExpectedPuttsV2 = ChipExpectedPutts(standard: 1.70, hard: 2.10)
+    /// The bunker leg is PROVISIONAL and uncalibrated, exactly as the other two
+    /// are: a greenside bunker is a known lie with a known technique — harder
+    /// than a clean chip, marginally easier than the `hard` catch-all, which
+    /// also carries short-sided, downhill and long-grass lies.
+    static let chipExpectedPuttsV2 = ChipExpectedPutts(
+        standard: 1.70, hard: 2.10, bunker: 1.95)
 
-    /// v1 as a per-difficulty table — both difficulties share the single 1.85.
+    /// v1 as a per-difficulty table — every difficulty shares the single 1.85.
     /// Passing it to `strokesLost` reproduces the frozen v1 numbers exactly.
     static let chipExpectedPuttsV1ByDifficulty = ChipExpectedPutts(
-        standard: chipExpectedPuttsV1, hard: chipExpectedPuttsV1)
+        standard: chipExpectedPuttsV1, hard: chipExpectedPuttsV1,
+        bunker: chipExpectedPuttsV1)
 
     // MARK: The strokes-lost waterfall (proposal §2)
 
@@ -1204,8 +1369,18 @@ enum StatMeasuresMath {
             (m.attTroublePar5, 5, .trouble),
         ]
 
-        let sumC = m.attSgStrokesEffectiveStandard + m.attSgStrokesEffectiveHard
-        let nMiss = m.attMissStandard + m.attMissHard
+        // Every difficulty leg must reach BOTH `sumC` and `sumChipEntry`. For a
+        // leg `d`, approach receives `−ΣC_d + n_d·(1 + b_d)` and short game
+        // receives `(ΣC_d − n_d) + O_d − n_d·b_d`; collecting the two leaves
+        // `O_d`, which putting subtracts in full. So every chip term cancels
+        // regardless of the baseline constants and regardless of how many legs
+        // there are — the telescope survives the third leg, and would survive a
+        // fourth. What does NOT survive is a leg wired into `att_strokes` but
+        // not into `sumC`.
+        let sumC =
+            m.attSgStrokesEffectiveStandard + m.attSgStrokesEffectiveHard
+            + m.attSgStrokesEffectiveBunker
+        let nMiss = m.attMissStandard + m.attMissHard + m.attMissBunker
 
         let sumEHole = cohortPar3 * eHole(3) + cohortPar4 * eHole(4) + cohortPar5 * eHole(5)
 
@@ -1224,17 +1399,22 @@ enum StatMeasuresMath {
         // A green hit and holed leaves nothing to putt: + attGirHoled × 0.
 
         let sumEChipOutcome =
-            (m.attChipInside2mStandard + m.attChipInside2mHard) * chipExpected.inside2m
-            + (m.attChipOutside2mStandard + m.attChipOutside2mHard) * chipExpected.outside2m
+            (m.attChipInside2mStandard + m.attChipInside2mHard + m.attChipInside2mBunker)
+            * chipExpected.inside2m
+            + (m.attChipOutside2mStandard + m.attChipOutside2mHard + m.attChipOutside2mBunker)
+            * chipExpected.outside2m
         // A holed chip leaves nothing to putt either: + holed × 0.
 
         let sumEChipBaseline =
-            m.attMissStandard * chipBaseline.standard + m.attMissHard * chipBaseline.hard
+            m.attMissStandard * chipBaseline.standard
+            + m.attMissHard * chipBaseline.hard
+            + m.attMissBunker * chipBaseline.bunker
         /// What a missed green was expected to cost from the moment the approach
         /// ended: one short-game stroke plus the putts it leaves.
         let sumChipEntry =
             m.attMissStandard * (1 + chipBaseline.standard)
             + m.attMissHard * (1 + chipBaseline.hard)
+            + m.attMissBunker * (1 + chipBaseline.bunker)
 
         var tee: Double = 0
         for cell in teeCells {
@@ -1416,6 +1596,10 @@ enum StatMeasuresMath {
     static let insightScrambleStreakMinAttempts: Double = 4
     /// Below three hard misses, "all of them" is a coincidence, not a streak.
     static let insightHardScrambleStreakMinAttempts: Double = 3
+    /// A two-way miss is a SHAPE claim, so it needs a sample before it means
+    /// anything, and both sides have to carry a real share of the misses.
+    static let insightTwoWayMissMinRecorded: Double = 10
+    static let insightTwoWayMissMinSide: Double = 0.35
     /// Below this many putts, "no three-putts" is a short round, not a good one.
     static let insightThreePuttFreeMinPutts: Double = 12
     /// "Best in your last N" needs an N worth comparing against.
@@ -1500,6 +1684,26 @@ enum StatMeasuresMath {
                 0)
         }
 
+        // 3b. Missing both ways off the tee. Magnitude 0 — this is a shape
+        // observation, not a stroke count, so it ranks below anything with a
+        // real delta. The comparison is INTEGER against `share × recorded`,
+        // never a float share against 0.35: same style as the scramble streak,
+        // and it keeps the boundary exact on both clients.
+        if m.teeMissRecorded >= insightTwoWayMissMinRecorded,
+            m.teeMissLeft >= insightTwoWayMissMinSide * m.teeMissRecorded,
+            m.teeMissRight >= insightTwoWayMissMinSide * m.teeMissRecorded
+        {
+            push(
+                InsightLine(
+                    id: .twoWayMiss,
+                    params: [
+                        "left": .number(m.teeMissLeft),
+                        "right": .number(m.teeMissRight),
+                        "recorded": .number(m.teeMissRecorded),
+                    ]),
+                0)
+        }
+
         // 4. Every hard spot saved. No rate threshold: the sentence claims "all
         // of them", so a partial rate would make the copy false. Pushed BEFORE
         // the overall streak below, which it ties with on magnitude — a round
@@ -1519,8 +1723,10 @@ enum StatMeasuresMath {
         }
 
         // 5. A scrambling round, on a sample big enough to mean it.
-        let attempts = m.scrambleAttemptsStandard + m.scrambleAttemptsHard
-        let successes = m.scrambleSuccessesStandard + m.scrambleSuccessesHard
+        let attempts =
+            m.scrambleAttemptsStandard + m.scrambleAttemptsHard + m.scrambleAttemptsBunker
+        let successes =
+            m.scrambleSuccessesStandard + m.scrambleSuccessesHard + m.scrambleSuccessesBunker
         if attempts >= insightScrambleStreakMinAttempts,
             successes >= insightScrambleStreakRate * attempts
         {

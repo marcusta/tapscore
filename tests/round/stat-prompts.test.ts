@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import {
+    derivedGirState,
     STAT_ORDER,
     StatStep,
     TEE_APPLIES,
@@ -84,15 +85,22 @@ test('prompts come in shot order', () => {
     );
     s.answer('tee_result', 'trouble');
     s.answer('gir', '0');
-    // The worst case the proposal names: seven inputs on a par 4.
+    // `penalty_source` hangs off an ANSWERED penalty count, so the maximal card
+    // is only reachable once the penalty question itself has a number.
+    s.answer('penalties', '1');
+    // The worst case capture v2 names: eleven inputs on a par 4.
     expect(keys(s)).toEqual([
         'tee_result',
+        'tee_miss_dir',
         'recovery_ok',
         'gir',
+        'green_miss_dir',
         'short_game_difficulty',
+        'short_game_strokes',
         'first_putt',
         'putts',
         'penalties',
+        'penalty_source',
     ]);
     expect(keys(s)).toEqual([...STAT_ORDER]);
 });
@@ -133,7 +141,12 @@ test('short game appears only when GIR is answered miss', () => {
     s.answer('gir', '1');
     expect(keys(s)).toEqual(['gir']);
     s.answer('gir', '0');
-    expect(keys(s)).toEqual(['gir', 'short_game_difficulty']);
+    expect(keys(s)).toEqual([
+        'gir',
+        'green_miss_dir',
+        'short_game_difficulty',
+        'short_game_strokes',
+    ]);
 });
 
 test('recovery appears only after trouble', () => {
@@ -142,7 +155,7 @@ test('recovery appears only after trouble', () => {
     s.answer('tee_result', 'fairway');
     expect(keys(s)).toEqual(['tee_result']);
     s.answer('tee_result', 'trouble');
-    expect(keys(s)).toEqual(['tee_result', 'recovery_ok']);
+    expect(keys(s)).toEqual(['tee_result', 'tee_miss_dir', 'recovery_ok']);
 });
 
 // Hiding a revealed prompt DISCARDS its answer. A mis-tap that opened the
@@ -164,7 +177,12 @@ test('hiding a stored prompt clears it on the server', () => {
     const s = step(modules({ approach: true, shortGame: true }), {
         persisted: { gir: '0', short_game_difficulty: 'hard' },
     });
-    expect(keys(s)).toEqual(['gir', 'short_game_difficulty']);
+    expect(keys(s)).toEqual([
+        'gir',
+        'green_miss_dir',
+        'short_game_difficulty',
+        'short_game_strokes',
+    ]);
 
     s.answer('gir', '1');
     expect(keys(s)).toEqual(['gir']);
@@ -190,7 +208,7 @@ test('a turned-off module keeps its stored value', () => {
     const s = step(modules({ approach: true }), {
         persisted: { gir: '0', short_game_difficulty: 'hard', penalties: '2' },
     });
-    expect(keys(s)).toEqual(['gir']);
+    expect(keys(s)).toEqual(['gir', 'green_miss_dir']);
     expect(s.batch).toEqual([]);
 });
 
@@ -211,7 +229,7 @@ test('a turned-off module still drops its draft', () => {
     s.step('penalties', 1);
     expect(s.batch).toEqual([item('penalties', '1')]);
 
-    s.refresh(modules({ approach: true }), {});
+    s.refresh(modules({ approach: true }), {}, null);
     expect(s.batch).toEqual([]);
 });
 
@@ -311,7 +329,23 @@ test('option values match the server vocabulary', () => {
         '4–8m',
         '> 8m',
     ]);
-    expect(options('short_game_difficulty').map((o) => o.value)).toEqual(['standard', 'hard']);
+    expect(options('short_game_difficulty').map((o) => o.value)).toEqual([
+        'standard',
+        'hard',
+        'bunker',
+    ]);
+    expect(options('tee_miss_dir').map((o) => o.value)).toEqual(['left', 'right']);
+    expect(options('green_miss_dir').map((o) => o.value)).toEqual([
+        'long',
+        'short',
+        'left',
+        'right',
+    ]);
+    expect(options('penalty_source').map((o) => o.value)).toEqual([
+        'tee',
+        'approach',
+        'short_or_green',
+    ]);
     expect(options('recovery_ok').map((o) => o.value)).toEqual(['0', '1']);
     expect(statControl('putts')).toEqual({ kind: 'stepper', min: 0, max: 3 });
     expect(statControl('penalties')).toEqual({ kind: 'stepper', min: 0, max: null });
@@ -335,7 +369,7 @@ test('commit folds the draft and leaves nothing owing', () => {
 test('refresh keeps the draft', () => {
     const s = step(modules({ approach: true, putting: true }));
     s.answer('gir', '0');
-    s.refresh(modules({ approach: true, putting: true }), { putts: '2' });
+    s.refresh(modules({ approach: true, putting: true }), { putts: '2' }, null);
     // A load must not swallow an in-progress answer.
     expect(s.value('gir')).toBe('0');
     expect(s.value('putts')).toBe('2');
@@ -346,8 +380,8 @@ test('refresh prunes prompts a module change removed', () => {
     const s = step(modules({ approach: true, shortGame: true }));
     s.answer('gir', '0');
     s.answer('short_game_difficulty', 'hard');
-    s.refresh(modules({ approach: true }), {});
-    expect(keys(s)).toEqual(['gir']);
+    s.refresh(modules({ approach: true }), {}, null);
+    expect(keys(s)).toEqual(['gir', 'green_miss_dir']);
     expect(s.value('short_game_difficulty')).toBeNull();
 });
 
@@ -379,17 +413,198 @@ test('visibility names why a prompt is off the card', () => {
 
 test('refresh reports whether anything observable moved', () => {
     const s = step(modules({ approach: true, putting: true }), { par: 4 });
-    expect(s.refresh(modules({ approach: true, putting: true }), {})).toBe(false);
+    expect(s.refresh(modules({ approach: true, putting: true }), {}, null)).toBe(false);
     // A durable answer landing is a change.
-    expect(s.refresh(modules({ approach: true, putting: true }), { gir: '1' })).toBe(true);
-    expect(s.refresh(modules({ approach: true, putting: true }), { gir: '1' })).toBe(false);
+    expect(s.refresh(modules({ approach: true, putting: true }), { gir: '1' }, null)).toBe(true);
+    expect(s.refresh(modules({ approach: true, putting: true }), { gir: '1' }, null)).toBe(false);
     // So is a module going away, which takes its prompts off the card.
-    expect(s.refresh(modules({ approach: true }), { gir: '1' })).toBe(true);
+    expect(s.refresh(modules({ approach: true }), { gir: '1' }, null)).toBe(true);
 });
 
 test('refresh keeps an uncommitted draft and still reports no change', () => {
     const s = step(modules({ approach: true }), { par: 4 });
     s.answer('gir', '0');
-    expect(s.refresh(modules({ approach: true }), {})).toBe(false);
+    expect(s.refresh(modules({ approach: true }), {}, null)).toBe(false);
     expect(s.value('gir')).toBe('0');
+});
+
+// --- Capture v2: the four new conditional prompts -----------------------------
+//
+// Each one has the same three states as its older siblings: VISIBLE when its
+// precondition holds, UNREADABLE when the module that owns it is off (stored
+// value untouched), CONTRADICTED when the precondition is answered the other
+// way (stored value explicitly cleared).
+
+test('tee_miss_dir follows the tee result', () => {
+    const s = step(modules({ tee: true }));
+    expect(s.visibility('tee_miss_dir')).toBe('contradicted');
+    s.answer('tee_result', 'fairway');
+    expect(s.visibility('tee_miss_dir')).toBe('contradicted');
+    s.answer('tee_result', 'in_play');
+    expect(s.visibility('tee_miss_dir')).toBe('visible');
+    s.answer('tee_result', 'trouble');
+    expect(s.visibility('tee_miss_dir')).toBe('visible');
+    // Module off: unreadable, not contradicted.
+    s.refresh(modules({ putting: true }), { tee_result: 'trouble', tee_miss_dir: 'left' }, null);
+    expect(s.visibility('tee_miss_dir')).toBe('unreadable');
+    expect(s.batch).toEqual([]);
+});
+
+test('a stored tee_miss_dir is cleared when the drive turns out to be a fairway', () => {
+    const s = step(modules({ tee: true }), {
+        persisted: { tee_result: 'in_play', tee_miss_dir: 'right' },
+    });
+    expect(keys(s)).toEqual(['tee_result', 'tee_miss_dir']);
+    s.answer('tee_result', 'fairway');
+    expect(keys(s)).toEqual(['tee_result']);
+    expect(s.batch).toEqual([item('tee_result', 'fairway'), item('tee_miss_dir', null)]);
+});
+
+test('green_miss_dir follows GIR', () => {
+    const s = step(modules({ approach: true }));
+    expect(s.visibility('green_miss_dir')).toBe('contradicted');
+    s.answer('gir', '1');
+    expect(s.visibility('green_miss_dir')).toBe('contradicted');
+    s.answer('gir', '0');
+    expect(s.visibility('green_miss_dir')).toBe('visible');
+});
+
+test('a stored green_miss_dir is cleared when the green turns out to be hit', () => {
+    const s = step(modules({ approach: true }), {
+        persisted: { gir: '0', green_miss_dir: 'long' },
+    });
+    s.answer('gir', '1');
+    expect(keys(s)).toEqual(['gir']);
+    expect(s.batch).toEqual([item('gir', '1'), item('green_miss_dir', null)]);
+});
+
+test('short_game_strokes shares the short-game gate', () => {
+    const s = step(modules({ approach: true, shortGame: true }));
+    expect(s.visibility('short_game_strokes')).toBe('contradicted');
+    s.answer('gir', '0');
+    expect(s.visibility('short_game_strokes')).toBe('visible');
+    // The module, not the difficulty answer, is what owns it.
+    s.refresh(modules({ approach: true }), { gir: '0', short_game_strokes: '2' }, null);
+    expect(s.visibility('short_game_strokes')).toBe('unreadable');
+    // Unreadable never clears: the stored count survives the module going off.
+    expect(s.batch).not.toContainEqual(item('short_game_strokes', null));
+});
+
+test('penalty_source follows an answered penalty count', () => {
+    const s = step(modules({ penalties: true }));
+    expect(s.visibility('penalty_source')).toBe('contradicted');
+    s.step('penalties', 1);
+    expect(s.visibility('penalty_source')).toBe('visible');
+    s.step('penalties', -1);
+    expect(s.visibility('penalty_source')).toBe('contradicted');
+});
+
+test('a stored penalty_source is cleared when the penalty goes back to zero', () => {
+    const s = step(modules({ penalties: true }), {
+        persisted: { penalties: '1', penalty_source: 'tee' },
+    });
+    expect(keys(s)).toEqual(['penalties', 'penalty_source']);
+    s.answer('penalties', '0');
+    expect(keys(s)).toEqual(['penalties']);
+    expect(s.batch).toEqual([item('penalties', '0'), item('penalty_source', null)]);
+});
+
+// --- Capture v2: the derived-GIR lifecycle (§3.4b) -----------------------------
+//
+// Five exhaustive states. The scorecard is an INPUT to the prompt, never an
+// override of it: a tap wins for the visit, and a stored answer wins forever.
+
+function girStep(opts: {
+    par?: number;
+    strokes?: number | null;
+    persisted?: Partial<Record<StatEventKey, string>>;
+}): StatStep {
+    const s = step(modules({ approach: true, putting: true, shortGame: true }), {
+        par: opts.par ?? 4,
+        persisted: opts.persisted ?? {},
+    });
+    s.setScore(opts.strokes ?? null);
+    return s;
+}
+
+test('derived GIR is idle without a score', () => {
+    const s = girStep({ strokes: null });
+    s.answer('putts', '2');
+    expect(derivedGirState(s).state).toBe('idle');
+    expect(s.materialiseDerivedGir()).toBe(false);
+});
+
+test('derived GIR is pending once score and putts agree on a hit', () => {
+    const s = girStep({ strokes: 4 });
+    s.answer('putts', '2');
+    expect(derivedGirState(s)).toEqual({ state: 'pending', derived: '1' });
+    expect(s.value('gir')).toBeNull();
+});
+
+test('derived GIR is pending on a miss too', () => {
+    const s = girStep({ strokes: 5 });
+    s.answer('putts', '2');
+    expect(derivedGirState(s)).toEqual({ state: 'pending', derived: '0' });
+});
+
+test('a manual tap before close wins', () => {
+    const s = girStep({ strokes: 4 });
+    s.answer('putts', '2');
+    s.answer('gir', '0');
+    expect(derivedGirState(s)).toEqual({ state: 'manual' });
+    expect(s.materialiseDerivedGir()).toBe(false);
+    expect(s.value('gir')).toBe('0');
+});
+
+test('a stored answer the score agrees with is simply persisted', () => {
+    const s = girStep({ strokes: 4, persisted: { gir: '1', putts: '2' } });
+    expect(derivedGirState(s)).toEqual({ state: 'persisted' });
+    expect(s.materialiseDerivedGir()).toBe(false);
+});
+
+test('a stored answer the score disagrees with is reported, never overwritten', () => {
+    const s = girStep({ strokes: 6, persisted: { gir: '1', putts: '2' } });
+    expect(derivedGirState(s)).toEqual({ state: 'disagree', derived: '0', stored: '1' });
+    expect(s.materialiseDerivedGir()).toBe(false);
+    expect(s.value('gir')).toBe('1');
+});
+
+test('materialise on close reveals green_miss_dir after a derived miss', () => {
+    const s = girStep({ strokes: 5 });
+    s.answer('putts', '2');
+    expect(keys(s)).not.toContain('green_miss_dir');
+    expect(s.materialiseDerivedGir()).toBe(true);
+    expect(s.value('gir')).toBe('0');
+    expect(keys(s)).toContain('green_miss_dir');
+    expect(keys(s)).toContain('short_game_difficulty');
+    expect(s.batch).toContainEqual(item('gir', '0'));
+    // Idempotent: a second close has nothing left to write.
+    expect(s.materialiseDerivedGir()).toBe(false);
+});
+
+test('materialise on close contradicts a stored short-game answer after a derived hit', () => {
+    const s = girStep({ strokes: 4, persisted: { short_game_difficulty: 'hard' } });
+    s.answer('putts', '2');
+    expect(s.materialiseDerivedGir()).toBe(true);
+    expect(s.value('gir')).toBe('1');
+    expect(s.batch).toContainEqual(item('short_game_difficulty', null));
+});
+
+// A hole that contradicts itself — no putt taken, but a first-putt distance
+// recorded — is not a hole to derive from. `putting_coherent` refuses the same
+// pair on the server; deriving here would launder the mistake into a fact.
+test('an incoherent putt record blocks derivation', () => {
+    const s = girStep({ strokes: 4 });
+    s.answer('first_putt', '1_to_2m');
+    s.answer('putts', '0');
+    expect(derivedGirState(s).state).toBe('idle');
+    expect(s.derivedGir()).toBeNull();
+});
+
+// A chip-in is a MISSED green: `putts = 0` with no first-putt bucket leaves
+// `strokes - putts = strokes`, which cannot clear `par - 2`.
+test('a chip-in derives as a miss', () => {
+    const s = girStep({ strokes: 3 });
+    s.answer('putts', '0');
+    expect(derivedGirState(s)).toEqual({ state: 'pending', derived: '0' });
 });

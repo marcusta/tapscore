@@ -512,6 +512,7 @@ enum ScoreKeyLabel {
 /// what makes it safe to press when the score was the thing that was wrong.
 struct StatsView: View {
     @Bindable var store: RoundStore
+    @State private var explainersPresented = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -537,6 +538,11 @@ struct StatsView: View {
                     ForEach(store.statPrompts) { prompt in
                         statGroup(prompt)
                     }
+                    // One worded trigger, one sheet — never eleven ⓘ glyphs on
+                    // a card whose whole job is to stay quiet.
+                    if !store.statPrompts.isEmpty {
+                        explainerTrigger
+                    }
                 }
                 .padding(.horizontal, TapSpacing.lg)
                 .padding(.top, TapSpacing.lg)
@@ -547,6 +553,22 @@ struct StatsView: View {
         }
         .background(KeypadPalette.screen.ignoresSafeArea())
         .environment(\.colorScheme, .dark)
+        .sheet(isPresented: $explainersPresented) {
+            StatExplainerSheet(prompts: store.statPrompts)
+        }
+    }
+
+    /// Web: the `.se-stats` step header's `What these mean`. A word, not a
+    /// symbol, and it sits after the prompts so it never reads as a step.
+    private var explainerTrigger: some View {
+        Button { explainersPresented = true } label: {
+            Text(StatsCopy.statExplainerTrigger)
+                .font(TapFont.ui(size: 15.2, weight: .semibold))
+                .foregroundStyle(KeypadPalette.inkMuted)
+                .underline()
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("stat-explainer-trigger")
     }
 
     /// Web: `.se-stats__head` — back chevron, hole title, and a 40pt spacer on
@@ -654,6 +676,38 @@ struct StatsView: View {
             case .stepper(let min, let max):
                 statStepper(prompt, min: min, max: max)
             }
+            if prompt.key == .gir, let hint = girHint {
+                Text(hint.text)
+                    .font(TapFont.ui(size: 13.6))
+                    .foregroundStyle(hint.danger ? TapColors.danger : KeypadPalette.inkMuted)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(hint.announcement)
+                    .accessibilityIdentifier("stat-gir-hint")
+            }
+        }
+    }
+
+    /// The derived-GIR line (§B.5): a statement of what will happen, never a
+    /// request. Which disagreement sentence shows is decided by the DERIVED
+    /// value, not the stored one.
+    private var girHint: (text: String, danger: Bool, announcement: String)? {
+        switch store.statDerivedGirState {
+        case .manual, .persisted, .idle:
+            return nil
+        case .pending:
+            return (
+                StatsCopy.girPending, false,
+                "Green in regulation, not answered, will be filled in from your score"
+            )
+        case .disagree:
+            let stored = store.statValue(.gir) == "1" ? "hit" : "miss"
+            return (
+                store.statDerivedGir == "0"
+                    ? StatsCopy.girDisagreeMiss : StatsCopy.girDisagreeHit,
+                true,
+                "Green in regulation, \(stored), your score disagrees"
+            )
         }
     }
 

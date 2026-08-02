@@ -85,7 +85,8 @@ struct RoundStatsView: View {
             holeStrip(model)
         }
         RoundWaterfallSection(
-            waterfall: model.waterfall, deltas: model.deltas, windowCount: model.windowCount)
+            waterfall: model.waterfall, deltas: model.deltas, windowCount: model.windowCount,
+            penaltySource: PenaltySourceCounts(model.panels.totals))
         StatsPanelsView(model: model.panels, expanded: $expanded, idPrefix: "round-stats")
     }
 
@@ -352,6 +353,9 @@ struct RoundWaterfallSection: View {
     var deltas: StrokesLostDeltas?
     var windowCount: Int
     var showsHint = true
+    /// The labelled-penalty breakdown for THIS round, or nil (§E.6). It reaches
+    /// the ⓘ sheet only; the penalty bar is untouched.
+    var penaltySource: PenaltySourceCounts? = nil
 
     /// The per-round "How this works" popover.
     @State private var infoOpen = false
@@ -386,7 +390,8 @@ struct RoundWaterfallSection: View {
         }
         .accessibilityIdentifier("round-stats-waterfall")
         .sheet(isPresented: $infoOpen) {
-            StrokesGainedInfoSheet(waterfall: waterfall, perRound: true)
+            StrokesGainedInfoSheet(
+                waterfall: waterfall, perRound: true, penaltySource: penaltySource)
         }
     }
 
@@ -560,6 +565,7 @@ enum RoundStatsCopy {
         switch shortGame {
         case .standard: return "Standard chip or pitch"
         case .hard: return "Hard chip or pitch"
+        case .bunker: return "From a bunker"
         }
     }
 

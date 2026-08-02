@@ -1,6 +1,16 @@
 import { expect, test } from 'bun:test';
 import {
     CHART_WIDTH,
+    COMPASS_CENTRE,
+    COMPASS_GREEN_R,
+    COMPASS_LABEL_R,
+    COMPASS_R_OUT,
+    COMPASS_SIZE,
+    FAN_BASELINE,
+    greenCompassGeometry,
+    renderGreenCompass,
+    renderTeeFan,
+    teeFanGeometry,
     ladderRungGeometry,
     MIN_SIGNED_BAR,
     miniBarWidth,
@@ -188,4 +198,86 @@ test('the mini bar clamps and stays absent for a null share', () => {
     expect(miniBarWidth(0.25)).toBe(25);
     expect(miniBarWidth(2)).toBe(100);
     expect(miniBarWidth(0)).toBe(1); // present-but-tiny, never invisible
+});
+
+// --- Green-miss compass ------------------------------------------------------
+//
+// The ONE chart that keeps its aspect ratio: a squashed compass lies about
+// direction. Radii below are the wave-4 oracle (spec §F.1).
+
+test('the compass scales the value wedge by share against the biggest share', () => {
+    const sectors = greenCompassGeometry({ long: 0.2, short: 0.5, left: 0.2, right: 0.1 });
+    // Drawn clockwise from 12: long at the top, then right, short, left.
+    expect(sectors.map((s) => s.id)).toEqual(['long', 'right', 'short', 'left']);
+
+    // The value radius each wedge reaches. `short` is the max, so it alone
+    // touches `COMPASS_R_OUT`; the rest are proportional to it.
+    const radius = (s: (typeof sectors)[number]): number =>
+        Math.hypot(s.labelX - COMPASS_CENTRE, s.labelY - COMPASS_CENTRE);
+    // Labels sit mid-annulus, on the fixed label radius, whatever the share —
+    // so a small wedge's percentage is still legible on the track behind it.
+    for (const s of sectors) expect(radius(s)).toBeCloseTo(COMPASS_LABEL_R, 6);
+
+    // The FIRST arc of a wedge is its outer edge, and its radius is quoted
+    // straight into the path — so the picture can be read back as a number.
+    const outer = (path: string): number => Number(/A([0-9.]+) /.exec(path)![1]);
+    expect(outer(sectors[2]!.valuePath)).toBeCloseTo(44, 6); // short, the max
+    expect(outer(sectors[0]!.valuePath)).toBeCloseTo(30.8, 6); // long, 0.4 of it
+    expect(outer(sectors[3]!.valuePath)).toBeCloseTo(30.8, 6); // left
+    expect(outer(sectors[1]!.valuePath)).toBeCloseTo(26.4, 6); // right, 0.2
+    // The track is always full extent, so every percentage has a backdrop.
+    for (const s of sectors) expect(outer(s.trackPath)).toBeCloseTo(COMPASS_R_OUT, 6);
+});
+
+test('the compass renders square, with the green glyph and no accessibility claim', () => {
+    const sectors = greenCompassGeometry({ long: 0.25, short: 0.25, left: 0.25, right: 0.25 });
+    const svg = renderGreenCompass(
+        sectors,
+        { long: '25%', short: '25%', left: '25%', right: '25%' },
+        COLORS,
+    );
+    // `meet`, not `none`: direction survives, unlike every other chart here.
+    expect(svg).toContain('preserveAspectRatio="xMidYMid meet"');
+    expect(svg).toContain(`viewBox="0 0 ${COMPASS_SIZE} ${COMPASS_SIZE}"`);
+    expect(svg).toContain('aria-hidden="true"');
+    expect(svg).toContain(`r="${COMPASS_GREEN_R}"`);
+    expect(svg.match(/25%/g)).toHaveLength(4);
+});
+
+// --- Tee fan -----------------------------------------------------------------
+
+test('the fan stacks each side over the SHARED tee denominator', () => {
+    const segments = teeFanGeometry(
+        { leftInPlay: 4, leftTrouble: 3, fairway: 8, rightInPlay: 3, rightTrouble: 2 },
+        20,
+    );
+    const h = (id: string): number => segments.find((s) => s.id === id)!.height;
+    // (count / 20) × (58 − 2) = count × 2.8.
+    expect(h('left-inplay')).toBeCloseTo(11.2, 6);
+    expect(h('left-trouble')).toBeCloseTo(8.4, 6);
+    expect(h('fairway')).toBeCloseTo(22.4, 6);
+    expect(h('right-inplay')).toBeCloseTo(8.4, 6);
+    expect(h('right-trouble')).toBeCloseTo(5.6, 6);
+
+    // Severity climbs: trouble sits ABOVE in-play in a side column, and every
+    // column stands on the same baseline.
+    const seg = (id: string) => segments.find((s) => s.id === id)!;
+    expect(seg('left-inplay').y + seg('left-inplay').height).toBeCloseTo(FAN_BASELINE, 6);
+    expect(seg('left-trouble').y + seg('left-trouble').height).toBeCloseTo(seg('left-inplay').y, 6);
+    expect(seg('fairway').y + seg('fairway').height).toBeCloseTo(FAN_BASELINE, 6);
+    expect(seg('left-inplay').tone).toBe('inplay');
+    expect(seg('left-trouble').tone).toBe('trouble');
+    expect(seg('fairway').tone).toBe('fairway');
+});
+
+test('the fan draws nothing for an empty window rather than dividing by zero', () => {
+    const segments = teeFanGeometry(
+        { leftInPlay: 0, leftTrouble: 0, fairway: 0, rightInPlay: 0, rightTrouble: 0 },
+        0,
+    );
+    for (const s of segments) expect(s.height).toBe(0);
+    const svg = renderTeeFan(segments, { fairway: 'F', inplay: 'I', trouble: 'T' }, COLORS);
+    // The baseline rule is still drawn; no zero-height rectangles are.
+    expect(svg).toContain('RULE');
+    expect(svg).not.toContain('height="0"');
 });

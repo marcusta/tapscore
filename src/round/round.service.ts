@@ -24,7 +24,9 @@ import { PendingStatQueue, type PendingStatEvent } from './pending-stat-queue';
 import {
     STAT_ORDER,
     StatStep,
+    derivedGirState,
     statApplies,
+    type DerivedGirState,
     type StatBatchItem,
     type StatEventKey,
     type StatModules,
@@ -116,13 +118,18 @@ function statLocalKey(cell: StatCell, key: StatEventKey): string {
 export function storedStatValues(row: PlayerHoleStats): Map<StatEventKey, string> {
     const out = new Map<StatEventKey, string>();
     if (row.teeResult !== null) out.set('tee_result', row.teeResult);
+    if (row.teeMissDir !== null) out.set('tee_miss_dir', row.teeMissDir);
     if (row.recoveryOk !== null) out.set('recovery_ok', row.recoveryOk ? '1' : '0');
     if (row.gir !== null) out.set('gir', row.gir ? '1' : '0');
+    if (row.greenMissDir !== null) out.set('green_miss_dir', row.greenMissDir);
     if (row.shortGameDifficulty !== null)
         out.set('short_game_difficulty', row.shortGameDifficulty);
+    if (row.shortGameStrokes !== null)
+        out.set('short_game_strokes', String(row.shortGameStrokes));
     if (row.firstPutt !== null) out.set('first_putt', row.firstPutt);
     if (row.putts !== null) out.set('putts', String(row.putts));
     if (row.penalties !== null) out.set('penalties', String(row.penalties));
+    if (row.penaltySource !== null) out.set('penalty_source', row.penaltySource);
     return out;
 }
 
@@ -389,6 +396,9 @@ export class RoundViewService {
         // it was built from is replaced. A foreground refresh lands exactly when
         // the network is flaky, and the in-memory draft is the only copy of
         // those answers until this call puts them on disk.
+        //
+        // `flushStats`, NOT `closeStatStep`: a refresh is not a close, and the
+        // golfer may still be looking at the card.
         this.flushStats();
         // Keep-previous on failure, never wipe-to-empty: an empty map would make
         // every player unpromptable, which tears an open step down mid-hole.
@@ -1094,7 +1104,7 @@ export class RoundViewService {
             this.refreshStatStep();
             return;
         }
-        this.flushStats();
+        this.closeStatStep();
         this.setStatCell(cell, cell ? this.makeStatStep(cell) : null);
     }
 
@@ -1113,7 +1123,28 @@ export class RoundViewService {
         // Only on a real change, for the same reason `setStatCell` is
         // idempotent: this runs from the keypad's seed effect on every unrelated
         // round update, and a bump there rebuilds the whole prompt list.
-        if (this.statStep.refresh(modules, this.persistedStats(cell))) this.bumpStatRev();
+        if (this.statStep.refresh(modules, this.persistedStats(cell), this.strokesForCell(cell)))
+            this.bumpStatRev();
+    }
+
+    /**
+     * The hole's score for a capture cell. `StatCell` names a PLAYER, the
+     * scorecard names a BALL, and `statSubject` is the one place that mapping
+     * lives — a promptable cell is by construction a single-player ball.
+     */
+    private strokesForCell(cell: StatCell): number | null {
+        const ball = this.balls.get().find((b) => this.statSubject(b) === cell.playerId);
+        return ball ? this.strokesFor(ball.id, cell.playHoleId) : null;
+    }
+
+    /**
+     * The GIR prompt's derived state (`docs/proposals/player-stats-v2.md` §3.4b),
+     * for the score-entry view: which line to show, and whether a segment is
+     * selected at all.
+     */
+    statGirState(): DerivedGirState {
+        this.statRev.get();
+        return this.statStep ? derivedGirState(this.statStep) : { state: 'idle' };
     }
 
     /**
@@ -1141,12 +1172,14 @@ export class RoundViewService {
         const modules = this.statModules.get().get(cell.playerId);
         const hole = this.playHoleById(cell.playHoleId);
         if (!modules || !hole) return null;
-        return new StatStep(
+        const step = new StatStep(
             modules,
             hole.par,
             hole.courseHoleNumber,
             this.persistedStats(cell),
         );
+        step.setScore(this.strokesForCell(cell));
+        return step;
     }
 
     /**
@@ -1166,6 +1199,27 @@ export class RoundViewService {
             else out.set(key, local);
         }
         return out;
+    }
+
+    /**
+     * Commit the open step the way a CLOSE commits it: materialise a pending
+     * derived GIR first (§3.4b rule 1), so it rides the ordinary batch and its
+     * prune has already revealed or contradicted the short-game prompts, then
+     * flush.
+     *
+     * Every exit path from the stats step goes through here — Done, the back
+     * chevron, a keypad dismissal, a hole/cell move, leaving the view.
+     * `flushStats()` on its own stays the right call for the non-closing
+     * flushes (a foreground refresh, a background hop): those are "get what we
+     * have onto disk", not "the golfer is finished with this hole", and
+     * materialising there would write an answer under a card the golfer is
+     * still looking at.
+     */
+    closeStatStep(): boolean {
+        // A no-op in every state but `pending`, and `pending` needs an answered
+        // putt count, so nothing is written for a hole whose step was never used.
+        if (this.statStep?.materialiseDerivedGir()) this.bumpStatRev();
+        return this.flushStats();
     }
 
     /**

@@ -40,11 +40,15 @@ export interface PlayerHoleStats {
     playHoleId: string;
     playerId: string;
     teeResult: null | 'fairway' | 'in_play' | 'trouble';
+    teeMissDir: null | 'left' | 'right';
     gir: boolean | null;
+    greenMissDir: null | 'left' | 'right' | 'long' | 'short';
     firstPutt: null | 'inside_1m' | '1_to_2m' | '2_to_4m' | '4_to_8m' | 'over_8m' | 'inside_2m' | '2_to_6m' | 'over_6m';
     putts: null | number;
-    shortGameDifficulty: null | 'standard' | 'hard';
+    shortGameDifficulty: null | 'standard' | 'hard' | 'bunker';
+    shortGameStrokes: null | number;
     penalties: null | number;
+    penaltySource: null | 'tee' | 'approach' | 'short_or_green';
     recoveryOk: boolean | null;
 }
 
@@ -58,8 +62,18 @@ export interface StatMeasures {
     fairwayHits: number;
     inPlayHits: number;
     troubleCount: number;
+    teeMissRecorded: number;
+    teeMissLeft: number;
+    teeMissRight: number;
+    teeTroubleLeft: number;
+    teeTroubleRight: number;
     girRecorded: number;
     girHits: number;
+    greenMissRecorded: number;
+    greenMissLong: number;
+    greenMissShort: number;
+    greenMissLeft: number;
+    greenMissRight: number;
     firstPuttRecorded: number;
     firstPuttInside1m: number;
     firstPutt1To2m: number;
@@ -90,10 +104,26 @@ export interface StatMeasures {
     scrambleInside2mHard: number;
     scrambleHoledStandard: number;
     scrambleHoledHard: number;
+    scrambleAttemptsBunker: number;
+    scrambleSuccessesBunker: number;
+    scrambleFirstPuttBunker: number;
+    scrambleInside2mBunker: number;
+    scrambleHoledBunker: number;
+    shortGameStrokesRecorded: number;
+    shortGameStrokesEffective: number;
+    shortGameStrokesEffectiveStandard: number;
+    shortGameStrokesEffectiveHard: number;
+    shortGameStrokesEffectiveBunker: number;
+    holesMultiChip: number;
+    holesMultiChipBunker: number;
     penaltiesRecorded: number;
     penaltiesTotal: number;
     recoveryAttempts: number;
     recoverySuccesses: number;
+    penaltySourceRecorded: number;
+    penaltiesTee: number;
+    penaltiesApproach: number;
+    penaltiesShort: number;
     holesScored: number;
     strokesTotal: number;
     parTotal: number;
@@ -195,8 +225,13 @@ export interface StatMeasures {
     attChipInside2mHard: number;
     attChipOutside2mHard: number;
     attChipHoledHard: number;
+    attMissBunker: number;
+    attChipInside2mBunker: number;
+    attChipOutside2mBunker: number;
+    attChipHoledBunker: number;
     attSgStrokesEffectiveStandard: number;
     attSgStrokesEffectiveHard: number;
+    attSgStrokesEffectiveBunker: number;
 }
 
 export interface PlayerRoundStats {
@@ -231,7 +266,7 @@ export interface StatEvent {
     playHoleId: string;
     playerId: string;
     seq: number;
-    key: 'penalties' | 'tee_result' | 'gir' | 'first_putt' | 'putts' | 'short_game_difficulty' | 'recovery_ok';
+    key: 'penalties' | 'tee_result' | 'tee_miss_dir' | 'gir' | 'green_miss_dir' | 'first_putt' | 'putts' | 'short_game_difficulty' | 'short_game_strokes' | 'penalty_source' | 'recovery_ok';
     value: null | string;
     recordedByPlayerId: null | string;
     recordedAt: string;
@@ -243,7 +278,7 @@ export interface PlayerStatsApi {
     putMyConfig(input: { enabled: boolean; tee: boolean; approach: boolean; putting: boolean; shortGame: boolean; penalties: boolean; recovery: boolean }): Promise<PlayerStatsConfig>;
     myStats(input: { limit?: number; cursor?: string }): Promise<PlayerStatsSummary>;
     myRoundStats(input: { roundId: string }): Promise<PlayerRoundHoleStats[]>;
-    appendEvents(input: { token: string; items: ({ playHoleId: string; playerId: string; key: 'penalties' | 'tee_result' | 'gir' | 'first_putt' | 'putts' | 'short_game_difficulty' | 'recovery_ok'; value: null | string; clientEventId: string })[] }): Promise<AppendStatEventsResult>;
+    appendEvents(input: { token: string; items: ({ playHoleId: string; playerId: string; key: 'penalties' | 'tee_result' | 'tee_miss_dir' | 'gir' | 'green_miss_dir' | 'first_putt' | 'putts' | 'short_game_difficulty' | 'short_game_strokes' | 'penalty_source' | 'recovery_ok'; value: null | string; clientEventId: string })[] }): Promise<AppendStatEventsResult>;
     byToken(input: { token: string }): Promise<PlayerHoleStats[]>;
     configsByToken(input: { token: string }): Promise<RoundPlayerStatModules[]>;
 }

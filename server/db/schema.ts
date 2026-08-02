@@ -260,14 +260,24 @@ export interface ScorecardsTable {
 /** The closed capture vocabulary — one key per stat module question (spec §1). */
 export type StatKey =
     | 'tee_result'
+    | 'tee_miss_dir'
+    | 'recovery_ok'
     | 'gir'
+    | 'green_miss_dir'
+    | 'short_game_difficulty'
+    | 'short_game_strokes'
     | 'first_putt'
     | 'putts'
-    | 'short_game_difficulty'
     | 'penalties'
-    | 'recovery_ok';
+    | 'penalty_source';
 
 export type TeeResult = 'fairway' | 'in_play' | 'trouble';
+/** Which side the drive finished, looking down the hole (migration 055). */
+export type TeeMissDir = 'left' | 'right';
+/** Which way the approach missed, seen from where it was played (migration 055). */
+export type GreenMissDir = 'long' | 'short' | 'left' | 'right';
+/** The shot a hole's penalty strokes came off (migration 055). */
+export type PenaltySource = 'tee' | 'approach' | 'short_or_green';
 export type FirstPuttBucket =
     | 'inside_1m'
     | '1_to_2m'
@@ -277,7 +287,12 @@ export type FirstPuttBucket =
 /** Values captured before migration 044; readable but no longer accepted for new events. */
 export type LegacyFirstPuttBucket = 'inside_2m' | '2_to_6m' | 'over_6m';
 export type StoredFirstPuttBucket = FirstPuttBucket | LegacyFirstPuttBucket;
-export type ShortGameDifficulty = 'standard' | 'hard';
+/**
+ * All three are CURRENT and writable — `bunker` is a sibling of `hard`
+ * (migration 055), not a replacement for it. Contrast `LegacyFirstPuttBucket`,
+ * which is readable but no longer offered.
+ */
+export type ShortGameDifficulty = 'standard' | 'hard' | 'bunker';
 
 /**
  * One row per player who has ever enabled stats (migration 042). NO ROW =
@@ -321,8 +336,9 @@ export interface StatEventsTable {
     seq: number;
     key: StatKey;
     /**
-     * One TEXT column serving seven keys: enum text, `'0'`/`'1'` for the two
-     * booleans, `'0'`..`'3'` for putts, decimal digits for penalties. Pinned
+     * One TEXT column serving eleven keys: enum text, `'0'`/`'1'` for the two
+     * booleans, `'0'`..`'3'` for putts, `'1'`..`'5'` for short-game strokes,
+     * decimal digits for penalties. Pinned
      * per key by a CHECK constraint; typed into real columns by the projection.
      * NULL = cleared.
      */
@@ -345,20 +361,26 @@ export interface PlayerHoleStatsTable {
     play_hole_id: string;
     player_id: string;
     tee_result: TeeResult | null;
+    /** Side of a drive that left the fairway (migration 055). */
+    tee_miss_dir: TeeMissDir | null;
     /** 0/1. */
     gir: number | null;
+    /** Direction of a missed green (migration 055). */
+    green_miss_dir: GreenMissDir | null;
     first_putt: StoredFirstPuttBucket | null;
     /** 0..3, where 3 means "3 or more". */
     putts: number | null;
     short_game_difficulty: ShortGameDifficulty | null;
     penalties: number | null;
+    /** Primary source of a hole's penalty strokes (migration 055). */
+    penalty_source: PenaltySource | null;
     /** 0/1. */
     recovery_ok: number | null;
     /**
-     * 1..5 short-game strokes on a missed green (migration 054). ALWAYS NULL
-     * today — no capture writes it. The aggregates read it through
-     * `COALESCE(…, 1)`, so a hole without a count models exactly one chip and
-     * wave 4's stroke counter is a capture change, not a second migration.
+     * 1..5 short-game strokes on a missed green (migration 054; written by
+     * capture from migration 055). The aggregates read it through
+     * `COALESCE(…, 1)`, so a hole without a count models exactly one chip —
+     * the counter is skippable and an untouched stepper emits nothing.
      */
     short_game_strokes: number | null;
 }
@@ -576,6 +598,74 @@ export interface PlayerStatMeasureColumns {
      */
     att_sg_strokes_effective_standard: number;
     att_sg_strokes_effective_hard: number;
+
+    /**
+     * CAPTURE V2 (migration 055, docs/proposals/player-stats-v2.md §3).
+     *
+     * Same two rules as everything above: counts and sums only, each numerator
+     * shipped beside its own denominator. The dispersion families additionally
+     * carry their PARENT's answer in every predicate — a second device can
+     * write `gir = 1` without clearing a stale `green_miss_dir`, and a column
+     * that ignored the parent would count a direction the player has since
+     * contradicted.
+     */
+    /** Green dispersion. The four directions PARTITION `green_miss_recorded`. */
+    green_miss_recorded: number;
+    green_miss_long: number;
+    green_miss_short: number;
+    green_miss_left: number;
+    green_miss_right: number;
+    /**
+     * Tee dispersion, over drives that left the fairway. `left + right =
+     * tee_miss_recorded`; the trouble pair is a SUBSET of the side pair, so
+     * in-play-by-side is `tee_miss_left − tee_trouble_left` on the client.
+     */
+    tee_miss_recorded: number;
+    tee_miss_left: number;
+    tee_miss_right: number;
+    tee_trouble_left: number;
+    tee_trouble_right: number;
+    /** The bunker leg of the scramble family — sibling of standard/hard. */
+    scramble_attempts_bunker: number;
+    scramble_successes_bunker: number;
+    scramble_first_putt_bunker: number;
+    scramble_inside_2m_bunker: number;
+    /**
+     * Short-game stroke counter (proposal §3.4c). `short_game_strokes_recorded`
+     * counts TOUCHES, not confirmations: an untouched stepper emits nothing, so
+     * a raw average over recorded values would be biased and must never ship.
+     * The `_effective` sums are Σ COALESCE(C, 1) over the whole attempt cohort,
+     * which is the modelled-one assumption strokes-gained-lite v1 already makes.
+     */
+    short_game_strokes_recorded: number;
+    short_game_strokes_effective: number;
+    short_game_strokes_effective_standard: number;
+    short_game_strokes_effective_hard: number;
+    short_game_strokes_effective_bunker: number;
+    /** HOLES that took more than one shot to reach the green, not strokes. */
+    holes_multi_chip: number;
+    holes_multi_chip_bunker: number;
+    /**
+     * Penalty source — HOLE counts, not stroke counts. `penalty_source` is one
+     * primary source per hole (proposal §3.4), so a hole with two penalty
+     * strokes contributes 1. `tee + approach + short = penalty_source_recorded
+     * <= holes_with_penalty`.
+     */
+    penalty_source_recorded: number;
+    penalties_tee: number;
+    penalties_approach: number;
+    penalties_short: number;
+    /**
+     * The BUNKER attribution leg. Mandatory, not optional: the moment the CHECK
+     * admits `'bunker'`, bunker holes enter the cohort's `att_strokes` /
+     * `att_putts` sums, and without these five the five strokes-gained-lite
+     * terms stop summing to `Σ(score − E_HOLE[par])` by `Σ C_bunker`.
+     */
+    att_miss_bunker: number;
+    att_chip_inside2m_bunker: number;
+    att_chip_outside2m_bunker: number;
+    att_chip_holed_bunker: number;
+    att_sg_strokes_effective_bunker: number;
 }
 
 /**
@@ -615,6 +705,13 @@ export interface FineGrainedPuttingMeasureColumns {
     three_putts_from_over_8m: number;
     scramble_inside_2m_standard_v2: number;
     scramble_inside_2m_hard_v2: number;
+    /**
+     * The bunker leg (migration 055). It lives in the fine overlay rather than
+     * the coarse 043 family because bunker capture only exists from 055 — every
+     * bunker hole carries a fine bucket, so a coarse-only column would read
+     * zero forever.
+     */
+    scramble_inside_2m_bunker_v2: number;
 }
 
 export interface PlayerRoundStatsV2View
@@ -672,6 +769,8 @@ export interface ConditionedCrossTabMeasureColumns {
      */
     scramble_holed_standard: number;
     scramble_holed_hard: number;
+    /** The bunker sibling (migration 055) — the sand shot that went in. */
+    scramble_holed_bunker: number;
 }
 
 export interface PlayerRoundStatsV3View

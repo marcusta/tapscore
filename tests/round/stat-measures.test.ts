@@ -21,6 +21,7 @@ import {
     bounceBackRate,
     chipInside2mRate,
     doubleBogeyPlusPerRound,
+    extraShortGameStrokes,
     fairwayRate,
     firstPuttMix,
     firstPuttResolvedTotal,
@@ -28,14 +29,18 @@ import {
     girRate,
     girByPar,
     girRateByTee,
+    greenMissDispersion,
     hardChipShare,
     inPlayRate,
     insightLines,
     meanOfPresent,
+    multiChipFromBunkerRate,
+    multiChipRate,
     costOfMissedGreen,
     onePuttRate,
     penaltiesPerRound,
     penaltyHoleShare,
+    penaltySourceSplit,
     penaltyTax,
     puttDistribution,
     puttsAfterMissedGreen,
@@ -46,6 +51,7 @@ import {
     rateDisplay,
     recoveryRate,
     resultsSummary,
+    sandSaveRate,
     scrambleRate,
     sgPer18,
     sgTotalPer18,
@@ -53,6 +59,7 @@ import {
     strokesLostComponent,
     strokesVsParByTee,
     sumMeasures,
+    teeMissDispersion,
     threePuttRate,
     threePuttsFromOver8mRate,
     troubleRate,
@@ -503,146 +510,176 @@ const SWEEP: StatMeasures = {
     fairwayHits: 2,
     inPlayHits: 3,
     troubleCount: 4,
-    girRecorded: 5,
-    girHits: 6,
-    firstPuttRecorded: 7,
-    firstPuttInside1m: 8,
-    firstPutt1To2m: 9,
-    firstPutt2To4m: 10,
-    firstPutt4To8m: 11,
-    firstPuttOver8m: 12,
-    firstPuttInside1mResolved: 13,
-    firstPutt1To2mResolved: 14,
-    firstPutt2To4mResolved: 15,
-    firstPutt4To8mResolved: 16,
-    firstPuttOver8mResolved: 17,
-    onePuttInside1m: 18,
-    onePutt1To2m: 19,
-    onePutt2To4m: 20,
-    onePutt4To8m: 21,
-    onePuttOver8m: 22,
-    puttsRecorded: 23,
-    puttsTotal: 24,
-    threePutts: 25,
-    threePuttsFromOver8m: 26,
-    scrambleAttemptsStandard: 27,
-    scrambleSuccessesStandard: 28,
-    scrambleAttemptsHard: 29,
-    scrambleSuccessesHard: 30,
-    scrambleFirstPuttStandard: 31,
-    scrambleInside2mStandard: 32,
-    scrambleFirstPuttHard: 33,
-    scrambleInside2mHard: 34,
-    scrambleHoledStandard: 35,
-    scrambleHoledHard: 36,
-    penaltiesRecorded: 37,
-    penaltiesTotal: 38,
-    recoveryAttempts: 39,
-    recoverySuccesses: 40,
-    holesScored: 41,
-    strokesTotal: 42,
-    parTotal: 43,
-    holesScoredPar3: 44,
-    strokesPar3: 45,
-    holesScoredPar4: 46,
-    strokesPar4: 47,
-    holesScoredPar5: 48,
-    strokesPar5: 49,
-    holesEagleOrBetter: 50,
-    holesBirdie: 51,
-    holesPar: 52,
-    holesBogey: 53,
-    doubleBogeyPlus: 54,
-    girHolesScored: 55,
-    birdiesOnGir: 56,
-    bounceBackOpportunities: 57,
-    bounceBackSuccesses: 58,
-    holesScoredFairway: 59,
-    strokesVsParFairway: 60,
-    holesScoredInPlay: 61,
-    strokesVsParInPlay: 62,
-    holesScoredTrouble: 63,
-    strokesVsParTrouble: 64,
-    girRecordedFairway: 65,
-    girHitsFairway: 66,
-    girRecordedInPlay: 67,
-    girHitsInPlay: 68,
-    girRecordedTrouble: 69,
-    girHitsTrouble: 70,
-    girFirstPuttRecorded: 71,
-    girFirstPuttInside1m: 72,
-    girFirstPutt1To2m: 73,
-    girFirstPutt2To4m: 74,
-    girFirstPutt4To8m: 75,
-    girFirstPuttOver8m: 76,
-    puttsRecordedGir: 77,
-    puttsTotalGir: 78,
-    puttsTotalInside1mResolved: 79,
-    puttsTotal1To2mResolved: 80,
-    puttsTotal2To4mResolved: 81,
-    puttsTotal4To8mResolved: 82,
-    puttsTotalOver8mResolved: 83,
-    strokesVsParGirHit: 84,
-    holesScoredGirMiss: 85,
-    strokesVsParGirMiss: 86,
-    girRecordedPar3: 87,
-    girHitsPar3: 88,
-    girRecordedPar4: 89,
-    girHitsPar4: 90,
-    girRecordedPar5: 91,
-    girHitsPar5: 92,
-    holesZeroPutt: 93,
-    holesOnePutt: 94,
-    holesTwoPutt: 95,
-    puttsRecordedPar3: 96,
-    puttsTotalPar3: 97,
-    puttsRecordedPar4: 98,
-    puttsTotalPar4: 99,
-    puttsRecordedPar5: 100,
-    puttsTotalPar5: 101,
-    holesWithPenalty: 102,
-    holesScoredPenalty: 103,
-    strokesVsParPenalty: 104,
-    holesScoredPenaltyFree: 105,
-    strokesVsParPenaltyFree: 106,
-    teeRecordedPar4: 107,
-    fairwayHitsPar4: 108,
-    inPlayHitsPar4: 109,
-    troubleCountPar4: 110,
-    teeRecordedPar5: 111,
-    fairwayHitsPar5: 112,
-    inPlayHitsPar5: 113,
-    troubleCountPar5: 114,
-    // The migration-054 attribution cohort.
-    attHolesPar3Gir: 115,
-    attHolesPar3Miss: 116,
-    attHolesPar45Gir: 117,
-    attHolesPar45Miss: 118,
-    attStrokes: 119,
-    attPutts: 120,
-    attPenalties: 121,
-    attFairwayPar4: 122,
-    attInPlayPar4: 123,
-    attTroublePar4: 124,
-    attFairwayPar5: 125,
-    attInPlayPar5: 126,
-    attTroublePar5: 127,
-    attGirFirstPuttInside1m: 128,
-    attGirFirstPutt1To2m: 129,
-    attGirFirstPutt2To4m: 130,
-    attGirFirstPutt4To8m: 131,
-    attGirFirstPuttOver8m: 132,
-    attGirHoled: 133,
-    attMissStandard: 134,
-    attMissHard: 135,
-    attChipInside2mStandard: 136,
-    attChipOutside2mStandard: 137,
-    attChipHoledStandard: 138,
-    attChipInside2mHard: 139,
-    attChipOutside2mHard: 140,
-    attChipHoledHard: 141,
-    attSgStrokesEffectiveStandard: 142,
-    attSgStrokesEffectiveHard: 143,
+    teeMissRecorded: 5,
+    teeMissLeft: 6,
+    teeMissRight: 7,
+    teeTroubleLeft: 8,
+    teeTroubleRight: 9,
+    girRecorded: 10,
+    girHits: 11,
+    greenMissRecorded: 12,
+    greenMissLong: 13,
+    greenMissShort: 14,
+    greenMissLeft: 15,
+    greenMissRight: 16,
+    firstPuttRecorded: 17,
+    firstPuttInside1m: 18,
+    firstPutt1To2m: 19,
+    firstPutt2To4m: 20,
+    firstPutt4To8m: 21,
+    firstPuttOver8m: 22,
+    firstPuttInside1mResolved: 23,
+    firstPutt1To2mResolved: 24,
+    firstPutt2To4mResolved: 25,
+    firstPutt4To8mResolved: 26,
+    firstPuttOver8mResolved: 27,
+    onePuttInside1m: 28,
+    onePutt1To2m: 29,
+    onePutt2To4m: 30,
+    onePutt4To8m: 31,
+    onePuttOver8m: 32,
+    puttsRecorded: 33,
+    puttsTotal: 34,
+    threePutts: 35,
+    threePuttsFromOver8m: 36,
+    scrambleAttemptsStandard: 37,
+    scrambleSuccessesStandard: 38,
+    scrambleAttemptsHard: 39,
+    scrambleSuccessesHard: 40,
+    scrambleFirstPuttStandard: 41,
+    scrambleInside2mStandard: 42,
+    scrambleFirstPuttHard: 43,
+    scrambleInside2mHard: 44,
+    scrambleHoledStandard: 45,
+    scrambleHoledHard: 46,
+    scrambleAttemptsBunker: 47,
+    scrambleSuccessesBunker: 48,
+    scrambleFirstPuttBunker: 49,
+    scrambleInside2mBunker: 50,
+    scrambleHoledBunker: 51,
+    shortGameStrokesRecorded: 52,
+    shortGameStrokesEffective: 53,
+    shortGameStrokesEffectiveStandard: 54,
+    shortGameStrokesEffectiveHard: 55,
+    shortGameStrokesEffectiveBunker: 56,
+    holesMultiChip: 57,
+    holesMultiChipBunker: 58,
+    penaltiesRecorded: 59,
+    penaltiesTotal: 60,
+    recoveryAttempts: 61,
+    recoverySuccesses: 62,
+    penaltySourceRecorded: 63,
+    penaltiesTee: 64,
+    penaltiesApproach: 65,
+    penaltiesShort: 66,
+    holesScored: 67,
+    strokesTotal: 68,
+    parTotal: 69,
+    holesScoredPar3: 70,
+    strokesPar3: 71,
+    holesScoredPar4: 72,
+    strokesPar4: 73,
+    holesScoredPar5: 74,
+    strokesPar5: 75,
+    holesEagleOrBetter: 76,
+    holesBirdie: 77,
+    holesPar: 78,
+    holesBogey: 79,
+    doubleBogeyPlus: 80,
+    girHolesScored: 81,
+    birdiesOnGir: 82,
+    bounceBackOpportunities: 83,
+    bounceBackSuccesses: 84,
+    holesScoredFairway: 85,
+    strokesVsParFairway: 86,
+    holesScoredInPlay: 87,
+    strokesVsParInPlay: 88,
+    holesScoredTrouble: 89,
+    strokesVsParTrouble: 90,
+    girRecordedFairway: 91,
+    girHitsFairway: 92,
+    girRecordedInPlay: 93,
+    girHitsInPlay: 94,
+    girRecordedTrouble: 95,
+    girHitsTrouble: 96,
+    girFirstPuttRecorded: 97,
+    girFirstPuttInside1m: 98,
+    girFirstPutt1To2m: 99,
+    girFirstPutt2To4m: 100,
+    girFirstPutt4To8m: 101,
+    girFirstPuttOver8m: 102,
+    puttsRecordedGir: 103,
+    puttsTotalGir: 104,
+    puttsTotalInside1mResolved: 105,
+    puttsTotal1To2mResolved: 106,
+    puttsTotal2To4mResolved: 107,
+    puttsTotal4To8mResolved: 108,
+    puttsTotalOver8mResolved: 109,
+    strokesVsParGirHit: 110,
+    holesScoredGirMiss: 111,
+    strokesVsParGirMiss: 112,
+    girRecordedPar3: 113,
+    girHitsPar3: 114,
+    girRecordedPar4: 115,
+    girHitsPar4: 116,
+    girRecordedPar5: 117,
+    girHitsPar5: 118,
+    holesZeroPutt: 119,
+    holesOnePutt: 120,
+    holesTwoPutt: 121,
+    puttsRecordedPar3: 122,
+    puttsTotalPar3: 123,
+    puttsRecordedPar4: 124,
+    puttsTotalPar4: 125,
+    puttsRecordedPar5: 126,
+    puttsTotalPar5: 127,
+    holesWithPenalty: 128,
+    holesScoredPenalty: 129,
+    strokesVsParPenalty: 130,
+    holesScoredPenaltyFree: 131,
+    strokesVsParPenaltyFree: 132,
+    teeRecordedPar4: 133,
+    fairwayHitsPar4: 134,
+    inPlayHitsPar4: 135,
+    troubleCountPar4: 136,
+    teeRecordedPar5: 137,
+    fairwayHitsPar5: 138,
+    inPlayHitsPar5: 139,
+    troubleCountPar5: 140,
+    attHolesPar3Gir: 141,
+    attHolesPar3Miss: 142,
+    attHolesPar45Gir: 143,
+    attHolesPar45Miss: 144,
+    attStrokes: 145,
+    attPutts: 146,
+    attPenalties: 147,
+    attFairwayPar4: 148,
+    attInPlayPar4: 149,
+    attTroublePar4: 150,
+    attFairwayPar5: 151,
+    attInPlayPar5: 152,
+    attTroublePar5: 153,
+    attGirFirstPuttInside1m: 154,
+    attGirFirstPutt1To2m: 155,
+    attGirFirstPutt2To4m: 156,
+    attGirFirstPutt4To8m: 157,
+    attGirFirstPuttOver8m: 158,
+    attGirHoled: 159,
+    attMissStandard: 160,
+    attMissHard: 161,
+    attChipInside2mStandard: 162,
+    attChipOutside2mStandard: 163,
+    attChipHoledStandard: 164,
+    attChipInside2mHard: 165,
+    attChipOutside2mHard: 166,
+    attChipHoledHard: 167,
+    attMissBunker: 168,
+    attChipInside2mBunker: 169,
+    attChipOutside2mBunker: 170,
+    attChipHoledBunker: 171,
+    attSgStrokesEffectiveStandard: 172,
+    attSgStrokesEffectiveHard: 173,
+    attSgStrokesEffectiveBunker: 174,
 };
 
 test('every measure column is additive, including the ones no rate reads', () => {
@@ -650,8 +687,8 @@ test('every measure column is additive, including the ones no rate reads', () =>
     // The count is asserted (and mirrored in the Swift twin) so that a field
     // added to the server's measure set and forgotten here is caught, rather
     // than sweeping a smaller set and passing.
-    expect(keys).toHaveLength(143);
-    expect(new Set(Object.values(SWEEP)).size).toBe(143);
+    expect(keys).toHaveLength(174);
+    expect(new Set(Object.values(SWEEP)).size).toBe(174);
 
     // Key-by-key rather than spot checks: a column missing from `addMeasures`
     // would read as its first round's value forever, and only a full sweep sees
@@ -838,9 +875,13 @@ test('the expected-putts tables are frozen at their v1 values', () => {
     // v2 splits the chip baseline by difficulty and is frozen the same way. The
     // OUTCOME table is NOT versioned: where the ball finished does not depend on
     // the lie it came from, only the baseline that outcome is scored against.
-    expect(CHIP_EXPECTED_PUTTS_V2).toEqual({ standard: 1.7, hard: 2.1 });
+    expect(CHIP_EXPECTED_PUTTS_V2).toEqual({ standard: 1.7, hard: 2.1, bunker: 1.95 });
     expect(Object.isFrozen(CHIP_EXPECTED_PUTTS_V2)).toBe(true);
-    expect(CHIP_EXPECTED_PUTTS_V1_BY_DIFFICULTY).toEqual({ standard: 1.85, hard: 1.85 });
+    expect(CHIP_EXPECTED_PUTTS_V1_BY_DIFFICULTY).toEqual({
+        standard: 1.85,
+        hard: 1.85,
+        bunker: 1.85,
+    });
 });
 
 test('SG_TABLES_V1 is frozen, provisional, and ordered by lie quality', () => {
@@ -1770,4 +1811,233 @@ test('penalty geography: the share over answers, the tax over the two scored sid
     const answersOnly = measures({ penaltiesRecorded: 6, holesWithPenalty: 2 });
     expect(penaltyHoleShare(answersOnly).value).toBe(2 / 6);
     expect(penaltyTax(answersOnly).value).toBeNull();
+});
+
+// --- Capture v2: dispersion, counters and the bunker leg -----------------------
+//
+// `WINDOW_B` is the wave-4 oracle (spec §F.1): every number asserted below is
+// hand-computed there and the Swift twin asserts the same ones. If a value here
+// disagrees with that document, the code is wrong, not the document.
+
+const WINDOW_B: StatMeasures = measures({
+    teeRecorded: 20,
+    fairwayHits: 8,
+    inPlayHits: 15,
+    troubleCount: 5,
+    teeMissRecorded: 12,
+    teeMissLeft: 7,
+    teeMissRight: 5,
+    teeTroubleLeft: 3,
+    teeTroubleRight: 2,
+
+    girRecorded: 20,
+    girHits: 8,
+    greenMissRecorded: 10,
+    greenMissLong: 2,
+    greenMissShort: 5,
+    greenMissLeft: 2,
+    greenMissRight: 1,
+
+    scrambleAttemptsStandard: 5,
+    scrambleSuccessesStandard: 3,
+    scrambleAttemptsHard: 4,
+    scrambleSuccessesHard: 1,
+    scrambleAttemptsBunker: 3,
+    scrambleSuccessesBunker: 2,
+
+    shortGameStrokesRecorded: 6,
+    shortGameStrokesEffectiveStandard: 6,
+    shortGameStrokesEffectiveHard: 7,
+    shortGameStrokesEffectiveBunker: 4,
+    shortGameStrokesEffective: 17,
+    holesMultiChip: 4,
+    holesMultiChipBunker: 1,
+
+    penaltiesRecorded: 20,
+    holesWithPenalty: 6,
+    penaltiesTotal: 7,
+    penaltySourceRecorded: 5,
+    penaltiesTee: 3,
+    penaltiesApproach: 1,
+    penaltiesShort: 1,
+});
+
+test('the wave-4 window is internally consistent', () => {
+    const m = WINDOW_B;
+    // The four green directions partition the recorded misses.
+    expect(m.greenMissLong + m.greenMissShort + m.greenMissLeft + m.greenMissRight).toBe(
+        m.greenMissRecorded,
+    );
+    // The two tee sides partition the recorded misses, and trouble is a SUBSET
+    // of each side, never a third bucket.
+    expect(m.teeMissLeft + m.teeMissRight).toBe(m.teeMissRecorded);
+    expect(m.teeTroubleLeft).toBeLessThanOrEqual(m.teeMissLeft);
+    expect(m.teeTroubleRight).toBeLessThanOrEqual(m.teeMissRight);
+    expect(m.teeTroubleLeft + m.teeTroubleRight).toBe(m.troubleCount);
+    // The three difficulty legs partition the effective short-game strokes.
+    expect(
+        m.shortGameStrokesEffectiveStandard +
+            m.shortGameStrokesEffectiveHard +
+            m.shortGameStrokesEffectiveBunker,
+    ).toBe(m.shortGameStrokesEffective);
+    // Penalty sources partition the LABELLED holes, which are a subset of the
+    // holes that had a penalty at all.
+    expect(m.penaltiesTee + m.penaltiesApproach + m.penaltiesShort).toBe(m.penaltySourceRecorded);
+    expect(m.penaltySourceRecorded).toBeLessThanOrEqual(m.holesWithPenalty);
+});
+
+test('green-miss dispersion is each direction over the recorded misses', () => {
+    const g = greenMissDispersion(WINDOW_B);
+    expect(g.long).toEqual({ value: 0.2, n: 2, d: 10 });
+    expect(g.short).toEqual({ value: 0.5, n: 5, d: 10 });
+    expect(g.left).toEqual({ value: 0.2, n: 2, d: 10 });
+    expect(g.right).toEqual({ value: 0.1, n: 1, d: 10 });
+    expect(rateDisplay(g.long)).toBe('percentage');
+    // The four shares sum to 1 — they are a partition, not four questions.
+    expect(g.long.value! + g.short.value! + g.left.value! + g.right.value!).toBeCloseTo(1, 9);
+});
+
+test('tee-miss dispersion counts sides over misses and trouble WITHIN a side', () => {
+    const t = teeMissDispersion(WINDOW_B);
+    expect(t.left).toEqual({ value: 7 / 12, n: 7, d: 12 });
+    expect(t.right).toEqual({ value: 5 / 12, n: 5, d: 12 });
+    expect(t.left.value! + t.right.value!).toBeCloseTo(1, 9);
+    // Conditional: given a miss left, how often was it trouble.
+    expect(t.troubleLeft).toEqual({ value: 3 / 7, n: 3, d: 7 });
+    expect(t.troubleRight).toEqual({ value: 0.4, n: 2, d: 5 });
+});
+
+test('penalty source splits the labelled holes', () => {
+    const p = penaltySourceSplit(WINDOW_B);
+    expect(p.tee).toEqual({ value: 0.6, n: 3, d: 5 });
+    expect(p.approach).toEqual({ value: 0.2, n: 1, d: 5 });
+    expect(p.short).toEqual({ value: 0.2, n: 1, d: 5 });
+});
+
+test('the bunker leg joins scrambling as a third difficulty, not a fourth question', () => {
+    const s = scrambleRate(WINDOW_B);
+    expect(s.standard).toEqual({ value: 0.6, n: 3, d: 5 });
+    expect(s.hard).toEqual({ value: 0.25, n: 1, d: 4 });
+    expect(s.bunker).toEqual({ value: 2 / 3, n: 2, d: 3 });
+    // Overall is the sum of the three, so a bunker attempt cannot vanish.
+    expect(s.overall).toEqual({ value: 0.5, n: 6, d: 12 });
+});
+
+test('sand save is the bunker scramble, and reads as a fraction at three attempts', () => {
+    const r = sandSaveRate(WINDOW_B);
+    expect(r).toEqual({ value: 2 / 3, n: 2, d: 3 });
+    expect(rateDisplay(r)).toBe('fraction');
+    expect(r.d).toBeLessThan(MIN_RATE_DENOMINATOR);
+});
+
+test('multi-chip is over ALL eligible missed greens, not over answered steppers', () => {
+    // 12 attempts, 6 of them counted — the denominator is 12, because an
+    // uncounted hole is modeled as one stroke, which is an answer of "no".
+    expect(multiChipRate(WINDOW_B)).toEqual({ value: 1 / 3, n: 4, d: 12 });
+    expect(multiChipFromBunkerRate(WINDOW_B)).toEqual({ value: 1 / 3, n: 1, d: 3 });
+    expect(rateDisplay(multiChipFromBunkerRate(WINDOW_B))).toBe('fraction');
+});
+
+test('extra short-game strokes is effective minus one per attempt', () => {
+    // 17 effective − 12 attempts = 5. A counter, not a rate: it is a count of
+    // strokes, and dividing it by anything would invent a per-hole claim.
+    expect(extraShortGameStrokes(WINDOW_B)).toBe(5);
+    // With nothing counted every hole models as one, so effective equals the
+    // attempts and the extra is zero.
+    expect(
+        extraShortGameStrokes(
+            measures({ scrambleAttemptsStandard: 4, shortGameStrokesEffective: 4 }),
+        ),
+    ).toBe(0);
+});
+
+test('the hard-chip share counts bunkers in its denominator', () => {
+    // 4 hard of (5 standard + 4 hard + 3 bunker) — a bunker is a missed green
+    // that was NOT a hard chip, so leaving it out would inflate the share.
+    expect(hardChipShare(WINDOW_B)).toEqual({ value: 1 / 3, n: 4, d: 12 });
+});
+
+// --- Capture v2: the two-way miss insight --------------------------------------
+
+test('two_way_miss fires only on a real sample missing both ways', () => {
+    const fires = insightLines(WINDOW_B, waterfall({}), [], 10);
+    expect(ids(fires)).toContain('two_way_miss');
+
+    // One under the sample floor — silent, however lopsided the split.
+    const thin = measures({ teeMissRecorded: 9, teeMissLeft: 5, teeMissRight: 4 });
+    expect(ids(insightLines(thin, waterfall({}), [], 10))).not.toContain('two_way_miss');
+
+    // At the floor, but one side is under 35% — that is a one-way miss, which
+    // is the opposite finding and must not be worded as this one.
+    const oneWay = measures({ teeMissRecorded: 10, teeMissLeft: 3, teeMissRight: 7 });
+    expect(ids(insightLines(oneWay, waterfall({}), [], 10))).not.toContain('two_way_miss');
+
+    // Exactly on both boundaries: 10 recorded, 4 and 6, and 4 ≥ 0.35 × 10.
+    const boundary = measures({ teeMissRecorded: 10, teeMissLeft: 4, teeMissRight: 6 });
+    expect(ids(insightLines(boundary, waterfall({}), [], 10))).toContain('two_way_miss');
+});
+
+// --- Capture v2: the bunker attribution identity (spec §F.2) --------------------
+//
+// Three holes, chosen so every bunker branch is exercised: a counted multi-shot
+// bunker hole, an uncounted bunker chip-in, and a par-3 GIR control.
+
+const ATTRIBUTION_BUNKER: StatMeasures = measures({
+    attHolesPar3Gir: 1,
+    attHolesPar3Miss: 0,
+    attFairwayPar4: 1,
+    attInPlayPar4: 1,
+    attStrokes: 12,
+    attPutts: 4,
+    attPenalties: 0,
+    attGirFirstPutt2To4m: 1,
+    attMissBunker: 2,
+    attChipInside2mBunker: 1,
+    attChipOutside2mBunker: 0,
+    attChipHoledBunker: 1,
+    attSgStrokesEffectiveBunker: 3,
+    holesScored: 3,
+});
+
+test('the bunker leg telescopes, term by term', () => {
+    const w = strokesLostV3(ATTRIBUTION_BUNKER);
+    expect(w.tee).toBeCloseTo(-0.15, 9);
+    expect(w.approach).toBeCloseTo(-0.1, 9);
+    expect(w.shortGame).toBeCloseTo(-1.65, 9);
+    expect(w.putting).toBeCloseTo(0.9, 9);
+    expect(w.penalties).toBeCloseTo(0, 9);
+    expect(w.total).toBeCloseTo(-1.0, 9);
+    // The identity itself — floating point makes the intermediates inexact, so
+    // this is an approximate equality on purpose.
+    expect(Math.abs(telescopes(w) - w.total!)).toBeLessThan(1e-9);
+    expect(w.coverage).toEqual({ attributed: 3, holesScored: 3 });
+});
+
+// The test that catches a counter wired into the chip-entry baseline but not
+// into the counted-strokes sum: one extra counted stroke must move exactly one
+// stroke from approach to short game, and leave the total alone.
+test('a counted short-game stroke moves 1.00 from approach to short game', () => {
+    const w = strokesLostV3(ATTRIBUTION_BUNKER);
+    const lessOne = strokesLostV3(
+        measures({ ...ATTRIBUTION_BUNKER, attSgStrokesEffectiveBunker: 2 }),
+    );
+    expect(lessOne.approach).toBeCloseTo(0.9, 9);
+    expect(lessOne.shortGame).toBeCloseTo(-2.65, 9);
+    expect(lessOne.approach! - w.approach!).toBeCloseTo(1, 9);
+    expect(lessOne.shortGame! - w.shortGame!).toBeCloseTo(-1, 9);
+    // Every other term, and the total, are untouched.
+    expect(lessOne.tee).toBeCloseTo(w.tee!, 9);
+    expect(lessOne.putting).toBeCloseTo(w.putting!, 9);
+    expect(lessOne.total).toBeCloseTo(-1.0, 9);
+    expect(Math.abs(telescopes(lessOne) - lessOne.total!)).toBeLessThan(1e-9);
+});
+
+test('the bunker chip baseline sits between standard and hard', () => {
+    // A bunker is harder than a clean lie and easier than the "hard" bucket,
+    // which is where a short-sided downhill lie goes.
+    expect(CHIP_EXPECTED_PUTTS_V2.standard).toBeLessThan(CHIP_EXPECTED_PUTTS_V2.bunker);
+    expect(CHIP_EXPECTED_PUTTS_V2.bunker).toBeLessThan(CHIP_EXPECTED_PUTTS_V2.hard);
+    // v1 has no bunker reading of its own, so it falls back to the flat table —
+    // the whole point of keeping the two tables separate.
+    expect(CHIP_EXPECTED_PUTTS_V1_BY_DIFFICULTY.bunker).toBe(CHIP_EXPECTED_PUTTS_V1);
 });

@@ -61,8 +61,13 @@ struct StatBatchItem: Equatable, Sendable {
 /// in `StatStep`.
 enum StatVocabulary {
     /// Shot order, so the step reads the way the hole was played.
+    ///
+    /// A direction prompt sits IMMEDIATELY after its parent. Note that
+    /// `teeMissDir` comes before `recoveryOk`: side is a property of the tee
+    /// shot, the recovery is the next shot.
     static let order: [StatEventKey] = [
-        .teeResult, .recoveryOk, .gir, .shortGameDifficulty, .firstPutt, .putts, .penalties,
+        .teeResult, .teeMissDir, .recoveryOk, .gir, .greenMissDir, .shortGameDifficulty,
+        .shortGameStrokes, .firstPutt, .putts, .penalties, .penaltySource,
     ]
 
     /// Par 3 has no tee shot worth grading — the same shape the format layer
@@ -72,12 +77,16 @@ enum StatVocabulary {
     static func label(for key: StatEventKey) -> String {
         switch key {
         case .teeResult: return "Tee shot"
+        case .teeMissDir: return "Which side"
         case .recoveryOk: return "Recovery"
         case .gir: return "Green in regulation"
+        case .greenMissDir: return "Missed where"
         case .shortGameDifficulty: return "Short game"
+        case .shortGameStrokes: return "Shots to the green"
         case .firstPutt: return "First putt"
         case .putts: return "Putts"
         case .penalties: return "Penalties"
+        case .penaltySource: return "Penalty on"
         }
     }
 
@@ -89,8 +98,17 @@ enum StatVocabulary {
                 StatOption("in_play", "In play"),
                 StatOption("trouble", "Trouble"),
             ])
+        case .teeMissDir:
+            return .segments([StatOption("left", "Left"), StatOption("right", "Right")])
         case .gir:
             return .segments([StatOption("0", "Miss"), StatOption("1", "Hit")])
+        case .greenMissDir:
+            return .segments([
+                StatOption("long", "Long"),
+                StatOption("short", "Short"),
+                StatOption("left", "Left"),
+                StatOption("right", "Right"),
+            ])
         case .firstPutt:
             return .segments([
                 StatOption("inside_1m", "< 1m"),
@@ -100,13 +118,25 @@ enum StatVocabulary {
                 StatOption("over_8m", "> 8m"),
             ])
         case .shortGameDifficulty:
-            return .segments([StatOption("standard", "Standard"), StatOption("hard", "Hard")])
+            return .segments([
+                StatOption("standard", "Standard"),
+                StatOption("hard", "Hard"),
+                StatOption("bunker", "Bunker"),
+            ])
+        case .shortGameStrokes:
+            return .stepper(min: 1, max: 5)
         case .recoveryOk:
             return .segments([StatOption("0", "No"), StatOption("1", "Yes")])
         case .putts:
             return .stepper(min: 0, max: 3)
         case .penalties:
             return .stepper(min: 0, max: nil)
+        case .penaltySource:
+            return .segments([
+                StatOption("tee", "Tee shot"),
+                StatOption("approach", "Approach"),
+                StatOption("short_or_green", "Around the green"),
+            ])
         }
     }
 
@@ -146,19 +176,29 @@ struct StatStep: Equatable, Sendable {
     private(set) var persisted: [StatEventKey: String]
     /// This visit's changes. Empty means the step has nothing to send.
     private(set) var draft: [StatEventKey: StatAnswer] = [:]
+    /// The score this hole was entered with, supplied by the host — `StatStep`
+    /// has no access to the scorecard. `nil` = not known yet, which is a state
+    /// the derivation refuses to guess from.
+    private(set) var strokes: Int?
+    /// Set the moment the golfer touches `gir` in this visit. Never cleared by
+    /// `refresh()` or `prune()`; cleared only by constructing a new step, which
+    /// is a new (player, hole) visit.
+    private(set) var girLocked = false
 
     init(
         modules: StatModules,
         par: Double,
         holeNumber: Double,
         persisted: [StatEventKey: String] = [:],
-        draft: [StatEventKey: StatAnswer] = [:]
+        draft: [StatEventKey: StatAnswer] = [:],
+        strokes: Int? = nil
     ) {
         self.modules = modules
         self.par = par
         self.holeNumber = holeNumber
         self.persisted = persisted
         self.draft = draft
+        self.strokes = strokes
         prune()
     }
 
@@ -169,6 +209,13 @@ struct StatStep: Equatable, Sendable {
         self.modules = modules
         self.persisted = persisted
         prune()
+    }
+
+    /// The hole's stroke count landed (or changed). Deliberately NOT part of
+    /// `refresh` — the score arrives on its own schedule, one keypad tap before
+    /// the step is even shown.
+    mutating func setScore(_ strokes: Int?) {
+        self.strokes = strokes
     }
 
     // MARK: Visible prompts
@@ -208,6 +255,12 @@ struct StatStep: Equatable, Sendable {
             let applies = MetadataAppliesRule.evaluate(
                 StatVocabulary.teeApplies, par: par, hole: holeNumber)
             return modules.tee && applies ? .visible : .unreadable
+        case .teeMissDir:
+            // Side is only a fact once the drive is known to have left the
+            // fairway — and only when the tee prompt is on the card to say so.
+            guard modules.tee, visibility(.teeResult) == .visible else { return .unreadable }
+            let result = value(of: .teeResult)
+            return result == "in_play" || result == "trouble" ? .visible : .contradicted
         case .recoveryOk:
             // Only meaningful after a tee shot that got into trouble — and only
             // when the tee prompt itself is on the card to have answered it.
@@ -215,15 +268,27 @@ struct StatStep: Equatable, Sendable {
             return value(of: .teeResult) == "trouble" ? .visible : .contradicted
         case .gir:
             return modules.approach ? .visible : .unreadable
+        case .greenMissDir:
+            guard modules.approach, visibility(.gir) == .visible else { return .unreadable }
+            return value(of: .gir) == "0" ? .visible : .contradicted
         case .shortGameDifficulty:
             // Answered-miss, not merely unanswered: an untouched GIR says
             // nothing about whether there was a short-game shot.
+            guard modules.shortGame, visibility(.gir) == .visible else { return .unreadable }
+            return value(of: .gir) == "0" ? .visible : .contradicted
+        case .shortGameStrokes:
+            // The SAME gate as `shortGameDifficulty`: the counter is asked
+            // whenever there was a short-game shot, not only once a difficulty
+            // has been picked.
             guard modules.shortGame, visibility(.gir) == .visible else { return .unreadable }
             return value(of: .gir) == "0" ? .visible : .contradicted
         case .firstPutt, .putts:
             return modules.putting ? .visible : .unreadable
         case .penalties:
             return modules.penalties ? .visible : .unreadable
+        case .penaltySource:
+            guard modules.penalties, visibility(.penalties) == .visible else { return .unreadable }
+            return (intValue(of: .penalties) ?? 0) >= 1 ? .visible : .contradicted
         }
     }
 
@@ -252,6 +317,10 @@ struct StatStep: Equatable, Sendable {
     /// nothing sends nothing.
     mutating func answer(_ key: StatEventKey, value newValue: String?) {
         guard isVisible(key) else { return }
+        // Rule 2 (proposal §3.4b): a manual interaction locks GIR for the life
+        // of this step. Un-answering counts — "I do not want this filled in" is
+        // as deliberate as tapping Hit.
+        if key == .gir { girLocked = true }
         record(key, newValue)
         prune()
     }
@@ -264,8 +333,69 @@ struct StatStep: Equatable, Sendable {
         var next = (intValue(of: key) ?? min) + delta
         if next < min { next = min }
         if let max, next > max { next = max }
+        if key == .gir { girLocked = true }
         record(key, String(next))
         prune()
+    }
+
+    // MARK: Derived GIR (proposal §3.4b)
+
+    /// Five states, exhaustive. The view layer reads this; nothing here writes.
+    enum DerivedGirState: String, Equatable, Sendable {
+        /// The golfer touched GIR in this visit — their answer, full stop.
+        case manual
+        /// A stored answer the derivation agrees with, or cannot check.
+        case persisted
+        /// No answer, and the score can supply one: the control shows nothing
+        /// selected plus the pending line, and the value materialises when the
+        /// step closes.
+        case pending
+        /// No answer and nothing to derive from. Silent.
+        case idle
+        /// A stored answer the derivation contradicts. The STORED value stays
+        /// authoritative and is shown selected; the line just says so.
+        case disagree
+    }
+
+    /// What the score+putts pair says about the green, or nil when it cannot
+    /// say anything.
+    ///
+    /// `putts = 0` on a coherent hole means the ball was holed from off the
+    /// green, so `strokes − putts = strokes`, which exceeds `par − 2` on any
+    /// sane hole → a miss. That is correct: a chip-in is a missed green.
+    /// Derivation is BLOCKED when the putt count is incoherent (`putts = 0`
+    /// with a first-putt bucket recorded), matching `putting_coherent`.
+    var derivedGir: String? {
+        guard visibility(.gir) == .visible else { return nil }
+        guard let strokes, strokes > 0 else { return nil }
+        guard let putts = intValue(of: .putts), putts >= 0 else { return nil }
+        if putts == 0, isAnswered(.firstPutt) { return nil }
+        return Double(strokes - putts) <= par - 2 ? "1" : "0"
+    }
+
+    var derivedGirState: DerivedGirState {
+        guard visibility(.gir) == .visible else { return .idle }
+        if girLocked { return .manual }
+        let derived = derivedGir
+        if let stored = value(of: .gir) {
+            guard let derived else { return .persisted }
+            return derived == stored ? .persisted : .disagree
+        }
+        return derived == nil ? .idle : .pending
+    }
+
+    /// Rule 1: the derivation fires at STEP COMPLETION, never at render — call
+    /// this immediately before building the batch. A no-op in every state but
+    /// `pending`, and it goes through the ordinary `record()` + `prune()` path
+    /// so a derived miss correctly REVEALS `green_miss_dir`,
+    /// `short_game_difficulty` and `short_game_strokes`, and a derived hit
+    /// correctly contradicts them.
+    @discardableResult
+    mutating func materialiseDerivedGir() -> Bool {
+        guard derivedGirState == .pending, let derived = derivedGir else { return false }
+        record(.gir, derived)
+        prune()
+        return true
     }
 
     private mutating func record(_ key: StatEventKey, _ newValue: String?) {

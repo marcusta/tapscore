@@ -59,10 +59,21 @@ final class StatPromptsTests: XCTestCase {
             par: 4)
         s.answer(.teeResult, value: "trouble")
         s.answer(.gir, value: "0")
-        // The worst case the proposal names: seven inputs on a par 4.
+        // The penalty is ANSWERED, not merely offered: `penalty_source` hangs
+        // off a non-zero penalty, so leaving it unanswered would leave the
+        // eleventh prompt contradicted and the order assertion below untrue.
+        s.step(.penalties, by: 1)
+        // The worst case wave 4 names: eleven inputs on a par 4.
         XCTAssertEqual(
             keys(s),
-            [.teeResult, .recoveryOk, .gir, .shortGameDifficulty, .firstPutt, .putts, .penalties])
+            [
+                .teeResult, .teeMissDir, .recoveryOk, .gir, .greenMissDir,
+                .shortGameDifficulty, .shortGameStrokes, .firstPutt, .putts, .penalties,
+                .penaltySource,
+            ])
+        // …and that worst case IS the vocabulary's own order, so a key added to
+        // `StatVocabulary.order` cannot silently render out of shot order.
+        XCTAssertEqual(keys(s), StatVocabulary.order)
     }
 
     // MARK: - Par gating
@@ -103,7 +114,7 @@ final class StatPromptsTests: XCTestCase {
         s.answer(.gir, value: "1")
         XCTAssertEqual(keys(s), [.gir])
         s.answer(.gir, value: "0")
-        XCTAssertEqual(keys(s), [.gir, .shortGameDifficulty])
+        XCTAssertEqual(keys(s), [.gir, .greenMissDir, .shortGameDifficulty, .shortGameStrokes])
     }
 
     func testRecoveryAppearsOnlyAfterTrouble() {
@@ -112,7 +123,7 @@ final class StatPromptsTests: XCTestCase {
         s.answer(.teeResult, value: "fairway")
         XCTAssertEqual(keys(s), [.teeResult])
         s.answer(.teeResult, value: "trouble")
-        XCTAssertEqual(keys(s), [.teeResult, .recoveryOk])
+        XCTAssertEqual(keys(s), [.teeResult, .teeMissDir, .recoveryOk])
     }
 
     /// Hiding a revealed prompt DISCARDS its answer. A mis-tap that opened the
@@ -134,7 +145,7 @@ final class StatPromptsTests: XCTestCase {
         var s = step(
             modules(approach: true, shortGame: true),
             persisted: [.gir: "0", .shortGameDifficulty: "hard"])
-        XCTAssertEqual(keys(s), [.gir, .shortGameDifficulty])
+        XCTAssertEqual(keys(s), [.gir, .greenMissDir, .shortGameDifficulty, .shortGameStrokes])
 
         s.answer(.gir, value: "1")
         XCTAssertEqual(keys(s), [.gir])
@@ -166,7 +177,7 @@ final class StatPromptsTests: XCTestCase {
         let s = step(
             modules(approach: true),
             persisted: [.gir: "0", .shortGameDifficulty: "hard", .penalties: "2"])
-        XCTAssertEqual(keys(s), [.gir])
+        XCTAssertEqual(keys(s), [.gir, .greenMissDir])
         XCTAssertTrue(s.batch.isEmpty, "module off is unreadable, not wrong")
     }
 
@@ -280,7 +291,11 @@ final class StatPromptsTests: XCTestCase {
             return XCTFail("First putt must stay a segmented row")
         }
         XCTAssertEqual(firstPutt.map(\.label), ["< 1m", "1–2m", "2–4m", "4–8m", "> 8m"])
-        XCTAssertEqual(values(.shortGameDifficulty), ["standard", "hard"])
+        XCTAssertEqual(values(.shortGameDifficulty), ["standard", "hard", "bunker"])
+        XCTAssertEqual(values(.teeMissDir), ["left", "right"])
+        XCTAssertEqual(values(.greenMissDir), ["long", "short", "left", "right"])
+        XCTAssertEqual(values(.penaltySource), ["tee", "approach", "short_or_green"])
+        XCTAssertEqual(StatVocabulary.control(for: .shortGameStrokes), .stepper(min: 1, max: 5))
         XCTAssertEqual(values(.recoveryOk), ["0", "1"])
         XCTAssertEqual(StatVocabulary.control(for: .putts), .stepper(min: 0, max: 3))
         XCTAssertEqual(StatVocabulary.control(for: .penalties), .stepper(min: 0, max: nil))
@@ -316,7 +331,198 @@ final class StatPromptsTests: XCTestCase {
         s.answer(.gir, value: "0")
         s.answer(.shortGameDifficulty, value: "hard")
         s.refresh(modules: modules(approach: true), persisted: [:])
-        XCTAssertEqual(keys(s), [.gir])
+        XCTAssertEqual(keys(s), [.gir, .greenMissDir])
         XCTAssertNil(s.value(of: .shortGameDifficulty))
+    }
+
+    // MARK: - Wave 4 keys: the three visibility states
+
+    /// `tee_miss_dir` is asked on a drive that left the fairway, is
+    /// CONTRADICTED by a fairway hit (so a stored side is cleared on the
+    /// server), and is UNREADABLE with the tee module off (so a stored side
+    /// stays put).
+    func testTeeMissDirectionHasAllThreeStates() {
+        var visible = step(modules(tee: true))
+        visible.answer(.teeResult, value: "in_play")
+        XCTAssertEqual(keys(visible), [.teeResult, .teeMissDir])
+
+        var contradicted = step(modules(tee: true), persisted: [.teeMissDir: "left"])
+        contradicted.answer(.teeResult, value: "fairway")
+        XCTAssertEqual(keys(contradicted), [.teeResult])
+        XCTAssertEqual(
+            contradicted.batch,
+            [
+                StatBatchItem(key: .teeResult, value: "fairway"),
+                StatBatchItem(key: .teeMissDir, value: nil),
+            ],
+            "a contradicted side must reach the server as an explicit clear")
+
+        let unreadable = step(
+            modules(putting: true), persisted: [.teeResult: "trouble", .teeMissDir: "left"])
+        XCTAssertEqual(keys(unreadable), [.firstPutt, .putts])
+        XCTAssertTrue(unreadable.batch.isEmpty, "module off is unreadable, not wrong")
+    }
+
+    func testGreenMissDirectionHasAllThreeStates() {
+        var visible = step(modules(approach: true))
+        visible.answer(.gir, value: "0")
+        XCTAssertEqual(keys(visible), [.gir, .greenMissDir])
+
+        var contradicted = step(modules(approach: true), persisted: [.greenMissDir: "long"])
+        contradicted.answer(.gir, value: "1")
+        XCTAssertEqual(keys(contradicted), [.gir])
+        XCTAssertEqual(
+            contradicted.batch,
+            [
+                StatBatchItem(key: .gir, value: "1"),
+                StatBatchItem(key: .greenMissDir, value: nil),
+            ])
+
+        let unreadable = step(modules(putting: true), persisted: [.greenMissDir: "long"])
+        XCTAssertTrue(unreadable.batch.isEmpty)
+    }
+
+    /// The counter shares the difficulty's gate exactly — it is asked whenever
+    /// there was a short-game shot, not once a difficulty has been picked.
+    func testShortGameStrokesHasAllThreeStates() {
+        var visible = step(modules(approach: true, shortGame: true))
+        visible.answer(.gir, value: "0")
+        XCTAssertEqual(keys(visible), [.gir, .greenMissDir, .shortGameDifficulty, .shortGameStrokes])
+
+        var contradicted = step(
+            modules(approach: true, shortGame: true), persisted: [.shortGameStrokes: "2"])
+        contradicted.answer(.gir, value: "1")
+        XCTAssertEqual(keys(contradicted), [.gir])
+        XCTAssertEqual(
+            contradicted.batch,
+            [
+                StatBatchItem(key: .gir, value: "1"),
+                StatBatchItem(key: .shortGameStrokes, value: nil),
+            ])
+
+        let unreadable = step(
+            modules(approach: true), persisted: [.gir: "0", .shortGameStrokes: "2"])
+        XCTAssertEqual(keys(unreadable), [.gir, .greenMissDir])
+        XCTAssertTrue(unreadable.batch.isEmpty)
+    }
+
+    /// `penalty_source` hangs off a NON-ZERO penalty: an unanswered or zeroed
+    /// penalty contradicts it, which is why the shot-order test has to answer
+    /// the penalty to see all eleven prompts.
+    func testPenaltySourceHasAllThreeStates() {
+        var visible = step(modules(penalties: true))
+        visible.step(.penalties, by: 1)
+        XCTAssertEqual(keys(visible), [.penalties, .penaltySource])
+
+        XCTAssertEqual(
+            keys(step(modules(penalties: true))), [.penalties],
+            "an unanswered penalty count says nothing about a source")
+
+        var contradicted = step(
+            modules(penalties: true), persisted: [.penalties: "1", .penaltySource: "tee"])
+        contradicted.answer(.penalties, value: "0")
+        XCTAssertEqual(keys(contradicted), [.penalties])
+        XCTAssertEqual(
+            contradicted.batch,
+            [
+                StatBatchItem(key: .penalties, value: "0"),
+                StatBatchItem(key: .penaltySource, value: nil),
+            ])
+
+        let unreadable = step(
+            modules(putting: true), persisted: [.penalties: "1", .penaltySource: "tee"])
+        XCTAssertTrue(unreadable.batch.isEmpty)
+    }
+
+    // MARK: - Derived GIR (§3.4b)
+
+    private func girStep(
+        par: Double = 4, strokes: Int?, putts: String?, persistedGir: String? = nil,
+        firstPutt: String? = nil
+    ) -> StatStep {
+        var persisted: [StatEventKey: String] = [:]
+        if let putts { persisted[.putts] = putts }
+        if let persistedGir { persisted[.gir] = persistedGir }
+        if let firstPutt { persisted[.firstPutt] = firstPutt }
+        return StatStep(
+            modules: modules(approach: true, putting: true, shortGame: true), par: par,
+            holeNumber: 1, persisted: persisted, strokes: strokes)
+    }
+
+    func testDerivedGirIsPendingWhenTheScoreCanAnswerAndNobodyHas() {
+        let s = girStep(strokes: 5, putts: "2")
+        XCTAssertEqual(s.derivedGirState, .pending)
+        XCTAssertEqual(s.derivedGir, "0", "5 − 2 = 3 shots to a par 4 green is a miss")
+        XCTAssertEqual(girStep(strokes: 4, putts: "2").derivedGir, "1")
+    }
+
+    func testDerivedGirIsIdleWithNothingToDeriveFrom() {
+        XCTAssertEqual(girStep(strokes: nil, putts: "2").derivedGirState, .idle)
+        XCTAssertEqual(girStep(strokes: 5, putts: nil).derivedGirState, .idle)
+        // A holed-out-from-off-the-green hole with a putt bucket recorded is
+        // incoherent, so the derivation refuses rather than guessing.
+        XCTAssertEqual(
+            girStep(strokes: 4, putts: "0", firstPutt: "1_to_2m").derivedGirState, .idle)
+        // …and the coherent version of the same hole IS a miss: a chip-in
+        // missed the green.
+        XCTAssertEqual(girStep(strokes: 3, putts: "0").derivedGir, "0")
+    }
+
+    func testDerivedGirAgreesOrDisagreesWithAStoredAnswer() {
+        XCTAssertEqual(girStep(strokes: 4, putts: "2", persistedGir: "1").derivedGirState, .persisted)
+        XCTAssertEqual(girStep(strokes: 5, putts: "2", persistedGir: "1").derivedGirState, .disagree)
+        // Disagreement changes NOTHING: the stored answer stays authoritative
+        // and nothing is queued.
+        let disagreeing = girStep(strokes: 5, putts: "2", persistedGir: "1")
+        XCTAssertEqual(disagreeing.value(of: .gir), "1")
+        XCTAssertTrue(disagreeing.batch.isEmpty)
+    }
+
+    func testAManualTapBeforeCloseWins() {
+        var s = girStep(strokes: 5, putts: "2")
+        XCTAssertEqual(s.derivedGirState, .pending)
+        s.answer(.gir, value: "1")
+        XCTAssertEqual(s.derivedGirState, .manual)
+        XCTAssertFalse(s.materialiseDerivedGir(), "a manual answer is never overwritten")
+        XCTAssertEqual(s.value(of: .gir), "1")
+        // The lock survives a refresh — a load landing under an open card must
+        // not un-decide what the golfer decided.
+        s.refresh(modules: modules(approach: true, putting: true, shortGame: true), persisted: [:])
+        XCTAssertEqual(s.derivedGirState, .manual)
+    }
+
+    /// Un-answering is as deliberate as answering: "do not fill this in" locks
+    /// too, so a cleared GIR does not silently come back on close.
+    func testClearingGirLocksItAsFirmlyAsAnsweringIt() {
+        var s = girStep(strokes: 5, putts: "2", persistedGir: "1")
+        s.answer(.gir, value: nil)
+        XCTAssertEqual(s.derivedGirState, .manual)
+        XCTAssertFalse(s.materialiseDerivedGir())
+    }
+
+    func testMaterialisingOnCloseRevealsTheMissFollowUps() {
+        var s = girStep(strokes: 5, putts: "2")
+        XCTAssertEqual(keys(s), [.gir, .firstPutt, .putts], "nothing is revealed at render time")
+        XCTAssertTrue(s.materialiseDerivedGir())
+        XCTAssertEqual(s.value(of: .gir), "0")
+        XCTAssertEqual(
+            keys(s), [.gir, .greenMissDir, .shortGameDifficulty, .shortGameStrokes, .firstPutt, .putts])
+        XCTAssertEqual(s.batch, [StatBatchItem(key: .gir, value: "0")])
+        XCTAssertFalse(s.materialiseDerivedGir(), "materialising twice must not re-queue")
+    }
+
+    /// A derived HIT contradicts a stored short-game answer, and the clear
+    /// travels — the same path a manual tap takes.
+    func testMaterialisingAHitContradictsAStoredShortGameAnswer() {
+        var s = StatStep(
+            modules: modules(approach: true, putting: true, shortGame: true), par: 4,
+            holeNumber: 1, persisted: [.putts: "2", .shortGameDifficulty: "hard"], strokes: 4)
+        XCTAssertTrue(s.materialiseDerivedGir())
+        XCTAssertEqual(
+            s.batch,
+            [
+                StatBatchItem(key: .gir, value: "1"),
+                StatBatchItem(key: .shortGameDifficulty, value: nil),
+            ])
     }
 }

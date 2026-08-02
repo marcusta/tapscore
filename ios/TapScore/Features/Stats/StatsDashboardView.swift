@@ -409,7 +409,8 @@ struct StatsDashboardView: View {
                 // The rows the card above is showing, so card 5 totals what the
                 // reader can actually see and add up.
                 rowsPer18: model.priorities.map(\.per18),
-                windowRounds: model.roundCount)
+                windowRounds: model.roundCount,
+                penaltySource: PenaltySourceCounts(model.totals))
         }
     }
 
@@ -679,6 +680,42 @@ enum StatsCopy {
     static let conversionInside2m =
         "First putts from inside 2 m that went in — across every hole, not only chipped ones. The app records no chip-and-hole cross-tab."
     static let chipIns = "Short-game shots that went in without a putt."
+
+    // MARK: Capture v2 (wave 4)
+
+    static let greenMissHead = "Where you miss the green"
+    static let greenMiss =
+        "Recorded misses only. Long is past the flag, short is in front of it."
+    static let teeFanHead = "Where your tee shots finish"
+    static let teeFan =
+        "Side is recorded whenever the drive left the fairway. The darker block is trouble."
+    static let sandSave = "Missed greens from a bunker where you still got up and down."
+    static let multiChip =
+        "Missed greens that took more than one shot to reach the green. Holes where you did not count are treated as one."
+    static let multiChipBunker = "Bunker holes that took more than one shot to get out."
+    static let extraShortGameStrokes =
+        "Short-game shots beyond one per missed green, across this window."
+    static let penaltySourceInfoTitle = "Where the penalties came from"
+
+    /// The ⓘ card's live sentence. Absolute counts, not percentages: the sample
+    /// is usually tiny, and `MIN_RATE_DENOMINATOR` would otherwise hide the
+    /// whole card.
+    static func penaltySourceInfo(
+        recorded: Double, tee: Double, approach: Double, short: Double
+    ) -> String {
+        "Of \(StatsFormat.quantity(recorded, .labelledPenaltyHoles)) you labelled, \(StatsFormat.count(tee)) came off the tee, \(StatsFormat.count(approach)) on the approach and \(StatsFormat.count(short)) around the green."
+    }
+
+    // MARK: Capture step (§B.5, §D.4)
+
+    /// The worded trigger on the capture card. One sheet, not eleven glyphs.
+    static let statExplainerTrigger = "What these mean"
+    static let statExplainerTitle = "What these mean"
+    static let girPending = "Will be filled in from your score when you close this."
+    static let girDisagreeMiss =
+        "Your score says this green was missed. Tap to change it, or leave it."
+    static let girDisagreeHit =
+        "Your score says this green was hit. Tap to change it, or leave it."
     static let doubleBogeyPlus = "Holes at double bogey or worse, per round."
     static let bounceBack = "Holes after a bogey or worse that came back at par or better."
 

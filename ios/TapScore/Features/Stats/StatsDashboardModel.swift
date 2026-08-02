@@ -121,6 +121,26 @@ struct StatsTeePanel: Equatable, Sendable {
     var penaltyTax: Rate
     /// The two samples `penaltyTax` is a DIFFERENCE of — see `troubleTax`.
     var vsParByPenalty: PenaltySplit
+    /// Which side the drive finished on, and how expensive each side was.
+    /// `recorded == 0` means nobody answered the side question, and the fan
+    /// block is ABSENT rather than empty.
+    var teeMiss: StatMeasuresMath.TeeMissDispersion
+    var teeMissRecorded: Double
+    /// The fan's five counts, already subtracted here — the chart module does
+    /// no arithmetic on measures.
+    var fan: TeeFanCounts
+
+    /// `leftInPlay = teeMissLeft − teeTroubleLeft`, and right likewise. All
+    /// five share `recorded` (`teeRecorded`) as their denominator, so the
+    /// columns are comparable heights rather than three separate scales.
+    struct TeeFanCounts: Equatable, Sendable {
+        var leftInPlay: Double
+        var leftTrouble: Double
+        var fairway: Double
+        var rightInPlay: Double
+        var rightTrouble: Double
+        var recorded: Double
+    }
 }
 
 struct StatsApproachPanel: Equatable, Sendable {
@@ -138,6 +158,11 @@ struct StatsApproachPanel: Equatable, Sendable {
     var girByPar: ByParGroup<Rate>
     /// vs-par with the green hit, with it missed, and the difference.
     var costOfMissedGreen: VsParSplit
+    /// Where the approach finished when the green was missed. The four shares
+    /// partition `greenMissRecorded`; a zero `recorded` means the compass block
+    /// is ABSENT, not "Not recorded".
+    var greenMiss: StatMeasuresMath.GreenMissDispersion
+    var greenMissRecorded: Double
 }
 
 struct StatsPuttingPanel: Equatable, Sendable {
@@ -192,6 +217,19 @@ struct StatsShortGamePanel: Equatable, Sendable {
     /// anything. Split because holing out from a hard lie is the rarer,
     /// louder event, and a single total buries it.
     var chipIns: ByDifficulty<Double>
+    /// Up-and-downs from sand. Gated on `scrambleAttemptsBunker`.
+    var sandSave: Rate
+    var sandSaveAttempts: Double
+    /// Missed greens that took more than one shot to reach the green, over ALL
+    /// eligible holes (proposal §3.4c) — a share of opportunities, not of
+    /// answered steppers.
+    var multiChip: Rate
+    var multiChipFromBunker: Rate
+    /// Effective short-game strokes above one per attempt. A COUNT.
+    var extraShortGameStrokes: Double
+    /// The gate for all three counter figures: with no counted hole the numbers
+    /// are all modeled-1 and say nothing.
+    var shortGameStrokesRecorded: Double
 }
 
 struct StatsScoringPanel: Equatable, Sendable {
@@ -422,7 +460,16 @@ struct StatsDashboardModel: Equatable, Sendable {
             penaltiesRecordedHoles: m.penaltiesRecorded,
             penaltyHoleShare: StatMeasuresMath.penaltyHoleShare(m),
             penaltyTax: StatMeasuresMath.penaltyTax(m),
-            vsParByPenalty: StatMeasuresMath.vsParByPenalty(m))
+            vsParByPenalty: StatMeasuresMath.vsParByPenalty(m),
+            teeMiss: StatMeasuresMath.teeMissDispersion(m),
+            teeMissRecorded: m.teeMissRecorded,
+            fan: StatsTeePanel.TeeFanCounts(
+                leftInPlay: m.teeMissLeft - m.teeTroubleLeft,
+                leftTrouble: m.teeTroubleLeft,
+                fairway: m.fairwayHits,
+                rightInPlay: m.teeMissRight - m.teeTroubleRight,
+                rightTrouble: m.teeTroubleRight,
+                recorded: m.teeRecorded))
     }
 
     static func approachPanel(_ m: StatMeasures) -> StatsApproachPanel? {
@@ -438,7 +485,9 @@ struct StatsDashboardModel: Equatable, Sendable {
             birdieConversion: StatMeasuresMath.birdieConversion(m),
             hardChipShare: StatMeasuresMath.hardChipShare(m),
             girByPar: StatMeasuresMath.girByPar(m),
-            costOfMissedGreen: StatMeasuresMath.costOfMissedGreen(m))
+            costOfMissedGreen: StatMeasuresMath.costOfMissedGreen(m),
+            greenMiss: StatMeasuresMath.greenMissDispersion(m),
+            greenMissRecorded: m.greenMissRecorded)
     }
 
     static func puttingPanel(_ m: StatMeasures) -> StatsPuttingPanel? {
@@ -465,7 +514,8 @@ struct StatsDashboardModel: Equatable, Sendable {
     }
 
     static func shortGamePanel(_ m: StatMeasures) -> StatsShortGamePanel? {
-        let attempts = m.scrambleAttemptsStandard + m.scrambleAttemptsHard
+        let attempts =
+            m.scrambleAttemptsStandard + m.scrambleAttemptsHard + m.scrambleAttemptsBunker
         guard attempts > 0 else { return nil }
         // The two buckets that together mean "inside 2m", v2-resolved on both
         // sides so numerator and denominator cover the same holes.
@@ -478,7 +528,14 @@ struct StatsDashboardModel: Equatable, Sendable {
             chipIns: ByDifficulty(
                 standard: m.scrambleHoledStandard,
                 hard: m.scrambleHoledHard,
-                overall: m.scrambleHoledStandard + m.scrambleHoledHard))
+                bunker: m.scrambleHoledBunker,
+                overall: m.scrambleHoledStandard + m.scrambleHoledHard + m.scrambleHoledBunker),
+            sandSave: StatMeasuresMath.sandSaveRate(m),
+            sandSaveAttempts: m.scrambleAttemptsBunker,
+            multiChip: StatMeasuresMath.multiChipRate(m),
+            multiChipFromBunker: StatMeasuresMath.multiChipFromBunkerRate(m),
+            extraShortGameStrokes: StatMeasuresMath.extraShortGameStrokes(m),
+            shortGameStrokesRecorded: m.shortGameStrokesRecorded)
     }
 
     static func scoringPanel(_ m: StatMeasures, roundCount: Double) -> StatsScoringPanel? {

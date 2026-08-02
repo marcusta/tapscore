@@ -32,6 +32,22 @@
 //     measured over the SAME hole set, so the five telescope exactly to
 //     `total`. All five are null together (`coverage.attributed === 0`) or none
 //     is: there is no partial state, and a leftover row would be a bug.
+//
+// WHY A NEW SHORT-GAME DIFFICULTY LEG CANNOT BREAK THE TELESCOPE. For each
+// difficulty `d` with `n_d` missed greens, `ΣC_d` effective short-game strokes,
+// baseline `b_d` and chip-outcome contribution `O_d`, approach receives
+// `−ΣC_d + n_d·(1 + b_d)` (from `−sumC` and `+sumChipEntry`) and short game
+// receives `(ΣC_d − n_d) + O_d − n_d·b_d`. Collecting the two:
+//
+//     approach_d + shortGame_d
+//       = (−ΣC_d + n_d·(1 + b_d)) + ((ΣC_d − n_d) + O_d − n_d·b_d)
+//       = O_d
+//
+// and putting subtracts `sumEChipOutcome` in full, so every chip term cancels
+// REGARDLESS of the baseline constants and regardless of how many legs there
+// are. The bunker leg is safe, and so would a fourth be. What is NOT safe is a
+// leg wired into `attStrokes` but not into `sumC` — the C-sensitivity fixture
+// in `tests/round/stat-measures.test.ts` is the guard against exactly that.
 import type { StatMeasures } from '../api/player-stats.gen';
 
 // ---------------------------------------------------------------------------
@@ -94,8 +110,18 @@ export const ZERO_MEASURES: StatMeasures = Object.freeze({
         fairwayHits: 0,
         inPlayHits: 0,
         troubleCount: 0,
+        teeMissRecorded: 0,
+        teeMissLeft: 0,
+        teeMissRight: 0,
+        teeTroubleLeft: 0,
+        teeTroubleRight: 0,
         girRecorded: 0,
         girHits: 0,
+        greenMissRecorded: 0,
+        greenMissLong: 0,
+        greenMissShort: 0,
+        greenMissLeft: 0,
+        greenMissRight: 0,
         firstPuttRecorded: 0,
         firstPuttInside1m: 0,
         firstPutt1To2m: 0,
@@ -126,10 +152,26 @@ export const ZERO_MEASURES: StatMeasures = Object.freeze({
         scrambleInside2mHard: 0,
         scrambleHoledStandard: 0,
         scrambleHoledHard: 0,
+        scrambleAttemptsBunker: 0,
+        scrambleSuccessesBunker: 0,
+        scrambleFirstPuttBunker: 0,
+        scrambleInside2mBunker: 0,
+        scrambleHoledBunker: 0,
+        shortGameStrokesRecorded: 0,
+        shortGameStrokesEffective: 0,
+        shortGameStrokesEffectiveStandard: 0,
+        shortGameStrokesEffectiveHard: 0,
+        shortGameStrokesEffectiveBunker: 0,
+        holesMultiChip: 0,
+        holesMultiChipBunker: 0,
         penaltiesRecorded: 0,
         penaltiesTotal: 0,
         recoveryAttempts: 0,
         recoverySuccesses: 0,
+        penaltySourceRecorded: 0,
+        penaltiesTee: 0,
+        penaltiesApproach: 0,
+        penaltiesShort: 0,
         holesScored: 0,
         strokesTotal: 0,
         parTotal: 0,
@@ -233,8 +275,13 @@ export const ZERO_MEASURES: StatMeasures = Object.freeze({
         attChipInside2mHard: 0,
         attChipOutside2mHard: 0,
         attChipHoledHard: 0,
+        attMissBunker: 0,
+        attChipInside2mBunker: 0,
+        attChipOutside2mBunker: 0,
+        attChipHoledBunker: 0,
         attSgStrokesEffectiveStandard: 0,
         attSgStrokesEffectiveHard: 0,
+        attSgStrokesEffectiveBunker: 0,
 });
 
 /**
@@ -253,8 +300,18 @@ export function addMeasures(a: StatMeasures, b: StatMeasures): StatMeasures {
         fairwayHits: a.fairwayHits + b.fairwayHits,
         inPlayHits: a.inPlayHits + b.inPlayHits,
         troubleCount: a.troubleCount + b.troubleCount,
+        teeMissRecorded: a.teeMissRecorded + b.teeMissRecorded,
+        teeMissLeft: a.teeMissLeft + b.teeMissLeft,
+        teeMissRight: a.teeMissRight + b.teeMissRight,
+        teeTroubleLeft: a.teeTroubleLeft + b.teeTroubleLeft,
+        teeTroubleRight: a.teeTroubleRight + b.teeTroubleRight,
         girRecorded: a.girRecorded + b.girRecorded,
         girHits: a.girHits + b.girHits,
+        greenMissRecorded: a.greenMissRecorded + b.greenMissRecorded,
+        greenMissLong: a.greenMissLong + b.greenMissLong,
+        greenMissShort: a.greenMissShort + b.greenMissShort,
+        greenMissLeft: a.greenMissLeft + b.greenMissLeft,
+        greenMissRight: a.greenMissRight + b.greenMissRight,
         firstPuttRecorded: a.firstPuttRecorded + b.firstPuttRecorded,
         firstPuttInside1m: a.firstPuttInside1m + b.firstPuttInside1m,
         firstPutt1To2m: a.firstPutt1To2m + b.firstPutt1To2m,
@@ -285,10 +342,26 @@ export function addMeasures(a: StatMeasures, b: StatMeasures): StatMeasures {
         scrambleInside2mHard: a.scrambleInside2mHard + b.scrambleInside2mHard,
         scrambleHoledStandard: a.scrambleHoledStandard + b.scrambleHoledStandard,
         scrambleHoledHard: a.scrambleHoledHard + b.scrambleHoledHard,
+        scrambleAttemptsBunker: a.scrambleAttemptsBunker + b.scrambleAttemptsBunker,
+        scrambleSuccessesBunker: a.scrambleSuccessesBunker + b.scrambleSuccessesBunker,
+        scrambleFirstPuttBunker: a.scrambleFirstPuttBunker + b.scrambleFirstPuttBunker,
+        scrambleInside2mBunker: a.scrambleInside2mBunker + b.scrambleInside2mBunker,
+        scrambleHoledBunker: a.scrambleHoledBunker + b.scrambleHoledBunker,
+        shortGameStrokesRecorded: a.shortGameStrokesRecorded + b.shortGameStrokesRecorded,
+        shortGameStrokesEffective: a.shortGameStrokesEffective + b.shortGameStrokesEffective,
+        shortGameStrokesEffectiveStandard: a.shortGameStrokesEffectiveStandard + b.shortGameStrokesEffectiveStandard,
+        shortGameStrokesEffectiveHard: a.shortGameStrokesEffectiveHard + b.shortGameStrokesEffectiveHard,
+        shortGameStrokesEffectiveBunker: a.shortGameStrokesEffectiveBunker + b.shortGameStrokesEffectiveBunker,
+        holesMultiChip: a.holesMultiChip + b.holesMultiChip,
+        holesMultiChipBunker: a.holesMultiChipBunker + b.holesMultiChipBunker,
         penaltiesRecorded: a.penaltiesRecorded + b.penaltiesRecorded,
         penaltiesTotal: a.penaltiesTotal + b.penaltiesTotal,
         recoveryAttempts: a.recoveryAttempts + b.recoveryAttempts,
         recoverySuccesses: a.recoverySuccesses + b.recoverySuccesses,
+        penaltySourceRecorded: a.penaltySourceRecorded + b.penaltySourceRecorded,
+        penaltiesTee: a.penaltiesTee + b.penaltiesTee,
+        penaltiesApproach: a.penaltiesApproach + b.penaltiesApproach,
+        penaltiesShort: a.penaltiesShort + b.penaltiesShort,
         holesScored: a.holesScored + b.holesScored,
         strokesTotal: a.strokesTotal + b.strokesTotal,
         parTotal: a.parTotal + b.parTotal,
@@ -392,8 +465,13 @@ export function addMeasures(a: StatMeasures, b: StatMeasures): StatMeasures {
         attChipInside2mHard: a.attChipInside2mHard + b.attChipInside2mHard,
         attChipOutside2mHard: a.attChipOutside2mHard + b.attChipOutside2mHard,
         attChipHoledHard: a.attChipHoledHard + b.attChipHoledHard,
+        attMissBunker: a.attMissBunker + b.attMissBunker,
+        attChipInside2mBunker: a.attChipInside2mBunker + b.attChipInside2mBunker,
+        attChipOutside2mBunker: a.attChipOutside2mBunker + b.attChipOutside2mBunker,
+        attChipHoledBunker: a.attChipHoledBunker + b.attChipHoledBunker,
         attSgStrokesEffectiveStandard: a.attSgStrokesEffectiveStandard + b.attSgStrokesEffectiveStandard,
         attSgStrokesEffectiveHard: a.attSgStrokesEffectiveHard + b.attSgStrokesEffectiveHard,
+        attSgStrokesEffectiveBunker: a.attSgStrokesEffectiveBunker + b.attSgStrokesEffectiveBunker,
     };
 }
 
@@ -713,7 +791,81 @@ export function birdieConversion(m: StatMeasures): Rate {
  * the approach put you, which is why it is surfaced on the approach card.
  */
 export function hardChipShare(m: StatMeasures): Rate {
-    return rate(m.scrambleAttemptsHard, m.scrambleAttemptsStandard + m.scrambleAttemptsHard);
+    // Numerator stays `hard` — a bunker is its own lie with its own figure, not
+    // a second kind of "hard". But the DENOMINATOR is every missed green with a
+    // difficulty answer, so adding the bunker leg cannot inflate the share.
+    return rate(
+        m.scrambleAttemptsHard,
+        m.scrambleAttemptsStandard + m.scrambleAttemptsHard + m.scrambleAttemptsBunker,
+    );
+}
+
+/**
+ * How the recorded green misses fall around the target, as four shares of one
+ * denominator. They PARTITION `greenMissRecorded`, so on coherent data the four
+ * sum to 1 — which is why they share a denominator rather than each carrying
+ * its own.
+ */
+export interface GreenMissDispersion {
+    long: Rate;
+    short: Rate;
+    left: Rate;
+    right: Rate;
+}
+
+export function greenMissDispersion(m: StatMeasures): GreenMissDispersion {
+    const d = m.greenMissRecorded;
+    return {
+        long: rate(m.greenMissLong, d),
+        short: rate(m.greenMissShort, d),
+        left: rate(m.greenMissLeft, d),
+        right: rate(m.greenMissRight, d),
+    };
+}
+
+/**
+ * Tee-shot dispersion, plus the SEVERITY cross: how often a miss to a given
+ * side was trouble rather than merely off the fairway.
+ *
+ * The two severities are conditioned on their own side, not on the whole —
+ * "how bad is my left miss" is a different question from "how much of my miss
+ * is left trouble", and only the first tells a golfer which side to bail away
+ * from.
+ */
+export interface TeeMissDispersion {
+    left: Rate;
+    right: Rate;
+    troubleLeft: Rate;
+    troubleRight: Rate;
+}
+
+export function teeMissDispersion(m: StatMeasures): TeeMissDispersion {
+    return {
+        left: rate(m.teeMissLeft, m.teeMissRecorded),
+        right: rate(m.teeMissRight, m.teeMissRecorded),
+        troubleLeft: rate(m.teeTroubleLeft, m.teeMissLeft),
+        troubleRight: rate(m.teeTroubleRight, m.teeMissRight),
+    };
+}
+
+/**
+ * Where the penalties came from, as three shares of the holes that were
+ * LABELLED. Not of `holesWithPenalty`: an unlabelled penalty hole says nothing
+ * about its source, and folding it in would drag every share toward zero.
+ */
+export interface PenaltySourceSplit {
+    tee: Rate;
+    approach: Rate;
+    short: Rate;
+}
+
+export function penaltySourceSplit(m: StatMeasures): PenaltySourceSplit {
+    const d = m.penaltySourceRecorded;
+    return {
+        tee: rate(m.penaltiesTee, d),
+        approach: rate(m.penaltiesApproach, d),
+        short: rate(m.penaltiesShort, d),
+    };
 }
 
 // --- Putting ---
@@ -799,6 +951,7 @@ export function puttsAfterMissedGreen(m: StatMeasures): Rate {
 export interface ByDifficulty<T> {
     standard: T;
     hard: T;
+    bunker: T;
     overall: T;
 }
 
@@ -811,11 +964,56 @@ export function scrambleRate(m: StatMeasures): ByDifficulty<Rate> {
     return {
         standard: rate(m.scrambleSuccessesStandard, m.scrambleAttemptsStandard),
         hard: rate(m.scrambleSuccessesHard, m.scrambleAttemptsHard),
+        bunker: rate(m.scrambleSuccessesBunker, m.scrambleAttemptsBunker),
         overall: rate(
-            m.scrambleSuccessesStandard + m.scrambleSuccessesHard,
-            m.scrambleAttemptsStandard + m.scrambleAttemptsHard,
+            m.scrambleSuccessesStandard + m.scrambleSuccessesHard + m.scrambleSuccessesBunker,
+            m.scrambleAttemptsStandard + m.scrambleAttemptsHard + m.scrambleAttemptsBunker,
         ),
     };
+}
+
+/**
+ * The bunker leg of `scrambleRate`, on its own — the figure golfers know by
+ * name. Same numerator and denominator as `scrambleRate(m).bunker`; named
+ * separately because the short-game card shows it as its own headline figure.
+ */
+export function sandSaveRate(m: StatMeasures): Rate {
+    return rate(m.scrambleSuccessesBunker, m.scrambleAttemptsBunker);
+}
+
+/**
+ * Missed greens that took more than one shot to reach the green.
+ *
+ * The denominator is every eligible attempt, not only the holes where the
+ * counter was touched (proposal §3.4c): an unrecorded hole is MODELLED as one
+ * shot, so it belongs in the denominator as a non-event. Counting only answered
+ * steppers would turn "I only bother recording the bad ones" into a 100% rate.
+ */
+export function multiChipRate(m: StatMeasures): Rate {
+    return rate(
+        m.holesMultiChip,
+        m.scrambleAttemptsStandard + m.scrambleAttemptsHard + m.scrambleAttemptsBunker,
+    );
+}
+
+/** The same, restricted to sand. */
+export function multiChipFromBunkerRate(m: StatMeasures): Rate {
+    return rate(m.holesMultiChipBunker, m.scrambleAttemptsBunker);
+}
+
+/**
+ * Short-game shots beyond one per missed green, as an absolute COUNT — the
+ * strokes the short game actually cost above the modelled baseline.
+ *
+ * Zero when nothing was counted (every hole models as one), which is why the
+ * display gates on `shortGameStrokesRecorded` and never on this value: a real
+ * zero and an unrecorded window are different facts.
+ */
+export function extraShortGameStrokes(m: StatMeasures): number {
+    return (
+        m.shortGameStrokesEffective -
+        (m.scrambleAttemptsStandard + m.scrambleAttemptsHard + m.scrambleAttemptsBunker)
+    );
 }
 
 /**
@@ -832,9 +1030,10 @@ export function chipInside2mRate(m: StatMeasures): ByDifficulty<Rate> {
     return {
         standard: rate(m.scrambleInside2mStandard, m.scrambleFirstPuttStandard),
         hard: rate(m.scrambleInside2mHard, m.scrambleFirstPuttHard),
+        bunker: rate(m.scrambleInside2mBunker, m.scrambleFirstPuttBunker),
         overall: rate(
-            m.scrambleInside2mStandard + m.scrambleInside2mHard,
-            m.scrambleFirstPuttStandard + m.scrambleFirstPuttHard,
+            m.scrambleInside2mStandard + m.scrambleInside2mHard + m.scrambleInside2mBunker,
+            m.scrambleFirstPuttStandard + m.scrambleFirstPuttHard + m.scrambleFirstPuttBunker,
         ),
     };
 }
@@ -1074,6 +1273,7 @@ export const CHIP_OUTCOME_EXPECTED_PUTTS_V1: Readonly<{ inside2m: number; outsid
 export interface ChipExpectedPutts {
     readonly standard: number;
     readonly hard: number;
+    readonly bunker: number;
 }
 
 /**
@@ -1092,17 +1292,24 @@ export interface ChipExpectedPutts {
  * finished (inside 2 m / outside 2 m) does not depend on the lie it came from;
  * only the BASELINE that outcome is scored against does.
  *
+ * The `bunker` leg is PROVISIONAL and uncalibrated, the same standing as
+ * SG_TABLES_V1. A greenside bunker is a known lie with a known technique:
+ * harder than a clean chip, marginally easier than the `hard` catch-all, which
+ * also carries short-sided, downhill and long-grass lies.
+ *
  * FROZEN, exactly like v1: tune by adding a V3, never by editing these.
  */
 export const CHIP_EXPECTED_PUTTS_V2: Readonly<ChipExpectedPutts> = Object.freeze({
     standard: 1.7,
     hard: 2.1,
+    bunker: 1.95,
 });
 
-/** v1 as a per-difficulty table — both difficulties share the single 1.85. */
+/** v1 as a per-difficulty table — every difficulty shares the single 1.85. */
 export const CHIP_EXPECTED_PUTTS_V1_BY_DIFFICULTY: Readonly<ChipExpectedPutts> = Object.freeze({
     standard: CHIP_EXPECTED_PUTTS_V1,
     hard: CHIP_EXPECTED_PUTTS_V1,
+    bunker: CHIP_EXPECTED_PUTTS_V1,
 });
 
 // ---------------------------------------------------------------------------
@@ -1304,8 +1511,11 @@ export function strokesLostV3(
     /** One modeled tee stroke per par-4/5 hole. A par 3's tee shot IS its approach. */
     const teeStrokes = cohortPar4 + cohortPar5;
     /** Σ COALESCE(short_game_strokes, 1) over the miss cohort. */
-    const sumC = m.attSgStrokesEffectiveStandard + m.attSgStrokesEffectiveHard;
-    const nMiss = m.attMissStandard + m.attMissHard;
+    const sumC =
+        m.attSgStrokesEffectiveStandard +
+        m.attSgStrokesEffectiveHard +
+        m.attSgStrokesEffectiveBunker;
+    const nMiss = m.attMissStandard + m.attMissHard + m.attMissBunker;
 
     const sumEHole =
         cohortPar3 * tables.eHole[3] + cohortPar4 * tables.eHole[4] + cohortPar5 * tables.eHole[5];
@@ -1333,16 +1543,21 @@ export function strokesLostV3(
 
     // Where the chip left the ball. A chip-in leaves nothing, hence no term.
     const sumEChipOutcome =
-        (m.attChipInside2mStandard + m.attChipInside2mHard) * chipOutcome.inside2m +
-        (m.attChipOutside2mStandard + m.attChipOutside2mHard) * chipOutcome.outside2m;
+        (m.attChipInside2mStandard + m.attChipInside2mHard + m.attChipInside2mBunker) *
+            chipOutcome.inside2m +
+        (m.attChipOutside2mStandard + m.attChipOutside2mHard + m.attChipOutside2mBunker) *
+            chipOutcome.outside2m;
 
     const sumEChipBaseline =
-        m.attMissStandard * chipBaseline.standard + m.attMissHard * chipBaseline.hard;
+        m.attMissStandard * chipBaseline.standard +
+        m.attMissHard * chipBaseline.hard +
+        m.attMissBunker * chipBaseline.bunker;
 
     /** What a missed green is worth on arrival: one chip plus the putts it leaves. */
     const sumChipEntry =
         m.attMissStandard * (1 + chipBaseline.standard) +
-        m.attMissHard * (1 + chipBaseline.hard);
+        m.attMissHard * (1 + chipBaseline.hard) +
+        m.attMissBunker * (1 + chipBaseline.bunker);
 
     const tee =
         m.attFairwayPar4 * (1 + tables.eAfterTee[4].fairway - tables.eHole[4]) +
@@ -1540,6 +1755,7 @@ export type InsightId =
     | 'component_best_vs_baseline'
     | 'component_worst_vs_baseline'
     | 'penalties_spike'
+    | 'two_way_miss'
     | 'scramble_streak'
     | 'hard_scramble_streak'
     | 'three_putt_free'
@@ -1571,6 +1787,13 @@ export const INSIGHT_THREE_PUTT_FREE_MIN_PUTTS = 12;
 /** "Best in your last N" needs an N worth comparing against. */
 export const INSIGHT_BEST_PUTTING_MIN_WINDOW = 5;
 export const INSIGHT_BOUNCE_BACK_MIN_OPPORTUNITIES = 2;
+/**
+ * A two-way miss needs enough recorded sides to be a SHAPE rather than a run of
+ * luck, and each side has to carry a real share of them. 0.35 either way leaves
+ * room for a 65/35 bias to still read as one-way.
+ */
+export const INSIGHT_TWO_WAY_MISS_MIN_RECORDED = 10;
+export const INSIGHT_TWO_WAY_MISS_MIN_SIDE = 0.35;
 
 /**
  * Rank the round's candidate lines and return the top `limit`.
@@ -1656,7 +1879,28 @@ export function insightLines(
         );
     }
 
-    // 4. Every HARD spot saved. Ranked above the all-in scramble line, which it
+    // 4. Missing both ways off the tee — a shape observation, not a stroke
+    // count, so magnitude 0 and it ranks purely by push order. Integer
+    // comparison against `share × recorded`, never a float share against 0.35.
+    if (
+        measures.teeMissRecorded >= INSIGHT_TWO_WAY_MISS_MIN_RECORDED &&
+        measures.teeMissLeft >= INSIGHT_TWO_WAY_MISS_MIN_SIDE * measures.teeMissRecorded &&
+        measures.teeMissRight >= INSIGHT_TWO_WAY_MISS_MIN_SIDE * measures.teeMissRecorded
+    ) {
+        push(
+            {
+                id: 'two_way_miss',
+                params: {
+                    left: measures.teeMissLeft,
+                    right: measures.teeMissRight,
+                    recorded: measures.teeMissRecorded,
+                },
+            },
+            0,
+        );
+    }
+
+    // 5. Every HARD spot saved. Ranked above the all-in scramble line, which it
     // usually co-occurs with: "you got up and down from all three bad lies" is
     // the sharper sentence, and both carry magnitude 0, so push order decides.
     if (
@@ -1675,9 +1919,15 @@ export function insightLines(
         );
     }
 
-    // 5. A scrambling round, on a sample big enough to mean it.
-    const attempts = measures.scrambleAttemptsStandard + measures.scrambleAttemptsHard;
-    const successes = measures.scrambleSuccessesStandard + measures.scrambleSuccessesHard;
+    // 6. A scrambling round, on a sample big enough to mean it.
+    const attempts =
+        measures.scrambleAttemptsStandard +
+        measures.scrambleAttemptsHard +
+        measures.scrambleAttemptsBunker;
+    const successes =
+        measures.scrambleSuccessesStandard +
+        measures.scrambleSuccessesHard +
+        measures.scrambleSuccessesBunker;
     if (
         attempts >= INSIGHT_SCRAMBLE_STREAK_MIN_ATTEMPTS &&
         successes >= INSIGHT_SCRAMBLE_STREAK_RATE * attempts
@@ -1685,7 +1935,7 @@ export function insightLines(
         push({ id: 'scramble_streak', params: { successes, attempts } }, 0);
     }
 
-    // 6. No three-putts, over enough putts for that to be an achievement.
+    // 7. No three-putts, over enough putts for that to be an achievement.
     if (measures.threePutts === 0 && measures.puttsTotal >= INSIGHT_THREE_PUTT_FREE_MIN_PUTTS) {
         push(
             {
@@ -1696,7 +1946,7 @@ export function insightLines(
         );
     }
 
-    // 7. Best putting round in the window: strictly better than every round in
+    // 8. Best putting round in the window: strictly better than every round in
     // it that has a putting term, over a window worth the claim.
     //
     // Cross-round, so BOTH SIDES read `sgPer18` and inherit the
@@ -1720,7 +1970,7 @@ export function insightLines(
         );
     }
 
-    // 8. Every bounce-back chance taken.
+    // 9. Every bounce-back chance taken.
     if (
         measures.bounceBackOpportunities >= INSIGHT_BOUNCE_BACK_MIN_OPPORTUNITIES &&
         measures.bounceBackSuccesses === measures.bounceBackOpportunities

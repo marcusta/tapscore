@@ -169,7 +169,7 @@ test('the panels carry the coverage and split figures their gates are decided on
     expect(putting.puttsAfterMissedGreen).toEqual({ value: 2, n: 10, d: 5 });
 
     // Chip-ins are two counts and their total, not one lumped number.
-    expect(shortGamePanel(m)!.chipIns).toEqual({ standard: 2, hard: 1, overall: 3 });
+    expect(shortGamePanel(m)!.chipIns).toEqual({ standard: 2, hard: 1, bunker: 0, overall: 3 });
 });
 
 test('present panels come back in reading order, tee to green then the scorecard', () => {

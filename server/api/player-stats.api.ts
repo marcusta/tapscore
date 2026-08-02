@@ -21,21 +21,29 @@ const StatsConfigInput = Type.Object({
     recovery: Type.Boolean(),
 });
 
+// The eleven keys of `StatKey`, in the schema order. This union is the WIRE
+// gate: a key missing here is rejected before the service's vocabulary ever
+// sees it, so it has to grow whenever `MODULE_FOR_KEY` does.
 const StatKeySchema = Type.Union([
     Type.Literal('tee_result'),
+    Type.Literal('tee_miss_dir'),
     Type.Literal('gir'),
+    Type.Literal('green_miss_dir'),
     Type.Literal('first_putt'),
     Type.Literal('putts'),
     Type.Literal('short_game_difficulty'),
+    Type.Literal('short_game_strokes'),
     Type.Literal('penalties'),
+    Type.Literal('penalty_source'),
     Type.Literal('recovery_ok'),
 ]);
 
 /**
  * `value` is TEXT for every key — enum text, `'0'`/`'1'` for the two booleans,
- * `'0'`..`'3'` for putts, decimal digits for penalties. One column serves
- * seven keys in `stat_events`; the projection does the typing. `null` CLEARS
- * the key (spec §4.1), which is not the same as omitting the item.
+ * `'0'`..`'3'` for putts, `'1'`..`'5'` for short-game strokes, decimal digits
+ * for penalties. One column serves eleven keys in `stat_events`; the projection
+ * does the typing. `null` CLEARS the key (spec §4.1), which is not the same as
+ * omitting the item.
  */
 const StatEventItem = Type.Object({
     playHoleId: Type.String({ minLength: 1 }),

@@ -195,3 +195,49 @@ test('corrupt or foreign storage content is ignored, and a bad entry is dropped 
     storage.data.set(STORAGE_KEY, JSON.stringify([{ ...ok, key: 'bunker_visits' }, ok]));
     expect(new PendingStatQueue(storage, 1_000, ids()).entriesFor('tok')).toEqual([ok]);
 });
+
+// Capture v2's stepper key is an ordinary key to the queue: no special casing
+// for a numeric value, one id per item, and the same coalescing identity.
+test('a short_game_strokes re-count coalesces like any other key', () => {
+    const storage = memStorage();
+    const q = new PendingStatQueue(storage, 1_000, ids());
+    q.enqueueBatch('tok', 'ph-1', 'p-1', batch(['short_game_strokes', '1']), 1_000);
+    q.enqueueBatch('tok', 'ph-1', 'p-1', batch(['short_game_strokes', '3']), 2_000);
+    // Same key, different player — a different entry.
+    q.enqueueBatch('tok', 'ph-1', 'p-2', batch(['short_game_strokes', '2']), 3_000);
+
+    const entries = q.entriesFor('tok');
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+        key: 'short_game_strokes',
+        playerId: 'p-1',
+        value: '3',
+        clientEventId: 'ce-2',
+    });
+    expect(entries[1]).toMatchObject({ playerId: 'p-2', value: '2', clientEventId: 'ce-3' });
+    expect(new Set(entries.map((e) => e.clientEventId)).size).toBe(2);
+    expect(persisted(storage)).toHaveLength(2);
+});
+
+// The four new keys travel together in one close, each with its own id.
+test('a capture v2 batch mints one id per new key', () => {
+    const q = new PendingStatQueue(memStorage(), 1_000, ids());
+    q.enqueueBatch(
+        'tok',
+        'ph-1',
+        'p-1',
+        batch(
+            ['tee_miss_dir', 'left'],
+            ['green_miss_dir', 'short'],
+            ['short_game_strokes', '2'],
+            ['penalty_source', 'tee'],
+        ),
+    );
+    expect(q.entriesFor('tok').map((e) => e.key)).toEqual([
+        'tee_miss_dir',
+        'green_miss_dir',
+        'short_game_strokes',
+        'penalty_source',
+    ]);
+    expect(new Set(q.entriesFor('tok').map((e) => e.clientEventId)).size).toBe(4);
+});

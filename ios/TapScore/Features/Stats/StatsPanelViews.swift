@@ -405,6 +405,26 @@ struct StatsPanelsView: View {
                 StatsLegendItem("In play", TapColors.accent, StatsFormat.rate(panel.inPlayOnly)),
                 StatsLegendItem("Trouble", TapColors.danger, StatsFormat.rate(panel.trouble)),
             ])
+            // The fan sits directly under the split bar's legend: same three
+            // tones, one question further on — WHERE the miss went, not how
+            // often. Absent, not "Not recorded", when nobody answered the side
+            // question: a fan over zero misses is five empty columns.
+            if panel.teeMissRecorded > 0 {
+                StatsSubhead(text: StatsCopy.teeFanHead)
+                StatsTeeFan(
+                    segments: StatsFanGeometry.segments(
+                        leftInPlay: panel.fan.leftInPlay, leftTrouble: panel.fan.leftTrouble,
+                        fairway: panel.fan.fairway,
+                        rightInPlay: panel.fan.rightInPlay, rightTrouble: panel.fan.rightTrouble,
+                        recorded: panel.fan.recorded))
+                Text(teeFanReading(panel))
+                    .font(TapFont.ui(size: 12.0))
+                    .foregroundStyle(TapColors.text)
+                Text(StatsCopy.teeFan)
+                    .font(TapFont.ui(size: 12.0))
+                    .foregroundStyle(TapColors.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if !vsPar.isEmpty {
                 StatsSubhead(text: "Average vs par, by where the tee shot finished")
                 Text(StatsCopy.vsParByTee)
@@ -420,6 +440,18 @@ struct StatsPanelsView: View {
                         "Recovery", StatsFormat.rateWithSample(panel.recovery), StatsCopy.recovery),
                 ] + penaltiesFigure(panel))
         }
+    }
+
+    /// The picture's reading, in words. The chart is `accessibilityHidden`, so
+    /// this line — not the drawing — is what the block actually says. Counts,
+    /// not shares: the three numbers are of different denominators (a side is
+    /// only recorded on a miss) and a percentage here would invite adding them
+    /// to the fairway share.
+    static func teeFanReading(_ panel: StatsTeePanel) -> String {
+        let left = panel.fan.leftInPlay + panel.fan.leftTrouble
+        let right = panel.fan.rightInPlay + panel.fan.rightTrouble
+        return "Left \(StatsFormat.count(left)) · Fairway \(StatsFormat.count(panel.fan.fairway)) "
+            + "· Right \(StatsFormat.count(right))"
     }
 
     /// The one figure whose sample cannot go in the value column.
@@ -488,6 +520,40 @@ struct StatsPanelsView: View {
         ]
     }
 
+    /// The compass in words — the drawing is `accessibilityHidden`, so this is
+    /// the block's actual reading. The four shares partition the recorded
+    /// misses, so they go through the ordinary display policy together and a
+    /// small window degrades all four to fractions at once.
+    static func greenMissReading(_ panel: StatsApproachPanel) -> String {
+        let parts: [(String, Rate)] = [
+            ("Long", panel.greenMiss.long), ("Short", panel.greenMiss.short),
+            ("Left", panel.greenMiss.left), ("Right", panel.greenMiss.right),
+        ]
+        return
+            parts
+            .map { "\($0.0) \(StatsFormat.rate($0.1) ?? "—")" }
+            .joined(separator: " · ")
+    }
+
+    /// The four in-picture labels. Same `StatsFormat.rate` path as
+    /// `greenMissReading` above, so the wheel and the prose beside it never
+    /// disagree: under `MIN_RATE_DENOMINATOR` both say "2 of 3". Twin of
+    /// `greenMissCompass`'s `labels` in `src/stats/stats-panel-blocks.ts`.
+    ///
+    /// The block is gated on `greenMissRecorded > 0`, so no denominator here is
+    /// zero and the empty fallback is unreachable — but a wedge must never paint
+    /// the words "Not recorded".
+    static func greenMissLabels(_ panel: StatsApproachPanel)
+        -> [StatsCompassGeometry.Direction: String]
+    {
+        [
+            .long: StatsFormat.rate(panel.greenMiss.long) ?? "",
+            .short: StatsFormat.rate(panel.greenMiss.short) ?? "",
+            .left: StatsFormat.rate(panel.greenMiss.left) ?? "",
+            .right: StatsFormat.rate(panel.greenMiss.right) ?? "",
+        ]
+    }
+
     static func approachDetail(_ panel: StatsApproachPanel) -> some View {
         let cost = costOfMissedGreenFigures(panel)
         return VStack(alignment: .leading, spacing: TapSpacing.md) {
@@ -497,6 +563,28 @@ struct StatsPanelsView: View {
                 StatsBarItem("From in play", panel.girByTee.inPlay),
                 StatsBarItem("From trouble", panel.girByTee.trouble),
             ])
+            // Under the greens-hit reading, above the by-par split: the compass
+            // answers "and when you miss, which way", which is the next
+            // question and not a refinement of the previous one. Absent when
+            // nothing was answered — a compass over zero misses is a shape.
+            if panel.greenMissRecorded > 0 {
+                StatsSubhead(text: StatsCopy.greenMissHead)
+                StatsGreenCompass(
+                    sectors: StatsCompassGeometry.sectors([
+                        .long: panel.greenMiss.long.value ?? 0,
+                        .short: panel.greenMiss.short.value ?? 0,
+                        .left: panel.greenMiss.left.value ?? 0,
+                        .right: panel.greenMiss.right.value ?? 0,
+                    ]),
+                    labels: greenMissLabels(panel))
+                Text(greenMissReading(panel))
+                    .font(TapFont.ui(size: 12.0))
+                    .foregroundStyle(TapColors.text)
+                Text(StatsCopy.greenMiss)
+                    .font(TapFont.ui(size: 12.0))
+                    .foregroundStyle(TapColors.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             StatsSubhead(text: "Greens hit, by par")
             StatsMiniBarRows(items: girByParItems(panel))
             StatsSubhead(text: "First putt on greens hit")
@@ -649,35 +737,104 @@ struct StatsPanelsView: View {
 
     // MARK: Short game
 
+    /// Sand save, or nothing. The short-game panel is gated on there having
+    /// been SOME scramble attempt, which can be true over a window with no
+    /// bunker at all — so this row carries its own gate.
+    static func sandSaveFigure(_ panel: StatsShortGamePanel) -> [StatsFigure] {
+        guard panel.sandSaveAttempts > 0 else { return [] }
+        return [
+            StatsFigure(
+                "Sand save", StatsFormat.rateWithSample(panel.sandSave), StatsCopy.sandSave)
+        ]
+    }
+
+    /// The three counter figures, or nothing.
+    ///
+    /// Gated as a GROUP on `shortGameStrokesRecorded`: without a single counted
+    /// hole every stroke count is the modeled 1, so the rates are structurally
+    /// 0% and the extra-strokes figure is structurally 0. That is not a reading,
+    /// it is the absence of one, and it would read as "you never take two".
+    static func shortGameCounterFigures(_ panel: StatsShortGamePanel) -> [StatsFigure] {
+        guard panel.shortGameStrokesRecorded > 0 else { return [] }
+        return [
+            StatsFigure(
+                "More than one from sand", StatsFormat.rateWithSample(panel.multiChipFromBunker),
+                StatsCopy.multiChipBunker),
+            StatsFigure(
+                "Extra short-game shots", StatsFormat.count(panel.extraShortGameStrokes),
+                StatsCopy.extraShortGameStrokes),
+            StatsFigure(
+                "More than one chip", StatsFormat.rateWithSample(panel.multiChip),
+                StatsCopy.multiChip),
+        ]
+    }
+
+    /// The bunker leg of a three-leg group, or nothing.
+    ///
+    /// The panel's own gate is "some scramble attempt", which a window with no
+    /// sand in it satisfies — so every bunker row carries this second gate, and
+    /// all of them carry the SAME one, so the three groups agree about whether
+    /// this window has any sand in it. `sandSaveAttempts` (the model's name for
+    /// `scrambleAttemptsBunker`) is the shared denominator: a chip-in has
+    /// `putts = 0`, which the attempt predicate counts, so no non-zero bunker
+    /// figure can hide behind the gate.
+    static func hasBunkerLeg(_ panel: StatsShortGamePanel) -> Bool {
+        panel.sandSaveAttempts > 0
+    }
+
+    /// The three groups' rows, as values rather than inline literals, so the
+    /// twin tests can assert the bunker gate the same way the web tests assert
+    /// `panelBlocks('shortGame', …)`.
+    ///
+    /// Standard and Hard are always present: the panel is already gated on there
+    /// having been a scramble attempt, so a zero in either is a real zero, not
+    /// an absence. Bunker is not — see `hasBunkerLeg`.
+    static func scramblingBars(_ panel: StatsShortGamePanel) -> [StatsBarItem] {
+        [
+            StatsBarItem("Standard", panel.scramble.standard),
+            StatsBarItem("Hard", panel.scramble.hard),
+        ] + (hasBunkerLeg(panel) ? [StatsBarItem("Bunker", panel.scramble.bunker)] : [])
+    }
+
+    static func chipInside2mBars(_ panel: StatsShortGamePanel) -> [StatsBarItem] {
+        [
+            StatsBarItem("Standard", panel.chipInside2m.standard),
+            StatsBarItem("Hard", panel.chipInside2m.hard),
+        ] + (hasBunkerLeg(panel) ? [StatsBarItem("Bunker", panel.chipInside2m.bunker)] : [])
+    }
+
+    static func chipInFigures(_ panel: StatsShortGamePanel) -> [StatsFigure] {
+        [
+            StatsFigure("Standard", StatsFormat.count(panel.chipIns.standard)),
+            StatsFigure("Hard", StatsFormat.count(panel.chipIns.hard)),
+        ]
+            + (hasBunkerLeg(panel)
+                ? [StatsFigure("Bunker", StatsFormat.count(panel.chipIns.bunker))] : [])
+    }
+
     static func shortGameDetail(_ panel: StatsShortGamePanel) -> some View {
-        VStack(alignment: .leading, spacing: TapSpacing.md) {
+        let counters = shortGameCounterFigures(panel)
+        let sandSave = sandSaveFigure(panel)
+        return VStack(alignment: .leading, spacing: TapSpacing.md) {
             StatsSubhead(text: "Scrambling")
-            StatsMiniBarRows(items: [
-                StatsBarItem("Standard", panel.scramble.standard),
-                StatsBarItem("Hard", panel.scramble.hard),
-            ])
+            StatsMiniBarRows(items: scramblingBars(panel))
+            if !(sandSave + counters).isEmpty {
+                StatsFigureRows(items: sandSave + counters)
+            }
             StatsSubhead(text: "Chipped to inside 2 m")
-            StatsMiniBarRows(items: [
-                StatsBarItem("Standard", panel.chipInside2m.standard),
-                StatsBarItem("Hard", panel.chipInside2m.hard),
-            ])
+            StatsMiniBarRows(items: chipInside2mBars(panel))
             StatsFigureRows(items: [
                 StatsFigure(
                     "Holed from inside 2 m",
                     StatsFormat.rateWithSample(panel.conversionInside2m),
                     StatsCopy.conversionInside2m)
             ])
-            // Always shown: the panel is already gated on there having been a
-            // scramble attempt, so a zero here is a real zero, not an absence.
             StatsSubhead(text: "Chip-ins")
             Text(StatsCopy.chipIns)
                 .font(TapFont.ui(size: 12.0))
                 .foregroundStyle(TapColors.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
-            StatsFigureRows(items: [
-                StatsFigure("Standard", StatsFormat.count(panel.chipIns.standard)),
-                StatsFigure("Hard", StatsFormat.count(panel.chipIns.hard)),
-            ])
+            StatsFigureRows(items: chipInFigures(panel))
         }
     }
 

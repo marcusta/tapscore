@@ -256,7 +256,17 @@ export async function createFineGrainedPuttingViews(db: Kysely<any>): Promise<vo
                 COUNT(CASE WHEN gir = 0 AND short_game_difficulty = 'hard'
                      AND first_putt IN ('inside_2m', 'inside_1m', '1_to_2m')
                      AND (putts IS NULL OR putts <> 0 OR first_putt IS NULL)
-                     THEN 1 END) AS scramble_inside_2m_hard_v2
+                     THEN 1 END) AS scramble_inside_2m_hard_v2,
+                -- The bunker leg (migration 055). It has to live HERE, not in
+                -- 043's coarse family: bunker capture only exists from 055, so
+                -- every bunker hole carries a FINE first-putt bucket and a
+                -- coarse-only first_putt = 'inside_2m' column would read zero
+                -- forever. This is the column the read service consumes, exactly
+                -- as it consumes the standard/hard _v2 pair.
+                COUNT(CASE WHEN gir = 0 AND short_game_difficulty = 'bunker'
+                     AND first_putt IN ('inside_2m', 'inside_1m', '1_to_2m')
+                     AND (putts IS NULL OR putts <> 0 OR first_putt IS NULL)
+                     THEN 1 END) AS scramble_inside_2m_bunker_v2
             FROM player_hole_stats
             GROUP BY round_id, player_id
         )
@@ -286,7 +296,9 @@ export async function createFineGrainedPuttingViews(db: Kysely<any>): Promise<vo
                COALESCE(fine.scramble_inside_2m_standard_v2, 0)
                    AS scramble_inside_2m_standard_v2,
                COALESCE(fine.scramble_inside_2m_hard_v2, 0)
-                   AS scramble_inside_2m_hard_v2
+                   AS scramble_inside_2m_hard_v2,
+               COALESCE(fine.scramble_inside_2m_bunker_v2, 0)
+                   AS scramble_inside_2m_bunker_v2
         FROM v_player_round_stats base
         LEFT JOIN fine
           ON fine.round_id = base.round_id AND fine.player_id = base.player_id
@@ -320,7 +332,9 @@ export async function createFineGrainedPuttingViews(db: Kysely<any>): Promise<vo
                SUM(rounds.scramble_inside_2m_standard_v2)
                    AS scramble_inside_2m_standard_v2,
                SUM(rounds.scramble_inside_2m_hard_v2)
-                   AS scramble_inside_2m_hard_v2
+                   AS scramble_inside_2m_hard_v2,
+               SUM(rounds.scramble_inside_2m_bunker_v2)
+                   AS scramble_inside_2m_bunker_v2
         FROM v_player_stat_totals totals
         JOIN v_player_round_stats_v2 rounds ON rounds.player_id = totals.player_id
         GROUP BY totals.player_id

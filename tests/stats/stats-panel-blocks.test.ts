@@ -687,3 +687,260 @@ test('the penalty pair is gated with the per-round figure it sits beside', () =>
     expect(ids).not.toContain('penaltyHoleShare');
     expect(ids).not.toContain('penaltyTax');
 });
+
+// --- Capture v2 blocks (spec §F.3) --------------------------------------------
+//
+// The wave-4 window, as the panels render it. Every string below is the spec's
+// rendered-string oracle; the SwiftUI twin prints the same words in the same
+// order.
+
+const WINDOW_B: StatMeasures = measures({
+    teeRecorded: 20,
+    fairwayHits: 8,
+    inPlayHits: 15,
+    troubleCount: 5,
+    teeMissRecorded: 12,
+    teeMissLeft: 7,
+    teeMissRight: 5,
+    teeTroubleLeft: 3,
+    teeTroubleRight: 2,
+    girRecorded: 20,
+    girHits: 8,
+    greenMissRecorded: 10,
+    greenMissLong: 2,
+    greenMissShort: 5,
+    greenMissLeft: 2,
+    greenMissRight: 1,
+    scrambleAttemptsStandard: 5,
+    scrambleSuccessesStandard: 3,
+    scrambleAttemptsHard: 4,
+    scrambleSuccessesHard: 1,
+    scrambleAttemptsBunker: 3,
+    scrambleSuccessesBunker: 2,
+    shortGameStrokesRecorded: 6,
+    shortGameStrokesEffectiveStandard: 6,
+    shortGameStrokesEffectiveHard: 7,
+    shortGameStrokesEffectiveBunker: 4,
+    shortGameStrokesEffective: 17,
+    holesMultiChip: 4,
+    holesMultiChipBunker: 1,
+    penaltiesRecorded: 20,
+    holesWithPenalty: 6,
+    penaltiesTotal: 7,
+    penaltySourceRecorded: 5,
+    penaltiesTee: 3,
+    penaltiesApproach: 1,
+    penaltiesShort: 1,
+});
+
+const WINDOW_B_MODEL = buildDashboardModel([round({ measures: WINDOW_B })]);
+
+function block(panel: 'tee' | 'approach' | 'shortGame', id: string): StatsBlock | undefined {
+    return panelBlocks(panel, WINDOW_B_MODEL).find((b) => b.id === id);
+}
+
+test('the approach card leads with the green-miss compass, in words as well as wedges', () => {
+    const blocks = panelBlocks('approach', WINDOW_B_MODEL);
+    // First on the card, above every breakdown.
+    expect(blocks.slice(0, 3).map((b) => b.id)).toEqual([
+        'greenMissHead',
+        'greenMiss',
+        'greenMissNote',
+    ]);
+    const head = blocks[0]!;
+    expect(head.kind === 'subhead' && head.text).toBe('Where you miss the green');
+    const compass = blocks[1]!;
+    if (compass.kind !== 'compass') throw new Error('expected a compass block');
+    expect(compass.text).toBe('Long 20% · Short 50% · Left 20% · Right 10%');
+    expect(compass.recorded).toBe(10);
+    expect(compass.labels).toEqual({ long: '20%', short: '50%', left: '20%', right: '10%' });
+    const note = blocks[2]!;
+    expect(note.kind === 'note' && note.text).toBe(
+        'Recorded misses only. Long is past the flag, short is in front of it.',
+    );
+});
+
+// The in-picture labels and the prose under the wheel are the SAME numbers
+// through the same formatter. They used to diverge: a local percentage helper
+// painted "67%" on a wedge while the sentence beside it said "2 of 3", because
+// only the sentence honoured the rate floor. Twin of `StatsChartsTests.swift`.
+test('the compass labels honour the rate floor exactly as the prose does', () => {
+    const model = buildDashboardModel([
+        round({
+            measures: measures({
+                girRecorded: 9,
+                girHits: 6,
+                greenMissRecorded: 3,
+                greenMissLong: 2,
+                greenMissShort: 1,
+            }),
+        }),
+    ]);
+    const compass = panelBlocks('approach', model).find((b) => b.id === 'greenMiss')!;
+    if (compass.kind !== 'compass') throw new Error('expected a compass block');
+    expect(compass.text).toBe('Long 2 of 3 · Short 1 of 3 · Left 0 of 3 · Right 0 of 3');
+    expect(compass.labels).toEqual({
+        long: '2 of 3',
+        short: '1 of 3',
+        left: '0 of 3',
+        right: '0 of 3',
+    });
+    // No percentage anywhere in the picture while the sample is this thin.
+    expect(Object.values(compass.labels).some((l) => l.includes('%'))).toBe(false);
+});
+
+test('the compass is absent, not empty, when no miss carries a direction', () => {
+    const model = buildDashboardModel([
+        round({ measures: measures({ girRecorded: 9, girHits: 4 }) }),
+    ]);
+    expect(panelBlocks('approach', model).find((b) => b.id === 'greenMiss')).toBeUndefined();
+    expect(panelBlocks('approach', model)[0]!.id).toBe('girByTee');
+});
+
+test('the tee card carries the fan under the split it decomposes', () => {
+    const blocks = panelBlocks('tee', WINDOW_B_MODEL);
+    expect(blocks.slice(0, 4).map((b) => b.id)).toEqual([
+        'teeSplit',
+        'teeFanHead',
+        'teeFan',
+        'teeFanNote',
+    ]);
+    const fan = blocks[2]!;
+    if (fan.kind !== 'fan') throw new Error('expected a fan block');
+    // Counts, not shares: the three columns partition the recorded tee shots.
+    expect(fan.text).toBe('Left 7 · Fairway 8 · Right 5');
+    expect(fan.recorded).toBe(20);
+    expect(fan.columns.map((c) => c.id)).toEqual([
+        'left-inplay',
+        'left-trouble',
+        'fairway',
+        'right-inplay',
+        'right-trouble',
+    ]);
+});
+
+test('the fan is absent when every recorded drive found the fairway', () => {
+    const model = buildDashboardModel([
+        round({ measures: measures({ teeRecorded: 8, fairwayHits: 8, inPlayHits: 8 }) }),
+    ]);
+    expect(panelBlocks('tee', model).find((b) => b.id === 'teeFan')).toBeUndefined();
+});
+
+test('the short-game card names the bunker figures in plain words', () => {
+    const sand = block('shortGame', 'sandSave')!;
+    if (sand.kind !== 'figure') throw new Error('expected a figure');
+    expect(sand.title).toBe('Sand save');
+    // Three attempts is under the display floor, so it reads as the fraction.
+    expect(sand.value).toBe('2 of 3');
+    expect(sand.hint).toBe('Missed greens from a bunker where you still got up and down.');
+
+    const fromSand = block('shortGame', 'multiChipBunker')!;
+    if (fromSand.kind !== 'figure') throw new Error('expected a figure');
+    expect(fromSand.title).toBe('More than one from sand');
+    expect(fromSand.value).toBe('1 of 3');
+
+    const extra = block('shortGame', 'extraShortGameStrokes')!;
+    if (extra.kind !== 'figure') throw new Error('expected a figure');
+    expect(extra.title).toBe('Extra short-game shots');
+    expect(extra.value).toBe('5');
+
+    const multi = block('shortGame', 'multiChip')!;
+    if (multi.kind !== 'figure') throw new Error('expected a figure');
+    expect(multi.title).toBe('More than one chip');
+    // 4 of 12 eligible missed greens — the denominator is opportunities, not
+    // answered steppers, so the sample rides along with the percentage.
+    expect(multi.value).toBe('33% (4 of 12)');
+});
+
+test('no short-game figure blames the golfer', () => {
+    const words = panelBlocks('shortGame', WINDOW_B_MODEL)
+        .map((b) => JSON.stringify(b))
+        .join(' ')
+        .toLowerCase();
+    for (const banned of ['failed escape', 'duff', 'chunked', 'wasted']) {
+        expect(words).not.toContain(banned);
+    }
+});
+
+test('the four bunker figures are ordered sand save, from sand, extra, chips', () => {
+    const ids = panelBlocks('shortGame', WINDOW_B_MODEL).map((b) => b.id);
+    expect(ids.slice(0, 8)).toEqual([
+        'scrambleHead',
+        'scrambleStandard',
+        'scrambleHard',
+        'scrambleBunker',
+        'sandSave',
+        'multiChipBunker',
+        'extraShortGameStrokes',
+        'multiChip',
+    ]);
+    // The pre-existing catalog is untouched behind them.
+    expect(ids).toContain('chipHead');
+    expect(ids).toContain('conversionInside2m');
+    expect(ids).toContain('chipInsStandard');
+});
+
+// Three sections mention the bunker — scrambling, chipped-to-inside-2 m,
+// chip-ins — and all three ride the SAME denominator, so a window either has
+// sand in it everywhere or nowhere. Twin of `StatsPanelViewsTests.swift`.
+test('the bunker leg appears in all three short-game sections, beside its siblings', () => {
+    const ids = panelBlocks('shortGame', WINDOW_B_MODEL).map((b) => b.id);
+    // Always LAST of its group: standard, hard, then bunker.
+    expect(ids.indexOf('scrambleBunker')).toBe(ids.indexOf('scrambleHard') + 1);
+    expect(ids.indexOf('chipBunker')).toBe(ids.indexOf('chipHard') + 1);
+    expect(ids.indexOf('chipInsBunker')).toBe(ids.indexOf('chipInsHard') + 1);
+
+    const scramble = panelBlocks('shortGame', WINDOW_B_MODEL).find(
+        (b) => b.id === 'scrambleBunker',
+    )!;
+    if (scramble.kind !== 'bar') throw new Error('expected a bar');
+    expect(scramble.title).toBe('Bunker');
+    // 2 of 3 is under the display floor, so it reads as the fraction.
+    expect(scramble.value).toBe('2 of 3');
+});
+
+test('the bunker leg is absent from all three sections when no sand was played', () => {
+    const model = buildDashboardModel([
+        round({
+            measures: measures({
+                girRecorded: 9,
+                girHits: 4,
+                scrambleAttemptsStandard: 5,
+                scrambleSuccessesStandard: 2,
+            }),
+        }),
+    ]);
+    const ids = panelBlocks('shortGame', model).map((b) => b.id);
+    expect(ids).not.toContain('scrambleBunker');
+    expect(ids).not.toContain('chipBunker');
+    expect(ids).not.toContain('chipInsBunker');
+    // …while the siblings that DO have a denominator stay put — the gate is per
+    // leg, not a whole-section switch.
+    expect(ids).toContain('scrambleStandard');
+    expect(ids).toContain('chipStandard');
+    expect(ids).toContain('chipInsStandard');
+});
+
+test('the counter figures are absent as a GROUP when nothing was counted', () => {
+    const model = buildDashboardModel([
+        round({
+            measures: measures({
+                girRecorded: 9,
+                girHits: 4,
+                scrambleAttemptsStandard: 5,
+                scrambleSuccessesStandard: 2,
+                shortGameStrokesEffective: 5,
+                shortGameStrokesEffectiveStandard: 5,
+            }),
+        }),
+    ]);
+    const ids = panelBlocks('shortGame', model).map((b) => b.id);
+    // With nothing counted every hole models as one stroke, so all three would
+    // restate the model rather than read the player.
+    expect(ids).not.toContain('multiChip');
+    expect(ids).not.toContain('multiChipBunker');
+    expect(ids).not.toContain('extraShortGameStrokes');
+    // …and with no bunker attempt, so is the sand save.
+    expect(ids).not.toContain('sandSave');
+    expect(ids).toContain('scrambleStandard');
+});

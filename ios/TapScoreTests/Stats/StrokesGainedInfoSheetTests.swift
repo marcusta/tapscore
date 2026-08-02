@@ -178,4 +178,58 @@ final class StrokesGainedInfoSheetTests: XCTestCase {
         XCTAssertEqual(cards.count, 4)
         XCTAssertTrue(cards[0].sentence.hasPrefix("None of this round\u{2019}s 4 holes"))
     }
+
+    // MARK: Penalty source (§E.6)
+    //
+    // Twin of the web's `sg-info-copy` penalty-source cases. The bar itself does
+    // not change; the breakdown lives here, as one appended card with live
+    // numbers.
+
+    private func penaltySource(recorded: Double, tee: Double, approach: Double, short: Double)
+        -> PenaltySourceCounts?
+    {
+        var m = StatMeasuresMath.zero
+        m.penaltySourceRecorded = recorded
+        m.penaltiesTee = tee
+        m.penaltiesApproach = approach
+        m.penaltiesShort = short
+        return PenaltySourceCounts(m)
+    }
+
+    func testThePenaltySourceCardIsAppendedLastWithAbsoluteCounts() throws {
+        let cards = StrokesGainedInfoSheet.sentences(
+            waterfall: lost(attributed: 18, holesScored: 18, total: -2), windowRounds: 3,
+            penaltySource: penaltySource(recorded: 5, tee: 3, approach: 1, short: 1))
+        let card = try XCTUnwrap(cards.last)
+        XCTAssertEqual(card.title, "Where the penalties came from")
+        XCTAssertEqual(
+            card.sentence,
+            "Of 5 penalty holes you labelled, 3 came off the tee, 1 on the approach and 1 around the green."
+        )
+    }
+
+    /// Absolute counts on purpose: the labelled sample is usually a handful of
+    /// holes, and the rate floor would suppress every percentage and with it the
+    /// whole card. It says "hole", not "holes" — a sample of one is the COMMON
+    /// case for this card, so the singular is not an edge to be tolerated.
+    func testThePenaltySourceCardSurvivesASampleTooThinForAnyPercentage() throws {
+        let cards = StrokesGainedInfoSheet.sentences(
+            waterfall: lost(attributed: 18, holesScored: 18, total: -2), windowRounds: 3,
+            penaltySource: penaltySource(recorded: 1, tee: 1, approach: 0, short: 0))
+        let card = try XCTUnwrap(cards.last)
+        XCTAssertEqual(
+            card.sentence,
+            "Of 1 penalty hole you labelled, 1 came off the tee, 0 on the approach and 0 around the green."
+        )
+        XCTAssertFalse(card.sentence.contains("%"))
+    }
+
+    /// The gate is the failable init, so a caller cannot construct an empty
+    /// breakdown to render.
+    func testThePenaltySourceCardIsDroppedNeverZeroedWhenNothingWasLabelled() {
+        XCTAssertNil(penaltySource(recorded: 0, tee: 0, approach: 0, short: 0))
+        let cards = StrokesGainedInfoSheet.sentences(
+            waterfall: lost(attributed: 18, holesScored: 18, total: -2), windowRounds: 3)
+        XCTAssertFalse(cards.contains { $0.title == "Where the penalties came from" })
+    }
 }

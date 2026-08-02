@@ -25,6 +25,9 @@ struct StrokesGainedInfoSheet: View {
     var perRound: Bool = false
     /// `SgTables.calibratedAt` of the baseline in force.
     var calibratedAt: String? = SgTablesV1.calibratedAt
+    /// The labelled-penalty breakdown, or nil. The penalty BAR does not change
+    /// — no stacked segments, no extra label; the breakdown lives here (§E.6).
+    var penaltySource: PenaltySourceCounts? = nil
 
     @Environment(\.dismiss) private var dismiss
 
@@ -112,7 +115,8 @@ struct StrokesGainedInfoSheet: View {
         rowsPer18: [Double?]? = nil,
         windowRounds: Int = 1,
         perRound: Bool = false,
-        calibratedAt: String? = SgTablesV1.calibratedAt
+        calibratedAt: String? = SgTablesV1.calibratedAt,
+        penaltySource: PenaltySourceCounts? = nil
     ) -> [(title: String, sentence: String)] {
         var out: [(title: String, sentence: String)] = [
             (
@@ -145,13 +149,43 @@ struct StrokesGainedInfoSheet: View {
                         perRound: perRound)
                 ))
         }
+        // Last card, and only when something was labelled. Absolute counts, not
+        // percentages: the sample is usually tiny, and the display floor would
+        // hide the whole card rather than degrade it.
+        if let penaltySource {
+            out.append(
+                (
+                    StatsCopy.penaltySourceInfoTitle,
+                    StatsCopy.penaltySourceInfo(
+                        recorded: penaltySource.recorded, tee: penaltySource.tee,
+                        approach: penaltySource.approach, short: penaltySource.short)
+                ))
+        }
         return out
     }
 
     private var cards: [Card] {
         Self.sentences(
             waterfall: waterfall, rowsPer18: rowsPer18, windowRounds: windowRounds,
-            perRound: perRound, calibratedAt: calibratedAt
+            perRound: perRound, calibratedAt: calibratedAt, penaltySource: penaltySource
         ).map { Card(title: $0.title, sentence: $0.sentence) }
+    }
+}
+
+/// The four numbers behind the penalty-source card, and the gate in front of
+/// it: the failable init IS the `penaltySourceRecorded > 0` rule, so a caller
+/// cannot construct an empty breakdown to render.
+struct PenaltySourceCounts: Equatable, Sendable {
+    var recorded: Double
+    var tee: Double
+    var approach: Double
+    var short: Double
+
+    init?(_ m: StatMeasures) {
+        guard m.penaltySourceRecorded > 0 else { return nil }
+        recorded = m.penaltySourceRecorded
+        tee = m.penaltiesTee
+        approach = m.penaltiesApproach
+        short = m.penaltiesShort
     }
 }

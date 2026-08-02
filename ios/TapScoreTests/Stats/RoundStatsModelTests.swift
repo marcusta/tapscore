@@ -431,10 +431,11 @@ final class RoundStatsModelTests: XCTestCase {
         }
     }
 
-    func testTheClosedSetIsStillEight() {
+    func testTheClosedSetIsStillNine() {
         // A guard on the set's size, so growing it is a deliberate act that
-        // walks past this line and the wording test above.
-        XCTAssertEqual(InsightID.allCases.count, 8)
+        // walks past this line and the wording test above. Wave 4 added
+        // `two_way_miss`, which is the ninth.
+        XCTAssertEqual(InsightID.allCases.count, 9)
     }
 
     func testTheWordedLinesCarryTheirNumbers() {

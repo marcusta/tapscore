@@ -55,6 +55,10 @@ function stats(over: Partial<PlayerHoleStats> = {}): PlayerHoleStats {
         shortGameDifficulty: null,
         penalties: null,
         recoveryOk: null,
+        teeMissDir: null,
+        greenMissDir: null,
+        shortGameStrokes: null,
+        penaltySource: null,
         ...over,
     };
 }

@@ -207,9 +207,24 @@ test('the round view is the hand-computed arithmetic of the worked example', asy
         inPlayHits: 3,
         troubleCount: 1,
 
+        // capture v2 (055) is not exercised by this example — the dedicated
+        // tests below do that. Every new dispersion cell is therefore zero,
+        // which is itself the assertion that an UNANSWERED direction is not a
+        // direction.
+        teeMissRecorded: 0,
+        teeMissLeft: 0,
+        teeMissRight: 0,
+        teeTroubleLeft: 0,
+        teeTroubleRight: 0,
+
         // GIR asked on H1-H5.
         girRecorded: 5,
         girHits: 3,
+        greenMissRecorded: 0,
+        greenMissLong: 0,
+        greenMissShort: 0,
+        greenMissLeft: 0,
+        greenMissRight: 0,
 
         // H3 has putts but no bucket, so the two denominators differ.
         firstPuttRecorded: 4,
@@ -250,12 +265,37 @@ test('the round view is the hand-computed arithmetic of the worked example', asy
         // standard chip left a putt, so the standard column stays empty.
         scrambleHoledStandard: 0,
         scrambleHoledHard: 1,
+        // No bunker answers here at all.
+        scrambleAttemptsBunker: 0,
+        scrambleSuccessesBunker: 0,
+        scrambleFirstPuttBunker: 0,
+        scrambleInside2mBunker: 0,
+        scrambleHoledBunker: 0,
+
+        // The stroke counter was never touched, so `recorded` is 0 — but
+        // `effective` is NOT: it is Σ COALESCE(C, 1) over the whole attempt
+        // cohort, which is H2 (standard) and H3 (hard), one shot each. That is
+        // the invariant that keeps the counter's arrival from moving anyone's
+        // history.
+        shortGameStrokesRecorded: 0,
+        shortGameStrokesEffective: 2,
+        shortGameStrokesEffectiveStandard: 1,
+        shortGameStrokesEffectiveHard: 1,
+        shortGameStrokesEffectiveBunker: 0,
+        holesMultiChip: 0,
+        holesMultiChipBunker: 0,
 
         // A recorded 0 is a recorded answer.
         penaltiesRecorded: 2,
         penaltiesTotal: 1,
         recoveryAttempts: 1,
         recoverySuccesses: 1,
+        // H2 has a penalty but no source — the source question is new, and an
+        // old hole never answers it.
+        penaltySourceRecorded: 0,
+        penaltiesTee: 0,
+        penaltiesApproach: 0,
+        penaltiesShort: 0,
 
         // Scoring counts H6 too — a score needs no stats.
         holesScored: 6,
@@ -405,9 +445,14 @@ test('the round view is the hand-computed arithmetic of the worked example', asy
         attChipInside2mHard: 0,
         attChipOutside2mHard: 0,
         attChipHoledHard: 1, // H3 went in
-        // Nothing writes short_game_strokes yet, so each is its miss count.
+        attMissBunker: 0,
+        attChipInside2mBunker: 0,
+        attChipOutside2mBunker: 0,
+        attChipHoledBunker: 0,
+        // The counter is untouched here, so each is its miss count.
         attSgStrokesEffectiveStandard: 1,
         attSgStrokesEffectiveHard: 1,
+        attSgStrokesEffectiveBunker: 0,
     });
 });
 
@@ -751,8 +796,18 @@ test('totals are the sum of every round measure, newest round first', async () =
         fairwayHits: 2,
         inPlayHits: 3,
         troubleCount: 1,
+        teeMissRecorded: 0,
+        teeMissLeft: 0,
+        teeMissRight: 0,
+        teeTroubleLeft: 0,
+        teeTroubleRight: 0,
         girRecorded: 5,
         girHits: 3,
+        greenMissRecorded: 0,
+        greenMissLong: 0,
+        greenMissShort: 0,
+        greenMissLeft: 0,
+        greenMissRight: 0,
         firstPuttRecorded: 4,
         firstPuttInside1m: 1,
         firstPutt1To2m: 0,
@@ -787,10 +842,29 @@ test('totals are the sum of every round measure, newest round first', async () =
         // Neither round holed a chip — every chip here left a putt.
         scrambleHoledStandard: 0,
         scrambleHoledHard: 0,
+        scrambleAttemptsBunker: 0,
+        scrambleSuccessesBunker: 0,
+        scrambleFirstPuttBunker: 0,
+        scrambleInside2mBunker: 0,
+        scrambleHoledBunker: 0,
+        // Two attempts across the two rounds (A.H2 hard, A.H3 standard), the
+        // counter untouched on both, so effective is 1 apiece and the splits
+        // sum to the whole.
+        shortGameStrokesRecorded: 0,
+        shortGameStrokesEffective: 2,
+        shortGameStrokesEffectiveStandard: 1,
+        shortGameStrokesEffectiveHard: 1,
+        shortGameStrokesEffectiveBunker: 0,
+        holesMultiChip: 0,
+        holesMultiChipBunker: 0,
         penaltiesRecorded: 2,
         penaltiesTotal: 1,
         recoveryAttempts: 1,
         recoverySuccesses: 1,
+        penaltySourceRecorded: 0,
+        penaltiesTee: 0,
+        penaltiesApproach: 0,
+        penaltiesShort: 0,
         holesScored: 6,
         strokesTotal: 25,
         parTotal: 24,
@@ -929,8 +1003,13 @@ test('totals are the sum of every round measure, newest round first', async () =
         attChipInside2mHard: 1, // A.H2 chipped to inside 1m
         attChipOutside2mHard: 0,
         attChipHoledHard: 0,
+        attMissBunker: 0,
+        attChipInside2mBunker: 0,
+        attChipOutside2mBunker: 0,
+        attChipHoledBunker: 0,
         attSgStrokesEffectiveStandard: 0,
         attSgStrokesEffectiveHard: 1,
+        attSgStrokesEffectiveBunker: 0,
     });
 
     // And the per-round split behind them.
@@ -1555,8 +1634,10 @@ test('the two difficulties partition the greens missed in the cohort', async () 
     const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
         .rounds[0]!;
     // A2. A missed green is in the cohort only with a difficulty answer, so
-    // the two difficulty counts cannot leave one behind.
-    expect(m.attMissStandard + m.attMissHard).toBe(
+    // the difficulty counts cannot leave one behind. THREE of them from
+    // migration 055 — the moment the CHECK admits `bunker`, a bunker hole is
+    // attributable, so a two-term sum here would start under-counting.
+    expect(m.attMissStandard + m.attMissHard + m.attMissBunker).toBe(
         m.attHolesPar3Miss + m.attHolesPar45Miss,
     );
     // A3. …and each difficulty's three chip outcomes partition it.
@@ -1566,6 +1647,9 @@ test('the two difficulties partition the greens missed in the cohort', async () 
     expect(m.attChipInside2mHard + m.attChipOutside2mHard + m.attChipHoledHard).toBe(
         m.attMissHard,
     );
+    expect(
+        m.attChipInside2mBunker + m.attChipOutside2mBunker + m.attChipHoledBunker,
+    ).toBe(m.attMissBunker);
 });
 
 test('the six tee cells partition the par 4 and par 5 cohort', async () => {
@@ -1590,14 +1674,16 @@ test('effective short-game strokes are at least one per missed green', async () 
     const f = await workedExample();
     const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
         .rounds[0]!;
-    // A5. C >= 1 always, and equal today because nothing writes
-    // `short_game_strokes` — the COALESCE default IS one chip per missed green.
-    // When wave 4 starts counting, these grow and the equality goes; the
-    // inequality is the invariant that has to survive it.
+    // A5. C >= 1 always, and equal on a hole whose counter was never touched —
+    // the COALESCE default IS one chip per missed green. The worked example
+    // touches none, so the equality holds here; the INEQUALITY is the invariant
+    // that has to survive a golfer who does move the stepper.
     expect(m.attSgStrokesEffectiveStandard).toBeGreaterThanOrEqual(m.attMissStandard);
     expect(m.attSgStrokesEffectiveHard).toBeGreaterThanOrEqual(m.attMissHard);
+    expect(m.attSgStrokesEffectiveBunker).toBeGreaterThanOrEqual(m.attMissBunker);
     expect(m.attSgStrokesEffectiveStandard).toBe(m.attMissStandard);
     expect(m.attSgStrokesEffectiveHard).toBe(m.attMissHard);
+    expect(m.attSgStrokesEffectiveBunker).toBe(m.attMissBunker);
 });
 
 test('effective short-game strokes SUM the column, they do not count the holes', async () => {
@@ -1624,12 +1710,12 @@ test('effective short-game strokes SUM the column, they do not count the holes',
     await f.stat(5, 'putts', '1');
     await f.score(5, 6);
 
-    // Wave 4's shape, planted by hand: nothing in the app writes
-    // `short_game_strokes` yet, so with every row NULL a SUM of
+    // Planted by hand rather than captured: with every row NULL, a SUM of
     // `COALESCE(short_game_strokes, 1)` and a COUNT of the miss holes are the
     // same number and the view could be either. One row with a 2 in it is what
-    // makes the two distinguishable — and it is the whole reason the column
-    // shipped in migration 054 ahead of the capture change.
+    // makes the two distinguishable. (The capture path for the same column is
+    // exercised by the capture-v2 tests at the end of this file; this one stays
+    // a direct write so it keeps testing the VIEW and not the trigger.)
     await sql`
         UPDATE player_hole_stats SET short_game_strokes = 2
         WHERE play_hole_id = ${f.hole(1)} AND player_id = ${f.playerId}
@@ -1669,7 +1755,8 @@ test('every cohort column on the totals view is the sum of the round rows', asyn
     // this: a client-side window over rounds must equal a server-side total, or
     // the same player reads differently depending on which surface asked.
     const keys = attKeys(totals);
-    expect(keys).toHaveLength(29);
+    // 29 from 054, plus the five bunker cells capture v2 adds (§C.7).
+    expect(keys).toHaveLength(34);
     for (const key of keys) {
         expect([key, totals[key]]).toEqual([
             key,
@@ -1847,4 +1934,192 @@ test('an unanswered penalty prompt models as zero inside the cohort', async () =
     expect(m.penaltiesRecorded).toBe(0);
     expect(m.attHolesPar45Gir).toBe(1);
     expect(m.attPenalties).toBe(0);
+});
+
+// --- capture v2 (migration 055) --------------------------------------------------
+//
+// docs/proposals/player-stats-v2.md §3. Four new keys and a third short-game
+// difficulty. Each family below is asserted the same way the older ones are:
+// by the PARTITION it has to satisfy, because a partition is what makes the
+// client's arithmetic (a share, a fan, a compass) safe to render off counts it
+// did not compute.
+
+test('the four green-miss directions partition the recorded misses', async () => {
+    const f = await fixture();
+    // Four missed greens, one in each direction, plus a green HIT that also
+    // carries a stale direction — the shape a second device produces when it
+    // answers `gir = 1` without clearing what the first one wrote.
+    const dirs = ['long', 'short', 'left', 'right'];
+    for (const [i, dir] of dirs.entries()) {
+        await f.stat(i + 1, 'gir', '0');
+        await f.stat(i + 1, 'green_miss_dir', dir);
+    }
+    await f.stat(6, 'green_miss_dir', 'left');
+    await f.stat(6, 'gir', '1');
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(m.greenMissRecorded).toBe(4);
+    expect(m.greenMissLong + m.greenMissShort + m.greenMissLeft + m.greenMissRight).toBe(
+        m.greenMissRecorded,
+    );
+    expect([m.greenMissLong, m.greenMissShort, m.greenMissLeft, m.greenMissRight]).toEqual(
+        [1, 1, 1, 1],
+    );
+    // The contradicted hole is counted nowhere: `gir = 1` is the later, and the
+    // view guards on the PARENT answer, not on the direction alone.
+    expect(m.girHits).toBe(1);
+});
+
+test('tee side partitions the misses, and trouble is a subset of it', async () => {
+    const f = await fixture();
+    // H1 in play left, H2 trouble left, H3 trouble right, H4 fairway (with a
+    // stale side left behind), H5 in play with no side answered.
+    await f.stat(1, 'tee_result', 'in_play');
+    await f.stat(1, 'tee_miss_dir', 'left');
+    await f.stat(2, 'tee_result', 'trouble');
+    await f.stat(2, 'tee_miss_dir', 'left');
+    await f.stat(5, 'tee_result', 'trouble');
+    await f.stat(5, 'tee_miss_dir', 'right');
+    await f.stat(6, 'tee_miss_dir', 'right');
+    await f.stat(6, 'tee_result', 'fairway');
+    await f.stat(7, 'tee_result', 'in_play');
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(m.teeRecorded).toBe(5);
+    // The fairway hole is excluded by its parent answer, the sideless in-play
+    // hole by its own.
+    expect(m.teeMissRecorded).toBe(3);
+    expect(m.teeMissLeft + m.teeMissRight).toBe(m.teeMissRecorded);
+    expect(m.teeMissLeft).toBe(2);
+    expect(m.teeMissRight).toBe(1);
+    // Severity is a SUBSET of side, never a second partition: the client reads
+    // in-play-by-side as the difference.
+    expect(m.teeTroubleLeft).toBe(1);
+    expect(m.teeTroubleRight).toBe(1);
+    expect(m.teeTroubleLeft).toBeLessThanOrEqual(m.teeMissLeft);
+    expect(m.teeTroubleRight).toBeLessThanOrEqual(m.teeMissRight);
+    expect(m.teeMissLeft - m.teeTroubleLeft).toBe(1); // H1, in play left
+});
+
+test('the short-game counter sums the whole attempt cohort, not the answered holes', async () => {
+    const f = await fixture();
+    // Three attempts. Only ONE has the stepper touched — the other two are what
+    // the golfer left alone, and they must still weigh one shot each.
+    await f.stat(1, 'gir', '0');
+    await f.stat(1, 'short_game_difficulty', 'standard');
+    await f.stat(1, 'short_game_strokes', '3');
+    await f.stat(1, 'first_putt', 'inside_1m');
+    await f.stat(1, 'putts', '1');
+    await f.stat(2, 'gir', '0');
+    await f.stat(2, 'short_game_difficulty', 'hard');
+    await f.stat(2, 'putts', '2');
+    await f.stat(3, 'gir', '0');
+    await f.stat(3, 'short_game_difficulty', 'bunker');
+    await f.stat(3, 'putts', '2');
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    // TOUCHES, not confirmations: one of three. Averaging over this would say
+    // the player takes 3 shots to reach the green.
+    expect(m.shortGameStrokesRecorded).toBe(1);
+    // Σ COALESCE(C, 1) over all three: 3 + 1 + 1.
+    expect(m.shortGameStrokesEffective).toBe(5);
+    expect(
+        m.shortGameStrokesEffectiveStandard +
+            m.shortGameStrokesEffectiveHard +
+            m.shortGameStrokesEffectiveBunker,
+    ).toBe(m.shortGameStrokesEffective);
+    expect(m.shortGameStrokesEffectiveStandard).toBe(3);
+    expect(m.shortGameStrokesEffectiveHard).toBe(1);
+    expect(m.shortGameStrokesEffectiveBunker).toBe(1);
+    // Never below one per attempt, and never above the sum.
+    expect(m.shortGameStrokesEffective).toBeGreaterThanOrEqual(
+        m.scrambleAttemptsStandard + m.scrambleAttemptsHard + m.scrambleAttemptsBunker,
+    );
+    // Multi-chip counts HOLES, and its denominator is every attempt — not the
+    // one hole that answered.
+    expect(m.holesMultiChip).toBe(1);
+    expect(m.holesMultiChip).toBeLessThanOrEqual(m.shortGameStrokesRecorded);
+    expect(m.holesMultiChipBunker).toBe(0);
+});
+
+test('penalty source counts holes and splits three ways', async () => {
+    const f = await fixture();
+    // H1 two penalty strokes from ONE tee shot — the source is per hole, so
+    // this contributes 1, not 2. H2 approach, H3 short-or-green. H4 has a
+    // penalty and no source. H5 has a source and a corrected zero.
+    await f.stat(1, 'penalties', '2');
+    await f.stat(1, 'penalty_source', 'tee');
+    await f.stat(2, 'penalties', '1');
+    await f.stat(2, 'penalty_source', 'approach');
+    await f.stat(3, 'penalties', '1');
+    await f.stat(3, 'penalty_source', 'short_or_green');
+    await f.stat(4, 'penalties', '1');
+    await f.stat(5, 'penalty_source', 'tee');
+    await f.stat(5, 'penalties', '0');
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(m.penaltiesTotal).toBe(5);
+    expect(m.holesWithPenalty).toBe(4);
+    // The orphaned source on H5 is excluded by `penalties >= 1`.
+    expect(m.penaltySourceRecorded).toBe(3);
+    expect(m.penaltiesTee + m.penaltiesApproach + m.penaltiesShort).toBe(
+        m.penaltySourceRecorded,
+    );
+    expect([m.penaltiesTee, m.penaltiesApproach, m.penaltiesShort]).toEqual([1, 1, 1]);
+    // Hole counts, so they never reconcile against the STROKE total — H1 alone
+    // proves it.
+    expect(m.penaltySourceRecorded).toBeLessThanOrEqual(m.holesWithPenalty);
+});
+
+test('a bunker hole is a full member of the scramble family and the cohort', async () => {
+    const f = await fixture();
+    // Two bunker holes, both scored: H1 up-and-down from a fine bucket, H2 a
+    // hole-out that took two shots to get there.
+    await f.stat(1, 'tee_result', 'fairway');
+    await f.stat(1, 'gir', '0');
+    await f.stat(1, 'short_game_difficulty', 'bunker');
+    await f.stat(1, 'first_putt', '1_to_2m');
+    await f.stat(1, 'putts', '1');
+    await f.score(1, 4);
+    await f.stat(2, 'tee_result', 'fairway');
+    await f.stat(2, 'gir', '0');
+    await f.stat(2, 'short_game_difficulty', 'bunker');
+    await f.stat(2, 'short_game_strokes', '2');
+    await f.stat(2, 'putts', '0');
+    await f.score(2, 5);
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    // The scramble family, third leg. `bunker` is a SIBLING of `hard` — the
+    // other two legs stay empty rather than absorbing it.
+    expect(m.scrambleAttemptsBunker).toBe(2);
+    expect(m.scrambleSuccessesBunker).toBe(2);
+    expect(m.scrambleFirstPuttBunker).toBe(1);
+    expect(m.scrambleInside2mBunker).toBe(1);
+    expect(m.scrambleHoledBunker).toBe(1);
+    expect(m.scrambleAttemptsStandard).toBe(0);
+    expect(m.scrambleAttemptsHard).toBe(0);
+
+    // THE ATTRIBUTION IDENTITY. Both holes attribute, so both are in
+    // `attStrokes`; without the bunker leg the miss partition would break by
+    // exactly these two holes and the client's telescope would grow a residual
+    // it has no row for.
+    expect(m.attStrokes).toBe(9);
+    expect(m.attHolesPar45Miss).toBe(2);
+    expect(m.attMissStandard + m.attMissHard + m.attMissBunker).toBe(
+        m.attHolesPar3Miss + m.attHolesPar45Miss,
+    );
+    expect(m.attMissBunker).toBe(2);
+    expect(
+        m.attChipInside2mBunker + m.attChipOutside2mBunker + m.attChipHoledBunker,
+    ).toBe(m.attMissBunker);
+    expect(m.attChipInside2mBunker).toBe(1);
+    expect(m.attChipHoledBunker).toBe(1);
+    // 1 (untouched) + 2 (counted) — and C >= 1 per miss still holds.
+    expect(m.attSgStrokesEffectiveBunker).toBe(3);
+    expect(m.attSgStrokesEffectiveBunker).toBeGreaterThanOrEqual(m.attMissBunker);
 });

@@ -139,19 +139,26 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
         --
         -- "Recorded" still has to be checked column by column rather than "a
         -- projection row exists": clearing every answer on a hole leaves the
-        -- row behind with all seven columns NULL (migration 042 keeps it so the
-        -- event log's clears stay projectable). Such a row alone no longer
+        -- row behind with all ELEVEN capture columns NULL (migration 042 keeps
+        -- it so the event log's clears stay projectable). EVERY capture column
+        -- has to be listed here — migration 055 added four, and a round whose
+        -- only answers were new-key answers would otherwise fall out of the
+        -- view entirely. Such a row alone no longer
         -- readmits the round — but a SCORE now does, which is the intended
         -- change.
         round_players AS (
             SELECT DISTINCT round_id, player_id
             FROM player_hole_stats
             WHERE tee_result IS NOT NULL
+               OR tee_miss_dir IS NOT NULL
                OR gir IS NOT NULL
+               OR green_miss_dir IS NOT NULL
                OR first_putt IS NOT NULL
                OR putts IS NOT NULL
                OR short_game_difficulty IS NOT NULL
+               OR short_game_strokes IS NOT NULL
                OR penalties IS NOT NULL
+               OR penalty_source IS NOT NULL
                OR recovery_ok IS NOT NULL
             UNION
             SELECT DISTINCT round_id, player_id
@@ -204,16 +211,19 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
                         ELSE rph.ordinal END AS play_order,
                    rph.par AS par,
                    phs.tee_result AS tee_result,
+                   phs.tee_miss_dir AS tee_miss_dir,
                    phs.gir AS gir,
+                   phs.green_miss_dir AS green_miss_dir,
                    phs.first_putt AS first_putt,
                    phs.putts AS putts,
                    phs.short_game_difficulty AS short_game_difficulty,
                    phs.penalties AS penalties,
+                   phs.penalty_source AS penalty_source,
                    phs.recovery_ok AS recovery_ok,
-                   -- Always NULL until wave 4 writes it (migration 054). Read
-                   -- through COALESCE(…, 1) everywhere, so today's holes model
-                   -- exactly one short-game stroke and a counted hole needs no
-                   -- second migration.
+                   -- Written by capture from migration 055; NULL on every hole
+                   -- before that, and on any hole where the stepper was never
+                   -- touched. Read through COALESCE(…, 1) everywhere, so an
+                   -- uncounted hole models exactly one short-game stroke.
                    phs.short_game_strokes AS short_game_strokes,
                    hs.strokes AS strokes,
                    -- Rule 3. 0 = the putting answers contradict each other and
@@ -656,12 +666,13 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
                        THEN 1 END) AS att_chip_holed_hard,
 
             -- Effective short-game strokes, Σ COALESCE(C, 1) over the miss
-            -- cohort (proposal §3 assumption 2). Today nothing writes
-            -- short_game_strokes, so each equals its miss count; when wave 4
-            -- starts counting, approach subtracts the same effective C that
-            -- short game charges, which is the only way the telescope survives
-            -- a duffed chip. Shipping the COALESCE now makes wave 4 a capture
-            -- change and not a second view rebuild.
+            -- cohort (proposal §3 assumption 2). Capture v2 (wave 4) writes
+            -- short_game_strokes, so a duffed chip now charges the 2 it cost
+            -- and a hole with no answer still falls back to 1 through the
+            -- COALESCE. Approach subtracts the same effective C that short
+            -- game charges, which is the only way the telescope survives a
+            -- duffed chip — shipping the COALESCE here in wave 1 is why wave 4
+            -- was a capture change and not a second view rebuild.
             COALESCE(SUM(CASE WHEN attributable = 1 AND gir = 0
                                AND short_game_difficulty = 'standard'
                               THEN COALESCE(short_game_strokes, 1) ELSE 0 END), 0)
@@ -669,7 +680,161 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             COALESCE(SUM(CASE WHEN attributable = 1 AND gir = 0
                                AND short_game_difficulty = 'hard'
                               THEN COALESCE(short_game_strokes, 1) ELSE 0 END), 0)
-                AS att_sg_strokes_effective_hard
+                AS att_sg_strokes_effective_hard,
+
+            -- === CAPTURE V2 (migration 055) ===
+            --
+            -- 30 columns from the four new capture keys and the widened
+            -- difficulty vocabulary (docs/proposals/player-stats-v2.md §3).
+            -- Counts and sums only, like everything above.
+            --
+            -- Every DISPERSION column carries its PARENT's answer in the
+            -- predicate as well as its own non-NULL check. Two devices can
+            -- disagree — one writes 'gir = 1' without clearing a
+            -- 'green_miss_dir' the other wrote — and a column that read the
+            -- direction alone would count a miss the player has since
+            -- contradicted. Guarding on the parent keeps the family
+            -- self-consistent: the four directions always partition
+            -- 'green_miss_recorded'.
+
+            -- Green dispersion. long + short + left + right = recorded.
+            COUNT(CASE WHEN gir = 0 AND green_miss_dir IS NOT NULL
+                       THEN 1 END) AS green_miss_recorded,
+            COUNT(CASE WHEN gir = 0 AND green_miss_dir = 'long'
+                       THEN 1 END) AS green_miss_long,
+            COUNT(CASE WHEN gir = 0 AND green_miss_dir = 'short'
+                       THEN 1 END) AS green_miss_short,
+            COUNT(CASE WHEN gir = 0 AND green_miss_dir = 'left'
+                       THEN 1 END) AS green_miss_left,
+            COUNT(CASE WHEN gir = 0 AND green_miss_dir = 'right'
+                       THEN 1 END) AS green_miss_right,
+
+            -- Tee dispersion + the severity cross. Side is only ever asked
+            -- when the drive left the fairway, so the parent guard is
+            -- 'tee_result IN (in_play, trouble)'. left + right = recorded, and
+            -- the trouble pair is a SUBSET of the side pair — in-play-by-side
+            -- is a client-side subtraction, not a stored column.
+            COUNT(CASE WHEN tee_result IN ('in_play', 'trouble')
+                        AND tee_miss_dir IS NOT NULL
+                       THEN 1 END) AS tee_miss_recorded,
+            COUNT(CASE WHEN tee_result IN ('in_play', 'trouble')
+                        AND tee_miss_dir = 'left'
+                       THEN 1 END) AS tee_miss_left,
+            COUNT(CASE WHEN tee_result IN ('in_play', 'trouble')
+                        AND tee_miss_dir = 'right'
+                       THEN 1 END) AS tee_miss_right,
+            COUNT(CASE WHEN tee_result = 'trouble' AND tee_miss_dir = 'left'
+                       THEN 1 END) AS tee_trouble_left,
+            COUNT(CASE WHEN tee_result = 'trouble' AND tee_miss_dir = 'right'
+                       THEN 1 END) AS tee_trouble_right,
+
+            -- The BUNKER leg of the scramble family — the standard/hard block
+            -- above with the literal swapped, and nothing else. 'inside_2m' is
+            -- the COARSE legacy bucket here exactly as its two siblings spell
+            -- it; that asymmetry with the v2 overlay is pre-existing and is
+            -- deliberately not "fixed" in this leg alone.
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'bunker' AND putts IS NOT NULL
+                       THEN 1 END) AS scramble_attempts_bunker,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'bunker' AND putts <= 1
+                       THEN 1 END) AS scramble_successes_bunker,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'bunker' AND first_putt IS NOT NULL
+                       THEN 1 END) AS scramble_first_putt_bunker,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'bunker' AND first_putt = 'inside_2m'
+                       THEN 1 END) AS scramble_inside_2m_bunker,
+
+            -- The short-game stroke COUNTER (proposal §3.4c). The eligible
+            -- cohort is the scramble-ATTEMPT cohort, so a rate built from
+            -- these divides by a denominator that already exists.
+            --
+            -- TOUCHES, NOT CONFIRMATIONS. An untouched stepper emits nothing
+            -- and is NOT counted here, which is exactly why the raw average
+            -- over recorded values must never ship: it would be an average
+            -- over the holes the golfer bothered to correct.
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty IS NOT NULL AND putts IS NOT NULL
+                        AND short_game_strokes IS NOT NULL
+                       THEN 1 END) AS short_game_strokes_recorded,
+            -- Σ COALESCE(C, 1) over the WHOLE attempt cohort. The unrecorded
+            -- holes model as exactly one, which is the assumption
+            -- strokes-gained-lite v1 already ships. The three splits sum to it.
+            COALESCE(SUM(CASE WHEN putting_coherent = 1 AND gir = 0
+                               AND short_game_difficulty IS NOT NULL
+                               AND putts IS NOT NULL
+                              THEN COALESCE(short_game_strokes, 1) ELSE 0 END), 0)
+                AS short_game_strokes_effective,
+            COALESCE(SUM(CASE WHEN putting_coherent = 1 AND gir = 0
+                               AND short_game_difficulty = 'standard'
+                               AND putts IS NOT NULL
+                              THEN COALESCE(short_game_strokes, 1) ELSE 0 END), 0)
+                AS short_game_strokes_effective_standard,
+            COALESCE(SUM(CASE WHEN putting_coherent = 1 AND gir = 0
+                               AND short_game_difficulty = 'hard'
+                               AND putts IS NOT NULL
+                              THEN COALESCE(short_game_strokes, 1) ELSE 0 END), 0)
+                AS short_game_strokes_effective_hard,
+            COALESCE(SUM(CASE WHEN putting_coherent = 1 AND gir = 0
+                               AND short_game_difficulty = 'bunker'
+                               AND putts IS NOT NULL
+                              THEN COALESCE(short_game_strokes, 1) ELSE 0 END), 0)
+                AS short_game_strokes_effective_bunker,
+            -- HOLES that took more than one shot to reach the green. The
+            -- denominator is ALL eligible attempts (proposal §3.4c), computed
+            -- on the client — a share of opportunities, not of answered
+            -- steppers.
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty IS NOT NULL AND putts IS NOT NULL
+                        AND short_game_strokes >= 2
+                       THEN 1 END) AS holes_multi_chip,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'bunker' AND putts IS NOT NULL
+                        AND short_game_strokes >= 2
+                       THEN 1 END) AS holes_multi_chip_bunker,
+
+            -- Penalty source. These count HOLES, not strokes: 'penalty_source'
+            -- is one PRIMARY source per hole (proposal §3.4), so a hole with
+            -- two penalty strokes contributes 1 and the family can never be
+            -- compared against 'penalties_total'. 'penalties >= 1' is in every
+            -- predicate so an orphaned source left on a hole whose penalty was
+            -- later corrected to zero cannot leak in.
+            COUNT(CASE WHEN penalties >= 1 AND penalty_source IS NOT NULL
+                       THEN 1 END) AS penalty_source_recorded,
+            COUNT(CASE WHEN penalties >= 1 AND penalty_source = 'tee'
+                       THEN 1 END) AS penalties_tee,
+            COUNT(CASE WHEN penalties >= 1 AND penalty_source = 'approach'
+                       THEN 1 END) AS penalties_approach,
+            COUNT(CASE WHEN penalties >= 1 AND penalty_source = 'short_or_green'
+                       THEN 1 END) AS penalties_short,
+
+            -- The BUNKER ATTRIBUTION LEG. Mandatory, not optional: the moment
+            -- the CHECK admits 'bunker', a bunker hole satisfies
+            -- 'attributable' and enters att_strokes / att_putts. Without these
+            -- five cells the five strokes-gained-lite terms stop summing to
+            -- Σ(score − E_HOLE[par]) — the telescope breaks by exactly
+            -- Σ C_bunker. The hard block, literal swapped, nothing else.
+            COUNT(CASE WHEN attributable = 1 AND gir = 0
+                        AND short_game_difficulty = 'bunker'
+                       THEN 1 END) AS att_miss_bunker,
+            COUNT(CASE WHEN attributable = 1 AND gir = 0
+                        AND short_game_difficulty = 'bunker'
+                        AND first_putt IN ('inside_1m', '1_to_2m', 'inside_2m')
+                       THEN 1 END) AS att_chip_inside2m_bunker,
+            COUNT(CASE WHEN attributable = 1 AND gir = 0
+                        AND short_game_difficulty = 'bunker'
+                        AND first_putt IN ('2_to_4m', '4_to_8m', 'over_8m',
+                                           '2_to_6m', 'over_6m')
+                       THEN 1 END) AS att_chip_outside2m_bunker,
+            COUNT(CASE WHEN attributable = 1 AND gir = 0
+                        AND short_game_difficulty = 'bunker'
+                        AND putts = 0 AND first_putt IS NULL
+                       THEN 1 END) AS att_chip_holed_bunker,
+            COALESCE(SUM(CASE WHEN attributable = 1 AND gir = 0
+                               AND short_game_difficulty = 'bunker'
+                              THEN COALESCE(short_game_strokes, 1) ELSE 0 END), 0)
+                AS att_sg_strokes_effective_bunker
         FROM sequenced
         GROUP BY player_id, round_id
     `.execute(db);
@@ -798,7 +963,45 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             SUM(att_chip_outside2m_hard) AS att_chip_outside2m_hard,
             SUM(att_chip_holed_hard) AS att_chip_holed_hard,
             SUM(att_sg_strokes_effective_standard) AS att_sg_strokes_effective_standard,
-            SUM(att_sg_strokes_effective_hard) AS att_sg_strokes_effective_hard
+            SUM(att_sg_strokes_effective_hard) AS att_sg_strokes_effective_hard,
+
+            -- === CAPTURE V2 (migration 055) ===
+            -- Plain sums, exactly like every column above: a client-side
+            -- window over rounds equals a server-side total because every
+            -- measure is a COUNT or a SUM and never a rate.
+            SUM(green_miss_recorded) AS green_miss_recorded,
+            SUM(green_miss_long) AS green_miss_long,
+            SUM(green_miss_short) AS green_miss_short,
+            SUM(green_miss_left) AS green_miss_left,
+            SUM(green_miss_right) AS green_miss_right,
+            SUM(tee_miss_recorded) AS tee_miss_recorded,
+            SUM(tee_miss_left) AS tee_miss_left,
+            SUM(tee_miss_right) AS tee_miss_right,
+            SUM(tee_trouble_left) AS tee_trouble_left,
+            SUM(tee_trouble_right) AS tee_trouble_right,
+            SUM(scramble_attempts_bunker) AS scramble_attempts_bunker,
+            SUM(scramble_successes_bunker) AS scramble_successes_bunker,
+            SUM(scramble_first_putt_bunker) AS scramble_first_putt_bunker,
+            SUM(scramble_inside_2m_bunker) AS scramble_inside_2m_bunker,
+            SUM(short_game_strokes_recorded) AS short_game_strokes_recorded,
+            SUM(short_game_strokes_effective) AS short_game_strokes_effective,
+            SUM(short_game_strokes_effective_standard)
+                AS short_game_strokes_effective_standard,
+            SUM(short_game_strokes_effective_hard)
+                AS short_game_strokes_effective_hard,
+            SUM(short_game_strokes_effective_bunker)
+                AS short_game_strokes_effective_bunker,
+            SUM(holes_multi_chip) AS holes_multi_chip,
+            SUM(holes_multi_chip_bunker) AS holes_multi_chip_bunker,
+            SUM(penalty_source_recorded) AS penalty_source_recorded,
+            SUM(penalties_tee) AS penalties_tee,
+            SUM(penalties_approach) AS penalties_approach,
+            SUM(penalties_short) AS penalties_short,
+            SUM(att_miss_bunker) AS att_miss_bunker,
+            SUM(att_chip_inside2m_bunker) AS att_chip_inside2m_bunker,
+            SUM(att_chip_outside2m_bunker) AS att_chip_outside2m_bunker,
+            SUM(att_chip_holed_bunker) AS att_chip_holed_bunker,
+            SUM(att_sg_strokes_effective_bunker) AS att_sg_strokes_effective_bunker
         FROM v_player_round_stats
         GROUP BY player_id
     `.execute(db);

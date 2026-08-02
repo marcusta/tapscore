@@ -22,12 +22,16 @@
  */
 export type StatEventKey =
     | 'tee_result'
+    | 'tee_miss_dir'
     | 'recovery_ok'
     | 'gir'
+    | 'green_miss_dir'
     | 'short_game_difficulty'
+    | 'short_game_strokes'
     | 'first_putt'
     | 'putts'
-    | 'penalties';
+    | 'penalties'
+    | 'penalty_source';
 
 /** Which capture modules a player has enabled (`GET /friendly-rounds/stats-configs`). */
 export interface StatModules {
@@ -99,12 +103,16 @@ export interface StatApplies {
 /** Shot order, so the step reads the way the hole was played. */
 export const STAT_ORDER: readonly StatEventKey[] = [
     'tee_result',
+    'tee_miss_dir',
     'recovery_ok',
     'gir',
+    'green_miss_dir',
     'short_game_difficulty',
+    'short_game_strokes',
     'first_putt',
     'putts',
     'penalties',
+    'penalty_source',
 ];
 
 /**
@@ -115,12 +123,16 @@ export const TEE_APPLIES: StatApplies = { minPar: 4 };
 
 const LABELS: Record<StatEventKey, string> = {
     tee_result: 'Tee shot',
+    tee_miss_dir: 'Which side',
     recovery_ok: 'Recovery',
     gir: 'Green in regulation',
+    green_miss_dir: 'Missed where',
     short_game_difficulty: 'Short game',
+    short_game_strokes: 'Shots to the green',
     first_putt: 'First putt',
     putts: 'Putts',
     penalties: 'Penalties',
+    penalty_source: 'Penalty on',
 };
 
 const CONTROLS: Record<StatEventKey, StatControl> = {
@@ -132,11 +144,31 @@ const CONTROLS: Record<StatEventKey, StatControl> = {
             { value: 'trouble', label: 'Trouble' },
         ],
     },
+    // Side is a property of the tee shot, so it sits immediately after it and
+    // before `recovery_ok` (the next shot). Two options: down-the-hole left or
+    // right, never a compass bearing.
+    tee_miss_dir: {
+        kind: 'segments',
+        options: [
+            { value: 'left', label: 'Left' },
+            { value: 'right', label: 'Right' },
+        ],
+    },
     gir: {
         kind: 'segments',
         options: [
             { value: '0', label: 'Miss' },
             { value: '1', label: 'Hit' },
+        ],
+    },
+    // Seen from where the approach was played: long is past the flag.
+    green_miss_dir: {
+        kind: 'segments',
+        options: [
+            { value: 'long', label: 'Long' },
+            { value: 'short', label: 'Short' },
+            { value: 'left', label: 'Left' },
+            { value: 'right', label: 'Right' },
         ],
     },
     // Post-9a3510e: five buckets. The three legacy values (`inside_2m`,
@@ -158,8 +190,13 @@ const CONTROLS: Record<StatEventKey, StatControl> = {
         options: [
             { value: 'standard', label: 'Standard' },
             { value: 'hard', label: 'Hard' },
+            { value: 'bunker', label: 'Bunker' },
         ],
     },
+    // How many shots it took to get ON the green. One is the normal answer, so
+    // the floor is 1 and an unrecorded hole counts as 1 server-side; `5+` is
+    // the cap, not a claim of exactly five.
+    short_game_strokes: { kind: 'stepper', min: 1, max: 5 },
     recovery_ok: {
         kind: 'segments',
         options: [
@@ -169,6 +206,14 @@ const CONTROLS: Record<StatEventKey, StatControl> = {
     },
     putts: { kind: 'stepper', min: 0, max: 3 },
     penalties: { kind: 'stepper', min: 0, max: null },
+    penalty_source: {
+        kind: 'segments',
+        options: [
+            { value: 'tee', label: 'Tee shot' },
+            { value: 'approach', label: 'Approach' },
+            { value: 'short_or_green', label: 'Around the green' },
+        ],
+    },
 };
 
 export function statLabel(key: StatEventKey): string {
@@ -219,6 +264,60 @@ export function statApplies(
 export type StatVisibility = 'visible' | 'unreadable' | 'contradicted';
 
 // ---------------------------------------------------------------------------
+// Derived GIR (proposal §3.4b)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether the scorecard can answer GIR on its own.
+ *
+ * `gir = 1` iff `strokes - putts <= par - 2`. `putts = 0` on a coherent hole
+ * means the ball was holed from off the green, so `strokes - putts = strokes`,
+ * which is `> par - 2` on any sane hole and correctly reads as a MISS — a
+ * chip-in is a missed green.
+ */
+export function canDeriveGir(par: number, strokes: number | null, putts: number | null): boolean {
+    return strokes !== null && strokes > 0 && putts !== null && putts >= 0 && par > 0;
+}
+
+/** The derived answer, in wire form. Only meaningful when `canDeriveGir`. */
+export function deriveGir(par: number, strokes: number, putts: number): string {
+    return strokes - putts <= par - 2 ? '1' : '0';
+}
+
+/**
+ * The five exhaustive states of the GIR prompt, for the view layer and the
+ * tests. See §3.4b: derivation fires at step COMPLETION, a manual tap locks for
+ * the visit, and a persisted answer is authoritative forever.
+ */
+export type DerivedGirState =
+    /** The golfer touched GIR in this visit. The tapped answer stands. */
+    | { state: 'manual' }
+    /** Stored, and either the derivation agrees or it cannot run. */
+    | { state: 'persisted' }
+    /** Unanswered and derivable — no segment selected, pending line shown. */
+    | { state: 'pending'; derived: string }
+    /** Unanswered and not derivable — no segment selected, no line. */
+    | { state: 'idle' }
+    /** Stored, derivable, and the two disagree. The STORED answer stands. */
+    | { state: 'disagree'; derived: string; stored: string };
+
+/**
+ * Pure reading of a step's GIR state. Both platforms expose this function; the
+ * view chooses copy from the tag, and `materialiseDerivedGir()` acts only on
+ * `pending`.
+ */
+export function derivedGirState(step: StatStep): DerivedGirState {
+    if (step.girIsLocked) return { state: 'manual' };
+    const answered = step.isAnswered('gir');
+    if (step.visibility('gir') !== 'visible') return answered ? { state: 'persisted' } : { state: 'idle' };
+    const derived = step.derivedGir();
+    if (derived === null) return answered ? { state: 'persisted' } : { state: 'idle' };
+    if (!answered) return { state: 'pending', derived };
+    const stored = step.value('gir') as string;
+    return stored === derived ? { state: 'persisted' } : { state: 'disagree', derived, stored };
+}
+
+// ---------------------------------------------------------------------------
 // The step
 // ---------------------------------------------------------------------------
 
@@ -241,6 +340,18 @@ export class StatStep {
     private persistedMap: Map<StatEventKey, string>;
     /** This visit's changes. Empty means the step has nothing to send. */
     private draft = new Map<StatEventKey, StatAnswer>();
+    /**
+     * Set the moment the golfer touches `gir` in this visit. Never cleared by
+     * `refresh()` or `prune()`; cleared only by constructing a new step (a new
+     * hole or player). Rule 2 of §3.4b: a manual interaction locks the
+     * derivation out for the life of this visit.
+     */
+    private girLocked = false;
+    /**
+     * The hole's score, supplied by the host — `StatStep` has no scorecard.
+     * `null` = not known yet, which makes the derivation unavailable.
+     */
+    private strokes: number | null = null;
 
     constructor(
         modules: StatModules,
@@ -270,12 +381,64 @@ export class StatStep {
     refresh(
         modules: StatModules,
         persisted: ReadonlyMap<StatEventKey, string> | Partial<Record<StatEventKey, string>>,
+        /**
+         * REQUIRED, deliberately undefaulted: a defaulted `null` here silently
+         * unsets the score on every unrelated refresh, which turns a `pending`
+         * derivation back into `idle` and loses the answer. Every caller must
+         * say what the scorecard holds.
+         */
+        strokes: number | null,
     ): boolean {
         const before = this.signature();
         this.modules = modules;
         this.persistedMap = toKeyMap(persisted);
+        this.strokes = strokes;
         this.prune();
         return this.signature() !== before;
+    }
+
+    /**
+     * The hole's score, from the host's scorecard. Read only by the GIR
+     * derivation; nothing else in the step knows about strokes.
+     */
+    setScore(strokes: number | null): void {
+        this.strokes = strokes;
+    }
+
+    /** Rule 2 of §3.4b, for `derivedGirState`. */
+    get girIsLocked(): boolean {
+        return this.girLocked;
+    }
+
+    /**
+     * The score's own answer to GIR, or `null` when it cannot speak.
+     *
+     * Blocked when the putt count is incoherent — `putts = 0` alongside a
+     * `first_putt` bucket, the same contradiction `putting_coherent` refuses on
+     * the server. Deriving from a hole that contradicts itself would launder a
+     * mistake into a fact.
+     */
+    derivedGir(): string | null {
+        const putts = this.intValue('putts');
+        if (putts === 0 && this.value('first_putt') !== null) return null;
+        if (!canDeriveGir(this.par, this.strokes, putts)) return null;
+        return deriveGir(this.par, this.strokes as number, putts as number);
+    }
+
+    /**
+     * Step completion (§3.4b rule 1). A no-op in every state but `pending`;
+     * there it records the derived answer through the ORDINARY write path, so
+     * a derived miss reveals `green_miss_dir` / `short_game_*` and a derived hit
+     * contradicts them. Order matters: materialise, prune, then build the batch.
+     *
+     * Returns whether anything was written, so a caller can skip a rebuild.
+     */
+    materialiseDerivedGir(): boolean {
+        const s = derivedGirState(this);
+        if (s.state !== 'pending') return false;
+        this.record('gir', s.derived);
+        this.prune();
+        return true;
     }
 
     /**
@@ -287,6 +450,10 @@ export class StatStep {
     private signature(): string {
         let out = '';
         for (const key of STAT_ORDER) out += `${key}:${this.visibility(key)}:${this.value(key) ?? ''};`;
+        // The GIR derivation reads the scorecard, which moves independently of
+        // every key above: a score typed after the step opened turns `idle` into
+        // `pending` without changing a single answer.
+        out += `gir-derived:${derivedGirState(this).state};`;
         return out;
     }
 
@@ -311,6 +478,15 @@ export class StatStep {
                 return this.modules.tee && statApplies(TEE_APPLIES, this.par, this.holeNumber)
                     ? 'visible'
                     : 'unreadable';
+            case 'tee_miss_dir':
+                // Side is only a fact once the drive left the fairway. Asked on
+                // `in_play` too: a side is a side even when the ball is playable.
+                if (!this.modules.tee || this.visibility('tee_result') !== 'visible')
+                    return 'unreadable';
+                return this.value('tee_result') === 'in_play' ||
+                    this.value('tee_result') === 'trouble'
+                    ? 'visible'
+                    : 'contradicted';
             case 'recovery_ok':
                 // Only meaningful after a tee shot that got into trouble — and
                 // only when the tee prompt itself is on the card to have
@@ -320,9 +496,20 @@ export class StatStep {
                 return this.value('tee_result') === 'trouble' ? 'visible' : 'contradicted';
             case 'gir':
                 return this.modules.approach ? 'visible' : 'unreadable';
+            case 'green_miss_dir':
+                if (!this.modules.approach || this.visibility('gir') !== 'visible')
+                    return 'unreadable';
+                return this.value('gir') === '0' ? 'visible' : 'contradicted';
             case 'short_game_difficulty':
                 // Answered-miss, not merely unanswered: an untouched GIR says
                 // nothing about whether there was a short-game shot.
+                if (!this.modules.shortGame || this.visibility('gir') !== 'visible')
+                    return 'unreadable';
+                return this.value('gir') === '0' ? 'visible' : 'contradicted';
+            case 'short_game_strokes':
+                // Same gate as short_game_difficulty — the counter is asked
+                // whenever there was a short-game shot, not only once a
+                // difficulty is picked.
                 if (!this.modules.shortGame || this.visibility('gir') !== 'visible')
                     return 'unreadable';
                 return this.value('gir') === '0' ? 'visible' : 'contradicted';
@@ -331,6 +518,10 @@ export class StatStep {
                 return this.modules.putting ? 'visible' : 'unreadable';
             case 'penalties':
                 return this.modules.penalties ? 'visible' : 'unreadable';
+            case 'penalty_source':
+                if (!this.modules.penalties || this.visibility('penalties') !== 'visible')
+                    return 'unreadable';
+                return (this.intValue('penalties') ?? 0) >= 1 ? 'visible' : 'contradicted';
         }
     }
 
@@ -368,6 +559,9 @@ export class StatStep {
      */
     answer(key: StatEventKey, value: string | null): void {
         if (!this.isVisible(key)) return;
+        // A gesture on GIR — including one that CLEARS it — locks the
+        // derivation out for this visit (§3.4b rule 2).
+        if (key === 'gir') this.girLocked = true;
         this.record(key, value);
         this.prune();
     }

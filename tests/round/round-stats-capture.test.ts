@@ -51,7 +51,7 @@ const apiMock = {
     friendlyRounds: {
         byToken: mock(async ({ token }: { token: string }) => roundPayload(token)),
         balls: mock(async () => ballsFixture),
-        scorecard: mock(async () => [{ ballId: 'ball-1', holes: [] }]),
+        scorecard: mock(async () => scorecardFixture),
         result: mock(async () => null),
         score: mock(async () => ({ accepted: true })),
     },
@@ -125,6 +125,14 @@ function ball(id: string, players: unknown[], over: Record<string, unknown> = {}
 
 let ballsFixture: unknown[] = [];
 
+/**
+ * The scorecard the round loads with. Empty by default — the GIR derivation
+ * needs a SCORE as well as a putt count, so the tests that exercise it put one
+ * here and everything else stays underivable, which is what the older cases
+ * were written against.
+ */
+let scorecardFixture: unknown[] = [];
+
 /** A projection row as `GET /friendly-rounds/stats` answers it. */
 function statRow(over: Record<string, unknown> = {}): unknown {
     return {
@@ -166,6 +174,7 @@ beforeEach(() => {
     statRowsResponse = [];
     statConfigs = [{ playerId: 'p-1', modules: modules({ approach: true, penalties: true }) }];
     ballsFixture = [ball('ball-1', [member()])];
+    scorecardFixture = [{ ballId: 'ball-1', holes: [] }];
     apiMock.playerStats.appendEvents.mockClear();
 });
 
@@ -289,6 +298,132 @@ test('a just-answered hole re-opens from local truth, before any load has confir
     // Back to the hole: the server row is still empty, the shadow answers.
     svc.seedStatStep(CELL);
     expect(svc.statValue('gir')).toBe('1');
+});
+
+// --- Derived GIR: flush is not a close --------------------------------------
+//
+// §3.4b rule 1: the derivation fires at step COMPLETION. `flushStats()` is the
+// non-closing commit — a foreground refresh, a background hop — and it must NOT
+// write the derived answer, because the golfer is still looking at the card and
+// a written `gir` prunes the short-game prompts under their thumb. Only
+// `closeStatStep()` materialises. Twin of `RoundStatsCaptureTests.swift`.
+
+/** A hole with a score, so `canDeriveGir` can actually run. */
+function scoredHole(playHoleId: string, ordinal: number, strokes: number): unknown {
+    return {
+        playHoleId,
+        holeNumber: ordinal,
+        courseHoleNumber: ordinal,
+        canonicalOrdinal: ordinal,
+        occurrenceLabel: String(ordinal),
+        strokes,
+        recordedBy: null,
+        recordedAt: '2026-07-30T00:00:00.000Z',
+        sourcePlayerId: null,
+        sourceGuestPlayerId: null,
+    };
+}
+
+/** Par 4 in 4 with 2 putts: 4 − 2 = 2 ≤ 4 − 2, so the derived answer is a GIR. */
+function derivableStep() {
+    scorecardFixture = [{ ballId: 'ball-1', holes: [scoredHole('ph-1', 1, 4)] }];
+    statConfigs = [{ playerId: 'p-1', modules: modules({ approach: true, putting: true }) }];
+    return makeService();
+}
+
+test('a flush is not a close: the pending derived GIR is not written', async () => {
+    const { svc } = derivableStep();
+    await svc.loadByToken('tok');
+    svc.seedStatStep(CELL);
+    svc.stepStat('putts', 2);
+    expect(svc.statGirState()).toEqual({ state: 'pending', derived: '1' });
+
+    expect(svc.flushStats()).toBe(true);
+    await settle();
+    expect(appendCalls).toHaveLength(1);
+    expect(appendCalls[0]!.map((i) => i.key)).toEqual(['putts']);
+    // Still unanswered and still pending — the card the golfer is looking at
+    // has not silently acquired a segment.
+    expect(svc.statValue('gir')).toBeNull();
+    expect(svc.statGirState()).toEqual({ state: 'pending', derived: '1' });
+});
+
+test('a close materialises the pending derived GIR into the batch', async () => {
+    const { svc } = derivableStep();
+    await svc.loadByToken('tok');
+    svc.seedStatStep(CELL);
+    svc.stepStat('putts', 2);
+
+    expect(svc.closeStatStep()).toBe(true);
+    await settle();
+    expect(appendCalls).toHaveLength(1);
+    // Canonical key order, not the order they were touched in.
+    expect(appendCalls[0]).toEqual([
+        { playHoleId: 'ph-1', playerId: 'p-1', key: 'gir', value: '1', clientEventId: 'sid-1' },
+        { playHoleId: 'ph-1', playerId: 'p-1', key: 'putts', value: '2', clientEventId: 'sid-2' },
+    ]);
+    // Written, not merely inferred: re-reading says persisted, not pending.
+    expect(svc.statValue('gir')).toBe('1');
+    expect(svc.statGirState()).toEqual({ state: 'persisted' });
+});
+
+test('a close after a flush still writes the GIR the flush left pending', async () => {
+    const { svc } = derivableStep();
+    await svc.loadByToken('tok');
+    svc.seedStatStep(CELL);
+    svc.stepStat('putts', 2);
+    svc.flushStats();
+    await settle();
+
+    // The keypad closes a moment later. The putt count is already on disk, so
+    // this batch is the derived answer alone.
+    expect(svc.closeStatStep()).toBe(true);
+    await settle();
+    expect(appendCalls).toHaveLength(2);
+    expect(appendCalls[1]).toEqual([
+        { playHoleId: 'ph-1', playerId: 'p-1', key: 'gir', value: '1', clientEventId: 'sid-2' },
+    ]);
+});
+
+test('a close writes nothing for a step the golfer never used', async () => {
+    const { svc } = derivableStep();
+    await svc.loadByToken('tok');
+    svc.seedStatStep(CELL);
+    // A score exists, but no putt count — underivable, so there is nothing to
+    // materialise and nothing to flush.
+    expect(svc.statGirState()).toEqual({ state: 'idle' });
+    expect(svc.closeStatStep()).toBe(false);
+    await settle();
+    expect(appendCalls).toHaveLength(0);
+});
+
+test('a close leaves a manually answered GIR alone, derivation or not', async () => {
+    const { svc } = derivableStep();
+    await svc.loadByToken('tok');
+    svc.seedStatStep(CELL);
+    svc.stepStat('putts', 2);
+    // The derivation says `1`; the golfer says otherwise and the tap wins.
+    svc.answerStat('gir', '0');
+    expect(svc.statGirState()).toEqual({ state: 'manual' });
+
+    expect(svc.closeStatStep()).toBe(true);
+    await settle();
+    expect(appendCalls).toHaveLength(1);
+    expect(appendCalls[0]!.find((i) => i.key === 'gir')!.value).toBe('0');
+    expect(appendCalls[0]!.filter((i) => i.key === 'gir')).toHaveLength(1);
+});
+
+test('moving off a cell closes it — the previous hole’s derived GIR goes with the batch', async () => {
+    const { svc } = derivableStep();
+    await svc.loadByToken('tok');
+    svc.seedStatStep(CELL);
+    svc.stepStat('putts', 2);
+    svc.seedStatStep({ playerId: 'p-1', playHoleId: 'ph-2' });
+    await settle();
+
+    expect(appendCalls).toHaveLength(1);
+    expect(appendCalls[0]!.map((i) => i.key)).toEqual(['gir', 'putts']);
+    expect(appendCalls[0]!.every((i) => i.playHoleId === 'ph-1')).toBe(true);
 });
 
 // --- Failure classification ------------------------------------------------

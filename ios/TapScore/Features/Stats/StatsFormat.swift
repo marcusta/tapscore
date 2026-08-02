@@ -103,6 +103,11 @@ enum StatsFormat {
         static let greensHit = SampleUnit("green hit", "greens hit")
         static let penaltyHoles = SampleUnit("hole with a penalty", "holes with a penalty")
         static let penaltyFree = SampleUnit("without", "without")
+
+        /// "1 penalty hole", "5 penalty holes" — the subject of the
+        /// penalty-source card. Its sample is usually a handful, so the singular
+        /// is the COMMON case here, not the edge one.
+        static let labelledPenaltyHoles = SampleUnit.regular("penalty hole")
     }
 
     /// What a thin sample is called, in words. The app's standing rule: an

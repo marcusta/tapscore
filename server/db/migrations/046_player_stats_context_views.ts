@@ -162,7 +162,11 @@ export async function createPlayerStatsV3Views(db: Kysely<any>): Promise<void> {
                      THEN 1 END) AS scramble_holed_standard,
                 COUNT(CASE WHEN gir = 0 AND short_game_difficulty = 'hard'
                      AND putts = 0 AND first_putt IS NULL
-                     THEN 1 END) AS scramble_holed_hard
+                     THEN 1 END) AS scramble_holed_hard,
+                -- The bunker leg (migration 055). Same shape, third literal.
+                COUNT(CASE WHEN gir = 0 AND short_game_difficulty = 'bunker'
+                     AND putts = 0 AND first_putt IS NULL
+                     THEN 1 END) AS scramble_holed_bunker
             FROM player_hole_stats
             GROUP BY round_id, player_id
         )
@@ -194,7 +198,9 @@ export async function createPlayerStatsV3Views(db: Kysely<any>): Promise<void> {
                COALESCE(context.scramble_holed_standard, 0)
                    AS scramble_holed_standard,
                COALESCE(context.scramble_holed_hard, 0)
-                   AS scramble_holed_hard
+                   AS scramble_holed_hard,
+               COALESCE(context.scramble_holed_bunker, 0)
+                   AS scramble_holed_bunker
         FROM v_player_round_stats_v2 base
         LEFT JOIN context
           ON context.round_id = base.round_id AND context.player_id = base.player_id
@@ -228,7 +234,8 @@ export async function createPlayerStatsV3Views(db: Kysely<any>): Promise<void> {
                SUM(rounds.putts_total_over_8m_resolved)
                    AS putts_total_over_8m_resolved,
                SUM(rounds.scramble_holed_standard) AS scramble_holed_standard,
-               SUM(rounds.scramble_holed_hard) AS scramble_holed_hard
+               SUM(rounds.scramble_holed_hard) AS scramble_holed_hard,
+               SUM(rounds.scramble_holed_bunker) AS scramble_holed_bunker
         FROM v_player_stat_totals_v2 totals
         JOIN v_player_round_stats_v3 rounds ON rounds.player_id = totals.player_id
         GROUP BY totals.player_id

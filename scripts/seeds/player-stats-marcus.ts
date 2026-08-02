@@ -57,6 +57,9 @@ const BOGEY_ORDER = [4, 8, 12, 17, 2, 5, 15, 18, 7, 11, 3, 13, 16, 1, 6, 10, 9, 
 
 type TeeResult = 'fairway' | 'in_play' | 'trouble';
 type FirstPutt = 'inside_1m' | '1_to_2m' | '2_to_4m' | '4_to_8m' | 'over_8m';
+type TeeMissDir = 'left' | 'right';
+type GreenMissDir = 'long' | 'short' | 'left' | 'right';
+type PenaltySource = 'tee' | 'approach' | 'short_or_green';
 
 interface HoleData {
     hole: number;
@@ -64,11 +67,15 @@ interface HoleData {
     par: number;
     strokes: number;
     teeResult: TeeResult | null;
+    teeMissDir: TeeMissDir | null;
     gir: boolean;
+    greenMissDir: GreenMissDir | null;
     firstPutt: FirstPutt | null;
     putts: string | null;
-    shortGameDifficulty: 'standard' | 'hard' | null;
+    shortGameDifficulty: 'standard' | 'hard' | 'bunker' | null;
+    shortGameStrokes: string | null;
     penalties: string;
+    penaltySource: PenaltySource | null;
     recoveryOk: string | null;
 }
 
@@ -133,9 +140,34 @@ function holeData(roundIndex: number, desiredOver: number): HoleData[] {
         if (strokes < par) gir = true;
         if (strokes >= par + 2) gir = false;
 
+        // A right-handed player's miss bias, and a bunker rate that keeps the
+        // third difficulty out of the noise floor without dominating it.
+        const teeMissDir: TeeMissDir | null =
+            teeResult === null || teeResult === 'fairway'
+                ? null
+                : ((roundIndex * 23 + hole * 19 + 5) % 100 < 58 ? 'right' : 'left');
+        const greenMissDir: GreenMissDir | null = gir
+            ? null
+            : (() => {
+                  const roll = (roundIndex * 17 + hole * 37 + 2) % 100;
+                  return roll < 34 ? 'short' : roll < 55 ? 'right' : roll < 80 ? 'left' : 'long';
+              })();
+
+        const shortGameRoll = (roundIndex * 19 + hole * 23 + 3) % 100;
         const shortGameDifficulty = gir
             ? null
-            : ((roundIndex * 19 + hole * 23 + 3) % 100 < 22 ? 'hard' : 'standard');
+            : shortGameRoll < 14
+              ? 'bunker'
+              : shortGameRoll < 30
+                ? 'hard'
+                : 'standard';
+        // Most chips are one shot; the counter is only TOUCHED when it is not.
+        const shortGameStrokes =
+            shortGameDifficulty === null
+                ? null
+                : (roundIndex * 59 + hole * 13 + 8) % 100 < 11
+                  ? '2'
+                  : null;
         const holeOut = !gir && (roundIndex * 41 + hole * 31 + 5) % 83 === 0;
         let firstPutt: FirstPutt | null = null;
         let putts: string | null = null;
@@ -189,6 +221,12 @@ function holeData(roundIndex: number, desiredOver: number): HoleData[] {
                 : penaltyRoll === 0
                   ? '1'
                   : '0';
+        const penaltySource: PenaltySource | null =
+            penalties === '0'
+                ? null
+                : teeResult === 'trouble'
+                  ? 'tee'
+                  : ((roundIndex * 61 + hole * 3 + 6) % 100 < 62 ? 'approach' : 'short_or_green');
         const recoveryOk =
             teeResult === 'trouble'
                 ? ((roundIndex * 53 + hole * 5 + 2) % 100 < 65 ? '1' : '0')
@@ -199,11 +237,15 @@ function holeData(roundIndex: number, desiredOver: number): HoleData[] {
             par,
             strokes,
             teeResult,
+            teeMissDir,
             gir,
+            greenMissDir,
             firstPutt,
             putts,
             shortGameDifficulty,
+            shortGameStrokes,
             penalties,
+            penaltySource,
             recoveryOk,
         };
     });
@@ -230,16 +272,37 @@ function statItems(
         const serial = roundIndex * PARS.length + hole.hole - 1;
         // A few skipped answers make the denominators look like real captured
         // golf rather than a synthetic 100% complete spreadsheet.
-        if (hole.teeResult !== null && serial % 47 !== 0) add(hole, 'tee_result', hole.teeResult);
-        if (serial % 53 !== 0) add(hole, 'gir', hole.gir ? '1' : '0');
+        if (hole.teeResult !== null && serial % 47 !== 0) {
+            add(hole, 'tee_result', hole.teeResult);
+            // A follow-up is skipped more often than its parent — the direction
+            // prompts are optional by design (proposal §3.5), so the seed must
+            // not produce a 100%-answered fixture nobody's phone would.
+            if (hole.teeMissDir !== null && serial % 7 !== 0) {
+                add(hole, 'tee_miss_dir', hole.teeMissDir);
+            }
+        }
+        if (serial % 53 !== 0) {
+            add(hole, 'gir', hole.gir ? '1' : '0');
+            if (hole.greenMissDir !== null && serial % 5 !== 0) {
+                add(hole, 'green_miss_dir', hole.greenMissDir);
+            }
+        }
         if (serial % 61 !== 0 && hole.putts !== null) {
             if (hole.firstPutt !== null) add(hole, 'first_putt', hole.firstPutt);
             add(hole, 'putts', hole.putts);
         }
         if (hole.shortGameDifficulty !== null) {
             add(hole, 'short_game_difficulty', hole.shortGameDifficulty);
+            if (hole.shortGameStrokes !== null) {
+                add(hole, 'short_game_strokes', hole.shortGameStrokes);
+            }
         }
-        if (serial % 73 !== 0) add(hole, 'penalties', hole.penalties);
+        if (serial % 73 !== 0) {
+            add(hole, 'penalties', hole.penalties);
+            if (hole.penaltySource !== null && serial % 6 !== 0) {
+                add(hole, 'penalty_source', hole.penaltySource);
+            }
+        }
         if (hole.recoveryOk !== null && serial % 79 !== 0) {
             add(hole, 'recovery_ok', hole.recoveryOk);
         }

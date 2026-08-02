@@ -379,11 +379,15 @@ test('the per-round read carries the hole context around each stat line', async 
             playHoleId: first.id,
             playerId: player.id,
             teeResult: null,
+            teeMissDir: null,
             gir: true,
+            greenMissDir: null,
             firstPutt: null,
             putts: 2,
             shortGameDifficulty: null,
+            shortGameStrokes: null,
             penalties: null,
+            penaltySource: null,
             recoveryOk: null,
         },
     });
@@ -589,14 +593,84 @@ test('batch append then read round-trips over the token front door, with no sess
             playHoleId: h1,
             playerId: player.id,
             teeResult: 'fairway',
+            teeMissDir: null,
             gir: true,
+            greenMissDir: null,
             firstPutt: null,
             putts: 2,
             shortGameDifficulty: null,
+            shortGameStrokes: null,
             penalties: null,
+            penaltySource: null,
             recoveryOk: null,
         },
     ]);
+});
+
+test('the four capture-v2 keys round-trip through the front door', async () => {
+    const { ctx, courseId, teeId } = await setup();
+    const player = await register(ctx, 'capturev2');
+    await ctx.playerStatsService.putConfig(player.id, ALL_ON);
+    const { token, playHoleIds } = await roundFor(ctx, courseId, teeId, player.id);
+    const h1 = playHoleIds[0]!;
+
+    // One hole commit carrying every new key at once — the WIRE schema is a
+    // closed union, so a key missing from it is rejected before the service's
+    // vocabulary is ever consulted.
+    const post = await req(ctx.app, 'POST', '/api/friendly-rounds/stat-events', {
+        token,
+        items: [
+            { playHoleId: h1, playerId: player.id, key: 'tee_result', value: 'trouble', clientEventId: 'v2-1' },
+            { playHoleId: h1, playerId: player.id, key: 'tee_miss_dir', value: 'right', clientEventId: 'v2-2' },
+            { playHoleId: h1, playerId: player.id, key: 'gir', value: '0', clientEventId: 'v2-3' },
+            { playHoleId: h1, playerId: player.id, key: 'green_miss_dir', value: 'long', clientEventId: 'v2-4' },
+            { playHoleId: h1, playerId: player.id, key: 'short_game_difficulty', value: 'bunker', clientEventId: 'v2-5' },
+            { playHoleId: h1, playerId: player.id, key: 'short_game_strokes', value: '2', clientEventId: 'v2-6' },
+            { playHoleId: h1, playerId: player.id, key: 'putts', value: '1', clientEventId: 'v2-7' },
+            { playHoleId: h1, playerId: player.id, key: 'penalties', value: '1', clientEventId: 'v2-8' },
+            { playHoleId: h1, playerId: player.id, key: 'penalty_source', value: 'tee', clientEventId: 'v2-9' },
+        ],
+    });
+    expect(post.status).toBe(200);
+    const appended = await post.json();
+    expect(appended.events.map((e: { inserted: boolean }) => e.inserted)).toEqual(
+        Array.from({ length: 9 }, () => true),
+    );
+
+    const read = await req(ctx.app, 'GET', `/api/friendly-rounds/stats?token=${token}`);
+    expect(read.status).toBe(200);
+    expect(await read.json()).toEqual([
+        {
+            roundId: expect.any(String),
+            playHoleId: h1,
+            playerId: player.id,
+            teeResult: 'trouble',
+            teeMissDir: 'right',
+            gir: false,
+            greenMissDir: 'long',
+            firstPutt: null,
+            putts: 1,
+            shortGameDifficulty: 'bunker',
+            shortGameStrokes: 2,
+            penalties: 1,
+            penaltySource: 'tee',
+            recoveryOk: null,
+        },
+    ]);
+
+    // A value outside the closed set is a 409 with the SAME code the old keys
+    // use — capture v2 adds no refusal vocabulary.
+    const bad = await req(ctx.app, 'POST', '/api/friendly-rounds/stat-events', {
+        token,
+        items: [
+            { playHoleId: h1, playerId: player.id, key: 'short_game_strokes', value: '6', clientEventId: 'v2-bad' },
+        ],
+    });
+    expect(bad.status).toBe(409);
+    expect((await bad.json()).detail).toMatchObject({
+        code: 'stat_invalid_value',
+        key: 'short_game_strokes',
+    });
 });
 
 test('a session on the capture route only ATTRIBUTES the write', async () => {
