@@ -52,6 +52,11 @@ final class TapScoreAPITransportTests: XCTestCase {
             "The /tapscore deployment prefix must survive the base+path join."
         )
         XCTAssertEqual(StubURLProtocol.requests.first?.method, "GET")
+        XCTAssertEqual(
+            StubURLProtocol.requests.first?.cachePolicy,
+            .reloadIgnoringLocalCacheData,
+            "Live API state must never be satisfied from a stale local HTTP response."
+        )
     }
 
     func testDevConfigurationJoinsWithoutAPrefix() async throws {
@@ -211,6 +216,7 @@ final class StubURLProtocol: URLProtocol {
     struct Recorded: Sendable {
         let url: URL?
         let method: String?
+        let cachePolicy: URLRequest.CachePolicy
         let headers: [String: String]
         /// The outbound JSON body, or nil for a body-less request. Read from
         /// `httpBodyStream` as well as `httpBody`: URLSession converts the
@@ -306,6 +312,7 @@ final class StubURLProtocol: URLProtocol {
             Recorded(
                 url: request.url,
                 method: request.httpMethod,
+                cachePolicy: request.cachePolicy,
                 headers: request.allHTTPHeaderFields ?? [:],
                 body: Self.bodyData(of: request)
             )

@@ -160,6 +160,11 @@ actor TapScoreAPI {
 
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = method
+        // API responses are live account/round state, never page resources.
+        // In particular, a stale cached HTML fallback at `/players/me` must
+        // not masquerade as a reachable API and strand a valid session in the
+        // bootstrap's `.unreachable` state.
+        urlRequest.cachePolicy = .reloadIgnoringLocalCacheData
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
             urlRequest.httpBody = body
