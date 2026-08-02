@@ -338,3 +338,113 @@ test('waterfallMagnitude ignores null terms and is zero when nothing is measurab
         ]),
     ).toBe(3);
 });
+
+// --- Wave 3 panel fields -----------------------------------------------------
+//
+// The panels carry the wave-3 rates as `Rate`s, not as strings — every division
+// happens here, every display decision downstream. Numbers are the window-W
+// oracle the block tests and the Swift twin render.
+
+test('the tee panel carries penalty geography and its cost, and neither changes the gate', () => {
+    const p = teePanel(
+        measures({
+            teeRecorded: 60,
+            penaltiesRecorded: 54,
+            holesWithPenalty: 9,
+            holesScoredPenalty: 9,
+            strokesVsParPenalty: 14,
+            holesScoredPenaltyFree: 45,
+            strokesVsParPenaltyFree: 4,
+        }),
+        1,
+    )!;
+    expect(p.penaltyHoleShare).toEqual({ value: 9 / 54, n: 9, d: 54 });
+    expect(p.vsParByPenalty.penalty).toEqual({ value: 14 / 9, n: 14, d: 9 });
+    expect(p.vsParByPenalty.clean).toEqual({ value: 4 / 45, n: 4, d: 45 });
+    // The DIFFERENCE, over the product of the two hole counts: n/d IS the
+    // difference, and d is zero exactly when either side is empty.
+    expect(p.penaltyTax.value).toBeCloseTo(14 / 9 - 4 / 45, 12);
+    expect(p.penaltyTax.d).toBe(405);
+
+    // A tee panel exists on tee shots alone; the penalty rates are simply absent.
+    const noPenalties = teePanel(measures({ teeRecorded: 9, fairwayHits: 4 }), 1)!;
+    expect(noPenalties.penaltyHoleShare.value).toBeNull();
+    expect(noPenalties.penaltyTax.value).toBeNull();
+});
+
+test('the approach panel splits greens hit by par and prices the misses', () => {
+    const p = approachPanel(
+        measures({
+            girRecorded: 60,
+            girHits: 26,
+            girHolesScored: 26,
+            strokesVsParGirHit: 2,
+            holesScoredGirMiss: 34,
+            strokesVsParGirMiss: 31,
+            girRecordedPar3: 12,
+            girHitsPar3: 5,
+            girRecordedPar4: 36,
+            girHitsPar4: 14,
+            girRecordedPar5: 12,
+            girHitsPar5: 7,
+        }),
+    )!;
+    expect(p.girByPar.par3.value).toBeCloseTo(5 / 12, 12);
+    expect(p.girByPar.par4.value).toBeCloseTo(14 / 36, 12);
+    expect(p.girByPar.par5.value).toBeCloseTo(7 / 12, 12);
+    // The three partition the panel's own denominator.
+    expect(p.girByPar.par3.d + p.girByPar.par4.d + p.girByPar.par5.d).toBe(p.gir.d);
+
+    expect(p.costOfMissedGreen.hit).toEqual({ value: 2 / 26, n: 2, d: 26 });
+    expect(p.costOfMissedGreen.miss).toEqual({ value: 31 / 34, n: 31, d: 34 });
+    expect(p.costOfMissedGreen.delta.value).toBeCloseTo(31 / 34 - 2 / 26, 12);
+    expect(p.costOfMissedGreen.delta.d).toBe(34 * 26);
+});
+
+test('a green never hit leaves the difference absent rather than pricing a miss against nothing', () => {
+    const p = approachPanel(
+        measures({ girRecorded: 20, girHits: 0, holesScoredGirMiss: 20, strokesVsParGirMiss: 18 }),
+    )!;
+    expect(p.costOfMissedGreen.miss.value).toBeCloseTo(0.9, 12);
+    expect(p.costOfMissedGreen.hit.value).toBeNull();
+    expect(p.costOfMissedGreen.delta.value).toBeNull();
+});
+
+test('the putting panel carries the four-bucket partition and the by-par averages', () => {
+    const p = puttingPanel(
+        measures({
+            puttsRecorded: 54,
+            puttsTotal: 100,
+            holesZeroPutt: 3,
+            holesOnePutt: 18,
+            holesTwoPutt: 27,
+            threePutts: 6,
+            puttsRecordedPar3: 12,
+            puttsTotalPar3: 21,
+            puttsRecordedPar4: 30,
+            puttsTotalPar4: 56,
+            puttsRecordedPar5: 12,
+            puttsTotalPar5: 23,
+        }),
+    )!;
+    const d = p.puttDistribution;
+    expect([d.zero.n, d.one.n, d.two.n, d.threePlus.n]).toEqual([3, 18, 27, 6]);
+    // All four share one denominator, so the shares sum to exactly 1.
+    expect(d.zero.value! + d.one.value! + d.two.value! + d.threePlus.value!).toBeCloseTo(1, 12);
+    // The bucket and the standalone three-putt rate are the same measure.
+    expect(d.threePlus.value).toBe(p.threePutt.value);
+
+    expect(p.puttsPerHoleByPar.par3.value).toBeCloseTo(21 / 12, 12);
+    expect(p.puttsPerHoleByPar.par4.value).toBeCloseTo(56 / 30, 12);
+    expect(p.puttsPerHoleByPar.par5.value).toBeCloseTo(23 / 12, 12);
+    expect(
+        p.puttsPerHoleByPar.par3.d + p.puttsPerHoleByPar.par4.d + p.puttsPerHoleByPar.par5.d,
+    ).toBe(54);
+});
+
+test('a putting panel on first-putt distances alone has an absent distribution, not a zeroed one', () => {
+    const p = puttingPanel(measures({ firstPuttRecorded: 9, firstPuttInside1mResolved: 9 }))!;
+    expect(p.puttDistribution.zero.value).toBeNull();
+    expect(p.puttDistribution.threePlus.value).toBeNull();
+    expect(p.puttsPerHoleByPar.par4.value).toBeNull();
+});

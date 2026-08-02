@@ -9,6 +9,7 @@ import {
     INSIGHT_BEST_PUTTING_MIN_WINDOW,
     MIN_RATE_DENOMINATOR,
     PUTT_BUCKETS,
+    PUTT_COUNT_BUCKETS,
     SCORE_TYPES,
     STROKES_LOST_COMPONENTS,
     ZERO_MEASURES,
@@ -23,14 +24,20 @@ import {
     firstPuttResolvedTotal,
     girFirstPuttMix,
     girRate,
+    girByPar,
     girRateByTee,
     hardChipShare,
     inPlayRate,
     insightLines,
     meanOfPresent,
+    costOfMissedGreen,
     onePuttRate,
     penaltiesPerRound,
+    penaltyHoleShare,
+    penaltyTax,
+    puttDistribution,
     puttsAfterMissedGreen,
+    puttsPerHoleByPar,
     puttsPerFirstPutt,
     puttsPerGirHole,
     rate,
@@ -46,6 +53,7 @@ import {
     threePuttsFromOver8mRate,
     troubleRate,
     troubleTaxPerHole,
+    vsParByPenalty,
     type InsightId,
     type ResultsRow,
     type StrokesLost,
@@ -153,6 +161,49 @@ const WORKED_EXAMPLE: StatMeasures = measures({
     puttsTotalInside1mResolved: 2,
     puttsTotal2To4mResolved: 2,
     puttsTotalOver8mResolved: 3,
+    // Cost of a missed green. Hit = H1 (E), H4 (+1), H5 (−1) → 0 over 3.
+    // Miss = H2 (+2), H3 (−1) → +1 over 2.
+    strokesVsParGirHit: 0,
+    holesScoredGirMiss: 2,
+    strokesVsParGirMiss: 1,
+    // GIR by par: H3 is the par 3 (missed), H1/H2/H5 the par 4s (2 hit),
+    // H4 the par 5 (hit). 1 + 3 + 1 = 5 = girRecorded.
+    girRecordedPar3: 1,
+    girHitsPar3: 0,
+    girRecordedPar4: 3,
+    girHitsPar4: 2,
+    girRecordedPar5: 1,
+    girHitsPar5: 1,
+    // The putt-count partition: H3 holed it (0), H2 and H5 one-putted,
+    // H1 two-putted, H4 three-putted. 1 + 2 + 1 + threePutts(1) = 5.
+    holesZeroPutt: 1,
+    holesOnePutt: 2,
+    holesTwoPutt: 1,
+    // Putts by par: H3 alone on the par 3 with none; H1+H2+H5 = 2+1+1 on
+    // the par 4s; H4's 3 on the par 5. 1+3+1 = 5, 0+4+3 = 7 = puttsTotal.
+    puttsRecordedPar3: 1,
+    puttsTotalPar3: 0,
+    puttsRecordedPar4: 3,
+    puttsTotalPar4: 4,
+    puttsRecordedPar5: 1,
+    puttsTotalPar5: 3,
+    // Penalty geography: H1 answered 0, H2 answered 1. Both scored, so
+    // both sides of the tax have exactly one hole — H2 at +2, H1 at level.
+    holesWithPenalty: 1,
+    holesScoredPenalty: 1,
+    strokesVsParPenalty: 2,
+    holesScoredPenaltyFree: 1,
+    strokesVsParPenaltyFree: 0,
+    // SG-prep. Par-4 tee shots: H1 fairway, H2 trouble, H5 fairway — so
+    // in_play is 2 (cumulative, the two fairways). H4 is the lone par 5.
+    teeRecordedPar4: 3,
+    fairwayHitsPar4: 2,
+    inPlayHitsPar4: 2,
+    troubleCountPar4: 1,
+    teeRecordedPar5: 1,
+    fairwayHitsPar5: 0,
+    inPlayHitsPar5: 1,
+    troubleCountPar5: 0,
 });
 
 /**
@@ -371,6 +422,37 @@ const SWEEP: StatMeasures = {
     puttsTotal2To4mResolved: 81,
     puttsTotal4To8mResolved: 82,
     puttsTotalOver8mResolved: 83,
+    strokesVsParGirHit: 84,
+    holesScoredGirMiss: 85,
+    strokesVsParGirMiss: 86,
+    girRecordedPar3: 87,
+    girHitsPar3: 88,
+    girRecordedPar4: 89,
+    girHitsPar4: 90,
+    girRecordedPar5: 91,
+    girHitsPar5: 92,
+    holesZeroPutt: 93,
+    holesOnePutt: 94,
+    holesTwoPutt: 95,
+    puttsRecordedPar3: 96,
+    puttsTotalPar3: 97,
+    puttsRecordedPar4: 98,
+    puttsTotalPar4: 99,
+    puttsRecordedPar5: 100,
+    puttsTotalPar5: 101,
+    holesWithPenalty: 102,
+    holesScoredPenalty: 103,
+    strokesVsParPenalty: 104,
+    holesScoredPenaltyFree: 105,
+    strokesVsParPenaltyFree: 106,
+    teeRecordedPar4: 107,
+    fairwayHitsPar4: 108,
+    inPlayHitsPar4: 109,
+    troubleCountPar4: 110,
+    teeRecordedPar5: 111,
+    fairwayHitsPar5: 112,
+    inPlayHitsPar5: 113,
+    troubleCountPar5: 114,
 };
 
 test('every measure column is additive, including the ones no rate reads', () => {
@@ -378,8 +460,8 @@ test('every measure column is additive, including the ones no rate reads', () =>
     // The count is asserted (and mirrored in the Swift twin) so that a field
     // added to the server's measure set and forgotten here is caught, rather
     // than sweeping a smaller set and passing.
-    expect(keys).toHaveLength(83);
-    expect(new Set(Object.values(SWEEP)).size).toBe(83);
+    expect(keys).toHaveLength(114);
+    expect(new Set(Object.values(SWEEP)).size).toBe(114);
 
     // Key-by-key rather than spot checks: a column missing from `addMeasures`
     // would read as its first round's value forever, and only a full sweep sees
@@ -1202,4 +1284,130 @@ test('the worked example, end to end: counts in, ranked lines out', () => {
     // baseline — which on a good round can still be a gain.)
     expect(lines[1]!.params.component).toBe('penalties');
     expect(lines[1]!.params.delta).toBe(1);
+});
+
+// --- Cross-tab measures (wave 3) ---------------------------------------------
+//
+// `WINDOW_W` is the parity oracle from the wave-3 spec §D.4: every number below
+// is hand-computed there and the Swift twin asserts the same ones. If a value
+// here disagrees with that document, the code is wrong, not the document.
+
+const WINDOW_W: StatMeasures = measures({
+    girRecorded: 60,
+    girHits: 26,
+    girHolesScored: 26,
+    strokesVsParGirHit: 2,
+    holesScoredGirMiss: 34,
+    strokesVsParGirMiss: 31,
+    girRecordedPar3: 12,
+    girHitsPar3: 5,
+    girRecordedPar4: 36,
+    girHitsPar4: 14,
+    girRecordedPar5: 12,
+    girHitsPar5: 7,
+    puttsRecorded: 54,
+    puttsTotal: 100,
+    holesZeroPutt: 3,
+    holesOnePutt: 18,
+    holesTwoPutt: 27,
+    threePutts: 6,
+    puttsRecordedPar3: 12,
+    puttsTotalPar3: 21,
+    puttsRecordedPar4: 30,
+    puttsTotalPar4: 56,
+    puttsRecordedPar5: 12,
+    puttsTotalPar5: 23,
+    penaltiesRecorded: 54,
+    holesWithPenalty: 9,
+    holesScoredPenalty: 9,
+    strokesVsParPenalty: 14,
+    holesScoredPenaltyFree: 45,
+    strokesVsParPenaltyFree: 4,
+});
+
+test('the oracle window is internally consistent — every new group is a partition', () => {
+    const m = WINDOW_W;
+    expect(m.girHitsPar3 + m.girHitsPar4 + m.girHitsPar5).toBe(m.girHits);
+    expect(m.girRecordedPar3 + m.girRecordedPar4 + m.girRecordedPar5).toBe(m.girRecorded);
+    expect(m.girHolesScored + m.holesScoredGirMiss).toBe(m.girRecorded);
+    expect(m.holesZeroPutt + m.holesOnePutt + m.holesTwoPutt + m.threePutts).toBe(m.puttsRecorded);
+    expect(m.puttsRecordedPar3 + m.puttsRecordedPar4 + m.puttsRecordedPar5).toBe(m.puttsRecorded);
+    expect(m.puttsTotalPar3 + m.puttsTotalPar4 + m.puttsTotalPar5).toBe(m.puttsTotal);
+});
+
+test('girByPar is greens hit over greens recorded, one denominator per par group', () => {
+    const g = girByPar(WINDOW_W);
+    expect(g.par3).toEqual({ value: 0.4166666666666667, n: 5, d: 12 });
+    expect(g.par4).toEqual({ value: 0.3888888888888889, n: 14, d: 36 });
+    expect(g.par5).toEqual({ value: 0.5833333333333334, n: 7, d: 12 });
+    // A par group nobody played is ABSENT, not 0% — the panel still shows the
+    // row, because hiding one of three parallel rows reads as "never played".
+    const none = girByPar(measures({ girRecordedPar4: 4, girHitsPar4: 1 }));
+    expect(none.par3.value).toBeNull();
+    expect(none.par5.value).toBeNull();
+});
+
+test('costOfMissedGreen carries both sides and their difference, never a clamp', () => {
+    const cost = costOfMissedGreen(WINDOW_W);
+    expect(cost.hit).toEqual({ value: 2 / 26, n: 2, d: 26 });
+    expect(cost.miss).toEqual({ value: 31 / 34, n: 31, d: 34 });
+    // (31·26 − 2·34) / (34·26) = 738 / 884 — the difference, over a
+    // cross-product GUARD rather than a sample.
+    expect(cost.delta).toEqual({ value: 738 / 884, n: 738, d: 884 });
+    expect(cost.delta.value).toBeCloseTo(31 / 34 - 2 / 26, 12);
+
+    // Either side empty nulls the delta, and only the delta.
+    const hitOnly = costOfMissedGreen(measures({ girHolesScored: 4, strokesVsParGirHit: 1 }));
+    expect(hitOnly.hit.value).toBe(0.25);
+    expect(hitOnly.miss.value).toBeNull();
+    expect(hitOnly.delta.value).toBeNull();
+
+    // No clamping: scoring better off a miss is a negative delta and the honest
+    // reading of a small sample.
+    const better = costOfMissedGreen(
+        measures({
+            girHolesScored: 2,
+            strokesVsParGirHit: 4,
+            holesScoredGirMiss: 2,
+            strokesVsParGirMiss: 0,
+        }),
+    );
+    expect(better.delta.value).toBe(-2);
+});
+
+test('the four putt-count buckets share one denominator and sum to 1', () => {
+    const d = puttDistribution(WINDOW_W);
+    expect(d.zero).toEqual({ value: 3 / 54, n: 3, d: 54 });
+    expect(d.one).toEqual({ value: 18 / 54, n: 18, d: 54 });
+    expect(d.two).toEqual({ value: 27 / 54, n: 27, d: 54 });
+    expect(d.threePlus).toEqual({ value: 6 / 54, n: 6, d: 54 });
+    const sum = PUTT_COUNT_BUCKETS.reduce((acc, b) => acc + (d[b].value ?? 0), 0);
+    expect(sum).toBeCloseTo(1, 12);
+    // Absent, not zero, when no putt count was recorded at all.
+    for (const b of PUTT_COUNT_BUCKETS) expect(puttDistribution(ZERO_MEASURES)[b].value).toBeNull();
+});
+
+test('puttsPerHoleByPar is an average, not a share', () => {
+    const p = puttsPerHoleByPar(WINDOW_W);
+    expect(p.par3).toEqual({ value: 1.75, n: 21, d: 12 });
+    expect(p.par4).toEqual({ value: 56 / 30, n: 56, d: 30 });
+    expect(p.par5).toEqual({ value: 23 / 12, n: 23, d: 12 });
+});
+
+test('penalty geography: the share over answers, the tax over the two scored sides', () => {
+    expect(penaltyHoleShare(WINDOW_W)).toEqual({ value: 9 / 54, n: 9, d: 54 });
+    expect(vsParByPenalty(WINDOW_W)).toEqual({
+        penalty: { value: 14 / 9, n: 14, d: 9 },
+        clean: { value: 4 / 45, n: 4, d: 45 },
+    });
+    // (14·45 − 4·9) / (9·45) = 594 / 405 — a cross-product guard, like the
+    // trouble tax, so its `d` is never printed as a sample.
+    expect(penaltyTax(WINDOW_W)).toEqual({ value: 594 / 405, n: 594, d: 405 });
+    expect(penaltyTax(WINDOW_W).value).toBeCloseTo(14 / 9 - 4 / 45, 12);
+
+    // An answered question with no scored hole on one side: the share still
+    // reads, the tax does not.
+    const answersOnly = measures({ penaltiesRecorded: 6, holesWithPenalty: 2 });
+    expect(penaltyHoleShare(answersOnly).value).toBe(2 / 6);
+    expect(penaltyTax(answersOnly).value).toBeNull();
 });

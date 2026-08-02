@@ -391,7 +391,89 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             COUNT(CASE WHEN tee_result = 'trouble' AND strokes IS NOT NULL
                        THEN 1 END) AS holes_scored_trouble,
             COALESCE(SUM(CASE WHEN tee_result = 'trouble' THEN strokes - par END), 0)
-                AS strokes_vs_par_trouble
+                AS strokes_vs_par_trouble,
+
+            -- Cost of a missed green. 'gir_holes_scored' above is the HIT
+            -- denominator; this is its vs-par sum, and the two '_gir_miss'
+            -- columns are the other side. Same COALESCE-a-nullable-SUM shape as
+            -- the tee-state trio: an unscored hole makes 'strokes - par' NULL
+            -- and so lands in neither column.
+            COALESCE(SUM(CASE WHEN gir = 1 THEN strokes - par END), 0)
+                AS strokes_vs_par_gir_hit,
+            COUNT(CASE WHEN gir = 0 AND strokes IS NOT NULL
+                       THEN 1 END) AS holes_scored_gir_miss,
+            COALESCE(SUM(CASE WHEN gir = 0 THEN strokes - par END), 0)
+                AS strokes_vs_par_gir_miss,
+
+            -- GIR by par. Par 3 is included on purpose: 'tee_result' is never
+            -- asked there (TEE_APPLIES), so the GIR-by-tee cross-tab cannot see
+            -- par 3 at all and this is the only place a par-3 approach appears.
+            -- The three recorded counts partition 'gir_recorded' exactly —
+            -- every hole has a par in one group.
+            COUNT(CASE WHEN gir IS NOT NULL AND par <= 3 THEN 1 END) AS gir_recorded_par3,
+            COUNT(CASE WHEN gir = 1 AND par <= 3 THEN 1 END) AS gir_hits_par3,
+            COUNT(CASE WHEN gir IS NOT NULL AND par = 4 THEN 1 END) AS gir_recorded_par4,
+            COUNT(CASE WHEN gir = 1 AND par = 4 THEN 1 END) AS gir_hits_par4,
+            COUNT(CASE WHEN gir IS NOT NULL AND par >= 5 THEN 1 END) AS gir_recorded_par5,
+            COUNT(CASE WHEN gir = 1 AND par >= 5 THEN 1 END) AS gir_hits_par5,
+
+            -- The putt-count distribution. These three plus the existing
+            -- 'three_putts' (putts >= 3) PARTITION 'putts_recorded': a coherent
+            -- recorded putt count falls in exactly one, so the client's four
+            -- shares add to 1. Deliberately NOT reusing 'scramble_holed_*' for
+            -- the zero bucket — those require gir = 0 AND a recorded difficulty,
+            -- so they miss real hole-outs and would break the partition.
+            COUNT(CASE WHEN putting_coherent = 1 AND putts = 0 THEN 1 END) AS holes_zero_putt,
+            COUNT(CASE WHEN putting_coherent = 1 AND putts = 1 THEN 1 END) AS holes_one_putt,
+            COUNT(CASE WHEN putting_coherent = 1 AND putts = 2 THEN 1 END) AS holes_two_putt,
+
+            -- Putts by par. Same coherence guard and the same 'putts_recorded'
+            -- semantics, split three ways: the recorded counts partition
+            -- 'putts_recorded' and the totals partition 'putts_total'.
+            COUNT(CASE WHEN putting_coherent = 1 AND putts IS NOT NULL AND par <= 3
+                       THEN 1 END) AS putts_recorded_par3,
+            COALESCE(SUM(CASE WHEN putting_coherent = 1 AND par <= 3 THEN putts END), 0)
+                AS putts_total_par3,
+            COUNT(CASE WHEN putting_coherent = 1 AND putts IS NOT NULL AND par = 4
+                       THEN 1 END) AS putts_recorded_par4,
+            COALESCE(SUM(CASE WHEN putting_coherent = 1 AND par = 4 THEN putts END), 0)
+                AS putts_total_par4,
+            COUNT(CASE WHEN putting_coherent = 1 AND putts IS NOT NULL AND par >= 5
+                       THEN 1 END) AS putts_recorded_par5,
+            COALESCE(SUM(CASE WHEN putting_coherent = 1 AND par >= 5 THEN putts END), 0)
+                AS putts_total_par5,
+
+            -- Penalty geography. 'holes_with_penalty' is over
+            -- 'penalties_recorded' — a recorded 0 is an answer, an unrecorded
+            -- hole is not. The scored pairs below are the two sides of the
+            -- penalty tax; an unscored penalty hole has an answer but no cost,
+            -- so it is in 'holes_with_penalty' and in neither scored column.
+            COUNT(CASE WHEN penalties >= 1 THEN 1 END) AS holes_with_penalty,
+            COUNT(CASE WHEN penalties >= 1 AND strokes IS NOT NULL
+                       THEN 1 END) AS holes_scored_penalty,
+            COALESCE(SUM(CASE WHEN penalties >= 1 THEN strokes - par END), 0)
+                AS strokes_vs_par_penalty,
+            COUNT(CASE WHEN penalties = 0 AND strokes IS NOT NULL
+                       THEN 1 END) AS holes_scored_penalty_free,
+            COALESCE(SUM(CASE WHEN penalties = 0 THEN strokes - par END), 0)
+                AS strokes_vs_par_penalty_free,
+
+            -- SG-prep (no UI yet). Tee outcome split by par, for the par 4/5
+            -- holes where the drive is a distinct shot. No par-3 quartet:
+            -- capture skips 'tee_result' on par 3 (TEE_APPLIES), so the columns
+            -- would be structurally zero. 'in_play_hits_par*' is CUMULATIVE
+            -- (fairway OR in_play), like 'in_play_hits' and unlike migration
+            -- 046's strict 'gir_recorded_in_play'.
+            COUNT(CASE WHEN tee_result IS NOT NULL AND par = 4 THEN 1 END) AS tee_recorded_par4,
+            COUNT(CASE WHEN tee_result = 'fairway' AND par = 4 THEN 1 END) AS fairway_hits_par4,
+            COUNT(CASE WHEN tee_result IN ('fairway', 'in_play') AND par = 4
+                       THEN 1 END) AS in_play_hits_par4,
+            COUNT(CASE WHEN tee_result = 'trouble' AND par = 4 THEN 1 END) AS trouble_count_par4,
+            COUNT(CASE WHEN tee_result IS NOT NULL AND par >= 5 THEN 1 END) AS tee_recorded_par5,
+            COUNT(CASE WHEN tee_result = 'fairway' AND par >= 5 THEN 1 END) AS fairway_hits_par5,
+            COUNT(CASE WHEN tee_result IN ('fairway', 'in_play') AND par >= 5
+                       THEN 1 END) AS in_play_hits_par5,
+            COUNT(CASE WHEN tee_result = 'trouble' AND par >= 5 THEN 1 END) AS trouble_count_par5
         FROM sequenced
         GROUP BY player_id, round_id
     `.execute(db);
@@ -460,7 +542,38 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             SUM(holes_scored_in_play) AS holes_scored_in_play,
             SUM(strokes_vs_par_in_play) AS strokes_vs_par_in_play,
             SUM(holes_scored_trouble) AS holes_scored_trouble,
-            SUM(strokes_vs_par_trouble) AS strokes_vs_par_trouble
+            SUM(strokes_vs_par_trouble) AS strokes_vs_par_trouble,
+            SUM(strokes_vs_par_gir_hit) AS strokes_vs_par_gir_hit,
+            SUM(holes_scored_gir_miss) AS holes_scored_gir_miss,
+            SUM(strokes_vs_par_gir_miss) AS strokes_vs_par_gir_miss,
+            SUM(gir_recorded_par3) AS gir_recorded_par3,
+            SUM(gir_hits_par3) AS gir_hits_par3,
+            SUM(gir_recorded_par4) AS gir_recorded_par4,
+            SUM(gir_hits_par4) AS gir_hits_par4,
+            SUM(gir_recorded_par5) AS gir_recorded_par5,
+            SUM(gir_hits_par5) AS gir_hits_par5,
+            SUM(holes_zero_putt) AS holes_zero_putt,
+            SUM(holes_one_putt) AS holes_one_putt,
+            SUM(holes_two_putt) AS holes_two_putt,
+            SUM(putts_recorded_par3) AS putts_recorded_par3,
+            SUM(putts_total_par3) AS putts_total_par3,
+            SUM(putts_recorded_par4) AS putts_recorded_par4,
+            SUM(putts_total_par4) AS putts_total_par4,
+            SUM(putts_recorded_par5) AS putts_recorded_par5,
+            SUM(putts_total_par5) AS putts_total_par5,
+            SUM(holes_with_penalty) AS holes_with_penalty,
+            SUM(holes_scored_penalty) AS holes_scored_penalty,
+            SUM(strokes_vs_par_penalty) AS strokes_vs_par_penalty,
+            SUM(holes_scored_penalty_free) AS holes_scored_penalty_free,
+            SUM(strokes_vs_par_penalty_free) AS strokes_vs_par_penalty_free,
+            SUM(tee_recorded_par4) AS tee_recorded_par4,
+            SUM(fairway_hits_par4) AS fairway_hits_par4,
+            SUM(in_play_hits_par4) AS in_play_hits_par4,
+            SUM(trouble_count_par4) AS trouble_count_par4,
+            SUM(tee_recorded_par5) AS tee_recorded_par5,
+            SUM(fairway_hits_par5) AS fairway_hits_par5,
+            SUM(in_play_hits_par5) AS in_play_hits_par5,
+            SUM(trouble_count_par5) AS trouble_count_par5
         FROM v_player_round_stats
         GROUP BY player_id
     `.execute(db);

@@ -112,6 +112,12 @@ struct StatsTeePanel: Equatable, Sendable {
     /// — a zero where the truth is "not recorded". This is the coverage the view
     /// gates that figure on, and the sample it prints beside it.
     var penaltiesRecordedHoles: Double
+    /// How often a hole that answered the penalty question carried one.
+    var penaltyHoleShare: Rate
+    /// Extra strokes per hole conceded on the holes that took a penalty.
+    var penaltyTax: Rate
+    /// The two samples `penaltyTax` is a DIFFERENCE of — see `troubleTax`.
+    var vsParByPenalty: PenaltySplit
 }
 
 struct StatsApproachPanel: Equatable, Sendable {
@@ -124,6 +130,11 @@ struct StatsApproachPanel: Equatable, Sendable {
     /// How often a missed green left a HARD chip. A property of the approach
     /// MISS, which is why it sits here rather than on the short-game card.
     var hardChipShare: Rate
+    /// Greens hit split by par — the only place a par-3 approach appears, since
+    /// the tee question `girByTee` splits on is never asked there.
+    var girByPar: ByParGroup<Rate>
+    /// vs-par with the green hit, with it missed, and the difference.
+    var costOfMissedGreen: VsParSplit
 }
 
 struct StatsPuttingPanel: Equatable, Sendable {
@@ -154,6 +165,11 @@ struct StatsPuttingPanel: Equatable, Sendable {
     /// The complement of `puttsPerGirHole`: putts per hole on the holes where
     /// the green was missed.
     var puttsAfterMissedGreen: Rate
+    /// The four buckets, shares of `puttsRecorded`. They partition it, so the
+    /// four shares add to 1.
+    var puttDistribution: [PuttCountBucket: Rate]
+    /// Average putts per recorded hole, by par.
+    var puttsPerHoleByPar: ByParGroup<Rate>
 }
 
 struct StatsShortGamePanel: Equatable, Sendable {
@@ -383,7 +399,10 @@ struct StatsDashboardModel: Equatable, Sendable {
             vsParByTee: StatMeasuresMath.strokesVsParByTee(m),
             recovery: StatMeasuresMath.recoveryRate(m),
             penaltiesPerRound: StatMeasuresMath.penaltiesPerRound(m, roundCount: roundCount),
-            penaltiesRecordedHoles: m.penaltiesRecorded)
+            penaltiesRecordedHoles: m.penaltiesRecorded,
+            penaltyHoleShare: StatMeasuresMath.penaltyHoleShare(m),
+            penaltyTax: StatMeasuresMath.penaltyTax(m),
+            vsParByPenalty: StatMeasuresMath.vsParByPenalty(m))
     }
 
     static func approachPanel(_ m: StatMeasures) -> StatsApproachPanel? {
@@ -397,7 +416,9 @@ struct StatsDashboardModel: Equatable, Sendable {
             girByTee: StatMeasuresMath.girRateByTee(m),
             girFirstPuttMix: mix,
             birdieConversion: StatMeasuresMath.birdieConversion(m),
-            hardChipShare: StatMeasuresMath.hardChipShare(m))
+            hardChipShare: StatMeasuresMath.hardChipShare(m),
+            girByPar: StatMeasuresMath.girByPar(m),
+            costOfMissedGreen: StatMeasuresMath.costOfMissedGreen(m))
     }
 
     static func puttingPanel(_ m: StatMeasures) -> StatsPuttingPanel? {
@@ -418,7 +439,9 @@ struct StatsDashboardModel: Equatable, Sendable {
             threePutt: StatMeasuresMath.threePuttRate(m),
             threePuttsFromOver8m: StatMeasuresMath.threePuttsFromOver8mRate(m),
             puttsPerGirHole: StatMeasuresMath.puttsPerGirHole(m),
-            puttsAfterMissedGreen: StatMeasuresMath.puttsAfterMissedGreen(m))
+            puttsAfterMissedGreen: StatMeasuresMath.puttsAfterMissedGreen(m),
+            puttDistribution: StatMeasuresMath.puttDistribution(m),
+            puttsPerHoleByPar: StatMeasuresMath.puttsPerHoleByPar(m))
     }
 
     static func shortGamePanel(_ m: StatMeasures) -> StatsShortGamePanel? {

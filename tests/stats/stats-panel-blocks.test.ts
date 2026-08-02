@@ -7,6 +7,7 @@ import {
     resultsSubtitle,
     resultsTiles,
     roundLabel,
+    type StatsBlock,
 } from '../../src/stats/stats-panel-blocks';
 import {
     buildDashboardModel,
@@ -144,6 +145,12 @@ test('the putting panel is a ladder rung per bucket, in distance order, plus thr
         'longThreePutt',
         'puttsPerGir',
     ]);
+    // This window recorded no putt COUNT at all, so the by-par partition goes as
+    // a GROUP, subhead included — a heading over three "Not recorded" rows says
+    // nothing the rows do not already say.
+    const ids = blocks.map((b) => b.id);
+    expect(ids).not.toContain('puttsByParHead');
+    expect(ids).not.toContain('puttsPar3');
 });
 
 test('chip-ins are a COUNT — there is no attempt denominator that would make a percentage mean anything', () => {
@@ -243,8 +250,11 @@ test('the putting card opens with the raw spread, over every hole and not only g
     expect(ids.indexOf('spread-inside_1m')).toBeLessThan(ids.indexOf('ladderHead'));
     const spread = blocks.find((b) => b.id === 'spread-inside_1m')!;
     expect(spread.kind === 'bar' && spread.share).toBeCloseTo(0.75, 10);
-    // Last, after the greens-hit figure it is the complement of.
-    expect(ids[ids.length - 1]).toBe('puttsAfterMissedGreen');
+    // Straight after the greens-hit figure it is the complement of; only the
+    // by-par partition comes below it (this window has a putt count, so that
+    // group's gate is open).
+    expect(ids.indexOf('puttsAfterMissedGreen')).toBe(ids.indexOf('puttsPerGir') + 1);
+    expect(ids[ids.length - 1]).toBe('puttsPar5');
     const missed = blocks.find((b) => b.id === 'puttsAfterMissedGreen')!;
     // 12 − 4 = 8 putts over 8 − 3 = 5 holes.
     expect(missed.kind === 'figure' && missed.value).toBe('1.60 (over 5 holes)');
@@ -484,4 +494,196 @@ test('coverage and round labels are worded, never a glyph', () => {
     expect(roundLabel({ name: '  ', courseName: 'Linköping' })).toBe('Linköping');
     expect(roundLabel({ name: 'Club champs', courseName: 'Linköping' })).toBe('Club champs');
     expect(roundLabel({ name: null, courseName: null })).toBe('Round');
+});
+
+// --- Wave 3: the window-W rendered-string oracle -----------------------------
+//
+// One window, three cards. The iOS twin builds the same title/value/hint triples
+// off the same numbers; a disagreement means one client is wrong, not both.
+// Internal consistency of W: the by-par GIR rows sum to `girHits` / `girRecorded`,
+// the four putt buckets sum to `puttsRecorded`, and the by-par putt rows sum to
+// `puttsRecorded` / `puttsTotal`.
+
+const WINDOW_W: StatMeasures = measures({
+    // Off the tee — present only so the tee panel opens at all.
+    teeRecorded: 60,
+    girRecorded: 60,
+    girHits: 26,
+    girHolesScored: 26,
+    strokesVsParGirHit: 2,
+    holesScoredGirMiss: 34,
+    strokesVsParGirMiss: 31,
+    girRecordedPar3: 12,
+    girHitsPar3: 5,
+    girRecordedPar4: 36,
+    girHitsPar4: 14,
+    girRecordedPar5: 12,
+    girHitsPar5: 7,
+    puttsRecorded: 54,
+    puttsTotal: 100,
+    holesZeroPutt: 3,
+    holesOnePutt: 18,
+    holesTwoPutt: 27,
+    threePutts: 6,
+    puttsRecordedPar3: 12,
+    puttsTotalPar3: 21,
+    puttsRecordedPar4: 30,
+    puttsTotalPar4: 56,
+    puttsRecordedPar5: 12,
+    puttsTotalPar5: 23,
+    penaltiesRecorded: 54,
+    holesWithPenalty: 9,
+    holesScoredPenalty: 9,
+    strokesVsParPenalty: 14,
+    holesScoredPenaltyFree: 45,
+    strokesVsParPenaltyFree: 4,
+});
+
+function windowBlocks(id: 'tee' | 'approach' | 'putting', over: Partial<StatMeasures> = {}) {
+    const model = buildDashboardModel([round({ measures: { ...WINDOW_W, ...over } })]);
+    return panelBlocks(id, model);
+}
+
+function slice(blocks: readonly StatsBlock[], from: string, count: number): StatsBlock[] {
+    const start = blocks.findIndex((b) => b.id === from);
+    expect(start).toBeGreaterThanOrEqual(0);
+    return blocks.slice(start, start + count);
+}
+
+test('greens hit by par is three bars, ungated, right under the by-tee group', () => {
+    const blocks = windowBlocks('approach');
+    expect(slice(blocks, 'girByParHead', 4)).toEqual([
+        { kind: 'subhead', id: 'girByParHead', text: 'Greens hit, by par' },
+        { kind: 'bar', id: 'girPar3', title: 'Par 3', share: 0.4166666666666667, value: '42%' },
+        { kind: 'bar', id: 'girPar4', title: 'Par 4', share: 0.3888888888888889, value: '39%' },
+        { kind: 'bar', id: 'girPar5', title: 'Par 5', share: 0.5833333333333334, value: '58%' },
+    ]);
+    const ids = blocks.map((b) => b.id);
+    expect(ids.indexOf('girByParHead')).toBe(ids.indexOf('girTrouble') + 1);
+});
+
+test('the cost of a missed green is two absolutes and the difference between them', () => {
+    expect(slice(windowBlocks('approach'), 'missedGreenHead', 4)).toEqual([
+        { kind: 'subhead', id: 'missedGreenHead', text: 'Cost of a missed green' },
+        {
+            kind: 'figure',
+            id: 'vsParGreenHit',
+            title: 'Green hit',
+            value: '+0.08 (over 26 greens)',
+            hint: null,
+        },
+        {
+            kind: 'figure',
+            id: 'vsParGreenMissed',
+            title: 'Green missed',
+            value: '+0.91 (over 34 holes)',
+            hint: null,
+        },
+        {
+            kind: 'figure',
+            id: 'missedGreenTax',
+            title: 'Missed-green tax',
+            // NOT `averageWithSample`: the tax's own d is 34 × 26 = 884, a
+            // cross-product guard, and printing it would claim 884 holes.
+            value: '+0.83',
+            hint: 'Measured over 34 holes with the green missed vs 26 greens hit.',
+        },
+    ]);
+});
+
+test('a green hit under par prints the typographic minus, not a hyphen', () => {
+    const hit = windowBlocks('approach', { strokesVsParGirHit: -6 }).find(
+        (b) => b.id === 'vsParGreenHit',
+    )!;
+    expect(hit.kind === 'figure' && hit.value).toBe('−0.23 (over 26 greens)');
+});
+
+test('the whole missed-green group disappears when neither side has a scored hole', () => {
+    const ids = windowBlocks('approach', {
+        girHolesScored: 0,
+        strokesVsParGirHit: 0,
+        holesScoredGirMiss: 0,
+        strokesVsParGirMiss: 0,
+    }).map((b) => b.id);
+    expect(ids).not.toContain('missedGreenHead');
+    expect(ids).not.toContain('missedGreenTax');
+    // The by-par partition is a different rule and stays.
+    expect(ids).toContain('girPar5');
+});
+
+test('holes by putts is the four-bucket partition of the holes with a putt count', () => {
+    expect(slice(windowBlocks('putting'), 'puttCountHead', 5)).toEqual([
+        { kind: 'subhead', id: 'puttCountHead', text: 'Holes by putts' },
+        { kind: 'bar', id: 'putts-zero', title: 'No putts', share: 0.05555555555555555, value: '6%' },
+        { kind: 'bar', id: 'putts-one', title: 'One putt', share: 0.3333333333333333, value: '33%' },
+        { kind: 'bar', id: 'putts-two', title: 'Two putts', share: 0.5, value: '50%' },
+        {
+            kind: 'bar',
+            id: 'putts-threePlus',
+            title: 'Three or more',
+            share: 0.1111111111111111,
+            value: '11%',
+        },
+    ]);
+});
+
+test('putts per hole by par is unsigned — a putt count is a quantity, not a deviation', () => {
+    expect(slice(windowBlocks('putting'), 'puttsByParHead', 4)).toEqual([
+        { kind: 'subhead', id: 'puttsByParHead', text: 'Putts per hole, by par' },
+        { kind: 'figure', id: 'puttsPar3', title: 'Par 3', value: '1.75 (over 12 holes)', hint: null },
+        { kind: 'figure', id: 'puttsPar4', title: 'Par 4', value: '1.87 (over 30 holes)', hint: null },
+        { kind: 'figure', id: 'puttsPar5', title: 'Par 5', value: '1.92 (over 12 holes)', hint: null },
+    ]);
+});
+
+test('the penalty pair reads geography then cost, with the tax carrying both denominators', () => {
+    const blocks = windowBlocks('tee');
+    // Directly under the per-round figure it qualifies — the same adjacency the
+    // approach card's by-par head keeps to the by-tee group above it.
+    const ids = blocks.map((b) => b.id);
+    expect(ids.indexOf('penaltyHoleShare')).toBe(ids.indexOf('penalties') + 1);
+    expect(slice(blocks, 'penaltyHoleShare', 2)).toEqual([
+        {
+            kind: 'figure',
+            id: 'penaltyHoleShare',
+            title: 'Holes with a penalty',
+            value: '17% (9 of 54)',
+            hint: null,
+        },
+        {
+            kind: 'figure',
+            id: 'penaltyTax',
+            title: 'Penalty tax',
+            value: '+1.47',
+            hint: 'Measured over 9 holes with a penalty vs 45 without.',
+        },
+    ]);
+});
+
+test('a thin denominator on either side of a difference says so in words, and drops the bar', () => {
+    const par5 = windowBlocks('approach', { girRecordedPar5: 3, girHitsPar5: 2 }).find(
+        (b) => b.id === 'girPar5',
+    )!;
+    // Under the floor a percentage would overclaim, so the fraction prints and
+    // there is no bar to read a share off.
+    expect(par5).toEqual({ kind: 'bar', id: 'girPar5', title: 'Par 5', share: null, value: '2 of 3' });
+
+    const tax = windowBlocks('tee', { holesScoredPenaltyFree: 3, strokesVsParPenaltyFree: 4 }).find(
+        (b) => b.id === 'penaltyTax',
+    )!;
+    expect(tax.kind === 'figure' && tax.hint).toBe(
+        'Measured over 9 holes with a penalty vs 3 without — thin sample.',
+    );
+});
+
+test('the penalty pair is gated with the per-round figure it sits beside', () => {
+    // `penaltiesRecorded = 0` is the unanswered question — absent, not zero.
+    const ids = windowBlocks('tee', {
+        penaltiesRecorded: 0,
+        holesWithPenalty: 0,
+        holesScoredPenalty: 0,
+        strokesVsParPenalty: 0,
+    }).map((b) => b.id);
+    expect(ids).not.toContain('penaltyHoleShare');
+    expect(ids).not.toContain('penaltyTax');
 });

@@ -357,11 +357,25 @@ struct StatsPanelsView: View {
         ]
     }
 
-    /// Penalties, or nothing.
+    /// The `Measured …` line under a TAX figure, or nothing.
+    ///
+    /// A tax carries no explainer sentence: its one muted line says which two
+    /// denominators the difference rests on, and nothing else. Written as a
+    /// helper so a nil sample yields a nil hint rather than "Measured nil.".
+    static func measuredLine(_ sample: String?) -> String? {
+        sample.map { "Measured \($0)." }
+    }
+
+    /// The penalty family, or nothing.
     ///
     /// `penaltiesPerRound` divides by the round count, so a player who never
     /// recorded a penalty gets "0.00 per round" — a zero where the truth is
     /// "not recorded". The coverage counter is the gate, and the sentence.
+    ///
+    /// The share and the tax sit under the SAME gate: the whole family is
+    /// absent, not zeroed, for a player who never answered the question.
+    /// `penaltyTax` uses `StatsFormat.average`, never `averageWithSample` — its
+    /// own `d` is a cross-product guard, exactly like the trouble tax above.
     static func penaltiesFigure(_ panel: StatsTeePanel) -> [StatsFigure] {
         guard panel.penaltiesRecordedHoles > 0 else { return [] }
         return [
@@ -369,7 +383,13 @@ struct StatsPanelsView: View {
                 "Penalties",
                 StatsFormat.averageWithSample(panel.penaltiesPerRound, unit: .rounds),
                 "\(StatsCopy.penalties) Recorded on "
-                    + "\(StatsFormat.quantity(panel.penaltiesRecordedHoles, .holes)).")
+                    + "\(StatsFormat.quantity(panel.penaltiesRecordedHoles, .holes))."),
+            StatsFigure(
+                "Holes with a penalty", StatsFormat.rateWithSample(panel.penaltyHoleShare)),
+            StatsFigure(
+                "Penalty tax",
+                StatsFormat.average(panel.penaltyTax, signed: true),
+                measuredLine(StatsFormat.penaltyTaxSample(panel.vsParByPenalty))),
         ]
     }
 
@@ -431,14 +451,54 @@ struct StatsPanelsView: View {
         ]
     }
 
+    /// Greens hit by par. UNGATED: the three rows partition `girRecorded`, and
+    /// the panel is already gated on that being non-zero. A zero row reads "0%"
+    /// or "0 of 2", which is true; hiding one of three parallel rows would read
+    /// as "you never played a par 5".
+    static func girByParItems(_ panel: StatsApproachPanel) -> [StatsBarItem] {
+        [
+            StatsBarItem("Par 3", panel.girByPar.par3),
+            StatsBarItem("Par 4", panel.girByPar.par4),
+            StatsBarItem("Par 5", panel.girByPar.par5),
+        ]
+    }
+
+    /// What a missed green costs, or nothing.
+    ///
+    /// Gated as a GROUP on either side having a scored hole — the same shape
+    /// `teeVsParFigures` uses. Inside the group each row stands even when its own
+    /// `d` is 0 and reads "Not recorded". The tax itself goes through
+    /// `StatsFormat.average`, because its `d` is a cross-product guard.
+    static func costOfMissedGreenFigures(_ panel: StatsApproachPanel) -> [StatsFigure] {
+        let cost = panel.costOfMissedGreen
+        guard cost.hit.d > 0 || cost.miss.d > 0 else { return [] }
+        return [
+            // GREENS on the hit side, HOLES on the miss side: the denominators
+            // genuinely differ and the noun says which.
+            StatsFigure(
+                "Green hit",
+                StatsFormat.averageWithSample(cost.hit, signed: true, unit: .greens)),
+            StatsFigure(
+                "Green missed",
+                StatsFormat.averageWithSample(cost.miss, signed: true, unit: .holes)),
+            StatsFigure(
+                "Missed-green tax",
+                StatsFormat.average(cost.delta, signed: true),
+                measuredLine(StatsFormat.missedGreenTaxSample(cost))),
+        ]
+    }
+
     static func approachDetail(_ panel: StatsApproachPanel) -> some View {
-        VStack(alignment: .leading, spacing: TapSpacing.md) {
+        let cost = costOfMissedGreenFigures(panel)
+        return VStack(alignment: .leading, spacing: TapSpacing.md) {
             StatsSubhead(text: "Greens hit, by where the tee shot finished")
             StatsMiniBarRows(items: [
                 StatsBarItem("From the fairway", panel.girByTee.fairway),
                 StatsBarItem("From in play", panel.girByTee.inPlay),
                 StatsBarItem("From trouble", panel.girByTee.trouble),
             ])
+            StatsSubhead(text: "Greens hit, by par")
+            StatsMiniBarRows(items: girByParItems(panel))
             StatsSubhead(text: "First putt on greens hit")
             Text(StatsCopy.proximityProxy)
                 .font(TapFont.ui(size: 12.0))
@@ -456,6 +516,12 @@ struct StatsPanelsView: View {
                         "Birdie conversion", StatsFormat.rateWithSample(panel.birdieConversion),
                         StatsCopy.birdieConversion)
                 ] + hardChipShareFigure(panel))
+            // Last, so its subhead closes the un-headed birdie/hard-miss pair
+            // rather than orphaning it.
+            if !cost.isEmpty {
+                StatsSubhead(text: "Cost of a missed green")
+                StatsFigureRows(items: cost)
+            }
         }
     }
 
@@ -482,8 +548,47 @@ struct StatsPanelsView: View {
         ]
     }
 
+    /// The putt-count histogram, or nothing.
+    ///
+    /// All four rows share ONE denominator (`puttsRecorded`), so one gate covers
+    /// the group — exactly how `firstPuttSpreadItems` gates on the buckets'
+    /// common `d`. The gate exists because the panel can be present on
+    /// `firstPuttRecorded` alone, with no putt count anywhere.
+    static func puttDistributionItems(_ panel: StatsPuttingPanel) -> [StatsBarItem] {
+        let items = PuttCountBucket.allCases.map { bucket in
+            StatsBarItem(
+                StatsFormat.title(bucket),
+                panel.puttDistribution[bucket] ?? Rate(value: nil, n: 0, d: 0))
+        }
+        return items.contains(where: { $0.rate.d > 0 }) ? items : []
+    }
+
+    /// Putts per hole by par, or nothing.
+    ///
+    /// A partition of `puttsRecorded`, so it takes the SAME gate the histogram
+    /// above it takes: the panel can stand on `firstPuttRecorded` alone, and a
+    /// subhead over three "Not recorded" rows is dead noise. Inside the group an
+    /// empty row still prints — the three partition the holes. Unsigned: putts
+    /// are a quantity, not a deviation.
+    static func puttsByParFigures(_ panel: StatsPuttingPanel) -> [StatsFigure] {
+        guard (panel.puttDistribution[.zero]?.d ?? 0) > 0 else { return [] }
+        return [
+            StatsFigure(
+                "Par 3",
+                StatsFormat.averageWithSample(panel.puttsPerHoleByPar.par3, unit: .holes)),
+            StatsFigure(
+                "Par 4",
+                StatsFormat.averageWithSample(panel.puttsPerHoleByPar.par4, unit: .holes)),
+            StatsFigure(
+                "Par 5",
+                StatsFormat.averageWithSample(panel.puttsPerHoleByPar.par5, unit: .holes)),
+        ]
+    }
+
     static func puttingDetail(_ panel: StatsPuttingPanel) -> some View {
         let spread = firstPuttSpreadItems(panel)
+        let distribution = puttDistributionItems(panel)
+        let byPar = puttsByParFigures(panel)
         return VStack(alignment: .leading, spacing: TapSpacing.md) {
             if !spread.isEmpty {
                 StatsSubhead(text: "First putt, all holes")
@@ -517,6 +622,10 @@ struct StatsPanelsView: View {
                 }
                 .accessibilityElement(children: .combine)
             }
+            if !distribution.isEmpty {
+                StatsSubhead(text: "Holes by putts")
+                StatsMiniBarRows(items: distribution)
+            }
             StatsFigureRows(
                 items: [
                     StatsFigure(
@@ -531,6 +640,10 @@ struct StatsPanelsView: View {
                         StatsFormat.averageWithSample(panel.puttsPerGirHole, unit: .greens),
                         StatsCopy.puttsPerGir),
                 ] + puttsAfterMissedGreenFigure(panel))
+            if !byPar.isEmpty {
+                StatsSubhead(text: "Putts per hole, by par")
+                StatsFigureRows(items: byPar)
+            }
         }
     }
 

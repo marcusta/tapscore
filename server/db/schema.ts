@@ -447,6 +447,64 @@ export interface PlayerStatMeasureColumns {
     strokes_vs_par_in_play: number;
     holes_scored_trouble: number;
     strokes_vs_par_trouble: number;
+
+    // Cost of a missed green (migration 053). Pairs with `gir_holes_scored`
+    // above, which is already the "green hit AND scored" denominator.
+    strokes_vs_par_gir_hit: number;
+    holes_scored_gir_miss: number;
+    strokes_vs_par_gir_miss: number;
+
+    // GIR by par (053). The only place a par-3 approach is visible: the
+    // GIR-by-tee cross-tab cannot see par 3, where no tee question is asked.
+    // The three recorded counts partition `gir_recorded`.
+    gir_recorded_par3: number;
+    gir_hits_par3: number;
+    gir_recorded_par4: number;
+    gir_hits_par4: number;
+    gir_recorded_par5: number;
+    gir_hits_par5: number;
+
+    /**
+     * The putt-count distribution (053). These three plus `three_putts`
+     * (putts >= 3) PARTITION `putts_recorded`. `holes_zero_putt` is its own
+     * column and NOT `scramble_holed_*`: those require a missed green and a
+     * recorded difficulty, so they miss real hole-outs.
+     */
+    holes_zero_putt: number;
+    holes_one_putt: number;
+    holes_two_putt: number;
+    /** Putts by par. Recorded partitions `putts_recorded`, totals `putts_total`. */
+    putts_recorded_par3: number;
+    putts_total_par3: number;
+    putts_recorded_par4: number;
+    putts_total_par4: number;
+    putts_recorded_par5: number;
+    putts_total_par5: number;
+
+    /**
+     * Penalty geography (053). `holes_with_penalty` is over
+     * `penalties_recorded`. The two scored pairs are the sides of the penalty
+     * tax — an unscored penalty hole has an answer but no cost.
+     */
+    holes_with_penalty: number;
+    holes_scored_penalty: number;
+    strokes_vs_par_penalty: number;
+    holes_scored_penalty_free: number;
+    strokes_vs_par_penalty_free: number;
+
+    /**
+     * SG-prep (053) — no UI yet; a strokes-gained-lite feature consumes them.
+     * No par-3 quartet: `tee_result` is never asked there. `in_play_hits_par*`
+     * is CUMULATIVE (fairway OR in play), like `in_play_hits`.
+     */
+    tee_recorded_par4: number;
+    fairway_hits_par4: number;
+    in_play_hits_par4: number;
+    trouble_count_par4: number;
+    tee_recorded_par5: number;
+    fairway_hits_par5: number;
+    in_play_hits_par5: number;
+    trouble_count_par5: number;
 }
 
 /**

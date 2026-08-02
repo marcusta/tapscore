@@ -273,6 +273,64 @@ export interface StatMeasures {
     puttsTotal2To4mResolved: number;
     puttsTotal4To8mResolved: number;
     puttsTotalOver8mResolved: number;
+
+    // Cost of a missed green (migration 053). Pairs with `girHolesScored`
+    // above, which is already the "green hit AND scored" denominator.
+    strokesVsParGirHit: number;
+    holesScoredGirMiss: number;
+    strokesVsParGirMiss: number;
+
+    // GIR by par (053). The only place a par-3 approach is visible: the
+    // GIR-by-tee cross-tab cannot see par 3, where no tee question is asked.
+    // The three recorded counts partition `girRecorded`.
+    girRecordedPar3: number;
+    girHitsPar3: number;
+    girRecordedPar4: number;
+    girHitsPar4: number;
+    girRecordedPar5: number;
+    girHitsPar5: number;
+
+    /**
+     * The putt-count distribution (053). These three plus `threePutts`
+     * (putts >= 3) PARTITION `puttsRecorded`. `holesZeroPutt` is its own
+     * column and NOT `scrambleHoled*`: those require a missed green and a
+     * recorded difficulty, so they miss real hole-outs.
+     */
+    holesZeroPutt: number;
+    holesOnePutt: number;
+    holesTwoPutt: number;
+    /** Putts by par. Recorded partitions `puttsRecorded`, totals `puttsTotal`. */
+    puttsRecordedPar3: number;
+    puttsTotalPar3: number;
+    puttsRecordedPar4: number;
+    puttsTotalPar4: number;
+    puttsRecordedPar5: number;
+    puttsTotalPar5: number;
+
+    /**
+     * Penalty geography (053). `holesWithPenalty` is over `penaltiesRecorded`.
+     * The two scored pairs are the sides of the penalty tax — an unscored
+     * penalty hole has an answer but no cost.
+     */
+    holesWithPenalty: number;
+    holesScoredPenalty: number;
+    strokesVsParPenalty: number;
+    holesScoredPenaltyFree: number;
+    strokesVsParPenaltyFree: number;
+
+    /**
+     * SG-prep (053) — no UI yet; a strokes-gained-lite feature consumes them.
+     * No par-3 quartet: `tee_result` is never asked there. `inPlayHitsPar*` is
+     * CUMULATIVE (fairway OR in play), like `inPlayHits`.
+     */
+    teeRecordedPar4: number;
+    fairwayHitsPar4: number;
+    inPlayHitsPar4: number;
+    troubleCountPar4: number;
+    teeRecordedPar5: number;
+    fairwayHitsPar5: number;
+    inPlayHitsPar5: number;
+    troubleCountPar5: number;
 }
 
 /**
@@ -565,6 +623,37 @@ function toMeasures(row: PlayerRoundStatsV3View | PlayerStatTotalsV3View): StatM
         puttsTotal2To4mResolved: row.putts_total_2_to_4m_resolved,
         puttsTotal4To8mResolved: row.putts_total_4_to_8m_resolved,
         puttsTotalOver8mResolved: row.putts_total_over_8m_resolved,
+        strokesVsParGirHit: row.strokes_vs_par_gir_hit,
+        holesScoredGirMiss: row.holes_scored_gir_miss,
+        strokesVsParGirMiss: row.strokes_vs_par_gir_miss,
+        girRecordedPar3: row.gir_recorded_par3,
+        girHitsPar3: row.gir_hits_par3,
+        girRecordedPar4: row.gir_recorded_par4,
+        girHitsPar4: row.gir_hits_par4,
+        girRecordedPar5: row.gir_recorded_par5,
+        girHitsPar5: row.gir_hits_par5,
+        holesZeroPutt: row.holes_zero_putt,
+        holesOnePutt: row.holes_one_putt,
+        holesTwoPutt: row.holes_two_putt,
+        puttsRecordedPar3: row.putts_recorded_par3,
+        puttsTotalPar3: row.putts_total_par3,
+        puttsRecordedPar4: row.putts_recorded_par4,
+        puttsTotalPar4: row.putts_total_par4,
+        puttsRecordedPar5: row.putts_recorded_par5,
+        puttsTotalPar5: row.putts_total_par5,
+        holesWithPenalty: row.holes_with_penalty,
+        holesScoredPenalty: row.holes_scored_penalty,
+        strokesVsParPenalty: row.strokes_vs_par_penalty,
+        holesScoredPenaltyFree: row.holes_scored_penalty_free,
+        strokesVsParPenaltyFree: row.strokes_vs_par_penalty_free,
+        teeRecordedPar4: row.tee_recorded_par4,
+        fairwayHitsPar4: row.fairway_hits_par4,
+        inPlayHitsPar4: row.in_play_hits_par4,
+        troubleCountPar4: row.trouble_count_par4,
+        teeRecordedPar5: row.tee_recorded_par5,
+        fairwayHitsPar5: row.fairway_hits_par5,
+        inPlayHitsPar5: row.in_play_hits_par5,
+        troubleCountPar5: row.trouble_count_par5,
     };
 }
 
@@ -662,6 +751,37 @@ function zeroMeasures(): StatMeasures {
         puttsTotal2To4mResolved: 0,
         puttsTotal4To8mResolved: 0,
         puttsTotalOver8mResolved: 0,
+        strokesVsParGirHit: 0,
+        holesScoredGirMiss: 0,
+        strokesVsParGirMiss: 0,
+        girRecordedPar3: 0,
+        girHitsPar3: 0,
+        girRecordedPar4: 0,
+        girHitsPar4: 0,
+        girRecordedPar5: 0,
+        girHitsPar5: 0,
+        holesZeroPutt: 0,
+        holesOnePutt: 0,
+        holesTwoPutt: 0,
+        puttsRecordedPar3: 0,
+        puttsTotalPar3: 0,
+        puttsRecordedPar4: 0,
+        puttsTotalPar4: 0,
+        puttsRecordedPar5: 0,
+        puttsTotalPar5: 0,
+        holesWithPenalty: 0,
+        holesScoredPenalty: 0,
+        strokesVsParPenalty: 0,
+        holesScoredPenaltyFree: 0,
+        strokesVsParPenaltyFree: 0,
+        teeRecordedPar4: 0,
+        fairwayHitsPar4: 0,
+        inPlayHitsPar4: 0,
+        troubleCountPar4: 0,
+        teeRecordedPar5: 0,
+        fairwayHitsPar5: 0,
+        inPlayHitsPar5: 0,
+        troubleCountPar5: 0,
     };
 }
 

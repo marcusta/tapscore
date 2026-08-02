@@ -126,6 +126,58 @@ final class StatsFormatTests: XCTestCase {
         XCTAssertNil(sample(trouble: 6, fairway: 0))
     }
 
+    // MARK: - 2b. The wave-3 taxes' two samples
+
+    /// Same bargain as the trouble tax, generalised: a difference of two
+    /// averages prints BOTH denominators and never its own cross-product.
+    func testTheMissedGreenTaxReportsBothDenominators() {
+        let cost = VsParSplit(
+            hit: rate(0.0769, 2, 26), miss: rate(0.9118, 31, 34), delta: rate(0.8348, 738, 884))
+
+        XCTAssertEqual(
+            StatsFormat.missedGreenTaxSample(cost),
+            "over 34 holes with the green missed vs 26 greens hit")
+        // The guard is never spoken, whatever its size.
+        XCTAssertFalse(StatsFormat.missedGreenTaxSample(cost)!.contains("884"))
+    }
+
+    func testThePenaltyTaxReportsBothDenominators() {
+        let split = PenaltySplit(penalty: rate(1.5556, 14, 9), clean: rate(0.0889, 4, 45))
+
+        XCTAssertEqual(
+            StatsFormat.penaltyTaxSample(split),
+            "over 9 holes with a penalty vs 45 without")
+    }
+
+    /// Each side singularises on its own, and either side under the floor makes
+    /// the whole reading thin.
+    func testAWave3TaxIsSingularPerSideAndThinWhenEitherSideIs() {
+        func penalty(_ withPenalty: Double, _ without: Double) -> String? {
+            StatsFormat.penaltyTaxSample(
+                PenaltySplit(
+                    penalty: rate(1, withPenalty, withPenalty),
+                    clean: rate(1, without, without)))
+        }
+
+        XCTAssertEqual(penalty(1, 45), "over 1 hole with a penalty vs 45 without — thin sample")
+        XCTAssertEqual(penalty(9, 3), "over 9 holes with a penalty vs 3 without — thin sample")
+        XCTAssertEqual(penalty(5, 5), "over 5 holes with a penalty vs 5 without")
+        XCTAssertNil(penalty(0, 45))
+        XCTAssertNil(penalty(9, 0))
+
+        XCTAssertEqual(
+            StatsFormat.missedGreenTaxSample(
+                VsParSplit(hit: rate(0, 0, 1), miss: rate(0, 0, 1), delta: rate(0, 0, 1))),
+            "over 1 hole with the green missed vs 1 green hit — thin sample")
+    }
+
+    /// The generic form is the one the two named helpers are built from.
+    func testTheTaxSampleTakesItsUnitsFromTheCaller() {
+        XCTAssertEqual(
+            StatsFormat.taxSample(rate(1, 9, 9), .penaltyHoles, rate(1, 45, 45), .penaltyFree),
+            "over 9 holes with a penalty vs 45 without")
+    }
+
     // MARK: - 3. The wire's day
 
     func testTheUTCPairIsStillItsOwnInverse() {

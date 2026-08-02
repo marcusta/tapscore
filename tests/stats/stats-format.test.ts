@@ -8,12 +8,15 @@ import {
     formatCount,
     formatRate,
     isThin,
+    missedGreenTaxSample,
+    penaltyTaxSample,
     quantity,
     rateSample,
     rateWithSample,
     roundTypeTitle,
     signedNumber,
     strokesPerRound,
+    taxSample,
     THIN_SAMPLE,
     troubleTaxSample,
     UNIT_GREENS,
@@ -21,7 +24,13 @@ import {
     venueTitle,
     vsPar,
 } from '../../src/stats/stats-format';
-import { rate, type ByTee, type Rate } from '../../src/round/stat-measures';
+import {
+    rate,
+    type ByTee,
+    type PenaltySplit,
+    type Rate,
+    type VsParSplit,
+} from '../../src/round/stat-measures';
 
 // The display policy (proposal §1) in one place: d == 0 absent, 0 < d < 5 raw
 // fraction, d >= 5 percentage, denominators always shown.
@@ -113,4 +122,46 @@ test('bucket, venue and round type titles', () => {
     expect(bucketTitle('over_8m')).toBe('Over 8 m');
     expect(venueTitle('indoor')).toBe('Indoor');
     expect(roundTypeTitle('front_9')).toBe('Front 9');
+});
+
+// --- Tax samples (wave 3) -----------------------------------------------------
+//
+// A DIFFERENCE of two averages has two denominators, never the cross-product
+// guard the figure itself carries. Strings are the wave-3 spec §D.4 oracle and
+// the Swift twin asserts them character for character.
+
+const COST_W: VsParSplit = {
+    hit: rate(2, 26),
+    miss: rate(31, 34),
+    delta: rate(738, 884),
+};
+
+const PENALTY_W: PenaltySplit = { penalty: rate(14, 9), clean: rate(4, 45) };
+
+test('taxSample prints both denominators and nothing about the guard', () => {
+    expect(missedGreenTaxSample(COST_W)).toBe(
+        'over 34 holes with the green missed vs 26 greens hit',
+    );
+    expect(penaltyTaxSample(PENALTY_W)).toBe('over 9 holes with a penalty vs 45 without');
+    // Never the figure's own d: 34 × 26 = 884 is a guard, not 884 holes.
+    expect(missedGreenTaxSample(COST_W)).not.toContain('884');
+});
+
+test('either side under the floor marks the whole difference thin, in words', () => {
+    expect(penaltyTaxSample({ penalty: rate(14, 9), clean: rate(1, 3) })).toBe(
+        `over 9 holes with a penalty vs 3 without — ${THIN_SAMPLE}`,
+    );
+    expect(missedGreenTaxSample({ hit: rate(1, 2), miss: rate(9, 20), delta: rate(0, 40) })).toBe(
+        `over 20 holes with the green missed vs 2 greens hit — ${THIN_SAMPLE}`,
+    );
+    // Singulars are spelled out, both sides.
+    expect(penaltyTaxSample({ penalty: rate(2, 1), clean: rate(0, 1) })).toBe(
+        `over 1 hole with a penalty vs 1 without — ${THIN_SAMPLE}`,
+    );
+});
+
+test('an empty side has no sample at all — null, so the row prints no line', () => {
+    expect(missedGreenTaxSample({ hit: rate(0, 0), miss: rate(9, 20), delta: rate(0, 0) })).toBeNull();
+    expect(penaltyTaxSample({ penalty: rate(14, 9), clean: rate(0, 0) })).toBeNull();
+    expect(taxSample(rate(0, 0), UNIT_ROUNDS, rate(1, 9), UNIT_GREENS)).toBeNull();
 });

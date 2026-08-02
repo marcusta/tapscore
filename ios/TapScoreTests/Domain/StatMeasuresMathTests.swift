@@ -103,6 +103,49 @@ final class StatMeasuresMathTests: XCTestCase {
         m.puttsTotalInside1mResolved = 2
         m.puttsTotal2To4mResolved = 2
         m.puttsTotalOver8mResolved = 3
+        // Cost of a missed green. Hit = H1 (E), H4 (+1), H5 (−1) → 0 over 3.
+        // Miss = H2 (+2), H3 (−1) → +1 over 2.
+        m.strokesVsParGirHit = 0
+        m.holesScoredGirMiss = 2
+        m.strokesVsParGirMiss = 1
+        // GIR by par: H3 is the par 3 (missed), H1/H2/H5 the par 4s (2 hit),
+        // H4 the par 5 (hit). 1 + 3 + 1 = 5 = girRecorded.
+        m.girRecordedPar3 = 1
+        m.girHitsPar3 = 0
+        m.girRecordedPar4 = 3
+        m.girHitsPar4 = 2
+        m.girRecordedPar5 = 1
+        m.girHitsPar5 = 1
+        // The putt-count partition: H3 holed it (0), H2 and H5 one-putted,
+        // H1 two-putted, H4 three-putted. 1 + 2 + 1 + threePutts(1) = 5.
+        m.holesZeroPutt = 1
+        m.holesOnePutt = 2
+        m.holesTwoPutt = 1
+        // Putts by par: H3 alone on the par 3 with none; H1+H2+H5 = 2+1+1 on
+        // the par 4s; H4's 3 on the par 5. 1+3+1 = 5, 0+4+3 = 7 = puttsTotal.
+        m.puttsRecordedPar3 = 1
+        m.puttsTotalPar3 = 0
+        m.puttsRecordedPar4 = 3
+        m.puttsTotalPar4 = 4
+        m.puttsRecordedPar5 = 1
+        m.puttsTotalPar5 = 3
+        // Penalty geography: H1 answered 0, H2 answered 1. Both scored, so both
+        // sides of the tax have exactly one hole — H2 at +2, H1 at level.
+        m.holesWithPenalty = 1
+        m.holesScoredPenalty = 1
+        m.strokesVsParPenalty = 2
+        m.holesScoredPenaltyFree = 1
+        m.strokesVsParPenaltyFree = 0
+        // SG-prep. Par-4 tee shots: H1 fairway, H2 trouble, H5 fairway — so
+        // in_play is 2 (cumulative, the two fairways). H4 is the lone par 5.
+        m.teeRecordedPar4 = 3
+        m.fairwayHitsPar4 = 2
+        m.inPlayHitsPar4 = 2
+        m.troubleCountPar4 = 1
+        m.teeRecordedPar5 = 1
+        m.fairwayHitsPar5 = 0
+        m.inPlayHitsPar5 = 1
+        m.troubleCountPar5 = 0
     }
 
     /// A full eighteen with every short-game term populated.
@@ -352,6 +395,37 @@ final class StatMeasuresMathTests: XCTestCase {
         m.puttsTotal2To4mResolved = 81
         m.puttsTotal4To8mResolved = 82
         m.puttsTotalOver8mResolved = 83
+        m.strokesVsParGirHit = 84
+        m.holesScoredGirMiss = 85
+        m.strokesVsParGirMiss = 86
+        m.girRecordedPar3 = 87
+        m.girHitsPar3 = 88
+        m.girRecordedPar4 = 89
+        m.girHitsPar4 = 90
+        m.girRecordedPar5 = 91
+        m.girHitsPar5 = 92
+        m.holesZeroPutt = 93
+        m.holesOnePutt = 94
+        m.holesTwoPutt = 95
+        m.puttsRecordedPar3 = 96
+        m.puttsTotalPar3 = 97
+        m.puttsRecordedPar4 = 98
+        m.puttsTotalPar4 = 99
+        m.puttsRecordedPar5 = 100
+        m.puttsTotalPar5 = 101
+        m.holesWithPenalty = 102
+        m.holesScoredPenalty = 103
+        m.strokesVsParPenalty = 104
+        m.holesScoredPenaltyFree = 105
+        m.strokesVsParPenaltyFree = 106
+        m.teeRecordedPar4 = 107
+        m.fairwayHitsPar4 = 108
+        m.inPlayHitsPar4 = 109
+        m.troubleCountPar4 = 110
+        m.teeRecordedPar5 = 111
+        m.fairwayHitsPar5 = 112
+        m.inPlayHitsPar5 = 113
+        m.troubleCountPar5 = 114
     }
 
     func testEveryMeasureColumnIsAdditiveIncludingTheOnesNoRateReads() throws {
@@ -368,8 +442,8 @@ final class StatMeasuresMathTests: XCTestCase {
         // The count is asserted (and mirrored in the TypeScript twin) so that a
         // field added to the server's measure set and forgotten in the fixture
         // is caught, rather than sweeping a smaller set and passing.
-        XCTAssertEqual(singleFields.count, 83)
-        XCTAssertEqual(Set(singleFields.values).count, 83)
+        XCTAssertEqual(singleFields.count, 114)
+        XCTAssertEqual(Set(singleFields.values).count, 114)
         for (key, single) in singleFields {
             XCTAssertEqual(doubledFields[key], single * 2, "column \(key) is not additive")
         }
@@ -381,7 +455,7 @@ final class StatMeasuresMathTests: XCTestCase {
         let doubledExample = try decoder.decode(
             [String: Double].self,
             from: encoder.encode(StatMeasuresMath.sum([workedExample, workedExample])))
-        XCTAssertEqual(exampleFields.count, 83)
+        XCTAssertEqual(exampleFields.count, 114)
         for (key, single) in exampleFields {
             XCTAssertEqual(doubledExample[key], single * 2, "column \(key) is not additive")
         }
@@ -1166,6 +1240,174 @@ final class StatMeasuresMathTests: XCTestCase {
         assertClose(
             StatMeasuresMath.baselineDeltas(round: round, window: prior + [round]).putting,
             -1 - 4.0 / 6.0)
+    }
+
+    // MARK: - Wave 3 cross-tabs (spec §C)
+
+    /// The rendered-string oracle's window **W** (spec §D.4). Only the fields
+    /// the new blocks read are set; every other column is zero, which is exactly
+    /// what the oracle says. Field for field the web twin's fixture.
+    ///
+    /// Consistency built in: `girHitsPar3+4+5 = 26 = girHits`;
+    /// `girRecordedPar3+4+5 = 60 = girRecorded = girHolesScored +
+    /// holesScoredGirMiss`; the four putt buckets sum to 54 = `puttsRecorded`;
+    /// `puttsRecordedPar*` sum to 54 and `puttsTotalPar*` to 100 = `puttsTotal`.
+    static func windowW() -> StatMeasures {
+        var m = StatMeasuresMath.zero
+        m.girRecorded = 60
+        m.girHits = 26
+        m.girHolesScored = 26
+        m.strokesVsParGirHit = 2
+        m.holesScoredGirMiss = 34
+        m.strokesVsParGirMiss = 31
+        m.girRecordedPar3 = 12
+        m.girHitsPar3 = 5
+        m.girRecordedPar4 = 36
+        m.girHitsPar4 = 14
+        m.girRecordedPar5 = 12
+        m.girHitsPar5 = 7
+        m.puttsRecorded = 54
+        m.puttsTotal = 100
+        m.holesZeroPutt = 3
+        m.holesOnePutt = 18
+        m.holesTwoPutt = 27
+        m.threePutts = 6
+        m.puttsRecordedPar3 = 12
+        m.puttsTotalPar3 = 21
+        m.puttsRecordedPar4 = 30
+        m.puttsTotalPar4 = 56
+        m.puttsRecordedPar5 = 12
+        m.puttsTotalPar5 = 23
+        m.penaltiesRecorded = 54
+        m.holesWithPenalty = 9
+        m.holesScoredPenalty = 9
+        m.strokesVsParPenalty = 14
+        m.holesScoredPenaltyFree = 45
+        m.strokesVsParPenaltyFree = 4
+        return m
+    }
+
+    /// The oracle's own arithmetic, before any formatter touches it.
+    func testWindowWIsTheHandComputedArithmeticOfTheCrossTabs() {
+        let m = Self.windowW()
+
+        let gir = StatMeasuresMath.girByPar(m)
+        assertClose(gir.par3.value, 5.0 / 12.0)   // 0.4166666666666667
+        assertClose(gir.par4.value, 14.0 / 36.0)  // 0.3888888888888889
+        assertClose(gir.par5.value, 7.0 / 12.0)   // 0.5833333333333334
+        // The three denominators partition the recorded greens.
+        XCTAssertEqual(gir.par3.d + gir.par4.d + gir.par5.d, m.girRecorded)
+        XCTAssertEqual(gir.par3.n + gir.par4.n + gir.par5.n, m.girHits)
+
+        let cost = StatMeasuresMath.costOfMissedGreen(m)
+        assertClose(cost.hit.value, 2.0 / 26.0)
+        assertClose(cost.miss.value, 31.0 / 34.0)
+        // (31·26 − 2·34)/(34·26) = 738/884
+        assertClose(cost.delta.value, 738.0 / 884.0)
+        // The delta's `d` is the CROSS-PRODUCT guard, never a sample.
+        XCTAssertEqual(cost.delta.d, 34 * 26)
+
+        let dist = StatMeasuresMath.puttDistribution(m)
+        assertClose(dist[.zero]?.value, 3.0 / 54.0)
+        assertClose(dist[.one]?.value, 18.0 / 54.0)
+        assertClose(dist[.two]?.value, 0.5)
+        assertClose(dist[.threePlus]?.value, 6.0 / 54.0)
+        // A partition: the four shares add to exactly 1.
+        assertClose(
+            PuttCountBucket.allCases.reduce(0) { $0 + (dist[$1]?.value ?? 0) }, 1, accuracy: 1e-12)
+
+        let putts = StatMeasuresMath.puttsPerHoleByPar(m)
+        assertClose(putts.par3.value, 1.75)
+        assertClose(putts.par4.value, 56.0 / 30.0)
+        assertClose(putts.par5.value, 23.0 / 12.0)
+        XCTAssertEqual(putts.par3.d + putts.par4.d + putts.par5.d, m.puttsRecorded)
+        XCTAssertEqual(putts.par3.n + putts.par4.n + putts.par5.n, m.puttsTotal)
+
+        assertClose(StatMeasuresMath.penaltyHoleShare(m).value, 9.0 / 54.0)
+        let byPenalty = StatMeasuresMath.vsParByPenalty(m)
+        assertClose(byPenalty.penalty.value, 14.0 / 9.0)
+        assertClose(byPenalty.clean.value, 4.0 / 45.0)
+        // (14·45 − 4·9)/(9·45) = 594/405
+        assertClose(StatMeasuresMath.penaltyTax(m).value, 594.0 / 405.0)
+        XCTAssertEqual(StatMeasuresMath.penaltyTax(m).d, 9 * 45)
+    }
+
+    /// The worked example, whose row the server test pins — the same six holes
+    /// the fixture above documents.
+    func testTheWorkedExampleCrossTabsMatchTheServerRow() {
+        let cost = StatMeasuresMath.costOfMissedGreen(workedExample)
+        XCTAssertEqual(cost.hit.value, 0)      // 0 over 3 greens hit and scored
+        XCTAssertEqual(cost.miss.value, 0.5)   // +1 over 2
+        // (1·3 − 0·2)/(2·3) = 0.5 — the miss costs half a stroke a hole here.
+        XCTAssertEqual(cost.delta.value, 0.5)
+
+        let gir = StatMeasuresMath.girByPar(workedExample)
+        XCTAssertEqual(gir.par3.value, 0)          // H3, missed
+        assertClose(gir.par4.value, 2.0 / 3.0)
+        XCTAssertEqual(gir.par5.value, 1)
+
+        let dist = StatMeasuresMath.puttDistribution(workedExample)
+        XCTAssertEqual(dist[.zero]?.n, 1)
+        XCTAssertEqual(dist[.one]?.n, 2)
+        XCTAssertEqual(dist[.two]?.n, 1)
+        XCTAssertEqual(dist[.threePlus]?.n, 1)
+        XCTAssertEqual(dist[.zero]?.d, workedExample.puttsRecorded)
+
+        let putts = StatMeasuresMath.puttsPerHoleByPar(workedExample)
+        XCTAssertEqual(putts.par3.value, 0)
+        assertClose(putts.par4.value, 4.0 / 3.0)
+        XCTAssertEqual(putts.par5.value, 3)
+
+        XCTAssertEqual(StatMeasuresMath.penaltyHoleShare(workedExample).value, 0.5)
+        let byPenalty = StatMeasuresMath.vsParByPenalty(workedExample)
+        XCTAssertEqual(byPenalty.penalty.value, 2)
+        XCTAssertEqual(byPenalty.clean.value, 0)
+        XCTAssertEqual(StatMeasuresMath.penaltyTax(workedExample).value, 2)
+    }
+
+    /// nil is "not recorded" here too, and a difference is nil as soon as
+    /// EITHER of its sides is — never zero, never a one-sided reading.
+    func testACrossTabWithNoSampleIsNilOnBothSidesAndInTheDifference() {
+        let empty = StatMeasuresMath.zero
+        let cost = StatMeasuresMath.costOfMissedGreen(empty)
+        XCTAssertNil(cost.hit.value)
+        XCTAssertNil(cost.miss.value)
+        XCTAssertNil(cost.delta.value)
+
+        // One side alone still leaves the difference nil.
+        let missOnly = measures {
+            $0.holesScoredGirMiss = 6
+            $0.strokesVsParGirMiss = 9
+        }
+        let oneSided = StatMeasuresMath.costOfMissedGreen(missOnly)
+        XCTAssertEqual(oneSided.miss.value, 1.5)
+        XCTAssertNil(oneSided.hit.value)
+        XCTAssertNil(oneSided.delta.value)
+
+        let gir = StatMeasuresMath.girByPar(empty)
+        XCTAssertNil(gir.par3.value)
+        XCTAssertNil(gir.par4.value)
+        XCTAssertNil(gir.par5.value)
+        for bucket in PuttCountBucket.allCases {
+            XCTAssertNil(StatMeasuresMath.puttDistribution(empty)[bucket]?.value)
+        }
+        XCTAssertNil(StatMeasuresMath.penaltyHoleShare(empty).value)
+        XCTAssertNil(StatMeasuresMath.penaltyTax(empty).value)
+    }
+
+    /// No clamping: scoring better off a miss than off a hit is a real reading
+    /// of a small sample, and it prints as a negative rather than as a zero.
+    func testANegativeMissedGreenTaxIsKeptAsIs() {
+        let m = measures {
+            $0.girHolesScored = 4
+            $0.strokesVsParGirHit = 8
+            $0.holesScoredGirMiss = 4
+            $0.strokesVsParGirMiss = 4
+        }
+        let cost = StatMeasuresMath.costOfMissedGreen(m)
+        XCTAssertEqual(cost.hit.value, 2)
+        XCTAssertEqual(cost.miss.value, 1)
+        XCTAssertEqual(cost.delta.value, -1)
     }
 
     func testTheWorkedExampleEndToEndCountsInRankedLinesOut() throws {

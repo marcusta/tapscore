@@ -137,6 +137,37 @@ export interface StatMeasures {
     puttsTotal2To4mResolved: number;
     puttsTotal4To8mResolved: number;
     puttsTotalOver8mResolved: number;
+    strokesVsParGirHit: number;
+    holesScoredGirMiss: number;
+    strokesVsParGirMiss: number;
+    girRecordedPar3: number;
+    girHitsPar3: number;
+    girRecordedPar4: number;
+    girHitsPar4: number;
+    girRecordedPar5: number;
+    girHitsPar5: number;
+    holesZeroPutt: number;
+    holesOnePutt: number;
+    holesTwoPutt: number;
+    puttsRecordedPar3: number;
+    puttsTotalPar3: number;
+    puttsRecordedPar4: number;
+    puttsTotalPar4: number;
+    puttsRecordedPar5: number;
+    puttsTotalPar5: number;
+    holesWithPenalty: number;
+    holesScoredPenalty: number;
+    strokesVsParPenalty: number;
+    holesScoredPenaltyFree: number;
+    strokesVsParPenaltyFree: number;
+    teeRecordedPar4: number;
+    fairwayHitsPar4: number;
+    inPlayHitsPar4: number;
+    troubleCountPar4: number;
+    teeRecordedPar5: number;
+    fairwayHitsPar5: number;
+    inPlayHitsPar5: number;
+    troubleCountPar5: number;
 }
 
 export interface PlayerRoundStats {

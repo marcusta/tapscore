@@ -80,16 +80,30 @@ final class StatsPanelViewsTests: XCTestCase {
     func testThePenaltyFigureIsOmittedUntilAPenaltyAnswerExists() {
         XCTAssertTrue(StatsPanelsView.penaltiesFigure(teePanel { $0.teeRecorded = 14 }).isEmpty)
 
+        // Three penalty strokes across two holes, both of them scored, and no
+        // penalty-FREE hole scored at all — a pickup round. Every column agrees
+        // with every other, which is the only shape the server can emit.
         let recorded = teePanel {
             $0.teeRecorded = 14
             $0.penaltiesRecorded = 36
             $0.penaltiesTotal = 3
+            $0.holesWithPenalty = 2
+            $0.holesScoredPenalty = 2
+            $0.strokesVsParPenalty = 3
         }
         let figure = StatsPanelsView.penaltiesFigure(recorded)
-        XCTAssertEqual(figure.count, 1)
-        XCTAssertEqual(figure[0].title, "Penalties")
+        // One gate, three rows: the family arrives together (see the wave-3
+        // block tests below for what each one says).
+        XCTAssertEqual(figure.map(\.title), ["Penalties", "Holes with a penalty", "Penalty tax"])
         XCTAssertEqual(figure[0].value, "3.00 (over 1 round — thin sample)")
         XCTAssertEqual(figure[0].hint, "Penalty strokes per round. Recorded on 36 holes.")
+        // 2 of 36 = 5.55…%, and the denominator clears the floor, so it reads as
+        // a percentage with its fraction beside it.
+        XCTAssertEqual(figure[1].value, "6% (2 of 36)")
+        // The clean side has no scored hole, so the difference has no sample on
+        // one side and the tax reads "Not recorded" with no line under it.
+        XCTAssertNil(figure[2].value)
+        XCTAssertNil(figure[2].hint)
     }
 
     func testTheHardChipShareIsOmittedWhenNoGreenWasMissed() {
@@ -156,6 +170,221 @@ final class StatsPanelViewsTests: XCTestCase {
         XCTAssertEqual(figure.count, 1)
         XCTAssertEqual(figure[0].title, "Putts after a missed green")
         XCTAssertEqual(figure[0].value, "1.90 (over 10 holes)")
+    }
+
+    // MARK: - The wave-3 blocks
+
+    /// The rendered-string oracle's window **W** — the same numbers the web
+    /// twin's fixture carries. Every string asserted below must match it byte
+    /// for byte on both surfaces.
+    private static func windowW() -> StatMeasures {
+        var m = StatMeasuresMath.zero
+        m.girRecorded = 60
+        m.girHits = 26
+        m.girHolesScored = 26
+        m.strokesVsParGirHit = 2
+        m.holesScoredGirMiss = 34
+        m.strokesVsParGirMiss = 31
+        m.girRecordedPar3 = 12
+        m.girHitsPar3 = 5
+        m.girRecordedPar4 = 36
+        m.girHitsPar4 = 14
+        m.girRecordedPar5 = 12
+        m.girHitsPar5 = 7
+        m.puttsRecorded = 54
+        m.puttsTotal = 100
+        m.holesZeroPutt = 3
+        m.holesOnePutt = 18
+        m.holesTwoPutt = 27
+        m.threePutts = 6
+        m.puttsRecordedPar3 = 12
+        m.puttsTotalPar3 = 21
+        m.puttsRecordedPar4 = 30
+        m.puttsTotalPar4 = 56
+        m.puttsRecordedPar5 = 12
+        m.puttsTotalPar5 = 23
+        m.penaltiesRecorded = 54
+        m.holesWithPenalty = 9
+        m.holesScoredPenalty = 9
+        m.strokesVsParPenalty = 14
+        m.holesScoredPenaltyFree = 45
+        m.strokesVsParPenaltyFree = 4
+        m.teeRecorded = 44
+        return m
+    }
+
+    private func approachPanel(_ mutate: (inout StatMeasures) -> Void = { _ in })
+        -> StatsApproachPanel
+    {
+        var m = Self.windowW()
+        mutate(&m)
+        guard let panel = StatsDashboardModel.approachPanel(m) else {
+            fatalError("fixture has girRecorded > 0, panel cannot be nil")
+        }
+        return panel
+    }
+
+    private func puttingPanel(_ mutate: (inout StatMeasures) -> Void = { _ in })
+        -> StatsPuttingPanel
+    {
+        var m = Self.windowW()
+        mutate(&m)
+        guard let panel = StatsDashboardModel.puttingPanel(m) else {
+            fatalError("fixture has puttsRecorded > 0, panel cannot be nil")
+        }
+        return panel
+    }
+
+    private func windowWTeePanel(_ mutate: (inout StatMeasures) -> Void = { _ in })
+        -> StatsTeePanel
+    {
+        var m = Self.windowW()
+        mutate(&m)
+        guard let panel = StatsDashboardModel.teePanel(m, roundCount: 3) else {
+            fatalError("fixture has teeRecorded > 0, panel cannot be nil")
+        }
+        return panel
+    }
+
+    func testGreensByParRenderAsPercentagesOverTheirOwnDenominators() {
+        let items = StatsPanelsView.girByParItems(approachPanel())
+
+        XCTAssertEqual(items.map(\.title), ["Par 3", "Par 4", "Par 5"])
+        XCTAssertEqual(items.map { StatsFormat.rate($0.rate) }, ["42%", "39%", "58%"])
+        XCTAssertEqual(items[0].rate.value!, 0.4166666666666667, accuracy: 1e-15)
+        XCTAssertEqual(items[1].rate.value!, 0.3888888888888889, accuracy: 1e-15)
+        XCTAssertEqual(items[2].rate.value!, 0.5833333333333334, accuracy: 1e-15)
+    }
+
+    /// A par bucket under the floor degrades to its fraction and draws no bar,
+    /// while its siblings keep their percentages — the rows are independent
+    /// samples, not one shared one.
+    func testAThinParBucketDegradesToItsFractionOnItsOwn() {
+        let items = StatsPanelsView.girByParItems(
+            approachPanel {
+                $0.girRecordedPar5 = 3
+                $0.girHitsPar5 = 2
+            })
+
+        XCTAssertTrue(StatsFormat.isThin(items[2].rate))
+        XCTAssertEqual(StatsFormat.rate(items[2].rate), "2 of 3")
+        XCTAssertFalse(StatsFormat.isThin(items[0].rate))
+        XCTAssertEqual(StatsFormat.rate(items[0].rate), "42%")
+    }
+
+    func testTheCostOfAMissedGreenReadsAsTwoSidesAndOneTax() {
+        let figures = StatsPanelsView.costOfMissedGreenFigures(approachPanel())
+
+        XCTAssertEqual(figures.map(\.title), ["Green hit", "Green missed", "Missed-green tax"])
+        XCTAssertEqual(figures[0].value, "+0.08 (over 26 greens)")
+        XCTAssertNil(figures[0].hint)
+        XCTAssertEqual(figures[1].value, "+0.91 (over 34 holes)")
+        XCTAssertNil(figures[1].hint)
+        // The tax carries no sample of its own — its `d` is a cross-product.
+        XCTAssertEqual(figures[2].value, "+0.83")
+        XCTAssertEqual(
+            figures[2].hint,
+            "Measured over 34 holes with the green missed vs 26 greens hit.")
+    }
+
+    /// Scoring UNDER par off greens hit is a real reading, and it prints with a
+    /// real minus sign (U+2212), not a hyphen.
+    func testAGainOffTheGreensHitKeepsItsMinusSign() {
+        let figures = StatsPanelsView.costOfMissedGreenFigures(
+            approachPanel { $0.strokesVsParGirHit = -6 })
+
+        XCTAssertEqual(figures[0].value, "\u{2212}0.23 (over 26 greens)")
+        XCTAssertFalse(figures[0].value!.contains("-"))
+    }
+
+    /// The panel can exist on `girRecorded` alone, with no scored hole behind
+    /// any green. Then the whole group goes rather than three "Not recorded"s.
+    func testTheCostGroupIsOmittedWhenNoGreenHasAScoredHole() {
+        XCTAssertTrue(
+            StatsPanelsView.costOfMissedGreenFigures(
+                approachPanel {
+                    $0.girHolesScored = 0
+                    $0.strokesVsParGirHit = 0
+                    $0.holesScoredGirMiss = 0
+                    $0.strokesVsParGirMiss = 0
+                }
+            ).isEmpty)
+    }
+
+    func testHolesByPuttsRenderAsAPercentagePartition() {
+        let items = StatsPanelsView.puttDistributionItems(puttingPanel())
+
+        XCTAssertEqual(
+            items.map(\.title), ["No putts", "One putt", "Two putts", "Three or more"])
+        XCTAssertEqual(items.map { StatsFormat.rate($0.rate) }, ["6%", "33%", "50%", "11%"])
+        XCTAssertEqual(items[0].rate.value!, 0.05555555555555555, accuracy: 1e-15)
+        XCTAssertEqual(items[1].rate.value!, 0.3333333333333333, accuracy: 1e-15)
+        XCTAssertEqual(items[2].rate.value!, 0.5, accuracy: 1e-15)
+        XCTAssertEqual(items[3].rate.value!, 0.1111111111111111, accuracy: 1e-15)
+    }
+
+    /// The panel can stand on `firstPuttRecorded` alone. With no putt COUNT
+    /// anywhere the histogram is four zeroes over nothing, so it goes — and the
+    /// by-par partition, which shares that denominator, goes with it.
+    func testHolesByPuttsIsOmittedWhenNoPuttCountWasRecorded() {
+        var m = StatMeasuresMath.zero
+        m.firstPuttRecorded = 12
+        m.firstPuttInside1mResolved = 12
+        guard let panel = StatsDashboardModel.puttingPanel(m) else {
+            return XCTFail("firstPuttRecorded > 0 gates the panel in")
+        }
+        XCTAssertTrue(StatsPanelsView.puttDistributionItems(panel).isEmpty)
+        XCTAssertTrue(StatsPanelsView.puttsByParFigures(panel).isEmpty)
+    }
+
+    func testPuttsPerHoleByParReadAsUnsignedAveragesWithTheirOwnSamples() {
+        let figures = StatsPanelsView.puttsByParFigures(puttingPanel())
+
+        XCTAssertEqual(figures.map(\.title), ["Par 3", "Par 4", "Par 5"])
+        XCTAssertEqual(figures[0].value, "1.75 (over 12 holes)")
+        XCTAssertEqual(figures[1].value, "1.87 (over 30 holes)")
+        XCTAssertEqual(figures[2].value, "1.92 (over 12 holes)")
+        // Putts are a quantity, so no leading plus anywhere.
+        XCTAssertFalse(figures.contains { $0.value?.hasPrefix("+") == true })
+    }
+
+    func testThePenaltyShareAndTaxSitUnderTheSameCoverageGate() {
+        let figures = StatsPanelsView.penaltiesFigure(windowWTeePanel())
+
+        XCTAssertEqual(
+            figures.map(\.title), ["Penalties", "Holes with a penalty", "Penalty tax"])
+        XCTAssertEqual(figures[1].value, "17% (9 of 54)")
+        XCTAssertNil(figures[1].hint)
+        XCTAssertEqual(figures[2].value, "+1.47")
+        XCTAssertEqual(
+            figures[2].hint, "Measured over 9 holes with a penalty vs 45 without.")
+
+        // No penalty answer at all: the whole family goes, share and tax with it.
+        XCTAssertTrue(
+            StatsPanelsView.penaltiesFigure(
+                windowWTeePanel {
+                    $0.penaltiesRecorded = 0
+                    $0.holesWithPenalty = 0
+                    $0.holesScoredPenalty = 0
+                    $0.strokesVsParPenalty = 0
+                    $0.holesScoredPenaltyFree = 0
+                    $0.strokesVsParPenaltyFree = 0
+                }
+            ).isEmpty)
+    }
+
+    /// A thin side is said in words on the tax's own line, because the number
+    /// itself has no fraction to degrade into.
+    func testAThinSideMakesTheTaxLineSayItsThin() {
+        let figures = StatsPanelsView.penaltiesFigure(
+            windowWTeePanel {
+                $0.holesScoredPenaltyFree = 3
+                $0.strokesVsParPenaltyFree = 0
+            })
+
+        XCTAssertEqual(
+            figures[2].hint,
+            "Measured over 9 holes with a penalty vs 3 without \u{2014} thin sample.")
     }
 
     // MARK: - Results

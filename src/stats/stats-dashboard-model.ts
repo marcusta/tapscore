@@ -22,10 +22,12 @@ import {
     birdieConversion,
     bounceBackRate,
     chipInside2mRate,
+    costOfMissedGreen,
     doubleBogeyPlusPerRound,
     EXPECTED_PUTTS_V1,
     fairwayRate,
     firstPuttMix,
+    girByPar,
     girFirstPuttMix,
     girRate,
     girRateByTee,
@@ -33,9 +35,13 @@ import {
     meanOfPresent,
     onePuttRate,
     penaltiesPerRound,
+    penaltyHoleShare,
+    penaltyTax,
     PUTT_BUCKETS,
+    puttDistribution,
     puttsAfterMissedGreen,
     puttsPerGirHole,
+    puttsPerHoleByPar,
     rate,
     rateDisplay,
     recoveryRate,
@@ -50,15 +56,19 @@ import {
     threePuttsFromOver8mRate,
     troubleRate,
     troubleTaxPerHole,
+    vsParByPenalty,
     ZERO_MEASURES,
     type ByDifficulty,
     type ByParGroup,
     type ByTee,
+    type PenaltySplit,
     type PuttBucket,
+    type PuttCountBucket,
     type Rate,
     type ResultsSummary,
     type StrokesLost,
     type StrokesLostComponent,
+    type VsParSplit,
 } from '../round/stat-measures';
 import { sortRows } from './stats-window';
 // `StatMeasures` is the wire row itself — `stat-measures.ts` consumes it and
@@ -181,6 +191,10 @@ export interface StatsTeePanel {
      * view gates that figure on (invariant 1: absent is not zero).
      */
     penaltiesRecordedHoles: number;
+    penaltyHoleShare: Rate;
+    penaltyTax: Rate;
+    /** The two samples `penaltyTax` is a DIFFERENCE of — see `troubleTax`. */
+    vsParByPenalty: PenaltySplit;
 }
 
 export interface StatsApproachPanel {
@@ -198,6 +212,9 @@ export interface StatsApproachPanel {
      * the short-game card.
      */
     hardChipShare: Rate;
+    girByPar: ByParGroup<Rate>;
+    /** vs-par with the green hit, with it missed, and the difference. */
+    costOfMissedGreen: VsParSplit;
 }
 
 /** One rung of the make-% ladder. */
@@ -229,6 +246,9 @@ export interface StatsPuttingPanel {
     puttsPerGirHole: Rate;
     /** Putts per hole on the holes where the green was missed. */
     puttsAfterMissedGreen: Rate;
+    /** The four buckets, shares of `puttsRecorded`. */
+    puttDistribution: Record<PuttCountBucket, Rate>;
+    puttsPerHoleByPar: ByParGroup<Rate>;
 }
 
 export interface StatsShortGamePanel {
@@ -478,6 +498,9 @@ export function teePanel(m: StatMeasures, roundCount: number): StatsTeePanel | n
         recovery: recoveryRate(m),
         penaltiesPerRound: penaltiesPerRound(m, roundCount),
         penaltiesRecordedHoles: m.penaltiesRecorded,
+        penaltyHoleShare: penaltyHoleShare(m),
+        penaltyTax: penaltyTax(m),
+        vsParByPenalty: vsParByPenalty(m),
     };
 }
 
@@ -491,6 +514,8 @@ export function approachPanel(m: StatMeasures): StatsApproachPanel | null {
         girFirstPuttMix: mix,
         birdieConversion: birdieConversion(m),
         hardChipShare: hardChipShare(m),
+        girByPar: girByPar(m),
+        costOfMissedGreen: costOfMissedGreen(m),
     };
 }
 
@@ -509,6 +534,8 @@ export function puttingPanel(m: StatMeasures): StatsPuttingPanel | null {
         threePuttsFromOver8m: threePuttsFromOver8mRate(m),
         puttsPerGirHole: puttsPerGirHole(m),
         puttsAfterMissedGreen: puttsAfterMissedGreen(m),
+        puttDistribution: puttDistribution(m),
+        puttsPerHoleByPar: puttsPerHoleByPar(m),
     };
 }
 

@@ -26,9 +26,11 @@ import {
     MIN_RATE_DENOMINATOR,
     rateDisplay,
     type ByTee,
+    type PenaltySplit,
     type PuttBucket,
     type Rate,
     type StrokesLostComponent,
+    type VsParSplit,
 } from '../round/stat-measures';
 import { formatRowDate } from '../landing/rows';
 import type { StatsRoundType, StatsVenueType } from './stats-window';
@@ -185,6 +187,45 @@ export function troubleTaxSample(vsParByTee: ByTee<Rate>): string | null {
         ` vs ${quantity(fairway, UNIT_FAIRWAY_HOLES)}`;
     const thin = trouble < MIN_RATE_DENOMINATOR || fairway < MIN_RATE_DENOMINATOR;
     return thin ? `${reading} — ${THIN_SAMPLE}` : reading;
+}
+
+/**
+ * The sample behind a DIFFERENCE of two averages: both denominators, never the
+ * cross-product guard the figure itself carries. Thin if either side is under
+ * the display policy's floor — the difference is only as reliable as its
+ * smaller side.
+ */
+export function taxSample(
+    a: Rate,
+    aUnit: SampleUnit,
+    b: Rate,
+    bUnit: SampleUnit,
+): string | null {
+    if (a.d <= 0 || b.d <= 0) return null;
+    const reading = `over ${quantity(a.d, aUnit)} vs ${quantity(b.d, bUnit)}`;
+    const thin = a.d < MIN_RATE_DENOMINATOR || b.d < MIN_RATE_DENOMINATOR;
+    return thin ? `${reading} — ${THIN_SAMPLE}` : reading;
+}
+
+const UNIT_GREENS_MISSED: SampleUnit = {
+    one: 'hole with the green missed',
+    many: 'holes with the green missed',
+};
+const UNIT_GREENS_HIT: SampleUnit = { one: 'green hit', many: 'greens hit' };
+const UNIT_PENALTY_HOLES: SampleUnit = {
+    one: 'hole with a penalty',
+    many: 'holes with a penalty',
+};
+const UNIT_PENALTY_FREE: SampleUnit = { one: 'without', many: 'without' };
+
+/** "over 34 holes with the green missed vs 26 greens hit". */
+export function missedGreenTaxSample(cost: VsParSplit): string | null {
+    return taxSample(cost.miss, UNIT_GREENS_MISSED, cost.hit, UNIT_GREENS_HIT);
+}
+
+/** "over 9 holes with a penalty vs 45 without". */
+export function penaltyTaxSample(split: PenaltySplit): string | null {
+    return taxSample(split.penalty, UNIT_PENALTY_HOLES, split.clean, UNIT_PENALTY_FREE);
 }
 
 /**

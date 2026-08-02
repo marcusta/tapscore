@@ -174,6 +174,37 @@ export const ZERO_MEASURES: StatMeasures = Object.freeze({
         puttsTotal2To4mResolved: 0,
         puttsTotal4To8mResolved: 0,
         puttsTotalOver8mResolved: 0,
+        strokesVsParGirHit: 0,
+        holesScoredGirMiss: 0,
+        strokesVsParGirMiss: 0,
+        girRecordedPar3: 0,
+        girHitsPar3: 0,
+        girRecordedPar4: 0,
+        girHitsPar4: 0,
+        girRecordedPar5: 0,
+        girHitsPar5: 0,
+        holesZeroPutt: 0,
+        holesOnePutt: 0,
+        holesTwoPutt: 0,
+        puttsRecordedPar3: 0,
+        puttsTotalPar3: 0,
+        puttsRecordedPar4: 0,
+        puttsTotalPar4: 0,
+        puttsRecordedPar5: 0,
+        puttsTotalPar5: 0,
+        holesWithPenalty: 0,
+        holesScoredPenalty: 0,
+        strokesVsParPenalty: 0,
+        holesScoredPenaltyFree: 0,
+        strokesVsParPenaltyFree: 0,
+        teeRecordedPar4: 0,
+        fairwayHitsPar4: 0,
+        inPlayHitsPar4: 0,
+        troubleCountPar4: 0,
+        teeRecordedPar5: 0,
+        fairwayHitsPar5: 0,
+        inPlayHitsPar5: 0,
+        troubleCountPar5: 0,
 });
 
 /**
@@ -271,6 +302,37 @@ export function addMeasures(a: StatMeasures, b: StatMeasures): StatMeasures {
         puttsTotal2To4mResolved: a.puttsTotal2To4mResolved + b.puttsTotal2To4mResolved,
         puttsTotal4To8mResolved: a.puttsTotal4To8mResolved + b.puttsTotal4To8mResolved,
         puttsTotalOver8mResolved: a.puttsTotalOver8mResolved + b.puttsTotalOver8mResolved,
+        strokesVsParGirHit: a.strokesVsParGirHit + b.strokesVsParGirHit,
+        holesScoredGirMiss: a.holesScoredGirMiss + b.holesScoredGirMiss,
+        strokesVsParGirMiss: a.strokesVsParGirMiss + b.strokesVsParGirMiss,
+        girRecordedPar3: a.girRecordedPar3 + b.girRecordedPar3,
+        girHitsPar3: a.girHitsPar3 + b.girHitsPar3,
+        girRecordedPar4: a.girRecordedPar4 + b.girRecordedPar4,
+        girHitsPar4: a.girHitsPar4 + b.girHitsPar4,
+        girRecordedPar5: a.girRecordedPar5 + b.girRecordedPar5,
+        girHitsPar5: a.girHitsPar5 + b.girHitsPar5,
+        holesZeroPutt: a.holesZeroPutt + b.holesZeroPutt,
+        holesOnePutt: a.holesOnePutt + b.holesOnePutt,
+        holesTwoPutt: a.holesTwoPutt + b.holesTwoPutt,
+        puttsRecordedPar3: a.puttsRecordedPar3 + b.puttsRecordedPar3,
+        puttsTotalPar3: a.puttsTotalPar3 + b.puttsTotalPar3,
+        puttsRecordedPar4: a.puttsRecordedPar4 + b.puttsRecordedPar4,
+        puttsTotalPar4: a.puttsTotalPar4 + b.puttsTotalPar4,
+        puttsRecordedPar5: a.puttsRecordedPar5 + b.puttsRecordedPar5,
+        puttsTotalPar5: a.puttsTotalPar5 + b.puttsTotalPar5,
+        holesWithPenalty: a.holesWithPenalty + b.holesWithPenalty,
+        holesScoredPenalty: a.holesScoredPenalty + b.holesScoredPenalty,
+        strokesVsParPenalty: a.strokesVsParPenalty + b.strokesVsParPenalty,
+        holesScoredPenaltyFree: a.holesScoredPenaltyFree + b.holesScoredPenaltyFree,
+        strokesVsParPenaltyFree: a.strokesVsParPenaltyFree + b.strokesVsParPenaltyFree,
+        teeRecordedPar4: a.teeRecordedPar4 + b.teeRecordedPar4,
+        fairwayHitsPar4: a.fairwayHitsPar4 + b.fairwayHitsPar4,
+        inPlayHitsPar4: a.inPlayHitsPar4 + b.inPlayHitsPar4,
+        troubleCountPar4: a.troubleCountPar4 + b.troubleCountPar4,
+        teeRecordedPar5: a.teeRecordedPar5 + b.teeRecordedPar5,
+        fairwayHitsPar5: a.fairwayHitsPar5 + b.fairwayHitsPar5,
+        inPlayHitsPar5: a.inPlayHitsPar5 + b.inPlayHitsPar5,
+        troubleCountPar5: a.troubleCountPar5 + b.troubleCountPar5,
     };
 }
 
@@ -299,6 +361,32 @@ export const PUTT_BUCKETS: readonly PuttBucket[] = [
     '4_to_8m',
     'over_8m',
 ];
+
+/** The four putt-count buckets. They partition `puttsRecorded`. */
+export type PuttCountBucket = 'zero' | 'one' | 'two' | 'threePlus';
+export const PUTT_COUNT_BUCKETS: readonly PuttCountBucket[] = [
+    'zero',
+    'one',
+    'two',
+    'threePlus',
+];
+
+/**
+ * Two vs-par averages and the difference between them. `delta` is the
+ * trouble-tax construction: its `d` is a CROSS-PRODUCT GUARD, not a sample —
+ * never feed it to `rateDisplay` as one. Print both sides instead.
+ */
+export interface VsParSplit {
+    hit: Rate;
+    miss: Rate;
+    delta: Rate;
+}
+
+/** The two vs-par sides of the penalty tax. */
+export interface PenaltySplit {
+    penalty: Rate;
+    clean: Rate;
+}
 
 /**
  * Holes in this bucket whose putt count is also recorded — the ONLY legal
@@ -398,6 +486,32 @@ export function troubleRate(m: StatMeasures): Rate {
     return rate(m.troubleCount, m.teeRecorded);
 }
 
+/** How often a hole that answered the penalty question carried one. */
+export function penaltyHoleShare(m: StatMeasures): Rate {
+    return rate(m.holesWithPenalty, m.penaltiesRecorded);
+}
+
+/** The two vs-par sides the penalty tax is a difference of. */
+export function vsParByPenalty(m: StatMeasures): PenaltySplit {
+    return {
+        penalty: rate(m.strokesVsParPenalty, m.holesScoredPenalty),
+        clean: rate(m.strokesVsParPenaltyFree, m.holesScoredPenaltyFree),
+    };
+}
+
+/**
+ * Extra strokes per hole on the holes that took a penalty, against the player's
+ * own penalty-free holes. Same construction as `troubleTaxPerHole`: the `d` is
+ * a cross-product GUARD, not a sample — the view prints `vsParByPenalty`'s two
+ * denominators instead.
+ */
+export function penaltyTax(m: StatMeasures): Rate {
+    const numerator =
+        m.strokesVsParPenalty * m.holesScoredPenaltyFree -
+        m.strokesVsParPenaltyFree * m.holesScoredPenalty;
+    return rate(numerator, m.holesScoredPenalty * m.holesScoredPenaltyFree);
+}
+
 /** Escaping trouble without further damage, over the times it was asked. */
 export function recoveryRate(m: StatMeasures): Rate {
     return rate(m.recoverySuccesses, m.recoveryAttempts);
@@ -463,6 +577,36 @@ export function girRateByTee(m: StatMeasures): ByTee<Rate> {
         fairway: rate(m.girHitsFairway, m.girRecordedFairway),
         inPlay: rate(m.girHitsInPlay, m.girRecordedInPlay),
         trouble: rate(m.girHitsTrouble, m.girRecordedTrouble),
+    };
+}
+
+/** Greens hit by par. The three denominators partition `girRecorded`. */
+export function girByPar(m: StatMeasures): ByParGroup<Rate> {
+    return {
+        par3: rate(m.girHitsPar3, m.girRecordedPar3),
+        par4: rate(m.girHitsPar4, m.girRecordedPar4),
+        par5: rate(m.girHitsPar5, m.girRecordedPar5),
+    };
+}
+
+/**
+ * What a missed green costs, in strokes vs par per hole.
+ *
+ * `hit` is over `girHolesScored` (greens hit AND scored), `miss` over
+ * `holesScoredGirMiss`. `delta` = miss − hit, put over the cross-product of the
+ * two hole counts so it stays a `Rate` and cannot be zeroed by an empty side.
+ * Positive = a missed green costs you strokes.
+ */
+export function costOfMissedGreen(m: StatMeasures): VsParSplit {
+    const hit = rate(m.strokesVsParGirHit, m.girHolesScored);
+    const miss = rate(m.strokesVsParGirMiss, m.holesScoredGirMiss);
+    const numerator =
+        m.strokesVsParGirMiss * m.girHolesScored -
+        m.strokesVsParGirHit * m.holesScoredGirMiss;
+    return {
+        hit,
+        miss,
+        delta: rate(numerator, m.holesScoredGirMiss * m.girHolesScored),
     };
 }
 
@@ -534,6 +678,30 @@ export function puttsPerFirstPutt(m: StatMeasures, bucket: PuttBucket): Rate {
  */
 export function threePuttRate(m: StatMeasures): Rate {
     return rate(m.threePutts, m.puttsRecorded);
+}
+
+/**
+ * The four putt-count buckets as shares of `puttsRecorded`. They PARTITION it,
+ * so the four values sum to 1 whenever the denominator is non-zero — which is
+ * why they share one denominator rather than each carrying its own.
+ */
+export function puttDistribution(m: StatMeasures): Record<PuttCountBucket, Rate> {
+    const d = m.puttsRecorded;
+    return {
+        zero: rate(m.holesZeroPutt, d),
+        one: rate(m.holesOnePutt, d),
+        two: rate(m.holesTwoPutt, d),
+        threePlus: rate(m.threePutts, d),
+    };
+}
+
+/** Average putts per recorded hole, by par. Not a share — an average. */
+export function puttsPerHoleByPar(m: StatMeasures): ByParGroup<Rate> {
+    return {
+        par3: rate(m.puttsTotalPar3, m.puttsRecordedPar3),
+        par4: rate(m.puttsTotalPar4, m.puttsRecordedPar4),
+        par5: rate(m.puttsTotalPar5, m.puttsRecordedPar5),
+    };
 }
 
 /** The lag-putting flag: three-putts from > 8m over resolved > 8m first putts. */

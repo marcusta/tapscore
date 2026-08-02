@@ -417,6 +417,112 @@ final class StatsDashboardModelTests: XCTestCase {
         XCTAssertEqual(model.tee?.penaltiesRecordedHoles, 0)
     }
 
+    // MARK: - 7b. The wave-3 cross-tabs
+
+    /// The cross-tabs sum ACROSS the window before any rate is taken — two
+    /// rounds' par-3 greens make one par-3 rate, not the mean of two.
+    func testTheCrossTabsAggregateOverTheWindowBeforeDividing() {
+        let model = StatsDashboardModel.build(rows: [
+            row(
+                "a", date: "2026-07-02",
+                measures {
+                    $0.teeRecorded = 18
+                    $0.girRecorded = 18
+                    $0.girRecordedPar3 = 4
+                    $0.girHitsPar3 = 1
+                    $0.girRecordedPar4 = 10
+                    $0.girHitsPar4 = 5
+                    $0.girRecordedPar5 = 4
+                    $0.girHitsPar5 = 3
+                    $0.puttsRecorded = 18
+                    $0.holesZeroPutt = 1
+                    $0.holesOnePutt = 7
+                    $0.holesTwoPutt = 8
+                    $0.threePutts = 2
+                    $0.puttsRecordedPar3 = 4
+                    $0.puttsTotalPar3 = 8
+                    $0.penaltiesRecorded = 18
+                    $0.holesWithPenalty = 2
+                    $0.holesScoredPenalty = 2
+                    $0.strokesVsParPenalty = 3
+                    $0.holesScoredPenaltyFree = 16
+                    $0.strokesVsParPenaltyFree = 4
+                }),
+            row(
+                "b", date: "2026-07-03",
+                measures {
+                    $0.teeRecorded = 18
+                    $0.girRecorded = 18
+                    $0.girRecordedPar3 = 4
+                    $0.girHitsPar3 = 3
+                    $0.girRecordedPar4 = 10
+                    $0.girHitsPar4 = 4
+                    $0.girRecordedPar5 = 4
+                    $0.girHitsPar5 = 1
+                    $0.puttsRecorded = 18
+                    $0.holesZeroPutt = 0
+                    $0.holesOnePutt = 6
+                    $0.holesTwoPutt = 11
+                    $0.threePutts = 1
+                    $0.puttsRecordedPar3 = 4
+                    $0.puttsTotalPar3 = 7
+                    $0.penaltiesRecorded = 18
+                    $0.holesWithPenalty = 1
+                    $0.holesScoredPenalty = 1
+                    $0.strokesVsParPenalty = 2
+                    $0.holesScoredPenaltyFree = 17
+                    $0.strokesVsParPenaltyFree = 3
+                }),
+        ])
+
+        // 4 par-3 greens hit out of 8, not (0.25 + 0.75)/2 by accident.
+        XCTAssertEqual(model.approach?.girByPar.par3, Rate(value: 0.5, n: 4, d: 8))
+        XCTAssertEqual(model.approach?.girByPar.par4.d, 20)
+        XCTAssertEqual(model.approach?.girByPar.par5, Rate(value: 0.5, n: 4, d: 8))
+
+        // The four buckets partition the 36 recorded holes.
+        let dist = model.putting?.puttDistribution
+        XCTAssertEqual(dist?[.zero], Rate(value: 1.0 / 36.0, n: 1, d: 36))
+        XCTAssertEqual(dist?[.one]?.n, 13)
+        XCTAssertEqual(dist?[.two]?.n, 19)
+        XCTAssertEqual(dist?[.threePlus]?.n, 3)
+        XCTAssertEqual(
+            PuttCountBucket.allCases.reduce(0) { $0 + (dist?[$1]?.n ?? 0) }, 36)
+
+        XCTAssertEqual(model.putting?.puttsPerHoleByPar.par3, Rate(value: 1.875, n: 15, d: 8))
+        // Nothing recorded for par 5s: absent, not zero.
+        XCTAssertNil(model.putting?.puttsPerHoleByPar.par5.value)
+
+        // 3 of the 36 recorded holes cost a penalty.
+        XCTAssertEqual(model.tee?.penaltyHoleShare, Rate(value: 3.0 / 36.0, n: 3, d: 36))
+        XCTAssertEqual(model.tee?.vsParByPenalty.penalty, Rate(value: 5.0 / 3.0, n: 5, d: 3))
+        XCTAssertEqual(model.tee?.vsParByPenalty.clean, Rate(value: 7.0 / 33.0, n: 7, d: 33))
+        // (5·33 − 7·3)/(3·33), and the `d` stays the cross-product guard.
+        XCTAssertEqual(model.tee?.penaltyTax.value, 144.0 / 99.0)
+        XCTAssertEqual(model.tee?.penaltyTax.d, 99)
+    }
+
+    /// A window that recorded a module but none of the wave-3 columns leaves the
+    /// new fields absent, which is what the view's group gates read.
+    func testAWindowWithNoCrossTabRecordLeavesTheNewFieldsAbsent() {
+        let model = StatsDashboardModel.build(rows: [
+            row(
+                "a", date: "2026-07-02",
+                measures {
+                    $0.teeRecorded = 14
+                    $0.girRecorded = 12
+                    $0.puttsRecorded = 18
+                })
+        ])
+
+        XCTAssertNil(model.approach?.girByPar.par4.value)
+        XCTAssertNil(model.approach?.costOfMissedGreen.delta.value)
+        XCTAssertNil(model.putting?.puttsPerHoleByPar.par4.value)
+        XCTAssertNil(model.tee?.penaltyTax.value)
+        // The share's denominator is the penalty coverage, which is zero here.
+        XCTAssertNil(model.tee?.penaltyHoleShare.value)
+    }
+
     // MARK: - 8. Results
 
     func testResultsNormaliseVsParAndSplitBestByLength() throws {

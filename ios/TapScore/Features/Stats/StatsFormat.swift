@@ -94,6 +94,15 @@ enum StatsFormat {
         static let rounds = SampleUnit.regular("round")
         static let holes = SampleUnit.regular("hole")
         static let greens = SampleUnit.regular("green")
+
+        /// The four sides of a TAX — a difference of two averages, whose sample
+        /// is both denominators. Each says which set of holes it counted, so
+        /// "over 34 … vs 26 …" reads without a legend.
+        static let greensMissed = SampleUnit(
+            "hole with the green missed", "holes with the green missed")
+        static let greensHit = SampleUnit("green hit", "greens hit")
+        static let penaltyHoles = SampleUnit("hole with a penalty", "holes with a penalty")
+        static let penaltyFree = SampleUnit("without", "without")
     }
 
     /// What a thin sample is called, in words. The app's standing rule: an
@@ -155,6 +164,32 @@ enum StatsFormat {
             trouble < StatMeasuresMath.minRateDenominator
             || fairway < StatMeasuresMath.minRateDenominator
         return isThin ? "\(reading) — \(thinSample)" : reading
+    }
+
+    /// The sample behind a DIFFERENCE of two averages: both denominators, never
+    /// the cross-product guard the figure itself carries.
+    ///
+    /// Thin if EITHER side is under the display policy's floor — the difference
+    /// is only as reliable as its smaller side.
+    static func taxSample(
+        _ a: Rate, _ aUnit: SampleUnit, _ b: Rate, _ bUnit: SampleUnit
+    ) -> String? {
+        guard a.d > 0, b.d > 0 else { return nil }
+        let reading = "over \(quantity(a.d, aUnit)) vs \(quantity(b.d, bUnit))"
+        let thin =
+            a.d < StatMeasuresMath.minRateDenominator
+            || b.d < StatMeasuresMath.minRateDenominator
+        return thin ? "\(reading) — \(thinSample)" : reading
+    }
+
+    /// "over 34 holes with the green missed vs 26 greens hit".
+    static func missedGreenTaxSample(_ cost: VsParSplit) -> String? {
+        taxSample(cost.miss, .greensMissed, cost.hit, .greensHit)
+    }
+
+    /// "over 9 holes with a penalty vs 45 without".
+    static func penaltyTaxSample(_ split: PenaltySplit) -> String? {
+        taxSample(split.penalty, .penaltyHoles, split.clean, .penaltyFree)
     }
 
     /// True when a rate is thin enough that the reading is a fraction — the
@@ -262,6 +297,17 @@ enum StatsFormat {
         case .twoTo4m: return "2–4 m"
         case .fourTo8m: return "4–8 m"
         case .over8m: return "Over 8 m"
+        }
+    }
+
+    /// "Holes by putts" deliberately echoes the Results card's "Holes by score":
+    /// same idiom, same mini-bar rows, percent-only values.
+    static func title(_ bucket: PuttCountBucket) -> String {
+        switch bucket {
+        case .zero: return "No putts"
+        case .one: return "One putt"
+        case .two: return "Two putts"
+        case .threePlus: return "Three or more"
         }
     }
 

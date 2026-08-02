@@ -49,6 +49,14 @@ final class RoundStatsStoreTests: XCTestCase {
         "girFirstPuttOver8m", "puttsRecordedGir", "puttsTotalGir", "puttsTotalInside1mResolved",
         "puttsTotal1To2mResolved", "puttsTotal2To4mResolved", "puttsTotal4To8mResolved",
         "puttsTotalOver8mResolved",
+        "strokesVsParGirHit", "holesScoredGirMiss", "strokesVsParGirMiss", "girRecordedPar3",
+        "girHitsPar3", "girRecordedPar4", "girHitsPar4", "girRecordedPar5", "girHitsPar5",
+        "holesZeroPutt", "holesOnePutt", "holesTwoPutt", "puttsRecordedPar3", "puttsTotalPar3",
+        "puttsRecordedPar4", "puttsTotalPar4", "puttsRecordedPar5", "puttsTotalPar5",
+        "holesWithPenalty", "holesScoredPenalty", "strokesVsParPenalty",
+        "holesScoredPenaltyFree", "strokesVsParPenaltyFree", "teeRecordedPar4",
+        "fairwayHitsPar4", "inPlayHitsPar4", "troubleCountPar4", "teeRecordedPar5",
+        "fairwayHitsPar5", "inPlayHitsPar5", "troubleCountPar5",
     ]
 
     private static func roundJSON(

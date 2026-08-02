@@ -316,7 +316,104 @@ test('the round view is the hand-computed arithmetic of the worked example', asy
         puttsTotal2To4mResolved: 2,
         puttsTotal4To8mResolved: 0,
         puttsTotalOver8mResolved: 3,
+
+        // Cost of a missed green. Hit = H1 (E), H4 (+1), H5 (−1) → 0 over 3.
+        // Miss = H2 (+2), H3 (−1) → +1 over 2.
+        strokesVsParGirHit: 0,
+        holesScoredGirMiss: 2,
+        strokesVsParGirMiss: 1,
+
+        // GIR by par: H3 is the par 3 (missed), H1/H2/H5 the par 4s (2 hit),
+        // H4 the par 5 (hit). 1 + 3 + 1 = 5 = girRecorded.
+        girRecordedPar3: 1,
+        girHitsPar3: 0,
+        girRecordedPar4: 3,
+        girHitsPar4: 2,
+        girRecordedPar5: 1,
+        girHitsPar5: 1,
+
+        // The putt-count partition: H3 holed it (0), H2 and H5 one-putted,
+        // H1 two-putted, H4 three-putted. 1 + 2 + 1 + threePutts(1) = 5.
+        holesZeroPutt: 1,
+        holesOnePutt: 2,
+        holesTwoPutt: 1,
+        // Putts by par: H3 alone on the par 3 with none; H1+H2+H5 = 2+1+1 on
+        // the par 4s; H4's 3 on the par 5. 1+3+1 = 5, 0+4+3 = 7 = puttsTotal.
+        puttsRecordedPar3: 1,
+        puttsTotalPar3: 0,
+        puttsRecordedPar4: 3,
+        puttsTotalPar4: 4,
+        puttsRecordedPar5: 1,
+        puttsTotalPar5: 3,
+
+        // Penalty geography: H1 answered 0, H2 answered 1. Both scored, so
+        // both sides of the tax have exactly one hole — H2 at +2, H1 at level.
+        holesWithPenalty: 1,
+        holesScoredPenalty: 1,
+        strokesVsParPenalty: 2,
+        holesScoredPenaltyFree: 1,
+        strokesVsParPenaltyFree: 0,
+
+        // SG-prep. Par-4 tee shots: H1 fairway, H2 trouble, H5 fairway — so
+        // in_play is 2 (cumulative, the two fairways). H4 is the lone par 5.
+        teeRecordedPar4: 3,
+        fairwayHitsPar4: 2,
+        inPlayHitsPar4: 2,
+        troubleCountPar4: 1,
+        teeRecordedPar5: 1,
+        fairwayHitsPar5: 0,
+        inPlayHitsPar5: 1,
+        troubleCountPar5: 0,
     });
+});
+
+test('the four putt-count buckets partition the recorded putts', async () => {
+    const f = await workedExample();
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(m.holesZeroPutt + m.holesOnePutt + m.holesTwoPutt + m.threePutts).toBe(
+        m.puttsRecorded,
+    );
+    // …and the by-par split partitions the same two totals.
+    expect(m.puttsRecordedPar3 + m.puttsRecordedPar4 + m.puttsRecordedPar5).toBe(
+        m.puttsRecorded,
+    );
+    expect(m.puttsTotalPar3 + m.puttsTotalPar4 + m.puttsTotalPar5).toBe(m.puttsTotal);
+});
+
+test('the three GIR par groups partition the recorded greens', async () => {
+    const f = await workedExample();
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(m.girRecordedPar3 + m.girRecordedPar4 + m.girRecordedPar5).toBe(m.girRecorded);
+    expect(m.girHitsPar3 + m.girHitsPar4 + m.girHitsPar5).toBe(m.girHits);
+    // Scored greens hit + scored greens missed <= girRecorded, with the gap
+    // being the greens whose hole was never scored. Here nothing is missing.
+    expect(m.girHolesScored + m.holesScoredGirMiss).toBe(m.girRecorded);
+});
+
+test('penalty geography counts the answer, and the cost only when scored', async () => {
+    const f = await fixture();
+    await f.stat(1, 'penalties', '1');
+    await f.score(1, 6); // par 4, +2
+    await f.stat(2, 'penalties', '1');
+    await f.score(2, 0); // picked up after the penalty — an answer, no cost
+    await f.stat(5, 'penalties', '0');
+    await f.score(5, 4); // par 4, level, the clean side
+    await f.stat(6, 'penalties', '0'); // clean answer, hole never scored
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(m.penaltiesRecorded).toBe(4);
+    expect(m.penaltiesTotal).toBe(2);
+    // The ANSWER, scored or not.
+    expect(m.holesWithPenalty).toBe(2);
+    // The COST, only where there is a score. H2's pickup is NULLIF'd away.
+    expect(m.holesScoredPenalty).toBe(1);
+    expect(m.strokesVsParPenalty).toBe(2);
+    // And the clean side, the same way — H6 answered 0 but has no score.
+    expect(m.holesScoredPenaltyFree).toBe(1);
+    expect(m.strokesVsParPenaltyFree).toBe(0);
 });
 
 test('the five score-type buckets partition the scored holes', async () => {
@@ -384,6 +481,25 @@ test('a picked-up ball is unscored, not a hole in zero', async () => {
     // The tee ANSWER survives on both, like the GIR answer above.
     expect(m.teeRecorded).toBe(2);
     expect(m.fairwayHits).toBe(2);
+    // The pickup on a green hit is the sharpest case: the GIR ANSWER stands,
+    // the hole has no score, so it is in neither the hit denominator nor its
+    // vs-par sum. Reading the raw scorecard here would book a 0 on a par 4 as
+    // four under.
+    expect(m.strokesVsParGirHit).toBe(0);
+    // No green was recorded as missed at all.
+    expect(m.holesScoredGirMiss).toBe(0);
+    expect(m.strokesVsParGirMiss).toBe(0);
+    // The by-par cross-tab counts the ANSWER, scored or not — same rule as
+    // `girRecorded` above it.
+    expect(m.girRecordedPar4).toBe(2);
+    expect(m.girHitsPar4).toBe(2);
+    expect(m.girRecordedPar3).toBe(0);
+    expect(m.girRecordedPar5).toBe(0);
+    // Same for the tee answers: H6 was a fairway hit that has no score.
+    expect(m.teeRecordedPar4).toBe(2);
+    expect(m.fairwayHitsPar4).toBe(2);
+    expect(m.inPlayHitsPar4).toBe(2);
+    expect(m.troubleCountPar4).toBe(0);
 });
 
 test('a round of nothing but pickups is not a round the player played', async () => {
@@ -683,6 +799,55 @@ test('totals are the sum of every round measure, newest round first', async () =
         puttsTotal2To4mResolved: 1,
         puttsTotal4To8mResolved: 0,
         puttsTotalOver8mResolved: 1,
+
+        // Cost of a missed green. Hit: A.H1 (−1), B.H1 (E), B.H2 (E) → −1 over
+        // 3. Miss: A.H2 (+2), A.H3 (E on the par 3) → +2 over 2.
+        strokesVsParGirHit: -1,
+        holesScoredGirMiss: 2,
+        strokesVsParGirMiss: 2,
+
+        // GIR by par: A.H3 is the only par 3 (missed); A.H1, A.H2, B.H1, B.H2
+        // are par 4s (3 hit); B.H4 never answered GIR, so the par 5 is empty.
+        girRecordedPar3: 1,
+        girHitsPar3: 0,
+        girRecordedPar4: 4,
+        girHitsPar4: 3,
+        girRecordedPar5: 0,
+        girHitsPar5: 0,
+
+        // Putt-count partition: no hole-outs, three one-putts (A.H1, A.H3,
+        // B.H1), A.H2's two. B.H2 has no putt count and is in none of them.
+        // 0 + 3 + 1 + threePutts(0) = 4 = puttsRecorded.
+        holesZeroPutt: 0,
+        holesOnePutt: 3,
+        holesTwoPutt: 1,
+        // A.H3 is the par 3 (1 putt); A.H1, A.H2, B.H1 the par 4s (1+2+1);
+        // the par 5 recorded none. 1+3+0 = 4, 1+4+0 = 5 = puttsTotal.
+        puttsRecordedPar3: 1,
+        puttsTotalPar3: 1,
+        puttsRecordedPar4: 3,
+        puttsTotalPar4: 4,
+        puttsRecordedPar5: 0,
+        puttsTotalPar5: 0,
+
+        // A.H2 answered 1 penalty, B.H4 answered 0 — one hole on each side of
+        // the tax. A.H2 is +2 on a par 4; B.H4 is level on a par 5.
+        holesWithPenalty: 1,
+        holesScoredPenalty: 1,
+        strokesVsParPenalty: 2,
+        holesScoredPenaltyFree: 1,
+        strokesVsParPenaltyFree: 0,
+
+        // SG-prep: all four tee answers are on par 4s (A.H1 fairway, A.H2
+        // trouble, B.H1 in play, B.H2 fairway) — in_play is cumulative, so 3.
+        teeRecordedPar4: 4,
+        fairwayHitsPar4: 2,
+        inPlayHitsPar4: 3,
+        troubleCountPar4: 1,
+        teeRecordedPar5: 0,
+        fairwayHitsPar5: 0,
+        inPlayHitsPar5: 0,
+        troubleCountPar5: 0,
     });
 
     // And the per-round split behind them.

@@ -29,6 +29,8 @@ import {
     formatAverage,
     formatCount,
     isThin,
+    missedGreenTaxSample,
+    penaltyTaxSample,
     quantity,
     rateWithSample,
     formatRate,
@@ -184,6 +186,16 @@ function troubleTaxFigure(panel: StatsTeePanel): StatsBlock {
     return figure('troubleTax', 'Trouble tax', formatAverage(panel.troubleTax, 2, true), hint);
 }
 
+/**
+ * The one muted line under a tax figure: its two denominators, and nothing else.
+ *
+ * Null in, null out — a tax whose sides have no scored hole prints "Not
+ * recorded" with no line under it, rather than the literal "Measured null.".
+ */
+function measuredLine(sample: string | null): string | null {
+    return sample === null ? null : `Measured ${sample}.`;
+}
+
 /** Average strokes vs par per hole, signed — the tee card's three absolutes. */
 function vsPar(r: Rate): string | null {
     return averageWithSample(r, { unit: UNIT_HOLES, signed: true });
@@ -246,6 +258,20 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                               averageWithSample(p.penaltiesPerRound, { unit: UNIT_ROUNDS }),
                               `${STATS_COPY.penalties} Recorded on ${quantity(p.penaltiesRecordedHoles, UNIT_HOLES)}.`,
                           ),
+                          figure(
+                              'penaltyHoleShare',
+                              'Holes with a penalty',
+                              rateWithSample(p.penaltyHoleShare),
+                          ),
+                          // `formatAverage`, never `averageWithSample`: the
+                          // figure's own `d` is the cross-product guard, so the
+                          // honest sample is the two sides below it.
+                          figure(
+                              'penaltyTax',
+                              'Penalty tax',
+                              formatAverage(p.penaltyTax, 2, true),
+                              measuredLine(penaltyTaxSample(p.vsParByPenalty)),
+                          ),
                       ]
                     : []),
             ];
@@ -258,6 +284,13 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                 bar('girFairway', 'From the fairway', p.girByTee.fairway),
                 bar('girInPlay', 'From in play', p.girByTee.inPlay),
                 bar('girTrouble', 'From trouble', p.girByTee.trouble),
+                // Ungated: a partition of `girRecorded`, which the panel is
+                // already gated on. Hiding one of three parallel rows would read
+                // as "you never played a par 5".
+                { kind: 'subhead', id: 'girByParHead', text: 'Greens hit, by par' },
+                bar('girPar3', 'Par 3', p.girByPar.par3),
+                bar('girPar4', 'Par 4', p.girByPar.par4),
+                bar('girPar5', 'Par 5', p.girByPar.par5),
                 { kind: 'subhead', id: 'mixHead', text: 'First putt on greens hit' },
                 { kind: 'note', id: 'mixNote', text: STATS_COPY.proximityProxy },
                 ...PUTT_BUCKETS.map((b) => bar(`mix-${b}`, bucketTitle(b), p.girFirstPuttMix[b])),
@@ -276,6 +309,40 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                               'Hard misses',
                               rateWithSample(p.hardChipShare),
                               STATS_COPY.hardChipShare,
+                          ),
+                      ]
+                    : []),
+                // Gated as a GROUP on either side having a scored hole, the same
+                // shape `vsParByTeeRecorded` uses on the tee card. Inside it a
+                // row with no sample of its own still prints "Not recorded".
+                ...(p.costOfMissedGreen.hit.d > 0 || p.costOfMissedGreen.miss.d > 0
+                    ? [
+                          {
+                              kind: 'subhead' as const,
+                              id: 'missedGreenHead',
+                              text: 'Cost of a missed green',
+                          },
+                          figure(
+                              'vsParGreenHit',
+                              'Green hit',
+                              averageWithSample(p.costOfMissedGreen.hit, {
+                                  unit: UNIT_GREENS,
+                                  signed: true,
+                              }),
+                          ),
+                          figure(
+                              'vsParGreenMissed',
+                              'Green missed',
+                              averageWithSample(p.costOfMissedGreen.miss, {
+                                  unit: UNIT_HOLES,
+                                  signed: true,
+                              }),
+                          ),
+                          figure(
+                              'missedGreenTax',
+                              'Missed-green tax',
+                              formatAverage(p.costOfMissedGreen.delta, 2, true),
+                              measuredLine(missedGreenTaxSample(p.costOfMissedGreen)),
                           ),
                       ]
                     : []),
@@ -306,6 +373,18 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                         value: formatRate(rung.made),
                     }),
                 ),
+                // One gate for the group: all four share `puttsRecorded`, so
+                // checking `zero.d` IS checking it. The panel can be present on
+                // `firstPuttRecorded` alone, with no putt count anywhere.
+                ...(p.puttDistribution.zero.d > 0
+                    ? [
+                          { kind: 'subhead' as const, id: 'puttCountHead', text: 'Holes by putts' },
+                          bar('putts-zero', 'No putts', p.puttDistribution.zero),
+                          bar('putts-one', 'One putt', p.puttDistribution.one),
+                          bar('putts-two', 'Two putts', p.puttDistribution.two),
+                          bar('putts-threePlus', 'Three or more', p.puttDistribution.threePlus),
+                      ]
+                    : []),
                 figure('threePutt', 'Three-putts', rateWithSample(p.threePutt), STATS_COPY.threePutt),
                 figure(
                     'longThreePutt',
@@ -326,6 +405,37 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                               'Putts after a missed green',
                               averageWithSample(p.puttsAfterMissedGreen, { unit: UNIT_HOLES }),
                               STATS_COPY.puttsAfterMissedGreen,
+                          ),
+                      ]
+                    : []),
+                // A partition of `puttsRecorded`, so it takes the SAME gate the
+                // "Holes by putts" group above takes — `zero.d` is that
+                // denominator. The panel can be present on `firstPuttRecorded`
+                // alone, and a subhead over three "Not recorded" rows is dead
+                // noise. Inside the group an empty row still prints, because the
+                // three partition the holes. Unsigned — putts are a quantity,
+                // not a deviation.
+                ...(p.puttDistribution.zero.d > 0
+                    ? [
+                          {
+                              kind: 'subhead' as const,
+                              id: 'puttsByParHead',
+                              text: 'Putts per hole, by par',
+                          },
+                          figure(
+                              'puttsPar3',
+                              'Par 3',
+                              averageWithSample(p.puttsPerHoleByPar.par3, { unit: UNIT_HOLES }),
+                          ),
+                          figure(
+                              'puttsPar4',
+                              'Par 4',
+                              averageWithSample(p.puttsPerHoleByPar.par4, { unit: UNIT_HOLES }),
+                          ),
+                          figure(
+                              'puttsPar5',
+                              'Par 5',
+                              averageWithSample(p.puttsPerHoleByPar.par5, { unit: UNIT_HOLES }),
                           ),
                       ]
                     : []),
