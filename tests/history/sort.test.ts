@@ -15,6 +15,8 @@ function row(over: Partial<LandingRow> & { key: string }): LandingRow {
         completedAt: null,
         lastActivityAt: null,
         roleLabel: null,
+        created: false,
+        played: false,
         date: null,
         formats: null,
         ...over,

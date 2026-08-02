@@ -64,7 +64,7 @@ export type TokenScoreInput = Omit<
  */
 export type RemoveFriendlyRoundResult =
     | { ok: true }
-    | { ok: false; reason: 'not_found' };
+    | { ok: false; reason: 'not_found' | 'not_creator' };
 
 /**
  * Cursored result read (Phase 3.5 interim polling). `cursor` rides
@@ -96,10 +96,10 @@ function toFriendlyRound(row: FriendlyRoundRow): FriendlyRound {
 /**
  * FriendlyRound = a Round reachable by share token with NO login.
  *
- * Trust boundary (2.6e): the share token is the ONLY credential. Anyone who
- * holds it can read the round and write score events to it — there are no
- * identities, owners, or per-actor authorization yet. This is a deliberate,
- * documented gap for the dogfood phase; auth/identity land in a later phase.
+ * Trust boundary (2.6e): the share token is the collaborative credential for
+ * opening a round and writing scores. Identity-scoped operations are explicit
+ * exceptions: a player leaves only themself, and only the signed-in creator
+ * may delete the round for everyone.
  *
  * Creation order: the Round is compiled FIRST (course/players/formats, via the
  * proven `RoundService.createFromDraft`). The wrapper + token are minted only
@@ -434,14 +434,11 @@ export class FriendlyRoundService {
     }
 
     /**
-     * Delete the token's round — permanently, for everyone.
-     *
-     * Trust boundary: SAME as scoring. In the no-login model the share token
-     * is the only credential, and anyone holding it already controls every
-     * score in the round (write, clear, override). Deletion therefore grants
-     * no privilege the token didn't already carry; it is deliberately NOT
-     * gated on the creator. Creator/role gating is deferred to the auth/roles
-     * phase, together with the rest of per-actor authorization.
+     * Delete the token's round — permanently, for everyone — but only for its
+     * signed-in creator. A share token still opens and scores a friendly round;
+     * it is deliberately NOT the authority to erase every participant's data.
+     * A player who did not create the round uses `RoundLeaveService` instead,
+     * which removes only their own producer, ball and score events.
      *
      * Teardown is `RoundService.remove` — one transaction that clears the
      * RESTRICT-referenced event/scorecard rows explicitly and lets the
@@ -453,10 +450,15 @@ export class FriendlyRoundService {
      *
      * Unknown token → `{ ok: false, reason: 'not_found' }`; nothing deleted.
      */
-    async removeByToken(token: string): Promise<RemoveFriendlyRoundResult> {
-        const roundId = await this.roundIdForToken(token);
-        if (roundId === null) return { ok: false, reason: 'not_found' };
-        await this.rounds.remove(roundId);
+    async removeByToken(token: string, creatorPlayerId: string): Promise<RemoveFriendlyRoundResult> {
+        const row = await this.db
+            .selectFrom('friendly_rounds')
+            .select(['round_id', 'creator_player_id'])
+            .where('share_token', '=', token)
+            .executeTakeFirst();
+        if (!row) return { ok: false, reason: 'not_found' };
+        if (row.creator_player_id !== creatorPlayerId) return { ok: false, reason: 'not_creator' };
+        await this.rounds.remove(row.round_id);
         return { ok: true };
     }
 
@@ -469,7 +471,7 @@ export class FriendlyRoundService {
      * rounds, a future phase). No demotion of a late score either — the round
      * stays complete until an explicit reopen.
      *
-     * Trust boundary: SAME as scoring/delete — the share token is the only
+     * Trust boundary: SAME as scoring — the share token is the only
      * credential and already controls every score, so finishing grants no new
      * privilege; it is deliberately NOT creator-gated.
      *
@@ -515,7 +517,7 @@ export class FriendlyRoundService {
      * toggle that takes a player out of their friends' feeds on the day they
      * are shooting 112.
      *
-     * Trust boundary: SAME as finish/reopen/delete — the share token is the
+     * Trust boundary: SAME as finish/reopen — the share token is the
      * only credential, and it is exactly the "participant" test this app has
      * (holding it already buys every score in the round). Deliberately NOT
      * session-gated: a friendly round has no owner, and gating discovery on

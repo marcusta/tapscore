@@ -38,6 +38,7 @@ struct RoundManageSheet: View {
         RoundManageRows(
             status: store.round?.status,
             editability: store.editability,
+            creatorPlayerId: store.friendlyRound?.creatorPlayerId,
             viewerPlayerId: RoundManageRows.viewerPlayerId(environment.authState),
             balls: store.balls
         )

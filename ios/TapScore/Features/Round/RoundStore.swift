@@ -855,9 +855,9 @@ final class RoundStore {
 
     /// Delete the round and everything in it, for everyone.
     ///
-    /// Token trust: no owner gate and no status gate, exactly as on the web. On
-    /// success this device forgets the round entirely — the recent-rounds row,
-    /// the durable SSE cursor, and the live machinery this screen was running.
+    /// The server requires the signed-in creator; the manage sheet mirrors that
+    /// visibility rule, and the API is still authoritative if it changed since
+    /// the screen loaded. On success this device forgets the round entirely.
     ///
     /// - Returns: true when the round is gone and the screen should navigate
     ///   home. A false answer leaves every local fact untouched.

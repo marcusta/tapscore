@@ -89,10 +89,24 @@ final class RoundManageRowsTests: XCTestCase {
 
     // MARK: - Finish / delete
 
-    func testFinishAndDeleteAreUnconditionalOnceLoaded() {
+    func testFinishIsUnconditionalButDeleteNeedsTheCreator() {
         let rows = RoundManageRows(status: .active)
         XCTAssertTrue(rows.showsFinish)
-        XCTAssertTrue(rows.showsDelete)
+        XCTAssertFalse(rows.showsDelete)
+
+        let creator = RoundManageRows(
+            status: .active,
+            creatorPlayerId: ada.id,
+            viewerPlayerId: ada.id
+        )
+        XCTAssertTrue(creator.showsDelete)
+
+        let participant = RoundManageRows(
+            status: .active,
+            creatorPlayerId: ada.id,
+            viewerPlayerId: stranger.id
+        )
+        XCTAssertFalse(participant.showsDelete)
     }
 
     func testFinishLabelSwitchesOnStatus() {

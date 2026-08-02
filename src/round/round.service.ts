@@ -439,10 +439,10 @@ export class RoundViewService {
     readonly deleting = new Signal(false);
 
     /**
-     * Permanently delete the loaded round — for everyone (the token-scoped
-     * DELETE; same trust boundary as scoring). Resolves true on success so the
-     * caller can navigate away; false when no round is loaded, a delete is
-     * already in flight, or the server refused — the view stays put.
+     * Permanently delete the loaded round — for everyone. The server requires
+     * the signed-in creator; this service deliberately treats a refusal as a
+     * failed action so stale UI can never turn an authorization error into
+     * local deletion. Resolves true on success so the caller can navigate away.
      */
     async deleteRound(): Promise<boolean> {
         const token = this.token;

@@ -11,6 +11,7 @@ import {
     rowLabel,
     type LandingRow,
 } from '../landing/rows';
+import { roundListAction, roundListActionLabel, type RoundListAction } from '../landing/round-actions';
 import { sortHistory } from './sort';
 import { roundSummaryMarkup } from '../landing/landing.component';
 
@@ -35,16 +36,22 @@ const tpl = template(`
                 <div bind="finishedList" class="history__section-list"></div>
             </section>
         </div>
+        <p bind="actionError" class="history__action-error" role="status"></p>
         <div bind="confirmHost"></div>
     </div>
 `);
 
-const trashSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
+const moreSvg = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>`;
 
 const rowTpl = template(`
     <div class="round-row">
         <button bind="row" type="button" class="round-summary round-row__main">${roundSummaryMarkup}</button>
-        <button bind="del" type="button" class="round-row__del" aria-label="Delete round">${trashSvg}</button>
+        <div bind="actions" class="round-row__actions">
+            <button bind="menuButton" type="button" class="round-row__menu-button" aria-label="Round actions" aria-haspopup="true" aria-expanded="false">${moreSvg}</button>
+            <div bind="menu" class="round-row__menu" role="group" aria-label="Round actions">
+                <button bind="action" type="button" class="round-row__menu-action"></button>
+            </div>
+        </div>
     </div>
 `);
 
@@ -81,6 +88,12 @@ export class HistoryComponent extends Component {
                 font-size: 0.9rem;
                 padding: ${s('lg')} 0;
                 &.hidden { display: none; }
+            }
+            & .history__action-error {
+                margin: ${s('sm')} 0 0;
+                color: ${t('danger')};
+                font-size: 0.85rem;
+                &:empty { display: none; }
             }
 
             & .history__sections {
@@ -179,21 +192,63 @@ export class HistoryComponent extends Component {
                 align-items: stretch;
                 border-top: 1px solid ${t('border')};
 
-                & .round-row__del {
+                & .round-row__actions {
+                    position: relative;
                     flex: 0 0 44px;
                     display: flex;
                     align-items: center;
                     justify-content: center;
+                    &.hidden { display: none; }
+                }
+                & .round-row__menu-button {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 44px;
+                    height: 44px;
+                    padding: 0;
                     background: none;
                     border: none;
+                    border-radius: ${t('radius-sm')};
                     color: ${t('text-muted')};
                     cursor: pointer;
-                    border-radius: 0;
 
-                    & svg { width: 17px; height: 17px; }
-                    &:hover, &:active { color: ${t('error')}; }
-                    &:focus-visible { outline: 2px solid ${t('error')}; outline-offset: -2px; }
+                    & svg { width: 18px; height: 18px; }
+                    &:hover, &[aria-expanded='true'] { background: ${t('hover-bg')}; color: ${t('text')}; }
+                    &:focus-visible { outline: 2px solid ${t('accent')}; outline-offset: -2px; }
+                }
+                & .round-row__menu {
+                    position: absolute;
+                    top: 50%;
+                    right: 0;
+                    z-index: 3;
+                    width: max-content;
+                    max-width: min(220px, calc(100vw - ${s('lg')}));
+                    padding: ${s('xs')};
+                    transform: translateY(-50%);
+                    background: ${t('surface')};
+                    border: 1px solid ${t('border')};
+                    border-radius: ${t('radius')};
+                    box-shadow: ${t('shadow-elevated')};
                     &.hidden { display: none; }
+                }
+                & .round-row__menu-action {
+                    display: block;
+                    min-width: 174px;
+                    max-width: 100%;
+                    padding: ${s('sm')} ${s('md')};
+                    background: none;
+                    border: none;
+                    border-radius: ${t('radius-sm')};
+                    font-family: inherit;
+                    font-size: 0.9rem;
+                    font-weight: 600;
+                    text-align: left;
+                    color: ${t('danger')};
+                    cursor: pointer;
+
+                    &:hover { background: ${t('hover-bg')}; }
+                    &:focus-visible { outline: 2px solid ${t('danger')}; outline-offset: -2px; }
                 }
             }
         }
@@ -226,13 +281,29 @@ export class HistoryComponent extends Component {
     );
 
     private deleteOpen = new Signal(false);
-    private deleteTarget = new Signal<{ token: string; roundId: string; name: string } | null>(
+    private leaveOpen = new Signal(false);
+    private actionTarget = new Signal<{
+        token: string;
+        roundId: string;
+        name: string;
+        action: Exclude<RoundListAction, null>;
+    } | null>(
         null,
     );
+    private actionError = new Signal('');
+    private openRoundMenu = new Signal<string | null>(null);
 
-    private askDelete(token: string, roundId: string, name: string): void {
-        this.deleteTarget.set({ token, roundId, name });
-        this.deleteOpen.set(true);
+    private askAction(
+        action: Exclude<RoundListAction, null>,
+        token: string,
+        roundId: string,
+        name: string,
+    ): void {
+        this.openRoundMenu.set(null);
+        this.actionError.set('');
+        this.actionTarget.set({ token, roundId, name, action });
+        if (action === 'delete') this.deleteOpen.set(true);
+        else this.leaveOpen.set(true);
     }
 
     render(): DocumentFragment {
@@ -241,6 +312,7 @@ export class HistoryComponent extends Component {
 
         const frag = this.wire(tpl, {
             back: { onclick: () => this.router.navigate('/') },
+            actionError: { textContent: () => this.actionError.get() },
             empty: {
                 className: () =>
                     this.rows.get().length === 0 ? 'history__empty' : 'history__empty hidden',
@@ -284,7 +356,7 @@ export class HistoryComponent extends Component {
             open: this.deleteOpen,
             title: 'Delete round?',
             message: () => {
-                const target = this.deleteTarget.get();
+                const target = this.actionTarget.get();
                 const name = target ? `“${target.name}”` : 'this round';
                 return `Delete ${name}? This permanently removes it and all its scores for everyone. This can't be undone.`;
             },
@@ -292,16 +364,48 @@ export class HistoryComponent extends Component {
             cancelLabel: 'Cancel',
             danger: true,
             onconfirm: () => {
-                const target = this.deleteTarget.get();
-                if (target) void this.svc.remove(target.token, target.roundId);
+                const target = this.actionTarget.get();
+                if (!target) return;
+                void this.svc.remove(target.token, target.roundId).then((ok) => {
+                    if (!ok) this.actionError.set('Could not delete the round. Try again.');
+                });
+            },
+        });
+
+        this.spawn(ConfirmComponent, this.ref(frag, 'confirmHost'), {
+            open: this.leaveOpen,
+            title: 'Remove yourself from this round?',
+            message:
+                "Your scores here will be deleted. Everyone else's stay, and the round keeps going without you.",
+            confirmLabel: 'Remove me',
+            cancelLabel: 'Cancel',
+            danger: true,
+            onconfirm: () => {
+                const target = this.actionTarget.get();
+                if (!target) return;
+                void this.svc.leave(target.token, target.roundId).then((res) => {
+                    if (!res.ok) this.actionError.set(res.message);
+                });
             },
         });
 
         const onKeydown = (e: KeyboardEvent) => {
             if (e.key === 'Escape' && this.deleteOpen.get()) this.deleteOpen.set(false);
+            if (e.key === 'Escape' && this.leaveOpen.get()) this.leaveOpen.set(false);
+            if (e.key === 'Escape' && this.openRoundMenu.get() !== null) this.openRoundMenu.set(null);
         };
         window.addEventListener('keydown', onKeydown);
         this.track(() => window.removeEventListener('keydown', onKeydown));
+
+        const root = this.ref(frag, 'root');
+        const onPointerDown = (e: Event) => {
+            if (this.openRoundMenu.get() === null) return;
+            const target = e.target;
+            if (target instanceof Node && root.contains(target)) return;
+            this.openRoundMenu.set(null);
+        };
+        document.addEventListener('pointerdown', onPointerDown, true);
+        this.track(() => document.removeEventListener('pointerdown', onPointerDown, true));
 
         return frag;
     }
@@ -345,12 +449,35 @@ export class HistoryComponent extends Component {
                     className: () =>
                         row.formats ? 'round-summary__formats' : 'round-summary__formats hidden',
                 },
-                del: {
+                actions: {
                     className: () =>
-                        row.token === null ? 'round-row__del hidden' : 'round-row__del',
+                        roundListAction(row) === null
+                            ? 'round-row__actions hidden'
+                            : 'round-row__actions',
+                },
+                menuButton: {
+                    'aria-expanded': () =>
+                        this.openRoundMenu.get() === row.key ? 'true' : 'false',
+                    onclick: () =>
+                        this.openRoundMenu.set(
+                            this.openRoundMenu.get() === row.key ? null : row.key,
+                        ),
+                },
+                menu: {
+                    className: () =>
+                        this.openRoundMenu.get() === row.key
+                            ? 'round-row__menu'
+                            : 'round-row__menu hidden',
+                },
+                action: {
+                    textContent: () => {
+                        const action = roundListAction(row);
+                        return action ? roundListActionLabel(action) : '';
+                    },
                     onclick: () => {
-                        if (row.token === null) return;
-                        this.askDelete(row.token, row.roundId ?? '', rowLabel(row));
+                        const action = roundListAction(row);
+                        if (!action || row.token === null) return;
+                        this.askAction(action, row.token, row.roundId ?? '', rowLabel(row));
                     },
                 },
             },

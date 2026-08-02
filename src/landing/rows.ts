@@ -31,6 +31,10 @@ export interface LandingRow {
     holesPlayed?: number | null;
     /** "Played · Created" tag (logged-in only); null for device rows. */
     roleLabel: string | null;
+    /** The signed-in viewer created this round. Device-only history is unowned. */
+    created: boolean;
+    /** The signed-in viewer plays this round. Device-only history is unscoped. */
+    played: boolean;
     /** Round date (logged-in only); null for device rows (not stored). */
     date: string | null;
     /** Joined format labels (logged-in only); null for device rows. */
@@ -52,6 +56,8 @@ function fromMyRounds(entries: readonly MyRoundEntry[]): LandingRow[] {
         lastActivityAt: e.round.lastActivityAt ?? e.round.date,
         holesPlayed: e.holesPlayed,
         roleLabel: roleLabel(e) || null,
+        created: e.created,
+        played: e.played,
         date: e.round.date,
         formats: e.round.formatSlots.map(formatLabelFromSlot).join(' · '),
     }));
@@ -70,6 +76,8 @@ function fromDeviceRounds(entries: readonly DeviceRound[]): LandingRow[] {
         lastActivityAt: e.lastSeenAt,
         holesPlayed: null,
         roleLabel: null,
+        created: false,
+        played: false,
         date: e.date ?? null,
         formats: null,
     }));

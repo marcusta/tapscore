@@ -18,8 +18,9 @@ import type { CompilerDiagnostic } from '../api/friendly-rounds.gen';
 // Rows are ABSENT, never disabled-but-visible: "Edit round" only when the
 // server's no-auth `setup()` probe says the round is editable, "Remove me" only
 // when the viewer is signed in and actually plays here (`canShowLeaveCard`).
-// Finish/reopen and delete are unconditional — the share token IS the
-// credential, the same trust boundary as scoring.
+// Finish/reopen remain token-scoped. Delete is deliberately narrower: only
+// the signed-in creator can erase everybody's scores; other signed-in players
+// get the self-scoped "Remove me" row instead.
 //
 // Behaviour is unchanged from the cards it replaces, with one deliberate
 // improvement carried over from iOS: a failed finish/reopen/delete used to be
@@ -197,6 +198,11 @@ export class ManageOverlayComponent extends Component<ManageOverlayProps> {
         return canShowLeaveCard(this.svc.balls.get(), this.auth.currentUser.get()?.id ?? null);
     }
 
+    private canDelete(): boolean {
+        const viewerId = this.auth.currentUser.get()?.id ?? null;
+        return viewerId !== null && this.svc.friendlyRound.get()?.creatorPlayerId === viewerId;
+    }
+
     private clear(): void {
         this.error.set('');
         this.diagnostics.set([]);
@@ -288,6 +294,10 @@ export class ManageOverlayComponent extends Component<ManageOverlayProps> {
                     ? 'Move it back to your ongoing rounds.'
                     : 'Move it to your finished rounds. Nothing is locked.',
             deleteRow: {
+                className: () =>
+                    this.canDelete()
+                        ? 'rmanage__row rmanage__row--danger'
+                        : 'rmanage__row rmanage__row--danger hidden',
                 onclick: () => this.deleteOpen.set(true),
                 disabled: () => this.svc.deleting.get(),
             },
@@ -304,9 +314,8 @@ export class ManageOverlayComponent extends Component<ManageOverlayProps> {
             err: { textContent: () => this.error.get() },
         });
 
-        // Delete-round confirmation. Same trust boundary as scoring — the token
-        // is the credential, so no identity gate. On success the round is gone
-        // for everyone; navigate home.
+        // Delete-round confirmation. The server repeats the creator check; on
+        // success the round is gone for everyone, so navigate home.
         this.spawn(ConfirmComponent, this.ref(frag, 'deleteConfirmHost'), {
             open: this.deleteOpen,
             title: 'Delete round?',

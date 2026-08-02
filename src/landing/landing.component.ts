@@ -12,6 +12,7 @@ import {
     rowLabel,
     type LandingRow,
 } from './rows';
+import { roundListAction, roundListActionLabel, type RoundListAction } from './round-actions';
 import { partitionRounds, type Partitioned } from './partition';
 import {
     FINISHED_PREVIEW_LIMIT,
@@ -100,9 +101,8 @@ const tpl = template(`
 
         <!-- Recently finished is ONE card, not a card per round: home is about
              the round you are playing, and the ones you have played are a
-             glance and a door. Compact rows, no trash (removing a round is a
-             deliberate act and belongs on the screen that lists them all), and
-             the footer that opens the rest. -->
+             glance and a door. Its compact rows use the same overflow action
+             as every other personal round row. -->
         <div bind="finishedSection" class="landing__section-block landing__finished">
             <div class="landing__section landing__finished-head">
                 <span class="landing__section-title">Recently finished</span>
@@ -141,6 +141,7 @@ const tpl = template(`
         </button>
 
         <div bind="empty" class="landing__empty">No rounds yet — tap Play golf to tee off.</div>
+        <p bind="actionError" class="landing__action-error" role="status"></p>
 
         <div bind="confirmHost"></div>
     </div>
@@ -170,16 +171,10 @@ const rowTpl = template(`
         <div bind="actions" class="round-row__actions">
             <button bind="menuButton" type="button" class="round-row__menu-button" aria-label="Round actions" aria-haspopup="true" aria-expanded="false">${moreSvg}</button>
             <div bind="menu" class="round-row__menu" role="group" aria-label="Round actions">
-                <button bind="delete" type="button" class="round-row__menu-action">Delete</button>
+                <button bind="action" type="button" class="round-row__menu-action"></button>
             </div>
         </div>
     </div>
-`);
-
-// A finished round inside the "Recently finished" card. It deliberately uses
-// the same summary as an ongoing row, just without its changing progress.
-const finishedRowTpl = template(`
-    <button bind="row" type="button" class="round-summary finished-row">${roundSummaryMarkup}</button>
 `);
 
 // One "Out now" chip: a friend's live round. Holes played and score to par,
@@ -498,6 +493,12 @@ export class LandingComponent extends Component {
 
                 &.hidden { display: none; }
             }
+            & .landing__action-error {
+                margin: ${s('sm')} 0 0;
+                color: ${t('danger')};
+                font-size: 0.85rem;
+                &:empty { display: none; }
+            }
 
             & .landing__list {
                 display: flex;
@@ -590,7 +591,8 @@ export class LandingComponent extends Component {
                 top: 50%;
                 right: 0;
                 z-index: 3;
-                min-width: 132px;
+                width: max-content;
+                max-width: min(220px, calc(100vw - ${s('lg')}));
                 padding: ${s('xs')};
                 transform: translateY(-50%);
                 background: ${t('surface')};
@@ -602,7 +604,8 @@ export class LandingComponent extends Component {
             }
             & .round-row__menu-action {
                 display: block;
-                width: 100%;
+                min-width: 174px;
+                max-width: 100%;
                 padding: ${s('sm')} ${s('md')};
                 background: none;
                 border: none;
@@ -611,11 +614,11 @@ export class LandingComponent extends Component {
                 font-size: 0.9rem;
                 font-weight: 600;
                 text-align: left;
-                color: ${t('error')};
+                color: ${t('danger')};
                 cursor: pointer;
 
                 &:hover { background: ${t('hover-bg')}; }
-                &:focus-visible { outline: 2px solid ${t('error')}; outline-offset: -2px; }
+                &:focus-visible { outline: 2px solid ${t('danger')}; outline-offset: -2px; }
             }
 
             /* Recently finished: one card, its rows separated by the card's own
@@ -631,6 +634,12 @@ export class LandingComponent extends Component {
                 & .landing__finished-list {
                     display: flex;
                     flex-direction: column;
+                }
+                & .round-row {
+                    border: 0;
+                    border-top: 1px solid ${t('border')};
+                    border-radius: 0;
+                    box-shadow: none;
                 }
                 & .landing__finished-foot {
                     display: block;
@@ -835,15 +844,29 @@ export class LandingComponent extends Component {
     // Delete confirmation: one shared dialog; the tapped row parks its target
     // here and opens it.
     private deleteOpen = new Signal(false);
-    private deleteTarget = new Signal<{ token: string; roundId: string; name: string } | null>(
+    private leaveOpen = new Signal(false);
+    private actionTarget = new Signal<{
+        token: string;
+        roundId: string;
+        name: string;
+        action: Exclude<RoundListAction, null>;
+    } | null>(
         null,
     );
+    private actionError = new Signal('');
     private openRoundMenu = new Signal<string | null>(null);
 
-    private askDelete(token: string, roundId: string, name: string): void {
+    private askAction(
+        action: Exclude<RoundListAction, null>,
+        token: string,
+        roundId: string,
+        name: string,
+    ): void {
         this.openRoundMenu.set(null);
-        this.deleteTarget.set({ token, roundId, name });
-        this.deleteOpen.set(true);
+        this.actionError.set('');
+        this.actionTarget.set({ token, roundId, name, action });
+        if (action === 'delete') this.deleteOpen.set(true);
+        else this.leaveOpen.set(true);
     }
 
     render(): DocumentFragment {
@@ -1002,6 +1025,7 @@ export class LandingComponent extends Component {
                         ? 'landing__empty'
                         : 'landing__empty hidden',
             },
+            actionError: { textContent: () => this.actionError.get() },
         });
 
         // Chip/row taps go by round id to the read-only spectate view — the
@@ -1103,7 +1127,7 @@ export class LandingComponent extends Component {
         this.$each(
             this.ref(frag, 'finishedList'),
             this.finishedShown,
-            (row, _i, track) => this.finishedRow(row, track),
+            (row, _i, track) => this.roundRow(row, track),
             (row) => row.key,
         );
 
@@ -1137,7 +1161,7 @@ export class LandingComponent extends Component {
             open: this.deleteOpen,
             title: 'Delete round?',
             message: () => {
-                const target = this.deleteTarget.get();
+                const target = this.actionTarget.get();
                 const name = target ? `“${target.name}”` : 'this round';
                 return `Delete ${name}? This permanently removes it and all its scores for everyone. This can't be undone.`;
             },
@@ -1145,13 +1169,34 @@ export class LandingComponent extends Component {
             cancelLabel: 'Cancel',
             danger: true,
             onconfirm: () => {
-                const target = this.deleteTarget.get();
-                if (target) void this.svc.remove(target.token, target.roundId);
+                const target = this.actionTarget.get();
+                if (!target) return;
+                void this.svc.remove(target.token, target.roundId).then((ok) => {
+                    if (!ok) this.actionError.set('Could not delete the round. Try again.');
+                });
+            },
+        });
+
+        this.spawn(ConfirmComponent, this.ref(frag, 'confirmHost'), {
+            open: this.leaveOpen,
+            title: 'Remove yourself from this round?',
+            message:
+                "Your scores here will be deleted. Everyone else's stay, and the round keeps going without you.",
+            confirmLabel: 'Remove me',
+            cancelLabel: 'Cancel',
+            danger: true,
+            onconfirm: () => {
+                const target = this.actionTarget.get();
+                if (!target) return;
+                void this.svc.leave(target.token, target.roundId).then((res) => {
+                    if (!res.ok) this.actionError.set(res.message);
+                });
             },
         });
 
         const onKeydown = (e: KeyboardEvent) => {
             if (e.key === 'Escape' && this.deleteOpen.get()) this.deleteOpen.set(false);
+            if (e.key === 'Escape' && this.leaveOpen.get()) this.leaveOpen.set(false);
             if (e.key === 'Escape' && this.openRoundMenu.get() !== null) {
                 this.openRoundMenu.set(null);
             }
@@ -1183,47 +1228,7 @@ export class LandingComponent extends Component {
         return username === '' ? 'Signed in' : username;
     }
 
-    /** One compact finished row inside the card: no role label, no trash. */
-    private finishedRow(row: LandingRow, track: (d: () => void) => void): HTMLElement {
-        return this.wireEl(
-            finishedRowTpl,
-            {
-                row: {
-                    // A produced round with no friendly wrapper has no token,
-                    // so it renders but cannot be opened — same rule as the
-                    // full row.
-                    disabled: () => row.token === null,
-                    onclick: () => {
-                        if (row.token === null) return;
-                        this.router.navigate('/round', { query: { token: row.token } });
-                    },
-                },
-                title: () => rowLabel(row),
-                course: {
-                    textContent: () => rowCourseSubtitle(row) ?? '',
-                    className: () =>
-                        rowCourseSubtitle(row)
-                            ? 'round-summary__course'
-                            : 'round-summary__course hidden',
-                },
-                date: () => formatRowDate(row.date),
-                progress: {
-                    textContent: '',
-                    className: 'round-summary__progress hidden',
-                },
-                formats: {
-                    textContent: () => row.formats ?? '',
-                    className: () =>
-                        row.formats ? 'round-summary__formats' : 'round-summary__formats hidden',
-                },
-            },
-            track,
-        );
-    }
-
-    /** One round row (shared by both sections + both auth states). A row with
-     *  no token can't navigate or be deleted (logged-in produced round without
-     *  a friendly wrapper); everything else taps through. */
+    /** One round row, shared by every personal-list section. */
     private roundRow(
         row: LandingRow,
         track: (d: () => void) => void,
@@ -1265,7 +1270,9 @@ export class LandingComponent extends Component {
                 },
                 actions: {
                     className: () =>
-                        row.token === null ? 'round-row__actions hidden' : 'round-row__actions',
+                        roundListAction(row) === null
+                            ? 'round-row__actions hidden'
+                            : 'round-row__actions',
                 },
                 menuButton: {
                     'aria-expanded': () =>
@@ -1281,10 +1288,15 @@ export class LandingComponent extends Component {
                             ? 'round-row__menu'
                             : 'round-row__menu hidden',
                 },
-                delete: {
+                action: {
+                    textContent: () => {
+                        const action = roundListAction(row);
+                        return action ? roundListActionLabel(action) : '';
+                    },
                     onclick: () => {
-                        if (row.token === null) return;
-                        this.askDelete(row.token, row.roundId ?? '', rowLabel(row));
+                        const action = roundListAction(row);
+                        if (!action || row.token === null) return;
+                        this.askAction(action, row.token, row.roundId ?? '', rowLabel(row));
                     },
                 },
             },

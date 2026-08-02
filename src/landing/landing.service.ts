@@ -100,11 +100,9 @@ export class LandingService {
     }
 
     /**
-     * Delete a round by its share token (same trust boundary as scoring — the
-     * token IS the credential), then prune it from the loaded lists in place so
-     * the row disappears without a full reload. Also drops it from this
-     * device's recent list. Resolves false when the server refused; the lists
-     * stay untouched.
+     * Delete a round the signed-in viewer created, then prune it from the
+     * loaded lists in place so the row disappears without a full reload. The
+     * server repeats the creator check; a refusal leaves local state untouched.
      *
      * A 404 is NOT a refusal — it is the same end state the delete was asking
      * for: the server has no such round (deleted elsewhere, or the row is a
@@ -130,5 +128,32 @@ export class LandingService {
         // in the capped seen set (and can't linger as phantom seen-state).
         forgetSeen(roundId);
         return true;
+    }
+
+    /**
+     * Remove the current signed-in player from somebody else's round. Unlike
+     * deletion this keeps the round (and everyone else's scores) intact, so a
+     * successful list action simply prunes THIS player's dashboard row.
+     */
+    async leave(token: string, roundId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+        try {
+            const res = await api.friendlyRounds.leave({ token });
+            if (!res.ok) {
+                return {
+                    ok: false,
+                    message: res.diagnostics.map((d) => d.message).join(' · '),
+                };
+            }
+        } catch {
+            return { ok: false, message: 'Could not remove you right now. Try again.' };
+        }
+        const mine = this.mine.get();
+        if (mine) {
+            this.mine.set({
+                produced: withoutRound(mine.produced, roundId),
+                created: withoutRound(mine.created, roundId),
+            });
+        }
+        return { ok: true };
     }
 }

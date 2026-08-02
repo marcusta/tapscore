@@ -6,7 +6,7 @@
 // FULLY-POPULATED round: multiple players, a better-ball team format alongside
 // an individual format, two playing groups, scored holes, a self-join, a setup
 // correction, an allowance override, a ruling, captured player statistics, and
-// a format-action row. After `removeByToken` EVERY
+// a format-action row. After creator-authorized `removeByToken` EVERY
 // related table must hold zero rows for that round, while an unrelated round
 // created alongside survives completely untouched — and guest_players rows
 // are deliberately left in place (no round FK; a guest may be referenced by
@@ -28,6 +28,11 @@ beforeEach(() => {
 
 async function setup() {
     const ctx = await createTestDb();
+    const owner = await ctx.playerService.register({
+        username: 'round-owner',
+        password: 'password123',
+        displayName: 'Round owner',
+    });
     const club = await ctx.clubService.create({ name: 'Teardown GC' });
     const course = await ctx.courseService.create({
         clubId: club.id,
@@ -90,7 +95,7 @@ async function setup() {
             { members: ['p3', 'p4'], startTime: '09:08' },
         ],
     };
-    return { ctx, tee, guests, draft };
+    return { ctx, tee, guests, draft, owner };
 }
 
 /** Count rows in `table` where `col` is in `ids` (raw SQL — table-generic). */
@@ -162,10 +167,10 @@ async function roundFootprint(ctx: TestContext, roundId: string) {
 }
 
 test('removeByToken tears down a fully-populated round; an unrelated round survives untouched', async () => {
-    const { ctx, tee, guests, draft } = await setup();
+    const { ctx, tee, guests, draft, owner } = await setup();
 
     // --- Round A: the round under deletion, populated across every table ---
-    const a = await ctx.friendlyRoundService.create(draft);
+    const a = await ctx.friendlyRoundService.create(draft, owner.id);
     if (!a.ok) throw new Error(`create A failed: ${JSON.stringify(a.diagnostics)}`);
     const tokenA = a.friendlyRound.shareToken;
     const roundAId = a.round.id;
@@ -284,7 +289,7 @@ test('removeByToken tears down a fully-populated round; an unrelated round survi
         .execute();
 
     // --- Round B: the unrelated control round, same shape, one score ---
-    const b = await ctx.friendlyRoundService.create(draft);
+    const b = await ctx.friendlyRoundService.create(draft, owner.id);
     if (!b.ok) throw new Error(`create B failed: ${JSON.stringify(b.diagnostics)}`);
     const tokenB = b.friendlyRound.shareToken;
     const ballsB = (await ctx.friendlyRoundService.ballsByToken(tokenB))!;
@@ -312,7 +317,7 @@ test('removeByToken tears down a fully-populated round; an unrelated round survi
     const beforeB = await roundFootprint(ctx, b.round.id);
 
     // --- Delete round A by its share token ---
-    const removed = await ctx.friendlyRoundService.removeByToken(tokenA);
+    const removed = await ctx.friendlyRoundService.removeByToken(tokenA, owner.id);
     expect(removed).toEqual({ ok: true });
 
     // Round A: EVERY related table holds zero rows.
@@ -348,11 +353,11 @@ test('removeByToken tears down a fully-populated round; an unrelated round survi
 });
 
 test('removeByToken with an unknown token returns not_found and deletes nothing', async () => {
-    const { ctx, draft } = await setup();
-    const created = await ctx.friendlyRoundService.create(draft);
+    const { ctx, draft, owner } = await setup();
+    const created = await ctx.friendlyRoundService.create(draft, owner.id);
     if (!created.ok) throw new Error('setup failed');
 
-    const res = await ctx.friendlyRoundService.removeByToken('no-such-token');
+    const res = await ctx.friendlyRoundService.removeByToken('no-such-token', owner.id);
     expect(res).toEqual({ ok: false, reason: 'not_found' });
 
     // The existing round is untouched.
@@ -361,4 +366,20 @@ test('removeByToken with an unknown token returns not_found and deletes nothing'
     expect(
         await ctx.friendlyRoundService.findByToken(created.friendlyRound.shareToken),
     ).not.toBeNull();
+});
+
+test('removeByToken refuses a non-creator and leaves the round intact', async () => {
+    const { ctx, draft, owner } = await setup();
+    const other = await ctx.playerService.register({
+        username: 'not-the-owner',
+        password: 'password123',
+        displayName: 'Not the owner',
+    });
+    const created = await ctx.friendlyRoundService.create(draft, owner.id);
+    if (!created.ok) throw new Error('setup failed');
+
+    expect(
+        await ctx.friendlyRoundService.removeByToken(created.friendlyRound.shareToken, other.id),
+    ).toEqual({ ok: false, reason: 'not_creator' });
+    expect(await ctx.friendlyRoundService.findByToken(created.friendlyRound.shareToken)).not.toBeNull();
 });

@@ -17,15 +17,16 @@ import Foundation
 /// - **Leave** needs a signed-in viewer who is actually a producer on some ball.
 ///   There is deliberately **no status gate**: leaving mid-round is supported,
 ///   and the server deletes only the leaver's own scores.
-/// - **Finish** and **Delete** are unconditional once the round has loaded. Both
-///   endpoints are token-trust with no owner or status gate, so a client-side
-///   gate here would be theatre that disagrees with the server.
+/// - **Finish** is unconditional once the round has loaded. **Delete** is
+///   creator-scoped: a signed-in viewer may erase everybody's scores only when
+///   `friendlyRound.creatorPlayerId` matches their account. Other players use
+///   the self-scoped Leave row instead.
 struct RoundManageRows: Equatable {
     /// The editability probe returned `editable: true`.
     var showsEdit: Bool
     /// Signed in, and the viewer is a producer on at least one ball.
     var showsLeave: Bool
-    /// Round loaded (always true once loaded).
+    /// Signed in and this friendly round was created by that same player.
     var showsFinish: Bool
     /// Round loaded (always true once loaded).
     var showsDelete: Bool
@@ -38,11 +39,14 @@ struct RoundManageRows: Equatable {
     ///     it does not have.
     ///   - editability: the `GET /friendly-rounds/setup` probe result, or nil
     ///     when it failed or has not answered. Both mean "no edit row".
+    ///   - creatorPlayerId: the server-recorded friendly-round creator, or nil
+    ///     for an anonymous/legacy round.
     ///   - viewerPlayerId: the signed-in player's id, or nil when anonymous.
     ///   - balls: the loaded balls payload, whose producers carry `playerId`.
     init(
         status: RoundStatus?,
         editability: FriendlyRoundsSetupOutput? = nil,
+        creatorPlayerId: String? = nil,
         viewerPlayerId: String? = nil,
         balls: [RoundBall] = []
     ) {
@@ -61,7 +65,7 @@ struct RoundManageRows: Equatable {
         }
         self.showsLeave = Self.isProducer(viewerPlayerId, in: balls)
         self.showsFinish = true
-        self.showsDelete = true
+        self.showsDelete = creatorPlayerId != nil && creatorPlayerId == viewerPlayerId
         self.finishLabel = status == .complete ? "Reopen round" : "Finish round"
     }
 

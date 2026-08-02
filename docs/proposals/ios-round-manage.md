@@ -28,7 +28,7 @@ each clause literally.
 | save edited draft | `.editSetup` (POST `/friendly-rounds/setup`) | `{token, draft, clientEventId?}` | `.ok{round}` / `.notOk{diagnostics}` | token only |
 | finish | `.finish` (POST `/friendly-rounds/finish`) | `{token}` | `{status, completedAt}` | token only |
 | reopen | `.reopen` (POST `/friendly-rounds/reopen`) | `{token}` | `{status}` | token only |
-| delete | `.remove` (DELETE `/friendly-rounds/:token`) | `pathValues: ["token": token]` | `{ok}` | token only |
+| delete | `.remove` (DELETE `/friendly-rounds/:token`) | `pathValues: ["token": token]` | `{ok}` | signed-in creator + token |
 | leave | `.leave` (POST `/friendly-rounds/leave`) | `{token}` | `.ok{round}` / `.notOk{diagnostics}` | **bearer session + token** |
 
 Facts that shape behavior:
@@ -36,8 +36,10 @@ Facts that shape behavior:
 - **Finish seals nothing.** `complete` is organizational; the round stays
   scorable and reopenable. Re-finish is a no-op preserving the original
   `completedAt`. Reopen of a non-complete round is a no-op.
-- **Delete is token-trust.** No owner gate, no status gate. Cascades all
-  scores. Unknown token → 404.
+- **Delete is creator-scoped.** The signed-in caller must match
+  `friendlyRound.creatorPlayerId`; a share token alone never authorizes removal
+  of everyone else's data. It cascades all scores. Unknown token → 404;
+  another caller → 403.
 - **Leave** needs a signed-in session; `playerId` is server-resolved from the
   bearer. Refusals arrive as HTTP-200 diagnostics with codes such as
   `not_in_round`, `last_player` ("Delete the round instead."), `shared_ball`,
@@ -108,7 +110,7 @@ struct RoundManageRows: Equatable {
   var showsEdit: Bool      // editability probe returned editable:true
   var showsLeave: Bool     // signed-in AND viewer is a producer on some ball
   var showsFinish: Bool    // round loaded (always true once loaded)
-  var showsDelete: Bool    // round loaded (always true once loaded)
+  var showsDelete: Bool    // signed-in viewer is friendlyRound.creatorPlayerId
   var finishLabel: String  // "Finish round" | "Reopen round"
 }
 ```
@@ -121,8 +123,10 @@ Rules (mirror web):
   producer id on at least one ball in the loaded balls payload (web
   `canShowLeaveCard`, `src/round/leave.ts:24-35`). **No status gate** —
   leaving mid-round is deliberate.
-- `showsFinish` / `showsDelete`: unconditional once the round is loaded —
-  token trust, matching web (no owner/status gates).
+- `showsFinish`: unconditional once the round is loaded.
+- `showsDelete`: signed-in viewer id equals `friendlyRound.creatorPlayerId`.
+  Anonymous and legacy rounds with no recorded creator show no Delete row; a
+  participant may still see Remove me where the leave rule permits it.
 - `finishLabel`: `"Reopen round"` iff status is `complete`, else
   `"Finish round"`.
 

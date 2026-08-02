@@ -1,6 +1,6 @@
 import { Type, type Static } from '@sinclair/typebox';
 import type { Context } from 'hono';
-import { NotFoundError, requireAuth, requireUser } from '@basics/core/server/auth';
+import { ForbiddenError, NotFoundError, requireAuth, requireUser } from '@basics/core/server/auth';
 import type { FriendlyRoundService } from '../services/friendly-round.service';
 import type { RoundJoinService } from '../services/round-join.service';
 import type { RoundLeaveService } from '../services/round-leave.service';
@@ -120,10 +120,10 @@ const ScoreInput = Type.Object({
 
 // --- API descriptor ---
 //
-// NO `requireAuth()` on the token paths: the FriendlyRound front door is the
-// whole point of 2.6e — anyone creates a round, reads it, and writes scores
-// with only the share token. The share token is the only credential; the
-// trust boundary is documented on FriendlyRoundService.
+// Most token paths intentionally have NO `requireAuth()`: the FriendlyRound
+// front door lets anyone create, read and score with a share token. Identity-
+// scoped mutations are explicit exceptions below: `join`, `leave`, claims,
+// and creator-only deletion.
 //
 // OPTIONAL session (Phase 3): the global `createAuth` middleware (wired once
 // in main.ts/bootstrapAuth) validates the session cookie on EVERY request and
@@ -216,9 +216,10 @@ async function scoreOr404(
     return res;
 }
 
-async function removeOr404(svc: FriendlyRoundService, token: string) {
-    const res = await svc.removeByToken(token);
-    if (!res.ok) throw new NotFoundError('friendly round not found');
+async function removeOr404(svc: FriendlyRoundService, token: string, creatorPlayerId: string) {
+    const res = await svc.removeByToken(token, creatorPlayerId);
+    if (!res.ok && res.reason === 'not_found') throw new NotFoundError('friendly round not found');
+    if (!res.ok) throw new ForbiddenError('only the round creator can delete it');
     return { ok: true };
 }
 
@@ -285,16 +286,19 @@ export function createFriendlyRoundsApi(
         // composed-correction path. An optional session attributes the edit.
         setup:     { method: 'GET'  as const, path: '/friendly-rounds/setup',      fn: (input: Static<typeof ByTokenInput>)  => setupOr404(edits, input.token),         schema: ByTokenInput },
         editSetup: { method: 'POST' as const, path: '/friendly-rounds/setup',      fn: (input: Static<typeof EditSetupInput>, c: Context) => editOr404(edits, input, optionalUserId(c)), schema: EditSetupInput },
-        // Delete-round (token-scoped). Path param, not body — the framework's
-        // mount() reads DELETE input from `c.req.param()` only (same
-        // convention as `DELETE /friends/:friendId`). NO auth: the share
-        // token is the credential, and anyone holding it already controls
-        // every score in the round — deletion is not a new privilege in the
-        // no-login model. Creator-gating is deferred to the auth/roles phase;
-        // the trust boundary is documented on FriendlyRoundService.
-        remove:    { method: 'DELETE' as const, path: '/friendly-rounds/:token', fn: (input: Static<typeof ByTokenInput>) => removeOr404(svc, input.token), schema: ByTokenInput },
-        // Finish / reopen (token-scoped, NO auth — same credential + trust
-        // boundary as scoring/delete). Finish is PURELY ORGANIZATIONAL: it only
+        // Delete is identity-gated and creator-scoped. A share token remains
+        // the round's collaborative capability, but cannot erase everybody's
+        // scores; a non-creator participant can instead call `leave` below.
+        remove: {
+            method: 'DELETE' as const,
+            path: '/friendly-rounds/:token',
+            fn: (input: Static<typeof ByTokenInput>, c: Context) =>
+                removeOr404(svc, input.token, requireUser(c).id),
+            schema: ByTokenInput,
+            middleware: [requireAuth()],
+        },
+        // Finish / reopen are token-scoped and unauthenticated, like scoring.
+        // Finish is PURELY ORGANIZATIONAL: it only
         // moves the round into the landing's "Recently finished" section and
         // seals nothing (a complete friendly round stays editable + scorable).
         // Reopen undoes a mistaken finish (complete → active). The server stamps

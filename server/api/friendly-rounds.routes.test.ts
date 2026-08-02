@@ -574,9 +574,12 @@ test('POST /friendly-rounds/setup edits the round with NO login; a lock refuses 
     expect(lockedBody.diagnostics[0].code).toBe('edit_locked_course_route');
 });
 
-test('DELETE /friendly-rounds/:token deletes the round with NO login; the token then 404s', async () => {
+test('DELETE /friendly-rounds/:token requires the signed-in creator', async () => {
     const { ctx, draft } = await setup();
-    const created = await (await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })).json();
+    const ownerCookie = await loginAs(ctx.app, 'alice', 'password123');
+    const created = await (
+        await req(ctx.app, 'POST', '/api/friendly-rounds', { draft }, ownerCookie)
+    ).json();
     const token = created.friendlyRound.shareToken;
 
     // Score a hole first — deletion must tear down event/scorecard rows too.
@@ -587,7 +590,17 @@ test('DELETE /friendly-rounds/:token deletes the round with NO login; the token 
         strokes: 4, eventType: 'score_entered', clientEventId: 'del-http-1',
     });
 
-    const res = await req(ctx.app, 'DELETE', `/api/friendly-rounds/${token}`);
+    expect((await req(ctx.app, 'DELETE', `/api/friendly-rounds/${token}`)).status).toBe(401);
+
+    await ctx.playerService.register({
+        username: 'bob',
+        password: 'password123',
+        displayName: 'Bob Bengtsson',
+    });
+    const otherCookie = await loginAs(ctx.app, 'bob', 'password123');
+    expect((await req(ctx.app, 'DELETE', `/api/friendly-rounds/${token}`, undefined, otherCookie)).status).toBe(403);
+
+    const res = await req(ctx.app, 'DELETE', `/api/friendly-rounds/${token}`, undefined, ownerCookie);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
 
@@ -597,9 +610,10 @@ test('DELETE /friendly-rounds/:token deletes the round with NO login; the token 
 
 test('DELETE /friendly-rounds/:token returns 404 for an unknown token and deletes nothing', async () => {
     const { ctx, draft } = await setup();
-    const created = await (await req(ctx.app, 'POST', '/api/friendly-rounds', { draft })).json();
+    const cookie = await loginAs(ctx.app, 'alice', 'password123');
+    const created = await (await req(ctx.app, 'POST', '/api/friendly-rounds', { draft }, cookie)).json();
 
-    const res = await req(ctx.app, 'DELETE', '/api/friendly-rounds/no-such-token');
+    const res = await req(ctx.app, 'DELETE', '/api/friendly-rounds/no-such-token', undefined, cookie);
     expect(res.status).toBe(404);
     expect(
         (
