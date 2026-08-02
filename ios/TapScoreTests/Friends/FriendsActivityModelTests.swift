@@ -130,7 +130,7 @@ final class FriendsActivityModelTests: XCTestCase {
                 course: "Linköpings GK",
                 formatIds: ["stableford_individual", "taliban_better_ball"],
                 friends: [
-                    friend("p1", "Anna", holes: 18),
+                    friend("p1", "Anna", holes: 18, avatarVersion: "anna-photo"),
                     friend("p2", "Bo", holes: 18),
                 ]
             )
@@ -138,6 +138,8 @@ final class FriendsActivityModelTests: XCTestCase {
 
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows[0].friendLabel, "Anna + 1")
+        XCTAssertEqual(rows[0].playerId, "p1")
+        XCTAssertEqual(rows[0].avatarVersion, "anna-photo")
         XCTAssertEqual(rows[0].displayName, "Anna")
         XCTAssertEqual(rows[0].title, "Linköpings GK")
         XCTAssertEqual(rows[0].date, "2026-07-30")

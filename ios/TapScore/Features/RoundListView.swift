@@ -367,8 +367,7 @@ struct RoundListView: View {
                             row: row,
                             onOpen: { open(row) },
                             onRemove: { pendingRemoval = row },
-                            grouped: true,
-                            compact: true
+                            grouped: true
                         )
                     }
                     hairline
@@ -696,12 +695,54 @@ final class LandingLoader {
 
 // MARK: - Row
 
+/// The common hierarchy for every full round summary: what it was called,
+/// where it was played, and the quiet date / format facts below. Its callers
+/// decide the tap destination and whether a destructive swipe exists; the
+/// visual shape stays one thing across Ongoing, Finished, and friends' lists.
+struct RoundSummaryContent: View {
+    let title: String
+    let subtitle: String?
+    let metadata: [String]
+    var leadingPadding: CGFloat = TapSpacing.lg
+    var trailingPadding: CGFloat = TapSpacing.lg
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: TapSpacing.xs) {
+            Text(title)
+                .font(TapFont.ui(size: 16.8, weight: .bold))
+                .foregroundStyle(TapColors.text)
+                .multilineTextAlignment(.leading)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(TapFont.ui(size: 13.6))
+                    .foregroundStyle(TapColors.textMuted)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !metadata.isEmpty {
+                Text(metadata.joined(separator: " · "))
+                    .font(TapFont.ui(size: 12))
+                    .foregroundStyle(TapColors.textMuted)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, TapSpacing.md)
+        .padding(.leading, leadingPadding)
+        .padding(.trailing, trailingPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
 /// One round, as `.round-row` draws it. A standalone row is a card; a grouped
 /// row supplies only its content so the section's outer card can own the
-/// surface and separators. `compact` is the Recently finished landing row:
-/// it keeps the smaller metadata-only layout while sharing the same swipe
-/// behaviour. A row with a share token reveals its Delete action with a
-/// horizontal swipe instead of reserving a permanent trash column.
+/// surface and separators. A row with a share token reveals its Delete action
+/// with a horizontal swipe instead of reserving a permanent trash column.
 /// Internal rather than fileprivate: `AllRoundsView` is the same list without
 /// the window, and a second copy of this row is how the two screens would start
 /// disagreeing about what a round looks like.
@@ -710,7 +751,6 @@ struct RoundRow: View {
     let onOpen: () -> Void
     let onRemove: () -> Void
     var grouped = false
-    var compact = false
     /// Ongoing owns this fact. Other lists are retrospective or a new-round
     /// alert, where repeating a partial score adds noise rather than guidance.
     var showProgress = false
@@ -763,11 +803,12 @@ struct RoundRow: View {
     @ViewBuilder
     private var rowContent: some View {
         Button(action: openRow) {
-            if compact {
-                compactContent
-            } else {
-                standardContent
-            }
+            RoundSummaryContent(
+                title: row.label,
+                subtitle: row.courseSubtitle,
+                metadata: metadata,
+                trailingPadding: isRemovable ? 0 : TapSpacing.lg
+            )
         }
         .buttonStyle(.plain)
         // A produced round with no friendly wrapper has no token, so it
@@ -775,102 +816,11 @@ struct RoundRow: View {
         .disabled(row.token == nil)
     }
 
-    private var standardContent: some View {
-        HStack(alignment: .top, spacing: TapSpacing.md) {
-            VStack(alignment: .leading, spacing: TapSpacing.xs) {
-                // Web `.round-row__course`: 1.05rem/700 in the UI
-                // face. Kept in the UI face here too — the serif
-                // marks *structure* (section headers, the
-                // wordmark), and a course name is content. Two
-                // clients disagreeing about which face a round row
-                // wears is a divergence with nothing to buy it.
-                Text(row.label)
-                    .font(TapFont.ui(size: 16.8, weight: .bold))
-                    .foregroundStyle(TapColors.text)
-                    .multilineTextAlignment(.leading)
-                    // Two lines is enough for every real course
-                    // name; past that the row would push the chip
-                    // column around for no gain.
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                // Three sizes, one hierarchy: what the round is
-                // CALLED, then where it was played, then when.
-                // The course only appears when the headline is a
-                // name — otherwise the course IS the headline and
-                // this would repeat it.
-                if let course = row.courseSubtitle {
-                    Text(course)
-                        .font(TapFont.ui(size: 13.6))
-                        .foregroundStyle(TapColors.textMuted)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                let progress = showProgress ? row.progressText : nil
-                if row.displayDate != nil || progress != nil || row.formatsText != nil {
-                    // Web `.round-row__bottom` — date and formats
-                    // and, once scoring begins, actual progress share the
-                    // quiet metadata line. There is deliberately no lifecycle
-                    // chip: Ongoing already supplies that context.
-                    HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
-                        if let date = row.displayDate {
-                            Text(date)
-                        }
-                        if let progress {
-                            Text("· \(progress)")
-                        }
-                        if let formats = row.formatsText {
-                            Text("· \(formats)")
-                                .lineLimit(1)
-                        }
-                    }
-                    .font(TapFont.ui(size: 12))
-                    .foregroundStyle(TapColors.textMuted)
-                }
-            }
-            Spacer(minLength: TapSpacing.sm)
-        }
-        .padding(.vertical, TapSpacing.md)
-        .padding(.leading, TapSpacing.lg)
-        .padding(.trailing, isRemovable ? 0 : TapSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-    }
-
-    private var compactContent: some View {
-        HStack(alignment: .top, spacing: TapSpacing.md) {
-            VStack(alignment: .leading, spacing: TapSpacing.xs) {
-                Text(row.label)
-                    .font(TapFont.ui(size: 15.2, weight: .bold))
-                    .foregroundStyle(TapColors.text)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(1)
-                if let course = row.courseSubtitle {
-                    Text(course)
-                        .font(TapFont.ui(size: 12.8))
-                        .foregroundStyle(TapColors.textMuted)
-                        .lineLimit(1)
-                }
-                if row.displayDate != nil || row.formatsText != nil {
-                    HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
-                        if let date = row.displayDate {
-                            Text(date)
-                        }
-                        if let formats = row.formatsText {
-                            Text(formats)
-                                .lineLimit(1)
-                        }
-                    }
-                    .font(TapFont.ui(size: 12))
-                    .foregroundStyle(TapColors.textMuted)
-                }
-            }
-            Spacer(minLength: TapSpacing.sm)
-        }
-        .padding(.vertical, TapSpacing.md)
-        .padding(.horizontal, TapSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
+    private var metadata: [String] {
+        var facts = [row.displayDate].compactMap { $0 }
+        if showProgress, let progress = row.progressText { facts.append(progress) }
+        if let formats = row.formatsText { facts.append(formats) }
+        return facts
     }
 
     private var removeAction: some View {
@@ -1011,35 +961,23 @@ private struct RecentFriendRowView: View {
 
     var body: some View {
         Button(action: onOpen) {
-            HStack(alignment: .top, spacing: TapSpacing.md) {
-                VStack(alignment: .leading, spacing: TapSpacing.xs) {
-                    Text(row.friendLabel)
-                        .font(TapFont.ui(size: 15.2, weight: .bold))
-                        .foregroundStyle(TapColors.text)
-                        .lineLimit(1)
-
-                    HStack(alignment: .firstTextBaseline, spacing: TapSpacing.xs) {
-                        Text(row.title)
-                        if let formats {
-                            Text("· \(formats)")
-                        }
-                    }
-                    .font(TapFont.ui(size: 12.8))
-                    .foregroundStyle(TapColors.textMuted)
-                    .lineLimit(1)
-                }
-                Spacer(minLength: TapSpacing.sm)
-                if let date = row.displayDate {
-                    Text(date)
-                        .font(TapFont.ui(size: 12.8))
-                        .foregroundStyle(TapColors.textMuted)
-                        .lineLimit(1)
-                }
+            HStack(alignment: .center, spacing: TapSpacing.md) {
+                TapAvatar(
+                    playerId: row.playerId,
+                    avatarVersion: row.avatarVersion,
+                    displayName: row.displayName,
+                    size: 36
+                )
+                RoundSummaryContent(
+                    title: row.friendLabel,
+                    subtitle: row.title,
+                    metadata: [row.displayDate, formats].compactMap { $0 },
+                    leadingPadding: 0,
+                    trailingPadding: TapSpacing.lg
+                )
             }
-            .padding(.vertical, TapSpacing.md)
-            .padding(.horizontal, TapSpacing.lg)
+            .padding(.leading, TapSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(row.accessibilityLabel(formats: formats))

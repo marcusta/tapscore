@@ -151,19 +151,22 @@ const tpl = template(`
 // visual weight in every row.
 const moreSvg = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>`;
 
+// Every round glimpse answers the same three questions in the same order:
+// what, where, then when/how. The surrounding card decides whether the row
+// also needs actions; the summary itself stays identical across the lists.
+const roundSummaryMarkup = `
+    <span bind="title" class="round-summary__title"></span>
+    <span bind="course" class="round-summary__course"></span>
+    <span class="round-summary__bottom">
+        <span bind="date"></span>
+        <span bind="progress" class="round-summary__progress"></span>
+        <span bind="formats" class="round-summary__formats"></span>
+    </span>
+`;
+
 const rowTpl = template(`
     <div class="round-row">
-        <button bind="row" type="button" class="round-row__main">
-            <div class="round-row__top">
-                <span bind="title" class="round-row__title"></span>
-            </div>
-            <span bind="course" class="round-row__course"></span>
-            <div class="round-row__bottom">
-                <span bind="date"></span>
-                <span bind="progress" class="round-row__progress"></span>
-                <span bind="formats" class="round-row__formats"></span>
-            </div>
-        </button>
+        <button bind="row" type="button" class="round-summary round-row__main">${roundSummaryMarkup}</button>
         <div bind="actions" class="round-row__actions">
             <button bind="menuButton" type="button" class="round-row__menu-button" aria-label="Round actions" aria-haspopup="true" aria-expanded="false">${moreSvg}</button>
             <div bind="menu" class="round-row__menu" role="group" aria-label="Round actions">
@@ -173,20 +176,10 @@ const rowTpl = template(`
     </div>
 `);
 
-// A finished round inside the "Recently finished" card: what it was called,
-// where, when, and how it ended. No role label and no trash — the compact row
-// is a glance, and both of those belong on the full list at /history.
+// A finished round inside the "Recently finished" card. It deliberately uses
+// the same summary as an ongoing row, just without its changing progress.
 const finishedRowTpl = template(`
-    <button bind="row" type="button" class="finished-row">
-        <span class="finished-row__text">
-            <span bind="title" class="finished-row__title"></span>
-            <span bind="course" class="finished-row__course"></span>
-            <span class="finished-row__bottom">
-                <span bind="date" class="finished-row__date"></span>
-                <span bind="formats" class="finished-row__formats"></span>
-            </span>
-        </span>
-    </button>
+    <button bind="row" type="button" class="round-summary finished-row">${roundSummaryMarkup}</button>
 `);
 
 // One "Out now" chip: a friend's live round. Holes played and score to par,
@@ -216,19 +209,12 @@ const statTileTpl = template(`
     </span>
 `);
 
-// A quiet "Recently" row — who, what the round was, when. Deliberately no
-// score: the feed's recent half is retrospective browsing, and the round's
-// own screen is one tap away.
+// A finished friend's round. The friend is the title, then their course and
+// the normal metadata line — familiar hierarchy while keeping who played it.
 const recentTpl = template(`
-    <button bind="row" type="button" class="recent-row">
-        <span class="recent-row__text">
-            <span bind="who" class="recent-row__who"></span>
-            <span class="recent-row__what-line">
-                <span bind="what" class="recent-row__what"></span>
-                <span bind="formats" class="recent-row__formats"></span>
-            </span>
-        </span>
-        <span bind="when" class="recent-row__when"></span>
+    <button bind="row" type="button" class="round-summary recent-row">
+        ${avatarBadgeMarkup('recent-row__avatar')}
+        <span class="recent-row__content">${roundSummaryMarkup}</span>
     </button>
 `);
 
@@ -406,36 +392,80 @@ export class LandingComponent extends Component {
                 }
             }
 
-            & .recent-row {
-                display: flex; align-items: center; gap: ${s('md')};
+            /* The same reading hierarchy is reused for every own or friends
+               round card. Only the surrounding container changes: standalone
+               rows keep their action affordance; grouped rows grow edge to
+               edge inside a panel. */
+            & .round-summary {
+                display: flex;
+                flex-direction: column;
+                gap: ${s('xs')};
                 width: 100%;
-                padding: ${s('sm')} ${s('lg')};
+                min-width: 0;
+                padding: ${s('md')} ${s('lg')};
                 background: none;
                 border: none;
+                font-family: inherit;
+                text-align: left;
+                cursor: pointer;
+
+                &:disabled { cursor: default; }
+                &:hover:not(:disabled) { background: ${t('hover-bg')}; }
+
+                & .round-summary__title {
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    font-size: 1.05rem;
+                    font-weight: 700;
+                    color: ${t('text')};
+                }
+                & .round-summary__course {
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    font-size: 0.9rem;
+                    color: ${t('text-muted')};
+
+                    &.hidden { display: none; }
+                }
+                & .round-summary__bottom {
+                    display: flex;
+                    align-items: baseline;
+                    min-width: 0;
+                    gap: ${s('sm')};
+                    color: ${t('text-muted')};
+                    font-size: 0.85rem;
+                }
+                & .round-summary__formats {
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                & .round-summary__progress::before,
+                & .round-summary__formats::before { content: '·'; margin-right: ${s('sm')}; }
+                & .round-summary__progress.hidden,
+                & .round-summary__formats.hidden { display: none; }
+            }
+
+            & .recent-row {
+                flex-direction: row;
+                align-items: center;
+                gap: ${s('md')};
+                width: 100%;
                 border-top: 1px solid ${t('border')};
-                font-family: inherit; text-align: left; cursor: pointer;
 
-                &:hover { background: ${t('hover-bg')}; }
-
-                & .recent-row__text {
-                    flex: 1; min-width: 0;
-                    display: flex; flex-direction: column; gap: 1px;
+                & .recent-row__avatar {
+                    ${avatarBadgeCss(36, '0.8rem')}
+                    background: ${t('primary')};
+                    color: ${t('primary-text')};
                 }
-                & .recent-row__who { font-weight: 600; font-size: 0.9rem; color: ${t('text')}; }
-                & .recent-row__what {
-                    color: ${t('text-muted')}; font-size: 0.8rem;
-                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-                }
-                & .recent-row__what-line {
-                    display: flex; min-width: 0; gap: 0.25rem;
-                    overflow: hidden; white-space: nowrap;
-                }
-                & .recent-row__formats {
-                    color: ${t('text-muted')}; font-size: 0.8rem;
-                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-                }
-                & .recent-row__when {
-                    flex-shrink: 0; color: ${t('text-muted')}; font-size: 0.8rem;
+                & .recent-row__content {
+                    display: flex;
+                    flex: 1;
+                    flex-direction: column;
+                    gap: ${s('xs')};
+                    min-width: 0;
                 }
             }
 
@@ -489,17 +519,7 @@ export class LandingComponent extends Component {
 
                 & .round-row__main {
                     flex: 1;
-                    min-width: 0;
-                    display: flex;
-                    flex-direction: column;
-                    gap: ${s('xs')};
-                    padding: ${s('md')} 0 ${s('md')} ${s('lg')};
-                    text-align: left;
-                    font-family: inherit;
-                    background: none;
-                    border: none;
-                    cursor: pointer;
-                    &:disabled { cursor: default; }
+                    padding-right: 0;
                 }
 
                 & .round-row__actions {
@@ -511,44 +531,6 @@ export class LandingComponent extends Component {
                     &.hidden { display: none; }
                 }
 
-                & .round-row__top {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: baseline;
-                    gap: ${s('md')};
-                }
-                /* Three sizes, one hierarchy: what the round is CALLED, then
-                   where it was played, then when. An unnamed round is headed
-                   by its course and the sub-title hides. */
-                & .round-row__title {
-                    font-weight: 700;
-                    font-size: 1.05rem;
-                    color: ${t('text')};
-                }
-                & .round-row__course {
-                    color: ${t('text-muted')};
-                    font-size: 0.9rem;
-
-                    &.hidden { display: none; }
-                }
-                & .round-row__bottom {
-                    display: flex;
-                    align-items: baseline;
-                    gap: ${s('sm')};
-                    color: ${t('text-muted')};
-                    font-size: 0.85rem;
-
-                    &.hidden { display: none; }
-                }
-                & .round-row__formats {
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
-                & .round-row__progress::before,
-                & .round-row__formats::before { content: '·'; margin-right: ${s('sm')}; }
-                & .round-row__progress.hidden,
-                & .round-row__formats.hidden { display: none; }
             }
 
             /* Ongoing and Recently finished are both grouped panels. Ongoing
@@ -676,63 +658,8 @@ export class LandingComponent extends Component {
             }
 
             & .finished-row {
-                display: flex;
-                align-items: flex-start;
-                gap: ${s('md')};
                 width: 100%;
-                padding: ${s('md')} ${s('lg')};
-                background: none;
-                border: none;
                 border-top: 1px solid ${t('border')};
-                font-family: inherit;
-                text-align: left;
-                cursor: pointer;
-
-                &:disabled { cursor: default; }
-                &:hover:not(:disabled) { background: ${t('hover-bg')}; }
-
-                & .finished-row__text {
-                    flex: 1;
-                    min-width: 0;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 2px;
-                }
-                & .finished-row__title {
-                    font-weight: 700;
-                    font-size: 0.95rem;
-                    color: ${t('text')};
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
-                & .finished-row__course {
-                    color: ${t('text-muted')};
-                    font-size: 0.8rem;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-
-                    &.hidden { display: none; }
-                }
-                & .finished-row__date {
-                    color: ${t('text-muted')};
-                    font-size: 0.75rem;
-                }
-                & .finished-row__bottom {
-                    display: flex;
-                    justify-content: space-between;
-                    gap: ${s('md')};
-                    min-width: 0;
-                }
-                & .finished-row__formats {
-                    color: ${t('text-muted')};
-                    font-size: 0.75rem;
-                    text-align: right;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
             }
 
             /* The statistics card. One card, one button: the tiles, the
@@ -1138,13 +1065,30 @@ export class LandingComponent extends Component {
                                     query: { id: row.roundId, name: row.displayName },
                                 }),
                         },
-                        who: () => row.friendLabel,
-                        what: () => row.title,
-                        formats: () => {
-                            const labels = (row.formatIds ?? []).map(formatLabelFromId);
-                            return labels.length > 0 ? ` · ${labels.join(' · ')}` : '';
+                        ...avatarBadgeBindings(() => ({
+                            id: row.playerId,
+                            avatarVersion: row.avatarVersion,
+                            displayName: row.displayName,
+                        })),
+                        title: () => row.friendLabel,
+                        course: {
+                            textContent: () => row.title,
+                            className: () =>
+                                row.title ? 'round-summary__course' : 'round-summary__course hidden',
                         },
-                        when: () => formatRowDate(row.date),
+                        date: () => formatRowDate(row.date),
+                        progress: {
+                            textContent: '',
+                            className: 'round-summary__progress hidden',
+                        },
+                        formats: {
+                            textContent: () =>
+                                (row.formatIds ?? []).map(formatLabelFromId).join(' · '),
+                            className: () =>
+                                (row.formatIds ?? []).length > 0
+                                    ? 'round-summary__formats'
+                                    : 'round-summary__formats hidden',
+                        },
                     },
                     track,
                 ),
@@ -1266,11 +1210,19 @@ export class LandingComponent extends Component {
                     textContent: () => rowCourseSubtitle(row) ?? '',
                     className: () =>
                         rowCourseSubtitle(row)
-                            ? 'finished-row__course'
-                            : 'finished-row__course hidden',
+                            ? 'round-summary__course'
+                            : 'round-summary__course hidden',
                 },
                 date: () => formatRowDate(row.date),
-                formats: () => row.formats ?? '',
+                progress: {
+                    textContent: '',
+                    className: 'round-summary__progress hidden',
+                },
+                formats: {
+                    textContent: () => row.formats ?? '',
+                    className: () =>
+                        row.formats ? 'round-summary__formats' : 'round-summary__formats hidden',
+                },
             },
             track,
         );
@@ -1298,7 +1250,9 @@ export class LandingComponent extends Component {
                 course: {
                     textContent: () => rowCourseSubtitle(row) ?? '',
                     className: () =>
-                        rowCourseSubtitle(row) ? 'round-row__course' : 'round-row__course hidden',
+                        rowCourseSubtitle(row)
+                            ? 'round-summary__course'
+                            : 'round-summary__course hidden',
                 },
                 date: () => formatRowDate(row.date),
                 progress: {
@@ -1308,13 +1262,13 @@ export class LandingComponent extends Component {
                             : '',
                     className: () =>
                         showProgress && row.holesPlayed && row.holesPlayed > 0
-                            ? 'round-row__progress'
-                            : 'round-row__progress hidden',
+                            ? 'round-summary__progress'
+                            : 'round-summary__progress hidden',
                 },
                 formats: {
                     textContent: () => row.formats ?? '',
                     className: () =>
-                        row.formats ? 'round-row__formats' : 'round-row__formats hidden',
+                        row.formats ? 'round-summary__formats' : 'round-summary__formats hidden',
                 },
                 actions: {
                     className: () =>

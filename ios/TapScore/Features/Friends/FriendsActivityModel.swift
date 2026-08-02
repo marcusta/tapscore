@@ -49,6 +49,10 @@ struct OutNowChip: Identifiable, Equatable, Sendable {
 struct RecentFriendRow: Identifiable, Equatable, Sendable {
     let roundId: String
     let friendLabel: String
+    /// The lead friend is the row's visual subject, so their id/version travel
+    /// with the label and let the standard avatar resolve its photo.
+    let playerId: String
+    let avatarVersion: String?
     let displayName: String
     let title: String
     let date: String
@@ -127,6 +131,8 @@ enum FriendsActivityModel {
             return RecentFriendRow(
                 roundId: entry.roundId,
                 friendLabel: label,
+                playerId: lead.playerId,
+                avatarVersion: lead.avatarVersion,
                 displayName: lead.displayName,
                 title: course?.isEmpty == false ? course! : "A round",
                 date: entry.date,

@@ -163,6 +163,10 @@ export interface RecentRow {
     roundId: string;
     /** "Anna" / "Anna + 1" — same attribution rule as the chips. */
     friendLabel: string;
+    /** Identity travels with the label so the row can draw the same lead
+     *  friend's avatar as an Out now chip. */
+    playerId: string;
+    avatarVersion: string | null;
     /** The LEAD friend's name alone — what navigation may hang a possessive
      *  on ("Anna's round"), where `friendLabel`'s "+ 1" would read as a name. */
     displayName: string;
@@ -187,6 +191,8 @@ export function recentRows(recent: readonly FriendsActivityEntry[]): RecentRow[]
         rows.push({
             roundId: entry.roundId,
             friendLabel: label,
+            playerId: lead.playerId,
+            avatarVersion: lead.avatarVersion,
             displayName: lead.displayName,
             title: courseLabel(entry) ?? 'A round',
             date: entry.date,

@@ -164,6 +164,8 @@ test('recentRows carry who / where / when — the course, never the round name',
     // The lead NAME rides separately — navigation hangs a possessive on it,
     // and "Anna + 1's round" is not a sentence.
     expect(rows[0]!.displayName).toBe('Anna');
+    expect(rows[0]!.playerId).toBe('p1');
+    expect(rows[0]!.avatarVersion).toBeNull();
     expect(rows[0]!.date).toBe('2026-07-12');
     expect(rows[0]!.roundId).toBe('r1');
     expect(rows[0]!.formatIds).toEqual(['stableford_individual', 'taliban_better_ball']);
