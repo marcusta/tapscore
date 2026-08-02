@@ -194,13 +194,13 @@ const chipTpl = template(`
     </button>
 `);
 
-// One statistics tile: the reading in the display face, what it measures under
-// it, and — only under the display policy's floor — the sample it rests on.
+// One statistics tile: the reading in the display face, and what it measures
+// under it. Nothing else — the third line, a thin-sample note, went with the
+// display floor (owner ruling, 2026-08-02).
 const statTileTpl = template(`
     <span class="stat-tile">
         <span bind="value" class="stat-tile__value"></span>
         <span bind="label" class="stat-tile__label"></span>
-        <span bind="note" class="stat-tile__note"></span>
     </span>
 `);
 
@@ -743,13 +743,6 @@ export class LandingComponent extends Component {
                     color: ${t('text-muted')};
                     font-size: 0.75rem;
                 }
-                /* Only under the display policy's floor — see homeStatsTiles. */
-                & .stat-tile__note {
-                    color: ${t('text-muted')};
-                    font-size: 0.65rem;
-
-                    &.hidden { display: none; }
-                }
             }
 
             /* The same door standing on its own, when there is no card to put
@@ -1143,11 +1136,6 @@ export class LandingComponent extends Component {
                     {
                         value: () => tile.value,
                         label: () => tile.label,
-                        note: {
-                            textContent: () => tile.note ?? '',
-                            className: () =>
-                                tile.note === null ? 'stat-tile__note hidden' : 'stat-tile__note',
-                        },
                     },
                     track,
                 ),
@@ -1155,7 +1143,7 @@ export class LandingComponent extends Component {
             // key matches without re-invoking the renderer, and the bindings
             // close over a plain (non-signal) tile object — an id-keyed list
             // would keep last fold's numbers on screen after a refresh.
-            (tile) => `${tile.id}:${tile.value}:${tile.note ?? ''}`,
+            (tile) => `${tile.id}:${tile.value}`,
         );
 
         this.spawn(ConfirmComponent, this.ref(frag, 'confirmHost'), {

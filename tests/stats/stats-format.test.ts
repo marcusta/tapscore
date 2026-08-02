@@ -7,8 +7,8 @@ import {
     strokesPer18,
     formatAverage,
     formatCount,
+    formatCost,
     formatRate,
-    isThin,
     missedGreenTaxSample,
     penaltyTaxSample,
     quantity,
@@ -17,7 +17,6 @@ import {
     roundTypeTitle,
     signedNumber,
     taxSample,
-    THIN_SAMPLE,
     troubleTaxSample,
     UNIT_GREENS,
     UNIT_ROUNDS,
@@ -32,8 +31,9 @@ import {
     type VsParSplit,
 } from '../../src/round/stat-measures';
 
-// The display policy (proposal §1) in one place: d == 0 absent, 0 < d < 5 raw
-// fraction, d >= 5 percentage, denominators always shown.
+// The display policy in one place, and it now has exactly TWO cases: d == 0 is
+// absent, and every other d is a percentage. The middle band — the raw fraction
+// and the "thin sample" suffix — was retired by the owner on 2026-08-02.
 
 // --- Display policy ----------------------------------------------------------
 
@@ -44,26 +44,36 @@ test('d == 0 is absent, not zero', () => {
     expect(averageSample(rate(0, 0), UNIT_ROUNDS)).toBeNull();
 });
 
-test('0 < d < 5 reads as the raw fraction and never repeats it as a sample', () => {
+test('a SMALL denominator is still a percentage — there is no fraction band left', () => {
     const r = rate(2, 3);
-    expect(formatRate(r)).toBe('2 of 3');
-    expect(rateSample(r)).toBeNull();
-    expect(rateWithSample(r)).toBe('2 of 3');
-    expect(isThin(r)).toBe(true);
+    expect(formatRate(r)).toBe('67%');
+    // The sample survives as a SAMPLE, which is what a headline parenthetical
+    // and an info sheet are made of. It is simply never the value any more.
+    expect(rateSample(r)).toBe('2 of 3');
+    expect(rateWithSample(r)).toBe('67% (2 of 3)');
 });
 
-test('d >= 5 reads as a percentage with its sample beside it', () => {
+test('a big denominator reads the same way, sample beside it', () => {
     const r = rate(7, 12);
     expect(formatRate(r)).toBe('58%');
     expect(rateWithSample(r)).toBe('58% (7 of 12)');
-    expect(isThin(r)).toBe(false);
 });
 
-test('an average under the floor says "thin sample" outright', () => {
+test('an average over a small sample says the sample, and nothing about its size', () => {
     expect(averageWithSample(rate(6, 3), { unit: UNIT_GREENS, label: 'putts per green hit' })).toBe(
-        `2.00 putts per green hit (over 3 greens — ${THIN_SAMPLE})`,
+        '2.00 putts per green hit (over 3 greens)',
     );
     expect(averageWithSample(rate(44, 24), { unit: UNIT_GREENS })).toBe('1.83 (over 24 greens)');
+});
+
+test('a strokes-gained cost is signed to one decimal, and an absent one is the placeholder', () => {
+    // POSITIVE IS LOST, everywhere in this app.
+    expect(formatCost(1.24)).toBe('+1.2');
+    expect(formatCost(-1.24)).toBe('\u22121.2');
+    expect(formatCost(0)).toBe('0.0');
+    // −0.0 must not read as a gain.
+    expect(formatCost(-0.02)).toBe('0.0');
+    expect(formatCost(null)).toBe('\u2014');
 });
 
 // --- Numbers -----------------------------------------------------------------
@@ -98,10 +108,8 @@ test('the trouble tax prints BOTH real denominators, never the cross product', (
     expect(troubleTaxSample(byTee(11, 9))).toBe('over 9 holes from trouble vs 11 from the fairway');
 });
 
-test('either side being thin marks the whole reading thin', () => {
-    expect(troubleTaxSample(byTee(2, 4))).toBe(
-        `over 4 holes from trouble vs 2 from the fairway — ${THIN_SAMPLE}`,
-    );
+test('a small side is reported as itself — the reader can see 2 is small', () => {
+    expect(troubleTaxSample(byTee(2, 4))).toBe('over 4 holes from trouble vs 2 from the fairway');
 });
 
 test('a missing side has no honest reading at all', () => {
@@ -158,16 +166,16 @@ test('taxSample prints both denominators and nothing about the guard', () => {
     expect(missedGreenTaxSample(COST_W)).not.toContain('884');
 });
 
-test('either side under the floor marks the whole difference thin, in words', () => {
+test('a small side carries no caveat, only its own number', () => {
     expect(penaltyTaxSample({ penalty: rate(14, 9), clean: rate(1, 3) })).toBe(
-        `over 9 holes with a penalty vs 3 without — ${THIN_SAMPLE}`,
+        'over 9 holes with a penalty vs 3 without',
     );
     expect(missedGreenTaxSample({ hit: rate(1, 2), miss: rate(9, 20), delta: rate(0, 40) })).toBe(
-        `over 20 holes with the green missed vs 2 greens hit — ${THIN_SAMPLE}`,
+        'over 20 holes with the green missed vs 2 greens hit',
     );
     // Singulars are spelled out, both sides.
     expect(penaltyTaxSample({ penalty: rate(2, 1), clean: rate(0, 1) })).toBe(
-        `over 1 hole with a penalty vs 1 without — ${THIN_SAMPLE}`,
+        'over 1 hole with a penalty vs 1 without',
     );
 });
 

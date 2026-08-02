@@ -21,7 +21,11 @@ import Foundation
 /// `penalties` and `recovery`, which surface here as lines inside the tee panel
 /// rather than as panels of their own. Scoring has no toggle at all — a
 /// scorecard is always there.
-enum StatsPanelID: String, CaseIterable, Sendable {
+/// `Identifiable` so `.sheet(item:)` can carry one — the card info sheets (§D.6)
+/// present off the panel id itself rather than a parallel bool per panel.
+enum StatsPanelID: String, CaseIterable, Sendable, Identifiable {
+    var id: String { rawValue }
+
     case tee
     case approach
     case putting
@@ -115,7 +119,9 @@ struct StatsTeePanel: Equatable, Sendable {
     /// — a zero where the truth is "not recorded". This is the coverage the view
     /// gates that figure on, and the sample it prints beside it.
     var penaltiesRecordedHoles: Double
-    /// How often a hole that answered the penalty question carried one.
+    /// How often a scored hole carried a penalty, over ALL scored holes — the
+    /// same cohort `penaltyTax` splits, where an unanswered penalty question is
+    /// a clean hole.
     var penaltyHoleShare: Rate
     /// Extra strokes per hole conceded on the holes that took a penalty.
     var penaltyTax: Rate
@@ -170,14 +176,24 @@ struct StatsPuttingPanel: Equatable, Sendable {
     struct Rung: Equatable, Sendable, Identifiable {
         var bucket: PuttBucket
         var made: Rate
-        /// The make % the EXPECTED_PUTTS table implies for this distance.
+        /// The make % the SELECTED COHORT's expected-putts table implies for
+        /// this distance.
         ///
         /// Presentation-only, and a rough inversion: a bucket that expects `E`
         /// putts holes out in one `2 − E` of the time IF every miss leaves a
-        /// tap-in. It floors at 0 for the long buckets (4–8m expects 2.10,
-        /// >8m 2.40), where the honest reading is "the table expects you to
-        /// two-putt", not "you should hole none of these". The view says so.
+        /// tap-in. It floors at 0 for the long buckets, where the honest reading
+        /// is "the reference expects you to two-putt", not "you should hole none
+        /// of these". The tick follows the "Compared to" selector, exactly like
+        /// `cost` below — one selector, one table, both numbers.
         var baseline: Double
+        /// Strokes this bucket cost against the selected cohort, over the whole
+        /// window. POSITIVE = LOST, the waterfall's sign. Nil when the bucket
+        /// has no resolved hole — there is nothing to compare.
+        ///
+        /// A cumulative TOTAL over the window, not a per-round or per-hole rate
+        /// — the same unit as a waterfall term before it is divided by rounds.
+        /// The info sheet says so.
+        var cost: Double?
         var id: String { bucket.rawValue }
     }
 
@@ -347,7 +363,7 @@ struct StatsDashboardModel: Equatable, Sendable {
                 ordered.map { ResultsRow(holeCount: $0.holeCount, measures: $0.measures) }),
             tee: teePanel(totals, roundCount: Double(ordered.count)),
             approach: approachPanel(totals),
-            putting: puttingPanel(totals),
+            putting: puttingPanel(totals, baseline: baseline),
             shortGame: shortGamePanel(totals),
             scoring: scoringPanel(totals, roundCount: Double(ordered.count)))
     }
@@ -502,19 +518,35 @@ struct StatsDashboardModel: Equatable, Sendable {
             greenMissRecorded: m.greenMissRecorded)
     }
 
-    static func puttingPanel(_ m: StatMeasures) -> StatsPuttingPanel? {
+    /// - Parameter baseline: the cohort bundle the ladder is weighed against.
+    ///   BOTH the make-% tick and the per-bucket cost read `baseline.expected`,
+    ///   so switching the "Compared to" selector visibly moves both. Before the
+    ///   cohort tiers landed the tick hardcoded `expectedPuttsV1` while the rest
+    ///   of the dashboard followed the player's cohort; that is closed here.
+    ///
+    ///   Deliberately REQUIRED, with no default: a default is how a call site
+    ///   that forgot to thread the reader's selected cohort compiles clean and
+    ///   silently prices the ladder against somebody else's reference.
+    static func puttingPanel(
+        _ m: StatMeasures, baseline: SgBaselineBundle
+    ) -> StatsPuttingPanel? {
         guard m.puttsRecorded > 0 || m.firstPuttRecorded > 0 else { return nil }
-        let expected = StatMeasuresMath.expectedPuttsV1
+        let expected = baseline.expected
         var spread: [PuttBucket: Rate] = [:]
         for bucket in PuttBucket.allCases {
             spread[bucket] = StatMeasuresMath.firstPuttMix(m, bucket)
         }
         return StatsPuttingPanel(
             ladder: PuttBucket.allCases.map { bucket in
-                StatsPuttingPanel.Rung(
+                let resolved = StatMeasuresMath.firstPuttResolved(m, bucket)
+                return StatsPuttingPanel.Rung(
                     bucket: bucket,
                     made: StatMeasuresMath.onePuttRate(m, bucket),
-                    baseline: max(0, 2 - expected[bucket]))
+                    baseline: max(0, 2 - expected[bucket]),
+                    cost: resolved > 0
+                        ? StatMeasuresMath.puttsTotalResolved(m, bucket)
+                            - resolved * expected[bucket]
+                        : nil)
             },
             firstPuttSpread: spread,
             threePutt: StatMeasuresMath.threePuttRate(m),

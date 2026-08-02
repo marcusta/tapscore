@@ -164,15 +164,21 @@ final class StatsChartsWave4Tests: XCTestCase {
             $0.holesMultiChip = 4
             $0.holesMultiChipBunker = 1
         }
-        let rows =
-            StatsPanelsView.sandSaveFigure(panel) + StatsPanelsView.shortGameCounterFigures(panel)
+        let blocks = StatsPanelsView.shortGameBlocks(panel)
+        let rows = blocks.filter {
+            ["sandSave", "multiChipBunker", "extraShortGameStrokes", "multiChip"].contains($0.id)
+        }
         XCTAssertEqual(
             rows.map(\.title),
             [
                 "Sand save", "More than one from sand", "Extra short-game shots",
                 "More than one chip",
             ])
-        XCTAssertEqual(rows.map(\.value), ["2 of 3", "1 of 3", "5", "33% (4 of 12)"])
+        // Percentages at every denominator: "2 of 3" and "1 of 3" are exactly
+        // the fraction rendering the owner retired (2026-08-02).
+        XCTAssertEqual(rows.map(\.value), ["67%", "33%", "5", "33%"])
+        // …and the three rates draw a bar, the counter does not.
+        XCTAssertEqual(rows.map(\.kind), ["bar", "bar", "figure", "bar"])
     }
 
     /// A window with no bunker at all loses the sand rows and keeps the rest —
@@ -188,9 +194,12 @@ final class StatsChartsWave4Tests: XCTestCase {
             $0.shortGameStrokesEffective = 6
             $0.holesMultiChip = 2
         }
-        XCTAssertTrue(StatsPanelsView.sandSaveFigure(panel).isEmpty)
+        let blocks = StatsPanelsView.shortGameBlocks(panel)
+        XCTAssertFalse(blocks.contains { $0.id == "sandSave" })
         XCTAssertEqual(
-            StatsPanelsView.shortGameCounterFigures(panel).map(\.title),
+            blocks.filter {
+                ["multiChipBunker", "extraShortGameStrokes", "multiChip"].contains($0.id)
+            }.map(\.title),
             ["More than one from sand", "Extra short-game shots", "More than one chip"])
     }
 
@@ -205,9 +214,13 @@ final class StatsChartsWave4Tests: XCTestCase {
             $0.scrambleAttemptsBunker = 2
             $0.scrambleSuccessesBunker = 1
         }
-        XCTAssertTrue(StatsPanelsView.shortGameCounterFigures(panel).isEmpty)
-        // …but the sand save is a scramble rate, not a counter, so it stays.
-        XCTAssertEqual(StatsPanelsView.sandSaveFigure(panel).map(\.value), ["1 of 2"])
+        let blocks = StatsPanelsView.shortGameBlocks(panel)
+        for id in ["multiChipBunker", "extraShortGameStrokes", "multiChip"] {
+            XCTAssertFalse(blocks.contains { $0.id == id }, id)
+        }
+        // …but the sand save is a scramble rate, not a counter, so it stays —
+        // and it reads as a percentage off two attempts.
+        XCTAssertEqual(blocks.first { $0.id == "sandSave" }?.value, "50%")
     }
 
     // MARK: - The bunker leg of the three groups
@@ -233,17 +246,20 @@ final class StatsChartsWave4Tests: XCTestCase {
             $0.scrambleHoledHard = 0
             $0.scrambleHoledBunker = 1
         }
+        let blocks = StatsPanelsView.shortGameBlocks(panel)
+        // The group's ROWS — its subhead is a heading, not a leg.
+        func group(_ prefix: String) -> [StatsBlock] {
+            blocks.filter { $0.id.hasPrefix(prefix) && !$0.id.hasSuffix("Head") }
+        }
         // Always LAST of its group: Standard, Hard, then Bunker.
-        XCTAssertEqual(
-            StatsPanelsView.scramblingBars(panel).map(\.title), ["Standard", "Hard", "Bunker"])
-        XCTAssertEqual(
-            StatsPanelsView.chipInside2mBars(panel).map(\.title), ["Standard", "Hard", "Bunker"])
-        XCTAssertEqual(
-            StatsPanelsView.chipInFigures(panel).map(\.title), ["Standard", "Hard", "Bunker"])
-        // 2 of 3 is under the display floor, so it reads as the fraction.
-        XCTAssertEqual(
-            StatsFormat.rate(StatsPanelsView.scramblingBars(panel)[2].rate), "2 of 3")
-        XCTAssertEqual(StatsPanelsView.chipInFigures(panel)[2].value, "1")
+        XCTAssertEqual(group("scramble").map(\.title), ["Standard", "Hard", "Bunker"])
+        XCTAssertEqual(group("chip").filter { !$0.id.hasPrefix("chipIns") }.map(\.title),
+            ["Standard", "Hard", "Bunker"])
+        XCTAssertEqual(group("chipIns").map(\.title), ["Standard", "Hard", "Bunker"])
+        // Two of three bunker scrambles: a percentage, with a bar, at d = 3.
+        XCTAssertEqual(blocks.first { $0.id == "scrambleBunker" }?.value, "67%")
+        XCTAssertNotNil(blocks.first { $0.id == "scrambleBunker" }?.share)
+        XCTAssertEqual(blocks.first { $0.id == "chipInsBunker" }?.value, "1")
     }
 
     func testTheBunkerLegIsAbsentFromAllThreeGroupsWhenNoSandWasPlayed() {
@@ -253,17 +269,18 @@ final class StatsChartsWave4Tests: XCTestCase {
             $0.scrambleSuccessesStandard = 3
             $0.scrambleInside2mStandard = 2
         }
-        XCTAssertEqual(StatsPanelsView.scramblingBars(panel).map(\.title), ["Standard", "Hard"])
-        XCTAssertEqual(StatsPanelsView.chipInside2mBars(panel).map(\.title), ["Standard", "Hard"])
-        XCTAssertEqual(StatsPanelsView.chipInFigures(panel).map(\.title), ["Standard", "Hard"])
+        let blocks = StatsPanelsView.shortGameBlocks(panel)
+        for id in ["scrambleBunker", "sandSave", "chipBunker", "chipInsBunker"] {
+            XCTAssertFalse(blocks.contains { $0.id == id }, id)
+        }
     }
 
     // MARK: - The compass labels
 
     /// The in-picture labels and the prose under the wheel are the SAME numbers
-    /// through the same formatter — under `MIN_RATE_DENOMINATOR` both read as a
-    /// fraction, and no wedge ever paints a percentage the sentence refuses to.
-    func testTheCompassLabelsHonourTheRateFloorExactlyAsTheProseDoes() {
+    /// through the same formatter — at ANY denominator, since the fraction
+    /// rendering that used to make a wedge say "2 of 3" is retired.
+    func testTheCompassLabelsReadAsPercentagesOnASmallSampleToo() {
         let m = windowB {
             $0.girRecorded = 9
             $0.girHits = 6
@@ -276,18 +293,17 @@ final class StatsChartsWave4Tests: XCTestCase {
         }
         XCTAssertEqual(
             StatsPanelsView.greenMissReading(panel),
-            "Long 2 of 3 · Short 1 of 3 · Left 0 of 3 · Right 0 of 3")
+            "Long 67% · Short 33% · Left 0% · Right 0%")
         let labels = StatsPanelsView.greenMissLabels(panel)
-        XCTAssertEqual(labels[.long], "2 of 3")
-        XCTAssertEqual(labels[.short], "1 of 3")
-        XCTAssertEqual(labels[.left], "0 of 3")
-        XCTAssertEqual(labels[.right], "0 of 3")
-        XCTAssertFalse(labels.values.contains { $0.contains("%") })
+        XCTAssertEqual(labels[.long], "67%")
+        XCTAssertEqual(labels[.short], "33%")
+        XCTAssertEqual(labels[.left], "0%")
+        XCTAssertEqual(labels[.right], "0%")
+        XCTAssertFalse(labels.values.contains { $0.contains(" of ") })
     }
 
-    /// …and with a real sample both say the percentage, so the fraction above is
-    /// the floor at work and not the only thing this path can produce.
-    func testTheCompassLabelsMatchTheProseOnceTheSampleIsBigEnough() {
+    /// …and on a bigger sample nothing changes: one rendering, every window.
+    func testTheCompassLabelsMatchTheProseOnALargerSample() {
         let m = windowB {
             $0.girRecorded = 20
             $0.girHits = 8

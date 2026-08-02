@@ -12,13 +12,25 @@ import {
 import {
     buildDashboardModel,
     EMPTY_DASHBOARD_MODEL,
+    STATS_PANEL_IDS,
 } from '../../src/stats/stats-dashboard-model';
 import { resultsSummary, ZERO_MEASURES, type ResultsRow } from '../../src/round/stat-measures';
+import { panelInfoCards } from '../../src/stats/panel-info-cards';
+import { DEFAULT_SG_BASELINE_INFO } from '../../src/stats/sg-baseline';
+import type { StatsDashboardModel, StatsPanelId } from '../../src/stats/stats-dashboard-model';
 import type { PlayerRoundStats, StatMeasures } from '../../src/api/player-stats.gen';
 
-// The panel catalog: which figures a module shows, and the two display-policy
-// decisions the blocks carry — a thin sample gets NO bar, and an absent value
-// travels as null rather than as a zero.
+// The panel catalog: which figures a module shows, and the one display decision
+// the blocks still carry — an absent value travels as null rather than as a
+// zero. There is no thin gate any more: a bar always draws its share, and the
+// sentences that used to sit under a row now live in the card's info sheet.
+
+/** One sheet card's paragraph, for asserting a sentence that left a row. */
+function infoBody(panel: StatsPanelId, model: StatsDashboardModel, cardId: string): string {
+    const c = panelInfoCards(panel, model, DEFAULT_SG_BASELINE_INFO).find((x) => x.id === cardId);
+    if (c === undefined) throw new Error(`no info card ${panel}/${cardId}`);
+    return c.body;
+}
 
 function measures(over: Partial<StatMeasures> = {}): StatMeasures {
     return { ...ZERO_MEASURES, ...over };
@@ -72,24 +84,29 @@ test('the tee panel leads with the split and carries the trouble tax with BOTH i
     const blocks = panelBlocks('tee', model);
     expect(blocks[0]!.kind).toBe('split');
     const tax = blocks.find((b) => b.id === 'troubleTax')!;
-    // Never "over 10 holes" — the figure's own denominator is a cross-product
-    // guard, so the sample is the two sides it is a difference of.
-    expect(tax.kind === 'figure' && tax.hint).toContain('2 holes from trouble vs 5 from the fairway');
+    // The ROW carries no prose at all any more — label and figure only.
+    expect(tax.kind === 'figure' && tax.hint).toBeNull();
+    // Never "over 10 holes": the figure's own denominator is a cross-product
+    // guard, so the sample is the two sides it is a difference of — and it is
+    // now the sheet that says so.
+    expect(infoBody('tee', model, 'vsParByTee')).toContain(
+        '2 holes from trouble vs 5 from the fairway',
+    );
 });
 
-test('a single tee shot paints NO split segment, and still prints its legend', () => {
-    // One recorded tee shot is a rate of 1.0. Handed to the bar as a raw share
-    // it paints the whole track solid, giving one answer the visual weight of
-    // thirty — the exact thing the thin gate exists to stop. The legend keeps
-    // saying "1 of 1", which is the honest reading of that sample.
+test('a single tee shot paints its segment solid, and says 100%', () => {
+    // A bar ALWAYS draws its share (owner ruling, 2026-08-02). One recorded tee
+    // shot in the fairway IS 100% of the tee shots recorded, and hiding the
+    // segment to protect the reader from that arithmetic was the paternalism the
+    // ruling removed. The window label above says how few rounds this is.
     const model = buildDashboardModel([
         round({ measures: measures({ teeRecorded: 1, fairwayHits: 1, inPlayHits: 1 }) }),
     ]);
     const split = panelBlocks('tee', model).find((b) => b.id === 'teeSplit')!;
     expect(split.kind).toBe('split');
     if (split.kind !== 'split') throw new Error('unreachable');
-    expect(split.segments.map((s) => s.share)).toEqual([null, null, null]);
-    expect(split.segments.find((s) => s.id === 'fairway')!.value).toBe('1 of 1');
+    expect(split.segments.map((s) => s.share)).toEqual([1, 0, 0]);
+    expect(split.segments.find((s) => s.id === 'fairway')!.value).toBe('100%');
     expect(split.segments.map((s) => s.title)).toEqual(['Fairway', 'In play', 'Trouble']);
 });
 
@@ -103,7 +120,7 @@ test('a split with a real sample keeps its shares', () => {
     expect(split.segments.find((s) => s.id === 'trouble')!.share).toBeCloseTo(0.2, 10);
 });
 
-test('a thin rate prints as a fraction and draws NO bar', () => {
+test('a small denominator still draws its bar and prints its percentage', () => {
     const model = buildDashboardModel([
         round({
             measures: measures({
@@ -116,8 +133,8 @@ test('a thin rate prints as a fraction and draws NO bar', () => {
     ]);
     const bar = panelBlocks('approach', model).find((b) => b.id === 'girFairway')!;
     expect(bar.kind).toBe('bar');
-    expect(bar.kind === 'bar' && bar.share).toBeNull();
-    expect(bar.kind === 'bar' && bar.value).toBe('2 of 3');
+    expect(bar.kind === 'bar' && bar.share).toBeCloseTo(2 / 3, 10);
+    expect(bar.kind === 'bar' && bar.value).toBe('67%');
 });
 
 test('a rate with no sample at all leaves a null value for the view to word', () => {
@@ -140,11 +157,12 @@ test('the putting panel is a ladder rung per bucket, in distance order, plus thr
     ]);
     const rung = blocks.find((b) => b.id === 'rung-inside_1m')!;
     expect(rung.kind === 'rung' && rung.made).toBeCloseTo(0.875, 10);
-    expect(blocks.filter((b) => b.kind === 'figure').map((b) => b.id)).toEqual([
-        'threePutt',
-        'longThreePutt',
-        'puttsPerGir',
-    ]);
+    // No standalone `threePutt` FIGURE: it duplicated the distribution's "Three
+    // or more" row exactly, and the owner cut the duplicate (2026-08-02). The
+    // over-8 m variant stays, because it says something the distribution cannot.
+    expect(blocks.filter((b) => b.kind === 'figure').map((b) => b.id)).toEqual(['puttsPerGir']);
+    expect(blocks.find((b) => b.id === 'threePutt')).toBeUndefined();
+    expect(blocks.find((b) => b.id === 'longThreePutt')!.kind).toBe('bar');
     // This window recorded no putt COUNT at all, so the by-par partition goes as
     // a GROUP, subhead included — a heading over three "Not recorded" rows says
     // nothing the rows do not already say.
@@ -198,7 +216,7 @@ test('the tee card carries the three absolutes the trouble tax is a difference o
     expect(ids.indexOf('vsParByTeeHead')).toBeGreaterThan(ids.indexOf('teeSplit'));
     expect(ids.indexOf('vsParTrouble')).toBeLessThan(ids.indexOf('troubleTax'));
     const trouble = blocks.find((b) => b.id === 'vsParTrouble')!;
-    expect(trouble.kind === 'figure' && trouble.value).toBe('+2.00 (over 2 holes — thin sample)');
+    expect(trouble.kind === 'figure' && trouble.value).toBe('+2.00 (over 2 holes)');
     // The three PARTITION the tee shots, so an empty one still prints — hiding a
     // row of a partition misreads as "you never went there".
     const inPlay = blocks.find((b) => b.id === 'vsParInPlay')!;
@@ -222,8 +240,11 @@ test('penalties are absent, not zero, until the question was answered', () => {
         round({ measures: measures({ teeRecorded: 9, penaltiesRecorded: 18, penaltiesTotal: 3 }) }),
     ]);
     const penalties = panelBlocks('tee', recorded).find((b) => b.id === 'penalties')!;
-    expect(penalties.kind === 'figure' && penalties.hint).toBe(
-        'Penalty strokes per round. Recorded on 18 holes.',
+    expect(penalties.kind === 'figure' && penalties.value).toBe('3.00 (over 1 round)');
+    // The hint was pure denominator, so it went to the sheet whole.
+    expect(penalties.kind === 'figure' && penalties.hint).toBeNull();
+    expect(infoBody('tee', recorded, 'penalties')).toBe(
+        'Penalty strokes per round. Measured over 18 holes.',
     );
 });
 
@@ -283,7 +304,11 @@ test('the hard-chip share sits on the approach card, and only once there is a mi
     const blocks = panelBlocks('approach', withChips);
     expect(blocks[blocks.length - 1]!.id).toBe('hardChipShare');
     const share = blocks[blocks.length - 1]!;
-    expect(share.kind === 'figure' && share.value).toBe('33% (2 of 6)');
+    // A rate row, so: a bar and a bare percentage. The 2-of-6 sample is in the
+    // sheet, not squeezed into a 56 px value column.
+    expect(share.kind === 'bar' && share.value).toBe('33%');
+    expect(share.kind === 'bar' && share.share).toBeCloseTo(1 / 3, 10);
+    expect(infoBody('approach', withChips, 'hardChipShare')).toContain('Measured over 6 holes.');
 
     // The approach panel is gated on `girRecorded`, which can stand alone.
     const noChips = buildDashboardModel([round({ measures: measures({ girRecorded: 10, girHits: 4 }) })]);
@@ -421,8 +446,8 @@ test('the results histogram keeps its five rows, and drops the bars on a thin wi
     // Rounded percentages sum to 101, and that is fine — no correction is applied.
     expect(rows.map((r) => r.share)).toEqual([1 / 51, 5 / 51, 11 / 51, 33 / 51, 1 / 51]);
 
-    // A thin window: three scored holes on an eighteen. Every row survives (a
-    // zero bucket is information), no bar is drawn, and the value is a bare count.
+    // A small window: three scored holes on an eighteen. Every row survives (a
+    // zero bucket is information) and every row still draws.
     const thin = resultsSummary([
         {
             holeCount: 18,
@@ -450,8 +475,10 @@ test('the results histogram keeps its five rows, and drops the bars on a thin wi
         },
     ]);
     const thinRows = resultsHistogram(thin);
-    expect(thinRows.map((r) => r.share)).toEqual([null, null, null, null, null]);
-    expect(thinRows.map((r) => r.value)).toEqual(['0 of 3', '1 of 3', '1 of 3', '1 of 3', '0 of 3']);
+    // Three holes is a small window, not a dishonest one: every row draws its
+    // share and prints its percentage.
+    expect(thinRows.map((r) => r.share)).toEqual([0, 1 / 3, 1 / 3, 1 / 3, 0]);
+    expect(thinRows.map((r) => r.value)).toEqual(['0%', '33%', '33%', '33%', '0%']);
 
     // Nothing scored anywhere: no histogram at all, and the view hides the card.
     expect(resultsHistogram(resultsSummary([{ holeCount: 18, measures: ZERO_MEASURES }]))).toEqual(
@@ -537,7 +564,14 @@ const WINDOW_W: StatMeasures = measures({
     strokesVsParPenalty: 14,
     holesScoredPenaltyFree: 45,
     strokesVsParPenaltyFree: 4,
+    // The two sides of the tax sum to the scored window, and they have to: the
+    // penalty SHARE divides by this, not by the answered holes, so a fixture
+    // that left it at zero would make the share absent while the tax below it
+    // read fine — exactly the split cohort the denominator change removed.
+    holesScored: 54,
 });
+
+const WINDOW_W_MODEL = buildDashboardModel([round({ measures: WINDOW_W })]);
 
 function windowBlocks(id: 'tee' | 'approach' | 'putting', over: Partial<StatMeasures> = {}) {
     const model = buildDashboardModel([round({ measures: { ...WINDOW_W, ...over } })]);
@@ -586,9 +620,14 @@ test('the cost of a missed green is two absolutes and the difference between the
             // NOT `averageWithSample`: the tax's own d is 34 × 26 = 884, a
             // cross-product guard, and printing it would claim 884 holes.
             value: '+0.83',
-            hint: 'Measured over 34 holes with the green missed vs 26 greens hit.',
+            hint: null,
         },
     ]);
+    // The sample sentence lives in the sheet now, and still names both sides.
+    expect(infoBody('approach', WINDOW_W_MODEL, 'missedGreenTax')).toBe(
+        'The difference between what a hole costs you with the green hit and with it missed.' +
+            ' Measured over 34 holes with the green missed vs 26 greens hit.',
+    );
 });
 
 test('a green hit under par prints the typographic minus, not a hyphen', () => {
@@ -643,36 +682,52 @@ test('the penalty pair reads geography then cost, with the tax carrying both den
     const ids = blocks.map((b) => b.id);
     expect(ids.indexOf('penaltyHoleShare')).toBe(ids.indexOf('penalties') + 1);
     expect(slice(blocks, 'penaltyHoleShare', 2)).toEqual([
+        // A RATE, so it is a bar now — ruling 4, every rate row gets one.
         {
-            kind: 'figure',
+            kind: 'bar',
             id: 'penaltyHoleShare',
             title: 'Holes with a penalty',
-            value: '17% (9 of 54)',
-            hint: null,
+            share: 9 / 54,
+            value: '17%',
         },
         {
             kind: 'figure',
             id: 'penaltyTax',
             title: 'Penalty tax',
             value: '+1.47',
-            hint: 'Measured over 9 holes with a penalty vs 45 without.',
+            hint: null,
         },
     ]);
+    expect(infoBody('tee', WINDOW_W_MODEL, 'penalties')).toContain(
+        'Measured over 9 holes with a penalty vs 45 without.',
+    );
 });
 
-test('a thin denominator on either side of a difference says so in words, and drops the bar', () => {
+test('a three-hole denominator is a percentage with a bar, like every other rate', () => {
     const par5 = windowBlocks('approach', { girRecordedPar5: 3, girHitsPar5: 2 }).find(
         (b) => b.id === 'girPar5',
     )!;
-    // Under the floor a percentage would overclaim, so the fraction prints and
-    // there is no bar to read a share off.
-    expect(par5).toEqual({ kind: 'bar', id: 'girPar5', title: 'Par 5', share: null, value: '2 of 3' });
+    expect(par5).toEqual({
+        kind: 'bar',
+        id: 'girPar5',
+        title: 'Par 5',
+        share: 2 / 3,
+        value: '67%',
+    });
 
-    const tax = windowBlocks('tee', { holesScoredPenaltyFree: 3, strokesVsParPenaltyFree: 4 }).find(
-        (b) => b.id === 'penaltyTax',
-    )!;
-    expect(tax.kind === 'figure' && tax.hint).toBe(
-        'Measured over 9 holes with a penalty vs 3 without — thin sample.',
+    const model = buildDashboardModel([
+        round({
+            measures: {
+                ...WINDOW_W,
+                holesScoredPenaltyFree: 3,
+                strokesVsParPenaltyFree: 4,
+            },
+        }),
+    ]);
+    // A three-hole side is reported as three holes and nothing more: the reader
+    // can see that 3 is small without being told.
+    expect(infoBody('tee', model, 'penalties')).toContain(
+        'Measured over 9 holes with a penalty vs 3 without.',
     );
 });
 
@@ -742,11 +797,16 @@ function block(panel: 'tee' | 'approach' | 'shortGame', id: string): StatsBlock 
 test('the approach card leads with the green-miss compass, in words as well as wedges', () => {
     const blocks = panelBlocks('approach', WINDOW_B_MODEL);
     // First on the card, above every breakdown.
+    // Head, picture, then straight into the breakdowns — the note that used to
+    // sit under the compass is a sheet card now.
     expect(blocks.slice(0, 3).map((b) => b.id)).toEqual([
         'greenMissHead',
         'greenMiss',
-        'greenMissNote',
+        'girByTee',
     ]);
+    expect(infoBody('approach', WINDOW_B_MODEL, 'greenMiss')).toContain(
+        'Long is past the flag, short is in front of it.',
+    );
     const head = blocks[0]!;
     expect(head.kind === 'subhead' && head.text).toBe('Where you miss the green');
     const compass = blocks[1]!;
@@ -754,9 +814,9 @@ test('the approach card leads with the green-miss compass, in words as well as w
     expect(compass.text).toBe('Long 20% · Short 50% · Left 20% · Right 10%');
     expect(compass.recorded).toBe(10);
     expect(compass.labels).toEqual({ long: '20%', short: '50%', left: '20%', right: '10%' });
-    const note = blocks[2]!;
-    expect(note.kind === 'note' && note.text).toBe(
-        'Recorded misses only. Long is past the flag, short is in front of it.',
+    expect(infoBody('approach', WINDOW_B_MODEL, 'greenMiss')).toBe(
+        'Recorded misses only. Long is past the flag, short is in front of it.' +
+            ' Measured over 10 holes.',
     );
 });
 
@@ -778,15 +838,15 @@ test('the compass labels honour the rate floor exactly as the prose does', () =>
     ]);
     const compass = panelBlocks('approach', model).find((b) => b.id === 'greenMiss')!;
     if (compass.kind !== 'compass') throw new Error('expected a compass block');
-    expect(compass.text).toBe('Long 2 of 3 · Short 1 of 3 · Left 0 of 3 · Right 0 of 3');
+    expect(compass.text).toBe('Long 67% · Short 33% · Left 0% · Right 0%');
     expect(compass.labels).toEqual({
-        long: '2 of 3',
-        short: '1 of 3',
-        left: '0 of 3',
-        right: '0 of 3',
+        long: '67%',
+        short: '33%',
+        left: '0%',
+        right: '0%',
     });
-    // No percentage anywhere in the picture while the sample is this thin.
-    expect(Object.values(compass.labels).some((l) => l.includes('%'))).toBe(false);
+    // The picture and the prose are the same strings, whatever the sample size.
+    expect(compass.text).toContain(compass.labels.long);
 });
 
 test('the compass is absent, not empty, when no miss carries a direction', () => {
@@ -803,8 +863,11 @@ test('the tee card carries the fan under the split it decomposes', () => {
         'teeSplit',
         'teeFanHead',
         'teeFan',
-        'teeFanNote',
+        'troubleTax',
     ]);
+    expect(infoBody('tee', WINDOW_B_MODEL, 'teeFan')).toContain(
+        'The darker block is trouble.',
+    );
     const fan = blocks[2]!;
     if (fan.kind !== 'fan') throw new Error('expected a fan block');
     // Counts, not shares: the three columns partition the recorded tee shots.
@@ -827,17 +890,20 @@ test('the fan is absent when every recorded drive found the fairway', () => {
 });
 
 test('the short-game card names the bunker figures in plain words', () => {
+    // Rates, so bars — and the sentence that used to be `sandSave`'s hint is in
+    // the card's sheet, under one Scrambling heading with its siblings.
     const sand = block('shortGame', 'sandSave')!;
-    if (sand.kind !== 'figure') throw new Error('expected a figure');
+    if (sand.kind !== 'bar') throw new Error('expected a bar');
     expect(sand.title).toBe('Sand save');
-    // Three attempts is under the display floor, so it reads as the fraction.
-    expect(sand.value).toBe('2 of 3');
-    expect(sand.hint).toBe('Missed greens from a bunker where you still got up and down.');
+    expect(sand.value).toBe('67%');
+    expect(infoBody('shortGame', WINDOW_B_MODEL, 'scrambling')).toContain(
+        'Missed greens from a bunker where you still got up and down.',
+    );
 
     const fromSand = block('shortGame', 'multiChipBunker')!;
-    if (fromSand.kind !== 'figure') throw new Error('expected a figure');
+    if (fromSand.kind !== 'bar') throw new Error('expected a bar');
     expect(fromSand.title).toBe('More than one from sand');
-    expect(fromSand.value).toBe('1 of 3');
+    expect(fromSand.value).toBe('33%');
 
     const extra = block('shortGame', 'extraShortGameStrokes')!;
     if (extra.kind !== 'figure') throw new Error('expected a figure');
@@ -845,11 +911,11 @@ test('the short-game card names the bunker figures in plain words', () => {
     expect(extra.value).toBe('5');
 
     const multi = block('shortGame', 'multiChip')!;
-    if (multi.kind !== 'figure') throw new Error('expected a figure');
+    if (multi.kind !== 'bar') throw new Error('expected a bar');
     expect(multi.title).toBe('More than one chip');
-    // 4 of 12 eligible missed greens — the denominator is opportunities, not
-    // answered steppers, so the sample rides along with the percentage.
-    expect(multi.value).toBe('33% (4 of 12)');
+    // 4 of 12 eligible missed greens. The denominator is opportunities rather
+    // than answered steppers — a distinction the sheet makes, not the row.
+    expect(multi.value).toBe('33%');
 });
 
 test('no short-game figure blames the golfer', () => {
@@ -895,8 +961,7 @@ test('the bunker leg appears in all three short-game sections, beside its siblin
     )!;
     if (scramble.kind !== 'bar') throw new Error('expected a bar');
     expect(scramble.title).toBe('Bunker');
-    // 2 of 3 is under the display floor, so it reads as the fraction.
-    expect(scramble.value).toBe('2 of 3');
+    expect(scramble.value).toBe('67%');
 });
 
 test('the bunker leg is absent from all three sections when no sand was played', () => {
@@ -943,4 +1008,293 @@ test('the counter figures are absent as a GROUP when nothing was counted', () =>
     // …and with no bunker attempt, so is the sand save.
     expect(ids).not.toContain('sandSave');
     expect(ids).toContain('scrambleStandard');
+});
+
+// --- The polish pass (owner ruling, 2026-08-02) --------------------------------
+
+test('the first-putt mix is headed "Proximity with GIR", not by what it measures', () => {
+    // The old head, "First putt on greens hit", described the MEASUREMENT. What
+    // a reader is looking for is the thing it stands in for, so the head names
+    // that instead — and the caveat that it IS a stand-in moved to the sheet.
+    const head = panelBlocks('approach', WINDOW_B_MODEL).find((b) => b.id === 'mixHead')!;
+    expect(head.kind === 'subhead' && head.text).toBe('Proximity with GIR');
+    expect(infoBody('approach', WINDOW_B_MODEL, 'proximity')).toContain(
+        'a stand-in for approach proximity',
+    );
+});
+
+test('every rate value on every card is a percentage — no fraction survives anywhere', () => {
+    for (const id of ['tee', 'approach', 'putting', 'shortGame', 'scoring'] as const) {
+        for (const b of panelBlocks(id, WINDOW_B_MODEL)) {
+            if (b.kind === 'bar') {
+                if (b.value !== null) {
+                    expect(b.value).toMatch(/^\d+%$/);
+                    // Ruling 4: a bar ALWAYS draws its share.
+                    expect(b.share).not.toBeNull();
+                }
+            }
+            if (b.kind === 'rung' && b.value !== null) {
+                expect(b.value).toMatch(/^\d+%$/);
+                expect(b.made).not.toBeNull();
+            }
+        }
+    }
+});
+
+// --- The block walk, §G.6 ----------------------------------------------------
+//
+// THE CHEAPEST TWIN CHECK IN THE PASS. One assertion per panel, over a window
+// that populates every section of every card: the full list of `kind:id`, in
+// order. `StatsPanelViewsTests` asserts the same five lists, and a divergence
+// between the two platforms — a row that moved, a section that stopped
+// appearing, a figure that became a bar on one side only — shows up here as a
+// diff rather than as a screenshot nobody took.
+//
+// Every OTHER test in this file checks one section closely. This one checks
+// that the sections are all there and in the right order, which no close test
+// can see.
+
+const WALK: StatMeasures = measures({
+    holesScored: 18,
+    strokesTotal: 90,
+    parTotal: 72,
+    holesScoredPar3: 4,
+    // Absolute strokes per par class, not vs-par: 4 par 3s in 15 (+3),
+    // 10 par 4s in 50 (+10), 4 par 5s in 25 (+5) — 90 over a par of 72.
+    strokesPar3: 15,
+    holesScoredPar4: 10,
+    strokesPar4: 50,
+    holesScoredPar5: 4,
+    strokesPar5: 25,
+    holesEagleOrBetter: 0,
+    holesBirdie: 2,
+    holesPar: 5,
+    holesBogey: 7,
+    doubleBogeyPlus: 4,
+    bounceBackOpportunities: 6,
+    bounceBackSuccesses: 2,
+    teeRecorded: 18,
+    fairwayHits: 8,
+    inPlayHits: 14,
+    troubleCount: 4,
+    teeMissRecorded: 9,
+    teeMissLeft: 5,
+    teeMissRight: 4,
+    teeTroubleLeft: 2,
+    teeTroubleRight: 2,
+    holesScoredFairway: 8,
+    strokesVsParFairway: 2,
+    holesScoredInPlay: 14,
+    strokesVsParInPlay: 8,
+    holesScoredTrouble: 4,
+    strokesVsParTrouble: 7,
+    penaltiesRecorded: 18,
+    penaltiesTotal: 2,
+    holesWithPenalty: 2,
+    holesScoredPenalty: 2,
+    strokesVsParPenalty: 5,
+    holesScoredPenaltyFree: 16,
+    strokesVsParPenaltyFree: 13,
+    girRecorded: 18,
+    girHits: 6,
+    girHolesScored: 6,
+    strokesVsParGirHit: -1,
+    holesScoredGirMiss: 12,
+    strokesVsParGirMiss: 14,
+    birdiesOnGir: 2,
+    greenMissRecorded: 12,
+    greenMissLong: 5,
+    greenMissShort: 2,
+    greenMissLeft: 2,
+    greenMissRight: 3,
+    girRecordedFairway: 8,
+    girHitsFairway: 5,
+    girRecordedInPlay: 14,
+    girHitsInPlay: 6,
+    girRecordedTrouble: 4,
+    girHitsTrouble: 1,
+    girRecordedPar3: 4,
+    girHitsPar3: 2,
+    girRecordedPar4: 10,
+    girHitsPar4: 3,
+    girRecordedPar5: 4,
+    girHitsPar5: 1,
+    girFirstPuttInside1m: 2,
+    girFirstPutt1To2m: 1,
+    girFirstPutt2To4m: 2,
+    girFirstPutt4To8m: 1,
+    girFirstPuttOver8m: 0,
+    firstPuttRecorded: 18,
+    puttsRecorded: 18,
+    puttsTotal: 33,
+    firstPuttInside1mResolved: 6,
+    puttsTotalInside1mResolved: 7,
+    onePuttInside1m: 5,
+    firstPutt1To2mResolved: 4,
+    puttsTotal1To2mResolved: 6,
+    onePutt1To2m: 2,
+    firstPutt2To4mResolved: 5,
+    puttsTotal2To4mResolved: 9,
+    onePutt2To4m: 2,
+    firstPutt4To8mResolved: 2,
+    puttsTotal4To8mResolved: 4,
+    onePutt4To8m: 0,
+    firstPuttOver8mResolved: 1,
+    puttsTotalOver8mResolved: 3,
+    onePuttOver8m: 0,
+    holesZeroPutt: 1,
+    holesOnePutt: 6,
+    holesTwoPutt: 9,
+    threePutts: 2,
+    threePuttsFromOver8m: 1,
+    puttsRecordedPar3: 4,
+    puttsTotalPar3: 7,
+    puttsRecordedPar4: 10,
+    puttsTotalPar4: 19,
+    puttsRecordedPar5: 4,
+    puttsTotalPar5: 7,
+    scrambleAttemptsStandard: 5,
+    scrambleSuccessesStandard: 3,
+    scrambleAttemptsHard: 4,
+    scrambleSuccessesHard: 1,
+    scrambleAttemptsBunker: 3,
+    scrambleSuccessesBunker: 2,
+    scrambleInside2mStandard: 4,
+    scrambleInside2mHard: 1,
+    scrambleInside2mBunker: 1,
+    scrambleHoledStandard: 1,
+    scrambleHoledHard: 1,
+    scrambleHoledBunker: 0,
+    shortGameStrokesRecorded: 12,
+    shortGameStrokesEffective: 16,
+    shortGameStrokesEffectiveStandard: 8,
+    shortGameStrokesEffectiveHard: 5,
+    shortGameStrokesEffectiveBunker: 3,
+    holesMultiChip: 3,
+    holesMultiChipBunker: 1,
+});
+
+const WALK_MODEL = buildDashboardModel([round({ measures: WALK })]);
+
+/** `kind:id` for every block a panel emits, in order. */
+function walk(id: StatsPanelId): string[] {
+    return panelBlocks(id, WALK_MODEL).map((b) => `${b.kind}:${b.id}`);
+}
+
+test('Off the tee walks: the split, the fan, the three absolutes, the tax, then penalties', () => {
+    expect(walk('tee')).toEqual([
+        'split:teeSplit',
+        'subhead:teeFanHead',
+        'fan:teeFan',
+        'subhead:vsParByTeeHead',
+        'figure:vsParFairway',
+        'figure:vsParInPlay',
+        'figure:vsParTrouble',
+        'figure:troubleTax',
+        'bar:recovery',
+        'figure:penalties',
+        'bar:penaltyHoleShare',
+        'figure:penaltyTax',
+    ]);
+});
+
+test('Approach walks: where you miss, then greens hit sliced three ways, then the cost', () => {
+    expect(walk('approach')).toEqual([
+        'subhead:greenMissHead',
+        'compass:greenMiss',
+        'subhead:girByTee',
+        'bar:girFairway',
+        'bar:girInPlay',
+        'bar:girTrouble',
+        'subhead:girByParHead',
+        'bar:girPar3',
+        'bar:girPar4',
+        'bar:girPar5',
+        'subhead:mixHead',
+        'bar:mix-inside_1m',
+        'bar:mix-1_to_2m',
+        'bar:mix-2_to_4m',
+        'bar:mix-4_to_8m',
+        'bar:mix-over_8m',
+        'bar:birdieConversion',
+        'bar:hardChipShare',
+        'subhead:missedGreenHead',
+        'figure:vsParGreenHit',
+        'figure:vsParGreenMissed',
+        'figure:missedGreenTax',
+    ]);
+});
+
+test('Putting walks: the spread, the ladder under its headers, the distribution, the averages', () => {
+    expect(walk('putting')).toEqual([
+        'subhead:firstPuttHead',
+        'bar:spread-inside_1m',
+        'bar:spread-1_to_2m',
+        'bar:spread-2_to_4m',
+        'bar:spread-4_to_8m',
+        'bar:spread-over_8m',
+        'subhead:ladderHead',
+        'columns:ladderCols',
+        'rung:rung-inside_1m',
+        'rung:rung-1_to_2m',
+        'rung:rung-2_to_4m',
+        'rung:rung-4_to_8m',
+        'rung:rung-over_8m',
+        'subhead:puttCountHead',
+        'bar:putts-zero',
+        'bar:putts-one',
+        'bar:putts-two',
+        'bar:putts-threePlus',
+        // The standalone "Three-putts" figure is GONE — it repeated
+        // `putts-threePlus` exactly. The over-8 m row is a different fact and
+        // stays, as a bar.
+        'bar:longThreePutt',
+        'figure:puttsPerGir',
+        'figure:puttsAfterMissedGreen',
+        'subhead:puttsByParHead',
+        'figure:puttsPar3',
+        'figure:puttsPar4',
+        'figure:puttsPar5',
+    ]);
+});
+
+test('Short game walks: scrambling, chipping close, then the chip-in counts', () => {
+    expect(walk('shortGame')).toEqual([
+        'subhead:scrambleHead',
+        'bar:scrambleStandard',
+        'bar:scrambleHard',
+        'bar:scrambleBunker',
+        'bar:sandSave',
+        'bar:multiChipBunker',
+        'figure:extraShortGameStrokes',
+        'bar:multiChip',
+        'subhead:chipHead',
+        'bar:chipStandard',
+        'bar:chipHard',
+        'bar:chipBunker',
+        'bar:conversionInside2m',
+        'subhead:chipInsHead',
+        'figure:chipInsStandard',
+        'figure:chipInsHard',
+        'figure:chipInsBunker',
+    ]);
+});
+
+test('Scoring walks: the three par averages, doubles, bounce-back', () => {
+    expect(walk('scoring')).toEqual([
+        'subhead:vsParHead',
+        'figure:par3',
+        'figure:par4',
+        'figure:par5',
+        'figure:doubles',
+        'bar:bounceBack',
+    ]);
+});
+
+test('the walk covers every panel, so no card can be silently dropped from it', () => {
+    // A guard on the five tests above: if a sixth panel id ever appears, one of
+    // them has to be written for it rather than the walk quietly not covering
+    // the new card.
+    for (const id of STATS_PANEL_IDS) expect(walk(id).length).toBeGreaterThan(0);
+    expect(STATS_PANEL_IDS).toHaveLength(5);
 });

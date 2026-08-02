@@ -2,41 +2,39 @@ import Foundation
 
 /// Words and numerals for the stats dashboard.
 ///
-/// The display policy from the proposal (§1) lives here in ONE place:
+/// The display policy lives here in ONE place, and since the owner ruling of
+/// 2026-08-02 it has exactly two cases:
 ///
-/// - `d >= 5` → a percentage. Enough sample to say "58%" out loud.
-/// - `0 < d < 5` → the raw fraction, "2 of 3". A percentage over three
-///   attempts is a number pretending to be a measurement; the fraction says
-///   the same thing and cannot be over-read.
-/// - `d == 0` → absent. Not "0%", not "—" in a slot that looks like a value:
-///   the caller is expected to omit the row.
+/// - `d > 0` → a percentage, always. "50%" off two attempts is what the reader
+///   asked for; the sample is still spelled out, in the collapsed card's
+///   headline and in the card's info sheet.
+/// - `d == 0` → absent. The caller substitutes `StatsCopy.noValue` (`—`) in a
+///   fixed value column, or `StatsCopy.notRecorded` in a figure row.
 ///
-/// Denominators are always printed beside the value, which is the whole reason
-/// the app can afford to show a rate over five attempts at all. Averages are
-/// held to the same bargain by `averageWithSample` — see the note there.
+/// The old middle band — `0 < d < 5` reading as the raw fraction "2 of 3" — is
+/// RETIRED. It was built to stop a reader over-reading a small sample, and it
+/// cost more than it bought: a fraction cannot be read at a glance, cannot be
+/// drawn as a bar, and made a new player's screen look broken on exactly the
+/// data every new player has.
+///
+/// `StatMeasuresMath.rateDisplay` survives, but no formatter may call it — see
+/// its own doc comment. It answers an admission question, not a rendering one.
 enum StatsFormat {
     // MARK: Rates
 
-    /// The headline reading for a rate, or nil when there is no sample.
+    /// The headline reading for a rate, or nil when there is no sample at all.
     ///
     /// nil is a real answer here and callers must handle it — that is how a
     /// module with no data ends up absent rather than zeroed.
     static func rate(_ r: Rate) -> String? {
-        switch StatMeasuresMath.rateDisplay(r) {
-        case .absent:
-            return nil
-        case .fraction:
-            return "\(count(r.n)) of \(count(r.d))"
-        case .percentage:
-            guard let value = r.value else { return nil }
-            return "\(Int((value * 100).rounded()))%"
-        }
+        guard r.d > 0, let value = r.value else { return nil }
+        return "\(Int((value * 100).rounded()))%"
     }
 
-    /// The sample behind a rate, for the line under the headline. nil when the
-    /// headline already IS the fraction — printing "2 of 3" twice is noise.
+    /// "14 of 24". Available for ANY sample now — the caller decides whether it
+    /// has the room. Headlines and info sheets do; a row value column does not.
     static func sample(_ r: Rate) -> String? {
-        guard StatMeasuresMath.rateDisplay(r) == .percentage else { return nil }
+        guard r.d > 0 else { return nil }
         return "\(count(r.n)) of \(count(r.d))"
     }
 
@@ -48,27 +46,20 @@ enum StatsFormat {
     }
 
     /// A rate rendered as a plain average rather than a percentage — putts per
-    /// hole, strokes vs par, penalties per round. Same denominator floor, but
-    /// the value is a quantity, not a share, so it never grows a `%`.
+    /// hole, strokes vs par, penalties per round. The value is a quantity, not
+    /// a share, so it never grows a `%`.
     ///
-    /// This is the BARE value, and on its own it escapes the display policy: a
-    /// percentage always arrives with its sample (either printed beside it or
-    /// spelled out as the fraction it degraded into), while "1.85" reads the
-    /// same over one hole and over forty. Use `averageWithSample` on any surface
-    /// a reader takes a number off; `average` is for callers that print the
-    /// sample themselves (`troubleTax`, whose own denominator is not one).
+    /// This is the BARE value. "1.85" reads the same over one hole and over
+    /// forty, so use `averageWithSample` on any surface a reader takes a number
+    /// off; `average` is for callers that print the sample themselves
+    /// (`troubleTax`, whose own denominator is not one).
     ///
     /// - Parameter signed: prepend `+` for positive values. What "over par"
     ///   needs and "putts per hole" does not.
     static func average(_ r: Rate, decimals: Int = 2, signed: Bool = false) -> String? {
-        switch StatMeasuresMath.rateDisplay(r) {
-        case .absent:
-            return nil
-        case .fraction, .percentage:
-            guard let value = r.value else { return nil }
-            return signed
-                ? signedNumber(value, decimals: decimals) : number(value, decimals: decimals)
-        }
+        guard r.d > 0, let value = r.value else { return nil }
+        return signed
+            ? signedNumber(value, decimals: decimals) : number(value, decimals: decimals)
     }
 
     /// The noun a sample is counted in, in both numbers.
@@ -110,27 +101,13 @@ enum StatsFormat {
         static let labelledPenaltyHoles = SampleUnit.regular("penalty hole")
     }
 
-    /// What a thin sample is called, in words. The app's standing rule: an
-    /// annotation is a word, never a glyph.
-    static let thinSample = "thin sample"
-
-    /// The sample behind an average — "over 24 greens", and the same with the
-    /// thin note under the policy's floor.
-    ///
-    /// The floor is exactly `rateWithSample`'s; only the MARK differs, because
-    /// an average has no fraction to degrade into. A rate under five attempts
-    /// says it by reading "2 of 3"; an average has to say it outright.
+    /// The sample behind an average — "over 24 greens". No thin mark: there is
+    /// no thin any more.
     ///
     /// nil at `d == 0`, matching `average` — the caller omits the row.
     static func averageSample(_ r: Rate, unit: SampleUnit) -> String? {
-        switch StatMeasuresMath.rateDisplay(r) {
-        case .absent:
-            return nil
-        case .fraction:
-            return "over \(quantity(r.d, unit)) — \(thinSample)"
-        case .percentage:
-            return "over \(quantity(r.d, unit))"
-        }
+        guard r.d > 0 else { return nil }
+        return "over \(quantity(r.d, unit))"
     }
 
     /// An average with its denominator beside it — the form every figure row on
@@ -155,36 +132,26 @@ enum StatsFormat {
     /// over the CROSS-PRODUCT of their hole counts, and says in its own doc
     /// comment that the result must not be fed to `rateDisplay` as a sample:
     /// nine trouble holes against eleven fairway ones would print "over 99
-    /// holes", and four against two would clear the floor of five while resting
-    /// on four holes. The honest reading is both denominators, and either of
-    /// them being thin is what makes the difference unreliable.
+    /// holes". The honest reading is both denominators.
+    ///
+    /// These four `*Sample` helpers survive the row-prose deletion because the
+    /// CARD INFO SHEETS consume them — a tax's two denominators are exactly the
+    /// sentence a sheet has room for and a value column does not.
     static func troubleTaxSample(_ vsParByTee: ByTee<Rate>) -> String? {
         let trouble = vsParByTee.trouble.d
         let fairway = vsParByTee.fairway.d
         guard trouble > 0, fairway > 0 else { return nil }
-        let reading =
-            "over \(quantity(trouble, SampleUnit("hole from trouble", "holes from trouble")))"
+        return "over \(quantity(trouble, SampleUnit("hole from trouble", "holes from trouble")))"
             + " vs \(quantity(fairway, SampleUnit("from the fairway", "from the fairway")))"
-        let isThin =
-            trouble < StatMeasuresMath.minRateDenominator
-            || fairway < StatMeasuresMath.minRateDenominator
-        return isThin ? "\(reading) — \(thinSample)" : reading
     }
 
     /// The sample behind a DIFFERENCE of two averages: both denominators, never
     /// the cross-product guard the figure itself carries.
-    ///
-    /// Thin if EITHER side is under the display policy's floor — the difference
-    /// is only as reliable as its smaller side.
     static func taxSample(
         _ a: Rate, _ aUnit: SampleUnit, _ b: Rate, _ bUnit: SampleUnit
     ) -> String? {
         guard a.d > 0, b.d > 0 else { return nil }
-        let reading = "over \(quantity(a.d, aUnit)) vs \(quantity(b.d, bUnit))"
-        let thin =
-            a.d < StatMeasuresMath.minRateDenominator
-            || b.d < StatMeasuresMath.minRateDenominator
-        return thin ? "\(reading) — \(thinSample)" : reading
+        return "over \(quantity(a.d, aUnit)) vs \(quantity(b.d, bUnit))"
     }
 
     /// "over 34 holes with the green missed vs 26 greens hit".
@@ -195,13 +162,6 @@ enum StatsFormat {
     /// "over 9 holes with a penalty vs 45 without".
     static func penaltyTaxSample(_ split: PenaltySplit) -> String? {
         taxSample(split.penalty, .penaltyHoles, split.clean, .penaltyFree)
-    }
-
-    /// True when a rate is thin enough that the reading is a fraction — the
-    /// cue for a view to skip a bar it would otherwise draw at a misleading
-    /// length.
-    static func isThin(_ r: Rate) -> Bool {
-        StatMeasuresMath.rateDisplay(r) == .fraction
     }
 
     // MARK: Numbers
@@ -233,6 +193,19 @@ enum StatsFormat {
         if rounded == 0 { return number(0, decimals: decimals) }
         let magnitude = number(abs(rounded), decimals: decimals)
         return rounded > 0 ? "+\(magnitude)" : "\u{2212}\(magnitude)"
+    }
+
+    /// A per-bucket strokes-gained figure for the putting ladder. One decimal,
+    /// always signed, POSITIVE = LOST (the waterfall's sign).
+    ///
+    /// The em dash is the empty-COLUMN placeholder, never a label: a bucket with
+    /// no resolved hole has nothing to compare, and `Not recorded` wrapping to
+    /// two lines inside a 56 pt column is the drift this pass removes. An
+    /// exactly-level bucket reads `0.0`, not `E` — `E` is the scorecard's word
+    /// for even par, not a strokes-gained zero.
+    static func cost(_ value: Double?) -> String {
+        guard let value else { return StatsCopy.noValue }
+        return signedNumber(value, decimals: 1)
     }
 
     /// Strokes lost or gained, per 18 attributed holes. Positive = lost.

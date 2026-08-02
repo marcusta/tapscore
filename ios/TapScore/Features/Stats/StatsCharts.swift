@@ -34,6 +34,26 @@ enum StatsChartColor {
     static let rule = TapColors.border
 }
 
+/// Rate-row geometry, in points — the ONE track every rate bar draws in and the
+/// ONE right-aligned column every rate value sits in. Owner ruling 2026-08-02:
+/// a card whose bars are three different lengths reads as three different
+/// measurements.
+///
+/// Twin of `RATE_BAR_TRACK_PX` / `RATE_VALUE_PX` / `RATE_COST_PX` in
+/// `src/stats/stats-charts.ts`. 88 rather than 90 or 84 so that on the narrowest
+/// supported card the widest row — the ladder, `title + 88 + 56 + 56 + 2 gaps` —
+/// still leaves room for `Inside 1 m` and `Three or more`.
+///
+/// A rate bar is a bar whose length is a `Rate.value` in `0…1`. The priorities
+/// waterfall, the per-round strips, the compass, the fan and the sparkline are
+/// not rate rows and keep their own geometry.
+enum StatsBarMetrics {
+    static let track: CGFloat = 88
+    static let value: CGFloat = 56
+    static let cost: CGFloat = 56
+    static let gap: CGFloat = TapSpacing.sm
+}
+
 // MARK: - Signed bar
 
 /// A magnitude drawn either side of a centre line — the practice-priorities row.

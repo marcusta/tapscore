@@ -44,30 +44,32 @@ final class StatsFormatTests: XCTestCase {
         XCTAssertNil(StatsFormat.averageSample(rate(nil, 0, 0), unit: .greens))
     }
 
-    /// Below the policy's floor the number is still printed — an average has no
-    /// fraction to degrade into — so the thinness is said in words instead.
-    func testAThinSampleIsMarkedInWords() {
-        let thin = StatsFormat.averageWithSample(rate(1.6667, 5, 3), unit: .greens)
+    /// The owner ruling of 2026-08-02 retired the thin mark: a small sample says
+    /// its size and nothing more. The reader is told "over 3 greens" and draws
+    /// their own conclusion.
+    func testASmallSampleIsSaidPlainlyAndNeverMarked() {
+        let small = StatsFormat.averageWithSample(rate(1.6667, 5, 3), unit: .greens)
 
-        XCTAssertEqual(thin, "1.67 (over 3 greens — thin sample)")
-        // The app's standing rule: an annotation is a word, never a glyph.
-        XCTAssertEqual(StatsFormat.thinSample, "thin sample")
+        XCTAssertEqual(small, "1.67 (over 3 greens)")
+        XCTAssertFalse(small!.contains("thin"))
     }
 
-    func testTheFloorIsExactlyTheOneRatesUse() {
+    /// The admission floor still exists in the MATH — it decides what the server
+    /// will express at all — but no rendered string mentions it any more.
+    func testTheAdmissionFloorNeverReachesARenderedString() {
         XCTAssertEqual(StatMeasuresMath.minRateDenominator, 5)
 
         let below = StatsFormat.averageWithSample(rate(2, 8, 4), unit: .greens)
         let at = StatsFormat.averageWithSample(rate(2, 10, 5), unit: .greens)
 
-        XCTAssertEqual(below, "2.00 (over 4 greens — thin sample)")
+        XCTAssertEqual(below, "2.00 (over 4 greens)")
         XCTAssertEqual(at, "2.00 (over 5 greens)")
     }
 
     func testASampleOfOneIsSingular() {
         XCTAssertEqual(
             StatsFormat.averageWithSample(rate(3, 3, 1), unit: .rounds),
-            "3.00 (over 1 round — thin sample)")
+            "3.00 (over 1 round)")
         XCTAssertEqual(
             StatsFormat.averageWithSample(rate(3, 30, 10), unit: .rounds),
             "3.00 (over 10 rounds)")
@@ -104,7 +106,7 @@ final class StatsFormatTests: XCTestCase {
             "over 9 holes from trouble vs 11 from the fairway")
     }
 
-    func testTheTroubleTaxIsThinWhenEitherSideIs() {
+    func testTheTroubleTaxSaysBothSidesWhateverTheirSize() {
         func sample(trouble: Double, fairway: Double) -> String? {
             StatsFormat.troubleTaxSample(
                 ByTee(
@@ -114,10 +116,10 @@ final class StatsFormatTests: XCTestCase {
 
         XCTAssertEqual(
             sample(trouble: 4, fairway: 20),
-            "over 4 holes from trouble vs 20 from the fairway — thin sample")
+            "over 4 holes from trouble vs 20 from the fairway")
         XCTAssertEqual(
             sample(trouble: 20, fairway: 2),
-            "over 20 holes from trouble vs 2 from the fairway — thin sample")
+            "over 20 holes from trouble vs 2 from the fairway")
         XCTAssertEqual(
             sample(trouble: 6, fairway: 12),
             "over 6 holes from trouble vs 12 from the fairway")
@@ -149,9 +151,9 @@ final class StatsFormatTests: XCTestCase {
             "over 9 holes with a penalty vs 45 without")
     }
 
-    /// Each side singularises on its own, and either side under the floor makes
-    /// the whole reading thin.
-    func testAWave3TaxIsSingularPerSideAndThinWhenEitherSideIs() {
+    /// Each side singularises on its own, and a small side is simply a small
+    /// number — no mark, on either surface.
+    func testAWave3TaxIsSingularPerSideAndNeverMarked() {
         func penalty(_ withPenalty: Double, _ without: Double) -> String? {
             StatsFormat.penaltyTaxSample(
                 PenaltySplit(
@@ -159,8 +161,8 @@ final class StatsFormatTests: XCTestCase {
                     clean: rate(1, without, without)))
         }
 
-        XCTAssertEqual(penalty(1, 45), "over 1 hole with a penalty vs 45 without — thin sample")
-        XCTAssertEqual(penalty(9, 3), "over 9 holes with a penalty vs 3 without — thin sample")
+        XCTAssertEqual(penalty(1, 45), "over 1 hole with a penalty vs 45 without")
+        XCTAssertEqual(penalty(9, 3), "over 9 holes with a penalty vs 3 without")
         XCTAssertEqual(penalty(5, 5), "over 5 holes with a penalty vs 5 without")
         XCTAssertNil(penalty(0, 45))
         XCTAssertNil(penalty(9, 0))
@@ -168,7 +170,34 @@ final class StatsFormatTests: XCTestCase {
         XCTAssertEqual(
             StatsFormat.missedGreenTaxSample(
                 VsParSplit(hit: rate(0, 0, 1), miss: rate(0, 0, 1), delta: rate(0, 0, 1))),
-            "over 1 hole with the green missed vs 1 green hit — thin sample")
+            "over 1 hole with the green missed vs 1 green hit")
+    }
+
+    // MARK: - 2c. The two-case rate policy, and the ladder's cost column
+
+    /// A single attempt is a percentage like any other — the retired middle band
+    /// used to print "1 of 1" here, which the owner ruled out everywhere.
+    func testARateIsAPercentageAtAnyDenominatorAndAbsentAtNone() {
+        XCTAssertEqual(StatsFormat.rate(rate(1, 1, 1)), "100%")
+        XCTAssertEqual(StatsFormat.rate(rate(2.0 / 3.0, 2, 3)), "67%")
+        XCTAssertEqual(StatsFormat.rate(rate(0.5, 10, 20)), "50%")
+        XCTAssertNil(StatsFormat.rate(rate(nil, 0, 0)))
+        // The fraction survives, but only where there is room to print it: a
+        // collapsed headline and an info sheet, never a value column.
+        XCTAssertEqual(StatsFormat.sample(rate(2.0 / 3.0, 2, 3)), "2 of 3")
+        XCTAssertEqual(StatsFormat.rateWithSample(rate(2.0 / 3.0, 2, 3)), "67% (2 of 3)")
+        XCTAssertNil(StatsFormat.sample(rate(nil, 0, 0)))
+    }
+
+    /// The ladder's cost column: one decimal, always signed, `—` for a bucket
+    /// with nothing to compare. `0.0` and never `E`.
+    func testTheLadderCostColumnSignsItselfAndPlaceholdsAtAbsence() {
+        XCTAssertEqual(StatsFormat.cost(nil), "\u{2014}")
+        XCTAssertEqual(StatsFormat.cost(nil), StatsCopy.noValue)
+        XCTAssertEqual(StatsFormat.cost(0), "0.0")
+        XCTAssertEqual(StatsFormat.cost(0.5), "+0.5")
+        XCTAssertEqual(StatsFormat.cost(-1.2), "\u{2212}1.2")
+        XCTAssertFalse(StatsFormat.cost(-1.2).contains("-"))
     }
 
     /// The generic form is the one the two named helpers are built from.

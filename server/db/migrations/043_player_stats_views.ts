@@ -525,14 +525,28 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             -- hole is not. The scored pairs below are the two sides of the
             -- penalty tax; an unscored penalty hole has an answer but no cost,
             -- so it is in 'holes_with_penalty' and in neither scored column.
+            --
+            -- THE CLEAN SIDE IS 'no penalty recorded', not 'answered 0'
+            -- (migration 056). Capture asks about penalties on EVERY hole, as a
+            -- stepper already sitting on 0, so a player with nothing to report
+            -- just walks past it and leaves 'penalties' NULL. That NULL means
+            -- 'never bothered to confirm the zero already on screen' — evidence
+            -- of no penalty, not absence of evidence. Reading the clean side as
+            -- 'penalties = 0' left it structurally empty, the tax hit its
+            -- zero-denominator guard, and the row read 'Not recorded' forever.
+            -- COALESCE(penalties, 0) = 0 states SG-lite's assumption 3 — a
+            -- missing penalty capture models as zero — in the view as well.
+            -- The penalty side still counts the ANSWER, so there is no third
+            -- state: a scored hole is on exactly one side of the tax.
             COUNT(CASE WHEN penalties >= 1 THEN 1 END) AS holes_with_penalty,
             COUNT(CASE WHEN penalties >= 1 AND strokes IS NOT NULL
                        THEN 1 END) AS holes_scored_penalty,
             COALESCE(SUM(CASE WHEN penalties >= 1 THEN strokes - par END), 0)
                 AS strokes_vs_par_penalty,
-            COUNT(CASE WHEN penalties = 0 AND strokes IS NOT NULL
+            COUNT(CASE WHEN COALESCE(penalties, 0) = 0 AND strokes IS NOT NULL
                        THEN 1 END) AS holes_scored_penalty_free,
-            COALESCE(SUM(CASE WHEN penalties = 0 THEN strokes - par END), 0)
+            COALESCE(SUM(CASE WHEN COALESCE(penalties, 0) = 0 AND strokes IS NOT NULL
+                              THEN strokes - par END), 0)
                 AS strokes_vs_par_penalty_free,
 
             -- SG-prep (no UI yet). Tee outcome split by par, for the par 4/5

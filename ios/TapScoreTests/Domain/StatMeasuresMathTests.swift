@@ -129,13 +129,17 @@ final class StatMeasuresMathTests: XCTestCase {
         m.puttsTotalPar4 = 4
         m.puttsRecordedPar5 = 1
         m.puttsTotalPar5 = 3
-        // Penalty geography: H1 answered 0, H2 answered 1. Both scored, so both
-        // sides of the tax have exactly one hole — H2 at +2, H1 at level.
+        // Penalty geography. The penalty side counts the ANSWER: H2 alone,
+        // scored at +2. The clean side is every other SCORED hole, asked or not
+        // (migration 056) — H1 (E), H3 (−1), H4 (+1), H5 (−1), H6 (E), five
+        // holes at −1 between them. Only H1 answered a zero; H3–H6 were never
+        // asked and model as clean, which is what makes the two sides a
+        // partition of the six scored holes.
         m.holesWithPenalty = 1
         m.holesScoredPenalty = 1
         m.strokesVsParPenalty = 2
-        m.holesScoredPenaltyFree = 1
-        m.strokesVsParPenaltyFree = 0
+        m.holesScoredPenaltyFree = 5
+        m.strokesVsParPenaltyFree = -1
         // SG-prep. Par-4 tee shots: H1 fairway, H2 trouble, H5 fairway — so
         // in_play is 2 (cumulative, the two fairways). H4 is the lone par 5.
         m.teeRecordedPar4 = 3
@@ -1855,9 +1859,13 @@ final class StatMeasuresMathTests: XCTestCase {
     /// Consistency built in: `girHitsPar3+4+5 = 26 = girHits`;
     /// `girRecordedPar3+4+5 = 60 = girRecorded = girHolesScored +
     /// holesScoredGirMiss`; the four putt buckets sum to 54 = `puttsRecorded`;
-    /// `puttsRecordedPar*` sum to 54 and `puttsTotalPar*` to 100 = `puttsTotal`.
+    /// `puttsRecordedPar*` sum to 54 and `puttsTotalPar*` to 100 = `puttsTotal`;
+    /// and `holesScoredPenalty + holesScoredPenaltyFree = 9 + 45 = 54 =
+    /// holesScored`, which migration 056 makes an exact partition of the scored
+    /// holes rather than an accident of this fixture.
     static func windowW() -> StatMeasures {
         var m = StatMeasuresMath.zero
+        m.holesScored = 54
         m.girRecorded = 60
         m.girHits = 26
         m.girHolesScored = 26
@@ -1927,7 +1935,13 @@ final class StatMeasuresMathTests: XCTestCase {
         XCTAssertEqual(putts.par3.d + putts.par4.d + putts.par5.d, m.puttsRecorded)
         XCTAssertEqual(putts.par3.n + putts.par4.n + putts.par5.n, m.puttsTotal)
 
+        // Over SCORED holes, not over the holes that answered the question:
+        // 9 of the window's 54 scored holes carried a penalty. Here the two
+        // denominators happen to coincide (`penaltiesRecorded` is 54 as well),
+        // which is exactly how the wrong one hid — the case that tells them
+        // apart is `testThePenaltyShareIsOverEveryScoredHole` below.
         assertClose(StatMeasuresMath.penaltyHoleShare(m).value, 9.0 / 54.0)
+        XCTAssertEqual(StatMeasuresMath.penaltyHoleShare(m).d, m.holesScored)
         let byPenalty = StatMeasuresMath.vsParByPenalty(m)
         assertClose(byPenalty.penalty.value, 14.0 / 9.0)
         assertClose(byPenalty.clean.value, 4.0 / 45.0)
@@ -1962,11 +1976,22 @@ final class StatMeasuresMathTests: XCTestCase {
         assertClose(putts.par4.value, 4.0 / 3.0)
         XCTAssertEqual(putts.par5.value, 3)
 
-        XCTAssertEqual(StatMeasuresMath.penaltyHoleShare(workedExample).value, 0.5)
+        // One of the six SCORED holes took a penalty — H2. Not 1 of 2: only H1
+        // and H2 answered the question, and the four holes that never did are
+        // clean holes, not holes outside the sample.
+        assertClose(StatMeasuresMath.penaltyHoleShare(workedExample).value, 1.0 / 6.0)
+        XCTAssertEqual(StatMeasuresMath.penaltyHoleShare(workedExample).n, 1)
+        XCTAssertEqual(StatMeasuresMath.penaltyHoleShare(workedExample).d, 6)
+        // The share's numerator IS the tax's penalty side, and the two sides
+        // partition the six scored holes: 1 + 5.
         let byPenalty = StatMeasuresMath.vsParByPenalty(workedExample)
-        XCTAssertEqual(byPenalty.penalty.value, 2)
-        XCTAssertEqual(byPenalty.clean.value, 0)
-        XCTAssertEqual(StatMeasuresMath.penaltyTax(workedExample).value, 2)
+        XCTAssertEqual(byPenalty.penalty.value, 2)  // H2 at +2, over one hole
+        assertClose(byPenalty.clean.value, -0.2)  // −1 over the other five
+        XCTAssertEqual(byPenalty.penalty.d + byPenalty.clean.d, workedExample.holesScored)
+        // (2·5 − (−1)·1) / (1·5) = 11/5 — the difference, over a cross-product
+        // guard rather than a sample.
+        assertClose(StatMeasuresMath.penaltyTax(workedExample).value, 11.0 / 5.0)
+        assertClose(StatMeasuresMath.penaltyTax(workedExample).value, 2 - (-0.2))
     }
 
     /// nil is "not recorded" here too, and a difference is nil as soon as
@@ -1997,6 +2022,65 @@ final class StatMeasuresMathTests: XCTestCase {
         }
         XCTAssertNil(StatMeasuresMath.penaltyHoleShare(empty).value)
         XCTAssertNil(StatMeasuresMath.penaltyTax(empty).value)
+    }
+
+    /// The share and the tax under it describe ONE population: every scored
+    /// hole, where an unanswered penalty question means clean (migration 056).
+    ///
+    /// Eighteen scored holes, the question answered on four of them, two of the
+    /// four carrying a penalty. The share is 2/18 = 11%, not 2/4 = 50% — the old
+    /// denominator turned four answers into the whole round and quadrupled the
+    /// reading. The tax below it already split 2 penalty holes against 16 clean
+    /// ones, so the two rows now agree about who is in the sample.
+    func testThePenaltyShareIsOverEveryScoredHole() {
+        let m = measures {
+            $0.holesScored = 18
+            $0.penaltiesRecorded = 4
+            $0.penaltiesTotal = 3
+            $0.holesWithPenalty = 2
+            $0.holesScoredPenalty = 2
+            $0.strokesVsParPenalty = 5
+            $0.holesScoredPenaltyFree = 16
+            $0.strokesVsParPenaltyFree = 8
+        }
+
+        let share = StatMeasuresMath.penaltyHoleShare(m)
+        assertClose(share.value, 2.0 / 18.0)
+        XCTAssertEqual(share.n, 2)
+        XCTAssertEqual(share.d, 18)
+        // The tax's two sides partition the same 18 holes the share is over.
+        let byPenalty = StatMeasuresMath.vsParByPenalty(m)
+        XCTAssertEqual(byPenalty.penalty.d + byPenalty.clean.d, m.holesScored)
+        XCTAssertEqual(byPenalty.penalty.d, share.n)
+    }
+
+    /// …and the NUMERATOR is the tax's own penalty side, not `holesWithPenalty`.
+    ///
+    /// The two part company as soon as a penalty was recorded on a hole that
+    /// never got a score — stats entered ahead of the scorecard, or a picked-up
+    /// hole. `holesWithPenalty` counts the ANSWER wherever it was given, so over
+    /// a window with six penalty answers and two scored holes it printed 300%.
+    /// `holesScoredPenalty` is bounded by `holesScored` by construction.
+    func testThePenaltyShareCannotExceedOneHundredPercent() {
+        let m = measures {
+            $0.holesScored = 2
+            $0.penaltiesRecorded = 6
+            $0.penaltiesTotal = 6
+            // Six holes answered "penalty"; only one of them was ever scored.
+            $0.holesWithPenalty = 6
+            $0.holesScoredPenalty = 1
+            $0.strokesVsParPenalty = 3
+            $0.holesScoredPenaltyFree = 1
+            $0.strokesVsParPenaltyFree = 0
+        }
+
+        let share = StatMeasuresMath.penaltyHoleShare(m)
+        XCTAssertEqual(share.n, 1)
+        XCTAssertEqual(share.d, 2)
+        assertClose(share.value, 0.5)
+        XCTAssertLessThanOrEqual(share.value ?? 0, 1)
+        // The old numerator is exactly the reading this replaces.
+        assertClose(m.holesWithPenalty / m.holesScored, 3)
     }
 
     /// No clamping: scoring better off a miss than off a hit is a real reading

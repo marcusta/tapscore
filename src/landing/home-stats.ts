@@ -25,7 +25,6 @@ import type { PlayerRoundStats, StatMeasures } from '../api/player-stats.gen';
 import {
     DEFAULT_SG_BASELINE,
     rate,
-    rateDisplay,
     type Rate,
     type SgBaselineBundle,
 } from '../round/stat-measures';
@@ -42,30 +41,22 @@ import {
     presetTitle,
     type StatsWindowPreset,
 } from '../stats/stats-window';
-import {
-    averageSample,
-    componentTitle,
-    formatAverage,
-    formatRate,
-    UNIT_HOLES,
-} from '../stats/stats-format';
+import { componentTitle, formatAverage, formatRate } from '../stats/stats-format';
 
 /**
  * One tile: a reading and what it measures. The value is already formatted by
  * `stats-format` — the view does no arithmetic and no rounding, so the display
- * policy (percentage / fraction / absent) is applied in exactly one place.
+ * policy (a percentage, or nothing at all) is applied in exactly one place.
  */
 export interface HomeStatsTile {
     id: string;
     value: string;
     /** Worded, never a glyph — the app's standing label rule. */
     label: string;
-    /**
-     * The thin-sample disclosure, when the display policy demands one — the
-     * average tile's equivalent of a rate degrading to "2 of 3". Null on a
-     * sample the policy trusts.
-     */
-    note: string | null;
+    // A `note` used to ride here: the thin-sample disclosure, shown when the
+    // average fell under the display floor. It is gone with the floor itself
+    // (owner ruling, 2026-08-02) — a tile shows the figure, and the rounds
+    // behind it are the card's window label, not a caveat under each number.
 }
 
 /**
@@ -144,24 +135,19 @@ export function homeStatsTiles(model: StatsDashboardModel): HomeStatsTile[] {
     const vsPar = vsParPerHole(model.totals);
     const vsParValue = formatAverage(vsPar, 2, true);
     if (vsParValue !== null) {
-        // A bare average escapes the display policy (`formatAverage`'s own doc
-        // says so); this tile prints no fraction to degrade into, so under the
-        // floor it carries the sample as a note — the dashboard's honesty in
-        // the tile's shape.
-        const note = rateDisplay(vsPar) === 'fraction' ? averageSample(vsPar, UNIT_HOLES) : null;
-        tiles.push({ id: 'vsPar', value: vsParValue, label: 'Vs par per hole', note });
+        tiles.push({ id: 'vsPar', value: vsParValue, label: 'Vs par per hole' });
     }
 
     const tee = model.tee;
     const fairway = tee === null ? null : formatRate(tee.fairway);
     if (fairway !== null) {
-        tiles.push({ id: 'fairways', value: fairway, label: 'Fairways hit', note: null });
+        tiles.push({ id: 'fairways', value: fairway, label: 'Fairways hit' });
     }
 
     const approach = model.approach;
     const gir = approach === null ? null : formatRate(approach.gir);
     if (gir !== null) {
-        tiles.push({ id: 'gir', value: gir, label: 'Greens in regulation', note: null });
+        tiles.push({ id: 'gir', value: gir, label: 'Greens in regulation' });
     }
 
     return tiles;
@@ -240,11 +226,7 @@ export function buildHomeStatsCard(args: {
  * the arrow and the tile order back as noise.
  */
 export function homeStatsAriaLabel(card: HomeStatsCardModel): string {
-    const readings = card.tiles.map((tile) =>
-        tile.note === null
-            ? `${tile.label} ${tile.value}`
-            : `${tile.label} ${tile.value}, ${tile.note}`,
-    );
+    const readings = card.tiles.map((tile) => `${tile.label} ${tile.value}`);
     const parts = [`${HOME_STATS_TITLE}, ${card.windowLabel}`, ...readings];
     if (card.priorityLine !== null) parts.push(card.priorityLine);
     // The destination, last: an aria-label overrides the subtree, so the

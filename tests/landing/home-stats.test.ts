@@ -120,7 +120,6 @@ test('the three tiles render in reading order', () => {
     expect(c.tiles.map((t) => t.id)).toEqual(['vsPar', 'fairways', 'gir']);
     // 180 strokes against 144 par over 36 holes.
     expect(c.tiles[0]!.value).toBe('+1.00');
-    expect(c.tiles[0]!.note).toBeNull();
     expect(c.tiles[1]!.value).toBe('50%');
     expect(c.tiles[2]!.value).toBe('50%');
     // Worded labels, never a glyph.
@@ -137,7 +136,7 @@ test('a tile with no denominator is omitted rather than zeroed', () => {
     expect(card([row('r1', '2026-07-20', scoringOnly)]).tiles.map((t) => t.id)).toEqual(['vsPar']);
 });
 
-test('a thin rate reads as a fraction rather than a percentage, and the average says so', () => {
+test('a small sample prints the same two readings — no fraction, no caveat', () => {
     const sparse = measures({
         holesScored: 3,
         strokesTotal: 14,
@@ -148,15 +147,11 @@ test('a thin rate reads as a fraction rather than a percentage, and the average 
     const c = card([row('r1', '2026-07-20', sparse)]);
 
     expect(c.tiles.map((t) => t.id)).toEqual(['vsPar', 'fairways']);
-    expect(c.tiles[1]!.value).toBe('2 of 3');
-    // The average has no fraction to degrade into, so it carries the sample.
+    expect(c.tiles[1]!.value).toBe('67%');
     expect(c.tiles[0]!.value).toBe('+0.67');
-    expect(c.tiles[0]!.note).toBe('over 3 holes — thin sample');
-});
-
-test('a trusted sample carries no note', () => {
-    const c = card([row('r1', '2026-07-20', fullRound(90, 7, 9))]);
-    expect(c.tiles[0]!.note).toBeNull();
+    // A tile is a reading and a label. Nothing else rides along — the `note`
+    // that used to appear under a small sample is gone with the display floor.
+    expect(Object.keys(c.tiles[0]!).sort()).toEqual(['id', 'label', 'value']);
 });
 
 // --- 3. The priority line ----------------------------------------------------
@@ -316,7 +311,7 @@ test('the accessibility label reads the tiles out in the order they are drawn', 
     expect(spoken.endsWith('Opens your statistics')).toBe(true);
 });
 
-test('the spoken card carries the thin-sample note with its tile', () => {
+test('the spoken card reads a tile as label then value, with no caveat behind it', () => {
     const sparse = measures({
         holesScored: 3,
         strokesTotal: 14,
@@ -324,7 +319,7 @@ test('the spoken card carries the thin-sample note with its tile', () => {
         teeRecorded: 3,
         fairwayHits: 2,
     });
-    expect(homeStatsAriaLabel(card([row('r1', '2026-07-20', sparse)]))).toContain(
-        'Vs par per hole +0.67, over 3 holes — thin sample',
-    );
+    const spoken = homeStatsAriaLabel(card([row('r1', '2026-07-20', sparse)]));
+    expect(spoken).toContain('Vs par per hole +0.67');
+    expect(spoken).not.toContain('thin sample');
 });

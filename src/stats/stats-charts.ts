@@ -44,6 +44,27 @@ import type { StatsSegmentTone } from './stats-panel-blocks';
 /** The x extent of every chart's user space. Percent-like, on purpose. */
 export const CHART_WIDTH = 100;
 
+/**
+ * Rate-row geometry, in CSS pixels — the ONE track every rate bar draws in and
+ * the ONE right-aligned column every rate value sits in. Owner ruling
+ * 2026-08-02: a card whose bars are three different lengths reads as three
+ * different measurements.
+ *
+ * 88 rather than 90 or 84 so that on the narrowest supported card (a 375 px
+ * viewport) the widest row — the ladder, `title + 88 + 56 + 56 + 2 gaps` —
+ * leaves at least 110 px for the title, which fits `Inside 1 m` and
+ * `Three or more`.
+ *
+ * Not `CHART_WIDTH`: that is the SVG viewBox unit the geometry helpers work in,
+ * and it is deliberately resolution-free. These are the pixel widths the
+ * component CSS interpolates.
+ *
+ * Twin of `StatsBarMetrics` in `ios/TapScore/Features/Stats/StatsCharts.swift`.
+ */
+export const RATE_BAR_TRACK_PX = 88;
+export const RATE_VALUE_PX = 56;
+export const RATE_COST_PX = 56;
+
 /** Semantic slots a caller fills with theme tokens. */
 export interface StatsChartColors {
     /** Strokes gained — the action family (fairway green). */

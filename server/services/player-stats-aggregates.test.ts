@@ -387,13 +387,16 @@ test('the round view is the hand-computed arithmetic of the worked example', asy
         puttsRecordedPar5: 1,
         puttsTotalPar5: 3,
 
-        // Penalty geography: H1 answered 0, H2 answered 1. Both scored, so
-        // both sides of the tax have exactly one hole — H2 at +2, H1 at level.
+        // Penalty geography. The penalty side counts the ANSWER: H2 alone,
+        // scored at +2. The clean side is every other SCORED hole, asked or
+        // not (migration 056) — H1 (E), H3 (−1), H4 (+1), H5 (−1), H6 (E),
+        // five holes at −1. H1 answered 0; H3-H6 were never asked and model
+        // as zero, the same way SG-lite's attPenalties already reads them.
         holesWithPenalty: 1,
         holesScoredPenalty: 1,
         strokesVsParPenalty: 2,
-        holesScoredPenaltyFree: 1,
-        strokesVsParPenaltyFree: 0,
+        holesScoredPenaltyFree: 5,
+        strokesVsParPenaltyFree: -1,
 
         // SG-prep. Par-4 tee shots: H1 fairway, H2 trouble, H5 fairway — so
         // in_play is 2 (cumulative, the two fairways). H4 is the lone par 5.
@@ -501,8 +504,70 @@ test('penalty geography counts the answer, and the cost only when scored', async
     expect(m.holesScoredPenalty).toBe(1);
     expect(m.strokesVsParPenalty).toBe(2);
     // And the clean side, the same way — H6 answered 0 but has no score.
+    // Unmoved by migration 056: every NULL-penalty hole in this fixture is
+    // also unscored, so the clean-and-scored set is H5 alone under both the
+    // old rule and the new one. If this test moves, the migration is wrong.
     expect(m.holesScoredPenaltyFree).toBe(1);
     expect(m.strokesVsParPenaltyFree).toBe(0);
+});
+
+test('a hole never asked about penalties is on the clean side of the tax', async () => {
+    // The case the old `penalties = 0` clean side got wrong: H2 was never
+    // asked, so it landed on neither side and the tax had no denominator.
+    const f = await fixture();
+    await f.stat(1, 'penalties', '1');
+    await f.score(1, 5); // par 4, +1
+    await f.score(2, 4); // par 4, level — no `penalties` stat at all
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    expect(m.penaltiesRecorded).toBe(1);
+    expect(m.holesWithPenalty).toBe(1);
+    expect(m.holesScoredPenalty).toBe(1);
+    expect(m.strokesVsParPenalty).toBe(1);
+    expect(m.holesScoredPenaltyFree).toBe(1);
+    expect(m.strokesVsParPenaltyFree).toBe(0);
+});
+
+/**
+ * Six holes, pars 4/4/3/5/4/4:
+ *
+ *  H1 par 4, 7 strokes — 2 penalties answered            → penalty side, +3
+ *  H2 par 4, 4 strokes — 0 penalties answered            → clean side, 0
+ *  H3 par 3, 4 strokes — never asked, so NULL            → clean side, +1
+ *  H4 par 5, 6 strokes — 1 penalty answered              → penalty side, +1
+ *  H5 par 4, PICKED UP — never asked: unscored, so neither side
+ *  H6 par 4, unscored  — 0 penalties answered: an answer, but no cost
+ */
+test('penalty and penalty-free partition the scored holes exactly', async () => {
+    const f = await fixture();
+    await f.stat(1, 'penalties', '2');
+    await f.score(1, 7);
+    await f.stat(2, 'penalties', '0');
+    await f.score(2, 4);
+    await f.score(3, 4); // no `penalties` stat at all
+    await f.stat(4, 'penalties', '1');
+    await f.score(4, 6);
+    await f.score(5, 0); // picked up, never asked
+    await f.stat(6, 'penalties', '0'); // answered clean, never scored
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    // Migration 056 removed the third state: over SCORED holes, `penalties >= 1`
+    // and `COALESCE(penalties, 0) = 0` are complements, so the two scored
+    // columns add to `holesScored`. `holesScoredPenalty` is the right column
+    // for an exact partition — `holesWithPenalty` counts the ANSWER whether or
+    // not the hole was scored, so it only coincides here because every penalty
+    // hole above (H1, H4) also has a score.
+    expect(m.holesScored).toBe(4); // H1, H2, H3, H4
+    expect(m.holesScoredPenalty).toBe(2); // H1, H4
+    expect(m.holesScoredPenaltyFree).toBe(2); // H2 (answered 0), H3 (NULL)
+    expect(m.holesScoredPenalty + m.holesScoredPenaltyFree).toBe(m.holesScored); // 2 + 2 = 4
+    expect(m.holesWithPenalty).toBe(m.holesScoredPenalty);
+    // The vs-par sums split the same way: (+3 +1) on the penalty side, (0 +1)
+    // on the clean side, and the round is +5 over its four scored holes.
+    expect(m.strokesVsParPenalty).toBe(4);
+    expect(m.strokesVsParPenaltyFree).toBe(1);
 });
 
 test('the five score-type buckets partition the scored holes', async () => {
@@ -948,13 +1013,16 @@ test('totals are the sum of every round measure, newest round first', async () =
         puttsRecordedPar5: 0,
         puttsTotalPar5: 0,
 
-        // A.H2 answered 1 penalty, B.H4 answered 0 — one hole on each side of
-        // the tax. A.H2 is +2 on a par 4; B.H4 is level on a par 5.
+        // A.H2 answered 1 penalty — the penalty side, +2 on a par 4. The clean
+        // side is every other SCORED hole, asked or not (migration 056):
+        // A.H1 (3 on a par 4, −1), A.H3 (3 on the par 3, E), B.H1 (4 on a par
+        // 4, E), B.H2 (4 on a par 4, E), B.H4 (5 on the par 5, answered 0, E)
+        // — five holes at −1.
         holesWithPenalty: 1,
         holesScoredPenalty: 1,
         strokesVsParPenalty: 2,
-        holesScoredPenaltyFree: 1,
-        strokesVsParPenaltyFree: 0,
+        holesScoredPenaltyFree: 5,
+        strokesVsParPenaltyFree: -1,
 
         // SG-prep: all four tee answers are on par 4s (A.H1 fairway, A.H2
         // trouble, B.H1 in play, B.H2 fairway) — in_play is cumulative, so 3.

@@ -592,10 +592,21 @@ ${SG_INFO_STYLES}
 
         // --- Module cards ----------------------------------------------------
         //
-        // The dashboard's own panels over a one-round window. Their sample
-        // gating does the rest: at n-of-18 the rates print as fractions.
+        // The dashboard's own panels over a one-round window. At n-of-18 the
+        // rates are simply coarse percentages — an honest reading, and the only
+        // one now that the fraction band is gone.
+        //
+        // The reference is the dashboard's RESOLVED cohort, passed through
+        // rather than re-derived — the same Computed the waterfall sheet above
+        // reads. This screen has no "Compared to" selector of its own, but the
+        // rows it draws were priced with `RoundStatsService.model`'s
+        // `bundle: dashboard.sgBundle`, and a sheet naming a different tier
+        // than the ladder was priced against would be a lie told confidently.
+        // Reading it here rather than at spawn time also means a change made in
+        // Filters re-labels this screen without a reload.
         this.spawn(StatsPanelsComponent, this.ref(frag, 'panels'), {
             model: () => model()?.panels ?? EMPTY_DASHBOARD_MODEL,
+            baseline: () => this.svc.sgInfo.get(),
         });
 
         // --- Legend ----------------------------------------------------------

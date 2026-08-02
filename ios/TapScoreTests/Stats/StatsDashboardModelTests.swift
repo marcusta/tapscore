@@ -486,6 +486,7 @@ final class StatsDashboardModelTests: XCTestCase {
             row(
                 "a", date: "2026-07-02",
                 measures {
+                    $0.holesScored = 18
                     $0.teeRecorded = 18
                     $0.girRecorded = 18
                     $0.girRecordedPar3 = 4
@@ -511,6 +512,7 @@ final class StatsDashboardModelTests: XCTestCase {
             row(
                 "b", date: "2026-07-03",
                 measures {
+                    $0.holesScored = 18
                     $0.teeRecorded = 18
                     $0.girRecorded = 18
                     $0.girRecordedPar3 = 4
@@ -553,7 +555,9 @@ final class StatsDashboardModelTests: XCTestCase {
         // Nothing recorded for par 5s: absent, not zero.
         XCTAssertNil(model.putting?.puttsPerHoleByPar.par5.value)
 
-        // 3 of the 36 recorded holes cost a penalty.
+        // 3 of the 36 SCORED holes cost a penalty — two rounds of eighteen,
+        // summed before dividing, and over the same cohort the tax splits
+        // (2 + 16 and 1 + 17 penalty/clean scored holes).
         XCTAssertEqual(model.tee?.penaltyHoleShare, Rate(value: 3.0 / 36.0, n: 3, d: 36))
         XCTAssertEqual(model.tee?.vsParByPenalty.penalty, Rate(value: 5.0 / 3.0, n: 5, d: 3))
         XCTAssertEqual(model.tee?.vsParByPenalty.clean, Rate(value: 7.0 / 33.0, n: 7, d: 33))
@@ -579,7 +583,8 @@ final class StatsDashboardModelTests: XCTestCase {
         XCTAssertNil(model.approach?.costOfMissedGreen.delta.value)
         XCTAssertNil(model.putting?.puttsPerHoleByPar.par4.value)
         XCTAssertNil(model.tee?.penaltyTax.value)
-        // The share's denominator is the penalty coverage, which is zero here.
+        // The share's denominator is the scored holes, and this window scored
+        // none of them.
         XCTAssertNil(model.tee?.penaltyHoleShare.value)
     }
 

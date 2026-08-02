@@ -1,17 +1,23 @@
 // Words and numerals for the stats dashboard.
 //
-// The display policy from the proposal (§1) lives here in ONE place:
+// The display policy lives here in ONE place, and since the owner's polish-pass
+// ruling (2026-08-02) it has exactly TWO cases:
 //
-// - `d >= 5` → a percentage. Enough sample to say "58%" out loud.
-// - `0 < d < 5` → the raw fraction, "2 of 3". A percentage over three attempts
-//   is a number pretending to be a measurement; the fraction says the same
-//   thing and cannot be over-read.
-// - `d == 0` → absent. Not "0%", not "—" in a slot that looks like a value:
-//   the caller is expected to omit the row.
+// - `d > 0` → a percentage, always. "58%", and "50%" over two attempts too.
+// - `d == 0` → absent (null). The caller either omits the row or prints the
+//   value-column placeholder `NO_VALUE`.
 //
-// Denominators are always printed beside the value, which is the whole reason
-// the app can afford to show a rate over five attempts at all. Averages are
-// held to the same bargain by `averageWithSample` — see the note there.
+// The old middle band — the raw fraction "2 of 3" under five attempts, plus the
+// words "thin sample" on an average — is RETIRED. It was built to stop a reader
+// over-reading a small sample, and it cost more than it bought: a fraction
+// cannot be read at a glance, cannot be drawn as a bar, and made a new player's
+// whole statistics screen look broken on exactly the data every new player has.
+// The sample did not disappear with it — a collapsed card HEADLINE still prints
+// it via `rateWithSample`, and every card's info sheet spells it out in words.
+//
+// `MIN_RATE_DENOMINATOR` / `rateDisplay` survive in `src/round/stat-measures.ts`
+// as an ADMISSION floor (trend points, insight deltas). No formatter here may
+// call them.
 //
 // Twin of `ios/TapScore/Features/Stats/StatsFormat.swift`. Note the PLACEMENT:
 // iOS keeps this in the view layer (`Features/Stats/`), not beside the maths in
@@ -23,8 +29,6 @@
 // testable headless.
 
 import {
-    MIN_RATE_DENOMINATOR,
-    rateDisplay,
     type ByTee,
     type PenaltySplit,
     type PuttBucket,
@@ -38,28 +42,37 @@ import type { StatsRoundType, StatsVenueType } from './stats-window';
 // --- Rates -------------------------------------------------------------------
 
 /**
- * The headline reading for a rate, or null when there is no sample.
+ * The value-column placeholder for a rate with no sample at all.
+ *
+ * A single em dash (U+2014), no spaces. It is a PLACEHOLDER, never a label: a
+ * bar row's value cell is 56 px wide and "Not recorded" wrapping to two lines
+ * inside it is the drift this pass removed. A figure row, which is a full-width
+ * sentence-shaped thing, still says "Not recorded" in words, and no aria/screen
+ * reader string ever reads the dash.
+ */
+export const NO_VALUE = '—';
+
+/**
+ * The headline reading for a rate, or null when there is no sample at all.
+ *
+ * A rate with any denominator reads as a percentage. The old fraction fallback
+ * under five attempts is RETIRED (owner ruling, 2026-08-02) — see the note at
+ * the top of this file.
  *
  * null is a real answer here and callers must handle it — that is how a module
  * with no data ends up absent rather than zeroed.
  */
 export function formatRate(r: Rate): string | null {
-    switch (rateDisplay(r)) {
-        case 'absent':
-            return null;
-        case 'fraction':
-            return `${formatCount(r.n)} of ${formatCount(r.d)}`;
-        case 'percentage':
-            return r.value === null ? null : `${Math.round(r.value * 100)}%`;
-    }
+    if (r.d <= 0 || r.value === null) return null;
+    return `${Math.round(r.value * 100)}%`;
 }
 
 /**
- * The sample behind a rate, for the line under the headline. null when the
- * headline already IS the fraction — printing "2 of 3" twice is noise.
+ * The sample behind a rate — "14 of 24". Available for ANY sample now that the
+ * headline never IS the fraction; the caller decides whether it has room.
  */
 export function rateSample(r: Rate): string | null {
-    if (rateDisplay(r) !== 'percentage') return null;
+    if (r.d <= 0) return null;
     return `${formatCount(r.n)} of ${formatCount(r.d)}`;
 }
 
@@ -73,22 +86,19 @@ export function rateWithSample(r: Rate): string | null {
 
 /**
  * A rate rendered as a plain average rather than a percentage — putts per hole,
- * strokes vs par, penalties per round. Same denominator floor, but the value is
- * a quantity, not a share, so it never grows a `%`.
+ * strokes vs par, penalties per round. Same `d > 0` gate, but the value is a
+ * quantity, not a share, so it never grows a `%`.
  *
- * This is the BARE value, and on its own it escapes the display policy: a
- * percentage always arrives with its sample (either printed beside it or
- * spelled out as the fraction it degraded into), while "1.85" reads the same
- * over one hole and over forty. Use `averageWithSample` on any surface a reader
- * takes a number off; `formatAverage` is for callers that print the sample
- * themselves (`troubleTax`, whose own denominator is not one).
+ * This is the BARE value: "1.85" reads the same over one hole and over forty.
+ * Use `averageWithSample` on any surface a reader takes a number off;
+ * `formatAverage` is for callers that print the sample themselves
+ * (`troubleTax`, whose own denominator is not one).
  *
  * `signed` prepends `+` for positive values — what "over par" needs and "putts
  * per hole" does not.
  */
 export function formatAverage(r: Rate, decimals = 2, signed = false): string | null {
-    if (rateDisplay(r) === 'absent') return null;
-    if (r.value === null) return null;
+    if (r.d <= 0 || r.value === null) return null;
     return signed ? signedNumber(r.value, decimals) : formatNumber(r.value, decimals);
 }
 
@@ -119,30 +129,14 @@ export const UNIT_HOLES = regularUnit('hole');
 export const UNIT_GREENS = regularUnit('green');
 
 /**
- * What a thin sample is called, in words. The app's standing rule: an
- * annotation is a word, never a glyph.
- */
-export const THIN_SAMPLE = 'thin sample';
-
-/**
- * The sample behind an average — "over 24 greens", and the same with the thin
- * note under the policy's floor.
- *
- * The floor is exactly `rateWithSample`'s; only the MARK differs, because an
- * average has no fraction to degrade into. A rate under five attempts says it
- * by reading "2 of 3"; an average has to say it outright.
+ * The sample behind an average — "over 24 greens". No thin mark: there is no
+ * thin any more, only a denominator, and the denominator is what this prints.
  *
  * null at `d == 0`, matching `formatAverage` — the caller omits the row.
  */
 export function averageSample(r: Rate, unit: SampleUnit): string | null {
-    switch (rateDisplay(r)) {
-        case 'absent':
-            return null;
-        case 'fraction':
-            return `over ${quantity(r.d, unit)} — ${THIN_SAMPLE}`;
-        case 'percentage':
-            return `over ${quantity(r.d, unit)}`;
-    }
+    if (r.d <= 0) return null;
+    return `over ${quantity(r.d, unit)}`;
 }
 
 /**
@@ -173,27 +167,23 @@ const UNIT_FAIRWAY_HOLES: SampleUnit = { one: 'from the fairway', many: 'from th
  * `troubleTaxPerHole` puts a difference of two averages over the CROSS-PRODUCT
  * of their hole counts, and says in its own doc comment that the result must
  * not be fed to `rateDisplay` as a sample: nine trouble holes against eleven
- * fairway ones would print "over 99 holes", and four against two would clear
- * the floor of five while resting on four holes. The honest reading is both
- * denominators, and either of them being thin is what makes the difference
- * unreliable.
+ * fairway ones would print "over 99 holes". The honest reading is both
+ * denominators, which is what this prints — no thin mark, and no judgement
+ * about the size of either side. Its consumer is a card's info sheet.
  */
 export function troubleTaxSample(vsParByTee: ByTee<Rate>): string | null {
     const trouble = vsParByTee.trouble.d;
     const fairway = vsParByTee.fairway.d;
     if (trouble <= 0 || fairway <= 0) return null;
-    const reading =
+    return (
         `over ${quantity(trouble, UNIT_TROUBLE_HOLES)}` +
-        ` vs ${quantity(fairway, UNIT_FAIRWAY_HOLES)}`;
-    const thin = trouble < MIN_RATE_DENOMINATOR || fairway < MIN_RATE_DENOMINATOR;
-    return thin ? `${reading} — ${THIN_SAMPLE}` : reading;
+        ` vs ${quantity(fairway, UNIT_FAIRWAY_HOLES)}`
+    );
 }
 
 /**
  * The sample behind a DIFFERENCE of two averages: both denominators, never the
- * cross-product guard the figure itself carries. Thin if either side is under
- * the display policy's floor — the difference is only as reliable as its
- * smaller side.
+ * cross-product guard the figure itself carries.
  */
 export function taxSample(
     a: Rate,
@@ -202,9 +192,7 @@ export function taxSample(
     bUnit: SampleUnit,
 ): string | null {
     if (a.d <= 0 || b.d <= 0) return null;
-    const reading = `over ${quantity(a.d, aUnit)} vs ${quantity(b.d, bUnit)}`;
-    const thin = a.d < MIN_RATE_DENOMINATOR || b.d < MIN_RATE_DENOMINATOR;
-    return thin ? `${reading} — ${THIN_SAMPLE}` : reading;
+    return `over ${quantity(a.d, aUnit)} vs ${quantity(b.d, bUnit)}`;
 }
 
 const UNIT_GREENS_MISSED: SampleUnit = {
@@ -235,13 +223,9 @@ export function penaltyTaxSample(split: PenaltySplit): string | null {
     return taxSample(split.penalty, UNIT_PENALTY_HOLES, split.clean, UNIT_PENALTY_FREE);
 }
 
-/**
- * True when a rate is thin enough that the reading is a fraction — the cue for
- * a view to skip a bar it would otherwise draw at a misleading length.
- */
-export function isThin(r: Rate): boolean {
-    return rateDisplay(r) === 'fraction';
-}
+// `isThin` and `THIN_SAMPLE` used to live here. Both are gone with the middle
+// band of the display policy (owner ruling, 2026-08-02): a bar always draws its
+// share, and a sample is stated as a denominator rather than judged.
 
 // --- Numbers -----------------------------------------------------------------
 
@@ -276,6 +260,21 @@ export function signedNumber(value: number, decimals = 1): string {
     if (rounded === 0) return formatNumber(0, decimals);
     const magnitude = formatNumber(Math.abs(rounded), decimals);
     return rounded > 0 ? `+${magnitude}` : `−${magnitude}`;
+}
+
+/**
+ * A per-bucket strokes-gained figure for the putting ladder. One decimal,
+ * always signed, POSITIVE = LOST (the waterfall's sign, and
+ * `STATS_COPY.prioritiesHint`'s: "Positive costs you shots").
+ *
+ * The em dash is the empty-column placeholder, never a label — a bucket with no
+ * resolved hole has nothing to compare, which is not the same as being level.
+ * An exactly level bucket reads `0.0`, never `E`: `E` is the scorecard's word
+ * for even par, not a strokes-gained zero.
+ */
+export function formatCost(value: number | null): string {
+    if (value === null) return NO_VALUE;
+    return signedNumber(value, 1);
 }
 
 /**

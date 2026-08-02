@@ -115,7 +115,10 @@ final class HomeStatsCardModelTests: XCTestCase {
         XCTAssertEqual(card.tiles.map(\.id), ["vsPar"])
     }
 
-    func testAThinRateReadsAsAFractionRatherThanAPercentage() throws {
+    /// Three tee shots is a percentage like thirty (owner ruling, 2026-08-02).
+    /// The home card's tile used to degrade to "2 of 3" here, and a fraction on
+    /// a glanceable tile was the worst place the retired policy showed up.
+    func testASmallRateStillReadsAsAPercentageOnTheHomeTile() throws {
         let sparse = measures {
             $0.holesScored = 3
             $0.strokesTotal = 14
@@ -126,7 +129,7 @@ final class HomeStatsCardModelTests: XCTestCase {
         let card = try XCTUnwrap(build([row("r1", date: "2026-07-20", sparse)]))
 
         XCTAssertEqual(card.tiles.map(\.id), ["vsPar", "fairways"])
-        XCTAssertEqual(card.tiles[1].value, "2 of 3")
+        XCTAssertEqual(card.tiles[1].value, "67%")
     }
 
     // MARK: - 3. The priority line

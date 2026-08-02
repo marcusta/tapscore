@@ -23,15 +23,15 @@ import SwiftUI
 
 /// One tile: a reading and what it measures. The value is already formatted by
 /// `StatsFormat` — the view does no arithmetic and no rounding, so the display
-/// policy (percentage / fraction / absent) is applied in exactly one place.
+/// policy (percentage or absent) is applied in exactly one place.
+///
+/// No `note`: the thin-sample disclosure line is gone (owner ruling,
+/// 2026-08-02). A home tile is a number and its label, and the sample lives on
+/// the dashboard the card links to.
 struct HomeStatsTile: Identifiable, Equatable, Sendable {
     var id: String
     var value: String
     var label: String
-    /// The thin-sample disclosure, when the display policy demands one — the
-    /// average tiles' equivalent of a rate degrading to "2 of 3". Nil on a
-    /// sample the policy trusts.
-    var note: String? = nil
 }
 
 /// Everything the card draws, or **nil when there is nothing worth drawing**.
@@ -113,17 +113,7 @@ struct HomeStatsCardModel: Equatable, Sendable {
         var tiles: [HomeStatsTile] = []
         let vsPar = vsParPerHole(model.totals)
         if let value = StatsFormat.average(vsPar, signed: true) {
-            // `average` alone escapes the display policy (its own doc says so);
-            // the tile prints no fraction to degrade into, so under the floor
-            // it carries the sample as a note — the dashboard's honesty in the
-            // tile's shape.
-            let note: String? =
-                switch StatMeasuresMath.rateDisplay(vsPar) {
-                case .fraction: StatsFormat.averageSample(vsPar, unit: .holes)
-                case .absent, .percentage: nil
-                }
-            tiles.append(
-                HomeStatsTile(id: "vsPar", value: value, label: "Vs par per hole", note: note))
+            tiles.append(HomeStatsTile(id: "vsPar", value: value, label: "Vs par per hole"))
         }
         if let tee = model.tee, let value = StatsFormat.rate(tee.fairway) {
             tiles.append(HomeStatsTile(id: "fairways", value: value, label: "Fairways hit"))
@@ -314,22 +304,13 @@ struct HomeStatsCard: View {
                 .font(TapFont.ui(size: 12))
                 .foregroundStyle(TapColors.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
-            if let note = tile.note {
-                Text(note)
-                    .font(TapFont.ui(size: 10.4))
-                    .foregroundStyle(TapColors.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// The card read out in one sentence, in the order it is drawn.
     static func accessibilityLabel(_ card: HomeStatsCardModel) -> String {
-        let readings = card.tiles.map { tile in
-            tile.note.map { "\(tile.label) \(tile.value), \($0)" }
-                ?? "\(tile.label) \(tile.value)"
-        }
+        let readings = card.tiles.map { "\($0.label) \($0.value)" }
         return (["Statistics, \(card.windowLabel)"] + readings + [card.priorityLine].compactMap { $0 })
             .joined(separator: ". ")
     }

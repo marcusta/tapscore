@@ -203,13 +203,17 @@ const WORKED_EXAMPLE: StatMeasures = measures({
     puttsTotalPar4: 4,
     puttsRecordedPar5: 1,
     puttsTotalPar5: 3,
-    // Penalty geography: H1 answered 0, H2 answered 1. Both scored, so
-    // both sides of the tax have exactly one hole — H2 at +2, H1 at level.
+    // Penalty geography. The penalty side counts the ANSWER: H2 alone,
+    // scored at +2. The clean side is every other SCORED hole, asked or
+    // not (migration 056) — H1 (E), H3 (−1), H4 (+1), H5 (−1), H6 (E),
+    // five holes at −1 between them. Only H1 answered a zero; H3–H6 were
+    // never asked and model as clean, which is what makes the two sides a
+    // partition of the six scored holes.
     holesWithPenalty: 1,
     holesScoredPenalty: 1,
     strokesVsParPenalty: 2,
-    holesScoredPenaltyFree: 1,
-    strokesVsParPenaltyFree: 0,
+    holesScoredPenaltyFree: 5,
+    strokesVsParPenaltyFree: -1,
     // SG-prep. Par-4 tee shots: H1 fairway, H2 trouble, H5 fairway — so
     // in_play is 2 (cumulative, the two fairways). H4 is the lone par 5.
     teeRecordedPar4: 3,
@@ -1888,6 +1892,10 @@ const WINDOW_W: StatMeasures = measures({
     strokesVsParPenalty: 14,
     holesScoredPenaltyFree: 45,
     strokesVsParPenaltyFree: 4,
+    // 9 + 45: the two sides of the tax ARE the scored window. The share
+    // divides by this, so leaving it at zero would describe a different
+    // population from the tax directly below it.
+    holesScored: 54,
 });
 
 test('the oracle window is internally consistent — every new group is a partition', () => {
@@ -1959,7 +1967,11 @@ test('puttsPerHoleByPar is an average, not a share', () => {
     expect(p.par5).toEqual({ value: 23 / 12, n: 23, d: 12 });
 });
 
-test('penalty geography: the share over answers, the tax over the two scored sides', () => {
+test('penalty geography: the share over SCORED HOLES, the tax over the two scored sides', () => {
+    // One cohort for both rows. Since migration 056 an unanswered penalty
+    // prompt is a CLEAN hole, so the tax partitions every scored hole — and the
+    // share above it now divides by that same window rather than by the holes
+    // somebody happened to touch the stepper on.
     expect(penaltyHoleShare(WINDOW_W)).toEqual({ value: 9 / 54, n: 9, d: 54 });
     expect(vsParByPenalty(WINDOW_W)).toEqual({
         penalty: { value: 14 / 9, n: 14, d: 9 },
@@ -1970,11 +1982,60 @@ test('penalty geography: the share over answers, the tax over the two scored sid
     expect(penaltyTax(WINDOW_W)).toEqual({ value: 594 / 405, n: 594, d: 405 });
     expect(penaltyTax(WINDOW_W).value).toBeCloseTo(14 / 9 - 4 / 45, 12);
 
-    // An answered question with no scored hole on one side: the share still
-    // reads, the tax does not.
-    const answersOnly = measures({ penaltiesRecorded: 6, holesWithPenalty: 2 });
-    expect(penaltyHoleShare(answersOnly).value).toBe(2 / 6);
+    // The share's numerator IS the tax's penalty side, so the two rows quote
+    // the same 9 holes rather than two counts that merely tend to agree.
+    expect(penaltyHoleShare(WINDOW_W).n).toBe(vsParByPenalty(WINDOW_W).penalty.d);
+
+    // Answers with nothing SCORED behind them: neither row reads. The share is
+    // a fact about scored holes now, so a window of pure answers has no
+    // denominator for it — and the tax never had one.
+    const answersOnly = measures({
+        penaltiesRecorded: 6,
+        holesWithPenalty: 2,
+        holesScoredPenalty: 0,
+    });
+    expect(penaltyHoleShare(answersOnly).value).toBeNull();
     expect(penaltyTax(answersOnly).value).toBeNull();
+    // Score those six holes and the share appears, unchanged by how many of
+    // them were ever asked about.
+    const scored = measures({
+        penaltiesRecorded: 6,
+        holesWithPenalty: 2,
+        holesScoredPenalty: 2,
+        holesScored: 6,
+    });
+    expect(penaltyHoleShare(scored).value).toBe(2 / 6);
+    const barelyAsked = measures({
+        penaltiesRecorded: 2,
+        holesWithPenalty: 2,
+        holesScoredPenalty: 2,
+        holesScored: 6,
+    });
+    expect(barelyAsked.penaltiesRecorded).toBe(2);
+    expect(penaltyHoleShare(barelyAsked).value).toBe(2 / 6);
+});
+
+test('the penalty share counts SCORED penalty holes, so it cannot exceed 100%', () => {
+    // `holesWithPenalty` counts the ANSWER wherever it was given — including on
+    // holes that never got a score, which is what stats entered ahead of the
+    // scorecard (or a picked-up hole) leaves behind. Over this window it is 6
+    // against 2 scored holes, and as a numerator it printed 300%.
+    const ahead = measures({
+        holesScored: 2,
+        penaltiesRecorded: 6,
+        penaltiesTotal: 6,
+        holesWithPenalty: 6,
+        holesScoredPenalty: 1,
+        strokesVsParPenalty: 3,
+        holesScoredPenaltyFree: 1,
+        strokesVsParPenaltyFree: 0,
+    });
+    expect(penaltyHoleShare(ahead)).toEqual({ value: 0.5, n: 1, d: 2 });
+    expect(ahead.holesWithPenalty / ahead.holesScored).toBe(3);
+
+    // The bound is structural, not a clamp: the two scored sides partition the
+    // scored holes, and the share's numerator is one of them.
+    expect(ahead.holesScoredPenalty + ahead.holesScoredPenaltyFree).toBe(ahead.holesScored);
 });
 
 // --- Capture v2: dispersion, counters and the bunker leg -----------------------

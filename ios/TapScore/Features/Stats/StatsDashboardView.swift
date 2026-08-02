@@ -23,6 +23,9 @@ struct StatsDashboardView: View {
     @State private var filterOpen = false
     /// The "How this works" popover behind the practice-priorities card.
     @State private var prioritiesInfoOpen = false
+    /// Which module card's "How this works" sheet is up. ONE binding for the
+    /// whole list, not one per panel: at most one sheet can be open.
+    @State private var openInfo: StatsPanelID?
 
     var body: some View {
         NavigationStack {
@@ -128,7 +131,14 @@ struct StatsDashboardView: View {
             results(model)
             priorities(model, baseline: store.baseline)
             trends(model)
-            StatsPanelsView(model: model, expanded: $expanded)
+            StatsPanelsView(
+                model: model, expanded: $expanded, baseline: store.baseline,
+                openInfo: $openInfo
+            )
+            .sheet(item: $openInfo) { id in
+                StatsPanelInfoSheet(
+                    title: id.title, cards: StatsPanelInfo.cards(id, model, store.baseline))
+            }
             roundList(model, history: store.loadedRounds)
         }
     }
@@ -333,16 +343,18 @@ struct StatsDashboardView: View {
         return ScoreType.allCases.map { type in
             let count = r.scoreTypeCounts[type] ?? 0
             let share = StatMeasuresMath.rate(count, r.holesScored)
-            // The reading is the SHARE and nothing else — the raw count beside it
-            // was answering a question the bar already answers. Under the display
-            // policy's floor `StatsFormat.rate` degrades to "n of d" on its own,
-            // which is the one case where the count comes back; `holesScored > 0`
-            // above rules out the absent case, so the fallback never fires.
+            // The reading is the SHARE and nothing else — the raw count beside
+            // it was answering a question the bar already answers. The bar
+            // always draws (owner ruling, 2026-08-02): a row that is a share of
+            // a whole is drawn at its share whatever the window's size.
+            // `holesScored > 0` above rules out the absent case, so the
+            // placeholder never fires here — it is stated anyway, because the
+            // value column has ONE vocabulary and it is not the count's.
             return ResultsHistogramRow(
                 id: type,
                 title: StatsFormat.title(type),
-                share: StatsFormat.isThin(share) ? nil : share.value,
-                value: StatsFormat.rate(share) ?? StatsFormat.count(count))
+                share: share.value,
+                value: StatsFormat.rate(share) ?? StatsCopy.noValue)
         }
     }
 
@@ -650,6 +662,15 @@ enum StatsCopy {
     static let notEnoughData = "Not enough data"
     static let notRecorded = "Not recorded"
 
+    /// The zero-denominator PLACEHOLDER in a fixed value column — a bar row, a
+    /// ladder rung, a histogram row, a split-bar legend, the ladder's cost cell.
+    /// U+2014, one character, no spaces.
+    ///
+    /// Never a label, and never what VoiceOver reads: a composed reading
+    /// substitutes `notRecorded`, which stays the words for a figure row, where
+    /// there is a full-width line to spend on them.
+    static let noValue = "\u{2014}"
+
     static let resultsHeading = "Results"
     static let scoreTypesHead = "Holes by score"
 
@@ -763,7 +784,15 @@ enum StatsCopy {
     static let firstPuttSpread =
         "Where the first putt was on every hole you recorded one — not only the greens you hit."
     static let ladderBaseline =
-        "The tick is the make rate the expected-putts table implies. For 4–8 m and over 8 m it sits at zero: the table expects two putts from there, so any make is ahead of it."
+        "The tick is the make rate your reference expects from that distance. For the two longest bands it sits at zero: the reference expects two putts from there, so any make is ahead of it."
+    /// The sign, spelled out — the ladder's Cost column is the one place on the
+    /// screen a reader meets a signed strokes figure without a legend beside it.
+    static let ladderCost =
+        "Cost is how many strokes this distance has cost you across the window, against the reference you picked. Plus means it cost you shots; minus means you gained them."
+    /// The one sentence this pass ADDS. The missed-green tax had no row hint to
+    /// move, and a card body that is a bare sample sentence says nothing.
+    static let missedGreenTax =
+        "The difference between what a hole costs you with the green hit and with it missed."
     static let threePutt = "Holes with three putts or more."
     static let longThreePutt = "Three-putts that started from over 8 m."
     static let puttsPerGir = "Putts taken on holes where you hit the green."

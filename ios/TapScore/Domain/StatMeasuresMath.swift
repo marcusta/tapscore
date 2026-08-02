@@ -659,9 +659,20 @@ enum StatMeasuresMath {
             d: denominator)
     }
 
-    /// Proposal §8 q4: the global floor, overridable per panel by the caller.
+    /// The ADMISSION floor — not a display policy any more (owner ruling,
+    /// 2026-08-02). Rendering is `d > 0 → percentage`, full stop; this number
+    /// answers "is this sample worth PLOTTING or RANKING?", which two consumers
+    /// still ask: the trend sparkline (`StatsDashboardModel.trends`) and the
+    /// insight / delta floors.
     static let minRateDenominator: Double = 5
 
+    /// The admission band a rate falls in.
+    ///
+    /// **No formatter may call `rateDisplay`.** It answers an admission question
+    /// ("is this sample worth plotting / ranking?"), not a rendering one.
+    /// Rendering is `d > 0 → percentage`, full stop. The `.fraction` case keeps
+    /// its name — it is what the middle band is CALLED, and both floors read it
+    /// as "not enough" — even though nothing formats a fraction any more.
     static func rateDisplay(_ r: Rate, minDen: Double = minRateDenominator) -> RateDisplay {
         if r.d == 0 { return .absent }
         return r.d >= minDen ? .percentage : .fraction
@@ -1147,9 +1158,26 @@ enum StatMeasuresMath {
         return rate(numerator, m.holesScoredTrouble * m.holesScoredFairway)
     }
 
-    /// How often a hole that answered the penalty question carried one.
+    /// How often a scored hole carried a penalty — over ALL scored holes, not
+    /// only the ones that answered the penalty question.
+    ///
+    /// The cohort is `holesScored` because that is the cohort `penaltyTax`
+    /// already uses: since migration 056 an unanswered penalty question counts
+    /// as a CLEAN hole (`COALESCE(penalties, 0) = 0`), so every scored hole lands
+    /// on one side of the tax. Dividing this share by `penaltiesRecorded`
+    /// instead put the two rows of the same card over two different populations
+    /// while they read as one — "unanswered means clean" has to mean the same
+    /// thing in both.
+    ///
+    /// The NUMERATOR is `holesScoredPenalty`, the tax's own penalty side, and
+    /// not `holesWithPenalty`. The two differ by penalty holes with no score
+    /// behind them — `holesWithPenalty` counts the ANSWER wherever it was given,
+    /// scored or not, so it can exceed `holesScored` outright and print a share
+    /// above 100%. Scored-penalty holes over scored holes is the same cohort on
+    /// both sides and is bounded by construction:
+    /// `holesScoredPenalty + holesScoredPenaltyFree = holesScored`.
     static func penaltyHoleShare(_ m: StatMeasures) -> Rate {
-        rate(m.holesWithPenalty, m.penaltiesRecorded)
+        rate(m.holesScoredPenalty, m.holesScored)
     }
 
     /// The two vs-par sides the penalty tax is a difference of.

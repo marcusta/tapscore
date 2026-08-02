@@ -92,9 +92,10 @@ test('the gate is the RECORDED counter, so ten tee shots and no fairways still g
 });
 
 test('putting opens on EITHER counter — a bucketed first putt with no putt count still counts', () => {
-    expect(puttingPanel(measures({ puttsRecorded: 0, firstPuttRecorded: 3 }))).not.toBeNull();
-    expect(puttingPanel(measures({ puttsRecorded: 3, firstPuttRecorded: 0 }))).not.toBeNull();
-    expect(puttingPanel(measures())).toBeNull();
+    const hcp12 = SG_BASELINES_V1.hcp12;
+    expect(puttingPanel(measures({ puttsRecorded: 0, firstPuttRecorded: 3 }), hcp12)).not.toBeNull();
+    expect(puttingPanel(measures({ puttsRecorded: 3, firstPuttRecorded: 0 }), hcp12)).not.toBeNull();
+    expect(puttingPanel(measures(), hcp12)).toBeNull();
 });
 
 test('short game opens on scramble ATTEMPTS across both difficulties', () => {
@@ -161,7 +162,7 @@ test('the panels carry the coverage and split figures their gates are decided on
     // A property of the approach MISS, so it lives on the approach panel.
     expect(approachPanel(m)!.hardChipShare).toEqual({ value: 0.4, n: 2, d: 5 });
 
-    const putting = puttingPanel(m)!;
+    const putting = puttingPanel(m, SG_BASELINES_V1.hcp12)!;
     // Shares of the RESOLVED total (9), not of `firstPuttRecorded`.
     expect(putting.firstPuttSpread.inside_1m).toEqual({ value: 5 / 9, n: 5, d: 9 });
     expect(putting.firstPuttSpread['1_to_2m']).toEqual({ value: 0, n: 0, d: 9 });
@@ -202,7 +203,7 @@ test('inPlayOnly excludes fairway hits, so the split bar cannot double-count', (
 });
 
 test('the ladder baseline inverts the expected-putts table and floors at zero', () => {
-    const panel = puttingPanel(measures({ firstPuttRecorded: 5 }))!;
+    const panel = puttingPanel(measures({ firstPuttRecorded: 5 }), SG_BASELINES_V1.hcp12)!;
     const baselines = Object.fromEntries(panel.ladder.map((r) => [r.bucket, r.baseline]));
     expect(baselines['inside_1m']).toBeCloseTo(0.95, 10);
     expect(baselines['1_to_2m']).toBeCloseTo(0.55, 10);
@@ -426,6 +427,9 @@ test('the tee panel carries penalty geography and its cost, and neither changes 
             strokesVsParPenalty: 14,
             holesScoredPenaltyFree: 45,
             strokesVsParPenaltyFree: 4,
+            // 9 + 45 — the tax's two sides ARE the scored window, and the share
+            // divides by that same window rather than by the answered holes.
+            holesScored: 54,
         }),
         1,
     )!;
@@ -497,6 +501,7 @@ test('the putting panel carries the four-bucket partition and the by-par average
             puttsRecordedPar5: 12,
             puttsTotalPar5: 23,
         }),
+        SG_BASELINES_V1.hcp12,
     )!;
     const d = p.puttDistribution;
     expect([d.zero.n, d.one.n, d.two.n, d.threePlus.n]).toEqual([3, 18, 27, 6]);
@@ -514,7 +519,10 @@ test('the putting panel carries the four-bucket partition and the by-par average
 });
 
 test('a putting panel on first-putt distances alone has an absent distribution, not a zeroed one', () => {
-    const p = puttingPanel(measures({ firstPuttRecorded: 9, firstPuttInside1mResolved: 9 }))!;
+    const p = puttingPanel(
+        measures({ firstPuttRecorded: 9, firstPuttInside1mResolved: 9 }),
+        SG_BASELINES_V1.hcp12,
+    )!;
     expect(p.puttDistribution.zero.value).toBeNull();
     expect(p.puttDistribution.threePlus.value).toBeNull();
     expect(p.puttsPerHoleByPar.par4.value).toBeNull();

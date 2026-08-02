@@ -25,10 +25,10 @@ import {
     costOfMissedGreen,
     DEFAULT_SG_BASELINE,
     doubleBogeyPlusPerRound,
-    EXPECTED_PUTTS_V1,
     extraShortGameStrokes,
     fairwayRate,
     firstPuttMix,
+    firstPuttResolved,
     girByPar,
     girFirstPuttMix,
     girRate,
@@ -48,6 +48,7 @@ import {
     puttsAfterMissedGreen,
     puttsPerGirHole,
     puttsPerHoleByPar,
+    puttsTotalResolved,
     rate,
     rateDisplay,
     recoveryRate,
@@ -278,15 +279,30 @@ export interface StatsLadderRung {
     bucket: PuttBucket;
     made: Rate;
     /**
-     * The make % the EXPECTED_PUTTS table implies for this distance.
+     * The make % the SELECTED COHORT's expected-putts table implies for this
+     * distance.
      *
      * Presentation-only, and a rough inversion: a bucket that expects `E` putts
      * holes out in one `2 − E` of the time IF every miss leaves a tap-in. It
-     * floors at 0 for the long buckets (4–8 m expects 2.10, >8 m 2.40), where
-     * the honest reading is "the table expects you to two-putt", not "you should
-     * hole none of these". The view says so.
+     * floors at 0 for the long buckets (on the 12-handicap table 4–8 m expects
+     * 2.10 and >8 m 2.40), where the honest reading is "the table expects you to
+     * two-putt", not "you should hole none of these". The view says so.
+     *
+     * It follows the "Compared to" selector, exactly as `cost` below does — a
+     * tick from one population beside a cost from another would be the screen
+     * comparing the reader with two different people at once.
      */
     baseline: number;
+    /**
+     * Strokes this bucket cost against the selected cohort, over the WHOLE
+     * window: `puttsTotalResolved − n × E`.
+     *
+     * POSITIVE = LOST, the waterfall's sign and `prioritiesHint`'s. A cumulative
+     * total, not a per-round or per-hole rate — the same unit as a waterfall
+     * term before it is divided by rounds. Null when the bucket has no resolved
+     * hole: there is nothing to compare, which is not the same as being level.
+     */
+    cost: number | null;
 }
 
 export interface StatsPuttingPanel {
@@ -459,7 +475,7 @@ export function buildDashboardModel(
         trends: buildTrends(ordered, bundle),
         tee: teePanel(totals, roundCount),
         approach: approachPanel(totals),
-        putting: puttingPanel(totals),
+        putting: puttingPanel(totals, bundle),
         shortGame: shortGamePanel(totals),
         scoring: scoringPanel(totals, roundCount),
         // From the ROWS, not the totals: the best round and the window's mix of
@@ -643,16 +659,36 @@ export function approachPanel(m: StatMeasures): StatsApproachPanel | null {
     };
 }
 
-export function puttingPanel(m: StatMeasures): StatsPuttingPanel | null {
+/**
+ * `bundle` is the cohort every rung is priced against — both the baseline TICK
+ * and the per-bucket cost. Before the polish pass the tick hardcoded
+ * `EXPECTED_PUTTS_V1` while the rest of the dashboard already followed the
+ * player's cohort; switching "Compared to" now visibly moves both.
+ *
+ * REQUIRED, deliberately. A default here is a caller that silently prices a
+ * reader's ladder against a cohort they did not pick, and the output looks
+ * perfectly reasonable when it does — the numbers are wrong, not absent. The
+ * compiler is the only thing that catches that, so every call site names its
+ * bundle, tests included.
+ */
+export function puttingPanel(
+    m: StatMeasures,
+    bundle: SgBaselineBundle,
+): StatsPuttingPanel | null {
     if (m.puttsRecorded <= 0 && m.firstPuttRecorded <= 0) return null;
     const spread = {} as Record<PuttBucket, Rate>;
     for (const bucket of PUTT_BUCKETS) spread[bucket] = firstPuttMix(m, bucket);
     return {
-        ladder: PUTT_BUCKETS.map((bucket) => ({
-            bucket,
-            made: onePuttRate(m, bucket),
-            baseline: Math.max(0, 2 - EXPECTED_PUTTS_V1[bucket]),
-        })),
+        ladder: PUTT_BUCKETS.map((bucket) => {
+            const n = firstPuttResolved(m, bucket);
+            const expected = bundle.expected[bucket];
+            return {
+                bucket,
+                made: onePuttRate(m, bucket),
+                baseline: Math.max(0, 2 - expected),
+                cost: n > 0 ? puttsTotalResolved(m, bucket) - n * expected : null,
+            };
+        }),
         firstPuttSpread: spread,
         threePutt: threePuttRate(m),
         threePuttsFromOver8m: threePuttsFromOver8mRate(m),

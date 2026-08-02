@@ -79,16 +79,27 @@ export function rate(numerator: number, denominator: number): Rate {
 }
 
 /**
- * How a rate may honestly be shown (proposal principle 2):
+ * Whether a rate is solid enough to be ADMITTED somewhere — a trend line, an
+ * insight, a delta. **Not a display policy.**
  *
- * - `percentage` — the sample is big enough for a percentage.
- * - `fraction` — there IS a sample, but showing "100%" off it would lie. Render
- *   the raw fraction ("2 of 3").
- * - `absent` — nothing was recorded. Render the panel's empty state, not a zero.
+ * It was one until 2026-08-02, when the owner retired the middle band: a rate is
+ * now always shown as a percentage, and a zero denominator shows a placeholder
+ * rather than a fraction. What survives here is the admission question, which is
+ * a different question with a different answer — plotting a 1-of-2 point on a
+ * trend line implies a movement that is not there, whereas PRINTING "50%" beside
+ * its own bar implies nothing the reader cannot see.
+ *
+ * **Standing rule: no formatter may call `rateDisplay`.** The formatters live in
+ * `src/stats/stats-format.ts` and decide from `d > 0` alone; a formatter reaching
+ * for this floor is the fraction band growing back.
+ *
+ * - `percentage` — solid: admit it.
+ * - `fraction` — there IS a sample, but it is too small to carry a claim.
+ * - `absent` — nothing was recorded at all.
  */
 export type RateDisplay = 'percentage' | 'fraction' | 'absent';
 
-/** Proposal §8 q4: the global floor, overridable per panel by the caller. */
+/** The admission floor. Overridable per caller. */
 export const MIN_RATE_DENOMINATOR = 5;
 
 export function rateDisplay(r: Rate, minDen: number = MIN_RATE_DENOMINATOR): RateDisplay {
@@ -625,9 +636,29 @@ export function troubleRate(m: StatMeasures): Rate {
     return rate(m.troubleCount, m.teeRecorded);
 }
 
-/** How often a hole that answered the penalty question carried one. */
+/**
+ * How often a scored hole carried a penalty.
+ *
+ * Over `holesScored`, NOT over `penaltiesRecorded` — the holes where somebody
+ * touched the stepper. Migration 056 settled that an unanswered penalty prompt
+ * means a clean hole (`COALESCE(penalties, 0) = 0`), so the penalty tax
+ * directly below this row already divides the whole scored window into a
+ * penalty side and a clean side. Dividing the share by the answered holes
+ * instead left the two rows describing different populations while reading as
+ * if they described one: a player with three penalties across four answered
+ * holes out of fifty-four scored saw "75%" above a tax computed over all
+ * fifty-four. One cohort, both rows: every scored hole, unanswered means clean.
+ *
+ * The NUMERATOR is `holesScoredPenalty`, the tax's own penalty side, and not
+ * `holesWithPenalty`. The two differ by penalty holes with no score behind them
+ * — `holesWithPenalty` counts the ANSWER wherever it was given, scored or not,
+ * so over a round whose stats ran ahead of its scorecard it can exceed
+ * `holesScored` outright and print a share above 100%. Scored-penalty holes over
+ * scored holes is the same cohort on both sides and is bounded by construction:
+ * `holesScoredPenalty + holesScoredPenaltyFree = holesScored`.
+ */
 export function penaltyHoleShare(m: StatMeasures): Rate {
-    return rate(m.holesWithPenalty, m.penaltiesRecorded);
+    return rate(m.holesScoredPenalty, m.holesScored);
 }
 
 /** The two vs-par sides the penalty tax is a difference of. */

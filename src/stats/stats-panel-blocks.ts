@@ -5,10 +5,14 @@
 // drawn at all. The component's job is one template per block kind.
 //
 // Nothing here computes a rate — everything arrives as a `Rate` from the model
-// and leaves as a formatted string or a null. `isThin` is the one judgement
-// applied: a sample the display policy will only express as a fraction gets NO
-// bar, because a bar would give three attempts the same visual weight as
-// thirty.
+// and leaves as a formatted string or a null. No judgement is applied to a
+// sample any more: a bar ALWAYS draws its share (owner ruling, 2026-08-02), and
+// a row that has nothing to say says it with the value-column placeholder.
+//
+// Rows carry no explainer prose. Every sentence that used to sit under a figure
+// now lives in the card's "How this works" sheet (`panel-info-cards.ts`), where
+// it is joined to the reader's own denominator instead of standing as static
+// text under every row.
 //
 // Twin of `ios/TapScore/Features/Stats/StatsPanelViews.swift` (which is
 // SwiftUI, so its blocks are inline views rather than data — same catalog,
@@ -16,7 +20,6 @@
 
 import {
     MIN_ATTRIBUTED_FOR_DELTA,
-    MIN_RATE_DENOMINATOR,
     PUTT_BUCKETS,
     rate,
     SCORE_TYPES,
@@ -36,15 +39,13 @@ import {
     averageWithSample,
     bucketTitle,
     formatAverage,
+    formatCost,
     formatCount,
-    isThin,
-    missedGreenTaxSample,
-    penaltyTaxSample,
+    NO_VALUE,
     quantity,
     rateWithSample,
     formatRate,
     signedNumber,
-    troubleTaxSample,
     UNIT_GREENS,
     UNIT_HOLES,
     UNIT_LABELLED_PENALTY_HOLES,
@@ -71,8 +72,12 @@ export type StatsSegmentTone = 'fairway' | 'inplay' | 'trouble';
 export type StatsBlock =
     /** A small uppercase heading inside a panel. */
     | { kind: 'subhead'; id: string; text: string }
-    /** A paragraph of explanation, for a figure the number alone would mislead on. */
-    | { kind: 'note'; id: string; text: string }
+    // There was a `note` kind here — a paragraph of explanation sitting between
+    // a subhead and its rows. The owner's 2026-08-02 ruling moved every one of
+    // those into the card's info sheet, and the kind is GONE rather than merely
+    // unused: a variant nothing constructs is an invitation to construct one,
+    // and the type checker is a better guard against that than a test asserting
+    // an absence.
     /** A proportional bar plus its key. */
     | {
           kind: 'split';
@@ -81,8 +86,21 @@ export type StatsBlock =
       }
     /** Label, mini bar, reading. */
     | { kind: 'bar'; id: string; title: string; share: number | null; value: string | null }
-    /** One rung of the putting ladder: a bar against a baseline tick. */
-    | { kind: 'rung'; id: string; title: string; made: number | null; baseline: number; value: string | null }
+    /**
+     * One rung of the putting ladder: a bar against a baseline tick, the make
+     * reading, and what the distance cost against the selected cohort.
+     */
+    | {
+          kind: 'rung';
+          id: string;
+          title: string;
+          made: number | null;
+          baseline: number;
+          value: string | null;
+          cost: string;
+      }
+    /** Right-aligned column headers, over the fixed value columns below them. */
+    | { kind: 'columns'; id: string; cells: string[] }
     /** Label / value / explanation. A null value prints "Not recorded". */
     | { kind: 'figure'; id: string; title: string; value: string | null; hint: string | null }
     /**
@@ -141,11 +159,20 @@ export const STATS_COPY = {
         'Extra strokes per hole when the tee shot finds trouble, against your own fairway holes.',
     recovery: 'Holes where the shot after trouble got you back in play.',
     penalties: 'Penalty strokes per round.',
+    // A PLACEHOLDER in a fixed-width value column, never a label: a rate row's
+    // value cell has no room for words, and `Not recorded` wrapping to two lines
+    // inside a bar row is the drift the polish pass removed. `notRecorded`
+    // remains the words a FIGURE row prints, and no aria string ever reads this.
+    noValue: NO_VALUE,
     proximityProxy:
         'How far the first putt was on greens you hit — a stand-in for approach proximity, which the app does not measure directly.',
     birdieConversion: 'Greens hit that became a birdie or better.',
     ladderBaseline:
-        'The tick is the make rate the expected-putts table implies. For 4–8 m and over 8 m it sits at zero: the table expects two putts from there, so any make is ahead of it.',
+        'The tick is the make rate your reference expects from that distance. For the two longest bands it sits at zero: the reference expects two putts from there, so any make is ahead of it.',
+    ladderCost:
+        'Cost is how many strokes this distance has cost you across the window, against the reference you picked. Plus means it cost you shots; minus means you gained them.',
+    missedGreenTax:
+        'The difference between what a hole costs you with the green hit and with it missed.',
     threePutt: 'Holes with three putts or more.',
     longThreePutt: 'Three-putts that started from over 8 m.',
     puttsPerGir: 'Putts taken on holes where you hit the green.',
@@ -175,17 +202,39 @@ export const STATS_COPY = {
     bounceBack: 'Holes after a bogey or worse that came back at par or better.',
 } as const;
 
-/** A bar is drawn only for a sample the policy will express as a percentage. */
-function barShare(r: Rate): number | null {
-    return isThin(r) ? null : r.value;
-}
-
+/**
+ * A bar ALWAYS draws its share. There is no thin gate: `r.value` is null only
+ * when the denominator is zero, and then there is no bar to draw and the value
+ * cell carries the placeholder.
+ */
 function bar(id: string, title: string, r: Rate): StatsBlock {
-    return { kind: 'bar', id, title, share: barShare(r), value: formatRate(r) };
+    return { kind: 'bar', id, title, share: r.value, value: formatRate(r) };
 }
 
 function figure(id: string, title: string, value: string | null, hint: string | null = null): StatsBlock {
     return { kind: 'figure', id, title, value, hint };
+}
+
+/**
+ * The ladder's two column headers, in order. Pinned words, and the twin asserts
+ * them: `Holed` over the make reading, `Cost` over the strokes-gained cell.
+ */
+export const LADDER_COLUMNS: readonly [string, string] = ['Holed', 'Cost'];
+
+/**
+ * A ladder rung read out in WORDS — never the em dash, which is a placeholder
+ * for the eye only.
+ *
+ * Composed from the rendered strings rather than the raw cost so there is one
+ * rounding in the row: what a reader hears is what a reader sees.
+ */
+export function rungReading(rung: { title: string; value: string | null; cost: string }): string {
+    const made = rung.value === null ? STATS_COPY.notRecorded : `${rung.value} holed`;
+    if (rung.cost === STATS_COPY.noValue) return `${rung.title}, ${made}, ${STATS_COPY.notRecorded}`;
+    const magnitude = rung.cost.replace(/^[+\u2212]/, '');
+    if (rung.cost.startsWith('+')) return `${rung.title}, ${made}, ${magnitude} strokes lost`;
+    if (rung.cost.startsWith('\u2212')) return `${rung.title}, ${made}, ${magnitude} strokes gained`;
+    return `${rung.title}, ${made}, level`;
 }
 
 /**
@@ -225,28 +274,16 @@ export function panelHeadline(id: StatsPanelId, model: StatsDashboardModel): str
 }
 
 /**
- * The trouble tax's sample cannot go in the value column.
+ * The trouble tax, as a bare figure.
  *
  * It is a DIFFERENCE of two averages, so the honest sample is two denominators
- * and a sentence long ("over 9 holes from trouble vs 11 from the fairway"). It
- * joins the explanation line rather than the number, and `formatAverage` — not
- * `averageWithSample` — is deliberate: the figure's own `d` is a cross-product
- * guard and printing it would claim a sample of 99 holes.
+ * and a sentence long ("over 9 holes from trouble vs 11 from the fairway") —
+ * which is why it is the info sheet that states it, not this row. `formatAverage`
+ * — not `averageWithSample` — is deliberate: the figure's own `d` is a
+ * cross-product guard and printing it would claim a sample of 99 holes.
  */
 function troubleTaxFigure(panel: StatsTeePanel): StatsBlock {
-    const sample = troubleTaxSample(panel.vsParByTee);
-    const hint = sample ? `${STATS_COPY.troubleTax} Measured ${sample}.` : STATS_COPY.troubleTax;
-    return figure('troubleTax', 'Trouble tax', formatAverage(panel.troubleTax, 2, true), hint);
-}
-
-/**
- * The one muted line under a tax figure: its two denominators, and nothing else.
- *
- * Null in, null out — a tax whose sides have no scored hole prints "Not
- * recorded" with no line under it, rather than the literal "Measured null.".
- */
-function measuredLine(sample: string | null): string | null {
-    return sample === null ? null : `Measured ${sample}.`;
+    return figure('troubleTax', 'Trouble tax', formatAverage(panel.troubleTax, 2, true), null);
 }
 
 /** Average strokes vs par per hole, signed — the tee card's three absolutes. */
@@ -258,12 +295,10 @@ function vsPar(r: Rate): string | null {
  * The green-miss compass, as a block.
  *
  * The labels painted inside the wheel go through the SAME `formatRate` path as
- * the readable line beside it, so both obey `MIN_RATE_DENOMINATOR`. They have
- * to: a wheel saying "67%" next to prose saying "2 of 3" is the screen
- * contradicting itself, and the confident-looking number is the one that wins
- * the reader. Under the floor the wedge carries the fraction — six characters
- * at font-size 7 in a 100-unit box, which the mid-annulus label position takes.
- * The wedge geometry is unaffected either way; only the words change.
+ * the readable line beside it, so the picture and the prose can never disagree
+ * about a number. Both read as a percentage at any denominator now — the
+ * fraction fallback that used to make a wedge say "2 of 3" beside a line saying
+ * "67%" is retired.
  */
 function greenMissCompass(p: StatsApproachPanel): StatsBlock {
     const shares = {
@@ -332,15 +367,14 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                 {
                     kind: 'split',
                     id: 'teeSplit',
-                    // Through `barShare`, exactly like every other bar on the
-                    // screen: one recorded tee shot is a rate of 1.0, and a raw
-                    // share would paint the track solid green off a single
-                    // answer. Thin → no segment; the legend still prints
-                    // "1 of 1", which is the honest reading of that sample.
+                    // Raw shares, like every other bar on the screen: a segment
+                    // always draws what the rate is. The legend prints the same
+                    // percentage beside it, and the card's headline carries the
+                    // sample the reader needs to know how big it is.
                     segments: [
-                        { id: 'fairway', title: 'Fairway', tone: 'fairway', share: barShare(p.fairway), value: formatRate(p.fairway) },
-                        { id: 'inPlay', title: 'In play', tone: 'inplay', share: barShare(p.inPlayOnly), value: formatRate(p.inPlayOnly) },
-                        { id: 'trouble', title: 'Trouble', tone: 'trouble', share: barShare(p.trouble), value: formatRate(p.trouble) },
+                        { id: 'fairway', title: 'Fairway', tone: 'fairway', share: p.fairway.value, value: formatRate(p.fairway) },
+                        { id: 'inPlay', title: 'In play', tone: 'inplay', share: p.inPlayOnly.value, value: formatRate(p.inPlayOnly) },
+                        { id: 'trouble', title: 'Trouble', tone: 'trouble', share: p.trouble.value, value: formatRate(p.trouble) },
                     ],
                 },
                 // The fan sits directly under the split it decomposes. Absent,
@@ -351,7 +385,6 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                     ? [
                           { kind: 'subhead' as const, id: 'teeFanHead', text: STATS_COPY.teeFanHead },
                           teeFanBlock(p),
-                          { kind: 'note' as const, id: 'teeFanNote', text: STATS_COPY.teeFan },
                       ]
                     : []),
                 // The three absolutes the tax is a difference OF, read before it.
@@ -366,14 +399,13 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                               id: 'vsParByTeeHead',
                               text: 'Average vs par, by where the tee shot finished',
                           },
-                          { kind: 'note' as const, id: 'vsParByTeeNote', text: STATS_COPY.vsParByTee },
                           figure('vsParFairway', 'From the fairway', vsPar(p.vsParByTee.fairway)),
                           figure('vsParInPlay', 'From in play', vsPar(p.vsParByTee.inPlay)),
                           figure('vsParTrouble', 'From trouble', vsPar(p.vsParByTee.trouble)),
                       ]
                     : []),
                 troubleTaxFigure(p),
-                figure('recovery', 'Recovery', rateWithSample(p.recovery), STATS_COPY.recovery),
+                bar('recovery', 'Recovery', p.recovery),
                 // Absent, not zero: `penaltiesPerRound` divides by the round count,
                 // so it would print a confident "0.00 per round" for a player who
                 // never answered the question.
@@ -383,13 +415,8 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                               'penalties',
                               'Penalties',
                               averageWithSample(p.penaltiesPerRound, { unit: UNIT_ROUNDS }),
-                              `${STATS_COPY.penalties} Recorded on ${quantity(p.penaltiesRecordedHoles, UNIT_HOLES)}.`,
                           ),
-                          figure(
-                              'penaltyHoleShare',
-                              'Holes with a penalty',
-                              rateWithSample(p.penaltyHoleShare),
-                          ),
+                          bar('penaltyHoleShare', 'Holes with a penalty', p.penaltyHoleShare),
                           // `formatAverage`, never `averageWithSample`: the
                           // figure's own `d` is the cross-product guard, so the
                           // honest sample is the two sides below it.
@@ -397,7 +424,6 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                               'penaltyTax',
                               'Penalty tax',
                               formatAverage(p.penaltyTax, 2, true),
-                              measuredLine(penaltyTaxSample(p.vsParByPenalty)),
                           ),
                       ]
                     : []),
@@ -420,7 +446,6 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                               text: STATS_COPY.greenMissHead,
                           },
                           greenMissCompass(p),
-                          { kind: 'note' as const, id: 'greenMissNote', text: STATS_COPY.greenMiss },
                       ]
                     : []),
                 { kind: 'subhead', id: 'girByTee', text: 'Greens hit, by where the tee shot finished' },
@@ -434,26 +459,16 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                 bar('girPar3', 'Par 3', p.girByPar.par3),
                 bar('girPar4', 'Par 4', p.girByPar.par4),
                 bar('girPar5', 'Par 5', p.girByPar.par5),
-                { kind: 'subhead', id: 'mixHead', text: 'First putt on greens hit' },
-                { kind: 'note', id: 'mixNote', text: STATS_COPY.proximityProxy },
+                // The owner's own wording, abbreviation and all: "GIR" is what
+                // the two subheads above this one already teach, and spelling it
+                // out here would read as a different measurement.
+                { kind: 'subhead', id: 'mixHead', text: 'Proximity with GIR' },
                 ...PUTT_BUCKETS.map((b) => bar(`mix-${b}`, bucketTitle(b), p.girFirstPuttMix[b])),
-                figure(
-                    'birdieConversion',
-                    'Birdie conversion',
-                    rateWithSample(p.birdieConversion),
-                    STATS_COPY.birdieConversion,
-                ),
+                bar('birdieConversion', 'Birdie conversion', p.birdieConversion),
                 // The approach panel is gated on `girRecorded`, which can be
                 // non-zero on a window that recorded no short-game attempt at all.
                 ...(p.hardChipShare.d > 0
-                    ? [
-                          figure(
-                              'hardChipShare',
-                              'Hard misses',
-                              rateWithSample(p.hardChipShare),
-                              STATS_COPY.hardChipShare,
-                          ),
-                      ]
+                    ? [bar('hardChipShare', 'Hard misses', p.hardChipShare)]
                     : []),
                 // Gated as a GROUP on either side having a scored hole, the same
                 // shape `vsParByTeeRecorded` uses on the tee card. Inside it a
@@ -485,7 +500,6 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                               'missedGreenTax',
                               'Missed-green tax',
                               formatAverage(p.costOfMissedGreen.delta, 2, true),
-                              measuredLine(missedGreenTaxSample(p.costOfMissedGreen)),
                           ),
                       ]
                     : []),
@@ -500,20 +514,24 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                 ...(p.firstPuttSpread[PUTT_BUCKETS[0]!].d > 0
                     ? [
                           { kind: 'subhead' as const, id: 'firstPuttHead', text: 'First putt, all holes' },
-                          { kind: 'note' as const, id: 'firstPuttNote', text: STATS_COPY.firstPuttSpread },
                           ...PUTT_BUCKETS.map((b) => bar(`spread-${b}`, bucketTitle(b), p.firstPuttSpread[b])),
                       ]
                     : []),
                 { kind: 'subhead', id: 'ladderHead', text: 'Holed on the first putt' },
-                { kind: 'note', id: 'ladderNote', text: STATS_COPY.ladderBaseline },
+                // One header row over the two fixed columns the rungs below fill.
+                // Words, never a glyph: `Cost` is the same noun the home card's
+                // "Costing you most" uses, and it carries the sign's meaning
+                // without a legend — which the sheet spells out anyway.
+                { kind: 'columns', id: 'ladderCols', cells: [...LADDER_COLUMNS] },
                 ...p.ladder.map(
                     (rung): StatsBlock => ({
                         kind: 'rung',
                         id: `rung-${rung.bucket}`,
                         title: bucketTitle(rung.bucket),
-                        made: barShare(rung.made),
+                        made: rung.made.value,
                         baseline: rung.baseline,
                         value: formatRate(rung.made),
+                        cost: formatCost(rung.cost),
                     }),
                 ),
                 // One gate for the group: all four share `puttsRecorded`, so
@@ -528,18 +546,15 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                           bar('putts-threePlus', 'Three or more', p.puttDistribution.threePlus),
                       ]
                     : []),
-                figure('threePutt', 'Three-putts', rateWithSample(p.threePutt), STATS_COPY.threePutt),
-                figure(
-                    'longThreePutt',
-                    'Three-putts from over 8 m',
-                    rateWithSample(p.threePuttsFromOver8m),
-                    STATS_COPY.longThreePutt,
-                ),
+                // No standalone "Three-putts" row: the distribution's "Three or
+                // more" above is the same numerator over the same denominator,
+                // and two rows for one fact is what this pass removed. The lag
+                // fact below is distinct and stays.
+                bar('longThreePutt', 'Three-putts from over 8 m', p.threePuttsFromOver8m),
                 figure(
                     'puttsPerGir',
                     'Putts per green hit',
                     averageWithSample(p.puttsPerGirHole, { unit: UNIT_GREENS }),
-                    STATS_COPY.puttsPerGir,
                 ),
                 ...(p.puttsAfterMissedGreen.d > 0
                     ? [
@@ -547,7 +562,6 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                               'puttsAfterMissedGreen',
                               'Putts after a missed green',
                               averageWithSample(p.puttsAfterMissedGreen, { unit: UNIT_HOLES }),
-                              STATS_COPY.puttsAfterMissedGreen,
                           ),
                       ]
                     : []),
@@ -606,12 +620,7 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                 // as a 0% sand save over zero bunkers.
                 ...(p.scrambleAttemptsBunker > 0
                     ? [
-                          figure(
-                              'sandSave',
-                              'Sand save',
-                              rateWithSample(p.sandSave),
-                              STATS_COPY.sandSave,
-                          ),
+                          bar('sandSave', 'Sand save', p.sandSave),
                       ]
                     : []),
                 // The counter block, gated as a GROUP on at least one COUNTED
@@ -620,24 +629,13 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                 // model rather than a reading of the player.
                 ...(p.shortGameStrokesRecorded > 0
                     ? [
-                          figure(
-                              'multiChipBunker',
-                              'More than one from sand',
-                              rateWithSample(p.multiChipBunker),
-                              STATS_COPY.multiChipBunker,
-                          ),
+                          bar('multiChipBunker', 'More than one from sand', p.multiChipBunker),
                           figure(
                               'extraShortGameStrokes',
                               'Extra short-game shots',
                               String(p.extraShortGameStrokes),
-                              STATS_COPY.extraShortGameStrokes,
                           ),
-                          figure(
-                              'multiChip',
-                              'More than one chip',
-                              rateWithSample(p.multiChip),
-                              STATS_COPY.multiChip,
-                          ),
+                          bar('multiChip', 'More than one chip', p.multiChip),
                       ]
                     : []),
                 { kind: 'subhead', id: 'chipHead', text: 'Chipped to inside 2 m' },
@@ -646,18 +644,12 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                 ...(p.scrambleAttemptsBunker > 0
                     ? [bar('chipBunker', 'Bunker', p.chipInside2m.bunker)]
                     : []),
-                figure(
-                    'conversionInside2m',
-                    'Holed from inside 2 m',
-                    rateWithSample(p.conversionInside2m),
-                    STATS_COPY.conversionInside2m,
-                ),
+                bar('conversionInside2m', 'Holed from inside 2 m', p.conversionInside2m),
                 // The legs, not the sum: the rows match the groups above them,
                 // and the total is the addition of what is visible. Bunker rides
                 // the same gate as its two siblings above, so the three sections
                 // agree about whether this window has any sand in it.
                 { kind: 'subhead', id: 'chipInsHead', text: 'Chip-ins' },
-                { kind: 'note', id: 'chipInsNote', text: STATS_COPY.chipIns },
                 figure('chipInsStandard', 'Standard', formatCount(p.chipIns.standard)),
                 figure('chipInsHard', 'Hard', formatCount(p.chipIns.hard)),
                 ...(p.scrambleAttemptsBunker > 0
@@ -679,9 +671,8 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                     'doubles',
                     'Doubles or worse',
                     averageWithSample(p.doubleBogeyPlusPerRound, { unit: UNIT_ROUNDS }),
-                    STATS_COPY.doubleBogeyPlus,
                 ),
-                figure('bounceBack', 'Bounce-back', rateWithSample(p.bounceBack), STATS_COPY.bounceBack),
+                bar('bounceBack', 'Bounce-back', p.bounceBack),
             ];
         }
     }
@@ -716,7 +707,7 @@ export interface ResultsTile {
 export interface ResultsHistogramRow {
     id: ScoreType;
     title: string;
-    /** Bar length in [0,1]; null draws NO bar (thin sample, or no scores). */
+    /** Bar length in [0,1]; null draws NO bar (no scored hole at all). */
     share: number | null;
     value: string;
 }
@@ -846,17 +837,14 @@ export function resultsHistogram(results: ResultsSummary | null): ResultsHistogr
         return {
             id: type,
             title: scoreTypeTitle(type),
-            // The same `barShare` rule the rest of the screen uses: under the
-            // floor no bar is drawn at all, because a bar would give three holes
-            // the visual weight of thirty.
-            share: barShare(rate(count, holes)),
+            // The raw share, like every other bar on the screen.
+            share: rate(count, holes).value,
             // The SHARE alone: five rows of "33 (65%)" made the reader add up
-            // counts they were never asked to compare. Under the display
-            // policy's floor the shared formatter falls back to the honest
-            // fraction ("1 of 3") — unreachable in practice (a window with
-            // fewer than five scored holes), kept because the floor is the
-            // rule and the Swift twin routes through the same policy.
-            value: formatRate(rate(count, holes)) ?? formatCount(count),
+            // counts they were never asked to compare. The block is gated on
+            // `holesScored > 0`, so the placeholder is unreachable here — it is
+            // named rather than a count, because a bare count in a column of
+            // percentages reads as one.
+            value: formatRate(rate(count, holes)) ?? STATS_COPY.noValue,
         };
     });
 }
@@ -1011,9 +999,9 @@ export const SG_INFO_COPY = {
 
     /**
      * ABSOLUTE COUNTS, not shares. The labelled sample is usually a handful of
-     * holes, and `MIN_RATE_DENOMINATOR` would suppress every percentage and with
-     * it the whole card — so the card says the three numbers, which are true at
-     * any size, and lets the reader see how small they are.
+     * holes, and three percentages off three holes would read as a dispersion
+     * finding — so the card says the three numbers, which are true at any size,
+     * and lets the reader see how small they are.
      */
     penaltySource(input: SgInfoInput): string | null {
         const p = input.penaltySource;

@@ -43,6 +43,8 @@ import {
     renderSignedBar,
     renderSparkline,
     renderWaterfallStrip,
+    RATE_BAR_TRACK_PX,
+    RATE_VALUE_PX,
 } from './stats-charts';
 import { STATS_COLORS } from './stats-palette';
 import { StatsPanelsComponent } from './stats-panels.component';
@@ -448,11 +450,21 @@ export class StatsDashboardComponent extends Component {
             }
             & .results__hist { display: flex; flex-direction: column; gap: ${s('xs')}; }
             & .stype {
-                display: flex; align-items: center; gap: ${s('md')};
+                /* Gap sm, matching the module-card rate row: with the track and
+                   the value column both pinned, the gap no longer has to carry
+                   the separation, and md here made these rows sit visibly
+                   looser than the identical rows one card down. */
+                display: flex; align-items: center; gap: ${s('sm')};
                 & .stype__title { flex: 1; min-width: 0; font-size: 0.85rem; }
-                & .stype__bar { width: 84px; flex-shrink: 0; & svg { width: 100%; display: block; } }
+                /* The SAME track and value column as every module-card rate row
+                   — these two used to be 84 and 56 by hand, and the 4px drift
+                   was visible wherever the two sections met. */
+                & .stype__bar {
+                    width: ${RATE_BAR_TRACK_PX}px; flex: none;
+                    & svg { width: 100%; display: block; }
+                }
                 & .stype__value {
-                    width: 56px; flex-shrink: 0; text-align: right;
+                    width: ${RATE_VALUE_PX}px; flex: none; text-align: right;
                     font-size: 0.85rem; font-variant-numeric: tabular-nums;
                 }
             }
@@ -834,7 +846,10 @@ ${SG_INFO_STYLES}
         //
         // Shared with the per-round screen, which embeds the same component over
         // a one-round model.
-        this.spawn(StatsPanelsComponent, this.ref(frag, 'panels'), { model });
+        this.spawn(StatsPanelsComponent, this.ref(frag, 'panels'), {
+            model,
+            baseline: () => this.svc.sgInfo.get(),
+        });
 
         // --- Round list ------------------------------------------------------
         this.$each(

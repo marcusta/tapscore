@@ -29,6 +29,9 @@ struct RoundStatsView: View {
     @State private var store: RoundStatsStore?
     @State private var expanded: Set<StatsPanelID> = []
     @State private var openHole: String?
+    /// Which module card's "How this works" sheet is up — same one-binding
+    /// shape the dashboard uses.
+    @State private var openInfo: StatsPanelID?
 
     var body: some View {
         ScrollView {
@@ -96,7 +99,14 @@ struct RoundStatsView: View {
             waterfall: model.waterfall, deltas: model.deltas, windowCount: model.windowCount,
             penaltySource: PenaltySourceCounts(model.panels.totals),
             baseline: baseline)
-        StatsPanelsView(model: model.panels, expanded: $expanded, idPrefix: "round-stats")
+        StatsPanelsView(
+            model: model.panels, expanded: $expanded, idPrefix: "round-stats",
+            baseline: baseline, openInfo: $openInfo
+        )
+        .sheet(item: $openInfo) { id in
+            StatsPanelInfoSheet(
+                title: id.title, cards: StatsPanelInfo.cards(id, model.panels, baseline))
+        }
     }
 
     private func header(_ model: RoundStatsModel) -> some View {

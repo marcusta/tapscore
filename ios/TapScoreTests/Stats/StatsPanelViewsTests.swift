@@ -2,38 +2,79 @@ import XCTest
 
 @testable import TapScore
 
-/// The tee panel's split bar shares the module-wide display floor: a bar is
-/// only drawn for a sample the policy will express as a percentage. The web
-/// twin (`stats-panel-blocks.ts`) gates its split segments the same way, and
-/// the two surfaces must not disagree about what a thin sample looks like.
+/// What a module card actually renders, block by block.
+///
+/// Since the owner's polish-pass ruling (2026-08-02) the display decisions live
+/// in one pure builder — `StatsPanelsView.blocks(_:_:)` — and the view is one
+/// template per block kind. That is what makes the reading ORDER assertable
+/// here, and the web twin (`src/stats/stats-panel-blocks.ts`) emits the same
+/// ids in the same order, so these lists are the parity oracle.
+///
+/// Two rules run through every assertion below:
+///
+/// - **A rate is a percentage at any denominator, and absent at none.** No
+///   fraction ever reaches a value column, and there is no thin gate on a bar.
+/// - **A row is label + bar + value.** The prose that used to sit under a figure
+///   is in the card's info sheet, tested at the bottom of this file.
 final class StatsPanelViewsTests: XCTestCase {
 
-    private func teePanel(_ mutate: (inout StatMeasures) -> Void) -> StatsTeePanel {
+    // MARK: - Fixtures
+
+    private func teePanel(roundCount: Double = 1, _ mutate: (inout StatMeasures) -> Void)
+        -> StatsTeePanel
+    {
         var m = StatMeasuresMath.zero
         mutate(&m)
-        guard let panel = StatsDashboardModel.teePanel(m, roundCount: 1) else {
+        guard let panel = StatsDashboardModel.teePanel(m, roundCount: roundCount) else {
             fatalError("fixture has teeRecorded > 0, panel cannot be nil")
         }
         return panel
     }
 
-    /// One recorded tee shot is a rate of 1.0. Handed to the bar as a raw share
-    /// it paints the whole track solid, giving one answer the visual weight of
-    /// thirty — the exact thing the thin gate exists to stop. The legend keeps
-    /// saying "1 of 1", which is the honest reading of that sample.
-    func testASingleTeeShotDrawsNoSplitSegments() {
+    private func ids(_ blocks: [StatsBlock]) -> [String] { blocks.map(\.id) }
+
+    private func block(_ blocks: [StatsBlock], _ id: String) -> StatsBlock? {
+        blocks.first { $0.id == id }
+    }
+
+    /// Flattened accessors — a missing block and a block with no value are the
+    /// same answer to "what does this row say", and `String??` is not a thing an
+    /// assertion should have to spell.
+    private func value(_ blocks: [StatsBlock], _ id: String) -> String? {
+        block(blocks, id)?.value ?? nil
+    }
+
+    private func title(_ blocks: [StatsBlock], _ id: String) -> String? {
+        block(blocks, id)?.title ?? nil
+    }
+
+    private func share(_ blocks: [StatsBlock], _ id: String) -> Double? {
+        block(blocks, id)?.share ?? nil
+    }
+
+    // MARK: - 1. The two-case policy, on a bar
+
+    /// One recorded tee shot used to draw nothing at all — the retired thin gate
+    /// suppressed the split and the legend read "1 of 1". The owner's ruling put
+    /// the bar back: a single answer is 100%, said plainly, and the sample it
+    /// rests on is in the card's headline and its sheet.
+    func testASingleTeeShotStillDrawsItsSplitAtFullShare() {
         let panel = teePanel {
             $0.teeRecorded = 1
             $0.fairwayHits = 1
             $0.inPlayHits = 1
         }
 
-        XCTAssertTrue(StatsPanelsView.teeSplitSegments(panel).isEmpty)
-        // The legend beside the absent bar still prints the fraction.
-        XCTAssertEqual(StatsFormat.rate(panel.fairway), "1 of 1")
+        guard case .split(_, let segments, let legend) = StatsPanelsView.teeBlocks(panel)[0] else {
+            return XCTFail("the tee card opens on its split")
+        }
+        XCTAssertEqual(segments.map(\.id), ["fairway", "inPlay", "trouble"])
+        XCTAssertEqual(segments[0].share, 1.0, accuracy: 1e-12)
+        XCTAssertEqual(legend.map(\.value), ["100%", "0%", "0%"])
+        XCTAssertFalse(legend.compactMap(\.value).contains { $0.contains(" of ") })
     }
 
-    func testASplitWithARealSampleKeepsItsShares() {
+    func testASplitWithALargerSampleKeepsItsShares() {
         let panel = teePanel {
             $0.teeRecorded = 20
             $0.fairwayHits = 10
@@ -41,144 +82,138 @@ final class StatsPanelViewsTests: XCTestCase {
             $0.troubleCount = 4
         }
 
-        let segments = StatsPanelsView.teeSplitSegments(panel)
-        XCTAssertEqual(segments.map(\.id), ["fairway", "inPlay", "trouble"])
+        guard case .split(_, let segments, _) = StatsPanelsView.teeBlocks(panel)[0] else {
+            return XCTFail("the tee card opens on its split")
+        }
         XCTAssertEqual(segments[0].share, 0.5, accuracy: 1e-10)
         XCTAssertEqual(segments[1].share, 0.3, accuracy: 1e-10)
         XCTAssertEqual(segments[2].share, 0.2, accuracy: 1e-10)
     }
 
-    // MARK: - The v2 block gates
+    /// The one shape a bar may not draw: a rate over nothing. Then the value
+    /// column carries the em-dash placeholder and there is no share to paint.
+    func testAZeroDenominatorDrawsNoShareAndPrintsNoValue() {
+        let blocks = StatsPanelsView.teeBlocks(teePanel { $0.teeRecorded = 14 })
+        guard case .bar(_, _, let share, let value) = block(blocks, "recovery")! else {
+            return XCTFail("recovery is a bar")
+        }
+        XCTAssertNil(share)
+        XCTAssertNil(value)
+    }
+
+    /// Every rate row on every card draws its share whenever it has a
+    /// denominator — the ruling that killed the thin gate, asserted across the
+    /// whole screen rather than one card at a time.
+    func testEveryBarWithADenominatorDrawsItsShare() {
+        let model = Self.windowWModel()
+        for id in StatsPanelID.allCases {
+            for b in StatsPanelsView.blocks(id, model) {
+                switch b {
+                case .bar(let blockID, _, let share, let value):
+                    XCTAssertEqual(
+                        share == nil, value == nil,
+                        "\(id.rawValue)/\(blockID) drew a share without a value, or the reverse")
+                    if let value {
+                        XCTAssertTrue(
+                            value.hasSuffix("%"), "\(blockID) rendered \(value), not a percentage")
+                    }
+                case .rung(let blockID, _, let made, _, let value, _):
+                    XCTAssertEqual(made == nil, value == nil, "\(blockID)")
+                default:
+                    continue
+                }
+            }
+        }
+    }
+
+    /// No block kind carries an explainer sentence any more. The `StatsBlock`
+    /// enum has no `note` case at all, so this walks the rendered vocabulary and
+    /// pins it to the eight kinds the view has templates for.
+    func testThePanelVocabularyIsClosedAndHoldsNoNoteBlock() {
+        let model = Self.windowWModel()
+        let kinds = Set(
+            StatsPanelID.allCases.flatMap { StatsPanelsView.blocks($0, model).map(\.kind) })
+
+        XCTAssertFalse(kinds.contains("note"))
+        XCTAssertTrue(
+            kinds.isSubset(
+                of: ["subhead", "split", "fan", "compass", "bar", "rung", "columns", "figure"]),
+            "unexpected block kinds: \(kinds)")
+    }
+
+    // MARK: - 2. The tee card's groups
 
     /// The three vs-par rows partition the tee shots, so a row with no sample
     /// stays and reads "Not recorded". Hiding one of a partition would misread
     /// as "you never went there".
     func testTheVsParGroupKeepsEveryRowOnceAnyOfThemHasASample() {
-        let panel = teePanel {
-            $0.teeRecorded = 14
-            $0.holesScoredFairway = 8
-            $0.strokesVsParFairway = 4
-        }
+        let blocks = StatsPanelsView.teeBlocks(
+            teePanel {
+                $0.teeRecorded = 14
+                $0.holesScoredFairway = 8
+                $0.strokesVsParFairway = 4
+            })
 
-        let figures = StatsPanelsView.teeVsParFigures(panel)
         XCTAssertEqual(
-            figures.map(\.title), ["From the fairway", "From in play", "From trouble"])
-        XCTAssertEqual(figures[0].value, "+0.50 (over 8 holes)")
-        XCTAssertNil(figures[1].value)
-        XCTAssertNil(figures[2].value)
+            ids(blocks).filter { $0.hasPrefix("vsPar") },
+            ["vsParByTeeHead", "vsParFairway", "vsParInPlay", "vsParTrouble"])
+        XCTAssertEqual(value(blocks, "vsParFairway"), "+0.50 (over 8 holes)")
+        XCTAssertNil(value(blocks, "vsParInPlay"))
+        XCTAssertNil(value(blocks, "vsParTrouble"))
     }
 
     /// No scored hole behind any tee shot: the whole group goes, rather than
     /// three rows of "Not recorded" claiming to be a breakdown.
     func testTheVsParGroupIsOmittedWhenNoTeeShotHasAScoredHole() {
-        XCTAssertTrue(StatsPanelsView.teeVsParFigures(teePanel { $0.teeRecorded = 14 }).isEmpty)
+        let blocks = StatsPanelsView.teeBlocks(teePanel { $0.teeRecorded = 14 })
+        XCTAssertTrue(ids(blocks).filter { $0.hasPrefix("vsPar") }.isEmpty)
     }
 
     /// `penaltiesPerRound` divides by the round count, so a player who never
     /// recorded a penalty gets "0.00 per round" — a zero where the truth is
     /// "not recorded". The coverage counter is the gate.
-    func testThePenaltyFigureIsOmittedUntilAPenaltyAnswerExists() {
-        XCTAssertTrue(StatsPanelsView.penaltiesFigure(teePanel { $0.teeRecorded = 14 }).isEmpty)
+    func testThePenaltyFamilyArrivesTogetherUnderOneGate() {
+        let bare = StatsPanelsView.teeBlocks(teePanel { $0.teeRecorded = 14 })
+        XCTAssertTrue(ids(bare).filter { $0.hasPrefix("penalt") }.isEmpty)
 
-        // Three penalty strokes across two holes, both of them scored, and no
-        // penalty-FREE hole scored at all — a pickup round. Every column agrees
-        // with every other, which is the only shape the server can emit.
-        let recorded = teePanel {
-            $0.teeRecorded = 14
-            $0.penaltiesRecorded = 36
-            $0.penaltiesTotal = 3
-            $0.holesWithPenalty = 2
-            $0.holesScoredPenalty = 2
-            $0.strokesVsParPenalty = 3
-        }
-        let figure = StatsPanelsView.penaltiesFigure(recorded)
-        // One gate, three rows: the family arrives together (see the wave-3
-        // block tests below for what each one says).
-        XCTAssertEqual(figure.map(\.title), ["Penalties", "Holes with a penalty", "Penalty tax"])
-        XCTAssertEqual(figure[0].value, "3.00 (over 1 round — thin sample)")
-        XCTAssertEqual(figure[0].hint, "Penalty strokes per round. Recorded on 36 holes.")
-        // 2 of 36 = 5.55…%, and the denominator clears the floor, so it reads as
-        // a percentage with its fraction beside it.
-        XCTAssertEqual(figure[1].value, "6% (2 of 36)")
-        // The clean side has no scored hole, so the difference has no sample on
-        // one side and the tax reads "Not recorded" with no line under it.
-        XCTAssertNil(figure[2].value)
-        XCTAssertNil(figure[2].hint)
-    }
-
-    func testTheHardChipShareIsOmittedWhenNoGreenWasMissed() {
-        func approach(_ mutate: (inout StatMeasures) -> Void) -> StatsApproachPanel {
-            var m = StatMeasuresMath.zero
-            m.girRecorded = 12
-            mutate(&m)
-            guard let panel = StatsDashboardModel.approachPanel(m) else {
-                fatalError("fixture has girRecorded > 0, panel cannot be nil")
-            }
-            return panel
-        }
-
-        // The approach panel is gated on girRecorded, which can stand alone.
-        XCTAssertTrue(StatsPanelsView.hardChipShareFigure(approach { _ in }).isEmpty)
-
-        let figure = StatsPanelsView.hardChipShareFigure(
-            approach {
-                $0.scrambleAttemptsStandard = 6
-                $0.scrambleAttemptsHard = 4
+        // A pickup round: the penalty question was answered on 36 holes, but
+        // only two of them ever got a score — and both of those took a penalty.
+        // Post-056 the two scored sides partition `holesScored`, so a window
+        // with no clean SCORED hole is a window whose every scored hole is a
+        // penalty hole.
+        let blocks = StatsPanelsView.teeBlocks(
+            teePanel {
+                $0.teeRecorded = 14
+                $0.penaltiesRecorded = 36
+                $0.penaltiesTotal = 3
+                $0.holesScored = 2
+                $0.holesWithPenalty = 2
+                $0.holesScoredPenalty = 2
+                $0.strokesVsParPenalty = 3
             })
-        XCTAssertEqual(figure.count, 1)
-        XCTAssertEqual(figure[0].title, "Hard misses")
-        XCTAssertEqual(figure[0].value, "40% (4 of 10)")
-    }
 
-    func testThePuttingBlocksEachCarryTheirOwnGate() {
-        func putting(_ mutate: (inout StatMeasures) -> Void) -> StatsPuttingPanel {
-            var m = StatMeasuresMath.zero
-            m.puttsRecorded = 18
-            mutate(&m)
-            guard let panel = StatsDashboardModel.puttingPanel(m) else {
-                fatalError("fixture has puttsRecorded > 0, panel cannot be nil")
-            }
-            return panel
-        }
-
-        // Putt counts but no resolved first-putt bucket anywhere: no spread.
-        XCTAssertTrue(StatsPanelsView.firstPuttSpreadItems(putting { _ in }).isEmpty)
-        let spread = StatsPanelsView.firstPuttSpreadItems(
-            putting {
-                $0.firstPuttInside1mResolved = 6
-                $0.firstPutt2To4mResolved = 12
-            })
         XCTAssertEqual(
-            spread.map(\.title), ["Inside 1 m", "1–2 m", "2–4 m", "4–8 m", "Over 8 m"])
-        XCTAssertEqual(spread[0].rate, Rate(value: 1.0 / 3.0, n: 6, d: 18))
-
-        // Putts after a missed green needs holes the green was missed on.
-        XCTAssertTrue(
-            StatsPanelsView.puttsAfterMissedGreenFigure(
-                putting {
-                    $0.puttsTotal = 30
-                    $0.puttsRecordedGir = 18
-                    $0.puttsTotalGir = 30
-                }
-            ).isEmpty)
-        let figure = StatsPanelsView.puttsAfterMissedGreenFigure(
-            putting {
-                $0.puttsTotal = 32
-                $0.puttsRecordedGir = 8
-                $0.puttsTotalGir = 13
-            })
-        XCTAssertEqual(figure.count, 1)
-        XCTAssertEqual(figure[0].title, "Putts after a missed green")
-        XCTAssertEqual(figure[0].value, "1.90 (over 10 holes)")
+            ids(blocks).filter { $0.hasPrefix("penalt") },
+            ["penalties", "penaltyHoleShare", "penaltyTax"])
+        XCTAssertEqual(value(blocks, "penalties"), "3.00 (over 1 round)")
+        // 2 of the 2 scored holes — a percentage, never the fraction, in a
+        // value column. NOT 2 of the 36 that answered the question: the share
+        // is over the cohort the tax below it splits.
+        XCTAssertEqual(value(blocks, "penaltyHoleShare"), "100%")
+        XCTAssertEqual(share(blocks, "penaltyHoleShare"), 1.0)
+        // The clean side has no scored hole, so the difference has no reading.
+        XCTAssertNil(value(blocks, "penaltyTax"))
     }
 
-    // MARK: - The wave-3 blocks
+    // MARK: - 3. The rendered-string oracle
 
-    /// The rendered-string oracle's window **W** — the same numbers the web
-    /// twin's fixture carries. Every string asserted below must match it byte
-    /// for byte on both surfaces.
+    /// The window **W** fixture — the same numbers the web twin carries. Every
+    /// string asserted against it must match on both surfaces byte for byte.
     private static func windowW() -> StatMeasures {
         var m = StatMeasuresMath.zero
+        // The 54 scored holes the penalty pair is read over: 9 with a penalty
+        // and 45 without, which post-056 partition `holesScored` exactly.
+        m.holesScored = 54
         m.girRecorded = 60
         m.girHits = 26
         m.girHolesScored = 26
@@ -213,6 +248,18 @@ final class StatsPanelViewsTests: XCTestCase {
         return m
     }
 
+    /// Window W as a whole dashboard model, for the cross-panel walks.
+    private static func windowWModel() -> StatsDashboardModel {
+        var model = StatsDashboardModel.empty
+        model.totals = windowW()
+        model.tee = StatsDashboardModel.teePanel(windowW(), roundCount: 3)
+        model.approach = StatsDashboardModel.approachPanel(windowW())
+        model.putting = StatsDashboardModel.puttingPanel(windowW(), baseline: SgBaselines.hcp12)
+        model.shortGame = StatsDashboardModel.shortGamePanel(windowW())
+        model.scoring = StatsDashboardModel.scoringPanel(windowW(), roundCount: 3)
+        return model
+    }
+
     private func approachPanel(_ mutate: (inout StatMeasures) -> Void = { _ in })
         -> StatsApproachPanel
     {
@@ -224,12 +271,13 @@ final class StatsPanelViewsTests: XCTestCase {
         return panel
     }
 
-    private func puttingPanel(_ mutate: (inout StatMeasures) -> Void = { _ in })
-        -> StatsPuttingPanel
-    {
+    private func puttingPanel(
+        baseline: SgBaselineBundle = SgBaselines.hcp12,
+        _ mutate: (inout StatMeasures) -> Void = { _ in }
+    ) -> StatsPuttingPanel {
         var m = Self.windowW()
         mutate(&m)
-        guard let panel = StatsDashboardModel.puttingPanel(m) else {
+        guard let panel = StatsDashboardModel.puttingPanel(m, baseline: baseline) else {
             fatalError("fixture has puttsRecorded > 0, panel cannot be nil")
         }
         return panel
@@ -246,81 +294,171 @@ final class StatsPanelViewsTests: XCTestCase {
         return panel
     }
 
-    func testGreensByParRenderAsPercentagesOverTheirOwnDenominators() {
-        let items = StatsPanelsView.girByParItems(approachPanel())
+    // MARK: - 4. The reading order (the twin walk)
 
-        XCTAssertEqual(items.map(\.title), ["Par 3", "Par 4", "Par 5"])
-        XCTAssertEqual(items.map { StatsFormat.rate($0.rate) }, ["42%", "39%", "58%"])
-        XCTAssertEqual(items[0].rate.value!, 0.4166666666666667, accuracy: 1e-15)
-        XCTAssertEqual(items[1].rate.value!, 0.3888888888888889, accuracy: 1e-15)
-        XCTAssertEqual(items[2].rate.value!, 0.5833333333333334, accuracy: 1e-15)
+    /// The tee card's blocks, in order. Window W records no tee MISS side, so
+    /// the fan is absent, and no tee shot carries a scored hole, so the vs-par
+    /// group is too.
+    func testTheTeeCardWalksInTheOrderTheTwinDoes() {
+        XCTAssertEqual(
+            StatsPanelsView.teeBlocks(windowWTeePanel()).map(\.walk),
+            [
+                "split:teeSplit", "figure:troubleTax", "bar:recovery",
+                "figure:penalties", "bar:penaltyHoleShare", "figure:penaltyTax",
+            ])
     }
 
-    /// A par bucket under the floor degrades to its fraction and draws no bar,
-    /// while its siblings keep their percentages — the rows are independent
-    /// samples, not one shared one.
-    func testAThinParBucketDegradesToItsFractionOnItsOwn() {
-        let items = StatsPanelsView.girByParItems(
+    /// Approach order is the one the owner walked: WHERE the misses go first,
+    /// then the slices of it. The green-miss compass sits above `girByTee`.
+    func testTheApproachCardPutsTheCompassAboveEveryBreakdown() {
+        let walk = StatsPanelsView.approachBlocks(
+            approachPanel {
+                $0.greenMissRecorded = 9
+                $0.greenMissLong = 6
+                $0.greenMissShort = 3
+            }
+        ).map(\.walk)
+
+        XCTAssertEqual(
+            walk,
+            [
+                "subhead:greenMissHead", "compass:greenMiss",
+                "subhead:girByTee", "bar:girFairway", "bar:girInPlay", "bar:girTrouble",
+                "subhead:girByParHead", "bar:girPar3", "bar:girPar4", "bar:girPar5",
+                "subhead:mixHead",
+                "bar:mix-inside_1m", "bar:mix-1_to_2m", "bar:mix-2_to_4m", "bar:mix-4_to_8m",
+                "bar:mix-over_8m",
+                "bar:birdieConversion",
+                "subhead:missedGreenHead", "figure:vsParGreenHit", "figure:vsParGreenMissed",
+                "figure:missedGreenTax",
+            ])
+    }
+
+    /// The owner's own wording for the GIR-conditioned first-putt mix. "First
+    /// putt on greens hit" is retired on both surfaces.
+    func testTheGirConditionedMixIsHeadedProximityWithGir() {
+        let blocks = StatsPanelsView.approachBlocks(approachPanel())
+        XCTAssertEqual(title(blocks, "mixHead"), "Proximity with GIR")
+        XCTAssertFalse(
+            ids(blocks).contains("firstPuttOnGreensHit"),
+            "the retired id must not survive the rename")
+    }
+
+    func testThePuttingCardWalksInTheOrderTheTwinDoes() {
+        let walk = StatsPanelsView.puttingBlocks(puttingPanel()).map(\.walk)
+
+        // Window W resolves no first-putt bucket, so the spread group is absent;
+        // the ladder, its column header and its five rungs are not gated.
+        XCTAssertEqual(
+            walk,
+            [
+                "subhead:ladderHead", "columns:ladderCols",
+                "rung:rung-inside_1m", "rung:rung-1_to_2m", "rung:rung-2_to_4m",
+                "rung:rung-4_to_8m", "rung:rung-over_8m",
+                "subhead:puttCountHead",
+                "bar:putts-zero", "bar:putts-one", "bar:putts-two", "bar:putts-threePlus",
+                "bar:longThreePutt", "figure:puttsPerGir", "figure:puttsAfterMissedGreen",
+                "subhead:puttsByParHead", "figure:puttsPar3", "figure:puttsPar4",
+                "figure:puttsPar5",
+            ])
+    }
+
+    /// The dedup the owner asked for: "Three or more" in the distribution above
+    /// IS the three-putt rate, so the standalone figure is gone. The LAG fact —
+    /// three-putts from over 8 m — is a different measurement and stays.
+    func testTheStandaloneThreePuttFigureIsGoneAndTheLagOneRemains() {
+        let blocks = StatsPanelsView.puttingBlocks(puttingPanel())
+
+        XCTAssertFalse(ids(blocks).contains("threePutt"))
+        XCTAssertEqual(title(blocks, "longThreePutt"), "Three-putts from over 8 m")
+        XCTAssertEqual(title(blocks, "putts-threePlus"), "Three or more")
+    }
+
+    func testTheLadderColumnHeaderIsTwoPinnedWords() {
+        XCTAssertEqual(StatsPanelsView.ladderColumns, ["Holed", "Cost"])
+        guard
+            case .columns(_, let cells) = block(
+                StatsPanelsView.puttingBlocks(puttingPanel()), "ladderCols")!
+        else { return XCTFail("ladderCols is a columns block") }
+        XCTAssertEqual(cells, ["Holed", "Cost"])
+    }
+
+    // MARK: - 5. The numbers
+
+    func testGreensByParRenderAsPercentagesOverTheirOwnDenominators() {
+        let blocks = StatsPanelsView.approachBlocks(approachPanel())
+
+        XCTAssertEqual(
+            ["girPar3", "girPar4", "girPar5"].map { title(blocks, $0) },
+            ["Par 3", "Par 4", "Par 5"])
+        XCTAssertEqual(
+            ["girPar3", "girPar4", "girPar5"].compactMap { value(blocks, $0) },
+            ["42%", "39%", "58%"])
+        XCTAssertEqual(share(blocks, "girPar3")!, 0.4166666666666667, accuracy: 1e-15)
+    }
+
+    /// A three-green par bucket is a percentage like any other, and it draws its
+    /// bar. The retired policy printed "2 of 3" here and drew nothing.
+    func testASmallParBucketIsStillAPercentageWithABar() {
+        let blocks = StatsPanelsView.approachBlocks(
             approachPanel {
                 $0.girRecordedPar5 = 3
                 $0.girHitsPar5 = 2
             })
 
-        XCTAssertTrue(StatsFormat.isThin(items[2].rate))
-        XCTAssertEqual(StatsFormat.rate(items[2].rate), "2 of 3")
-        XCTAssertFalse(StatsFormat.isThin(items[0].rate))
-        XCTAssertEqual(StatsFormat.rate(items[0].rate), "42%")
+        XCTAssertEqual(value(blocks, "girPar5"), "67%")
+        XCTAssertEqual(share(blocks, "girPar5")!, 2.0 / 3.0, accuracy: 1e-15)
+        XCTAssertEqual(value(blocks, "girPar3"), "42%")
     }
 
     func testTheCostOfAMissedGreenReadsAsTwoSidesAndOneTax() {
-        let figures = StatsPanelsView.costOfMissedGreenFigures(approachPanel())
+        let blocks = StatsPanelsView.approachBlocks(approachPanel())
 
-        XCTAssertEqual(figures.map(\.title), ["Green hit", "Green missed", "Missed-green tax"])
-        XCTAssertEqual(figures[0].value, "+0.08 (over 26 greens)")
-        XCTAssertNil(figures[0].hint)
-        XCTAssertEqual(figures[1].value, "+0.91 (over 34 holes)")
-        XCTAssertNil(figures[1].hint)
-        // The tax carries no sample of its own — its `d` is a cross-product.
-        XCTAssertEqual(figures[2].value, "+0.83")
         XCTAssertEqual(
-            figures[2].hint,
-            "Measured over 34 holes with the green missed vs 26 greens hit.")
+            ["vsParGreenHit", "vsParGreenMissed", "missedGreenTax"].map { title(blocks, $0) },
+            ["Green hit", "Green missed", "Missed-green tax"])
+        XCTAssertEqual(value(blocks, "vsParGreenHit"), "+0.08 (over 26 greens)")
+        XCTAssertEqual(value(blocks, "vsParGreenMissed"), "+0.91 (over 34 holes)")
+        // The tax carries no sample of its own — its `d` is a cross-product, and
+        // its two honest denominators are a sentence, so the sheet says them.
+        XCTAssertEqual(value(blocks, "missedGreenTax"), "+0.83")
     }
 
     /// Scoring UNDER par off greens hit is a real reading, and it prints with a
     /// real minus sign (U+2212), not a hyphen.
     func testAGainOffTheGreensHitKeepsItsMinusSign() {
-        let figures = StatsPanelsView.costOfMissedGreenFigures(
+        let blocks = StatsPanelsView.approachBlocks(
             approachPanel { $0.strokesVsParGirHit = -6 })
+        let hit = value(blocks, "vsParGreenHit")
 
-        XCTAssertEqual(figures[0].value, "\u{2212}0.23 (over 26 greens)")
-        XCTAssertFalse(figures[0].value!.contains("-"))
+        XCTAssertEqual(hit, "\u{2212}0.23 (over 26 greens)")
+        XCTAssertEqual(hit?.contains("-"), false)
     }
 
     /// The panel can exist on `girRecorded` alone, with no scored hole behind
     /// any green. Then the whole group goes rather than three "Not recorded"s.
     func testTheCostGroupIsOmittedWhenNoGreenHasAScoredHole() {
+        let blocks = StatsPanelsView.approachBlocks(
+            approachPanel {
+                $0.girHolesScored = 0
+                $0.strokesVsParGirHit = 0
+                $0.holesScoredGirMiss = 0
+                $0.strokesVsParGirMiss = 0
+            })
         XCTAssertTrue(
-            StatsPanelsView.costOfMissedGreenFigures(
-                approachPanel {
-                    $0.girHolesScored = 0
-                    $0.strokesVsParGirHit = 0
-                    $0.holesScoredGirMiss = 0
-                    $0.strokesVsParGirMiss = 0
-                }
-            ).isEmpty)
+            ids(blocks).filter { $0.contains("issedGreen") || $0.hasPrefix("vsPar") }.isEmpty)
     }
 
     func testHolesByPuttsRenderAsAPercentagePartition() {
-        let items = StatsPanelsView.puttDistributionItems(puttingPanel())
+        let blocks = StatsPanelsView.puttingBlocks(puttingPanel())
+        let bucketIDs = ["putts-zero", "putts-one", "putts-two", "putts-threePlus"]
 
         XCTAssertEqual(
-            items.map(\.title), ["No putts", "One putt", "Two putts", "Three or more"])
-        XCTAssertEqual(items.map { StatsFormat.rate($0.rate) }, ["6%", "33%", "50%", "11%"])
-        XCTAssertEqual(items[0].rate.value!, 0.05555555555555555, accuracy: 1e-15)
-        XCTAssertEqual(items[1].rate.value!, 0.3333333333333333, accuracy: 1e-15)
-        XCTAssertEqual(items[2].rate.value!, 0.5, accuracy: 1e-15)
-        XCTAssertEqual(items[3].rate.value!, 0.1111111111111111, accuracy: 1e-15)
+            bucketIDs.map { title(blocks, $0) },
+            ["No putts", "One putt", "Two putts", "Three or more"])
+        XCTAssertEqual(
+            bucketIDs.compactMap { value(blocks, $0) }, ["6%", "33%", "50%", "11%"])
+        XCTAssertEqual(share(blocks, "putts-zero")!, 3.0 / 54.0, accuracy: 1e-15)
     }
 
     /// The panel can stand on `firstPuttRecorded` alone. With no putt COUNT
@@ -330,61 +468,310 @@ final class StatsPanelViewsTests: XCTestCase {
         var m = StatMeasuresMath.zero
         m.firstPuttRecorded = 12
         m.firstPuttInside1mResolved = 12
-        guard let panel = StatsDashboardModel.puttingPanel(m) else {
+        // The histogram gate is what this asserts, not the cohort — but the
+        // cohort is still named, because `puttingPanel` has no default.
+        guard let panel = StatsDashboardModel.puttingPanel(m, baseline: SgBaselines.hcp12)
+        else {
             return XCTFail("firstPuttRecorded > 0 gates the panel in")
         }
-        XCTAssertTrue(StatsPanelsView.puttDistributionItems(panel).isEmpty)
-        XCTAssertTrue(StatsPanelsView.puttsByParFigures(panel).isEmpty)
+        let blocks = ids(StatsPanelsView.puttingBlocks(panel))
+        XCTAssertFalse(blocks.contains("puttCountHead"))
+        XCTAssertFalse(blocks.contains("puttsByParHead"))
+        XCTAssertFalse(blocks.contains("puttsPar3"))
     }
 
     func testPuttsPerHoleByParReadAsUnsignedAveragesWithTheirOwnSamples() {
-        let figures = StatsPanelsView.puttsByParFigures(puttingPanel())
+        let blocks = StatsPanelsView.puttingBlocks(puttingPanel())
+        let values = ["puttsPar3", "puttsPar4", "puttsPar5"].compactMap { value(blocks, $0) }
 
-        XCTAssertEqual(figures.map(\.title), ["Par 3", "Par 4", "Par 5"])
-        XCTAssertEqual(figures[0].value, "1.75 (over 12 holes)")
-        XCTAssertEqual(figures[1].value, "1.87 (over 30 holes)")
-        XCTAssertEqual(figures[2].value, "1.92 (over 12 holes)")
+        XCTAssertEqual(
+            values, ["1.75 (over 12 holes)", "1.87 (over 30 holes)", "1.92 (over 12 holes)"])
         // Putts are a quantity, so no leading plus anywhere.
-        XCTAssertFalse(figures.contains { $0.value?.hasPrefix("+") == true })
+        XCTAssertFalse(values.contains { $0.hasPrefix("+") })
     }
 
     func testThePenaltyShareAndTaxSitUnderTheSameCoverageGate() {
-        let figures = StatsPanelsView.penaltiesFigure(windowWTeePanel())
+        let blocks = StatsPanelsView.teeBlocks(windowWTeePanel())
 
-        XCTAssertEqual(
-            figures.map(\.title), ["Penalties", "Holes with a penalty", "Penalty tax"])
-        XCTAssertEqual(figures[1].value, "17% (9 of 54)")
-        XCTAssertNil(figures[1].hint)
-        XCTAssertEqual(figures[2].value, "+1.47")
-        XCTAssertEqual(
-            figures[2].hint, "Measured over 9 holes with a penalty vs 45 without.")
+        XCTAssertEqual(value(blocks, "penaltyHoleShare"), "17%")
+        XCTAssertEqual(value(blocks, "penaltyTax"), "+1.47")
 
         // No penalty answer at all: the whole family goes, share and tax with it.
-        XCTAssertTrue(
-            StatsPanelsView.penaltiesFigure(
-                windowWTeePanel {
-                    $0.penaltiesRecorded = 0
-                    $0.holesWithPenalty = 0
-                    $0.holesScoredPenalty = 0
-                    $0.strokesVsParPenalty = 0
-                    $0.holesScoredPenaltyFree = 0
-                    $0.strokesVsParPenaltyFree = 0
-                }
-            ).isEmpty)
-    }
-
-    /// A thin side is said in words on the tax's own line, because the number
-    /// itself has no fraction to degrade into.
-    func testAThinSideMakesTheTaxLineSayItsThin() {
-        let figures = StatsPanelsView.penaltiesFigure(
+        let bare = StatsPanelsView.teeBlocks(
             windowWTeePanel {
-                $0.holesScoredPenaltyFree = 3
+                $0.penaltiesRecorded = 0
+                $0.holesWithPenalty = 0
+                $0.holesScoredPenalty = 0
+                $0.strokesVsParPenalty = 0
+                $0.holesScoredPenaltyFree = 0
                 $0.strokesVsParPenaltyFree = 0
             })
+        XCTAssertTrue(ids(bare).filter { $0.hasPrefix("penalt") }.isEmpty)
+    }
+
+    // MARK: - 6. The ladder's cohort oracle
+
+    /// The window the ladder oracle is computed over — five buckets of
+    /// `resolved / puttsTotal / onePutts`, chosen so every rendered case appears
+    /// exactly once: level, a small loss, a large loss, an absent bucket and a
+    /// gain.
+    private func ladderMeasures() -> StatMeasures {
+        var m = StatMeasuresMath.zero
+        // `firstPuttRecorded` alone gates the panel in, keeping the putt-count
+        // groups out of the way of the ladder.
+        m.firstPuttRecorded = 42
+        m.firstPuttInside1mResolved = 20
+        m.puttsTotalInside1mResolved = 21
+        m.onePuttInside1m = 19
+        m.firstPutt1To2mResolved = 4
+        m.puttsTotal1To2mResolved = 6
+        m.onePutt1To2m = 2
+        m.firstPutt2To4mResolved = 10
+        m.puttsTotal2To4mResolved = 19
+        m.onePutt2To4m = 3
+        m.firstPuttOver8mResolved = 8
+        m.puttsTotalOver8mResolved = 18
+        m.onePuttOver8m = 0
+        return m
+    }
+
+    private func ladder(_ baseline: SgBaselineBundle) -> [StatsBlock] {
+        guard let panel = StatsDashboardModel.puttingPanel(ladderMeasures(), baseline: baseline)
+        else {
+            fatalError("firstPuttRecorded > 0 gates the panel in")
+        }
+        return StatsPanelsView.puttingBlocks(panel).filter { $0.kind == "rung" }
+    }
+
+    /// The default cohort. Costs are RENDERED strings, because the rounding is
+    /// part of the reading: `21 − 20 × 1.05` is exactly level and must print
+    /// `0.0`, never `E` and never `+0.0`.
+    func testTheLadderCostsAndTicksFollowTheHcp12Table() {
+        let rungs = ladder(SgBaselines.hcp12)
 
         XCTAssertEqual(
-            figures[2].hint,
-            "Measured over 9 holes with a penalty vs 3 without \u{2014} thin sample.")
+            rungs.compactMap(\.cost), ["0.0", "+0.2", "+0.5", "\u{2014}", "\u{2212}1.2"])
+        XCTAssertEqual(rungs.compactMap { $0.value ?? nil }, ["95%", "50%", "30%", "0%"])
+        for (rung, tick) in zip(rungs, [0.95, 0.55, 0.15, 0.0, 0.0]) {
+            guard case .rung(_, _, _, let baseline, _, _) = rung else { return XCTFail("rung") }
+            XCTAssertEqual(baseline, tick, accuracy: 1e-12)
+        }
+    }
+
+    /// The same window against the scratch table. Both the cost column AND the
+    /// baseline tick move — one selector, one table, two numbers.
+    func testTheLadderCostsAndTicksFollowTheScratchTable() {
+        let rungs = ladder(SgBaselines.scratch)
+
+        XCTAssertEqual(
+            rungs.compactMap(\.cost), ["+0.6", "+0.6", "+1.8", "\u{2014}", "+0.4"])
+        for (rung, tick) in zip(rungs, [0.98, 0.65, 0.28, 0.05, 0.0]) {
+            guard case .rung(_, _, _, let baseline, _, _) = rung else { return XCTFail("rung") }
+            XCTAssertEqual(baseline, tick, accuracy: 1e-12)
+        }
+    }
+
+    /// The 4–8 m tick is the one that changes between the two tiers — floored at
+    /// 0 under hcp12 (2.10 expected putts), a visible 0.05 under scratch (1.95).
+    /// Pinned on its own, because a flat comparison of the two arrays would let
+    /// it slide.
+    func testTheFourToEightMetreTickMovesWhenTheCohortDoes() {
+        func tick(_ bundle: SgBaselineBundle) -> Double {
+            guard case .rung(_, _, _, let baseline, _, _) = ladder(bundle)[3] else { return .nan }
+            return baseline
+        }
+        XCTAssertEqual(tick(SgBaselines.hcp12), 0, accuracy: 1e-12)
+        XCTAssertEqual(tick(SgBaselines.scratch), 0.05, accuracy: 1e-12)
+    }
+
+    /// A cohort switch may move a NUMBER; it may never move which buckets HAVE
+    /// one. The 4–8 m bucket has no resolved hole in this window, so it reads
+    /// `—` under all four tiers.
+    func testACohortSwitchNeverChangesWhichBucketsAreAbsent() {
+        for cohort in SgCohort.allCases {
+            let rungs = ladder(SgBaselines.bundle(for: cohort))
+            XCTAssertEqual(
+                rungs.map { $0.cost == StatsCopy.noValue },
+                [false, false, false, true, false],
+                "\(cohort.rawValue) changed which buckets are absent")
+        }
+    }
+
+    /// A rung is read out in WORDS. The em dash is a placeholder for the eye and
+    /// must never be spoken.
+    func testARungReadsOutItsCostInWords() {
+        XCTAssertEqual(
+            StatsPanelsView.rungReading(title: "Inside 1 m", value: "95%", cost: "0.0"),
+            "Inside 1 m, 95% holed, level")
+        XCTAssertEqual(
+            StatsPanelsView.rungReading(title: "2–4 m", value: "30%", cost: "+0.5"),
+            "2–4 m, 30% holed, 0.5 strokes lost")
+        XCTAssertEqual(
+            StatsPanelsView.rungReading(title: "Over 8 m", value: "0%", cost: "\u{2212}1.2"),
+            "Over 8 m, 0% holed, 1.2 strokes gained")
+        let absent = StatsPanelsView.rungReading(
+            title: "4–8 m", value: nil, cost: StatsCopy.noValue)
+        XCTAssertEqual(absent, "4–8 m, Not recorded, Not recorded")
+        XCTAssertFalse(absent.contains(StatsCopy.noValue))
+    }
+
+    // MARK: - 7. The info sheets
+
+    /// A panel the window has no data for has no sheet, so the view has no
+    /// trigger to draw — a sheet with nothing in it must not be reachable.
+    func testAnAbsentPanelHasNoInfoCards() {
+        let empty = StatsDashboardModel.empty
+        for id in StatsPanelID.allCases {
+            XCTAssertTrue(
+                StatsPanelInfo.cards(id, empty, .fallback).isEmpty,
+                "\(id.rawValue) offered an empty sheet")
+        }
+    }
+
+    /// The trigger lives in the card's HEADER row now, and its two gates are the
+    /// web twin's: the card has to be OPEN, and it has to have something to say.
+    ///
+    /// Closed is the interesting half. A collapsed list of five cards is one line
+    /// per module; five explainer links stacked beside five titles is the wall
+    /// this gate exists to prevent.
+    func testTheHeaderTriggerNeedsAnOpenCardWithCardsBehindIt() {
+        let model = Self.windowWModel()
+        for id in StatsPanelID.allCases {
+            let hasCards = !StatsPanelInfo.cards(id, model, .fallback).isEmpty
+            XCTAssertEqual(
+                StatsPanelsView.showsInfoTrigger(id, model, .fallback, open: true), hasCards,
+                "\(id.rawValue) disagreed with its own sheet about being reachable")
+            XCTAssertFalse(
+                StatsPanelsView.showsInfoTrigger(id, model, .fallback, open: false),
+                "\(id.rawValue) advertised its sheet while collapsed")
+        }
+        // Window W records no short-game attempt, so that one card genuinely has
+        // nothing to explain — the other four do, and this pins that the loop
+        // above is asserting something.
+        XCTAssertTrue(StatsPanelsView.showsInfoTrigger(.tee, model, .fallback, open: true))
+        XCTAssertFalse(StatsPanelsView.showsInfoTrigger(.shortGame, model, .fallback, open: true))
+
+        // An absent panel is not drawn at all, but the gate must not depend on
+        // that: open or closed, a sheet with an empty body stays unreachable.
+        let empty = StatsDashboardModel.empty
+        for id in StatsPanelID.allCases {
+            XCTAssertFalse(
+                StatsPanelsView.showsInfoTrigger(id, empty, .fallback, open: true),
+                "\(id.rawValue) offered a way in to an empty sheet")
+        }
+    }
+
+    /// Five identical "How this works" buttons on one screen are the same word
+    /// read out five times. The label names the card each one opens — the web
+    /// twin's `aria-label`, verbatim.
+    func testEachHeaderTriggerNamesTheCardItOpens() {
+        var labels: Set<String> = []
+        for id in StatsPanelID.allCases {
+            let label = StatsPanelsView.infoLabel(id)
+            XCTAssertTrue(label.hasPrefix(StatsCopy.prioritiesInfo), label)
+            XCTAssertTrue(label.hasSuffix(id.title), label)
+            labels.insert(label)
+        }
+        XCTAssertEqual(labels.count, StatsPanelID.allCases.count)
+    }
+
+    /// Every card ends on the reader's OWN denominator. That is the whole reason
+    /// the explainers left the rows: static prose could have been written before
+    /// the data loaded, and this cannot.
+    func testEveryInfoCardSaysTheReadersOwnSample() {
+        let model = Self.windowWModel()
+        // Only the putting sheet reads the cohort; the tier is named anyway,
+        // because `cards` takes no default and a sheet is always about SOME
+        // reader's reference.
+        let baseline = SgBaselineContext.fallback
+
+        let approach = StatsPanelInfo.cards(.approach, model, baseline)
+        XCTAssertEqual(
+            approach.map(\.id),
+            ["greenMiss", "proximity", "birdieConversion", "hardChipShare", "missedGreenTax"])
+        XCTAssertEqual(approach[1].title, "Proximity with GIR")
+        XCTAssertTrue(
+            approach[4].body.contains("over 34 holes with the green missed vs 26 greens hit"),
+            approach[4].body)
+
+        let tee = StatsPanelInfo.cards(.tee, model, baseline)
+        XCTAssertTrue(tee.last!.body.contains("Measured over 54 holes."), tee.last!.body)
+        XCTAssertTrue(
+            tee.last!.body.contains("over 9 holes with a penalty vs 45 without"), tee.last!.body)
+
+        // No card anywhere reaches for the retired vocabulary.
+        for id in StatsPanelID.allCases {
+            for card in StatsPanelInfo.cards(id, model, baseline) {
+                XCTAssertFalse(card.body.contains("thin"), "\(id.rawValue)/\(card.id)")
+                XCTAssertFalse(card.body.isEmpty)
+            }
+        }
+    }
+
+    /// The ladder's sheet has to name the tier in force, because both numbers on
+    /// the rung follow the "Compared to" selector.
+    func testThePuttingLadderCardNamesTheCohortInForce() {
+        let model = Self.windowWModel()
+        func ladderCard(_ context: SgBaselineContext) -> String {
+            StatsPanelInfo.cards(.putting, model, context).first { $0.id == "ladder" }!.body
+        }
+
+        let auto = ladderCard(.fallback)
+        XCTAssertTrue(auto.contains(SgCohort.hcp12.title), auto)
+        XCTAssertTrue(auto.contains(SgBaselineCopy.pickerLabel), auto)
+
+        let scratch = ladderCard(SgBaselineContext(choice: .scratch, handicapIndex: nil))
+        XCTAssertTrue(scratch.contains(SgCohort.scratch.title), scratch)
+    }
+
+    // MARK: - 8. Short game and scoring
+
+    func testTheShortGameCardWalksInTheOrderTheTwinDoes() {
+        var m = StatMeasuresMath.zero
+        m.scrambleAttemptsStandard = 8
+        m.scrambleSuccessesStandard = 3
+        m.scrambleAttemptsHard = 4
+        m.scrambleSuccessesHard = 1
+        guard let panel = StatsDashboardModel.shortGamePanel(m) else {
+            return XCTFail("an attempt gates the panel in")
+        }
+
+        // No bunker attempt in this window, so every bunker leg is absent — and
+        // all three groups agree about that, because they share one gate.
+        XCTAssertFalse(StatsPanelsView.hasBunkerLeg(panel))
+        XCTAssertEqual(
+            StatsPanelsView.shortGameBlocks(panel).map(\.walk),
+            [
+                "subhead:scrambleHead", "bar:scrambleStandard", "bar:scrambleHard",
+                "subhead:chipHead", "bar:chipStandard", "bar:chipHard",
+                "bar:conversionInside2m",
+                "subhead:chipInsHead", "figure:chipInsStandard", "figure:chipInsHard",
+            ])
+    }
+
+    func testTheScoringCardWalksInTheOrderTheTwinDoes() {
+        // W already carries its 54 scored holes; the round's totals are what the
+        // scoring card needs on top of them.
+        var m = Self.windowW()
+        m.strokesTotal = 240
+        m.parTotal = 216
+        guard let panel = StatsDashboardModel.scoringPanel(m, roundCount: 3) else {
+            return XCTFail("a scored hole gates the panel in")
+        }
+        XCTAssertEqual(
+            StatsPanelsView.scoringBlocks(panel).map(\.walk),
+            [
+                "subhead:vsParHead", "figure:par3", "figure:par4", "figure:par5",
+                "figure:doubles", "bar:bounceBack",
+            ])
+    }
+
+    /// The collapsed card keeps its compact fraction — it is the one line with
+    /// the room to say how big the sample under the card is.
+    func testACollapsedHeadlineStillCarriesItsSample() {
+        let model = Self.windowWModel()
+        XCTAssertEqual(
+            StatsPanelsView.headline(.approach, model), "Greens in regulation 43% (26 of 60)")
     }
 
     // MARK: - Results
@@ -411,8 +798,7 @@ final class StatsPanelViewsTests: XCTestCase {
 
     /// The shared five-row window, field for field the web twin's fixture: a
     /// part round on an 18-hole card, two complete eighteens, a nine, and a
-    /// stats-only round with no score at all. Every string below is the parity
-    /// oracle — the web implementation must produce them byte for byte.
+    /// stats-only round with no score at all.
     private var resultsRows: [ResultsRow] {
         [
             scoringRow(
@@ -444,12 +830,8 @@ final class StatsPanelViewsTests: XCTestCase {
         // An AVERAGE, so the signed-average voice: 504 / 51 = 9.88…
         XCTAssertEqual(tiles[0].label, "Average vs par")
         XCTAssertEqual(tiles[0].value, "+9.9")
-        // 51 scored holes against the 81 those five rounds could have carried,
-        // and a nine in the mix — so the line carries both halves.
         XCTAssertEqual(tiles[0].qualifier, "over 51 holes, scaled to 18")
 
-        // One real round each, so the scorecard voice, and the absolute total is
-        // demoted to the annotation — the strokes alone, one line.
         XCTAssertEqual(tiles[1].label, "Best 18")
         XCTAssertEqual(tiles[1].value, "+7")
         XCTAssertEqual(tiles[1].qualifier, "79 strokes")
@@ -468,15 +850,16 @@ final class StatsPanelViewsTests: XCTestCase {
         XCTAssertEqual(histogram.map(\.value), ["2%", "10%", "22%", "65%", "2%"])
         for (row, count) in zip(histogram, [1.0, 5, 11, 33, 1]) {
             guard let share = row.share else {
-                return XCTFail("51 scored holes clears the floor, so every bar is drawn")
+                return XCTFail("a scored hole is a share, whatever the window's size")
             }
             XCTAssertEqual(share, count / 51, accuracy: 1e-12)
         }
     }
 
-    /// A window too thin for a percentage still says everything it honestly
-    /// can: the average exists, the counts print bare, and no bar is drawn.
-    func testAThinWindowKeepsItsFiguresAndDropsItsBars() {
+    /// A three-hole window is a window. It keeps its figures AND its bars — the
+    /// retired policy printed "1 of 3" here and drew nothing, which is exactly
+    /// the "looks broken on a new player's data" the owner ruled out.
+    func testASmallWindowKeepsItsFiguresAndItsBars() {
         // One 18-hole card with three holes on it: par 4 in 4, par 4 in 5, par 3
         // in 2 — level par over the holes that were scored.
         let summary = StatMeasuresMath.resultsSummary([
@@ -491,15 +874,11 @@ final class StatsPanelViewsTests: XCTestCase {
         XCTAssertEqual(tiles.map(\.id), ["avgVsPar"])
         // Level par prints without a sign, and never as "−0.0".
         XCTAssertEqual(tiles[0].value, "0.0")
-        // An 18-hole window scales to itself, so the line says nothing about 18.
         XCTAssertEqual(tiles[0].qualifier, "over 3 holes")
 
         let histogram = StatsDashboardView.resultsHistogram(summary)
-        // Under the display policy's floor the share degrades to its fraction —
-        // three scored holes cannot carry a percentage.
-        XCTAssertEqual(
-            histogram.map(\.value), ["0 of 3", "1 of 3", "1 of 3", "1 of 3", "0 of 3"])
-        XCTAssertTrue(histogram.allSatisfy { $0.share == nil })
+        XCTAssertEqual(histogram.map(\.value), ["0%", "33%", "33%", "33%", "0%"])
+        XCTAssertTrue(histogram.allSatisfy { $0.share != nil })
     }
 
     /// A window whose rounds carry no score at all has nothing to put in the
@@ -568,12 +947,19 @@ final class StatsPanelViewsTests: XCTestCase {
             "None of these 4 rounds has data for it.")
     }
 
-    /// The view keys its rows on these ids, so a collision would drop a tile.
-    func testEveryResultsIdIsUnique() {
+    /// The view keys its rows on these ids, so a collision would drop a tile —
+    /// and the same is true of every block in every panel.
+    func testEveryIdIsUniqueWithinItsList() {
         let summary = StatMeasuresMath.resultsSummary(resultsRows)
         let tileIDs = StatsDashboardView.resultsTiles(summary).map(\.id)
         XCTAssertEqual(Set(tileIDs).count, tileIDs.count)
         let rowIDs = StatsDashboardView.resultsHistogram(summary).map(\.id)
         XCTAssertEqual(Set(rowIDs).count, rowIDs.count)
+
+        let model = Self.windowWModel()
+        for id in StatsPanelID.allCases {
+            let blockIDs = StatsPanelsView.blocks(id, model).map(\.id)
+            XCTAssertEqual(Set(blockIDs).count, blockIDs.count, "\(id.rawValue) has a duplicate id")
+        }
     }
 }

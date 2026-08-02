@@ -1,15 +1,114 @@
 import SwiftUI
 
-/// The §3 module panels, and the four primitives they are drawn from.
+/// The §3 module panels, flattened to a list of BLOCKS the view renders.
 ///
-/// Lifted out of `StatsDashboardView` when the per-round view (§4.2) needed the
-/// same panels over a ONE-round model. The alternative was a second rendering of
-/// the same catalog, which is how two surfaces end up disagreeing about what
-/// "Not recorded" looks like — and the display policy has to live in one place or
-/// it does not live anywhere.
+/// Every display decision lives in `blocks(_:_:)`, not in the view: which rows a
+/// panel shows, in what order, what a nil reads as, and whether a bar is drawn
+/// at all. The view's job is one template per block kind. That split is what
+/// makes the §E.3 walk assertable — a test reads the same list the screen does,
+/// so the catalogue and the drawing cannot drift.
 ///
-/// Nothing here computes: every figure arrives as a `Rate` or a formatted
-/// `String?`, and a `nil` prints `StatsCopy.notRecorded` rather than a zero.
+/// Nothing here computes a rate: everything arrives as a `Rate` from the model
+/// and leaves as a formatted `String?` or a share in `0…1`.
+///
+/// Rows carry NO explainer prose (owner ruling, 2026-08-02). Every sentence that
+/// used to sit under a figure now lives in the card's "How this works" sheet
+/// (`StatsPanelInfo`), joined to the reader's own denominator instead of
+/// standing as static text under every row.
+///
+/// Twin of `src/stats/stats-panel-blocks.ts` — same catalogue, same order, same
+/// wording, same ids.
+
+// MARK: - Blocks
+
+/// One row (or one picture) inside an open panel.
+///
+/// There is deliberately no `note` case: the owner ruling took row-level
+/// explanations off the cards entirely, and a kind that cannot be emitted is
+/// better than a kind that can.
+enum StatsBlock: Identifiable {
+    /// A small uppercase heading inside a panel.
+    case subhead(id: String, text: String)
+    /// The tee card's proportional bar and its key.
+    case split(id: String, segments: [StatsSplitBar.Segment], legend: [StatsLegendItem])
+    /// The tee-shot fan: the picture, and the same reading as words.
+    case fan(id: String, segments: [StatsFanGeometry.Segment], text: String)
+    /// The green-miss compass: picture, in-picture labels, and the words.
+    case compass(
+        id: String, sectors: [StatsCompassGeometry.Sector],
+        labels: [StatsCompassGeometry.Direction: String], text: String)
+    /// Title, bar, value. `share` is nil only at a zero denominator, and then
+    /// `value` is nil too and the column carries the placeholder.
+    case bar(id: String, title: String, share: Double?, value: String?)
+    /// One rung of the putting ladder: bar against a baseline tick, the make
+    /// reading, and what the distance cost against the selected cohort.
+    case rung(
+        id: String, title: String, made: Double?, baseline: Double, value: String?, cost: String)
+    /// Right-aligned column headers over the fixed value columns below them.
+    case columns(id: String, cells: [String])
+    /// Title and value. A nil value prints "Not recorded" — a figure row has the
+    /// width for words, which a rate row's 56 pt column does not.
+    case figure(id: String, title: String, value: String?)
+
+    var id: String {
+        switch self {
+        case .subhead(let id, _), .split(let id, _, _), .fan(let id, _, _),
+            .compass(let id, _, _, _), .bar(let id, _, _, _), .rung(let id, _, _, _, _, _),
+            .columns(let id, _), .figure(let id, _, _):
+            return id
+        }
+    }
+
+    /// The block's kind as a word — what the §E.3 walk asserts alongside `id`.
+    var kind: String {
+        switch self {
+        case .subhead: return "subhead"
+        case .split: return "split"
+        case .fan: return "fan"
+        case .compass: return "compass"
+        case .bar: return "bar"
+        case .rung: return "rung"
+        case .columns: return "columns"
+        case .figure: return "figure"
+        }
+    }
+
+    /// `"bar:girPar3"` — one string per block, so the walk is a list of them.
+    var walk: String { "\(kind):\(id)" }
+
+    /// The value column's text, for a row that has one.
+    var value: String? {
+        switch self {
+        case .bar(_, _, _, let value), .rung(_, _, _, _, let value, _), .figure(_, _, let value):
+            return value
+        default: return nil
+        }
+    }
+
+    /// The bar's length, for a row that draws one.
+    var share: Double? {
+        switch self {
+        case .bar(_, _, let share, _), .rung(_, _, let share, _, _, _): return share
+        default: return nil
+        }
+    }
+
+    /// The ladder's cost column.
+    var cost: String? {
+        if case .rung(_, _, _, _, _, let cost) = self { return cost }
+        return nil
+    }
+
+    var title: String? {
+        switch self {
+        case .bar(_, let title, _, _), .rung(_, let title, _, _, _, _),
+            .figure(_, let title, _):
+            return title
+        case .subhead(_, let text): return text
+        default: return nil
+        }
+    }
+}
 
 // MARK: - Primitives
 
@@ -26,19 +125,20 @@ struct StatsSubhead: View {
     }
 }
 
-/// One label / value / explanation row. A `nil` value is the display policy's
-/// absent case and prints "Not recorded".
+/// One label / value row. A nil value is the display policy's absent case and
+/// prints "Not recorded".
+///
+/// No `hint` any more: the panels emit blocks, and the per-round hole sheet —
+/// this type's only remaining caller — never carried an explanation line.
 struct StatsFigure: Identifiable, Equatable, Sendable {
     var title: String
     var value: String?
-    var hint: String?
 
     var id: String { title }
 
-    init(_ title: String, _ value: String?, _ hint: String? = nil) {
+    init(_ title: String, _ value: String?) {
         self.title = title
         self.value = value
-        self.hint = hint
     }
 }
 
@@ -48,23 +148,15 @@ struct StatsFigureRows: View {
     var body: some View {
         VStack(alignment: .leading, spacing: TapSpacing.sm) {
             ForEach(items) { item in
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
-                        Text(item.title)
-                            .font(TapFont.ui(size: 13.6))
-                            .foregroundStyle(TapColors.text)
-                        Spacer(minLength: 0)
-                        Text(item.value ?? StatsCopy.notRecorded)
-                            .font(TapFont.ui(size: 13.6, weight: .bold))
-                            .foregroundStyle(
-                                item.value == nil ? TapColors.textMuted : TapColors.text)
-                    }
-                    if let hint = item.hint {
-                        Text(hint)
-                            .font(TapFont.ui(size: 12.0))
-                            .foregroundStyle(TapColors.textMuted)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
+                    Text(item.title)
+                        .font(TapFont.ui(size: 13.6))
+                        .foregroundStyle(TapColors.text)
+                    Spacer(minLength: 0)
+                    Text(item.value ?? StatsCopy.notRecorded)
+                        .font(TapFont.ui(size: 13.6, weight: .bold))
+                        .foregroundStyle(
+                            item.value == nil ? TapColors.textMuted : TapColors.text)
                 }
                 .accessibilityElement(children: .combine)
             }
@@ -93,39 +185,38 @@ struct ResultsTile: Identifiable, Equatable, Sendable {
 struct ResultsHistogramRow: Identifiable, Equatable, Sendable {
     var id: ScoreType
     var title: String
-    /// Bar length in [0,1]; nil draws NO bar (thin sample, or no scores).
+    /// Bar length in [0,1]; nil only when there is no denominator at all.
     var share: Double?
     var value: String
 }
 
 /// The score-type histogram: a label, a neutral proportional bar, a share.
 ///
-/// Deliberately NOT `StatsMiniBarRows` — that one takes a `Rate` and applies the
-/// display policy itself. Here the caller has already formatted the value (and
-/// decided whether the bar may be drawn), because the denominator is the
-/// section's scored-hole count rather than each row's own.
+/// Same geometry as every other rate row on the screen (`StatsBarMetrics`) —
+/// the 84 pt track this used to carry was the width drift the polish pass
+/// removed.
 struct StatsScoreTypeRows: View {
     var items: [ResultsHistogramRow]
 
     var body: some View {
         VStack(alignment: .leading, spacing: TapSpacing.xs) {
             ForEach(items) { item in
-                HStack(spacing: TapSpacing.sm) {
+                HStack(spacing: StatsBarMetrics.gap) {
                     Text(item.title)
                         .font(TapFont.ui(size: 13.6))
                         .foregroundStyle(TapColors.text)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     // No new colour: these are shares of a whole, not
                     // judgements, and the label already says which end is good.
                     StatsMiniBar(share: item.share)
-                        .frame(width: 84)
+                        .frame(width: StatsBarMetrics.track)
                     Text(item.value)
                         .font(TapFont.ui(size: 13.6))
                         .monospacedDigit()
                         .foregroundStyle(TapColors.text)
-                        // Sized for the percentage the value now is ("100%"),
-                        // not the "33 (65%)" pair it used to be.
-                        .frame(width: 56, alignment: .trailing)
+                        .frame(width: StatsBarMetrics.value, alignment: .trailing)
                 }
                 .accessibilityElement(children: .combine)
             }
@@ -169,63 +260,38 @@ struct StatsLegendRows: View {
     }
 }
 
-struct StatsBarItem: Identifiable {
-    var title: String
-    var rate: Rate
-
-    var id: String { title }
-
-    init(_ title: String, _ rate: Rate) {
-        self.title = title
-        self.rate = rate
-    }
-}
-
-struct StatsMiniBarRows: View {
-    var items: [StatsBarItem]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: TapSpacing.xs) {
-            ForEach(items) { item in
-                HStack(spacing: TapSpacing.sm) {
-                    Text(item.title)
-                        .font(TapFont.ui(size: 12.8))
-                        .foregroundStyle(TapColors.text)
-                        .frame(width: 116, alignment: .leading)
-                    // A bar is only drawn for a sample the display policy is
-                    // willing to express as a percentage. Below that the reading
-                    // is a fraction and a bar would give three attempts the same
-                    // visual weight as thirty.
-                    StatsMiniBar(share: StatsFormat.isThin(item.rate) ? nil : item.rate.value)
-                    Text(StatsFormat.rate(item.rate) ?? StatsCopy.notRecorded)
-                        .font(TapFont.ui(size: 12.8, weight: .bold))
-                        .foregroundStyle(
-                            StatsFormat.rate(item.rate) == nil
-                                ? TapColors.textMuted : TapColors.text
-                        )
-                        .frame(width: 68, alignment: .trailing)
-                }
-                .accessibilityElement(children: .combine)
-            }
-        }
-    }
-}
-
 // MARK: - Panels
 
 /// Every present module panel, collapsed to a headline until tapped.
 ///
 /// The model may cover a window (the dashboard) or a single round (§4.2) — the
 /// panels do not care, because `StatsDashboardModel.build` has already applied
-/// the same gating and the same display policy to both. At n-of-18 sample sizes
-/// the rates simply come back as fractions, which is the policy working, not a
-/// special case.
+/// the same gating to both. At n-of-18 sample sizes the rates simply come back
+/// as percentages off small denominators, which is the display policy working,
+/// not a special case.
 struct StatsPanelsView: View {
     var model: StatsDashboardModel
     @Binding var expanded: Set<StatsPanelID>
     /// Accessibility-identifier prefix, so the dashboard's panels and the
     /// per-round view's panels are addressable apart in a UI test.
     var idPrefix: String = "stats"
+    /// Which cohort the ladder — and the putting sheet's cohort sentence — read.
+    var baseline: SgBaselineContext = .fallback
+    /// The open card's info sheet. One binding for the whole list, not one per
+    /// panel: at most one sheet can be up.
+    @Binding var openInfo: StatsPanelID?
+
+    init(
+        model: StatsDashboardModel, expanded: Binding<Set<StatsPanelID>>,
+        idPrefix: String = "stats", baseline: SgBaselineContext = .fallback,
+        openInfo: Binding<StatsPanelID?>
+    ) {
+        self.model = model
+        self._expanded = expanded
+        self.idPrefix = idPrefix
+        self.baseline = baseline
+        self._openInfo = openInfo
+    }
 
     var body: some View {
         ForEach(model.presentPanels, id: \.rawValue) { id in
@@ -238,34 +304,54 @@ struct StatsPanelsView: View {
         let isOpen = expanded.contains(id)
         TapCard {
             VStack(alignment: .leading, spacing: TapSpacing.md) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        if isOpen { expanded.remove(id) } else { expanded.insert(id) }
-                    }
-                } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(id.title)
-                                .font(TapFont.display(size: 16.8, weight: .semibold))
-                                .foregroundStyle(TapColors.text)
-                            if let headline = Self.headline(id, model) {
-                                Text(headline)
-                                    .font(TapFont.ui(size: 12.8))
-                                    .foregroundStyle(TapColors.textMuted)
-                            }
+                // The header is a ROW of two sibling controls, not one button.
+                // The explainer trigger belongs beside the title it explains —
+                // buried under the rows it read as a footnote to the last block
+                // rather than a way in to the whole card — and a button nested
+                // inside another button's label is not a control SwiftUI (or
+                // VoiceOver) can address on its own. Same shape as the web twin
+                // (`src/stats/stats-panels.component.ts`, `.panel__headrow`).
+                HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            if isOpen { expanded.remove(id) } else { expanded.insert(id) }
                         }
-                        Spacer(minLength: 0)
-                        Text(isOpen ? "Less" : "More")
-                            .font(TapFont.ui(size: 12.8, weight: .bold))
-                            .foregroundStyle(TapColors.accent)
+                    } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(id.title)
+                                    .font(TapFont.display(size: 16.8, weight: .semibold))
+                                    .foregroundStyle(TapColors.text)
+                                if let headline = Self.headline(id, model) {
+                                    Text(headline)
+                                        .font(TapFont.ui(size: 12.8))
+                                        .foregroundStyle(TapColors.textMuted)
+                                }
+                            }
+                            Spacer(minLength: 0)
+                            Text(isOpen ? "Less" : "More")
+                                .font(TapFont.ui(size: 12.8, weight: .bold))
+                                .foregroundStyle(TapColors.accent)
+                        }
+                        .contentShape(Rectangle())
                     }
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("\(idPrefix)-panel-\(id.rawValue)")
+
+                    if Self.showsInfoTrigger(id, model, baseline, open: isOpen) {
+                        // Words, never a glyph (`docs/design-guidelines.md` §4),
+                        // in the ghost tier so it never competes with the title
+                        // it sits beside.
+                        Button(StatsCopy.prioritiesInfo) { openInfo = id }
+                            .buttonStyle(.tap(.ghost))
+                            .font(TapFont.ui(size: 12.8))
+                            .accessibilityLabel(Self.infoLabel(id))
+                            .accessibilityIdentifier("\(idPrefix)-info-\(id.rawValue)")
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("\(idPrefix)-panel-\(id.rawValue)")
 
                 if isOpen {
-                    detail(id)
+                    blockList(Self.blocks(id, model))
                 }
             }
             .padding(TapSpacing.md)
@@ -273,9 +359,34 @@ struct StatsPanelsView: View {
         }
     }
 
+    /// Whether this card's header offers the "How this works" trigger.
+    ///
+    /// Two conditions, both about not offering a way in to nothing. No cards, no
+    /// trigger — a sheet with an empty body must not be reachable. And closed
+    /// card, no trigger: a reader who has not seen the rows has nothing for the
+    /// sheet to explain, and five collapsed cards each advertising an explainer
+    /// is a wall of links. Twin of the web's `panel__inforow` gate.
+    static func showsInfoTrigger(
+        _ id: StatsPanelID, _ model: StatsDashboardModel, _ baseline: SgBaselineContext,
+        open: Bool
+    ) -> Bool {
+        open && !StatsPanelInfo.cards(id, model, baseline).isEmpty
+    }
+
+    /// The trigger's spoken label. Five identical "How this works" buttons on
+    /// one screen are indistinguishable read out one at a time, so the label
+    /// names the card each one opens. Twin of the web's `aria-label`.
+    static func infoLabel(_ id: StatsPanelID) -> String {
+        "\(StatsCopy.prioritiesInfo): \(id.title)"
+    }
+
     /// The one figure the collapsed card carries. nil when the module's own
     /// headline rate has no sample — the card still appears (the module WAS
     /// recorded), it just has nothing to say until it is opened.
+    ///
+    /// The compact `(n of d)` parenthetical stays HERE: the owner's ruling took
+    /// fraction rendering off the ROWS, and a headline is the one line with the
+    /// room to say how big the sample behind it is.
     static func headline(_ id: StatsPanelID, _ model: StatsDashboardModel) -> String? {
         switch id {
         case .tee:
@@ -301,145 +412,129 @@ struct StatsPanelsView: View {
         }
     }
 
-    @ViewBuilder
-    private func detail(_ id: StatsPanelID) -> some View {
+    // MARK: Block builders
+
+    /// A rate row. A bar ALWAYS draws its share — there is no thin gate:
+    /// `r.value` is nil only at a zero denominator, and then there is no bar to
+    /// draw and the value cell carries the placeholder.
+    static func bar(_ id: String, _ title: String, _ r: Rate) -> StatsBlock {
+        .bar(id: id, title: title, share: r.value, value: StatsFormat.rate(r))
+    }
+
+    static func figure(_ id: String, _ title: String, _ value: String?) -> StatsBlock {
+        .figure(id: id, title: title, value: value)
+    }
+
+    /// The ladder's two column headers, in order. Pinned words, and the twin
+    /// asserts them: `Holed` over the make reading, `Cost` over the
+    /// strokes-gained cell.
+    static let ladderColumns = ["Holed", "Cost"]
+
+    /// The open panel's contents, in reading order. Empty for an absent panel.
+    static func blocks(_ id: StatsPanelID, _ model: StatsDashboardModel) -> [StatsBlock] {
         switch id {
         case .tee:
-            if let panel = model.tee { Self.teeDetail(panel) }
+            guard let panel = model.tee else { return [] }
+            return teeBlocks(panel)
         case .approach:
-            if let panel = model.approach { Self.approachDetail(panel) }
+            guard let panel = model.approach else { return [] }
+            return approachBlocks(panel)
         case .putting:
-            if let panel = model.putting { Self.puttingDetail(panel) }
+            guard let panel = model.putting else { return [] }
+            return puttingBlocks(panel)
         case .shortGame:
-            if let panel = model.shortGame { Self.shortGameDetail(panel) }
+            guard let panel = model.shortGame else { return [] }
+            return shortGameBlocks(panel)
         case .scoring:
-            if let panel = model.scoring { Self.scoringDetail(panel) }
+            guard let panel = model.scoring else { return [] }
+            return scoringBlocks(panel)
         }
+    }
+
+    /// Every block's `kind:id`, for the §E.3 twin walk.
+    static func walk(_ id: StatsPanelID, _ model: StatsDashboardModel) -> [String] {
+        blocks(id, model).map(\.walk)
     }
 
     // MARK: Tee
 
-    /// The split bar's segments — empty when the tee sample is thin.
-    ///
-    /// Same gate as every other bar on the screen: one recorded tee shot is a
-    /// rate of 1.0, and a raw share would paint the track solid green off a
-    /// single answer. All three shares sit over the same denominator
-    /// (`teeRecorded`), so one thin check covers the whole bar. The legend
-    /// still prints "1 of 1", which is the honest reading of that sample.
-    static func teeSplitSegments(_ panel: StatsTeePanel) -> [StatsSplitBar.Segment] {
-        guard !StatsFormat.isThin(panel.fairway) else { return [] }
-        return [
-            .init(id: "fairway", share: panel.fairway.value ?? 0, color: TapColors.primary),
-            .init(id: "inPlay", share: panel.inPlayOnly.value ?? 0, color: TapColors.accent),
-            .init(id: "trouble", share: panel.trouble.value ?? 0, color: TapColors.danger),
+    static func teeBlocks(_ panel: StatsTeePanel) -> [StatsBlock] {
+        var out: [StatsBlock] = [
+            // Raw shares, like every other bar on the screen: a segment always
+            // draws what the rate is. The legend prints the same percentage
+            // beside it, and the card's headline carries the sample.
+            .split(
+                id: "teeSplit",
+                segments: [
+                    .init(id: "fairway", share: panel.fairway.value ?? 0, color: TapColors.primary),
+                    .init(id: "inPlay", share: panel.inPlayOnly.value ?? 0, color: TapColors.accent),
+                    .init(id: "trouble", share: panel.trouble.value ?? 0, color: TapColors.danger),
+                ],
+                legend: [
+                    StatsLegendItem("Fairway", TapColors.primary, StatsFormat.rate(panel.fairway)),
+                    StatsLegendItem("In play", TapColors.accent, StatsFormat.rate(panel.inPlayOnly)),
+                    StatsLegendItem("Trouble", TapColors.danger, StatsFormat.rate(panel.trouble)),
+                ])
         ]
-    }
-
-    /// The three vs-par rows, or nothing.
-    ///
-    /// The group is omitted only when NO tee shot has a scored hole behind it —
-    /// an individual row with `d == 0` stays and reads "Not recorded", because
-    /// the three partition the tee shots and hiding one of a partition misreads
-    /// as "you never went there".
-    static func teeVsParFigures(_ panel: StatsTeePanel) -> [StatsFigure] {
-        let byTee = panel.vsParByTee
-        guard byTee.fairway.d > 0 || byTee.inPlay.d > 0 || byTee.trouble.d > 0 else { return [] }
-        return [
-            StatsFigure(
-                "From the fairway",
-                StatsFormat.averageWithSample(byTee.fairway, signed: true, unit: .holes)),
-            StatsFigure(
-                "From in play",
-                StatsFormat.averageWithSample(byTee.inPlay, signed: true, unit: .holes)),
-            StatsFigure(
-                "From trouble",
-                StatsFormat.averageWithSample(byTee.trouble, signed: true, unit: .holes)),
-        ]
-    }
-
-    /// The `Measured …` line under a TAX figure, or nothing.
-    ///
-    /// A tax carries no explainer sentence: its one muted line says which two
-    /// denominators the difference rests on, and nothing else. Written as a
-    /// helper so a nil sample yields a nil hint rather than "Measured nil.".
-    static func measuredLine(_ sample: String?) -> String? {
-        sample.map { "Measured \($0)." }
-    }
-
-    /// The penalty family, or nothing.
-    ///
-    /// `penaltiesPerRound` divides by the round count, so a player who never
-    /// recorded a penalty gets "0.00 per round" — a zero where the truth is
-    /// "not recorded". The coverage counter is the gate, and the sentence.
-    ///
-    /// The share and the tax sit under the SAME gate: the whole family is
-    /// absent, not zeroed, for a player who never answered the question.
-    /// `penaltyTax` uses `StatsFormat.average`, never `averageWithSample` — its
-    /// own `d` is a cross-product guard, exactly like the trouble tax above.
-    static func penaltiesFigure(_ panel: StatsTeePanel) -> [StatsFigure] {
-        guard panel.penaltiesRecordedHoles > 0 else { return [] }
-        return [
-            StatsFigure(
-                "Penalties",
-                StatsFormat.averageWithSample(panel.penaltiesPerRound, unit: .rounds),
-                "\(StatsCopy.penalties) Recorded on "
-                    + "\(StatsFormat.quantity(panel.penaltiesRecordedHoles, .holes))."),
-            StatsFigure(
-                "Holes with a penalty", StatsFormat.rateWithSample(panel.penaltyHoleShare)),
-            StatsFigure(
-                "Penalty tax",
-                StatsFormat.average(panel.penaltyTax, signed: true),
-                measuredLine(StatsFormat.penaltyTaxSample(panel.vsParByPenalty))),
-        ]
-    }
-
-    static func teeDetail(_ panel: StatsTeePanel) -> some View {
-        let segments = teeSplitSegments(panel)
-        let vsPar = teeVsParFigures(panel)
-        return VStack(alignment: .leading, spacing: TapSpacing.md) {
-            if !segments.isEmpty {
-                StatsSplitBar(segments: segments)
-            }
-            StatsLegendRows(items: [
-                StatsLegendItem("Fairway", TapColors.primary, StatsFormat.rate(panel.fairway)),
-                StatsLegendItem("In play", TapColors.accent, StatsFormat.rate(panel.inPlayOnly)),
-                StatsLegendItem("Trouble", TapColors.danger, StatsFormat.rate(panel.trouble)),
-            ])
-            // The fan sits directly under the split bar's legend: same three
-            // tones, one question further on — WHERE the miss went, not how
-            // often. Absent, not "Not recorded", when nobody answered the side
-            // question: a fan over zero misses is five empty columns.
-            if panel.teeMissRecorded > 0 {
-                StatsSubhead(text: StatsCopy.teeFanHead)
-                StatsTeeFan(
+        // The fan sits directly under the split it decomposes. Absent, never
+        // "Not recorded": a side is only asked for when the drive missed, so a
+        // window of nothing but fairways has no picture to draw.
+        if panel.teeMissRecorded > 0 {
+            out.append(.subhead(id: "teeFanHead", text: StatsCopy.teeFanHead))
+            out.append(
+                .fan(
+                    id: "teeFan",
                     segments: StatsFanGeometry.segments(
                         leftInPlay: panel.fan.leftInPlay, leftTrouble: panel.fan.leftTrouble,
                         fairway: panel.fan.fairway,
                         rightInPlay: panel.fan.rightInPlay, rightTrouble: panel.fan.rightTrouble,
-                        recorded: panel.fan.recorded))
-                Text(teeFanReading(panel))
-                    .font(TapFont.ui(size: 12.0))
-                    .foregroundStyle(TapColors.text)
-                Text(StatsCopy.teeFan)
-                    .font(TapFont.ui(size: 12.0))
-                    .foregroundStyle(TapColors.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if !vsPar.isEmpty {
-                StatsSubhead(text: "Average vs par, by where the tee shot finished")
-                Text(StatsCopy.vsParByTee)
-                    .font(TapFont.ui(size: 12.0))
-                    .foregroundStyle(TapColors.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                StatsFigureRows(items: vsPar)
-            }
-            StatsFigureRows(
-                items: [
-                    troubleTaxFigure(panel),
-                    StatsFigure(
-                        "Recovery", StatsFormat.rateWithSample(panel.recovery), StatsCopy.recovery),
-                ] + penaltiesFigure(panel))
+                        recorded: panel.fan.recorded),
+                    text: teeFanReading(panel)))
         }
+        // The three absolutes the tax is a difference OF, read before it.
+        // Omitted as a GROUP when no tee shot has a scored hole behind it;
+        // inside the group a single empty row still prints "Not recorded",
+        // because the three partition the tee shots.
+        let byTee = panel.vsParByTee
+        if byTee.fairway.d > 0 || byTee.inPlay.d > 0 || byTee.trouble.d > 0 {
+            out.append(
+                .subhead(
+                    id: "vsParByTeeHead", text: "Average vs par, by where the tee shot finished"))
+            out.append(
+                figure(
+                    "vsParFairway", "From the fairway",
+                    StatsFormat.averageWithSample(byTee.fairway, signed: true, unit: .holes)))
+            out.append(
+                figure(
+                    "vsParInPlay", "From in play",
+                    StatsFormat.averageWithSample(byTee.inPlay, signed: true, unit: .holes)))
+            out.append(
+                figure(
+                    "vsParTrouble", "From trouble",
+                    StatsFormat.averageWithSample(byTee.trouble, signed: true, unit: .holes)))
+        }
+        // `StatsFormat.average`, never `averageWithSample`: the trouble tax's
+        // own `d` is a cross-product guard (trouble holes × fairway holes) and
+        // printing it would claim a sample of 99 holes. Its two honest
+        // denominators are a sentence long, so the info sheet says them.
+        out.append(
+            figure("troubleTax", "Trouble tax", StatsFormat.average(panel.troubleTax, signed: true)))
+        out.append(bar("recovery", "Recovery", panel.recovery))
+        // Absent, not zero: `penaltiesPerRound` divides by the round count, so
+        // it would print a confident "0.00 per round" for a player who never
+        // answered the question.
+        if panel.penaltiesRecordedHoles > 0 {
+            out.append(
+                figure(
+                    "penalties", "Penalties",
+                    StatsFormat.averageWithSample(panel.penaltiesPerRound, unit: .rounds)))
+            out.append(bar("penaltyHoleShare", "Holes with a penalty", panel.penaltyHoleShare))
+            out.append(
+                figure(
+                    "penaltyTax", "Penalty tax",
+                    StatsFormat.average(panel.penaltyTax, signed: true)))
+        }
+        return out
     }
 
     /// The picture's reading, in words. The chart is `accessibilityHidden`, so
@@ -454,76 +549,83 @@ struct StatsPanelsView: View {
             + "· Right \(StatsFormat.count(right))"
     }
 
-    /// The one figure whose sample cannot go in the value column.
-    ///
-    /// `troubleTax` is a DIFFERENCE of two averages, so the honest sample is two
-    /// denominators and a sentence long ("over 9 holes from trouble vs 11 from
-    /// the fairway"). It joins the explanation line rather than the number, and
-    /// `StatsFormat.average` — not `averageWithSample` — is deliberate: the
-    /// figure's own `d` is a cross-product guard and printing it would claim a
-    /// sample of 99 holes.
-    static func troubleTaxFigure(_ panel: StatsTeePanel) -> StatsFigure {
-        let hint = StatsFormat.troubleTaxSample(panel.vsParByTee)
-            .map { "\(StatsCopy.troubleTax) Measured \($0)." } ?? StatsCopy.troubleTax
-        return StatsFigure(
-            "Trouble tax", StatsFormat.average(panel.troubleTax, signed: true), hint)
-    }
-
     // MARK: Approach
 
-    /// The hard-chip share, or nothing. The approach panel is gated on
-    /// `girRecorded`, which can be non-zero over a window with no recorded
-    /// short-game attempt at all — so this row carries its own gate.
-    static func hardChipShareFigure(_ panel: StatsApproachPanel) -> [StatsFigure] {
-        guard panel.hardChipShare.d > 0 else { return [] }
-        return [
-            StatsFigure(
-                "Hard misses", StatsFormat.rateWithSample(panel.hardChipShare),
-                StatsCopy.hardChipShare)
-        ]
-    }
-
-    /// Greens hit by par. UNGATED: the three rows partition `girRecorded`, and
-    /// the panel is already gated on that being non-zero. A zero row reads "0%"
-    /// or "0 of 2", which is true; hiding one of three parallel rows would read
-    /// as "you never played a par 5".
-    static func girByParItems(_ panel: StatsApproachPanel) -> [StatsBarItem] {
-        [
-            StatsBarItem("Par 3", panel.girByPar.par3),
-            StatsBarItem("Par 4", panel.girByPar.par4),
-            StatsBarItem("Par 5", panel.girByPar.par5),
-        ]
-    }
-
-    /// What a missed green costs, or nothing.
-    ///
-    /// Gated as a GROUP on either side having a scored hole — the same shape
-    /// `teeVsParFigures` uses. Inside the group each row stands even when its own
-    /// `d` is 0 and reads "Not recorded". The tax itself goes through
-    /// `StatsFormat.average`, because its `d` is a cross-product guard.
-    static func costOfMissedGreenFigures(_ panel: StatsApproachPanel) -> [StatsFigure] {
+    static func approachBlocks(_ panel: StatsApproachPanel) -> [StatsBlock] {
+        var out: [StatsBlock] = []
+        // Directly under the card's own GIR headline, and above every
+        // breakdown: the compass says WHERE the misses went, which is the
+        // question the breakdowns below then slice. Absent when no miss carries
+        // a direction — an empty wheel would read as "you miss nowhere".
+        if panel.greenMissRecorded > 0 {
+            out.append(.subhead(id: "greenMissHead", text: StatsCopy.greenMissHead))
+            out.append(
+                .compass(
+                    id: "greenMiss",
+                    sectors: StatsCompassGeometry.sectors([
+                        .long: panel.greenMiss.long.value ?? 0,
+                        .short: panel.greenMiss.short.value ?? 0,
+                        .left: panel.greenMiss.left.value ?? 0,
+                        .right: panel.greenMiss.right.value ?? 0,
+                    ]),
+                    labels: greenMissLabels(panel),
+                    text: greenMissReading(panel)))
+        }
+        out.append(
+            .subhead(id: "girByTee", text: "Greens hit, by where the tee shot finished"))
+        out.append(bar("girFairway", "From the fairway", panel.girByTee.fairway))
+        out.append(bar("girInPlay", "From in play", panel.girByTee.inPlay))
+        out.append(bar("girTrouble", "From trouble", panel.girByTee.trouble))
+        // Ungated: a partition of `girRecorded`, which the panel is already
+        // gated on. Hiding one of three parallel rows would read as "you never
+        // played a par 5".
+        out.append(.subhead(id: "girByParHead", text: "Greens hit, by par"))
+        out.append(bar("girPar3", "Par 3", panel.girByPar.par3))
+        out.append(bar("girPar4", "Par 4", panel.girByPar.par4))
+        out.append(bar("girPar5", "Par 5", panel.girByPar.par5))
+        // The owner's own wording, abbreviation and all: "GIR" is what the two
+        // subheads above already teach, and spelling it out here would read as
+        // a different measurement.
+        out.append(.subhead(id: "mixHead", text: "Proximity with GIR"))
+        for bucket in PuttBucket.allCases {
+            out.append(
+                bar(
+                    "mix-\(bucket.rawValue)", StatsFormat.title(bucket),
+                    panel.girFirstPuttMix[bucket] ?? Rate(value: nil, n: 0, d: 0)))
+        }
+        out.append(bar("birdieConversion", "Birdie conversion", panel.birdieConversion))
+        // The approach panel is gated on `girRecorded`, which can be non-zero
+        // over a window that recorded no short-game attempt at all.
+        if panel.hardChipShare.d > 0 {
+            out.append(bar("hardChipShare", "Hard misses", panel.hardChipShare))
+        }
+        // Gated as a GROUP on either side having a scored hole, the same shape
+        // the tee card's vs-par group uses. Inside it a row with no sample of
+        // its own still prints "Not recorded".
         let cost = panel.costOfMissedGreen
-        guard cost.hit.d > 0 || cost.miss.d > 0 else { return [] }
-        return [
+        if cost.hit.d > 0 || cost.miss.d > 0 {
+            out.append(.subhead(id: "missedGreenHead", text: "Cost of a missed green"))
             // GREENS on the hit side, HOLES on the miss side: the denominators
             // genuinely differ and the noun says which.
-            StatsFigure(
-                "Green hit",
-                StatsFormat.averageWithSample(cost.hit, signed: true, unit: .greens)),
-            StatsFigure(
-                "Green missed",
-                StatsFormat.averageWithSample(cost.miss, signed: true, unit: .holes)),
-            StatsFigure(
-                "Missed-green tax",
-                StatsFormat.average(cost.delta, signed: true),
-                measuredLine(StatsFormat.missedGreenTaxSample(cost))),
-        ]
+            out.append(
+                figure(
+                    "vsParGreenHit", "Green hit",
+                    StatsFormat.averageWithSample(cost.hit, signed: true, unit: .greens)))
+            out.append(
+                figure(
+                    "vsParGreenMissed", "Green missed",
+                    StatsFormat.averageWithSample(cost.miss, signed: true, unit: .holes)))
+            out.append(
+                figure(
+                    "missedGreenTax", "Missed-green tax",
+                    StatsFormat.average(cost.delta, signed: true)))
+        }
+        return out
     }
 
     /// The compass in words — the drawing is `accessibilityHidden`, so this is
     /// the block's actual reading. The four shares partition the recorded
-    /// misses, so they go through the ordinary display policy together and a
-    /// small window degrades all four to fractions at once.
+    /// misses, so they read as percentages together or not at all.
     static func greenMissReading(_ panel: StatsApproachPanel) -> String {
         let parts: [(String, Rate)] = [
             ("Long", panel.greenMiss.long), ("Short", panel.greenMiss.short),
@@ -531,14 +633,13 @@ struct StatsPanelsView: View {
         ]
         return
             parts
-            .map { "\($0.0) \(StatsFormat.rate($0.1) ?? "—")" }
+            .map { "\($0.0) \(StatsFormat.rate($0.1) ?? StatsCopy.notRecorded)" }
             .joined(separator: " · ")
     }
 
     /// The four in-picture labels. Same `StatsFormat.rate` path as
     /// `greenMissReading` above, so the wheel and the prose beside it never
-    /// disagree: under `MIN_RATE_DENOMINATOR` both say "2 of 3". Twin of
-    /// `greenMissCompass`'s `labels` in `src/stats/stats-panel-blocks.ts`.
+    /// disagree about a number.
     ///
     /// The block is gated on `greenMissRecorded > 0`, so no denominator here is
     /// zero and the empty fallback is unreachable — but a wedge must never paint
@@ -554,226 +655,105 @@ struct StatsPanelsView: View {
         ]
     }
 
-    static func approachDetail(_ panel: StatsApproachPanel) -> some View {
-        let cost = costOfMissedGreenFigures(panel)
-        return VStack(alignment: .leading, spacing: TapSpacing.md) {
-            StatsSubhead(text: "Greens hit, by where the tee shot finished")
-            StatsMiniBarRows(items: [
-                StatsBarItem("From the fairway", panel.girByTee.fairway),
-                StatsBarItem("From in play", panel.girByTee.inPlay),
-                StatsBarItem("From trouble", panel.girByTee.trouble),
-            ])
-            // Under the greens-hit reading, above the by-par split: the compass
-            // answers "and when you miss, which way", which is the next
-            // question and not a refinement of the previous one. Absent when
-            // nothing was answered — a compass over zero misses is a shape.
-            if panel.greenMissRecorded > 0 {
-                StatsSubhead(text: StatsCopy.greenMissHead)
-                StatsGreenCompass(
-                    sectors: StatsCompassGeometry.sectors([
-                        .long: panel.greenMiss.long.value ?? 0,
-                        .short: panel.greenMiss.short.value ?? 0,
-                        .left: panel.greenMiss.left.value ?? 0,
-                        .right: panel.greenMiss.right.value ?? 0,
-                    ]),
-                    labels: greenMissLabels(panel))
-                Text(greenMissReading(panel))
-                    .font(TapFont.ui(size: 12.0))
-                    .foregroundStyle(TapColors.text)
-                Text(StatsCopy.greenMiss)
-                    .font(TapFont.ui(size: 12.0))
-                    .foregroundStyle(TapColors.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            StatsSubhead(text: "Greens hit, by par")
-            StatsMiniBarRows(items: girByParItems(panel))
-            StatsSubhead(text: "First putt on greens hit")
-            Text(StatsCopy.proximityProxy)
-                .font(TapFont.ui(size: 12.0))
-                .foregroundStyle(TapColors.textMuted)
-                .fixedSize(horizontal: false, vertical: true)
-            StatsMiniBarRows(
-                items: PuttBucket.allCases.map {
-                    StatsBarItem(
-                        StatsFormat.title($0),
-                        panel.girFirstPuttMix[$0] ?? Rate(value: nil, n: 0, d: 0))
-                })
-            StatsFigureRows(
-                items: [
-                    StatsFigure(
-                        "Birdie conversion", StatsFormat.rateWithSample(panel.birdieConversion),
-                        StatsCopy.birdieConversion)
-                ] + hardChipShareFigure(panel))
-            // Last, so its subhead closes the un-headed birdie/hard-miss pair
-            // rather than orphaning it.
-            if !cost.isEmpty {
-                StatsSubhead(text: "Cost of a missed green")
-                StatsFigureRows(items: cost)
-            }
-        }
-    }
-
     // MARK: Putting
 
-    /// The raw first-putt distribution, or nothing. Every bucket sits over the
-    /// same denominator, so one bucket having a sample means they all do.
-    static func firstPuttSpreadItems(_ panel: StatsPuttingPanel) -> [StatsBarItem] {
-        let items = PuttBucket.allCases.map {
-            StatsBarItem(
-                StatsFormat.title($0), panel.firstPuttSpread[$0] ?? Rate(value: nil, n: 0, d: 0))
+    static func puttingBlocks(_ panel: StatsPuttingPanel) -> [StatsBlock] {
+        var out: [StatsBlock] = []
+        // The raw distribution first: it is the context the make-% ladder below
+        // is read against. Every bucket shares one denominator, so one check
+        // gates the group.
+        if (panel.firstPuttSpread[.inside1m]?.d ?? 0) > 0 {
+            out.append(.subhead(id: "firstPuttHead", text: "First putt, all holes"))
+            for bucket in PuttBucket.allCases {
+                out.append(
+                    bar(
+                        "spread-\(bucket.rawValue)", StatsFormat.title(bucket),
+                        panel.firstPuttSpread[bucket] ?? Rate(value: nil, n: 0, d: 0)))
+            }
         }
-        return items.contains(where: { $0.rate.d > 0 }) ? items : []
+        out.append(.subhead(id: "ladderHead", text: "Holed on the first putt"))
+        // One header row over the two fixed columns the rungs below fill.
+        // Words, never a glyph: `Cost` is the same noun the home card's
+        // "Costing you most" uses, and it carries the sign's meaning without a
+        // legend — which the sheet spells out anyway.
+        out.append(.columns(id: "ladderCols", cells: ladderColumns))
+        for rung in panel.ladder {
+            out.append(
+                .rung(
+                    id: "rung-\(rung.bucket.rawValue)", title: StatsFormat.title(rung.bucket),
+                    made: rung.made.value, baseline: rung.baseline,
+                    value: StatsFormat.rate(rung.made), cost: StatsFormat.cost(rung.cost)))
+        }
+        // One gate for the group: all four share `puttsRecorded`, so checking
+        // `zero.d` IS checking it. The panel can be present on
+        // `firstPuttRecorded` alone, with no putt count anywhere.
+        let hasPuttCounts = (panel.puttDistribution[.zero]?.d ?? 0) > 0
+        if hasPuttCounts {
+            out.append(.subhead(id: "puttCountHead", text: "Holes by putts"))
+            for bucket in PuttCountBucket.allCases {
+                out.append(
+                    bar(
+                        "putts-\(bucket.rawValue)", StatsFormat.title(bucket),
+                        panel.puttDistribution[bucket] ?? Rate(value: nil, n: 0, d: 0)))
+            }
+        }
+        // No standalone "Three-putts" row: the distribution's "Three or more"
+        // above is the same numerator over the same denominator, and two rows
+        // for one fact is what this pass removed. The lag fact below is
+        // distinct and stays.
+        out.append(bar("longThreePutt", "Three-putts from over 8 m", panel.threePuttsFromOver8m))
+        out.append(
+            figure(
+                "puttsPerGir", "Putts per green hit",
+                StatsFormat.averageWithSample(panel.puttsPerGirHole, unit: .greens)))
+        if panel.puttsAfterMissedGreen.d > 0 {
+            out.append(
+                figure(
+                    "puttsAfterMissedGreen", "Putts after a missed green",
+                    StatsFormat.averageWithSample(panel.puttsAfterMissedGreen, unit: .holes)))
+        }
+        // A partition of `puttsRecorded`, so it takes the SAME gate the "Holes
+        // by putts" group above takes. Unsigned — putts are a quantity, not a
+        // deviation.
+        if hasPuttCounts {
+            out.append(.subhead(id: "puttsByParHead", text: "Putts per hole, by par"))
+            out.append(
+                figure(
+                    "puttsPar3", "Par 3",
+                    StatsFormat.averageWithSample(panel.puttsPerHoleByPar.par3, unit: .holes)))
+            out.append(
+                figure(
+                    "puttsPar4", "Par 4",
+                    StatsFormat.averageWithSample(panel.puttsPerHoleByPar.par4, unit: .holes)))
+            out.append(
+                figure(
+                    "puttsPar5", "Par 5",
+                    StatsFormat.averageWithSample(panel.puttsPerHoleByPar.par5, unit: .holes)))
+        }
+        return out
     }
 
-    /// Putts on the holes where the green was missed, or nothing.
-    static func puttsAfterMissedGreenFigure(_ panel: StatsPuttingPanel) -> [StatsFigure] {
-        guard panel.puttsAfterMissedGreen.d > 0 else { return [] }
-        return [
-            StatsFigure(
-                "Putts after a missed green",
-                StatsFormat.averageWithSample(panel.puttsAfterMissedGreen, unit: .holes),
-                StatsCopy.puttsAfterMissedGreen)
-        ]
-    }
-
-    /// The putt-count histogram, or nothing.
+    /// A ladder rung read out in WORDS — never the em dash, which is a
+    /// placeholder for the eye only.
     ///
-    /// All four rows share ONE denominator (`puttsRecorded`), so one gate covers
-    /// the group — exactly how `firstPuttSpreadItems` gates on the buckets'
-    /// common `d`. The gate exists because the panel can be present on
-    /// `firstPuttRecorded` alone, with no putt count anywhere.
-    static func puttDistributionItems(_ panel: StatsPuttingPanel) -> [StatsBarItem] {
-        let items = PuttCountBucket.allCases.map { bucket in
-            StatsBarItem(
-                StatsFormat.title(bucket),
-                panel.puttDistribution[bucket] ?? Rate(value: nil, n: 0, d: 0))
-        }
-        return items.contains(where: { $0.rate.d > 0 }) ? items : []
-    }
-
-    /// Putts per hole by par, or nothing.
-    ///
-    /// A partition of `puttsRecorded`, so it takes the SAME gate the histogram
-    /// above it takes: the panel can stand on `firstPuttRecorded` alone, and a
-    /// subhead over three "Not recorded" rows is dead noise. Inside the group an
-    /// empty row still prints — the three partition the holes. Unsigned: putts
-    /// are a quantity, not a deviation.
-    static func puttsByParFigures(_ panel: StatsPuttingPanel) -> [StatsFigure] {
-        guard (panel.puttDistribution[.zero]?.d ?? 0) > 0 else { return [] }
-        return [
-            StatsFigure(
-                "Par 3",
-                StatsFormat.averageWithSample(panel.puttsPerHoleByPar.par3, unit: .holes)),
-            StatsFigure(
-                "Par 4",
-                StatsFormat.averageWithSample(panel.puttsPerHoleByPar.par4, unit: .holes)),
-            StatsFigure(
-                "Par 5",
-                StatsFormat.averageWithSample(panel.puttsPerHoleByPar.par5, unit: .holes)),
-        ]
-    }
-
-    static func puttingDetail(_ panel: StatsPuttingPanel) -> some View {
-        let spread = firstPuttSpreadItems(panel)
-        let distribution = puttDistributionItems(panel)
-        let byPar = puttsByParFigures(panel)
-        return VStack(alignment: .leading, spacing: TapSpacing.md) {
-            if !spread.isEmpty {
-                StatsSubhead(text: "First putt, all holes")
-                Text(StatsCopy.firstPuttSpread)
-                    .font(TapFont.ui(size: 12.0))
-                    .foregroundStyle(TapColors.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                StatsMiniBarRows(items: spread)
-            }
-            StatsSubhead(text: "Holed on the first putt")
-            Text(StatsCopy.ladderBaseline)
-                .font(TapFont.ui(size: 12.0))
-                .foregroundStyle(TapColors.textMuted)
-                .fixedSize(horizontal: false, vertical: true)
-            ForEach(panel.ladder) { rung in
-                VStack(alignment: .leading, spacing: TapSpacing.xs) {
-                    HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
-                        Text(StatsFormat.title(rung.bucket))
-                            .font(TapFont.ui(size: 13.6))
-                            .foregroundStyle(TapColors.text)
-                        Spacer(minLength: 0)
-                        Text(StatsFormat.rate(rung.made) ?? StatsCopy.notRecorded)
-                            .font(TapFont.ui(size: 13.6, weight: .bold))
-                            .foregroundStyle(
-                                StatsFormat.rate(rung.made) == nil
-                                    ? TapColors.textMuted : TapColors.text)
-                    }
-                    StatsLadderRung(
-                        made: StatsFormat.isThin(rung.made) ? nil : rung.made.value,
-                        baseline: rung.baseline)
-                }
-                .accessibilityElement(children: .combine)
-            }
-            if !distribution.isEmpty {
-                StatsSubhead(text: "Holes by putts")
-                StatsMiniBarRows(items: distribution)
-            }
-            StatsFigureRows(
-                items: [
-                    StatsFigure(
-                        "Three-putts", StatsFormat.rateWithSample(panel.threePutt),
-                        StatsCopy.threePutt),
-                    StatsFigure(
-                        "Three-putts from over 8 m",
-                        StatsFormat.rateWithSample(panel.threePuttsFromOver8m),
-                        StatsCopy.longThreePutt),
-                    StatsFigure(
-                        "Putts per green hit",
-                        StatsFormat.averageWithSample(panel.puttsPerGirHole, unit: .greens),
-                        StatsCopy.puttsPerGir),
-                ] + puttsAfterMissedGreenFigure(panel))
-            if !byPar.isEmpty {
-                StatsSubhead(text: "Putts per hole, by par")
-                StatsFigureRows(items: byPar)
-            }
-        }
+    /// Composed from the RENDERED strings rather than the raw cost so there is
+    /// one rounding in the row: what a reader hears is what a reader sees.
+    static func rungReading(title: String, value: String?, cost: String) -> String {
+        let made = value.map { "\($0) holed" } ?? StatsCopy.notRecorded
+        if cost == StatsCopy.noValue { return "\(title), \(made), \(StatsCopy.notRecorded)" }
+        let magnitude = String(cost.drop(while: { $0 == "+" || $0 == "\u{2212}" }))
+        if cost.hasPrefix("+") { return "\(title), \(made), \(magnitude) strokes lost" }
+        if cost.hasPrefix("\u{2212}") { return "\(title), \(made), \(magnitude) strokes gained" }
+        return "\(title), \(made), level"
     }
 
     // MARK: Short game
 
-    /// Sand save, or nothing. The short-game panel is gated on there having
-    /// been SOME scramble attempt, which can be true over a window with no
-    /// bunker at all — so this row carries its own gate.
-    static func sandSaveFigure(_ panel: StatsShortGamePanel) -> [StatsFigure] {
-        guard panel.sandSaveAttempts > 0 else { return [] }
-        return [
-            StatsFigure(
-                "Sand save", StatsFormat.rateWithSample(panel.sandSave), StatsCopy.sandSave)
-        ]
-    }
-
-    /// The three counter figures, or nothing.
-    ///
-    /// Gated as a GROUP on `shortGameStrokesRecorded`: without a single counted
-    /// hole every stroke count is the modeled 1, so the rates are structurally
-    /// 0% and the extra-strokes figure is structurally 0. That is not a reading,
-    /// it is the absence of one, and it would read as "you never take two".
-    static func shortGameCounterFigures(_ panel: StatsShortGamePanel) -> [StatsFigure] {
-        guard panel.shortGameStrokesRecorded > 0 else { return [] }
-        return [
-            StatsFigure(
-                "More than one from sand", StatsFormat.rateWithSample(panel.multiChipFromBunker),
-                StatsCopy.multiChipBunker),
-            StatsFigure(
-                "Extra short-game shots", StatsFormat.count(panel.extraShortGameStrokes),
-                StatsCopy.extraShortGameStrokes),
-            StatsFigure(
-                "More than one chip", StatsFormat.rateWithSample(panel.multiChip),
-                StatsCopy.multiChip),
-        ]
-    }
-
-    /// The bunker leg of a three-leg group, or nothing.
+    /// The bunker leg of a three-leg group.
     ///
     /// The panel's own gate is "some scramble attempt", which a window with no
     /// sand in it satisfies — so every bunker row carries this second gate, and
-    /// all of them carry the SAME one, so the three groups agree about whether
+    /// all of them carry the SAME one, so the three sections agree about whether
     /// this window has any sand in it. `sandSaveAttempts` (the model's name for
     /// `scrambleAttemptsBunker`) is the shared denominator: a chip-in has
     /// `putts = 0`, which the attempt predicate counts, so no non-zero bunker
@@ -782,88 +762,171 @@ struct StatsPanelsView: View {
         panel.sandSaveAttempts > 0
     }
 
-    /// The three groups' rows, as values rather than inline literals, so the
-    /// twin tests can assert the bunker gate the same way the web tests assert
-    /// `panelBlocks('shortGame', …)`.
-    ///
-    /// Standard and Hard are always present: the panel is already gated on there
-    /// having been a scramble attempt, so a zero in either is a real zero, not
-    /// an absence. Bunker is not — see `hasBunkerLeg`.
-    static func scramblingBars(_ panel: StatsShortGamePanel) -> [StatsBarItem] {
-        [
-            StatsBarItem("Standard", panel.scramble.standard),
-            StatsBarItem("Hard", panel.scramble.hard),
-        ] + (hasBunkerLeg(panel) ? [StatsBarItem("Bunker", panel.scramble.bunker)] : [])
-    }
-
-    static func chipInside2mBars(_ panel: StatsShortGamePanel) -> [StatsBarItem] {
-        [
-            StatsBarItem("Standard", panel.chipInside2m.standard),
-            StatsBarItem("Hard", panel.chipInside2m.hard),
-        ] + (hasBunkerLeg(panel) ? [StatsBarItem("Bunker", panel.chipInside2m.bunker)] : [])
-    }
-
-    static func chipInFigures(_ panel: StatsShortGamePanel) -> [StatsFigure] {
-        [
-            StatsFigure("Standard", StatsFormat.count(panel.chipIns.standard)),
-            StatsFigure("Hard", StatsFormat.count(panel.chipIns.hard)),
+    static func shortGameBlocks(_ panel: StatsShortGamePanel) -> [StatsBlock] {
+        var out: [StatsBlock] = [
+            .subhead(id: "scrambleHead", text: "Scrambling"),
+            bar("scrambleStandard", "Standard", panel.scramble.standard),
+            bar("scrambleHard", "Hard", panel.scramble.hard),
         ]
-            + (hasBunkerLeg(panel)
-                ? [StatsFigure("Bunker", StatsFormat.count(panel.chipIns.bunker))] : [])
-    }
-
-    static func shortGameDetail(_ panel: StatsShortGamePanel) -> some View {
-        let counters = shortGameCounterFigures(panel)
-        let sandSave = sandSaveFigure(panel)
-        return VStack(alignment: .leading, spacing: TapSpacing.md) {
-            StatsSubhead(text: "Scrambling")
-            StatsMiniBarRows(items: scramblingBars(panel))
-            if !(sandSave + counters).isEmpty {
-                StatsFigureRows(items: sandSave + counters)
-            }
-            StatsSubhead(text: "Chipped to inside 2 m")
-            StatsMiniBarRows(items: chipInside2mBars(panel))
-            StatsFigureRows(items: [
-                StatsFigure(
-                    "Holed from inside 2 m",
-                    StatsFormat.rateWithSample(panel.conversionInside2m),
-                    StatsCopy.conversionInside2m)
-            ])
-            StatsSubhead(text: "Chip-ins")
-            Text(StatsCopy.chipIns)
-                .font(TapFont.ui(size: 12.0))
-                .foregroundStyle(TapColors.textMuted)
-                .fixedSize(horizontal: false, vertical: true)
-            StatsFigureRows(items: chipInFigures(panel))
+        if hasBunkerLeg(panel) {
+            out.append(bar("scrambleBunker", "Bunker", panel.scramble.bunker))
+            // Sand save is the bunker scramble under the name a golfer uses for
+            // it. Absent with no bunker attempt: there is no such thing as a 0%
+            // sand save over zero bunkers.
+            out.append(bar("sandSave", "Sand save", panel.sandSave))
         }
+        // The counter block, gated as a GROUP on at least one COUNTED hole:
+        // with nothing counted every hole models as one stroke, so all three
+        // numbers would be a confident restatement of the model rather than a
+        // reading of the player.
+        if panel.shortGameStrokesRecorded > 0 {
+            out.append(bar("multiChipBunker", "More than one from sand", panel.multiChipFromBunker))
+            out.append(
+                figure(
+                    "extraShortGameStrokes", "Extra short-game shots",
+                    StatsFormat.count(panel.extraShortGameStrokes)))
+            out.append(bar("multiChip", "More than one chip", panel.multiChip))
+        }
+        out.append(.subhead(id: "chipHead", text: "Chipped to inside 2 m"))
+        out.append(bar("chipStandard", "Standard", panel.chipInside2m.standard))
+        out.append(bar("chipHard", "Hard", panel.chipInside2m.hard))
+        if hasBunkerLeg(panel) {
+            out.append(bar("chipBunker", "Bunker", panel.chipInside2m.bunker))
+        }
+        out.append(bar("conversionInside2m", "Holed from inside 2 m", panel.conversionInside2m))
+        // The legs, not the sum: the rows match the groups above them, and the
+        // total is the addition of what is visible.
+        out.append(.subhead(id: "chipInsHead", text: "Chip-ins"))
+        out.append(figure("chipInsStandard", "Standard", StatsFormat.count(panel.chipIns.standard)))
+        out.append(figure("chipInsHard", "Hard", StatsFormat.count(panel.chipIns.hard)))
+        if hasBunkerLeg(panel) {
+            out.append(
+                figure("chipInsBunker", "Bunker", StatsFormat.count(panel.chipIns.bunker)))
+        }
+        return out
     }
 
     // MARK: Scoring
 
-    static func scoringDetail(_ panel: StatsScoringPanel) -> some View {
-        VStack(alignment: .leading, spacing: TapSpacing.md) {
-            StatsSubhead(text: "Average vs par")
-            StatsFigureRows(items: [
-                StatsFigure(
-                    "Par 3",
-                    StatsFormat.averageWithSample(
-                        panel.avgVsParByParGroup.par3, signed: true, unit: .holes)),
-                StatsFigure(
-                    "Par 4",
-                    StatsFormat.averageWithSample(
-                        panel.avgVsParByParGroup.par4, signed: true, unit: .holes)),
-                StatsFigure(
-                    "Par 5",
-                    StatsFormat.averageWithSample(
-                        panel.avgVsParByParGroup.par5, signed: true, unit: .holes)),
-                StatsFigure(
-                    "Doubles or worse",
-                    StatsFormat.averageWithSample(panel.doubleBogeyPlusPerRound, unit: .rounds),
-                    StatsCopy.doubleBogeyPlus),
-                StatsFigure(
-                    "Bounce-back", StatsFormat.rateWithSample(panel.bounceBack),
-                    StatsCopy.bounceBack),
-            ])
+    static func scoringBlocks(_ panel: StatsScoringPanel) -> [StatsBlock] {
+        func avg(_ r: Rate) -> String? {
+            StatsFormat.averageWithSample(r, signed: true, unit: .holes)
+        }
+        return [
+            .subhead(id: "vsParHead", text: "Average vs par"),
+            figure("par3", "Par 3", avg(panel.avgVsParByParGroup.par3)),
+            figure("par4", "Par 4", avg(panel.avgVsParByParGroup.par4)),
+            figure("par5", "Par 5", avg(panel.avgVsParByParGroup.par5)),
+            figure(
+                "doubles", "Doubles or worse",
+                StatsFormat.averageWithSample(panel.doubleBogeyPlusPerRound, unit: .rounds)),
+            bar("bounceBack", "Bounce-back", panel.bounceBack),
+        ]
+    }
+
+    // MARK: Rendering
+
+    @ViewBuilder
+    private func blockList(_ blocks: [StatsBlock]) -> some View {
+        VStack(alignment: .leading, spacing: TapSpacing.xs) {
+            ForEach(blocks) { block in
+                blockView(block)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func blockView(_ block: StatsBlock) -> some View {
+        switch block {
+        case .subhead(_, let text):
+            StatsSubhead(text: text)
+                .padding(.top, TapSpacing.sm)
+        case .split(_, let segments, let legend):
+            VStack(alignment: .leading, spacing: TapSpacing.sm) {
+                StatsSplitBar(segments: segments)
+                StatsLegendRows(items: legend)
+            }
+        case .fan(_, let segments, let text):
+            VStack(alignment: .leading, spacing: TapSpacing.xs) {
+                StatsTeeFan(segments: segments)
+                Text(text)
+                    .font(TapFont.ui(size: 12.0))
+                    .foregroundStyle(TapColors.text)
+            }
+        case .compass(_, let sectors, let labels, let text):
+            VStack(alignment: .leading, spacing: TapSpacing.xs) {
+                StatsGreenCompass(sectors: sectors, labels: labels)
+                Text(text)
+                    .font(TapFont.ui(size: 12.0))
+                    .foregroundStyle(TapColors.text)
+            }
+        case .bar(_, let title, let share, let value):
+            HStack(spacing: StatsBarMetrics.gap) {
+                Text(title)
+                    .font(TapFont.ui(size: 13.6))
+                    .foregroundStyle(TapColors.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                StatsMiniBar(share: share)
+                    .frame(width: StatsBarMetrics.track)
+                Text(value ?? StatsCopy.noValue)
+                    .font(TapFont.ui(size: 13.6, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(value == nil ? TapColors.textMuted : TapColors.text)
+                    .frame(width: StatsBarMetrics.value, alignment: .trailing)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(title), \(value ?? StatsCopy.notRecorded)")
+        case .rung(_, let title, let made, let baselineTick, let value, let cost):
+            HStack(spacing: StatsBarMetrics.gap) {
+                Text(title)
+                    .font(TapFont.ui(size: 13.6))
+                    .foregroundStyle(TapColors.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                StatsLadderRung(made: made, baseline: baselineTick)
+                    .frame(width: StatsBarMetrics.track)
+                Text(value ?? StatsCopy.noValue)
+                    .font(TapFont.ui(size: 13.6, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(value == nil ? TapColors.textMuted : TapColors.text)
+                    .frame(width: StatsBarMetrics.value, alignment: .trailing)
+                Text(cost)
+                    .font(TapFont.ui(size: 11.0))
+                    .monospacedDigit()
+                    .foregroundStyle(TapColors.textMuted)
+                    .frame(width: StatsBarMetrics.cost, alignment: .trailing)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Self.rungReading(title: title, value: value, cost: cost))
+        case .columns(_, let cells):
+            HStack(spacing: StatsBarMetrics.gap) {
+                Spacer(minLength: 0)
+                Color.clear.frame(width: StatsBarMetrics.track, height: 1)
+                ForEach(Array(cells.enumerated()), id: \.offset) { index, cell in
+                    Text(cell)
+                        .font(TapFont.ui(size: 10.0))
+                        .textCase(.uppercase)
+                        .foregroundStyle(TapColors.textMuted)
+                        .frame(
+                            width: index == 0 ? StatsBarMetrics.value : StatsBarMetrics.cost,
+                            alignment: .trailing)
+                }
+            }
+            .accessibilityHidden(true)
+        case .figure(_, let title, let value):
+            HStack(alignment: .firstTextBaseline, spacing: TapSpacing.sm) {
+                Text(title)
+                    .font(TapFont.ui(size: 13.6))
+                    .foregroundStyle(TapColors.text)
+                Spacer(minLength: 0)
+                Text(value ?? StatsCopy.notRecorded)
+                    .font(TapFont.ui(size: 13.6, weight: .bold))
+                    .foregroundStyle(value == nil ? TapColors.textMuted : TapColors.text)
+            }
+            .accessibilityElement(children: .combine)
         }
     }
 }
