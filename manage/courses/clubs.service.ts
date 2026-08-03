@@ -1,7 +1,7 @@
 import { Computed, Signal } from '@basics/core/client/core';
 import { api } from '../api';
 import { failureMessage } from '../api-failure';
-import type { Club } from '../../src/api/clubs.gen';
+import type { ClubListItem } from '../../src/api/clubs.gen';
 import { clubPayload, type ClubDraft } from './club-form';
 
 /*
@@ -13,13 +13,14 @@ import { clubPayload, type ClubDraft } from './club-form';
  * spells out the same split — `/me/roles` is caller-scoped and safe on boot,
  * management payloads are not.
  *
- * ── Why the course COUNT is computed here ──
+ * ── Why the course COUNT is NOT computed here ──
  *
- * There is no count endpoint, and inventing one server-side for a column would
- * be the wrong shape of change (the API is complete per spec §3). So the two
- * open reads are fetched together and joined in memory. It is one extra request
- * for a catalog measured in tens of rows, and it keeps the count consistent
- * with the list it annotates: both halves come from the same moment.
+ * It arrives on the club row: `clubs.list()` counts courses in the same
+ * statement that selects the clubs (`ClubService.clubsWithCourseCounts`). The
+ * count annotates a club, so it belongs to the club row, and coming from one
+ * statement it cannot disagree with the list it annotates. This service used to
+ * fetch all courses and join counts in memory; that is gone — a second read
+ * that could land either side of a write.
  *
  * ── Why the search text lives in the service ──
  *
@@ -30,8 +31,12 @@ import { clubPayload, type ClubDraft } from './club-form';
  * than silently reset by a remount.
  */
 
-/** A club plus the one derived figure the list column needs. */
-export type ClubRow = Club & { courseCount: number };
+/**
+ * A club as the list renders it. Alias rather than a local shape: the server's
+ * list item already carries `courseCount`, and re-declaring it here would be a
+ * second place to keep in step.
+ */
+export type ClubRow = ClubListItem;
 
 /**
  * What a write reports back. Same shape as `CommitOutcome` in
@@ -57,7 +62,7 @@ export function filterClubs(rows: ClubRow[], query: string): ClubRow[] {
 }
 
 export class ClubsService {
-    /** Every club, name-ordered by the server, with its course count joined on. */
+    /** Every club, name-ordered by the server, each carrying its course count. */
     readonly clubs = new Signal<ClubRow[]>([]);
 
     /** True while a fetch is out — including a refetch after a mutation. */
@@ -92,17 +97,7 @@ export class ClubsService {
             this.loading.set(true);
             this.error.set(null);
             try {
-                const [clubs, courses] = await Promise.all([
-                    api.clubs.list(),
-                    api.courses.list(),
-                ]);
-                const counts = new Map<string, number>();
-                for (const course of courses) {
-                    counts.set(course.clubId, (counts.get(course.clubId) ?? 0) + 1);
-                }
-                this.clubs.set(
-                    clubs.map((club) => ({ ...club, courseCount: counts.get(club.id) ?? 0 })),
-                );
+                this.clubs.set(await api.clubs.list());
             } catch (err) {
                 this.error.set(
                     failureMessage(err, 'Could not load the clubs. Check your connection and try again.'),

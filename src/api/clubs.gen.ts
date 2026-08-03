@@ -1,6 +1,14 @@
 // GENERATED — DO NOT EDIT
 import { apiFetch } from '@basics/core/client/fetch';
 
+export interface ClubListItem {
+    id: string;
+    name: string;
+    location: null | string;
+    logoUrl: null | string;
+    courseCount: number;
+}
+
 export interface Club {
     id: string;
     name: string;
@@ -9,7 +17,7 @@ export interface Club {
 }
 
 export interface ClubsApi {
-    list(): Promise<Club[]>;
+    list(): Promise<ClubListItem[]>;
     get(input: { id: string }): Promise<null | Club>;
     create(input: { name: string; location?: null | string; logoUrl?: null | string }): Promise<Club>;
     update(input: { id: string; name?: string; location?: null | string; logoUrl?: null | string }): Promise<Club>;

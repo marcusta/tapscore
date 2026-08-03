@@ -2,6 +2,56 @@
 
 import Foundation
 
+struct ClubListItem: Codable, Sendable, Equatable {
+    var id: String
+    var name: String
+    var location: String?
+    var logoUrl: String?
+    var courseCount: Double
+
+    enum CodingKeys: String, CodingKey {
+        case id = "id"
+        case name = "name"
+        case location = "location"
+        case logoUrl = "logoUrl"
+        case courseCount = "courseCount"
+    }
+
+    init(id: String, name: String, location: String? = nil, logoUrl: String? = nil, courseCount: Double) {
+        self.id = id
+        self.name = name
+        self.location = location
+        self.logoUrl = logoUrl
+        self.courseCount = courseCount
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
+        self.name = try c.decode(String.self, forKey: .name)
+        self.location = try c.decodeIfPresent(String.self, forKey: .location)
+        self.logoUrl = try c.decodeIfPresent(String.self, forKey: .logoUrl)
+        self.courseCount = try c.decode(Double.self, forKey: .courseCount)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        if let location {
+            try c.encode(location, forKey: .location)
+        } else {
+            try c.encodeNil(forKey: .location)
+        }
+        if let logoUrl {
+            try c.encode(logoUrl, forKey: .logoUrl)
+        } else {
+            try c.encodeNil(forKey: .logoUrl)
+        }
+        try c.encode(courseCount, forKey: .courseCount)
+    }
+}
+
 struct Club: Codable, Sendable, Equatable {
     var id: String
     var name: String

@@ -7,6 +7,7 @@ import { RowEditController } from '../ui/row-edit';
 import { closeOnEscape, destructiveConfirm } from '../ui/confirm';
 import { ClubsService, type ClubRow } from './clubs.service';
 import { ClubFieldsComponent } from './club-fields.component';
+import { CoursesComponent } from './courses.component';
 import {
     DELETE_CONSEQUENCE_UNKNOWN,
     deleteConsequence,
@@ -18,8 +19,8 @@ import {
 import { CLUBS_PATH, CLUB_ROUTE } from './routes';
 
 /*
- * One club: its fields, editable in place, and — from T5 — the courses under it
- * (spec §3.2, §3.3). Deep-linkable at `/courses/clubs/<id>`.
+ * One club: its fields, editable in place, and the courses under it (spec §3.2,
+ * §3.3). Deep-linkable at `/courses/clubs/<id>`.
  *
  * ── Why the edit state machine is `RowEditController` and not three signals ──
  *
@@ -101,13 +102,9 @@ const tpl = template(`
                 </form>
             </section>
 
-            <!--
-                T5 MOUNT POINT — the club's course list (spec §3.3 + §3.3a) goes
-                here: readiness badge from GET /courses/validate, create, edit
-                name/hole-count/coordinates, delete with confirm. Spawn the
-                course-list component into this host with the club id as a prop;
-                the breadcrumb published below is already the trail it extends.
-            -->
+            <!-- The club's courses (spec §3.3 + §3.3a). A component taking the
+                 club id as a prop, spawned below; it publishes no breadcrumb of
+                 its own, because the trail this page sets is already its. -->
             <div bind="coursesHost" class="mclub__courses"></div>
         </div>
 
@@ -395,6 +392,16 @@ export class ClubDetailComponent extends Component {
             errors: this.errors,
             busy: { get: () => this.saving() },
         });
+
+        // The club's courses. Spawned with the id read from the URL rather than
+        // with a signal: `$swap` tears this page down and rebuilds it on every
+        // route change, so the id is fixed for the life of the component. A
+        // bare `/courses/clubs` carries none and gets no list — `onMount` sends
+        // it back to the club list instead.
+        const clubId = this.clubId();
+        if (clubId !== '') {
+            this.spawn(CoursesComponent, this.ref(frag, 'coursesHost'), { clubId });
+        }
 
         this.spawn(
             ConfirmComponent,

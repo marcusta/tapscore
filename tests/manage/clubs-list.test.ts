@@ -4,7 +4,7 @@ import { ApiError } from '@basics/core/client/api-error';
 import { di, Router } from '@basics/core/client/core';
 import { BASE_PATH } from '@basics/core/client/base';
 import { mount, press } from './harness';
-import type { Club } from '../../src/api/clubs.gen';
+import type { ClubListItem } from '../../src/api/clubs.gen';
 
 // The Courses section's landing screen, through the shared primitives: rows and
 // actions come from `ManageTableComponent`, the delete question from
@@ -13,15 +13,12 @@ import type { Club } from '../../src/api/clubs.gen';
 // where a refused write ends up — not the table's own structure, which
 // manage-table.test.ts already covers.
 
-type CourseRow = { id: string; clubId: string };
-
 const state: {
-    clubs: Club[];
-    courses: CourseRow[];
+    clubs: ClubListItem[];
     created: unknown[];
     removed: string[];
     failWith: unknown;
-} = { clubs: [], courses: [], created: [], removed: [], failWith: null };
+} = { clubs: [], created: [], removed: [], failWith: null };
 
 function raise(): void {
     if (state.failWith === null) return;
@@ -51,7 +48,13 @@ const apiMock = {
         create: mock(async (input: { name: string }) => {
             raise();
             state.created.push(input);
-            const club: Club = { id: 'new', name: input.name, location: null, logoUrl: null };
+            const club: ClubListItem = {
+                id: 'new',
+                name: input.name,
+                location: null,
+                logoUrl: null,
+                courseCount: 0,
+            };
             state.clubs = [...state.clubs, club];
             return club;
         }),
@@ -64,7 +67,6 @@ const apiMock = {
             return { ok: true };
         }),
     },
-    courses: { list: mock(async () => state.courses) },
 };
 
 mock.module('../../manage/api', () => ({ api: apiMock, API_BASE: '/api', ApiError }));
@@ -77,13 +79,20 @@ let open: { destroy(): void } | null = null;
 
 beforeEach(() => {
     state.clubs = [
-        { id: 'c1', name: 'Linköpings GK', location: 'Linköping', logoUrl: null },
-        { id: 'c2', name: 'Vreta Kloster GK', location: 'Ljungsbro', logoUrl: null },
-    ];
-    state.courses = [
-        { id: 'k1', clubId: 'c1' },
-        { id: 'k2', clubId: 'c1' },
-        { id: 'k3', clubId: 'c2' },
+        {
+            id: 'c1',
+            name: 'Linköpings GK',
+            location: 'Linköping',
+            logoUrl: null,
+            courseCount: 2,
+        },
+        {
+            id: 'c2',
+            name: 'Vreta Kloster GK',
+            location: 'Ljungsbro',
+            logoUrl: null,
+            courseCount: 1,
+        },
     ];
     state.created = [];
     state.removed = [];

@@ -11,8 +11,8 @@ import XCTest
 /// that can drift apart.
 enum CreateStubs {
     static let clubs = """
-    [{"id":"club-1","name":"Linköpings GK","location":null,"logoUrl":null},
-     {"id":"club-2","name":"Norrköpings GK","location":null,"logoUrl":null}]
+    [{"id":"club-1","name":"Linköpings GK","location":null,"logoUrl":null,"courseCount":2},
+     {"id":"club-2","name":"Norrköpings GK","location":null,"logoUrl":null,"courseCount":1}]
     """
 
     static let courses = """

@@ -111,7 +111,10 @@ scroll containment on narrow screens.
 
 ### T7 — Tees editor (spec §3.5)
 Tee list, create/edit/delete, per-hole length grid with SI override, ratings
-per gender including the explicit unrated-gender state.
+per gender including the explicit unrated-gender state. Also owed from T5:
+the course list's tee-count column (spec §3.3) was deferred because no cheap
+read exists — add `teeCount` to the by-club course rows (same one-statement
+join pattern as `clubs.list()`'s `courseCount`) and surface the column.
 
 **T7-R:** the unrated-gender state is a real state (not zero-filled); update
 payload shape matches `UpdateTeeInput` (lengths + ratings together);

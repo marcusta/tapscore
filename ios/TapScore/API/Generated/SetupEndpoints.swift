@@ -1,7 +1,7 @@
 // GENERATED — DO NOT EDIT. bun run generate:swift
 
 enum SetupEndpoints {
-    static let clubs = APIEndpoint<EmptyInput, [Club]>(
+    static let clubs = APIEndpoint<EmptyInput, [ClubListItem]>(
         method: .get,
         path: "/setup/clubs",
         pathParams: [])

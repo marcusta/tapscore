@@ -70,7 +70,7 @@ final class ProfileStore {
     private(set) var phase: Phase = .loading
     private(set) var player: Player?
     private(set) var history: [HandicapEntry] = []
-    private(set) var clubs: [Club] = []
+    private(set) var clubs: [ClubListItem] = []
     /// Portable Club/Tournament/Beginner options. This catalogue read is
     /// optional: a profile without the selector is still a usable profile.
     private(set) var teeRoles: [TeeRole] = []
@@ -136,7 +136,7 @@ final class ProfileStore {
 
     /// The clubs the picker offers, name-sorted. The server returns insertion
     /// order; a home-club list is read alphabetically or not at all.
-    var sortedClubs: [Club] {
+    var sortedClubs: [ClubListItem] {
         clubs.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 

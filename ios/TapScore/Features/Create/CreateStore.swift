@@ -281,7 +281,7 @@ final class CreateStore {
 
     private(set) var loading = false
     private(set) var loadError: String?
-    private(set) var clubs: [Club] = []
+    private(set) var clubs: [ClubListItem] = []
     private(set) var courses: [SetupCourse] = []
     private(set) var tees: [Tee] = []
     private(set) var catalog = FormatCatalog()

@@ -51,8 +51,8 @@ final class ProfileStoreTests: XCTestCase {
     }
 
     private static let clubsJSON = """
-    [{"id":"club-2","name":"Vadstena GK","location":"Vadstena","logoUrl":null},
-     {"id":"club-1","name":"Linköpings GK","location":"Linköping","logoUrl":null}]
+    [{"id":"club-2","name":"Vadstena GK","location":"Vadstena","logoUrl":null,"courseCount":1},
+     {"id":"club-1","name":"Linköpings GK","location":"Linköping","logoUrl":null,"courseCount":2}]
     """
 
     private static let teeRolesJSON = """

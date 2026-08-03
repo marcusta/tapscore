@@ -15,6 +15,21 @@ export interface Club {
     logoUrl: string | null;
 }
 
+/**
+ * A club as the catalog LIST states it: the club, plus how many courses sit
+ * under it.
+ *
+ * The count rides on the row rather than living behind its own endpoint
+ * (manage-ui.md §3.2). It is what tells a course admin whether a club is worth
+ * opening, and it is the figure the delete consequence states — so it must come
+ * from the same moment as the row it annotates. A separate count call, or the
+ * client-side join over `GET /courses` that preceded this, could disagree with
+ * the list by a write.
+ */
+export interface ClubListItem extends Club {
+    courseCount: number;
+}
+
 export interface CreateClubInput {
     name: string;
     location?: string | null;
@@ -47,6 +62,30 @@ export class ClubService {
 
     private clubs() {
         return this.db.selectFrom('clubs').selectAll();
+    }
+
+    /**
+     * Every club with the number of courses under it, in one statement.
+     *
+     * A LEFT join — an inner one would drop a club that has no courses yet,
+     * which is exactly the club a course admin has just created and is looking
+     * for. `count(courses.id)` rather than `count(*)`: on the unmatched side of
+     * a left join `courses.id` is null and counts as zero, while `count(*)`
+     * would count the padding row and report 1.
+     */
+    private clubsWithCourseCounts() {
+        return this.db
+            .selectFrom('clubs')
+            .leftJoin('courses', 'courses.club_id', 'clubs.id')
+            .select(({ fn }) => [
+                'clubs.id as id',
+                'clubs.name as name',
+                'clubs.location as location',
+                'clubs.logo_url as logo_url',
+                fn.count<number>('courses.id').as('course_count'),
+            ])
+            .groupBy(['clubs.id', 'clubs.name', 'clubs.location', 'clubs.logo_url'])
+            .orderBy('clubs.name');
     }
 
     private byId(id: string) {
@@ -88,9 +127,18 @@ export class ClubService {
 
     // --- Methods ---
 
-    async list(): Promise<Club[]> {
-        const rows = await this.clubs().orderBy('name').execute();
-        return rows.map(toClub);
+    async list(): Promise<ClubListItem[]> {
+        const rows = await this.clubsWithCourseCounts().execute();
+        return rows.map((row) => ({
+            id: row.id,
+            name: row.name,
+            location: row.location,
+            logoUrl: row.logo_url,
+            // SQLite hands `count()` back as an integer, but the driver's type
+            // is wide enough to be a string on other dialects; normalise once
+            // here rather than in every consumer.
+            courseCount: Number(row.course_count),
+        }));
     }
 
     async getById(id: string): Promise<Club | null> {

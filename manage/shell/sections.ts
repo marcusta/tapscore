@@ -2,7 +2,8 @@ import type { Component } from '@basics/core/client/core';
 import type { ManageRolesService } from '../roles/roles.service';
 import { ClubsComponent } from '../courses/clubs.component';
 import { ClubDetailComponent } from '../courses/club-detail.component';
-import { CLUBS_PATH, CLUB_PATH_PREFIX } from '../courses/routes';
+import { CourseDetailComponent } from '../courses/course-detail.component';
+import { CLUBS_PATH, CLUB_PATH_PREFIX, COURSE_PATH_PREFIX } from '../courses/routes';
 
 type ComponentCtor = new () => Component<any>;
 
@@ -45,8 +46,14 @@ export const SECTIONS: ManageSection[] = [
             [CLUBS_PATH]: ClubsComponent,
             // Registered as a prefix: `$swap` falls back to the longest key the
             // route starts with, so this one key serves every
-            // `/courses/clubs/<id>`. T5 adds '/courses/courses' beside it.
+            // `/courses/clubs/<id>`.
             [CLUB_PATH_PREFIX]: ClubDetailComponent,
+            // The course page sits under its OWN static prefix rather than
+            // inside the club's, because prefix matching is literal and
+            // `/courses/clubs/<club>/courses/<course>` would resolve to the
+            // club page above — see the note in `routes.ts`. T6–T8's tabs hang
+            // off this same key.
+            [COURSE_PATH_PREFIX]: CourseDetailComponent,
         },
         // `CourseManagementAuthz` on the server: unscoped course_admin, with
         // super_admin as its deliberate superset.

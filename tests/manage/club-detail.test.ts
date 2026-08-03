@@ -3,16 +3,17 @@ import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { ApiError } from '@basics/core/client/api-error';
 import { di, Router } from '@basics/core/client/core';
 import { mount } from './harness';
-import type { Club } from '../../src/api/clubs.gen';
+import type { ClubListItem } from '../../src/api/clubs.gen';
+import type { Course } from '../../src/api/courses.gen';
 
 // The club page: the one place a club's three fields are edited (spec §3.2),
-// deep-linkable, and the trail it publishes for the shell's breadcrumb.
-
-type CourseRow = { id: string; clubId: string };
+// deep-linkable, and the trail it publishes for the shell's breadcrumb. It also
+// MOUNTS the course list (spec §3.3), so the api mock has to answer for courses
+// too — what that list does with the answers is courses-list.test.ts's business.
 
 const state: {
-    clubs: Club[];
-    courses: CourseRow[];
+    clubs: ClubListItem[];
+    courses: Course[];
     updated: unknown[];
     removed: string[];
     failWith: unknown;
@@ -56,28 +57,57 @@ const apiMock = {
             return { ok: true };
         }),
     },
-    courses: { list: mock(async () => state.courses) },
+    courses: {
+        listByClub: mock(async () => state.courses),
+        validate: mock(async () => ({ ok: true, issues: [] })),
+        create: mock(async () => state.courses[0]!),
+        update: mock(async () => state.courses[0]!),
+        remove: mock(async () => ({ ok: true })),
+    },
 };
 
 mock.module('../../manage/api', () => ({ api: apiMock, API_BASE: '/api', ApiError }));
 
 const { ClubsService } = await import('../../manage/courses/clubs.service');
 const { ClubDetailComponent } = await import('../../manage/courses/club-detail.component');
+const { CoursesService } = await import('../../manage/courses/courses.service');
 const { BreadcrumbService } = await import('../../manage/shell/breadcrumb.service');
+
+function course(over: Partial<Course> = {}): Course {
+    return {
+        id: 'k1',
+        clubId: 'c1',
+        name: 'Old course',
+        holeCount: 18,
+        latitude: null,
+        longitude: null,
+        holes: [],
+        ...over,
+    };
+}
 
 let open: { destroy(): void } | null = null;
 
 beforeEach(() => {
-    state.clubs = [{ id: 'c1', name: 'Linköpings GK', location: 'Linköping', logoUrl: null }];
+    state.clubs = [
+        {
+            id: 'c1',
+            name: 'Linköpings GK',
+            location: 'Linköping',
+            logoUrl: null,
+            courseCount: 2,
+        },
+    ];
     state.courses = [
-        { id: 'k1', clubId: 'c1' },
-        { id: 'k2', clubId: 'c1' },
+        course({ id: 'k1', name: 'Old course' }),
+        course({ id: 'k2', name: 'New course' }),
     ];
     state.updated = [];
     state.removed = [];
     state.failWith = null;
     gate = null;
     apiMock.clubs.remove.mockClear();
+    apiMock.courses.listByClub.mockClear();
     di.reset();
 });
 
@@ -95,6 +125,7 @@ async function page(route = '/courses/clubs/c1') {
     router.navigate(route);
     const clubs = new ClubsService();
     di.set(ClubsService, clubs);
+    di.set(CoursesService, new CoursesService());
     const mounted = mount(new ClubDetailComponent());
     open = mounted;
     await clubs.load();
@@ -104,6 +135,14 @@ async function page(route = '/courses/clubs/c1') {
 
 const el = (host: HTMLElement, selector: string): HTMLElement =>
     host.querySelector(selector) as HTMLElement;
+
+/*
+ * The page and the course list under it each own a confirm dialog, so both are
+ * in the document at all times and only one is ever OPEN. Every query here is
+ * scoped to the open one — otherwise an assertion silently reads whichever
+ * dialog happens to have been appended first.
+ */
+const openDialog = (): HTMLElement => document.querySelector('.ui-confirm.open') as HTMLElement;
 
 const byText = (host: HTMLElement, selector: string, text: string): HTMLElement =>
     [...host.querySelectorAll(selector)].find(
@@ -127,9 +166,22 @@ test('a deep link renders the club, its facts and what it holds', async () => {
     ]);
 });
 
+test('the courses list is mounted under the club, fetching by club id', async () => {
+    const { host } = await page();
+
+    // The seam T5 hangs off: a component with a club id prop, not a route. What
+    // it renders is courses-list.test.ts's business — what matters here is that
+    // the club page mounts it and hands it the club it is showing.
+    expect(el(host, '.mcourses')).toBeTruthy();
+    expect(apiMock.courses.listByClub).toHaveBeenCalledWith({ clubId: 'c1' });
+    // And the page still owns the trail — the list appends nothing of its own.
+    expect(di.get(BreadcrumbService).crumbs.get().length).toBe(2);
+});
+
 test('an unknown id says so only after the load has answered', async () => {
     const clubs = new ClubsService();
     di.set(ClubsService, clubs);
+    di.set(CoursesService, new CoursesService());
     di.get(Router).navigate('/courses/clubs/nope');
     const mounted = mount(new ClubDetailComponent());
     open = mounted;
@@ -215,11 +267,11 @@ test('deleting confirms with the count, then leaves for the list', async () => {
     const { host, router } = await page();
     byText(host, 'button', 'Delete club').click();
 
-    const message = el(document.body, '.ui-confirm__message').textContent!;
+    const message = el(openDialog(), '.ui-confirm__message').textContent!;
     expect(message).toContain('Linköpings GK leaves the catalog.');
     expect(message).toContain('It has 2 courses.');
 
-    (document.querySelector('.ui-confirm__btn--danger') as HTMLButtonElement).click();
+    (openDialog().querySelector('.ui-confirm__btn--danger') as HTMLButtonElement).click();
     await settle();
 
     expect(state.removed).toEqual(['c1']);
@@ -231,7 +283,7 @@ test('a refused delete keeps the page and shows what the server said', async () 
     state.failWith = new ApiError(409, '2 courses still belong to this club. Delete them first.');
 
     byText(host, 'button', 'Delete club').click();
-    (document.querySelector('.ui-confirm__btn--danger') as HTMLButtonElement).click();
+    (openDialog().querySelector('.ui-confirm__btn--danger') as HTMLButtonElement).click();
     await settle();
 
     expect(el(host, '[bind="deleteError"]').textContent).toBe(
@@ -246,7 +298,7 @@ test('a delete in flight says so on the button it was fired from', async () => {
     gate = deferred();
 
     byText(host, 'button', 'Delete club').click();
-    (document.querySelector('.ui-confirm__btn--danger') as HTMLButtonElement).click();
+    (openDialog().querySelector('.ui-confirm__btn--danger') as HTMLButtonElement).click();
     await settle();
 
     // The dialog closes on confirm, so without this the page looks idle while
@@ -271,7 +323,7 @@ test('a refused delete hands the button back rather than leaving it inert', asyn
     state.failWith = new ApiError(409, '2 courses still belong to this club. Delete them first.');
 
     byText(host, 'button', 'Delete club').click();
-    (document.querySelector('.ui-confirm__btn--danger') as HTMLButtonElement).click();
+    (openDialog().querySelector('.ui-confirm__btn--danger') as HTMLButtonElement).click();
     await settle();
 
     const remove = el(host, '[bind="remove"]') as HTMLButtonElement;

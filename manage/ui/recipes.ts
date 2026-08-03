@@ -93,6 +93,66 @@ export const fieldError = (): string => `
 `;
 
 /**
+ * A TRACK SEGMENTED CONTROL: the control a bounded two-way choice gets
+ * (docs/design-guidelines.md §1 — "2 options, short labels"), and the shape a
+ * course's 9-or-18 hole count is picked with.
+ *
+ * The anatomy is the player app's, deliberately identical to `.pfield__seg` in
+ * `src/profile/profile.component.ts` and `.fslot__seg` in the create flow: one
+ * SUNKEN track with a hairline border and a pill radius, transparent muted
+ * options inside it, and the live option raised — `surface` fill, hairline
+ * border, `text` colour, heavier weight. Selection reads by ELEVATION, never by
+ * saturation: a solid fill is the primary action's treatment, and a knob that
+ * records a preference must not look like the Save button next to it
+ * (design-guidelines §2).
+ *
+ * Deliberately NOT built on `btn()` — that recipe emits the full-bleed slab
+ * sizing this replaces. The track sizes to its labels, so a field whose options
+ * are all short puts the label and the track on one row.
+ *
+ * The Manage addition is the touch floor: options are still 44px tall, because
+ * density here comes from spacing and never from smaller hit areas (spec §2.5).
+ */
+export const segmented = (): string => `
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid ${t('border')};
+    border-radius: ${t('radius-pill')};
+    background: ${t('surface-sunken')};
+    align-self: flex-start;
+
+    & button {
+        appearance: none;
+        border: 1px solid transparent;
+        background: none;
+        min-height: ${t('manage-touch-target')};
+        padding: 0 ${s('lg')};
+        border-radius: ${t('radius-pill')};
+        font-family: inherit;
+        font-size: 0.9rem;
+        font-weight: 500;
+        color: ${t('text-muted')};
+        cursor: pointer;
+        white-space: nowrap;
+
+        &:hover { color: ${t('text')}; }
+        &:focus-visible { outline: 2px solid ${t('accent-strong')}; outline-offset: 2px; }
+
+        /* The live option. \`aria-pressed\` is the state an assistive
+           technology reads; this class is the same fact for the eye. */
+        &[aria-pressed='true'] {
+            background: ${t('surface')};
+            border-color: ${t('border')};
+            color: ${t('text')};
+            font-weight: 700;
+        }
+
+        &:disabled { opacity: 0.5; cursor: default; }
+    }
+`;
+
+/**
  * The editing-grid container (spec §2.5): a wide grid — 18 holes across, tee
  * lengths per hole — scrolls INSIDE ITS OWN BOX, so the page body never scrolls
  * sideways and the shell chrome never moves.

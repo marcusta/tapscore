@@ -1,34 +1,29 @@
 import './harness';
 import { beforeEach, expect, mock, test } from 'bun:test';
 import { ApiError } from '@basics/core/client/api-error';
-import type { Club } from '../../src/api/clubs.gen';
+import type { ClubListItem } from '../../src/api/clubs.gen';
 
 // `ClubsService` — the Courses section's read/write port (spec §3.2). Same
 // harness as the other service tests in this repo: mock the app's api module,
 // then import the subject.
 //
 // Three things are worth testing here and are tested nowhere else: the course
-// count is a CLIENT-side join over two open reads (no count endpoint exists),
-// every write refetches so the list cannot drift from the server, and a
-// refused write hands back the SERVER's sentence rather than a house message —
-// which is the whole point of the delete-reference guards.
-
-type CourseRow = { id: string; clubId: string };
+// count rides on the club ROW (one statement server-side — the client neither
+// fetches the catalog nor joins it), every write refetches so the list cannot
+// drift from the server, and a refused write hands back the SERVER's sentence
+// rather than a house message — which is the whole point of the
+// delete-reference guards.
 
 const state: {
-    clubs: Club[];
-    courses: CourseRow[];
+    clubs: ClubListItem[];
     clubListCalls: number;
-    courseListCalls: number;
     created: unknown[];
     updated: unknown[];
     removed: string[];
     failWith: unknown;
 } = {
     clubs: [],
-    courses: [],
     clubListCalls: 0,
-    courseListCalls: 0,
     created: [],
     updated: [],
     removed: [],
@@ -52,7 +47,13 @@ const apiMock = {
         create: mock(async (input: { name: string }) => {
             raise();
             state.created.push(input);
-            const club: Club = { id: 'new', name: input.name, location: null, logoUrl: null };
+            const club: ClubListItem = {
+                id: 'new',
+                name: input.name,
+                location: null,
+                logoUrl: null,
+                courseCount: 0,
+            };
             state.clubs = [...state.clubs, club];
             return club;
         }),
@@ -71,12 +72,6 @@ const apiMock = {
             return { ok: true };
         }),
     },
-    courses: {
-        list: mock(async () => {
-            state.courseListCalls += 1;
-            return state.courses;
-        }),
-    },
 };
 
 mock.module('../../manage/api', () => ({ api: apiMock, API_BASE: '/api', ApiError }));
@@ -84,39 +79,43 @@ mock.module('../../manage/api', () => ({ api: apiMock, API_BASE: '/api', ApiErro
 const { ClubsService, filterClubs } = await import('../../manage/courses/clubs.service');
 type ClubRow = import('../../manage/courses/clubs.service').ClubRow;
 
-function club(over: Partial<Club> = {}): Club {
-    return { id: 'c1', name: 'Linköpings GK', location: 'Linköping', logoUrl: null, ...over };
+function club(over: Partial<ClubListItem> = {}): ClubListItem {
+    return {
+        id: 'c1',
+        name: 'Linköpings GK',
+        location: 'Linköping',
+        logoUrl: null,
+        courseCount: 0,
+        ...over,
+    };
 }
 
 function row(over: Partial<ClubRow> = {}): ClubRow {
-    return { ...club(), courseCount: 0, ...over };
+    return { ...club(), ...over };
 }
 
 beforeEach(() => {
     state.clubs = [
-        club({ id: 'c1', name: 'Linköpings GK', location: 'Linköping' }),
-        club({ id: 'c2', name: 'Vreta Kloster GK', location: 'Ljungsbro' }),
-        club({ id: 'c3', name: 'Sweden Indoor Golf', location: null }),
-    ];
-    state.courses = [
-        { id: 'k1', clubId: 'c1' },
-        { id: 'k2', clubId: 'c1' },
-        { id: 'k3', clubId: 'c2' },
+        club({ id: 'c1', name: 'Linköpings GK', location: 'Linköping', courseCount: 2 }),
+        club({ id: 'c2', name: 'Vreta Kloster GK', location: 'Ljungsbro', courseCount: 1 }),
+        club({ id: 'c3', name: 'Sweden Indoor Golf', location: null, courseCount: 0 }),
     ];
     state.clubListCalls = 0;
-    state.courseListCalls = 0;
     state.created = [];
     state.updated = [];
     state.removed = [];
     state.failWith = null;
 });
 
-test('the course count is joined client-side, because no count endpoint exists', async () => {
+test('the course count arrives on the club row — ONE request, no client-side join', async () => {
     const svc = new ClubsService();
     await svc.load();
 
+    // The whole list costs one statement's worth of network. An earlier cut
+    // fetched every course in the catalog to count them per club; the count is
+    // now a GROUP BY in `ClubService.list`, so nothing here recomputes it.
     expect(state.clubListCalls).toBe(1);
-    expect(state.courseListCalls).toBe(1);
+    expect(apiMock.clubs.list.mock.calls.length).toBeGreaterThan(0);
     expect(svc.clubs.get().map((c) => [c.id, c.courseCount])).toEqual([
         ['c1', 2],
         ['c2', 1],

@@ -1,11 +1,12 @@
 // GENERATED — DO NOT EDIT
 import { apiFetch } from '@basics/core/client/fetch';
 
-export interface Club {
+export interface ClubListItem {
     id: string;
     name: string;
     location: null | string;
     logoUrl: null | string;
+    courseCount: number;
 }
 
 export interface SetupCourse {
@@ -175,7 +176,7 @@ export interface MetadataApplies {
 }
 
 export interface SetupApi {
-    clubs(): Promise<Club[]>;
+    clubs(): Promise<ClubListItem[]>;
     courses(): Promise<SetupCourse[]>;
     teesByCourse(input: { courseId: string }): Promise<Tee[]>;
     teeRoleCatalog(): Promise<TeeRole[]>;
