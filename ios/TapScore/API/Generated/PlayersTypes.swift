@@ -183,17 +183,20 @@ struct PlayersUpdateProfileInput: Codable, Sendable, Equatable {
     var displayName: String?
     var gender: TriState<PlayerGender>
     var homeClubId: TriState<String>
+    var preferredTeeRoleKey: TriState<String>
 
     enum CodingKeys: String, CodingKey {
         case displayName = "displayName"
         case gender = "gender"
         case homeClubId = "homeClubId"
+        case preferredTeeRoleKey = "preferredTeeRoleKey"
     }
 
-    init(displayName: String? = nil, gender: TriState<PlayerGender> = .absent, homeClubId: TriState<String> = .absent) {
+    init(displayName: String? = nil, gender: TriState<PlayerGender> = .absent, homeClubId: TriState<String> = .absent, preferredTeeRoleKey: TriState<String> = .absent) {
         self.displayName = displayName
         self.gender = gender
         self.homeClubId = homeClubId
+        self.preferredTeeRoleKey = preferredTeeRoleKey
     }
 
     init(from decoder: any Decoder) throws {
@@ -213,6 +216,13 @@ struct PlayersUpdateProfileInput: Codable, Sendable, Equatable {
         } else {
             self.homeClubId = .absent
         }
+        if c.contains(.preferredTeeRoleKey) {
+            self.preferredTeeRoleKey = try c.decodeNil(forKey: .preferredTeeRoleKey)
+                ? .null
+                : .value(try c.decode(String.self, forKey: .preferredTeeRoleKey))
+        } else {
+            self.preferredTeeRoleKey = .absent
+        }
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -227,6 +237,11 @@ struct PlayersUpdateProfileInput: Codable, Sendable, Equatable {
         case .absent: break
         case .null: try c.encodeNil(forKey: .homeClubId)
         case .value(let v): try c.encode(v, forKey: .homeClubId)
+        }
+        switch preferredTeeRoleKey {
+        case .absent: break
+        case .null: try c.encodeNil(forKey: .preferredTeeRoleKey)
+        case .value(let v): try c.encode(v, forKey: .preferredTeeRoleKey)
         }
     }
 }

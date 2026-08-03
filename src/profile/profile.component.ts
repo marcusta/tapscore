@@ -73,6 +73,17 @@ const tpl = template(`
             </section>
 
             <section class="profile__card">
+                <div class="profile__label-row">
+                    <span class="profile__label">Preferred tee</span>
+                    <button bind="teeRoleInfo" class="profile__info" type="button"
+                        aria-label="How preferred tee works" aria-expanded="false">(i)</button>
+                </div>
+                <div bind="teeRole" class="profile__genderseg profile__tee-role"></div>
+                <p bind="teeRoleExplain" class="profile__hint profile__tee-explain"></p>
+                <p bind="teeRoleErr" class="profile__err"></p>
+            </section>
+
+            <section class="profile__card">
                 <span class="profile__label">Home club</span>
                 <div bind="club" class="profile__club"></div>
                 <p class="profile__hint">Shown next to your name when someone searches for you — how they tell you from the other John Smith.</p>
@@ -280,6 +291,13 @@ export class ProfileComponent extends Component {
                     text-transform: uppercase; letter-spacing: 0.06em;
                     color: ${t('text-muted')};
                 }
+                & .profile__label-row { display: flex; align-items: baseline; gap: ${s('xs')}; }
+                & .profile__info {
+                    ${btn()}
+                    padding: 0; min-width: 0; border: 0; background: transparent;
+                    color: ${t('text-muted')}; font: inherit; font-weight: 700;
+                    &:hover { color: ${t('text')}; }
+                }
                 & .profile__hcp-row {
                     display: flex; align-items: center; gap: ${s('md')};
                     margin-top: ${s('sm')};
@@ -313,6 +331,7 @@ export class ProfileComponent extends Component {
                 }
 
                 & .profile__gender-row { margin-top: ${s('sm')}; }
+                & .profile__tee-explain.hidden { display: none; }
                 & .profile__genderseg {
                     display: flex;
                     gap: ${s('xs')};
@@ -327,6 +346,13 @@ export class ProfileComponent extends Component {
                         &.on { background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')}; }
                         &:disabled { opacity: 0.5; cursor: default; }
                     }
+                }
+                /* The catalogue is data-backed. Four initial choices fit on
+                   one line where possible, and later roles wrap instead of
+                   making the profile horizontally scroll. */
+                & .profile__tee-role {
+                    flex-wrap: wrap;
+                    & button { flex: 1 1 7rem; }
                 }
             }
 
@@ -484,6 +510,7 @@ export class ProfileComponent extends Component {
     private nameDraft = new Signal('');
     private nameEditing = new Signal(false);
     private nameErr = new Signal('');
+    private teeRoleInfoOpen = new Signal(false);
 
     render(): DocumentFragment {
         if (this.auth.currentUser.get()) void this.svc.load();
@@ -627,6 +654,20 @@ export class ProfileComponent extends Component {
             genderErr: {
                 textContent: () => this.svc.saveError.get()?.message || '',
             },
+            teeRoleInfo: {
+                'aria-expanded': () => String(this.teeRoleInfoOpen.get()),
+                onclick: () => this.teeRoleInfoOpen.set(!this.teeRoleInfoOpen.get()),
+            },
+            teeRoleExplain: {
+                textContent: () =>
+                    'Choose Club, Tournament or Beginner for the tee type you normally play. It pre-fills your own gender’s round tee only when the selected course has a matching tee. Otherwise the course default applies. The organiser can change the round defaults, and any player’s tee can still be overridden.',
+                className: () => this.teeRoleInfoOpen.get()
+                    ? 'profile__hint profile__tee-explain'
+                    : 'profile__hint profile__tee-explain hidden',
+            },
+            teeRoleErr: {
+                textContent: () => this.svc.saveError.get()?.message || '',
+            },
             clubErr: {
                 textContent: () => this.svc.saveError.get()?.message || '',
             },
@@ -743,6 +784,32 @@ export class ProfileComponent extends Component {
                     track,
                 ),
             (opt) => opt.label,
+        );
+
+        // Four permanently-visible, short choices (including clear) follow
+        // the bounded-choice rule. Roles come from the global catalogue so a
+        // later role can appear without another profile schema change.
+        this.$each(
+            this.ref(frag, 'teeRole'),
+            () => [
+                { value: null as string | null, label: 'No preference' },
+                ...this.svc.teeRoles.get().map((role) => ({ value: role.roleKey, label: role.displayName })),
+            ],
+            (opt, _i, track) =>
+                this.wireEl(
+                    template(`<button bind="b" type="button"></button>`),
+                    {
+                        b: {
+                            textContent: () => opt.label,
+                            className: () =>
+                                this.svc.player.get()?.preferredTeeRoleKey === opt.value ? 'on' : '',
+                            disabled: () => this.svc.saving.get(),
+                            onclick: () => void this.svc.savePreferredTeeRole(opt.value),
+                        },
+                    },
+                    track,
+                ),
+            (opt) => opt.value ?? 'none',
         );
 
         // Home club picker. Like gender, it saves on pick — no separate Save.

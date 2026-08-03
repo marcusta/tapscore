@@ -35,6 +35,7 @@ struct ProfileView: View {
     /// shell's `NavigationStack` and inside a plain `.sheet` from
     /// `AccountSheetView`, and a link would be inert in the second.
     @State private var dashboardOpen = false
+    @State private var teeRoleInfoOpen = false
     @State private var nameDraft = ""
     @State private var editingName = false
     @FocusState private var nameFocused: Bool
@@ -112,6 +113,9 @@ struct ProfileView: View {
         .sheet(isPresented: $dashboardOpen) {
             StatsDashboardView()
         }
+        .sheet(isPresented: $teeRoleInfoOpen) {
+            preferredTeeInfoSheet
+        }
     }
 
     // MARK: - Chrome
@@ -155,6 +159,7 @@ struct ProfileView: View {
     private func body(of store: ProfileStore) -> some View {
         identity(store)
         genderCard(store)
+        preferredTeeCard(store)
         clubCard(store)
         handicapCard(store)
         if let refreshError = store.refreshError {
@@ -357,6 +362,112 @@ struct ProfileView: View {
         // vanish. The web dims its disabled controls the same way.
         .opacity(store.isSaving ? 0.5 : 1)
         .accessibilityIdentifier(identifier)
+    }
+
+    // MARK: - Preferred tee
+
+    /// Four short bounded choices, displayed as chips rather than a dropdown.
+    /// The catalogue is global, while the resulting tee box is course-specific;
+    /// that is why this card saves a role key and never a tee colour or id.
+    private func preferredTeeCard(_ store: ProfileStore) -> some View {
+        TapCard {
+            VStack(alignment: .leading, spacing: TapSpacing.sm) {
+                HStack(alignment: .firstTextBaseline, spacing: TapSpacing.xs) {
+                    Text("Preferred tee")
+                        .font(TapFont.ui(size: 11.2, weight: .bold))
+                        .tracking(11.2 * 0.06)
+                        .foregroundStyle(TapColors.textMuted)
+                        .textCase(.uppercase)
+                    Button("(i)") { teeRoleInfoOpen = true }
+                        .font(TapFont.ui(size: 11.2, weight: .bold))
+                        .foregroundStyle(TapColors.textMuted)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("How preferred tee works")
+                        .accessibilityIdentifier("profile-preferred-tee-info")
+                }
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 92), spacing: TapSpacing.sm)],
+                    alignment: .leading,
+                    spacing: TapSpacing.sm
+                ) {
+                    preferredTeeChip(
+                        store,
+                        title: "No preference",
+                        roleKey: nil,
+                        identifier: "profile-preferred-tee-none"
+                    )
+                    ForEach(store.teeRoles, id: \.roleKey) { role in
+                        preferredTeeChip(
+                            store,
+                            title: role.displayName,
+                            roleKey: role.roleKey,
+                            identifier: "profile-preferred-tee-\(role.roleKey)"
+                        )
+                    }
+                }
+                Text("Optional — choose the tee type you normally play.")
+                    .font(TapFont.ui(size: 12.8))
+                    .foregroundStyle(TapColors.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let error = store.teeRoleError {
+                    Text(error)
+                        .font(TapFont.ui(size: 13.6))
+                        .foregroundStyle(TapColors.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("profile-preferred-tee-error")
+                }
+            }
+            .padding(TapSpacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityIdentifier("profile-preferred-tee-card")
+    }
+
+    private func preferredTeeChip(
+        _ store: ProfileStore,
+        title: String,
+        roleKey: String?,
+        identifier: String
+    ) -> some View {
+        TapChip(
+            title: title,
+            isSelected: store.player?.preferredTeeRoleKey == roleKey,
+            action: { Task { await store.savePreferredTeeRole(roleKey) } }
+        )
+        .disabled(store.isSaving)
+        .opacity(store.isSaving ? 0.5 : 1)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private var preferredTeeInfoSheet: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: TapSpacing.md) {
+                TapCard {
+                    Text(ProfileCopy.preferredTeeInfo)
+                        .font(TapFont.ui(size: 14.4))
+                        .foregroundStyle(TapColors.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(TapSpacing.md)
+                }
+            }
+            .padding(TapSpacing.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(TapColors.bg)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack {
+                Text("Preferred tee")
+                    .font(TapFont.display(size: 20, weight: .bold))
+                    .foregroundStyle(TapColors.text)
+                Spacer(minLength: 0)
+                Button("Done") { teeRoleInfoOpen = false }
+                    .buttonStyle(.tap(.ghost))
+            }
+            .padding(.horizontal, TapSpacing.lg)
+            .padding(.vertical, TapSpacing.md)
+            .background(TapColors.bg)
+        }
+        .accessibilityIdentifier("profile-preferred-tee-info-sheet")
     }
 
     // MARK: - Home club
@@ -677,6 +788,8 @@ enum ProfileCopy {
         "Shown next to your name when someone searches for you — how they tell you from the other John Smith."
     static let handicapHint =
         "Maintained by you — each save is recorded below with its effective date."
+    static let preferredTeeInfo =
+        "Pick the type of tee you normally play: Club, Tournament or Beginner. When you create a round, it pre-fills the default tee for your gender only when the course has a matching tee. If there is no preference or no matching tee, the course’s standard default applies. The organiser can change the round defaults, and any player’s tee can still be overridden."
     /// The master switch's hint. It says the two things a player cannot infer
     /// from a switch: that answering happens DURING a round, and that turning
     /// it off keeps the module picks (spec §3 — the master exists so "off" is

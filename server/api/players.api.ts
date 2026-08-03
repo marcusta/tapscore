@@ -35,6 +35,7 @@ const UpdateProfileInput = Type.Object({
     displayName: Type.Optional(Type.String({ minLength: 1, pattern: '.*\\S.*' })),
     gender: Type.Optional(Type.Union([Gender, Type.Null()])),
     homeClubId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    preferredTeeRoleKey: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
 });
 
 // `q` is optional: a missing/empty query is a legal "no results yet" state

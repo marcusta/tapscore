@@ -26,14 +26,17 @@ final class ProfileStoreTests: XCTestCase {
         displayName: String = "Marcus Andersson",
         gender: String? = "M",
         homeClubId: String? = "club-1",
+        preferredTeeRoleKey: String? = nil,
         handicapIndex: String = "18.4"
     ) -> String {
         let genderJSON = gender.map { "\"\($0)\"" } ?? "null"
         let clubJSON = homeClubId.map { "\"\($0)\"" } ?? "null"
+        let teeRoleJSON = preferredTeeRoleKey.map { "\"\($0)\"" } ?? "null"
         return """
         {"id":"p-1","username":"marcus","displayName":"\(displayName)",
          "nickname":null,"avatarUrl":null,"homeClubId":\(clubJSON),
-         "handicapIndex":\(handicapIndex),"gender":\(genderJSON),"deletedAt":null}
+         "handicapIndex":\(handicapIndex),"gender":\(genderJSON),
+         "preferredTeeRoleKey":\(teeRoleJSON),"deletedAt":null}
         """
     }
 
@@ -50,6 +53,12 @@ final class ProfileStoreTests: XCTestCase {
     private static let clubsJSON = """
     [{"id":"club-2","name":"Vadstena GK","location":"Vadstena","logoUrl":null},
      {"id":"club-1","name":"Linköpings GK","location":"Linköping","logoUrl":null}]
+    """
+
+    private static let teeRolesJSON = """
+    [{"roleKey":"club","displayName":"Club","sortOrder":1},
+     {"roleKey":"tournament","displayName":"Tournament","sortOrder":2},
+     {"roleKey":"beginner","displayName":"Beginner","sortOrder":3}]
     """
 
     /// The three reads the screen opens with. `/players/me/handicap-history` is
@@ -81,12 +90,14 @@ final class ProfileStoreTests: XCTestCase {
         me: String = ProfileStoreTests.player(),
         history: String = "[]",
         clubs: String = ProfileStoreTests.clubsJSON,
+        teeRoles: String = ProfileStoreTests.teeRolesJSON,
         stats: String = ProfileStoreTests.statsConfig()
     ) {
         RoundStubURLProtocol.route("/players/me/handicap-history", history)
         RoundStubURLProtocol.route("/players/me/stats-config", method: "GET", stats)
         RoundStubURLProtocol.route("/players/me", method: "GET", me)
         RoundStubURLProtocol.route("/clubs", clubs)
+        RoundStubURLProtocol.route("/courses/tee-roles/catalog", method: "GET", teeRoles)
     }
 
     @MainActor
@@ -117,6 +128,7 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertEqual(store.history.count, 1)
         XCTAssertEqual(store.history.first?.source, .manual)
         XCTAssertEqual(store.clubs.count, 2)
+        XCTAssertEqual(store.teeRoles.map(\.roleKey), ["club", "tournament", "beginner"])
     }
 
     @MainActor
@@ -271,6 +283,42 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertTrue(body?["gender"] is NSNull, String(describing: body))
         XCTAssertFalse(body?.keys.contains("homeClubId") ?? true)
         XCTAssertNil(store.player?.gender)
+    }
+
+    // MARK: - 4. Preferred tee role — the TriState contract
+
+    @MainActor
+    func testSavingPreferredTeeRoleSendsOnlyThatKeyAndUpdatesTheSessionPlayer() async {
+        routeLoad()
+        RoundStubURLProtocol.route(
+            "/players/me/profile", Self.player(preferredTeeRoleKey: "tournament"))
+        var adopted: Player?
+        let store = makeStore(onProfileUpdated: { adopted = $0 })
+        await store.load()
+
+        await store.savePreferredTeeRole("tournament")
+
+        let body = lastBody("/players/me/profile")
+        XCTAssertEqual(body?["preferredTeeRoleKey"] as? String, "tournament")
+        XCTAssertFalse(body?.keys.contains("gender") ?? true)
+        XCTAssertFalse(body?.keys.contains("homeClubId") ?? true)
+        XCTAssertEqual(store.player?.preferredTeeRoleKey, "tournament")
+        XCTAssertEqual(adopted?.preferredTeeRoleKey, "tournament")
+        XCTAssertNil(store.teeRoleError)
+    }
+
+    @MainActor
+    func testClearingPreferredTeeRoleSendsAnExplicitNull() async {
+        routeLoad(me: Self.player(preferredTeeRoleKey: "club"))
+        RoundStubURLProtocol.route("/players/me/profile", Self.player(preferredTeeRoleKey: nil))
+        let store = makeStore()
+        await store.load()
+
+        await store.savePreferredTeeRole(nil)
+
+        let body = lastBody("/players/me/profile")
+        XCTAssertTrue(body?["preferredTeeRoleKey"] is NSNull, String(describing: body))
+        XCTAssertNil(store.player?.preferredTeeRoleKey)
     }
 
     @MainActor

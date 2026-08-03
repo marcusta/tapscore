@@ -3,10 +3,11 @@ import Observation
 
 /// The signed-in player's own profile, mirroring `src/profile/profile.service.ts`.
 ///
-/// Four editable facts and one append-only chain, and the split between them is
+/// Five editable facts and one append-only chain, and the split between them is
 /// the whole shape of this store:
 ///
-/// - **Display name, gender and home club** save through `POST /players/me/profile`.
+/// - **Display name, gender, preferred tee role and home club** save through
+///   `POST /players/me/profile`.
 ///   Gender and home club use `TriState`s: every untouched field is `.absent`,
 ///   never `.null`, which would clear it. That is why there is no generic
 ///   `saveProfile(...)` entry point that invites a caller to take a position on
@@ -41,6 +42,7 @@ final class ProfileStore {
     enum SaveTarget: Equatable {
         case displayName
         case gender
+        case teeRole
         case homeClub
         case handicap
         case stats
@@ -69,6 +71,9 @@ final class ProfileStore {
     private(set) var player: Player?
     private(set) var history: [HandicapEntry] = []
     private(set) var clubs: [Club] = []
+    /// Portable Club/Tournament/Beginner options. This catalogue read is
+    /// optional: a profile without the selector is still a usable profile.
+    private(set) var teeRoles: [TeeRole] = []
 
     /// The Statistics section's server truth — what the last successful GET or
     /// PUT returned. The section renders from THIS and never from a local
@@ -96,6 +101,7 @@ final class ProfileStore {
     // under the gender control, and the web showing it there is a bug worth not
     // porting.
     private(set) var genderError: String?
+    private(set) var teeRoleError: String?
     private(set) var displayNameError: String?
     private(set) var clubError: String?
     private(set) var handicapError: String?
@@ -148,13 +154,12 @@ final class ProfileStore {
         refreshError = nil
         statsError = nil
         roundsWithStats = nil
-        // A FIFTH read, and the only optional one: a one-row probe of
-        // `GET /players/me/stats` purely to learn whether there is a dashboard
-        // worth linking to. `try?` on purpose — this decides the visibility of
-        // one row, and a stats service that is down must not take the profile
-        // (gender, club, handicap chain) down with it. `limit: 1` because the
-        // rows are thrown away; only `roundsWithStats` is read, and only the
-        // first page carries it.
+        // Two optional reads: the portable tee-role catalogue and a one-row
+        // `GET /players/me/stats` probe that only decides whether to show the
+        // dashboard entry. Either may fail without hiding the profile's core
+        // facts. The probe uses `limit: 1` because its rows are thrown away;
+        // only `roundsWithStats` is read from its first page.
+        async let teeRoleCatalog = try? await api.send(CoursesEndpoints.teeRoleCatalog)
         async let statsProbe = try? await api.send(
             PlayerStatsEndpoints.myStats, PlayerStatsMyStatsInput(limit: 1, cursor: nil))
         do {
@@ -180,6 +185,7 @@ final class ProfileStore {
             player = loadedMe
             history = loadedHistory
             clubs = loadedClubs
+            teeRoles = await teeRoleCatalog ?? []
             statsConfig = StatsConfigForm(loadedConfig)
             roundsWithStats = await statsProbe?.roundsWithStats.map { Int($0) }
             phase = .ready
@@ -188,6 +194,7 @@ final class ProfileStore {
             // Its value is irrelevant on a failed load — there is no screen to
             // put a Statistics row on.
             _ = await statsProbe
+            _ = await teeRoleCatalog
             phase = Self.phase(for: error)
         }
     }
@@ -253,12 +260,39 @@ final class ProfileStore {
                 PlayersUpdateProfileInput(
                     displayName: nil,
                     gender: gender.map { .value($0) } ?? .null,
-                    homeClubId: .absent
+                    homeClubId: .absent,
+                    preferredTeeRoleKey: .absent
                 )
             )
             adopt(updated)
         } catch {
             genderError = APIErrorCopy.short(error)
+        }
+    }
+
+    // MARK: - Preferred tee role
+
+    /// Save the portable role (Club, Tournament or Beginner), or clear it.
+    /// A role deliberately carries no colour: the current course resolves it
+    /// to one of its own tee boxes when a round is created.
+    func savePreferredTeeRole(_ roleKey: String?) async {
+        guard saving == nil else { return }
+        saving = .teeRole
+        teeRoleError = nil
+        defer { saving = nil }
+        do {
+            let updated = try await api.send(
+                PlayersEndpoints.updateProfile,
+                PlayersUpdateProfileInput(
+                    displayName: nil,
+                    gender: .absent,
+                    homeClubId: .absent,
+                    preferredTeeRoleKey: roleKey.map { .value($0) } ?? .null
+                )
+            )
+            adopt(updated)
+        } catch {
+            teeRoleError = APIErrorCopy.short(error)
         }
     }
 
@@ -277,7 +311,8 @@ final class ProfileStore {
                 PlayersUpdateProfileInput(
                     displayName: nil,
                     gender: .absent,
-                    homeClubId: homeClubId.map { .value($0) } ?? .null
+                    homeClubId: homeClubId.map { .value($0) } ?? .null,
+                    preferredTeeRoleKey: .absent
                 )
             )
             adopt(updated)

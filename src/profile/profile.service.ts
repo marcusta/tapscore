@@ -3,6 +3,7 @@ import { request, type RequestError } from '@basics/core/client/request';
 import { api } from '../api';
 import type { HandicapEntry, Player } from '../api/players.gen';
 import type { Club } from '../api/clubs.gen';
+import type { TeeRole } from '../api/courses.gen';
 import {
     STATS_ALL_OFF,
     statsFormFromConfig,
@@ -27,6 +28,8 @@ export class ProfileService {
     readonly history = new Signal<HandicapEntry[]>([]);
     /** Home-club picker options; loaded lazily alongside the profile. */
     readonly clubs = new Signal<Club[]>([]);
+    /** Global portable tee-role choices, optional if the catalogue read fails. */
+    readonly teeRoles = new Signal<TeeRole[]>([]);
 
     readonly saving = new Signal(false);
     readonly saveError = new Signal<RequestError | null>(null);
@@ -79,6 +82,7 @@ export class ProfileService {
                 api.players.me(),
                 api.players.myHandicapHistory(),
                 api.clubs.list(),
+                api.courses.teeRoleCatalog().catch(() => []),
                 // The stats config rides along, but NOT on the same
                 // all-or-nothing terms as the other three: this service is a DI
                 // singleton the create flow also depends on for "Add me", so a
@@ -94,10 +98,11 @@ export class ProfileService {
             ]),
         );
         if (!data) return;
-        const [me, history, clubs, config, statsProbe] = data;
+        const [me, history, clubs, teeRoles, config, statsProbe] = data;
         this.player.set(me);
         this.history.set(history);
         this.clubs.set(clubs);
+        this.teeRoles.set(teeRoles);
         this.statsConfig.set(config ? statsFormFromConfig(config) : STATS_ALL_OFF);
         this.hasRecordedStats.set((statsProbe?.rounds.length ?? 0) > 0);
     }
@@ -106,6 +111,7 @@ export class ProfileService {
     clear(): void {
         this.player.set(null);
         this.history.set([]);
+        this.teeRoles.set([]);
         this.error.set(null);
         this.saveError.set(null);
         this.statsConfig.set(STATS_ALL_OFF);
@@ -177,6 +183,16 @@ export class ProfileService {
     async saveHomeClub(homeClubId: string | null): Promise<boolean> {
         const saved = await request(this.saving, this.saveError, () =>
             api.players.updateProfile({ homeClubId }),
+        );
+        if (!saved) return false;
+        this.player.set(saved);
+        return true;
+    }
+
+    /** Save or clear the player's portable Club/Tournament/Beginner intent. */
+    async savePreferredTeeRole(preferredTeeRoleKey: string | null): Promise<boolean> {
+        const saved = await request(this.saving, this.saveError, () =>
+            api.players.updateProfile({ preferredTeeRoleKey }),
         );
         if (!saved) return false;
         this.player.set(saved);

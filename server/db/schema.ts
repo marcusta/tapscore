@@ -1315,6 +1315,8 @@ export interface PlayersTable {
      * roster row — unlike `guest_players.gender`, which is NOT NULL.
      */
     gender: 'M' | 'F' | null;
+    /** Optional portable preference — resolved through a course's tee-role mapping. */
+    preferred_tee_role_key: string | null;
     deleted_at: string | null;
     created_at: Generated<string>;
 }

@@ -34,6 +34,8 @@ export interface Player {
      * roster-drop feature). Missing gender stays editable on a roster row.
      */
     gender: Gender | null;
+    /** Optional portable tee-selection intent: Club, Tournament or Beginner. */
+    preferredTeeRoleKey: string | null;
     /**
      * When the player last affirmed `handicapIndex` — confirmed it on the way
      * into a round, or edited it (migration 048). Null = never. The client
@@ -125,6 +127,7 @@ function toPlayer(row: PlayerRow): Player {
         homeClubId: row.home_club_id,
         handicapIndex: row.handicap_index,
         gender: row.gender,
+        preferredTeeRoleKey: row.preferred_tee_role_key,
         handicapConfirmedAt: row.handicap_confirmed_at,
         deletedAt: row.deleted_at,
     };
@@ -373,6 +376,7 @@ export class PlayerService {
             homeClubId: values.home_club_id,
             handicapIndex: values.handicap_index,
             gender: values.gender,
+            preferredTeeRoleKey: null,
             handicapConfirmedAt: values.handicap_confirmed_at,
             deletedAt: null,
         };
@@ -464,7 +468,7 @@ export class PlayerService {
 
     /**
      * Profile self-update (Phase 3 friends-list feature): display name,
-     * `gender` and `homeClubId`. POST (not PATCH) to match this codebase's existing
+     * `gender`, `homeClubId` and the portable `preferredTeeRoleKey`. POST (not PATCH) to match this codebase's existing
      * partial-update convention — `updateHandicapIndex` is exposed as `POST
      * /players/me/handicap`, not PATCH; no PATCH endpoint exists anywhere in
      * server/api/*.api.ts, so introducing one here would be a one-off rather
@@ -475,7 +479,12 @@ export class PlayerService {
      */
     async updateProfile(
         playerId: string,
-        input: { displayName?: string; gender?: Gender | null; homeClubId?: string | null },
+        input: {
+            displayName?: string;
+            gender?: Gender | null;
+            homeClubId?: string | null;
+            preferredTeeRoleKey?: string | null;
+        },
     ): Promise<Player> {
         const row = await this.byId(playerId).executeTakeFirst();
         if (!row || row.deleted_at !== null) throw new NotFoundError('player not found');
@@ -497,6 +506,13 @@ export class PlayerService {
                 .execute();
         }
 
+        if (input.preferredTeeRoleKey !== undefined) {
+            await this.assertTeeRoleExists(input.preferredTeeRoleKey);
+            await this.updatePlayerById(playerId)
+                .set({ preferred_tee_role_key: input.preferredTeeRoleKey })
+                .execute();
+        }
+
         const updated = await this.byId(playerId).executeTakeFirstOrThrow();
         return toPlayer(updated);
     }
@@ -510,6 +526,17 @@ export class PlayerService {
             .where('id', '=', clubId)
             .executeTakeFirst();
         if (!club) throw new NotFoundError('club not found');
+    }
+
+    /** 404 on an unknown role; null (clear) passes. The global catalogue owns the keys. */
+    private async assertTeeRoleExists(roleKey: string | null | undefined): Promise<void> {
+        if (roleKey == null) return;
+        const role = await this.db
+            .selectFrom('tee_roles')
+            .select('role_key')
+            .where('role_key', '=', roleKey)
+            .executeTakeFirst();
+        if (!role) throw new NotFoundError('tee role not found');
     }
 
     /**
@@ -645,6 +672,7 @@ export class PlayerService {
                     homeClubId: null,
                     handicapIndex: null,
                     gender: null,
+                    preferredTeeRoleKey: null,
                     // Apple sign-in mints an index-less player — onboarding
                     // asks for the handicap next. Never confirmed, correctly.
                     handicapConfirmedAt: null,

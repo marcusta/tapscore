@@ -64,6 +64,9 @@ test('the whole chain replays on a connection that defaults legacy_alter_table O
             .query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
             .get('course_tee_roles');
         expect(courseTeeRoles).not.toBeNull();
+
+        const playerColumns = sqlite.query(`PRAGMA table_info(players)`).all() as Array<{ name: string }>;
+        expect(playerColumns.map((column) => column.name)).toContain('preferred_tee_role_key');
     } finally {
         await db.destroy();
     }

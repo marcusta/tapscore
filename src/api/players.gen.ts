@@ -11,6 +11,7 @@ export interface Player {
     homeClubId: null | string;
     handicapIndex: null | number;
     gender: null | 'M' | 'F';
+    preferredTeeRoleKey: null | string;
     handicapConfirmedAt: null | string;
     deletedAt: null | string;
 }
@@ -42,7 +43,7 @@ export interface PlayersApi {
     updateHandicap(input: { handicapIndex: number; effectiveDate?: string }): Promise<HandicapEntry>;
     confirmHandicap(): Promise<Player>;
     myHandicapHistory(): Promise<HandicapEntry[]>;
-    updateProfile(input: { displayName?: string; gender?: null | 'M' | 'F'; homeClubId?: null | string }): Promise<Player>;
+    updateProfile(input: { displayName?: string; gender?: null | 'M' | 'F'; homeClubId?: null | string; preferredTeeRoleKey?: null | string }): Promise<Player>;
     search(input: { q?: string }): Promise<PlayerSearchResult[]>;
 }
 

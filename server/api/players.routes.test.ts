@@ -36,6 +36,7 @@ test('GET /api/players/me with session returns Player from descriptor', async ()
         homeClubId: null,
         handicapIndex: null,
         gender: null,
+        preferredTeeRoleKey: null,
         handicapConfirmedAt: null,
         deletedAt: null,
     });
@@ -347,6 +348,43 @@ test('POST /api/players/me/profile sets and clears the home club; unknown club i
         'POST',
         '/api/players/me/profile',
         { homeClubId: 'no-such-club' },
+        cookie,
+    );
+    expect(unknown.status).toBe(404);
+});
+
+test('POST /api/players/me/profile saves a portable tee role, clears it, and rejects an unknown role', async () => {
+    const { app } = await setup();
+    const cookie = await loginAs(app, 'alice', 'password123');
+
+    const set = await req(
+        app,
+        'POST',
+        '/api/players/me/profile',
+        { preferredTeeRoleKey: 'tournament' },
+        cookie,
+    );
+    expect(set.status).toBe(200);
+    expect((await set.json()).preferredTeeRoleKey).toBe('tournament');
+
+    // An unrelated profile write leaves the portable preference untouched.
+    const untouched = await req(app, 'POST', '/api/players/me/profile', { gender: 'F' }, cookie);
+    expect((await untouched.json()).preferredTeeRoleKey).toBe('tournament');
+
+    const cleared = await req(
+        app,
+        'POST',
+        '/api/players/me/profile',
+        { preferredTeeRoleKey: null },
+        cookie,
+    );
+    expect((await cleared.json()).preferredTeeRoleKey).toBeNull();
+
+    const unknown = await req(
+        app,
+        'POST',
+        '/api/players/me/profile',
+        { preferredTeeRoleKey: 'does-not-exist' },
         cookie,
     );
     expect(unknown.status).toBe(404);
