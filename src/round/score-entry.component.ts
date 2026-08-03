@@ -20,6 +20,7 @@ import { STAT_CAPTURE_COPY, statExplainer } from './stat-explainers';
 // dashboard's `SG_INFO_STYLES` paints a themed `t('surface')` panel, and this
 // screen is hardcoded dark.
 import { SG_INFO_SHEET_MARKUP, sgInfoCardTpl } from '../stats/sg-info-sheet';
+import { INFO_DOT_CSS, infoDotMarkup } from '../app/info-dot';
 
 // One score column / carousel cell is SLOT wide. The carousel is a clipped
 // window that shows exactly two cells — the previous and current hole —
@@ -120,7 +121,7 @@ const rowTpl = template(`
             <span bind="name" class="se-row__name"></span>
             <span class="se-row__hcpline">
                 <span bind="hcp" class="se-row__hcp"></span>
-                <button bind="hcpInfo" class="se-row__hcpinfo hidden" type="button" aria-label="How this handicap was calculated">i</button>
+                ${infoDotMarkup('hcpInfo', 'How this handicap was calculated', 'hidden')}
             </span>
         </div>
         <span bind="topar" class="se-row__topar"></span>
@@ -326,20 +327,13 @@ export class ScoreEntryComponent extends Component {
                 color: ${t('text-muted')};
                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
             }
-            /* The ⓘ behind the handicap: a caption-sized ringed "i" with
-               thumb room — the row around it is not a control on the web
-               (only the circle is), so it needs no propagation guard. */
-            & .se-row__hcpinfo {
-                flex: none;
-                width: 22px; height: 22px; padding: 0;
-                display: inline-flex; align-items: center; justify-content: center;
-                background: none; cursor: pointer;
-                border: 1px solid ${t('border')}; border-radius: 999px;
-                color: ${t('text-muted')};
-                font-size: 0.65rem; font-style: italic; font-family: serif;
-                line-height: 1;
+            /* The ⓘ behind the handicap: the shared dot (app/info-dot.ts),
+               scaled down to caption size but keeping the 22px box for thumb
+               room — the row around it is not a control on the web (only the
+               circle is), so it needs no propagation guard. */
+            & .info-dot {
+                font-size: 0.65rem;
                 transform: scale(0.72); transform-origin: center;
-                &.hidden { display: none; }
             }
             /* Gamebook puts the standing where the eye lands: its own column
                between the name and the scores, in the display face at score
@@ -757,6 +751,7 @@ export class ScoreEntryComponent extends Component {
                 font-size: 0.9rem; color: rgba(255, 255, 255, 0.92); line-height: 1.45;
             }
         }
+        ${INFO_DOT_CSS}
     `;
 
     private svc = this.inject(RoundViewService);
@@ -1375,8 +1370,8 @@ export class ScoreEntryComponent extends Component {
                 hcpInfo: {
                     className: () =>
                         this.rowDerivation(ball.id) !== null
-                            ? 'se-row__hcpinfo'
-                            : 'se-row__hcpinfo hidden',
+                            ? 'info-dot'
+                            : 'info-dot hidden',
                     onclick: () => this.hcpInfoBallId.set(ball.id),
                 },
                 topar: {

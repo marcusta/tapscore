@@ -3,7 +3,7 @@ import { request, type RequestError } from '@basics/core/client/request';
 import { api } from '../api';
 import type { HandicapEntry, Player } from '../api/players.gen';
 import type { Club } from '../api/clubs.gen';
-import type { TeeRole } from '../api/courses.gen';
+import type { TeeRole } from '../api/setup.gen';
 import {
     STATS_ALL_OFF,
     statsFormFromConfig,
@@ -11,6 +11,9 @@ import {
 } from './stats-config-form';
 import { AvatarFileError, prepareAvatarBlob } from './avatar-file';
 import { deleteAvatar, putAvatar } from './avatar-api';
+
+/** Which profile row a `saveError` came from. */
+export type SaveTarget = 'name' | 'index' | 'gender' | 'club' | 'tee';
 
 /**
  * The logged-in player's own profile: identity + manual handicap maintenance
@@ -33,6 +36,18 @@ export class ProfileService {
 
     readonly saving = new Signal(false);
     readonly saveError = new Signal<RequestError | null>(null);
+    /**
+     * WHICH save the current `saveError` belongs to.
+     *
+     * The three profile facts (club, gender, tee) now share one card, so a bare
+     * shared error line under it cannot say which row failed — a club save that
+     * failed has nothing to tell you about your gender. iOS has had per-surface
+     * error slots from the start (`ProfileStore`), and this is the same
+     * guarantee with one signal instead of six: every `request` here sets its
+     * own target first, and a row renders `saveError` only when the target
+     * is its own.
+     */
+    readonly saveTarget = new Signal<SaveTarget | null>(null);
 
     /**
      * The stats configuration (spec §3). Its own signals rather than the shared
@@ -82,7 +97,7 @@ export class ProfileService {
                 api.players.me(),
                 api.players.myHandicapHistory(),
                 api.clubs.list(),
-                api.courses.teeRoleCatalog().catch(() => []),
+                api.setup.teeRoleCatalog().catch(() => []),
                 // The stats config rides along, but NOT on the same
                 // all-or-nothing terms as the other three: this service is a DI
                 // singleton the create flow also depends on for "Add me", so a
@@ -126,6 +141,7 @@ export class ProfileService {
      * at the shape locally. Returns true on success.
      */
     async saveIndex(handicapIndex: number): Promise<boolean> {
+        this.saveTarget.set('index');
         const saved = await request(this.saving, this.saveError, () =>
             api.players.updateHandicap({ handicapIndex }),
         );
@@ -137,6 +153,7 @@ export class ProfileService {
     /** Save the human-facing display name. The username remains the login and
      * public handle, so it is intentionally not part of this self-service edit. */
     async saveDisplayName(displayName: string): Promise<boolean> {
+        this.saveTarget.set('name');
         const saved = await request(this.saving, this.saveError, () =>
             api.players.updateProfile({ displayName }),
         );
@@ -152,6 +169,7 @@ export class ProfileService {
      * moves — which is what the round check-in reads to stay rare.
      */
     async confirmHandicap(): Promise<boolean> {
+        this.saveTarget.set('index');
         const saved = await request(this.saving, this.saveError, () =>
             api.players.confirmHandicap(),
         );
@@ -167,6 +185,7 @@ export class ProfileService {
      * rather than guessing locally.
      */
     async saveGender(gender: 'M' | 'F' | null): Promise<boolean> {
+        this.saveTarget.set('gender');
         const saved = await request(this.saving, this.saveError, () =>
             api.players.updateProfile({ gender }),
         );
@@ -181,6 +200,7 @@ export class ProfileService {
      * apart — that's the reason this field is self-service at all.
      */
     async saveHomeClub(homeClubId: string | null): Promise<boolean> {
+        this.saveTarget.set('club');
         const saved = await request(this.saving, this.saveError, () =>
             api.players.updateProfile({ homeClubId }),
         );
@@ -191,6 +211,7 @@ export class ProfileService {
 
     /** Save or clear the player's portable Club/Tournament/Beginner intent. */
     async savePreferredTeeRole(preferredTeeRoleKey: string | null): Promise<boolean> {
+        this.saveTarget.set('tee');
         const saved = await request(this.saving, this.saveError, () =>
             api.players.updateProfile({ preferredTeeRoleKey }),
         );

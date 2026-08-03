@@ -3,8 +3,9 @@ import { AuthService } from '@basics/core/client/auth';
 import { SelectComponent, type SelectOption } from '@basics/core/client/ui/select';
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
-import { ProfileService } from './profile.service';
+import { ProfileService, type SaveTarget } from './profile.service';
 import { avatarBadgeBindings, avatarBadgeCss, avatarBadgeMarkup } from '../app/avatar-badge';
+import { INFO_DOT_CSS, infoDotMarkup } from '../app/info-dot';
 import { parseHandicapIndex, formatHandicapIndex } from '../create/hcp-input';
 import {
     STATS_MASTER_HINT,
@@ -63,48 +64,53 @@ const tpl = template(`
                 <p bind="photoErr" class="profile__err"></p>
             </header>
 
+            <!-- One card, three field rows. Home club leads: it is the fact
+                 other players see next to your name, where gender and tee are
+                 plumbing for which tee a round starts you on. -->
             <section class="profile__card">
-                <span class="profile__label">Gender</span>
-                <div class="profile__gender-row">
-                    <div bind="gender" class="profile__genderseg"></div>
+                <div class="pfield">
+                    <span class="pfield__label">Home club</span>
+                    <div bind="club" class="pfield__control"></div>
+                    <p class="pfield__hint">Shown next to your name when someone searches for you — how they tell you from the other John Smith.</p>
+                    <p bind="clubErr" class="profile__err"></p>
                 </div>
-                <p class="profile__hint">Used for tee ratings — set once and it locks in "Add me" during round setup.</p>
-                <p bind="genderErr" class="profile__err"></p>
+                <div class="profile__rule"></div>
+                <!-- Every option is one or two characters, so label and track
+                     share a row (design-guidelines §2 "size to content"). -->
+                <div class="pfield pfield--inline">
+                    <span class="pfield__label">Gender</span>
+                    <div bind="gender" class="pfield__seg"></div>
+                    <p class="pfield__hint">Used for tee ratings — set once and it locks in "Add me" during round setup.</p>
+                    <p bind="genderErr" class="profile__err"></p>
+                </div>
+                <div class="profile__rule"></div>
+                <div class="pfield">
+                    <span class="pfield__label">Preferred tee
+                        ${infoDotMarkup('teeRoleInfo', 'How preferred tee works')}</span>
+                    <div bind="teeRole" class="pfield__control"></div>
+                    <p bind="teeRoleHint" class="pfield__hint"></p>
+                    <p bind="teeRoleExplain" class="pfield__hint profile__tee-explain"></p>
+                    <p bind="teeRoleErr" class="profile__err"></p>
+                </div>
             </section>
 
+            <!-- Index and history are one subject: the number, then the chain
+                 of saves that produced it. A separate "Handicap history"
+                 heading said nothing the rows do not. -->
             <section class="profile__card">
-                <div class="profile__label-row">
-                    <span class="profile__label">Preferred tee</span>
-                    <button bind="teeRoleInfo" class="profile__info" type="button"
-                        aria-label="How preferred tee works" aria-expanded="false">(i)</button>
+                <div class="pfield">
+                    <span class="pfield__label">Handicap index</span>
+                    <div class="profile__hcp-row">
+                        <span bind="hcp" class="profile__hcp"></span>
+                        <form bind="form" class="profile__edit">
+                            <input bind="index" inputmode="decimal" placeholder="e.g. 18.4" />
+                            <button type="submit" bind="save">Save</button>
+                        </form>
+                    </div>
+                    <p class="pfield__hint">Maintained by you — each save is recorded below with its effective date.</p>
                 </div>
-                <div bind="teeRole" class="profile__genderseg profile__tee-role"></div>
-                <p bind="teeRoleExplain" class="profile__hint profile__tee-explain"></p>
-                <p bind="teeRoleErr" class="profile__err"></p>
-            </section>
-
-            <section class="profile__card">
-                <span class="profile__label">Home club</span>
-                <div bind="club" class="profile__club"></div>
-                <p class="profile__hint">Shown next to your name when someone searches for you — how they tell you from the other John Smith.</p>
-                <p bind="clubErr" class="profile__err"></p>
-            </section>
-
-            <section class="profile__card">
-                <span class="profile__label">Handicap index</span>
-                <div class="profile__hcp-row">
-                    <span bind="hcp" class="profile__hcp"></span>
-                    <form bind="form" class="profile__edit">
-                        <input bind="index" inputmode="decimal" placeholder="e.g. 18.4" />
-                        <button type="submit" bind="save">Save</button>
-                    </form>
-                </div>
-                <p class="profile__hint">Maintained by you — each save is recorded below with its effective date.</p>
                 <p bind="saveErr" class="profile__err"></p>
-            </section>
-
-            <section class="profile__section">
-                <h2>Handicap history</h2>
+                <div class="profile__rule"></div>
                 <div bind="historyEmpty" class="profile__empty">No entries yet — save an index to start the chain.</div>
                 <div bind="history" class="profile__history"></div>
             </section>
@@ -286,21 +292,64 @@ export class ProfileComponent extends Component {
                 margin-bottom: ${s('xl')};
                 ${card()}
 
-                & .profile__label {
-                    font-weight: 700; font-size: 0.8rem;
-                    text-transform: uppercase; letter-spacing: 0.06em;
-                    color: ${t('text-muted')};
+                /* One fact per row: label, control, then the muted line that
+                   explains the CURRENT selection (design-guidelines §3).
+                   Sentence case, not the old uppercase micro-caps: three of
+                   those stacked in one card read as three card headers. */
+                & .pfield {
+                    display: flex; flex-direction: column; gap: ${s('sm')};
+
+                    & .pfield__label {
+                        display: inline-flex; align-items: center; gap: ${s('xs')};
+                        font-size: 0.95rem; font-weight: 600; color: ${t('text')};
+                    }
+                    & .pfield__control { & .ui-select { display: block; width: 100%; } }
+                    & .pfield__hint {
+                        margin: 0; font-size: 0.8rem; line-height: 1.4; color: ${t('text-muted')};
+                        &:empty { display: none; }
+                    }
                 }
-                & .profile__label-row { display: flex; align-items: baseline; gap: ${s('xs')}; }
-                & .profile__info {
-                    ${btn()}
-                    padding: 0; min-width: 0; border: 0; background: transparent;
-                    color: ${t('text-muted')}; font: inherit; font-weight: 700;
-                    &:hover { color: ${t('text')}; }
+                /* Short options only: label left, track right, hint spanning
+                   underneath both. */
+                & .pfield--inline {
+                    flex-direction: row; align-items: center; flex-wrap: wrap;
+                    justify-content: space-between;
+                    & .pfield__hint { flex-basis: 100%; }
                 }
+
+                /* Track segmented control — the same anatomy as
+                   .fslot__seg in create.component.ts, and the same reason:
+                   the selection reads from ELEVATION (a raised pill on a
+                   sunken track), never from a solid primary fill, which is
+                   reserved for primary actions (design-guidelines §2).
+                   Deliberately NOT btn() — btn() emits the full-bleed slab
+                   sizing this replaces. */
+                & .pfield__seg {
+                    display: inline-flex; gap: 2px;
+                    padding: 3px; border: 1px solid ${t('border')};
+                    border-radius: ${t('radius-pill')}; background: ${t('surface-sunken')};
+                    & button {
+                        appearance: none; border: 1px solid transparent; background: none;
+                        padding: ${s('xs')} ${s('md')}; border-radius: ${t('radius-pill')};
+                        font-family: inherit; font-weight: 500; font-size: 0.85rem;
+                        color: ${t('text-muted')}; cursor: pointer; white-space: nowrap;
+                        &:hover { color: ${t('text')}; }
+                        &.on {
+                            background: ${t('surface')}; border-color: ${t('border')};
+                            color: ${t('text')}; font-weight: 700;
+                        }
+                        &:disabled { opacity: 0.5; cursor: default; }
+                    }
+                }
+
+                /* Hairline between rows of the same card. */
+                & .profile__rule {
+                    height: 1px; margin: ${s('lg')} 0;
+                    background: ${t('border')};
+                }
+
                 & .profile__hcp-row {
                     display: flex; align-items: center; gap: ${s('md')};
-                    margin-top: ${s('sm')};
                 }
                 & .profile__hcp {
                     font-family: ${t('font-display')};
@@ -319,41 +368,14 @@ export class ProfileComponent extends Component {
                         &:disabled { opacity: 0.5; cursor: default; }
                     }
                 }
-                & .profile__hint { margin: ${s('sm')} 0 0; font-size: 0.8rem; color: ${t('text-muted')}; }
                 & .profile__err {
                     margin: ${s('sm')} 0 0; font-size: 0.85rem; color: ${t('error')};
                     &:empty { display: none; }
                 }
 
-                & .profile__club {
-                    margin-top: ${s('sm')};
-                    & .ui-select { display: block; width: 100%; }
-                }
-
-                & .profile__gender-row { margin-top: ${s('sm')}; }
+                /* The long-form answer behind the ⓘ. Closed by default: the
+                   hint line above it already names the live selection. */
                 & .profile__tee-explain.hidden { display: none; }
-                & .profile__genderseg {
-                    display: flex;
-                    gap: ${s('xs')};
-
-                    & button {
-                        ${btn()}
-                        flex: 1;
-                        padding: ${s('sm')} 0;
-                        font-family: inherit;
-                        font-size: 0.9rem;
-                        font-weight: 700;
-                        &.on { background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')}; }
-                        &:disabled { opacity: 0.5; cursor: default; }
-                    }
-                }
-                /* The catalogue is data-backed. Four initial choices fit on
-                   one line where possible, and later roles wrap instead of
-                   making the profile horizontally scroll. */
-                & .profile__tee-role {
-                    flex-wrap: wrap;
-                    & button { flex: 1 1 7rem; }
-                }
             }
 
             /* Statistics: the master switch, a hairline, then the six modules
@@ -461,7 +483,12 @@ export class ProfileComponent extends Component {
                 }
             }
 
+            /* A section is a heading plus its card; without this the card's own
+               bottom margin was the only thing separating one section from the
+               next heading, and the last one had nothing at all under it. */
             & .profile__section {
+                margin-bottom: ${s('xl')};
+
                 & h2 {
                     margin: 0 0 ${s('sm')};
                     font-family: ${t('font-display')};
@@ -470,16 +497,20 @@ export class ProfileComponent extends Component {
             }
 
             & .profile__empty {
-                color: ${t('text-muted')}; font-size: 0.9rem; padding: ${s('md')} 0;
+                color: ${t('text-muted')}; font-size: 0.9rem;
                 &.hidden { display: none; }
             }
 
-            & .profile__history { display: flex; flex-direction: column; gap: ${s('sm')}; }
+            /* The chain is ONE card — the card is the handicap card the rows
+               belong to, so the rows carry no chrome of their own and are
+               separated by a hairline instead. */
+            & .profile__history { display: flex; flex-direction: column; }
 
             & .hcp-entry {
                 display: flex; align-items: baseline; gap: ${s('md')};
-                padding: ${s('md')} ${s('lg')};
-                ${card()}
+                padding: ${s('sm')} 0;
+
+                & + & { border-top: 1px solid ${t('border')}; }
 
                 & .hcp-entry__index {
                     font-weight: 700; font-size: 1.05rem;
@@ -500,6 +531,7 @@ export class ProfileComponent extends Component {
                 }
             }
         }
+        ${INFO_DOT_CSS}
     `;
 
     private svc = this.inject(ProfileService);
@@ -615,7 +647,7 @@ export class ProfileComponent extends Component {
                 textContent: () => (this.svc.saving.get() ? 'Saving…' : 'Save'),
             },
             nameErr: {
-                textContent: () => this.nameErr.get() || this.svc.saveError.get()?.message || '',
+                textContent: () => this.nameErr.get() || this.saveErrFor('name'),
             },
             username: () => {
                 const p = this.svc.player.get();
@@ -648,29 +680,37 @@ export class ProfileComponent extends Component {
                 },
             },
             saveErr: {
-                textContent: () =>
-                    this.localErr.get() || this.svc.saveError.get()?.message || '',
-            },
-            genderErr: {
-                textContent: () => this.svc.saveError.get()?.message || '',
+                textContent: () => this.localErr.get() || this.saveErrFor('index'),
             },
             teeRoleInfo: {
                 'aria-expanded': () => String(this.teeRoleInfoOpen.get()),
                 onclick: () => this.teeRoleInfoOpen.set(!this.teeRoleInfoOpen.get()),
             },
+            // The short line under the field: what the LIVE selection does, in
+            // one sentence (design-guidelines §3). The four-sentence version
+            // sits behind the ⓘ.
+            teeRoleHint: {
+                textContent: () => {
+                    const key = this.svc.player.get()?.preferredTeeRoleKey ?? null;
+                    if (key === null) return 'Rounds start you on the course default tee.';
+                    const role = this.svc.teeRoles.get().find((r) => r.roleKey === key);
+                    return `Rounds start you on the course’s ${role?.displayName ?? key} tee when it has one.`;
+                },
+            },
             teeRoleExplain: {
                 textContent: () =>
-                    'Choose Club, Tournament or Beginner for the tee type you normally play. It pre-fills your own gender’s round tee only when the selected course has a matching tee. Otherwise the course default applies. The organiser can change the round defaults, and any player’s tee can still be overridden.',
+                    'Pick the tee type you normally play. It pre-fills your own gender’s round tee only when the selected course has a matching tee. Otherwise the course default applies. The organiser can change the round defaults, and any player’s tee can still be overridden.',
                 className: () => this.teeRoleInfoOpen.get()
-                    ? 'profile__hint profile__tee-explain'
-                    : 'profile__hint profile__tee-explain hidden',
+                    ? 'pfield__hint profile__tee-explain'
+                    : 'pfield__hint profile__tee-explain hidden',
             },
-            teeRoleErr: {
-                textContent: () => this.svc.saveError.get()?.message || '',
-            },
-            clubErr: {
-                textContent: () => this.svc.saveError.get()?.message || '',
-            },
+            // Each row reports only its OWN failure. Before `saveTarget` these
+            // three read the shared `saveError` unconditionally, so one failed
+            // club save printed the same sentence under gender and tee as well
+            // — the bug the iOS store deliberately never ported.
+            clubErr: { textContent: () => this.saveErrFor('club') },
+            genderErr: { textContent: () => this.saveErrFor('gender') },
+            teeRoleErr: { textContent: () => this.saveErrFor('tee') },
             // Offered only once a round has stats on it — a link into a screen
             // that can only say "nothing yet" is a dead end, and the switches
             // below already explain how to start filling it.
@@ -786,31 +826,37 @@ export class ProfileComponent extends Component {
             (opt) => opt.label,
         );
 
-        // Four permanently-visible, short choices (including clear) follow
-        // the bounded-choice rule. Roles come from the global catalogue so a
-        // later role can appear without another profile schema change.
-        this.$each(
-            this.ref(frag, 'teeRole'),
-            () => [
-                { value: null as string | null, label: 'No preference' },
-                ...this.svc.teeRoles.get().map((role) => ({ value: role.roleKey, label: role.displayName })),
-            ],
-            (opt, _i, track) =>
-                this.wireEl(
-                    template(`<button bind="b" type="button"></button>`),
-                    {
-                        b: {
-                            textContent: () => opt.label,
-                            className: () =>
-                                this.svc.player.get()?.preferredTeeRoleKey === opt.value ? 'on' : '',
-                            disabled: () => this.svc.saving.get(),
-                            onclick: () => void this.svc.savePreferredTeeRole(opt.value),
-                        },
-                    },
-                    track,
-                ),
-            (opt) => opt.value ?? 'none',
+        // Preferred tee is a collapsed field, not a chip row: the role
+        // catalogue is data-backed and unbounded (design-guidelines §1 sends
+        // 5+/long/unbounded to a dropdown), and every OTHER tee field in the
+        // app — round defaults, per-player overrides — is already one. Same
+        // two-way signal shape as the club picker below.
+        const teeValue = new Signal(this.svc.player.get()?.preferredTeeRoleKey ?? '');
+        this.track(effect(() => teeValue.set(this.svc.player.get()?.preferredTeeRoleKey ?? '')));
+        this.track(
+            effect(() => {
+                const v = teeValue.get();
+                queueMicrotask(() => {
+                    if (v === (this.svc.player.get()?.preferredTeeRoleKey ?? '')) return;
+                    void this.svc.savePreferredTeeRole(v === '' ? null : v);
+                });
+            }),
         );
+        const teeSelect = new SelectComponent({
+            value: teeValue,
+            options: {
+                get: (): SelectOption[] => [
+                    { value: '', label: 'No preference' },
+                    ...this.svc.teeRoles
+                        .get()
+                        .map((role) => ({ value: role.roleKey, label: role.displayName })),
+                ],
+            },
+            placeholder: 'No preference',
+            disabled: { get: () => this.svc.saving.get() },
+        });
+        teeSelect.mount(this.ref(frag, 'teeRole'));
+        this.track(() => teeSelect.destroy());
 
         // Home club picker. Like gender, it saves on pick — no separate Save.
         // `''` is the cleared state (SelectComponent values are strings), and
@@ -847,6 +893,14 @@ export class ProfileComponent extends Component {
         nameInputEl = this.ref(frag, 'nameInput') as HTMLInputElement;
 
         return frag;
+    }
+
+    /**
+     * The shared `saveError`, but only for the row that caused it.
+     */
+    private saveErrFor(target: SaveTarget): string {
+        if (this.svc.saveTarget.get() !== target) return '';
+        return this.svc.saveError.get()?.message || '';
     }
 
     /**

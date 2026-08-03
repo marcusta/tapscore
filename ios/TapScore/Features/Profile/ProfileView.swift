@@ -158,9 +158,11 @@ struct ProfileView: View {
     @ViewBuilder
     private func body(of store: ProfileStore) -> some View {
         identity(store)
-        genderCard(store)
-        preferredTeeCard(store)
-        clubCard(store)
+        // Club, gender and tee are one card: three facts the app asks for once,
+        // in the order they are asked about — the club is what other players
+        // see, the other two only shape a round's defaults. Mirrors the web
+        // (`profile.component.ts`, one `.profile__card` with hairline rules).
+        factsCard(store)
         handicapCard(store)
         if let refreshError = store.refreshError {
             // The save landed but the reload after it did not — the chain below
@@ -172,7 +174,6 @@ struct ProfileView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("profile-refresh-error")
         }
-        historySection(store)
         statsSection(store)
     }
 
@@ -330,113 +331,198 @@ struct ProfileView: View {
         }
     }
 
-    // MARK: - Gender
+    // MARK: - Profile facts (club · gender · tee)
 
-    private func genderCard(_ store: ProfileStore) -> some View {
-        card(label: "Gender", hint: ProfileCopy.genderHint, error: store.genderError) {
-            HStack(spacing: TapSpacing.sm) {
-                genderChip(store, title: "M", value: .m, identifier: "profile-gender-m")
-                genderChip(store, title: "F", value: .f, identifier: "profile-gender-f")
-                genderChip(store, title: "Not set", value: nil, identifier: "profile-gender-none")
-                Spacer(minLength: 0)
-            }
-        }
-        .accessibilityIdentifier("profile-gender-card")
-    }
-
-    private func genderChip(
-        _ store: ProfileStore,
-        title: String,
-        value: PlayerGender?,
-        identifier: String
-    ) -> some View {
-        TapChip(
-            title: title,
-            isSelected: store.player?.gender == value,
-            action: { Task { await store.saveGender(value) } }
-        )
-        .disabled(store.isSaving)
-        // `TapChip` is a `.plain` button style, and SwiftUI applies no automatic
-        // dimming to a custom style (see the note in TapButton.swift) — without
-        // this, a save in flight is pixel-identical to idle and taps just
-        // vanish. The web dims its disabled controls the same way.
-        .opacity(store.isSaving ? 0.5 : 1)
-        .accessibilityIdentifier(identifier)
-    }
-
-    // MARK: - Preferred tee
-
-    /// Four short bounded choices, displayed as chips rather than a dropdown.
-    /// The catalogue is global, while the resulting tee box is course-specific;
-    /// that is why this card saves a role key and never a tee colour or id.
-    private func preferredTeeCard(_ store: ProfileStore) -> some View {
+    /// The three standing facts, in one card with hairline rules — the web's
+    /// `.profile__card` on the profile screen, row for row.
+    ///
+    /// Club leads because it is the only one of the three anybody else ever
+    /// sees; gender and tee only shape what a round is set up with.
+    private func factsCard(_ store: ProfileStore) -> some View {
         TapCard {
-            VStack(alignment: .leading, spacing: TapSpacing.sm) {
-                HStack(alignment: .firstTextBaseline, spacing: TapSpacing.xs) {
-                    Text("Preferred tee")
-                        .font(TapFont.ui(size: 11.2, weight: .bold))
-                        .tracking(11.2 * 0.06)
-                        .foregroundStyle(TapColors.textMuted)
-                        .textCase(.uppercase)
-                    Button("(i)") { teeRoleInfoOpen = true }
-                        .font(TapFont.ui(size: 11.2, weight: .bold))
-                        .foregroundStyle(TapColors.textMuted)
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("How preferred tee works")
-                        .accessibilityIdentifier("profile-preferred-tee-info")
-                }
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 92), spacing: TapSpacing.sm)],
-                    alignment: .leading,
-                    spacing: TapSpacing.sm
-                ) {
-                    preferredTeeChip(
-                        store,
-                        title: "No preference",
-                        roleKey: nil,
-                        identifier: "profile-preferred-tee-none"
-                    )
-                    ForEach(store.teeRoles, id: \.roleKey) { role in
-                        preferredTeeChip(
-                            store,
-                            title: role.displayName,
-                            roleKey: role.roleKey,
-                            identifier: "profile-preferred-tee-\(role.roleKey)"
-                        )
-                    }
-                }
-                Text("Optional — choose the tee type you normally play.")
-                    .font(TapFont.ui(size: 12.8))
-                    .foregroundStyle(TapColors.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let error = store.teeRoleError {
-                    Text(error)
-                        .font(TapFont.ui(size: 13.6))
-                        .foregroundStyle(TapColors.danger)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier("profile-preferred-tee-error")
-                }
+            VStack(alignment: .leading, spacing: TapSpacing.lg) {
+                clubField(store)
+                fieldRule
+                genderField(store)
+                fieldRule
+                preferredTeeField(store)
             }
             .padding(TapSpacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .accessibilityIdentifier("profile-facts-card")
+    }
+
+    private var fieldRule: some View {
+        Rectangle().fill(TapColors.border).frame(height: 1)
+    }
+
+    /// Sentence case, not the uppercase micro-cap the separate cards used: once
+    /// three fields share a card the labels are what tells them apart, and a
+    /// tracked-out all-caps run reads as a section heading rather than a label.
+    private func fieldLabel(_ text: String) -> some View {
+        Text(text)
+            .font(TapFont.ui(size: 15.2, weight: .semibold))
+            .foregroundStyle(TapColors.text)
+    }
+
+    private func fieldHint(_ text: String) -> some View {
+        Text(text)
+            .font(TapFont.ui(size: 12.8))
+            .foregroundStyle(TapColors.textMuted)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Each row shows only its OWN failure — `ProfileStore` has kept a slot per
+    /// surface from the start, and the rows sharing a card is exactly why.
+    @ViewBuilder
+    private func fieldError(_ message: String?, identifier: String) -> some View {
+        if let message {
+            Text(message)
+                .font(TapFont.ui(size: 13.6))
+                .foregroundStyle(TapColors.danger)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier(identifier)
+        }
+    }
+
+    // MARK: - Home club
+
+    /// A dropdown, not chips: the club list is as long as the database, and the
+    /// standing rule (`ios/AGENTS.md`, "Chips vs dropdowns") caps chips at three
+    /// or four permanently-visible options.
+    ///
+    /// `""` is the cleared value, the same sentinel the web's `SelectComponent`
+    /// uses — a `String?` selection would make "no club" indistinguishable from
+    /// "no row matched".
+    private func clubField(_ store: ProfileStore) -> some View {
+        VStack(alignment: .leading, spacing: TapSpacing.sm) {
+            fieldLabel("Home club")
+            TapDropdown(
+                placeholder: "No home club",
+                title: "Home club",
+                selection: store.player?.homeClubId ?? "",
+                groups: [
+                    TapDropdownGroup(rows:
+                        [TapDropdownRow(value: "", title: "No home club")]
+                            + store.sortedClubs.map {
+                                TapDropdownRow(value: $0.id, title: $0.name, subtitle: $0.location)
+                            }
+                    )
+                ],
+                onSelect: { id in
+                    let picked = id.isEmpty ? nil : id
+                    // Re-picking the current club is not a change — the web
+                    // guards this exact case, and matching it keeps the two
+                    // clients agreeing about when a request leaves.
+                    guard picked != store.player?.homeClubId else { return }
+                    Task { await store.saveHomeClub(picked) }
+                }
+            )
+            .disabled(store.isSaving)
+            // TapDropdown's trigger is a `.plain` button, and SwiftUI applies no
+            // automatic dimming to a custom style (see the note in
+            // TapButton.swift) — without this, a save in flight is
+            // pixel-identical to idle and taps just vanish.
+            .opacity(store.isSaving ? 0.5 : 1)
+            .accessibilityIdentifier("profile-home-club")
+            fieldHint(ProfileCopy.clubHint)
+            fieldError(store.clubError, identifier: "profile-club-error")
+        }
+        .accessibilityIdentifier("profile-club-card")
+    }
+
+    // MARK: - Gender
+
+    /// Three short options, so a track — a raised pill on a sunken track, sized
+    /// to its content and sitting inline beside the label
+    /// (`docs/design-guidelines.md` §1 and §2). The full-width chip row it
+    /// replaces made a preference look like three primary actions.
+    private func genderField(_ store: ProfileStore) -> some View {
+        VStack(alignment: .leading, spacing: TapSpacing.sm) {
+            HStack(spacing: TapSpacing.md) {
+                fieldLabel("Gender")
+                Spacer(minLength: 0)
+                TapSegmented(
+                    options: [
+                        .init(value: PlayerGender.m, title: "M"),
+                        .init(value: PlayerGender.f, title: "F"),
+                        .init(value: nil, title: "Not set"),
+                    ],
+                    selected: store.player?.gender,
+                    onSelect: { value in Task { await store.saveGender(value) } }
+                )
+                .disabled(store.isSaving)
+                .opacity(store.isSaving ? 0.5 : 1)
+                .accessibilityIdentifier("profile-gender-segmented")
+            }
+            fieldHint(ProfileCopy.genderHint)
+            fieldError(store.genderError, identifier: "profile-gender-error")
+        }
+        .accessibilityIdentifier("profile-gender-card")
+    }
+
+    // MARK: - Preferred tee
+
+    /// A dropdown, like every other tee field in the app. The catalogue is
+    /// data-backed and grows with the server's roles, so it is not a chip row —
+    /// and the collapsed control says what is selected without spending a
+    /// four-cell grid to say it.
+    ///
+    /// The catalogue is global while the resulting tee box is course-specific;
+    /// that is why this saves a role key and never a tee colour or id.
+    private func preferredTeeField(_ store: ProfileStore) -> some View {
+        VStack(alignment: .leading, spacing: TapSpacing.sm) {
+            HStack(spacing: TapSpacing.xs) {
+                fieldLabel("Preferred tee")
+                // The same ⓘ the score-entry handicap derivation uses
+                // (`ScoreEntryView.swift`) — one glyph for "where did this come
+                // from?", not a literal "(i)" here and a symbol there.
+                Button { teeRoleInfoOpen = true } label: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 12))
+                        .foregroundStyle(TapColors.textMuted)
+                        .frame(width: 28, height: 24)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("How preferred tee works")
+                .accessibilityIdentifier("profile-preferred-tee-info")
+            }
+            TapDropdown(
+                placeholder: "No preference",
+                title: "Preferred tee",
+                selection: store.player?.preferredTeeRoleKey ?? "",
+                groups: [
+                    TapDropdownGroup(rows:
+                        [TapDropdownRow(value: "", title: "No preference")]
+                            + store.teeRoles.map {
+                                TapDropdownRow(value: $0.roleKey, title: $0.displayName)
+                            }
+                    )
+                ],
+                onSelect: { key in
+                    let picked = key.isEmpty ? nil : key
+                    guard picked != store.player?.preferredTeeRoleKey else { return }
+                    Task { await store.savePreferredTeeRole(picked) }
+                }
+            )
+            .disabled(store.isSaving)
+            .opacity(store.isSaving ? 0.5 : 1)
+            .accessibilityIdentifier("profile-preferred-tee")
+            // What the LIVE selection does, in one sentence
+            // (`docs/design-guidelines.md` §3). The long version is behind the ⓘ.
+            fieldHint(ProfileCopy.preferredTeeHint(selectedTeeRoleName(store)))
+            fieldError(store.teeRoleError, identifier: "profile-preferred-tee-error")
+        }
         .accessibilityIdentifier("profile-preferred-tee-card")
     }
 
-    private func preferredTeeChip(
-        _ store: ProfileStore,
-        title: String,
-        roleKey: String?,
-        identifier: String
-    ) -> some View {
-        TapChip(
-            title: title,
-            isSelected: store.player?.preferredTeeRoleKey == roleKey,
-            action: { Task { await store.savePreferredTeeRole(roleKey) } }
-        )
-        .disabled(store.isSaving)
-        .opacity(store.isSaving ? 0.5 : 1)
-        .accessibilityIdentifier(identifier)
+    /// The display name of the saved role, or nil for "no preference" — and
+    /// also nil when the catalogue read failed, which reads correctly: with no
+    /// catalogue there is nothing to promise about a matching tee.
+    private func selectedTeeRoleName(_ store: ProfileStore) -> String? {
+        guard let key = store.player?.preferredTeeRoleKey else { return nil }
+        return store.teeRoles.first { $0.roleKey == key }?.displayName ?? key
     }
 
     private var preferredTeeInfoSheet: some View {
@@ -470,115 +556,85 @@ struct ProfileView: View {
         .accessibilityIdentifier("profile-preferred-tee-info-sheet")
     }
 
-    // MARK: - Home club
+    // MARK: - Handicap index and its chain
 
-    /// A dropdown, not chips: the club list is as long as the database, and the
-    /// standing rule (`ios/AGENTS.md`, "Chips vs dropdowns") caps chips at three
-    /// or four permanently-visible options.
+    /// The number and the chain of saves that produced it, in one card.
     ///
-    /// `""` is the cleared value, the same sentinel the web's `SelectComponent`
-    /// uses — a `String?` selection would make "no club" indistinguishable from
-    /// "no row matched".
-    private func clubCard(_ store: ProfileStore) -> some View {
-        card(label: "Home club", hint: ProfileCopy.clubHint, error: store.clubError) {
-            TapDropdown(
-                placeholder: "No home club",
-                title: "Home club",
-                selection: store.player?.homeClubId ?? "",
-                groups: [
-                    TapDropdownGroup(rows:
-                        [TapDropdownRow(value: "", title: "No home club")]
-                            + store.sortedClubs.map {
-                                TapDropdownRow(value: $0.id, title: $0.name, subtitle: $0.location)
-                            }
-                    )
-                ],
-                onSelect: { id in
-                    let picked = id.isEmpty ? nil : id
-                    // Re-picking the current club is not a change — the web
-                    // guards this exact case, and matching it keeps the two
-                    // clients agreeing about when a request leaves.
-                    guard picked != store.player?.homeClubId else { return }
-                    Task { await store.saveHomeClub(picked) }
-                }
-            )
-            .disabled(store.isSaving)
-            // Same reason as the gender chips: TapDropdown's trigger is a
-            // `.plain` button that never dims on `.disabled` by itself.
-            .opacity(store.isSaving ? 0.5 : 1)
-            .accessibilityIdentifier("profile-home-club")
-        }
-        .accessibilityIdentifier("profile-club-card")
-    }
-
-    // MARK: - Handicap index
-
+    /// A separate "Handicap history" section with a card per entry said nothing
+    /// the rows do not, and put a heading between two halves of one subject.
     private func handicapCard(_ store: ProfileStore) -> some View {
-        card(label: "Handicap index", hint: ProfileCopy.handicapHint, error: store.handicapError) {
-            HStack(alignment: .firstTextBaseline, spacing: TapSpacing.md) {
-                Text(ProfileFormat.index(store.player?.handicapIndex))
-                    .font(TapFont.display(size: 32, weight: .bold))
-                    .foregroundStyle(TapColors.text)
-                    .monospacedDigit()
-                    .accessibilityIdentifier("profile-handicap-value")
-                Spacer(minLength: 0)
-                // B5.15's rule, carried over: the index is never text-editable.
-                Button("Edit") { padOpen = true }
-                    .buttonStyle(.tap(.secondary))
-                    .disabled(store.isSaving)
-                    .accessibilityIdentifier("profile-handicap-edit")
+        TapCard {
+            VStack(alignment: .leading, spacing: TapSpacing.sm) {
+                fieldLabel("Handicap index")
+                HStack(alignment: .firstTextBaseline, spacing: TapSpacing.md) {
+                    Text(ProfileFormat.index(store.player?.handicapIndex))
+                        .font(TapFont.display(size: 32, weight: .bold))
+                        .foregroundStyle(TapColors.text)
+                        .monospacedDigit()
+                        .accessibilityIdentifier("profile-handicap-value")
+                    Spacer(minLength: 0)
+                    // B5.15's rule, carried over: the index is never text-editable.
+                    Button("Edit") { padOpen = true }
+                        .buttonStyle(.tap(.secondary))
+                        .disabled(store.isSaving)
+                        .accessibilityIdentifier("profile-handicap-edit")
+                }
+                fieldHint(ProfileCopy.handicapHint)
+                fieldError(store.handicapError, identifier: "profile-handicap-error")
+                fieldRule
+                history(store)
             }
+            .padding(TapSpacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityIdentifier("profile-handicap-card")
     }
 
-    // MARK: - History
-
-    private func historySection(_ store: ProfileStore) -> some View {
-        VStack(alignment: .leading, spacing: TapSpacing.sm) {
-            SectionHeader(title: "Handicap history")
-            if store.history.isEmpty {
-                Text(ProfileCopy.historyEmpty)
-                    .font(TapFont.ui(size: 13.6))
-                    .foregroundStyle(TapColors.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("profile-history-empty")
-            } else {
-                ForEach(store.history, id: \.id) { entry in
+    @ViewBuilder
+    private func history(_ store: ProfileStore) -> some View {
+        if store.history.isEmpty {
+            Text(ProfileCopy.historyEmpty)
+                .font(TapFont.ui(size: 13.6))
+                .foregroundStyle(TapColors.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("profile-history-empty")
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(store.history.enumerated()), id: \.element.id) { index, entry in
+                    if index > 0 {
+                        fieldRule
+                    }
                     historyRow(entry)
                 }
             }
+            .accessibilityIdentifier("profile-history")
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityIdentifier("profile-history")
     }
 
     private func historyRow(_ entry: HandicapEntry) -> some View {
-        TapCard {
-            HStack(alignment: .firstTextBaseline, spacing: TapSpacing.md) {
-                Text(ProfileFormat.historyIndex(entry.handicapIndex))
-                    .font(TapFont.ui(size: 16.8, weight: .bold))
-                    .foregroundStyle(TapColors.text)
-                    .monospacedDigit()
-                    .frame(minWidth: 52, alignment: .leading)
-                Text(ProfileFormat.source(entry.source))
-                    .font(TapFont.ui(size: 11.2, weight: .bold))
-                    .tracking(11.2 * 0.08)
-                    .foregroundStyle(TapColors.accent)
-                    .padding(.vertical, 2)
-                    .padding(.horizontal, 10)
-                    .background(Capsule().fill(TapColors.accentSoft))
-                Spacer(minLength: 0)
-                // The raw `YYYY-MM-DD` the server stores, unreformatted: an
-                // effective date is a record, and a locale-formatted copy of it
-                // would stop matching the row the server can show you.
-                Text(verbatim: entry.effectiveDate)
-                    .font(TapFont.ui(size: 13.6))
-                    .foregroundStyle(TapColors.textMuted)
-                    .monospacedDigit()
-            }
-            .padding(TapSpacing.md)
+        HStack(alignment: .firstTextBaseline, spacing: TapSpacing.md) {
+            Text(ProfileFormat.historyIndex(entry.handicapIndex))
+                .font(TapFont.ui(size: 16.8, weight: .bold))
+                .foregroundStyle(TapColors.text)
+                .monospacedDigit()
+                .frame(minWidth: 52, alignment: .leading)
+            Text(ProfileFormat.source(entry.source))
+                .font(TapFont.ui(size: 11.2, weight: .bold))
+                .tracking(11.2 * 0.08)
+                .foregroundStyle(TapColors.accent)
+                .padding(.vertical, 2)
+                .padding(.horizontal, 10)
+                .background(Capsule().fill(TapColors.accentSoft))
+            Spacer(minLength: 0)
+            // The raw `YYYY-MM-DD` the server stores, unreformatted: an
+            // effective date is a record, and a locale-formatted copy of it
+            // would stop matching the row the server can show you.
+            Text(verbatim: entry.effectiveDate)
+                .font(TapFont.ui(size: 13.6))
+                .foregroundStyle(TapColors.textMuted)
+                .monospacedDigit()
         }
+        .padding(.vertical, TapSpacing.sm)
         .accessibilityIdentifier("profile-history-row")
     }
 
@@ -740,39 +796,6 @@ struct ProfileView: View {
         .accessibilityIdentifier(identifier)
     }
 
-    // MARK: - Card shell
-
-    /// Label, control, hint, and the inline failure — the web's `.profile__card`
-    /// in the order it stacks them.
-    private func card(
-        label: String,
-        hint: String,
-        error: String?,
-        @ViewBuilder control: () -> some View
-    ) -> some View {
-        TapCard {
-            VStack(alignment: .leading, spacing: TapSpacing.sm) {
-                Text(label)
-                    .font(TapFont.ui(size: 11.2, weight: .bold))
-                    .tracking(11.2 * 0.06)
-                    .foregroundStyle(TapColors.textMuted)
-                    .textCase(.uppercase)
-                control()
-                Text(hint)
-                    .font(TapFont.ui(size: 12.8))
-                    .foregroundStyle(TapColors.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let error {
-                    Text(error)
-                        .font(TapFont.ui(size: 13.6))
-                        .foregroundStyle(TapColors.danger)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(TapSpacing.md)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
 }
 
 /// Every user-facing sentence the profile speaks, lifted out of the view so
@@ -789,7 +812,13 @@ enum ProfileCopy {
     static let handicapHint =
         "Maintained by you — each save is recorded below with its effective date."
     static let preferredTeeInfo =
-        "Pick the type of tee you normally play: Club, Tournament or Beginner. When you create a round, it pre-fills the default tee for your gender only when the course has a matching tee. If there is no preference or no matching tee, the course’s standard default applies. The organiser can change the round defaults, and any player’s tee can still be overridden."
+        "Pick the tee type you normally play. It pre-fills your own gender’s round tee only when the selected course has a matching tee. Otherwise the course default applies. The organiser can change the round defaults, and any player’s tee can still be overridden."
+    /// The line under the tee dropdown: what the LIVE selection does, in one
+    /// sentence (`docs/design-guidelines.md` §3). Word for word the web's.
+    static func preferredTeeHint(_ roleName: String?) -> String {
+        guard let roleName else { return "Rounds start you on the course default tee." }
+        return "Rounds start you on the course’s \(roleName) tee when it has one."
+    }
     /// The master switch's hint. It says the two things a player cannot infer
     /// from a switch: that answering happens DURING a round, and that turning
     /// it off keeps the module picks (spec §3 — the master exists so "off" is
