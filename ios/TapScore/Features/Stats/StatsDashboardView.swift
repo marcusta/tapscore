@@ -774,6 +774,14 @@ enum StatsCopy {
         "What each kind of tee shot actually cost you, per hole. The trouble tax below is the difference between the last row and the first."
     static let troubleTax =
         "Extra strokes per hole when the tee shot finds trouble, against your own fairway holes."
+    /// "Tax" is the app's own word, and the owner's reading of it (2026-08-03)
+    /// was "what the hell is tax in golf?". The NAME stays — it is short, it is
+    /// the same noun on three cards, and a longer one would not survive a value
+    /// column — but every tax row now has an info-sheet card TITLED with those
+    /// exact words. Hence this sentence: the penalty tax had no explanation of
+    /// its own before, only a sample.
+    static let penaltyTax =
+        "Extra strokes per hole on the holes where you took a penalty, against your own penalty-free holes."
     static let recovery = "Holes where the shot after trouble got you back in play."
     static let penalties = "Penalty strokes per round."
     static let proximityProxy =
@@ -791,12 +799,16 @@ enum StatsCopy {
         "Cost is how many strokes this distance has cost you across the window, against the reference you picked. Plus means it cost you shots; minus means you gained them."
     /// The one sentence this pass ADDS. The missed-green tax had no row hint to
     /// move, and a card body that is a bare sample sentence says nothing.
+    static let costOfMissedGreen =
+        "What a hole costs you against par on average with the green hit, and with it missed."
     static let missedGreenTax =
         "The difference between what a hole costs you with the green hit and with it missed."
     static let threePutt = "Holes with three putts or more."
     static let longThreePutt = "Three-putts that started from over 8 m."
     static let puttsPerGir = "Putts taken on holes where you hit the green."
     static let puttsAfterMissedGreen = "Putts taken on holes where you missed the green."
+    static let puttsByPar =
+        "Putts per hole on each kind of hole — every hole you recorded putts on, green hit or not."
     static let conversionInside2m =
         "First putts from inside 2 m that went in — across every hole, not only chipped ones. The app records no chip-and-hole cross-tab."
     static let chipIns = "Short-game shots that went in without a putt."
@@ -809,6 +821,7 @@ enum StatsCopy {
     static let teeFanHead = "Where your tee shots finish"
     static let teeFan =
         "Side is recorded whenever the drive left the fairway. The darker block is trouble."
+    static let scrambling = "Missed greens where you still got up and down for par or better."
     static let sandSave = "Missed greens from a bunker where you still got up and down."
     static let multiChip =
         "Missed greens that took more than one shot to reach the green. Holes where you did not count are treated as one."
@@ -836,6 +849,7 @@ enum StatsCopy {
         "Your score says this green was missed. Tap to change it, or leave it."
     static let girDisagreeHit =
         "Your score says this green was hit. Tap to change it, or leave it."
+    static let avgVsParByPar = "Your average score against par on each kind of hole."
     static let doubleBogeyPlus = "Holes at double bogey or worse, per round."
     static let bounceBack = "Holes after a bogey or worse that came back at par or better."
 

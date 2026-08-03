@@ -99,6 +99,17 @@ enum StatsFormat {
         /// penalty-source card. Its sample is usually a handful, so the singular
         /// is the COMMON case here, not the edge one.
         static let labelledPenaltyHoles = SampleUnit.regular("penalty hole")
+
+        /// The legs of a GROUP sample. Each carries its own noun, unlike the tax
+        /// units above, because `groupSample` drops the empty legs and so any
+        /// one of them can end up first in the sentence.
+        static let fairwayHoles = SampleUnit(
+            "hole from the fairway", "holes from the fairway")
+        static let inPlayHoles = SampleUnit("hole in play", "holes in play")
+        static let troubleHoles = SampleUnit("hole from trouble", "holes from trouble")
+        static let par3 = SampleUnit.regular("par 3")
+        static let par4 = SampleUnit.regular("par 4")
+        static let par5 = SampleUnit.regular("par 5")
     }
 
     /// The sample behind an average — "over 24 greens". No thin mark: there is
@@ -110,8 +121,14 @@ enum StatsFormat {
         return "over \(quantity(r.d, unit))"
     }
 
-    /// An average with its denominator beside it — the form every figure row on
-    /// this screen uses.
+    /// An average with its denominator beside it.
+    ///
+    /// ONE consumer survives the owner's 2026-08-03 ruling: the COLLAPSED PANEL
+    /// HEADLINE, which is a whole card reduced to a line and has to say how much
+    /// round is behind it. Figure rows inside an open panel print the bare value
+    /// via `average` and state the denominator in the card's info sheet, where a
+    /// group of parallel rows shares one sentence. Do not re-introduce a call
+    /// from `StatsPanelViews`.
     ///
     /// - Parameter label: what the number MEASURES, placed between the value and
     ///   the sample ("1.85 putts per green hit (over 24 greens)"). Panel
@@ -162,6 +179,57 @@ enum StatsFormat {
     /// "over 9 holes with a penalty vs 45 without".
     static func penaltyTaxSample(_ split: PenaltySplit) -> String? {
         taxSample(split.penalty, .penaltyHoles, split.clean, .penaltyFree)
+    }
+
+    // MARK: Group samples
+
+    // A group of PARALLEL figure rows — the three tee buckets, the three par
+    // groups, the two sides of a missed green — states its denominators
+    // together, in one sentence, in the card's info sheet. That is where they
+    // went when the owner's 2026-08-03 ruling took the "(over 26 greens)" suffix
+    // off the rows themselves.
+    //
+    // Together rather than one-per-row on purpose: the rows PARTITION a sample,
+    // so the interesting fact is how the partition split, and three separate
+    // sentences would bury it.
+
+    /// "over 26 holes from the fairway, 8 holes in play and 9 holes from
+    /// trouble".
+    ///
+    /// A leg with no sample is dropped rather than printed as a zero, and nil
+    /// comes back when nothing is left — the same contract as `averageSample`,
+    /// so a caller omits the sentence instead of writing "over 0 holes".
+    static func groupSample(_ parts: [(d: Double, unit: SampleUnit)]) -> String? {
+        var legs = parts.filter { $0.d > 0 }.map { quantity($0.d, $0.unit) }
+        guard let last = legs.popLast() else { return nil }
+        if legs.isEmpty { return "over \(last)" }
+        return "over \(legs.joined(separator: ", ")) and \(last)"
+    }
+
+    /// The three tee buckets' scored holes, in the order the rows read.
+    static func vsParByTeeSample(_ byTee: ByTee<Rate>) -> String? {
+        groupSample([
+            (byTee.fairway.d, .fairwayHoles),
+            (byTee.inPlay.d, .inPlayHoles),
+            (byTee.trouble.d, .troubleHoles),
+        ])
+    }
+
+    /// "over 12 par 3s, 30 par 4s and 12 par 5s" — putting and scoring share it.
+    static func byParSample(_ byPar: ByParGroup<Rate>) -> String? {
+        groupSample([
+            (byPar.par3.d, .par3),
+            (byPar.par4.d, .par4),
+            (byPar.par5.d, .par5),
+        ])
+    }
+
+    /// "over 26 greens hit and 34 holes with the green missed".
+    static func missedGreenSample(_ cost: VsParSplit) -> String? {
+        groupSample([
+            (cost.hit.d, .greensHit),
+            (cost.miss.d, .greensMissed),
+        ])
     }
 
     // MARK: Numbers

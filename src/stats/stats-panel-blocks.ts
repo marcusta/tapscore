@@ -157,6 +157,15 @@ export const STATS_COPY = {
         'Which player the strokes-gained rows measure you against. It does not change which rounds are in the window.',
     troubleTax:
         'Extra strokes per hole when the tee shot finds trouble, against your own fairway holes.',
+    // "Tax" is the app's own word, and the owner's reading of it (2026-08-03) was
+    // "what the hell is tax in golf?". The NAME stays — it is short, it is the
+    // same noun on three cards, and a longer one would not survive a value
+    // column — but every tax row now has an info-sheet card TITLED with those
+    // exact words, so a reader hunting the term finds it as a heading rather
+    // than as a clause buried in a section card. Hence this sentence: the
+    // penalty tax had no explanation of its own before, only a sample.
+    penaltyTax:
+        'Extra strokes per hole on the holes where you took a penalty, against your own penalty-free holes.',
     recovery: 'Holes where the shot after trouble got you back in play.',
     penalties: 'Penalty strokes per round.',
     // A PLACEHOLDER in a fixed-width value column, never a label: a rate row's
@@ -171,6 +180,8 @@ export const STATS_COPY = {
         'The tick is the make rate your reference expects from that distance. For the two longest bands it sits at zero: the reference expects two putts from there, so any make is ahead of it.',
     ladderCost:
         'Cost is how many strokes this distance has cost you across the window, against the reference you picked. Plus means it cost you shots; minus means you gained them.',
+    costOfMissedGreen:
+        'What a hole costs you against par on average with the green hit, and with it missed.',
     missedGreenTax:
         'The difference between what a hole costs you with the green hit and with it missed.',
     threePutt: 'Holes with three putts or more.',
@@ -184,12 +195,15 @@ export const STATS_COPY = {
     firstPuttSpread:
         'Where the first putt was on every hole you recorded one — not only the greens you hit.',
     puttsAfterMissedGreen: 'Putts taken on holes where you missed the green.',
+    puttsByPar:
+        'Putts per hole on each kind of hole — every hole you recorded putts on, green hit or not.',
     hardChipShare:
         'How often a missed green left a hard chip or pitch rather than a standard one.',
     greenMissHead: 'Where you miss the green',
     greenMiss: 'Recorded misses only. Long is past the flag, short is in front of it.',
     teeFanHead: 'Where your tee shots finish',
     teeFan: 'Side is recorded whenever the drive left the fairway. The darker block is trouble.',
+    scrambling: 'Missed greens where you still got up and down for par or better.',
     sandSave: 'Missed greens from a bunker where you still got up and down.',
     multiChip:
         'Missed greens that took more than one shot to reach the green. Holes where you did not count are treated as one.',
@@ -198,6 +212,7 @@ export const STATS_COPY = {
     penaltySourceInfoTitle: 'Where the penalties came from',
     resultsHeading: 'Results',
     scoreTypesHead: 'Holes by score',
+    avgVsParByPar: 'Your average score against par on each kind of hole.',
     doubleBogeyPlus: 'Holes at double bogey or worse, per round.',
     bounceBack: 'Holes after a bogey or worse that came back at par or better.',
 } as const;
@@ -211,6 +226,20 @@ function bar(id: string, title: string, r: Rate): StatsBlock {
     return { kind: 'bar', id, title, share: r.value, value: formatRate(r) };
 }
 
+/**
+ * A figure row shows ONLY THE VALUE (owner ruling, 2026-08-03).
+ *
+ * Every average here used to trail its denominator — "+0.91 (over 34 holes)" —
+ * and a card of six such rows read as six footnotes rather than six figures.
+ * Build the value with `formatAverage`, never `averageWithSample`, and state the
+ * denominator in the card's "How this works" sheet, where a group of parallel
+ * rows can share ONE sentence naming all of its legs. Every denominator stripped
+ * from a row here has a home in `panel-info-cards.ts`; if you add a figure row,
+ * add its sample there too.
+ *
+ * Collapsed panel HEADLINES are the exception and still carry the sample: a
+ * headline is a whole card reduced to a line, with no sheet of its own in reach.
+ */
 function figure(id: string, title: string, value: string | null, hint: string | null = null): StatsBlock {
     return { kind: 'figure', id, title, value, hint };
 }
@@ -288,7 +317,7 @@ function troubleTaxFigure(panel: StatsTeePanel): StatsBlock {
 
 /** Average strokes vs par per hole, signed — the tee card's three absolutes. */
 function vsPar(r: Rate): string | null {
-    return averageWithSample(r, { unit: UNIT_HOLES, signed: true });
+    return formatAverage(r, 2, true);
 }
 
 /**
@@ -414,7 +443,7 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                           figure(
                               'penalties',
                               'Penalties',
-                              averageWithSample(p.penaltiesPerRound, { unit: UNIT_ROUNDS }),
+                              formatAverage(p.penaltiesPerRound, 2),
                           ),
                           bar('penaltyHoleShare', 'Holes with a penalty', p.penaltyHoleShare),
                           // `formatAverage`, never `averageWithSample`: the
@@ -483,18 +512,12 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                           figure(
                               'vsParGreenHit',
                               'Green hit',
-                              averageWithSample(p.costOfMissedGreen.hit, {
-                                  unit: UNIT_GREENS,
-                                  signed: true,
-                              }),
+                              formatAverage(p.costOfMissedGreen.hit, 2, true),
                           ),
                           figure(
                               'vsParGreenMissed',
                               'Green missed',
-                              averageWithSample(p.costOfMissedGreen.miss, {
-                                  unit: UNIT_HOLES,
-                                  signed: true,
-                              }),
+                              formatAverage(p.costOfMissedGreen.miss, 2, true),
                           ),
                           figure(
                               'missedGreenTax',
@@ -551,17 +574,13 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                 // and two rows for one fact is what this pass removed. The lag
                 // fact below is distinct and stays.
                 bar('longThreePutt', 'Three-putts from over 8 m', p.threePuttsFromOver8m),
-                figure(
-                    'puttsPerGir',
-                    'Putts per green hit',
-                    averageWithSample(p.puttsPerGirHole, { unit: UNIT_GREENS }),
-                ),
+                figure('puttsPerGir', 'Putts per green hit', formatAverage(p.puttsPerGirHole, 2)),
                 ...(p.puttsAfterMissedGreen.d > 0
                     ? [
                           figure(
                               'puttsAfterMissedGreen',
                               'Putts after a missed green',
-                              averageWithSample(p.puttsAfterMissedGreen, { unit: UNIT_HOLES }),
+                              formatAverage(p.puttsAfterMissedGreen, 2),
                           ),
                       ]
                     : []),
@@ -579,21 +598,9 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                               id: 'puttsByParHead',
                               text: 'Putts per hole, by par',
                           },
-                          figure(
-                              'puttsPar3',
-                              'Par 3',
-                              averageWithSample(p.puttsPerHoleByPar.par3, { unit: UNIT_HOLES }),
-                          ),
-                          figure(
-                              'puttsPar4',
-                              'Par 4',
-                              averageWithSample(p.puttsPerHoleByPar.par4, { unit: UNIT_HOLES }),
-                          ),
-                          figure(
-                              'puttsPar5',
-                              'Par 5',
-                              averageWithSample(p.puttsPerHoleByPar.par5, { unit: UNIT_HOLES }),
-                          ),
+                          figure('puttsPar3', 'Par 3', formatAverage(p.puttsPerHoleByPar.par3, 2)),
+                          figure('puttsPar4', 'Par 4', formatAverage(p.puttsPerHoleByPar.par4, 2)),
+                          figure('puttsPar5', 'Par 5', formatAverage(p.puttsPerHoleByPar.par5, 2)),
                       ]
                     : []),
             ];
@@ -660,8 +667,7 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
         case 'scoring': {
             const p = model.scoring;
             if (!p) return [];
-            const avg = (r: Rate): string | null =>
-                averageWithSample(r, { unit: UNIT_HOLES, signed: true });
+            const avg = (r: Rate): string | null => formatAverage(r, 2, true);
             return [
                 { kind: 'subhead', id: 'vsParHead', text: 'Average vs par' },
                 figure('par3', 'Par 3', avg(p.avgVsParByParGroup.par3)),
@@ -670,7 +676,7 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                 figure(
                     'doubles',
                     'Doubles or worse',
-                    averageWithSample(p.doubleBogeyPlusPerRound, { unit: UNIT_ROUNDS }),
+                    formatAverage(p.doubleBogeyPlusPerRound, 2),
                 ),
                 bar('bounceBack', 'Bounce-back', p.bounceBack),
             ];

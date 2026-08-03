@@ -157,7 +157,7 @@ final class StatsPanelViewsTests: XCTestCase {
         XCTAssertEqual(
             ids(blocks).filter { $0.hasPrefix("vsPar") },
             ["vsParByTeeHead", "vsParFairway", "vsParInPlay", "vsParTrouble"])
-        XCTAssertEqual(value(blocks, "vsParFairway"), "+0.50 (over 8 holes)")
+        XCTAssertEqual(value(blocks, "vsParFairway"), "+0.50")
         XCTAssertNil(value(blocks, "vsParInPlay"))
         XCTAssertNil(value(blocks, "vsParTrouble"))
     }
@@ -195,7 +195,7 @@ final class StatsPanelViewsTests: XCTestCase {
         XCTAssertEqual(
             ids(blocks).filter { $0.hasPrefix("penalt") },
             ["penalties", "penaltyHoleShare", "penaltyTax"])
-        XCTAssertEqual(value(blocks, "penalties"), "3.00 (over 1 round)")
+        XCTAssertEqual(value(blocks, "penalties"), "3.00")
         // 2 of the 2 scored holes — a percentage, never the fraction, in a
         // value column. NOT 2 of the 36 that answered the question: the share
         // is over the cohort the tax below it splits.
@@ -417,8 +417,8 @@ final class StatsPanelViewsTests: XCTestCase {
         XCTAssertEqual(
             ["vsParGreenHit", "vsParGreenMissed", "missedGreenTax"].map { title(blocks, $0) },
             ["Green hit", "Green missed", "Missed-green tax"])
-        XCTAssertEqual(value(blocks, "vsParGreenHit"), "+0.08 (over 26 greens)")
-        XCTAssertEqual(value(blocks, "vsParGreenMissed"), "+0.91 (over 34 holes)")
+        XCTAssertEqual(value(blocks, "vsParGreenHit"), "+0.08")
+        XCTAssertEqual(value(blocks, "vsParGreenMissed"), "+0.91")
         // The tax carries no sample of its own — its `d` is a cross-product, and
         // its two honest denominators are a sentence, so the sheet says them.
         XCTAssertEqual(value(blocks, "missedGreenTax"), "+0.83")
@@ -431,7 +431,7 @@ final class StatsPanelViewsTests: XCTestCase {
             approachPanel { $0.strokesVsParGirHit = -6 })
         let hit = value(blocks, "vsParGreenHit")
 
-        XCTAssertEqual(hit, "\u{2212}0.23 (over 26 greens)")
+        XCTAssertEqual(hit, "\u{2212}0.23")
         XCTAssertEqual(hit?.contains("-"), false)
     }
 
@@ -485,7 +485,7 @@ final class StatsPanelViewsTests: XCTestCase {
         let values = ["puttsPar3", "puttsPar4", "puttsPar5"].compactMap { value(blocks, $0) }
 
         XCTAssertEqual(
-            values, ["1.75 (over 12 holes)", "1.87 (over 30 holes)", "1.92 (over 12 holes)"])
+            values, ["1.75", "1.87", "1.92"])
         // Putts are a quantity, so no leading plus anywhere.
         XCTAssertFalse(values.contains { $0.hasPrefix("+") })
     }
@@ -688,14 +688,30 @@ final class StatsPanelViewsTests: XCTestCase {
         let approach = StatsPanelInfo.cards(.approach, model, baseline)
         XCTAssertEqual(
             approach.map(\.id),
-            ["greenMiss", "proximity", "birdieConversion", "hardChipShare", "missedGreenTax"])
+            [
+                "greenMiss", "proximity", "birdieConversion", "hardChipShare",
+                "costOfMissedGreen", "missedGreenTax",
+            ])
         XCTAssertEqual(approach[1].title, "Proximity with GIR")
+        // The GROUP card states its two legs as a partition …
         XCTAssertTrue(
-            approach[4].body.contains("over 34 holes with the green missed vs 26 greens hit"),
+            approach[4].body.contains("Measured over 26 greens hit and 34 holes with the green missed."),
             approach[4].body)
+        // … and the tax, under the row's own name, as a comparison.
+        XCTAssertEqual(approach[5].title, "Missed-green tax")
+        XCTAssertTrue(
+            approach[5].body.contains("over 34 holes with the green missed vs 26 greens hit"),
+            approach[5].body)
 
         let tee = StatsPanelInfo.cards(.tee, model, baseline)
-        XCTAssertTrue(tee.last!.body.contains("Measured over 54 holes."), tee.last!.body)
+        XCTAssertEqual(
+            tee.map(\.id),
+            ["teeFan", "vsParByTee", "troubleTax", "recovery", "penalties", "penaltyTax"])
+        // The per-round figure's own sample is BOTH numbers: it divides by
+        // rounds, but only exists on holes where the question was answered.
+        XCTAssertTrue(
+            tee[4].body.contains("Measured over 3 rounds and 54 holes."), tee[4].body)
+        XCTAssertEqual(tee.last!.title, "Penalty tax")
         XCTAssertTrue(
             tee.last!.body.contains("over 9 holes with a penalty vs 45 without"), tee.last!.body)
 
@@ -706,6 +722,86 @@ final class StatsPanelViewsTests: XCTestCase {
                 XCTAssertFalse(card.body.isEmpty)
             }
         }
+    }
+
+    /// A word the app invented is a card TITLE, verbatim, never a clause inside
+    /// one. The owner's 2026-08-03 read of the tax rows was "what the hell is
+    /// tax in golf?" — the names stay, and the sheet answers under the exact
+    /// string the row printed, because a reader scans HEADINGS for the word they
+    /// just met.
+    func testEveryInventedWordIsACardTitle() {
+        // Window W attempts no scramble, so its short-game panel is absent —
+        // and the sand rows are the reason this test exists. Gate it in.
+        var m = Self.windowW()
+        m.scrambleAttemptsStandard = 8
+        m.scrambleSuccessesStandard = 3
+        m.scrambleAttemptsBunker = 3
+        m.scrambleSuccessesBunker = 2
+        var model = Self.windowWModel()
+        model.shortGame = StatsDashboardModel.shortGamePanel(m)
+        let baseline = SgBaselineContext.fallback
+        func titles(_ id: StatsPanelID) -> [String] {
+            StatsPanelInfo.cards(id, model, baseline).map(\.title)
+        }
+        XCTAssertTrue(titles(.tee).contains("Trouble tax"), "\(titles(.tee))")
+        XCTAssertTrue(titles(.tee).contains("Penalty tax"), "\(titles(.tee))")
+        XCTAssertTrue(titles(.approach).contains("Missed-green tax"), "\(titles(.approach))")
+        XCTAssertTrue(titles(.shortGame).contains("Sand save"), "\(titles(.shortGame))")
+        // A section card is titled with the subhead its rows sit under, word for
+        // word, so both halves of the sheet are scannable.
+        XCTAssertTrue(
+            titles(.tee).contains("Average vs par, by where the tee shot finished"),
+            "\(titles(.tee))")
+        XCTAssertTrue(titles(.putting).contains("Putts per hole, by par"), "\(titles(.putting))")
+        XCTAssertTrue(titles(.scoring).contains("Average vs par"), "\(titles(.scoring))")
+    }
+
+    /// Every denominator a figure row dropped is stated in the sheet instead.
+    /// The rows print bare values now, so this is the ONLY place the sample
+    /// survives — and a group states its legs together, because the rows
+    /// partition one sample and how it split is the fact worth reading.
+    func testTheGroupSamplesLandInTheSheet() {
+        // Window W splits neither its scored holes by tee shot nor by par, so
+        // the group sentences need a window that does — the same partitions the
+        // web twin's SPLIT_MODEL states.
+        var m = Self.windowW()
+        m.holesScoredFairway = 26
+        m.strokesVsParFairway = 4
+        m.holesScoredInPlay = 8
+        m.strokesVsParInPlay = 6
+        m.holesScoredTrouble = 9
+        m.strokesVsParTrouble = 14
+        m.holesScoredPar3 = 12
+        m.strokesPar3 = 42
+        m.holesScoredPar4 = 30
+        m.strokesPar4 = 135
+        m.holesScoredPar5 = 12
+        m.strokesPar5 = 63
+        var model = StatsDashboardModel.empty
+        model.totals = m
+        model.tee = StatsDashboardModel.teePanel(m, roundCount: 3)
+        model.putting = StatsDashboardModel.puttingPanel(m, baseline: SgBaselines.hcp12)
+        model.scoring = StatsDashboardModel.scoringPanel(m, roundCount: 3)
+
+        let baseline = SgBaselineContext.fallback
+        func body(_ id: StatsPanelID, _ cardID: String) -> String {
+            StatsPanelInfo.cards(id, model, baseline).first { $0.id == cardID }!.body
+        }
+        XCTAssertTrue(
+            body(.tee, "vsParByTee").contains(
+                "Measured over 26 holes from the fairway, 8 holes in play and 9 holes from trouble."
+            ),
+            body(.tee, "vsParByTee"))
+        XCTAssertTrue(
+            body(.putting, "puttsByPar").contains(
+                "Measured over 12 par 3s, 30 par 4s and 12 par 5s."),
+            body(.putting, "puttsByPar"))
+        XCTAssertTrue(
+            body(.scoring, "vsPar").contains(
+                "Measured over 12 par 3s, 30 par 4s and 12 par 5s."),
+            body(.scoring, "vsPar"))
+        // A leg with nothing behind it is dropped rather than claimed as zero.
+        XCTAssertFalse(body(.tee, "vsParByTee").contains(" 0 "), body(.tee, "vsParByTee"))
     }
 
     /// The ladder's sheet has to name the tier in force, because both numbers on

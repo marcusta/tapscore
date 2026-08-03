@@ -88,9 +88,52 @@ test('the tee panel leads with the split and carries the trouble tax with BOTH i
     expect(tax.kind === 'figure' && tax.hint).toBeNull();
     // Never "over 10 holes": the figure's own denominator is a cross-product
     // guard, so the sample is the two sides it is a difference of — and it is
-    // now the sheet that says so.
-    expect(infoBody('tee', model, 'vsParByTee')).toContain(
+    // now the sheet that says so, under the row's OWN name.
+    expect(infoBody('tee', model, 'troubleTax')).toContain(
         '2 holes from trouble vs 5 from the fairway',
+    );
+    // The three rows the tax is a difference of state their legs as a partition.
+    expect(infoBody('tee', model, 'vsParByTee')).toContain(
+        'Measured over 5 holes from the fairway and 2 holes from trouble.',
+    );
+});
+
+test('a reader hunting the word “tax” finds it as a heading, on every card that uses it', () => {
+    // The owner's 2026-08-03 read: "what the hell is tax in golf?". The names
+    // stay — three cards share the noun and a value column has no room for a
+    // longer one — so the sheet answers the question under the exact string the
+    // row printed, never inside a section card named something else.
+    const model = buildDashboardModel([
+        round({
+            measures: measures({
+                teeRecorded: 10,
+                fairwayHits: 5,
+                troubleCount: 2,
+                holesScored: 10,
+                holesScoredFairway: 5,
+                holesScoredTrouble: 2,
+                strokesVsParTrouble: 4,
+                penaltiesRecorded: 10,
+                penaltiesTotal: 2,
+                holesScoredPenalty: 2,
+                strokesVsParPenalty: 3,
+                girRecorded: 10,
+                girHits: 4,
+                girHolesScored: 4,
+                holesScoredGirMiss: 6,
+                strokesVsParGirMiss: 6,
+            }),
+        }),
+    ]);
+    const titles = (id: 'tee' | 'approach'): string[] =>
+        panelInfoCards(id, model, DEFAULT_SG_BASELINE_INFO).map((c) => c.title);
+    expect(titles('tee')).toContain('Trouble tax');
+    expect(titles('tee')).toContain('Penalty tax');
+    expect(titles('approach')).toContain('Missed-green tax');
+    // And the body under each heading is the plain-words answer, not a sample
+    // sentence on its own.
+    expect(infoBody('tee', model, 'penaltyTax')).toContain(
+        'Extra strokes per hole on the holes where you took a penalty',
     );
 });
 
@@ -216,7 +259,7 @@ test('the tee card carries the three absolutes the trouble tax is a difference o
     expect(ids.indexOf('vsParByTeeHead')).toBeGreaterThan(ids.indexOf('teeSplit'));
     expect(ids.indexOf('vsParTrouble')).toBeLessThan(ids.indexOf('troubleTax'));
     const trouble = blocks.find((b) => b.id === 'vsParTrouble')!;
-    expect(trouble.kind === 'figure' && trouble.value).toBe('+2.00 (over 2 holes)');
+    expect(trouble.kind === 'figure' && trouble.value).toBe('+2.00');
     // The three PARTITION the tee shots, so an empty one still prints — hiding a
     // row of a partition misreads as "you never went there".
     const inPlay = blocks.find((b) => b.id === 'vsParInPlay')!;
@@ -240,11 +283,11 @@ test('penalties are absent, not zero, until the question was answered', () => {
         round({ measures: measures({ teeRecorded: 9, penaltiesRecorded: 18, penaltiesTotal: 3 }) }),
     ]);
     const penalties = panelBlocks('tee', recorded).find((b) => b.id === 'penalties')!;
-    expect(penalties.kind === 'figure' && penalties.value).toBe('3.00 (over 1 round)');
+    expect(penalties.kind === 'figure' && penalties.value).toBe('3.00');
     // The hint was pure denominator, so it went to the sheet whole.
     expect(penalties.kind === 'figure' && penalties.hint).toBeNull();
     expect(infoBody('tee', recorded, 'penalties')).toBe(
-        'Penalty strokes per round. Measured over 18 holes.',
+        'Penalty strokes per round. Measured over 1 round and 18 holes.',
     );
 });
 
@@ -278,7 +321,7 @@ test('the putting card opens with the raw spread, over every hole and not only g
     expect(ids[ids.length - 1]).toBe('puttsPar5');
     const missed = blocks.find((b) => b.id === 'puttsAfterMissedGreen')!;
     // 12 − 4 = 8 putts over 8 − 3 = 5 holes.
-    expect(missed.kind === 'figure' && missed.value).toBe('1.60 (over 5 holes)');
+    expect(missed.kind === 'figure' && missed.value).toBe('1.60');
 });
 
 test('a putting panel with nothing resolved drops the spread group entirely', () => {
@@ -603,14 +646,14 @@ test('the cost of a missed green is two absolutes and the difference between the
             kind: 'figure',
             id: 'vsParGreenHit',
             title: 'Green hit',
-            value: '+0.08 (over 26 greens)',
+            value: '+0.08',
             hint: null,
         },
         {
             kind: 'figure',
             id: 'vsParGreenMissed',
             title: 'Green missed',
-            value: '+0.91 (over 34 holes)',
+            value: '+0.91',
             hint: null,
         },
         {
@@ -634,7 +677,7 @@ test('a green hit under par prints the typographic minus, not a hyphen', () => {
     const hit = windowBlocks('approach', { strokesVsParGirHit: -6 }).find(
         (b) => b.id === 'vsParGreenHit',
     )!;
-    expect(hit.kind === 'figure' && hit.value).toBe('−0.23 (over 26 greens)');
+    expect(hit.kind === 'figure' && hit.value).toBe('−0.23');
 });
 
 test('the whole missed-green group disappears when neither side has a scored hole', () => {
@@ -669,9 +712,9 @@ test('holes by putts is the four-bucket partition of the holes with a putt count
 test('putts per hole by par is unsigned — a putt count is a quantity, not a deviation', () => {
     expect(slice(windowBlocks('putting'), 'puttsByParHead', 4)).toEqual([
         { kind: 'subhead', id: 'puttsByParHead', text: 'Putts per hole, by par' },
-        { kind: 'figure', id: 'puttsPar3', title: 'Par 3', value: '1.75 (over 12 holes)', hint: null },
-        { kind: 'figure', id: 'puttsPar4', title: 'Par 4', value: '1.87 (over 30 holes)', hint: null },
-        { kind: 'figure', id: 'puttsPar5', title: 'Par 5', value: '1.92 (over 12 holes)', hint: null },
+        { kind: 'figure', id: 'puttsPar3', title: 'Par 3', value: '1.75', hint: null },
+        { kind: 'figure', id: 'puttsPar4', title: 'Par 4', value: '1.87', hint: null },
+        { kind: 'figure', id: 'puttsPar5', title: 'Par 5', value: '1.92', hint: null },
     ]);
 });
 
@@ -698,8 +741,13 @@ test('the penalty pair reads geography then cost, with the tax carrying both den
             hint: null,
         },
     ]);
-    expect(infoBody('tee', WINDOW_W_MODEL, 'penalties')).toContain(
+    expect(infoBody('tee', WINDOW_W_MODEL, 'penaltyTax')).toContain(
         'Measured over 9 holes with a penalty vs 45 without.',
+    );
+    // The per-round figure's own sample is BOTH numbers: it divides by rounds,
+    // but only exists on holes where the question was answered.
+    expect(infoBody('tee', WINDOW_W_MODEL, 'penalties')).toContain(
+        'Measured over 1 round and 54 holes.',
     );
 });
 
@@ -726,7 +774,7 @@ test('a three-hole denominator is a percentage with a bar, like every other rate
     ]);
     // A three-hole side is reported as three holes and nothing more: the reader
     // can see that 3 is small without being told.
-    expect(infoBody('tee', model, 'penalties')).toContain(
+    expect(infoBody('tee', model, 'penaltyTax')).toContain(
         'Measured over 9 holes with a penalty vs 3 without.',
     );
 });
@@ -891,12 +939,14 @@ test('the fan is absent when every recorded drive found the fairway', () => {
 
 test('the short-game card names the bunker figures in plain words', () => {
     // Rates, so bars — and the sentence that used to be `sandSave`'s hint is in
-    // the card's sheet, under one Scrambling heading with its siblings.
+    // the card's sheet, under a heading that says "Sand save" and nothing else.
+    // It used to be the first clause of a four-definition "Scrambling" card,
+    // which is exactly the burial the 2026-08-03 ruling ended.
     const sand = block('shortGame', 'sandSave')!;
     if (sand.kind !== 'bar') throw new Error('expected a bar');
     expect(sand.title).toBe('Sand save');
     expect(sand.value).toBe('67%');
-    expect(infoBody('shortGame', WINDOW_B_MODEL, 'scrambling')).toContain(
+    expect(infoBody('shortGame', WINDOW_B_MODEL, 'sandSave')).toContain(
         'Missed greens from a bunker where you still got up and down.',
     );
 

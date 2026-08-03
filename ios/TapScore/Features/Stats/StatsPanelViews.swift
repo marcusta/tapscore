@@ -421,6 +421,18 @@ struct StatsPanelsView: View {
         .bar(id: id, title: title, share: r.value, value: StatsFormat.rate(r))
     }
 
+    /// A figure row shows ONLY THE VALUE (owner ruling, 2026-08-03).
+    ///
+    /// Every average here used to trail its denominator — "+0.91 (over 34
+    /// holes)" — and a card of six such rows read as six footnotes rather than
+    /// six figures. Build the value with `StatsFormat.average`, never
+    /// `averageWithSample`, and state the denominator in the card's "How this
+    /// works" sheet, where a group of parallel rows shares ONE sentence naming
+    /// all of its legs. Every denominator stripped from a row here has a home in
+    /// `StatsPanelInfo`; if you add a figure row, add its sample there too.
+    ///
+    /// Collapsed panel HEADLINES are the exception and still carry the sample: a
+    /// headline is a whole card reduced to a line, with no sheet in reach.
     static func figure(_ id: String, _ title: String, _ value: String?) -> StatsBlock {
         .figure(id: id, title: title, value: value)
     }
@@ -503,15 +515,15 @@ struct StatsPanelsView: View {
             out.append(
                 figure(
                     "vsParFairway", "From the fairway",
-                    StatsFormat.averageWithSample(byTee.fairway, signed: true, unit: .holes)))
+                    StatsFormat.average(byTee.fairway, signed: true)))
             out.append(
                 figure(
                     "vsParInPlay", "From in play",
-                    StatsFormat.averageWithSample(byTee.inPlay, signed: true, unit: .holes)))
+                    StatsFormat.average(byTee.inPlay, signed: true)))
             out.append(
                 figure(
                     "vsParTrouble", "From trouble",
-                    StatsFormat.averageWithSample(byTee.trouble, signed: true, unit: .holes)))
+                    StatsFormat.average(byTee.trouble, signed: true)))
         }
         // `StatsFormat.average`, never `averageWithSample`: the trouble tax's
         // own `d` is a cross-product guard (trouble holes × fairway holes) and
@@ -527,7 +539,7 @@ struct StatsPanelsView: View {
             out.append(
                 figure(
                     "penalties", "Penalties",
-                    StatsFormat.averageWithSample(panel.penaltiesPerRound, unit: .rounds)))
+                    StatsFormat.average(panel.penaltiesPerRound)))
             out.append(bar("penaltyHoleShare", "Holes with a penalty", panel.penaltyHoleShare))
             out.append(
                 figure(
@@ -610,11 +622,11 @@ struct StatsPanelsView: View {
             out.append(
                 figure(
                     "vsParGreenHit", "Green hit",
-                    StatsFormat.averageWithSample(cost.hit, signed: true, unit: .greens)))
+                    StatsFormat.average(cost.hit, signed: true)))
             out.append(
                 figure(
                     "vsParGreenMissed", "Green missed",
-                    StatsFormat.averageWithSample(cost.miss, signed: true, unit: .holes)))
+                    StatsFormat.average(cost.miss, signed: true)))
             out.append(
                 figure(
                     "missedGreenTax", "Missed-green tax",
@@ -705,12 +717,12 @@ struct StatsPanelsView: View {
         out.append(
             figure(
                 "puttsPerGir", "Putts per green hit",
-                StatsFormat.averageWithSample(panel.puttsPerGirHole, unit: .greens)))
+                StatsFormat.average(panel.puttsPerGirHole)))
         if panel.puttsAfterMissedGreen.d > 0 {
             out.append(
                 figure(
                     "puttsAfterMissedGreen", "Putts after a missed green",
-                    StatsFormat.averageWithSample(panel.puttsAfterMissedGreen, unit: .holes)))
+                    StatsFormat.average(panel.puttsAfterMissedGreen)))
         }
         // A partition of `puttsRecorded`, so it takes the SAME gate the "Holes
         // by putts" group above takes. Unsigned — putts are a quantity, not a
@@ -720,15 +732,15 @@ struct StatsPanelsView: View {
             out.append(
                 figure(
                     "puttsPar3", "Par 3",
-                    StatsFormat.averageWithSample(panel.puttsPerHoleByPar.par3, unit: .holes)))
+                    StatsFormat.average(panel.puttsPerHoleByPar.par3)))
             out.append(
                 figure(
                     "puttsPar4", "Par 4",
-                    StatsFormat.averageWithSample(panel.puttsPerHoleByPar.par4, unit: .holes)))
+                    StatsFormat.average(panel.puttsPerHoleByPar.par4)))
             out.append(
                 figure(
                     "puttsPar5", "Par 5",
-                    StatsFormat.averageWithSample(panel.puttsPerHoleByPar.par5, unit: .holes)))
+                    StatsFormat.average(panel.puttsPerHoleByPar.par5)))
         }
         return out
     }
@@ -810,7 +822,7 @@ struct StatsPanelsView: View {
 
     static func scoringBlocks(_ panel: StatsScoringPanel) -> [StatsBlock] {
         func avg(_ r: Rate) -> String? {
-            StatsFormat.averageWithSample(r, signed: true, unit: .holes)
+            StatsFormat.average(r, signed: true)
         }
         return [
             .subhead(id: "vsParHead", text: "Average vs par"),
@@ -819,7 +831,7 @@ struct StatsPanelsView: View {
             figure("par5", "Par 5", avg(panel.avgVsParByParGroup.par5)),
             figure(
                 "doubles", "Doubles or worse",
-                StatsFormat.averageWithSample(panel.doubleBogeyPlusPerRound, unit: .rounds)),
+                StatsFormat.average(panel.doubleBogeyPlusPerRound)),
             bar("bounceBack", "Bounce-back", panel.bounceBack),
         ]
     }

@@ -3,8 +3,12 @@ import {
     averageSample,
     averageWithSample,
     bucketTitle,
+    byParSample,
     componentTitle,
+    groupSample,
+    missedGreenSample,
     strokesPer18,
+    vsParByTeeSample,
     formatAverage,
     formatCount,
     formatCost,
@@ -183,4 +187,48 @@ test('an empty side has no sample at all — null, so the row prints no line', (
     expect(missedGreenTaxSample({ hit: rate(0, 0), miss: rate(9, 20), delta: rate(0, 0) })).toBeNull();
     expect(penaltyTaxSample({ penalty: rate(14, 9), clean: rate(0, 0) })).toBeNull();
     expect(taxSample(rate(0, 0), UNIT_ROUNDS, rate(1, 9), UNIT_GREENS)).toBeNull();
+});
+
+// --- Group samples (2026-08-03) ----------------------------------------------
+//
+// The figure rows print bare values now, so a GROUP of parallel rows states its
+// denominators together, in one sentence, in the card's info sheet. Together
+// rather than one-per-row because the rows partition one sample: how the
+// partition split is the fact, and three sentences would bury it.
+
+test('a group sample lists every leg, with the last joined by "and"', () => {
+    expect(
+        vsParByTeeSample({ fairway: rate(0, 26), inPlay: rate(0, 8), trouble: rate(0, 9) }),
+    ).toBe('over 26 holes from the fairway, 8 holes in play and 9 holes from trouble');
+    // A single leg takes no comma and no "and".
+    expect(groupSample([{ d: 3, unit: UNIT_ROUNDS }])).toBe('over 3 rounds');
+});
+
+test('by-par reads in the golfer’s own nouns, pluralised', () => {
+    expect(byParSample({ par3: rate(0, 12), par4: rate(0, 30), par5: rate(0, 12) })).toBe(
+        'over 12 par 3s, 30 par 4s and 12 par 5s',
+    );
+    expect(byParSample({ par3: rate(0, 1), par4: rate(0, 1), par5: rate(0, 1) })).toBe(
+        'over 1 par 3, 1 par 4 and 1 par 5',
+    );
+});
+
+test('an empty leg is dropped, never printed as "over 0"', () => {
+    // Every leg carries its own noun precisely because any leg can end up first.
+    expect(
+        vsParByTeeSample({ fairway: rate(0, 0), inPlay: rate(0, 0), trouble: rate(0, 9) }),
+    ).toBe('over 9 holes from trouble');
+    expect(byParSample({ par3: rate(0, 0), par4: rate(0, 30), par5: rate(0, 12) })).toBe(
+        'over 30 par 4s and 12 par 5s',
+    );
+    expect(groupSample([{ d: 0, unit: UNIT_ROUNDS }])).toBeNull();
+    expect(groupSample([])).toBeNull();
+});
+
+test('the missed-green pair reads as a partition, not as a comparison', () => {
+    // The same two denominators `missedGreenTaxSample` says "vs" about — the
+    // group card states them as the two halves of the window they are.
+    expect(missedGreenSample(COST_W)).toBe(
+        'over 26 greens hit and 34 holes with the green missed',
+    );
 });

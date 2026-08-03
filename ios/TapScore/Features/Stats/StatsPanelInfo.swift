@@ -14,6 +14,20 @@ import SwiftUI
 /// wrong — that is the whole reason the explainers left the rows, where they
 /// were static text, for a sheet where they are about the player.
 ///
+/// TWO rules govern which cards exist, both from the owner's 2026-08-03 read:
+///
+/// 1. A CARD TITLE IS A ROW NAME, VERBATIM. Anywhere the screen uses a word of
+///    its own — "Trouble tax", "Penalty tax", "Missed-green tax", "Sand save" —
+///    that exact string is a HEADING here, not a clause inside a section card. A
+///    reader who does not know what a tax is in golf scans headings for the word
+///    they just read; a definition filed under "What each tee shot cost" is a
+///    definition they will not find. Section-shaped cards survive only where the
+///    row names they cover are already plain English.
+/// 2. EVERY DENOMINATOR THE ROWS DROPPED LANDS HERE. Figure rows print the bare
+///    value now, so this sheet is the only place the sample is stated. A group
+///    of parallel rows states its legs in one sentence (`groupSample`), because
+///    the rows partition one sample and how it split is the interesting part.
+///
 /// Twin of `src/stats/panel-info-cards.ts`.
 
 /// One card of a panel's sheet: a short title and one paragraph. The same
@@ -50,6 +64,21 @@ enum StatsPanelInfo {
         StatsInfoCard(id: id, title: title, body: text)
     }
 
+    /// The penalties figure is per ROUND, but it only exists on holes where the
+    /// question was answered — so its honest sample is both numbers.
+    ///
+    /// Gated on the recorded holes rather than on `penaltiesPerRound.d`, which
+    /// is the window's round count whatever anyone recorded: without the gate a
+    /// window that never answered the penalty question would claim "over 3
+    /// rounds" for a figure the card does not even show.
+    private static func penaltiesSample(_ p: StatsTeePanel) -> String? {
+        guard p.penaltiesRecordedHoles > 0 else { return nil }
+        return StatsFormat.groupSample([
+            (p.penaltiesPerRound.d, .rounds),
+            (p.penaltiesRecordedHoles, .holes),
+        ])
+    }
+
     /// The sheet's cards for one module card, in reading order.
     ///
     /// Empty for a panel the window has no data for — the view then omits the
@@ -70,18 +99,30 @@ enum StatsPanelInfo {
                 card(
                     "teeFan", "Where your tee shots finish",
                     body(StatsCopy.teeFan, measuredOver(p.fan.recorded, .holes))),
+                // Titled with the subhead the three rows sit under, word for
+                // word. The trouble tax used to be explained inside this card;
+                // it now has its own, below, because "Trouble tax" is the string
+                // a puzzled reader is scanning for.
                 card(
-                    "vsParByTee", "What each tee shot cost",
+                    "vsParByTee", "Average vs par, by where the tee shot finished",
                     body(
-                        StatsCopy.vsParByTee, StatsCopy.troubleTax,
+                        StatsCopy.vsParByTee,
+                        measured(StatsFormat.vsParByTeeSample(p.vsParByTee)))),
+                card(
+                    "troubleTax", "Trouble tax",
+                    body(
+                        StatsCopy.troubleTax,
                         measured(StatsFormat.troubleTaxSample(p.vsParByTee)))),
                 card(
                     "recovery", "Recovery",
                     body(StatsCopy.recovery, measuredOver(p.recovery.d, .holes))),
                 card(
                     "penalties", "Penalties",
+                    body(StatsCopy.penalties, measured(penaltiesSample(p)))),
+                card(
+                    "penaltyTax", "Penalty tax",
                     body(
-                        StatsCopy.penalties, measuredOver(p.penaltiesRecordedHoles, .holes),
+                        StatsCopy.penaltyTax,
                         measured(StatsFormat.penaltyTaxSample(p.vsParByPenalty)))),
             ]
         case .approach:
@@ -104,7 +145,15 @@ enum StatsPanelInfo {
                     "hardChipShare", "Hard misses",
                     body(StatsCopy.hardChipShare, measuredOver(p.hardChipShare.d, .holes))),
                 card(
-                    "missedGreenTax", "Cost of a missed green",
+                    "costOfMissedGreen", "Cost of a missed green",
+                    body(
+                        StatsCopy.costOfMissedGreen,
+                        measured(StatsFormat.missedGreenSample(p.costOfMissedGreen)))),
+                // The tax gets the row's own name as its heading, and its own
+                // two-sided sample: the group card above states the two legs as
+                // a partition, this one states them as a comparison.
+                card(
+                    "missedGreenTax", "Missed-green tax",
                     body(
                         StatsCopy.missedGreenTax,
                         measured(StatsFormat.missedGreenTaxSample(p.costOfMissedGreen)))),
@@ -139,16 +188,40 @@ enum StatsPanelInfo {
                     body(
                         StatsCopy.puttsAfterMissedGreen,
                         measuredOver(p.puttsAfterMissedGreen.d, .holes))),
+                card(
+                    "puttsByPar", "Putts per hole, by par",
+                    body(
+                        StatsCopy.puttsByPar,
+                        measured(StatsFormat.byParSample(p.puttsPerHoleByPar)))),
             ]
         case .shortGame:
             guard let p = model.shortGame else { return [] }
             let attempts = p.scramble.standard.d + p.scramble.hard.d + p.scramble.bunker.d
             return [
+                // Five rows, five cards. This used to be ONE card that opened
+                // "Scrambling" and then ran four unrelated definitions together,
+                // which put the meaning of "Sand save" — the app's own
+                // vocabulary for the bunker scramble — three sentences deep
+                // under a heading that does not contain the word.
                 card(
                     "scrambling", "Scrambling",
+                    body(StatsCopy.scrambling, measuredOver(attempts, .holes))),
+                card(
+                    "sandSave", "Sand save",
+                    body(StatsCopy.sandSave, measuredOver(p.sandSave.d, .holes))),
+                card(
+                    "multiChipBunker", "More than one from sand",
                     body(
-                        StatsCopy.sandSave, StatsCopy.multiChip, StatsCopy.multiChipBunker,
-                        StatsCopy.extraShortGameStrokes, measuredOver(attempts, .holes))),
+                        StatsCopy.multiChipBunker,
+                        measuredOver(p.multiChipFromBunker.d, .holes))),
+                card(
+                    "extraShortGameStrokes", "Extra short-game shots",
+                    body(
+                        StatsCopy.extraShortGameStrokes,
+                        measuredOver(p.shortGameStrokesRecorded, .holes))),
+                card(
+                    "multiChip", "More than one chip",
+                    body(StatsCopy.multiChip, measuredOver(p.multiChip.d, .holes))),
                 card(
                     "chipInside2m", "Chipped to inside 2 m",
                     body(
@@ -161,6 +234,11 @@ enum StatsPanelInfo {
         case .scoring:
             guard let p = model.scoring else { return [] }
             return [
+                card(
+                    "vsPar", "Average vs par",
+                    body(
+                        StatsCopy.avgVsParByPar,
+                        measured(StatsFormat.byParSample(p.avgVsParByParGroup)))),
                 card(
                     "doubles", "Doubles or worse",
                     body(

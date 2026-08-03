@@ -12,13 +12,31 @@
 // wrong — that is the whole reason the explainers left the rows, where they were
 // static text, for a sheet where they are about the player.
 //
+// TWO rules govern which cards exist, both from the owner's 2026-08-03 read:
+//
+// 1. A CARD TITLE IS A ROW NAME, VERBATIM. Anywhere the screen uses a word of
+//    its own — "Trouble tax", "Penalty tax", "Missed-green tax", "Sand save" —
+//    that exact string is a HEADING here, not a clause inside a section card. A
+//    reader who does not know what a tax is in golf scans headings for the word
+//    they just read; a definition filed under "What each tee shot cost" is a
+//    definition they will not find. Section-shaped cards survive only where the
+//    row names they cover are already plain English.
+// 2. EVERY DENOMINATOR THE ROWS DROPPED LANDS HERE. Figure rows print the bare
+//    value now, so this sheet is the only place the sample is stated. A group of
+//    parallel rows states its legs in one sentence (`groupSample`), because the
+//    rows partition one sample and how it split is the interesting part.
+//
 // Twin of `ios/TapScore/Features/Stats/StatsPanelInfo.swift`.
 
 import {
+    byParSample,
+    groupSample,
+    missedGreenSample,
     missedGreenTaxSample,
     penaltyTaxSample,
     quantity,
     troubleTaxSample,
+    vsParByTeeSample,
     UNIT_GREENS,
     UNIT_HOLES,
     UNIT_ROUNDS,
@@ -26,7 +44,11 @@ import {
 } from './stats-format';
 import { STATS_COPY } from './stats-panel-blocks';
 import { cohortLabel, type SgBaselineInfo } from './sg-baseline';
-import type { StatsDashboardModel, StatsPanelId } from './stats-dashboard-model';
+import type {
+    StatsDashboardModel,
+    StatsPanelId,
+    StatsTeePanel,
+} from './stats-dashboard-model';
 
 /**
  * One card of a panel's sheet: a short title and one paragraph. The same
@@ -63,6 +85,23 @@ function card(id: string, title: string, text: string): StatsInfoCard {
 }
 
 /**
+ * The penalties figure is per ROUND, but it only exists on holes where the
+ * question was answered — so its honest sample is both numbers.
+ *
+ * Gated on the recorded holes rather than on `penaltiesPerRound.d`, which is the
+ * window's round count whatever anyone recorded: without the gate a window that
+ * never answered the penalty question would claim "over 3 rounds" for a figure
+ * the card does not even show.
+ */
+function penaltiesSample(p: StatsTeePanel): string | null {
+    if (p.penaltiesRecordedHoles <= 0) return null;
+    return groupSample([
+        { d: p.penaltiesPerRound.d, unit: UNIT_ROUNDS },
+        { d: p.penaltiesRecordedHoles, unit: UNIT_HOLES },
+    ]);
+}
+
+/**
  * The sheet's cards for one module card, in reading order.
  *
  * `[]` for a panel the window has no data for — the component then omits the
@@ -83,14 +122,19 @@ export function panelInfoCards(
                     'Where your tee shots finish',
                     body(STATS_COPY.teeFan, measuredOver(p.teeRecorded, UNIT_HOLES)),
                 ),
+                // Titled with the subhead the three rows sit under, word for
+                // word. The trouble tax used to be explained inside this card;
+                // it now has its own, below, because "Trouble tax" is the string
+                // a puzzled reader is scanning for.
                 card(
                     'vsParByTee',
-                    'What each tee shot cost',
-                    body(
-                        STATS_COPY.vsParByTee,
-                        STATS_COPY.troubleTax,
-                        measured(troubleTaxSample(p.vsParByTee)),
-                    ),
+                    'Average vs par, by where the tee shot finished',
+                    body(STATS_COPY.vsParByTee, measured(vsParByTeeSample(p.vsParByTee))),
+                ),
+                card(
+                    'troubleTax',
+                    'Trouble tax',
+                    body(STATS_COPY.troubleTax, measured(troubleTaxSample(p.vsParByTee))),
                 ),
                 card(
                     'recovery',
@@ -100,11 +144,12 @@ export function panelInfoCards(
                 card(
                     'penalties',
                     'Penalties',
-                    body(
-                        STATS_COPY.penalties,
-                        measuredOver(p.penaltiesRecordedHoles, UNIT_HOLES),
-                        measured(penaltyTaxSample(p.vsParByPenalty)),
-                    ),
+                    body(STATS_COPY.penalties, measured(penaltiesSample(p))),
+                ),
+                card(
+                    'penaltyTax',
+                    'Penalty tax',
+                    body(STATS_COPY.penaltyTax, measured(penaltyTaxSample(p.vsParByPenalty))),
                 ),
             ];
         }
@@ -141,8 +186,19 @@ export function panelInfoCards(
                     body(STATS_COPY.hardChipShare, measuredOver(p.hardChipShare.d, UNIT_HOLES)),
                 ),
                 card(
-                    'missedGreenTax',
+                    'costOfMissedGreen',
                     'Cost of a missed green',
+                    body(
+                        STATS_COPY.costOfMissedGreen,
+                        measured(missedGreenSample(p.costOfMissedGreen)),
+                    ),
+                ),
+                // The tax gets the row's own name as its heading, and its own
+                // two-sided sample: the group card above states the two legs as a
+                // partition, this one states them as a comparison.
+                card(
+                    'missedGreenTax',
+                    'Missed-green tax',
                     body(
                         STATS_COPY.missedGreenTax,
                         measured(missedGreenTaxSample(p.costOfMissedGreen)),
@@ -196,6 +252,11 @@ export function panelInfoCards(
                         measuredOver(p.puttsAfterMissedGreen.d, UNIT_HOLES),
                     ),
                 ),
+                card(
+                    'puttsByPar',
+                    'Putts per hole, by par',
+                    body(STATS_COPY.puttsByPar, measured(byParSample(p.puttsPerHoleByPar))),
+                ),
             ];
         }
         case 'shortGame': {
@@ -204,16 +265,38 @@ export function panelInfoCards(
             const attempts =
                 p.scramble.standard.d + p.scramble.hard.d + p.scramble.bunker.d;
             return [
+                // Five rows, five cards. This used to be ONE card that opened
+                // "Scrambling" and then ran four unrelated definitions together,
+                // which put the meaning of "Sand save" — the app's own vocabulary
+                // for the bunker scramble — three sentences deep under a heading
+                // that does not contain the word.
                 card(
                     'scrambling',
                     'Scrambling',
+                    body(STATS_COPY.scrambling, measuredOver(attempts, UNIT_HOLES)),
+                ),
+                card(
+                    'sandSave',
+                    'Sand save',
+                    body(STATS_COPY.sandSave, measuredOver(p.sandSave.d, UNIT_HOLES)),
+                ),
+                card(
+                    'multiChipBunker',
+                    'More than one from sand',
+                    body(STATS_COPY.multiChipBunker, measuredOver(p.multiChipBunker.d, UNIT_HOLES)),
+                ),
+                card(
+                    'extraShortGameStrokes',
+                    'Extra short-game shots',
                     body(
-                        STATS_COPY.sandSave,
-                        STATS_COPY.multiChip,
-                        STATS_COPY.multiChipBunker,
                         STATS_COPY.extraShortGameStrokes,
-                        measuredOver(attempts, UNIT_HOLES),
+                        measuredOver(p.shortGameStrokesRecorded, UNIT_HOLES),
                     ),
+                ),
+                card(
+                    'multiChip',
+                    'More than one chip',
+                    body(STATS_COPY.multiChip, measuredOver(p.multiChip.d, UNIT_HOLES)),
                 ),
                 card(
                     'chipInside2m',
@@ -232,6 +315,11 @@ export function panelInfoCards(
             const p = model.scoring;
             if (!p) return [];
             return [
+                card(
+                    'vsPar',
+                    'Average vs par',
+                    body(STATS_COPY.avgVsParByPar, measured(byParSample(p.avgVsParByParGroup))),
+                ),
                 card(
                     'doubles',
                     'Doubles or worse',

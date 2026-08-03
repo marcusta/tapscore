@@ -287,6 +287,57 @@ final class StatsFormatTests: XCTestCase {
         }
     }
 
+    // MARK: - 4b. Group samples (2026-08-03)
+    //
+    // The figure rows print bare values now, so a GROUP of parallel rows states
+    // its denominators together, in one sentence, in the card's info sheet.
+    // Together rather than one-per-row because the rows partition one sample.
+    // The strings are the web twin's oracle, character for character.
+
+    func testAGroupSampleListsEveryLegWithTheLastJoinedByAnd() {
+        XCTAssertEqual(
+            StatsFormat.vsParByTeeSample(
+                ByTee(fairway: rate(0, 0, 26), inPlay: rate(0, 0, 8), trouble: rate(0, 0, 9))),
+            "over 26 holes from the fairway, 8 holes in play and 9 holes from trouble")
+        // A single leg takes no comma and no "and".
+        XCTAssertEqual(StatsFormat.groupSample([(3, .rounds)]), "over 3 rounds")
+    }
+
+    func testByParReadsInTheGolfersOwnNounsPluralised() {
+        XCTAssertEqual(
+            StatsFormat.byParSample(
+                ByParGroup(par3: rate(0, 0, 12), par4: rate(0, 0, 30), par5: rate(0, 0, 12))),
+            "over 12 par 3s, 30 par 4s and 12 par 5s")
+        XCTAssertEqual(
+            StatsFormat.byParSample(
+                ByParGroup(par3: rate(0, 0, 1), par4: rate(0, 0, 1), par5: rate(0, 0, 1))),
+            "over 1 par 3, 1 par 4 and 1 par 5")
+    }
+
+    func testAnEmptyLegIsDroppedNeverPrintedAsOverZero() {
+        // Every leg carries its own noun precisely because any leg can end up
+        // first once the empty ones are gone.
+        XCTAssertEqual(
+            StatsFormat.vsParByTeeSample(
+                ByTee(fairway: rate(0, 0, 0), inPlay: rate(0, 0, 0), trouble: rate(0, 0, 9))),
+            "over 9 holes from trouble")
+        XCTAssertEqual(
+            StatsFormat.byParSample(
+                ByParGroup(par3: rate(0, 0, 0), par4: rate(0, 0, 30), par5: rate(0, 0, 12))),
+            "over 30 par 4s and 12 par 5s")
+        XCTAssertNil(StatsFormat.groupSample([(0, .rounds)]))
+        XCTAssertNil(StatsFormat.groupSample([]))
+    }
+
+    func testTheMissedGreenPairReadsAsAPartitionNotAComparison() {
+        // The same two denominators `missedGreenTaxSample` says "vs" about — the
+        // group card states them as the two halves of the window they are.
+        XCTAssertEqual(
+            StatsFormat.missedGreenSample(
+                VsParSplit(hit: rate(2, 2, 26), miss: rate(31, 31, 34), delta: rate(738, 738, 884))),
+            "over 26 greens hit and 34 holes with the green missed")
+    }
+
     // MARK: - 5. The Gregorian year
 
     func testTheYearIsGregorianWhateverTheDeviceCalendarIs() {

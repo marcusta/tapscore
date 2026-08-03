@@ -29,6 +29,7 @@
 // testable headless.
 
 import {
+    type ByParGroup,
     type ByTee,
     type PenaltySplit,
     type PuttBucket,
@@ -140,12 +141,18 @@ export function averageSample(r: Rate, unit: SampleUnit): string | null {
 }
 
 /**
- * An average with its denominator beside it — the form every figure row on this
- * screen uses.
+ * An average with its denominator beside it.
  *
  * `label` is what the number MEASURES, placed between the value and the sample
- * ("1.85 putts per green hit (over 24 greens)"). Panel headlines carry it; a
- * figure row already has the label in its title.
+ * ("1.85 putts per green hit (over 24 greens)").
+ *
+ * ONE consumer survives the owner's 2026-08-03 ruling: the COLLAPSED PANEL
+ * HEADLINE, which is a whole card reduced to a line and has to say how much
+ * round is behind it. Figure rows inside an open panel no longer call this —
+ * they print the bare value via `formatAverage` and state the denominator in the
+ * card's info sheet, where a group of parallel rows can share one sentence. Do
+ * not re-introduce a call from `panelBlocks`; kept (rather than inlined into the
+ * headline) because the twin has the same pair and the format tests pin it.
  */
 export function averageWithSample(
     r: Rate,
@@ -221,6 +228,67 @@ export function missedGreenTaxSample(cost: VsParSplit): string | null {
 /** "over 9 holes with a penalty vs 45 without". */
 export function penaltyTaxSample(split: PenaltySplit): string | null {
     return taxSample(split.penalty, UNIT_PENALTY_HOLES, split.clean, UNIT_PENALTY_FREE);
+}
+
+// --- Group samples -----------------------------------------------------------
+//
+// A group of PARALLEL figure rows — the three tee buckets, the three par groups,
+// the two sides of a missed green — states its denominators together, in one
+// sentence, in the card's info sheet. That is where they went when the owner's
+// 2026-08-03 ruling took the "(over 26 greens)" suffix off the rows themselves.
+//
+// Together rather than one-per-row on purpose: the rows PARTITION a sample, so
+// the interesting fact is how the partition split, and three separate sentences
+// would bury it. Each unit therefore carries its own noun ("holes in play", not
+// bare "in play") — the list drops empty legs, so any leg can end up first.
+
+/**
+ * "over 26 holes from the fairway, 8 holes in play and 9 holes from trouble".
+ *
+ * A leg with no sample is dropped rather than printed as a zero, and null comes
+ * back when nothing is left — the same contract as `averageSample`, so a caller
+ * omits the sentence instead of writing "over 0 holes".
+ */
+export function groupSample(parts: readonly { d: number; unit: SampleUnit }[]): string | null {
+    const legs = parts.filter((p) => p.d > 0).map((p) => quantity(p.d, p.unit));
+    const last = legs.pop();
+    if (last === undefined) return null;
+    return legs.length === 0 ? `over ${last}` : `over ${legs.join(', ')} and ${last}`;
+}
+
+const UNIT_FAIRWAY_ONLY: SampleUnit = {
+    one: 'hole from the fairway',
+    many: 'holes from the fairway',
+};
+const UNIT_IN_PLAY_HOLES: SampleUnit = { one: 'hole in play', many: 'holes in play' };
+const UNIT_PAR_3 = regularUnit('par 3');
+const UNIT_PAR_4 = regularUnit('par 4');
+const UNIT_PAR_5 = regularUnit('par 5');
+
+/** The three tee buckets' scored holes, in the order the rows read. */
+export function vsParByTeeSample(byTee: ByTee<Rate>): string | null {
+    return groupSample([
+        { d: byTee.fairway.d, unit: UNIT_FAIRWAY_ONLY },
+        { d: byTee.inPlay.d, unit: UNIT_IN_PLAY_HOLES },
+        { d: byTee.trouble.d, unit: UNIT_TROUBLE_HOLES },
+    ]);
+}
+
+/** "over 12 par 3s, 30 par 4s and 12 par 5s" — shared by putting and scoring. */
+export function byParSample(byPar: ByParGroup<Rate>): string | null {
+    return groupSample([
+        { d: byPar.par3.d, unit: UNIT_PAR_3 },
+        { d: byPar.par4.d, unit: UNIT_PAR_4 },
+        { d: byPar.par5.d, unit: UNIT_PAR_5 },
+    ]);
+}
+
+/** "over 26 greens hit and 34 holes with the green missed". */
+export function missedGreenSample(cost: VsParSplit): string | null {
+    return groupSample([
+        { d: cost.hit.d, unit: UNIT_GREENS_HIT },
+        { d: cost.miss.d, unit: UNIT_GREENS_MISSED },
+    ]);
 }
 
 // `isThin` and `THIN_SAMPLE` used to live here. Both are gone with the middle
