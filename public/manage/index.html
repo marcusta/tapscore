@@ -2,20 +2,34 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Tapscore Manage</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..700&family=Archivo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { box-sizing: border-box; }
         html, body { margin: 0; padding: 0; height: 100%; }
 
+        /*
+         * Same page frame as the player app's index.html — the two clients
+         * share a brand, so they share the typeface, the tabular numerals a
+         * catalog of pars and lengths needs, and the token-driven page fill.
+         * `var(--bg)` / `var(--text)` are declared by `manage/theme.ts` at
+         * import time; until then the page is unpainted rather than white,
+         * which is the same pre-boot behaviour the player app has.
+         */
         body {
-            font-family: system-ui, sans-serif;
+            font-family: 'Archivo', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
             -webkit-font-smoothing: antialiased;
+            font-variant-numeric: tabular-nums;
         }
 
         #app { height: 100%; }
     </style>
-  <script type="module" crossorigin src="/tapscore/manage/assets/index-CMVKH2vA.js"></script>
+  <script type="module" crossorigin src="/tapscore/manage/assets/index-B0p02gD9.js"></script>
 </head>
 <body>
     <div id="app"></div>
