@@ -1,7 +1,7 @@
 import { Signal, di } from '@basics/core/client/core';
 import { request, type RequestError } from '@basics/core/client/request';
 import { api, ApiError } from '../api';
-import type { SetupCourse, Tee, TeeRating } from '../api/setup.gen';
+import type { CourseTeeRole, SetupCourse, Tee, TeeRating } from '../api/setup.gen';
 import type { CompilerDiagnostic } from '../api/friendly-rounds.gen';
 import { courseHandicap, courseHandicapRaw } from './handicap';
 import { parseHandicapIndex, formatHandicapIndex } from './hcp-input';
@@ -21,6 +21,7 @@ import {
 import { draftToForms, type StoredDraft } from './draft-to-forms';
 import { getDeviceRounds, recordDeviceRound } from '../landing/device-rounds';
 import { defaultRoundName } from './default-round-name';
+import { resolveDefaultTee, sortTees } from './tee-defaults';
 
 export type Gender = 'M' | 'F';
 export type RoutePreset = 'full_18' | 'front_9' | 'back_9';
@@ -247,6 +248,8 @@ export interface PlayerForm {
     handicapIndex: string;
     gender: Gender;
     teeId: string;
+    /** A manually selected tee survives later changes to the round default. */
+    teeOverridden?: boolean;
     /** Registered-player id (Phase 3 "Add me" / "From friends"); absent ⇒ a
      * guest row. The server resolves the display name from the players table
      * for these, so `name` is a prefilled read-only label, not submitted
@@ -305,6 +308,11 @@ export class SetupService {
 
     readonly courses = new Signal<SetupCourse[]>([]);
     readonly tees = new Signal<Tee[]>([]);
+    readonly courseTeeRoles = new Signal<CourseTeeRole[]>([]);
+    readonly maleDefaultTeeId = new Signal<string>('');
+    readonly femaleDefaultTeeId = new Signal<string>('');
+    private organizerPreferredRole: Partial<Record<Gender, string | null>> = {};
+    private defaultTouched: Record<Gender, boolean> = { M: false, F: false };
 
     /** What the organizer calls this round — the FIRST question of the form,
      *  pre-filled with `defaultRoundName` so the common case is "leave it".
@@ -403,6 +411,11 @@ export class SetupService {
     reset(): void {
         this.courses.set([]);
         this.tees.set([]);
+        this.courseTeeRoles.set([]);
+        this.maleDefaultTeeId.set('');
+        this.femaleDefaultTeeId.set('');
+        this.organizerPreferredRole = {};
+        this.defaultTouched = { M: false, F: false };
         this.roundName.set('');
         this.courseId.set('');
         this.preset.set('full_18');
@@ -539,7 +552,9 @@ export class SetupService {
         this.courseId.set(forms.courseId);
         this.preset.set(forms.preset);
         this.startHole.set(forms.startHole);
-        this.players.set(forms.players);
+        // A stored tee is a historical round fact, never a value we may make
+        // follow a newly-computed default while editing.
+        this.players.set(forms.players.map((player) => ({ ...player, teeOverridden: true })));
         this.teams.set(forms.teams);
         this.groups.set(forms.groups);
         this.formatSlots.set(forms.formatSlots);
@@ -560,19 +575,27 @@ export class SetupService {
         this.courseId.set(id);
         this.preset.set('full_18');
         this.startHole.set(1);
-        const tees = await request(this.loading, this.error, () =>
-            api.setup.teesByCourse({ courseId: id }),
-        );
-        const list = tees ?? [];
+        const [tees, mappings] = await Promise.all([
+            request(this.loading, this.error, () => api.setup.teesByCourse({ courseId: id })),
+            api.setup.teeRolesByCourse?.({ courseId: id }).catch(() => []) ?? Promise.resolve([]),
+        ]);
+        const list = sortTees(tees ?? []);
         this.tees.set(list);
-        // Default every player's tee to the first available so a fresh row is
-        // immediately valid; keep an existing pick if it's still on this course.
+        this.courseTeeRoles.set(mappings);
+        this.defaultTouched = { M: false, F: false };
+        this.recomputeRoundDefaults();
+        // Existing manual choices survive a course switch only when that exact
+        // tee exists on the new course. Everyone else follows their gender's
+        // newly-resolved round default.
         const validTeeIds = new Set(list.map((t) => t.id));
-        const fallback = list[0]?.id ?? '';
         this.players.set(
             this.players.get().map((p) => ({
                 ...p,
-                teeId: validTeeIds.has(p.teeId) ? p.teeId : fallback,
+                teeId:
+                    p.teeOverridden && validTeeIds.has(p.teeId)
+                        ? p.teeId
+                        : this.defaultTeeId(p.gender),
+                teeOverridden: p.teeOverridden && validTeeIds.has(p.teeId),
             })),
         );
         if (this.players.get().length === 0) this.addPlayer();
@@ -583,10 +606,10 @@ export class SetupService {
     // --- Roster editing ---
 
     addPlayer(): void {
-        const teeId = this.tees.get()[0]?.id ?? '';
+        const teeId = this.defaultTeeId('M');
         this.players.set([
             ...this.players.get(),
-            { key: this.nextKey++, name: '', handicapIndex: '', gender: 'M', teeId },
+            { key: this.nextKey++, name: '', handicapIndex: '', gender: 'M', teeId, teeOverridden: false },
         ]);
         this.syncGamesToRoster();
     }
@@ -620,16 +643,17 @@ export class SetupService {
         gender?: Gender | null;
     }): void {
         if (this.hasPlayer(friend.id)) return;
-        const teeId = this.tees.get()[0]?.id ?? '';
+        const gender = friend.gender ?? 'M';
         this.players.set([
             ...this.players.get(),
             {
                 key: this.nextKey++,
                 name: friend.displayName,
                 handicapIndex: friend.handicapIndex === null ? '' : formatHandicapIndex(friend.handicapIndex),
-                gender: friend.gender ?? 'M',
+                gender,
                 genderKnown: friend.gender != null,
-                teeId,
+                teeId: this.defaultTeeId(gender),
+                teeOverridden: false,
                 playerId: friend.id,
             },
         ]);
@@ -691,11 +715,76 @@ export class SetupService {
 
     patchPlayer(key: number, patch: Partial<Omit<PlayerForm, 'key'>>): void {
         this.players.set(
-            this.players.get().map((p) => (p.key === key ? { ...p, ...patch } : p)),
+            this.players.get().map((p) => {
+                if (p.key !== key) return p;
+                const next = { ...p, ...patch };
+                if (patch.gender && patch.gender !== p.gender && !p.teeOverridden)
+                    next.teeId = this.defaultTeeId(patch.gender);
+                return next;
+            }),
         );
         // A handicap, gender or tee edit changes the course handicaps a ball
         // team's default allowances are seeded from.
         this.reseedBallTeams();
+    }
+
+    /** The organiser's Profile role only pre-fills their gender's round default. */
+    setOrganizerPreferredTeeRole(gender: Gender | null | undefined, roleKey: string | null): void {
+        if (!gender) return;
+        this.organizerPreferredRole[gender] = roleKey;
+        if (!this.defaultTouched[gender]) this.applyRoundDefault(gender);
+    }
+
+    defaultTeeId(gender: Gender): string {
+        const selected = gender === 'M' ? this.maleDefaultTeeId.get() : this.femaleDefaultTeeId.get();
+        // Tests and edit hydration can prime a tee list directly. Keep that
+        // legitimate state playable; the normal selectCourse path stores the
+        // resolved value above, so this is only a safe read fallback.
+        return selected || resolveDefaultTee(this.tees.get(), this.courseTeeRoles.get(), gender);
+    }
+
+    setRoundDefaultTee(gender: Gender, teeId: string): void {
+        // SelectComponent establishes its initial binding through the same
+        // setter. That is not an organiser decision and must not block the
+        // profile role, which can resolve a moment later.
+        if (teeId === this.defaultTeeId(gender)) return;
+        this.defaultTouched[gender] = true;
+        if (gender === 'M') this.maleDefaultTeeId.set(teeId);
+        else this.femaleDefaultTeeId.set(teeId);
+        this.players.set(
+            this.players.get().map((player) =>
+                player.gender === gender && !player.teeOverridden ? { ...player, teeId } : player,
+            ),
+        );
+        this.reseedBallTeams();
+    }
+
+    setPlayerTee(key: number, teeId: string): void {
+        this.patchPlayer(key, { teeId, teeOverridden: true });
+    }
+
+    private recomputeRoundDefaults(): void {
+        this.applyRoundDefault('M');
+        this.applyRoundDefault('F');
+    }
+
+    private applyRoundDefault(gender: Gender): void {
+        const teeId = resolveDefaultTee(
+            this.tees.get(),
+            this.courseTeeRoles.get(),
+            gender,
+            this.organizerPreferredRole[gender] ?? null,
+        );
+        if (gender === 'M') this.maleDefaultTeeId.set(teeId);
+        else this.femaleDefaultTeeId.set(teeId);
+        // Profile loading can finish after the initial roster was seeded. Its
+        // role still pre-fills the organiser's round default, so every row
+        // that has not been explicitly changed must follow it here too.
+        this.players.set(
+            this.players.get().map((player) =>
+                player.gender === gender && !player.teeOverridden ? { ...player, teeId } : player,
+            ),
+        );
     }
 
     // --- Format slots (the M3 format step) ---

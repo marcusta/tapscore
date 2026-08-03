@@ -1,6 +1,6 @@
 import { beforeEach, expect, mock, test } from 'bun:test';
 import { ApiError } from '@basics/core/client/api-error';
-import type { FormatDescriptor, SetupCourse, Tee } from '../../src/api/setup.gen';
+import type { CourseTeeRole, FormatDescriptor, SetupCourse, Tee } from '../../src/api/setup.gen';
 
 // Catalog-driven setup (2.6e M3/M5b) — draft assembly through the ONLY public
 // seam, `submit()`: subjects model (players + single-ball teams for ball
@@ -17,6 +17,7 @@ const apiMock = {
     setup: {
         courses: mock(async () => []),
         teesByCourse: mock(async () => []),
+        teeRolesByCourse: mock(async () => []),
         formats: mock(async () => []),
     },
     guestPlayers: {
@@ -161,6 +162,67 @@ beforeEach(() => {
     };
     apiMock.guestPlayers.create.mockClear();
     apiMock.friendlyRounds.create.mockClear();
+    apiMock.setup.teesByCourse.mockClear();
+    apiMock.setup.teeRolesByCourse.mockClear();
+});
+
+// --- Round tee defaults ---------------------------------------------------
+
+const black: Tee = { ...tee, id: 't-black', name: 'Svart', ratings: [{ gender: 'M', courseRating: 72, slope: 113, par: 72, totalLengthM: 6400 }] };
+const yellow: Tee = { ...tee, id: 't-yellow', name: 'Gul', ratings: [{ gender: 'M', courseRating: 72, slope: 113, par: 72, totalLengthM: 5900 }] };
+const red: Tee = { ...tee, id: 't-red', name: 'Röd', ratings: [{ gender: 'F', courseRating: 72, slope: 113, par: 72, totalLengthM: 5000 }] };
+
+test('course roles prefill round defaults; players follow them until individually overridden', async () => {
+    const svc = new SetupService();
+    svc.reset();
+    svc.courses.set([course]);
+    const mappings: CourseTeeRole[] = [
+        { courseId: 'c1', roleKey: 'club', gender: 'M', teeId: yellow.id },
+        { courseId: 'c1', roleKey: 'club', gender: 'F', teeId: red.id },
+        { courseId: 'c1', roleKey: 'tournament', gender: 'M', teeId: black.id },
+    ];
+    apiMock.setup.teesByCourse.mockResolvedValue([red, yellow, black]);
+    apiMock.setup.teeRolesByCourse.mockResolvedValue(mappings);
+
+    await svc.selectCourse('c1');
+    expect(svc.defaultTeeId('M')).toBe(yellow.id);
+    expect(svc.defaultTeeId('F')).toBe(red.id);
+
+    const male = svc.players.get()[0]!;
+    svc.addFriend({ id: 'f-1', displayName: 'Anna', handicapIndex: 12, gender: 'F' });
+    const female = svc.players.get().at(-1)!;
+    expect(male.teeId).toBe(yellow.id);
+    expect(female.teeId).toBe(red.id);
+
+    svc.setPlayerTee(male.key, black.id);
+    svc.setRoundDefaultTee('M', yellow.id); // no-op leaves the explicit choice alone
+    expect(svc.players.get().find((p) => p.key === male.key)!.teeId).toBe(black.id);
+    svc.setRoundDefaultTee('M', black.id);
+    expect(svc.players.get().find((p) => p.key === male.key)!.teeId).toBe(black.id);
+    expect(svc.players.get().find((p) => p.key === female.key)!.teeId).toBe(red.id);
+});
+
+test('the organiser profile role pre-fills only their gender, unless they changed that round default', async () => {
+    const svc = new SetupService();
+    svc.reset();
+    svc.courses.set([course]);
+    apiMock.setup.teesByCourse.mockResolvedValue([red, yellow, black]);
+    apiMock.setup.teeRolesByCourse.mockResolvedValue([
+        { courseId: 'c1', roleKey: 'club', gender: 'M', teeId: yellow.id },
+        { courseId: 'c1', roleKey: 'club', gender: 'F', teeId: red.id },
+        { courseId: 'c1', roleKey: 'tournament', gender: 'M', teeId: black.id },
+    ] satisfies CourseTeeRole[]);
+
+    await svc.selectCourse('c1');
+    const organiser = svc.players.get()[0]!;
+    svc.setOrganizerPreferredTeeRole('M', 'tournament');
+    expect(svc.defaultTeeId('M')).toBe(black.id);
+    expect(svc.players.get().find((p) => p.key === organiser.key)!.teeId).toBe(black.id);
+    expect(svc.defaultTeeId('F')).toBe(red.id);
+
+    svc.setRoundDefaultTee('M', yellow.id);
+    svc.setOrganizerPreferredTeeRole('M', 'tournament');
+    expect(svc.defaultTeeId('M')).toBe(yellow.id);
 });
 
 // --- Catalog-driven draft assembly ---------------------------------------

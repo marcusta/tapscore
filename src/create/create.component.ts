@@ -41,6 +41,12 @@ const tpl = template(`
         <section class="setup__section">
             <h2>Course</h2>
             <div bind="course" class="setup__select"></div>
+            <div bind="teeDefaults" class="setup__tee-defaults hidden">
+                <h3>Default tees</h3>
+                <p class="setup__hint">Players start on these tees. Change an individual player below if needed.</p>
+                <label class="setup__teerow"><span>Men</span><div bind="maleDefaultTee"></div></label>
+                <label class="setup__teerow"><span>Women</span><div bind="femaleDefaultTee"></div></label>
+            </div>
             <p bind="lockNote" class="setup__locknote hidden">Scores have been recorded — the course and route are locked for this round.</p>
             <p bind="routeErr" class="setup__warn"></p>
         </section>
@@ -464,6 +470,20 @@ export class CreateComponent extends Component {
             & .setup__select { width: 100%; font-size: 1rem; }
             & .setup__startsel { width: 110px; font-size: 0.95rem; }
 
+            & .setup__tee-defaults {
+                margin-top: ${s('lg')};
+                &.hidden { display: none; }
+                & h3 {
+                    margin: 0 0 ${s('xs')}; font-size: 0.95rem; font-weight: 700;
+                }
+                & .setup__hint { margin-bottom: ${s('sm')}; }
+            }
+            & .setup__teerow {
+                display: grid; grid-template-columns: minmax(4rem, 0.4fr) 1fr;
+                align-items: center; gap: ${s('sm')}; margin-top: ${s('sm')};
+                font-size: 0.9rem; font-weight: 700;
+            }
+
             & .setup__seg {
                 display: flex; gap: ${s('sm')}; margin-bottom: ${s('md')};
                 & button {
@@ -834,13 +854,15 @@ export class CreateComponent extends Component {
                 // this resolves in a race with load()/selectCourse().
                 if (isEdit) return;
                 const p = this.profile.player.get();
-                if (p)
+                if (p) {
                     this.svc.seedSelf({
                         id: p.id,
                         displayName: p.displayName,
                         handicapIndex: p.handicapIndex,
                         gender: p.gender,
                     });
+                    this.svc.setOrganizerPreferredTeeRole(p.gender, p.preferredTeeRoleKey);
+                }
             });
             void this.friends.load();
         }
@@ -899,6 +921,12 @@ export class CreateComponent extends Component {
                 className: () => (courseLocked() ? 'setup__locknote' : 'setup__locknote hidden'),
             },
             routeErr: { textContent: () => this.svc.humanizedRoute().join('\n') },
+            teeDefaults: {
+                className: () =>
+                    !isEdit && !courseLocked() && this.svc.tees.get().length > 0
+                        ? 'setup__tee-defaults'
+                        : 'setup__tee-defaults hidden',
+            },
             rosterErr: { textContent: () => this.svc.humanizedRoster().join('\n') },
             cancel: {
                 className: () => (isEdit ? 'setup__cancel' : 'setup__cancel hidden'),
@@ -1168,6 +1196,25 @@ export class CreateComponent extends Component {
             ),
             options: { get: () => this.svc.startHoleOptions().map((n) => ({ value: String(n), label: String(n) })) },
             disabled: { get: () => courseLocked() },
+        });
+        const teeOptions = () => this.svc.tees.get().map((tee) => ({ value: tee.id, label: tee.name }));
+        this.mountSelect(this.ref(frag, 'maleDefaultTee'), compTrack, {
+            value: this.bound(
+                compTrack,
+                () => this.svc.defaultTeeId('M'),
+                (value) => this.svc.setRoundDefaultTee('M', value),
+            ),
+            options: { get: teeOptions },
+            placeholder: 'Choose tee',
+        });
+        this.mountSelect(this.ref(frag, 'femaleDefaultTee'), compTrack, {
+            value: this.bound(
+                compTrack,
+                () => this.svc.defaultTeeId('F'),
+                (value) => this.svc.setRoundDefaultTee('F', value),
+            ),
+            options: { get: teeOptions },
+            placeholder: 'Choose tee',
         });
 
         // The picker lists friends NOT already on the roster (dedupe by player
@@ -2145,7 +2192,7 @@ export class CreateComponent extends Component {
             value: this.bound(
                 track,
                 () => current()?.teeId ?? '',
-                (v) => this.svc.patchPlayer(key, { teeId: v }),
+                (v) => this.svc.setPlayerTee(key, v),
             ),
             options: { get: () => this.svc.tees.get().map((tee) => ({ value: tee.id, label: tee.name })) },
             placeholder: 'Tee',
