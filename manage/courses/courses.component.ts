@@ -2,12 +2,18 @@ import { Component, template } from '@basics/core/client/core';
 import { t } from '../theme';
 import { s, card } from '../css';
 import { BreadcrumbService } from '../shell/breadcrumb.service';
+import { PrimitivesDemoComponent } from './primitives-demo.component';
 
 // The Courses section's landing page — a placeholder until T4/T5 replace it
 // with the club list. It exists in T2 so the shell has something real to
 // route to, and so the breadcrumb slot, the nav's active state and the
 // section registry are all exercised by an actual screen rather than by a
 // comment claiming they work.
+//
+// The "Primitives preview" spawned below is TEMPORARY (T3): a fixture that
+// shows the shared table, the inline-edit row and the destructive confirm at
+// both widths. T4/T5 delete `primitives-demo.component.ts` and the one line
+// that spawns it. If you are reading this in a T4 diff, that is the change.
 
 const tpl = template(`
     <section class="mcourses">
@@ -23,6 +29,7 @@ const tpl = template(`
                 <li>Tee roles — which tee a Club or Tournament round plays from</li>
             </ul>
         </div>
+        <div bind="demoHost"></div>
     </section>
 `);
 
@@ -81,7 +88,10 @@ export class CoursesComponent extends Component {
     private crumbs = this.inject(BreadcrumbService);
 
     render(): DocumentFragment {
-        return this.wire(tpl, {});
+        const frag = this.wire(tpl, {});
+        // TEMPORARY (T3) — deleted by T4/T5 along with the demo file.
+        this.spawn(PrimitivesDemoComponent, this.ref(frag, 'demoHost'), {});
+        return frag;
     }
 
     override onMount(): void {

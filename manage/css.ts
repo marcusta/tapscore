@@ -4,4 +4,4 @@
 //
 // ADR-005 ordering applies at every call site: recipe interpolation FIRST in a
 // block, app overrides after.
-export { s, btn, input, card } from '@basics/core/client/ui/css';
+export { s, btn, input, card, label, errorText } from '@basics/core/client/ui/css';

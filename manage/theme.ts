@@ -73,6 +73,11 @@ const manageTokens: Record<string, string> = {
     'manage-table-cell-pad-x': 'var(--space-3)',
     'manage-table-row-border': 'var(--border)',
     'manage-table-row-hover-bg': 'var(--hover-bg)',
+    // The wash on a row whose editor is open. Brass, because it is DECORATIVE
+    // — it says "you are here", not "press this" — and the vocabulary split
+    // reserves the fairway action tokens for the button that acts (the Save
+    // sitting in that very row).
+    'manage-table-row-editing-bg': 'var(--accent-soft)',
     // Narrow mode: rows become cards, and the gap between them replaces the
     // rules that separated them.
     'manage-table-card-gap': 'var(--space-2)',
