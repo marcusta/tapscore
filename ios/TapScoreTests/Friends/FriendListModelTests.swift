@@ -97,4 +97,12 @@ final class FriendListModelTests: XCTestCase {
         XCTAssertEqual(FriendListModel.handicap(4.14), "4.1")
         XCTAssertEqual(FriendListModel.handicap(nil), "–")
     }
+
+    func testIdentityCarriesUsernameAndHomeClubWithoutAnEmptySeparator() {
+        var withClub = friend("johan", name: "Johan J")
+        withClub.homeClubName = "Linköpings Golfklubb"
+        XCTAssertEqual(FriendListModel.identity(withClub), "@johan · Linköpings Golfklubb")
+
+        XCTAssertEqual(FriendListModel.identity(friend("johan", name: "Johan J")), "@johan")
+    }
 }

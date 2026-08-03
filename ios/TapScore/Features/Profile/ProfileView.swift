@@ -8,9 +8,8 @@ import SwiftUI
 /// and reached from the same place: it is a settings surface, not a
 /// destination a link can address, and it has no back-stack meaning.
 ///
-/// Three editable facts, and only three. The identity header is READ-ONLY
-/// because the server has no endpoint that renames a player — a text field
-/// there would be a control with nowhere to save to.
+/// The display name, gender, home club and handicap index are editable. The
+/// username stays a read-only login and public handle.
 ///
 /// Two of the three save on tap and one does not, and the asymmetry is the
 /// point: gender and home club are a choice from a closed list, where a
@@ -36,6 +35,9 @@ struct ProfileView: View {
     /// shell's `NavigationStack` and inside a plain `.sheet` from
     /// `AccountSheetView`, and a link would be inert in the second.
     @State private var dashboardOpen = false
+    @State private var nameDraft = ""
+    @State private var editingName = false
+    @FocusState private var nameFocused: Bool
     /// Held only between the tap and the load; cleared as soon as the bytes are
     /// in hand, so re-picking the same photo counts as a change again.
     @State private var photoItem: PhotosPickerItem?
@@ -169,9 +171,6 @@ struct ProfileView: View {
         statsSection(store)
     }
 
-    /// Read-only, and the `@username` is the load-bearing half — two accounts
-    /// belonging to the same human carry the same display name and never the
-    /// same username.
     private func identity(_ store: ProfileStore) -> some View {
         VStack(alignment: .leading, spacing: TapSpacing.md) {
             HStack(spacing: TapSpacing.lg) {
@@ -186,10 +185,57 @@ struct ProfileView: View {
                     foreground: TapColors.accentStrong
                 )
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(store.player?.displayName ?? "…")
-                        .font(TapFont.display(size: 28, weight: .semibold))
-                        .foregroundStyle(TapColors.text)
-                        .lineLimit(2)
+                    if editingName {
+                        VStack(alignment: .leading, spacing: TapSpacing.sm) {
+                            TextField("Display name", text: $nameDraft)
+                                .textInputAutocapitalization(.words)
+                                .submitLabel(.done)
+                                .tapField(minHeight: 44)
+                                .focused($nameFocused)
+                                .onSubmit { Task { await saveDisplayName(store) } }
+                            HStack(spacing: TapSpacing.sm) {
+                                Button("Cancel") {
+                                    editingName = false
+                                    nameFocused = false
+                                    store.clearDisplayNameError()
+                                }
+                                .buttonStyle(.tap(.secondary))
+                                .disabled(store.isSaving)
+                                Spacer(minLength: 0)
+                                Button(store.isSaving ? "Saving…" : "Save") {
+                                    Task { await saveDisplayName(store) }
+                                }
+                                .buttonStyle(.tap(.primary))
+                                .disabled(store.isSaving || nameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            }
+                            if let problem = store.displayNameError {
+                                Text(problem)
+                                    .font(TapFont.ui(size: 13.6))
+                                    .foregroundStyle(TapColors.danger)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    } else {
+                        HStack(alignment: .firstTextBaseline, spacing: TapSpacing.xs) {
+                            Text(store.player?.displayName ?? "…")
+                                .font(TapFont.display(size: 28, weight: .semibold))
+                                .foregroundStyle(TapColors.text)
+                                .lineLimit(2)
+                            Button {
+                                nameDraft = store.player?.displayName ?? ""
+                                store.clearDisplayNameError()
+                                editingName = true
+                                nameFocused = true
+                            } label: {
+                                Image(systemName: "pencil")
+                                    .font(TapFont.ui(size: 15, weight: .semibold))
+                                    .foregroundStyle(TapColors.textMuted)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(store.isSaving)
+                            .accessibilityLabel("Edit display name")
+                        }
+                    }
                     if let username = store.player?.username {
                         Text(verbatim: "@\(username)")
                             .font(TapFont.ui(size: 13.6))
@@ -210,6 +256,14 @@ struct ProfileView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("profile-identity")
+    }
+
+    private func saveDisplayName(_ store: ProfileStore) async {
+        await store.saveDisplayName(nameDraft)
+        if store.displayNameError == nil {
+            editingName = false
+            nameFocused = false
+        }
     }
 
     /// Pick a photo, and — only when there is one — remove it.

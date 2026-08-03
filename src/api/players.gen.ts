@@ -42,7 +42,7 @@ export interface PlayersApi {
     updateHandicap(input: { handicapIndex: number; effectiveDate?: string }): Promise<HandicapEntry>;
     confirmHandicap(): Promise<Player>;
     myHandicapHistory(): Promise<HandicapEntry[]>;
-    updateProfile(input: { gender?: null | 'M' | 'F'; homeClubId?: null | string }): Promise<Player>;
+    updateProfile(input: { displayName?: string; gender?: null | 'M' | 'F'; homeClubId?: null | string }): Promise<Player>;
     search(input: { q?: string }): Promise<PlayerSearchResult[]>;
 }
 

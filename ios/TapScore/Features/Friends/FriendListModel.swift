@@ -67,6 +67,14 @@ enum FriendListModel {
         value.map { String(format: "%.1f", $0) } ?? "–"
     }
 
+    /// The compact profile identity under the display name in a friends row.
+    static func identity(_ friend: FriendProfile) -> String {
+        guard let club = friend.homeClubName?.trimmingCharacters(in: .whitespacesAndNewlines), !club.isEmpty else {
+            return "@\(friend.username)"
+        }
+        return "@\(friend.username) · \(club)"
+    }
+
     /// The quiet line under a friend's name when the connection is one-way.
     ///
     /// Nil for a mutual friend — a working relationship gets NO annotation at

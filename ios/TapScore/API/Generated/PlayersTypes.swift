@@ -180,21 +180,25 @@ struct PlayersUpdateHandicapInput: Codable, Sendable, Equatable {
 }
 
 struct PlayersUpdateProfileInput: Codable, Sendable, Equatable {
+    var displayName: String?
     var gender: TriState<PlayerGender>
     var homeClubId: TriState<String>
 
     enum CodingKeys: String, CodingKey {
+        case displayName = "displayName"
         case gender = "gender"
         case homeClubId = "homeClubId"
     }
 
-    init(gender: TriState<PlayerGender> = .absent, homeClubId: TriState<String> = .absent) {
+    init(displayName: String? = nil, gender: TriState<PlayerGender> = .absent, homeClubId: TriState<String> = .absent) {
+        self.displayName = displayName
         self.gender = gender
         self.homeClubId = homeClubId
     }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.displayName = try c.decodeIfPresent(String.self, forKey: .displayName)
         if c.contains(.gender) {
             self.gender = try c.decodeNil(forKey: .gender)
                 ? .null
@@ -213,6 +217,7 @@ struct PlayersUpdateProfileInput: Codable, Sendable, Equatable {
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(displayName, forKey: .displayName)
         switch gender {
         case .absent: break
         case .null: try c.encodeNil(forKey: .gender)

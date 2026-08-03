@@ -388,6 +388,10 @@ struct FriendsView: View {
                             )
                         if isLive { LiveDot(diameter: 7) }
                     }
+                    Text(FriendListModel.identity(friend))
+                        .font(TapFont.ui(size: 12.8))
+                        .foregroundStyle(TapColors.textMuted)
+                        .lineLimit(1)
                     Text(FriendListModel.subtitle(friend, now: Date()))
                         .font(TapFont.ui(size: 12.8))
                         .foregroundStyle(TapColors.textMuted)

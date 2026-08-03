@@ -261,13 +261,19 @@ test('POST /api/players/register rejects an invalid gender with 400', async () =
     expect(res.status).toBe(400);
 });
 
-test('POST /api/players/me/profile sets gender; omitting it leaves it untouched', async () => {
+test('POST /api/players/me/profile updates the display name and gender without changing omitted fields', async () => {
     const { app } = await setup();
     const cookie = await loginAs(app, 'alice', 'password123'); // seeded without gender
 
-    const set = await req(app, 'POST', '/api/players/me/profile', { gender: 'F' }, cookie);
+    const set = await req(
+        app,
+        'POST',
+        '/api/players/me/profile',
+        { displayName: '  Alice Ny  ', gender: 'F' },
+        cookie,
+    );
     expect(set.status).toBe(200);
-    expect((await set.json()).gender).toBe('F');
+    expect(await set.json()).toMatchObject({ displayName: 'Alice Ny', gender: 'F' });
 
     // An empty profile update is a no-op, not a reset to null.
     const noop = await req(app, 'POST', '/api/players/me/profile', {}, cookie);
@@ -275,7 +281,15 @@ test('POST /api/players/me/profile sets gender; omitting it leaves it untouched'
     expect((await noop.json()).gender).toBe('F');
 
     const me = await req(app, 'GET', '/api/players/me', undefined, cookie);
-    expect((await me.json()).gender).toBe('F');
+    expect(await me.json()).toMatchObject({ displayName: 'Alice Ny', gender: 'F' });
+});
+
+test('POST /api/players/me/profile rejects a blank display name', async () => {
+    const { app } = await setup();
+    const cookie = await loginAs(app, 'alice', 'password123');
+
+    const res = await req(app, 'POST', '/api/players/me/profile', { displayName: '   ' }, cookie);
+    expect(res.status).toBe(400);
 });
 
 test('POST /api/players/register accepts a home club; an unknown one is 404', async () => {

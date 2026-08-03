@@ -3,22 +3,19 @@ import Observation
 
 /// The signed-in player's own profile, mirroring `src/profile/profile.service.ts`.
 ///
-/// Three editable facts and one append-only chain, and the split between them is
+/// Four editable facts and one append-only chain, and the split between them is
 /// the whole shape of this store:
 ///
-/// - **Gender and home club save on tap**, through `POST /players/me/profile`,
-///   whose input is two `TriState`s. The one that was NOT touched must be
-///   `.absent` — `.null` would clear the other column, so a home-club pick would
-///   silently wipe the gender that "Add me" depends on during round setup. That
-///   is why there is no single `saveProfile(gender:homeClubId:)` here: one
-///   function taking both invites a caller to pass `nil` for "unchanged".
+/// - **Display name, gender and home club** save through `POST /players/me/profile`.
+///   Gender and home club use `TriState`s: every untouched field is `.absent`,
+///   never `.null`, which would clear it. That is why there is no generic
+///   `saveProfile(...)` entry point that invites a caller to take a position on
+///   unrelated columns.
 /// - **The handicap index posts to `/players/me/handicap`** and then FORCE
 ///   RELOADS, because the server appends a `handicap_history` row as a side
 ///   effect. Patching `player.handicapIndex` locally would leave the chain on
 ///   screen one entry behind the number above it.
 ///
-/// Name editing does not exist: the server has no endpoint for it, so
-/// `displayName` / `username` are a read-only header, exactly as on the web.
 @MainActor
 @Observable
 final class ProfileStore {
@@ -42,6 +39,7 @@ final class ProfileStore {
     /// one screen, one save at a time is the rule the user can see, and a
     /// second in-flight state would mean two spinners and two disabled sets.
     enum SaveTarget: Equatable {
+        case displayName
         case gender
         case homeClub
         case handicap
@@ -54,6 +52,7 @@ final class ProfileStore {
     /// the string says, and a straight-quote variant would be a second wording.
     static let outOfRangeMessage =
         "Enter an index between +10 and 54 (use “+” for a plus handicap)."
+    static let displayNameRequiredMessage = "Enter a display name."
 
     /// Prefix for `refreshError` — the state where the index POST landed but the
     /// follow-up reload did not. Deliberately NOT worded as a failed save: the
@@ -97,6 +96,7 @@ final class ProfileStore {
     // under the gender control, and the web showing it there is a bug worth not
     // porting.
     private(set) var genderError: String?
+    private(set) var displayNameError: String?
     private(set) var clubError: String?
     private(set) var handicapError: String?
     private(set) var statsError: String?
@@ -203,6 +203,39 @@ final class ProfileStore {
         }
     }
 
+    // MARK: - Display name
+
+    /// Save the human-facing name. The username remains the login and public
+    /// handle, so it is intentionally not editable here.
+    func saveDisplayName(_ displayName: String) async {
+        guard saving == nil else { return }
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            displayNameError = Self.displayNameRequiredMessage
+            return
+        }
+        saving = .displayName
+        displayNameError = nil
+        defer { saving = nil }
+        do {
+            let updated = try await api.send(
+                PlayersEndpoints.updateProfile,
+                PlayersUpdateProfileInput(
+                    displayName: trimmed,
+                    gender: .absent,
+                    homeClubId: .absent
+                )
+            )
+            adopt(updated)
+        } catch {
+            displayNameError = APIErrorCopy.short(error)
+        }
+    }
+
+    func clearDisplayNameError() {
+        displayNameError = nil
+    }
+
     // MARK: - Gender
 
     /// Save gender, or clear it with `nil`.
@@ -218,6 +251,7 @@ final class ProfileStore {
             let updated = try await api.send(
                 PlayersEndpoints.updateProfile,
                 PlayersUpdateProfileInput(
+                    displayName: nil,
                     gender: gender.map { .value($0) } ?? .null,
                     homeClubId: .absent
                 )
@@ -241,6 +275,7 @@ final class ProfileStore {
             let updated = try await api.send(
                 PlayersEndpoints.updateProfile,
                 PlayersUpdateProfileInput(
+                    displayName: nil,
                     gender: .absent,
                     homeClubId: homeClubId.map { .value($0) } ?? .null
                 )

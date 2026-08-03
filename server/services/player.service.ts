@@ -463,8 +463,8 @@ export class PlayerService {
     }
 
     /**
-     * Profile self-update (Phase 3 friends-list feature): `gender` and
-     * `homeClubId`. POST (not PATCH) to match this codebase's existing
+     * Profile self-update (Phase 3 friends-list feature): display name,
+     * `gender` and `homeClubId`. POST (not PATCH) to match this codebase's existing
      * partial-update convention — `updateHandicapIndex` is exposed as `POST
      * /players/me/handicap`, not PATCH; no PATCH endpoint exists anywhere in
      * server/api/*.api.ts, so introducing one here would be a one-off rather
@@ -475,10 +475,16 @@ export class PlayerService {
      */
     async updateProfile(
         playerId: string,
-        input: { gender?: Gender | null; homeClubId?: string | null },
+        input: { displayName?: string; gender?: Gender | null; homeClubId?: string | null },
     ): Promise<Player> {
         const row = await this.byId(playerId).executeTakeFirst();
         if (!row || row.deleted_at !== null) throw new NotFoundError('player not found');
+
+        if (input.displayName !== undefined) {
+            await this.updatePlayerById(playerId)
+                .set({ display_name: input.displayName.trim() })
+                .execute();
+        }
 
         if (input.gender !== undefined) {
             await this.updatePlayerById(playerId).set({ gender: input.gender }).execute();

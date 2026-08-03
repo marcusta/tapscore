@@ -38,7 +38,17 @@ const tpl = template(`
                 <div class="profile__ident">
                     ${avatarBadgeMarkup('profile__badge')}
                     <div class="profile__names">
-                        <h1 bind="name"></h1>
+                        <div bind="nameDisplay" class="profile__name-display">
+                            <h1 bind="name"></h1>
+                            <button bind="editName" class="profile__edit-name" type="button"
+                                aria-label="Edit display name" title="Edit display name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+                        </div>
+                        <form bind="nameForm" class="profile__name-form">
+                            <input bind="nameInput" autocomplete="name" aria-label="Display name" />
+                            <button bind="cancelName" type="button">Cancel</button>
+                            <button bind="saveName" type="submit">Save</button>
+                        </form>
+                        <p bind="nameErr" class="profile__err"></p>
                         <p bind="username"></p>
                     </div>
                 </div>
@@ -174,6 +184,40 @@ export class ProfileComponent extends Component {
 
                 & .profile__ident { display: flex; align-items: center; gap: ${s('lg')}; }
                 & .profile__names { min-width: 0; }
+
+                & .profile__name-display {
+                    display: flex; align-items: center; gap: ${s('xs')};
+                }
+                & .profile__name-display.hidden, & .profile__name-form.hidden { display: none; }
+                & .profile__edit-name {
+                    ${btn()}
+                    display: grid; place-items: center;
+                    width: 32px; height: 32px; padding: 0;
+                    color: ${t('text-muted')}; background: transparent;
+                    border-color: transparent;
+                    &:hover { color: ${t('text')}; background: ${t('hover-bg')}; }
+                    &:disabled { opacity: 0.5; cursor: default; }
+                    & svg { width: 16px; height: 16px; }
+                }
+                & .profile__name-form {
+                    display: flex; align-items: center; gap: ${s('xs')};
+                    max-width: 100%;
+                    & input {
+                        ${input()}
+                        width: min(100%, 250px);
+                        padding: ${s('sm')} ${s('md')};
+                        font: 600 1rem ${t('font-display')};
+                    }
+                    & button {
+                        ${btn()}
+                        padding: ${s('sm')} ${s('md')};
+                        font-family: inherit; font-size: 0.85rem; font-weight: 700;
+                        &:disabled { opacity: 0.5; cursor: default; }
+                    }
+                    & button[type='submit'] {
+                        background: ${t('primary')}; color: ${t('primary-text')}; border-color: ${t('primary')};
+                    }
+                }
 
                 & .profile__badge {
                     ${avatarBadgeCss(72, '1.5rem')}
@@ -436,6 +480,9 @@ export class ProfileComponent extends Component {
     private router = this.inject(Router);
     private indexDraft = new Signal('');
     private localErr = new Signal('');
+    private nameDraft = new Signal('');
+    private nameEditing = new Signal(false);
+    private nameErr = new Signal('');
 
     render(): DocumentFragment {
         if (this.auth.currentUser.get()) void this.svc.load();
@@ -447,6 +494,7 @@ export class ProfileComponent extends Component {
         // nodes: mounting MOVES them into the document and leaves `frag`
         // empty, so the same lookup at click time finds nothing.
         let photoFileEl: HTMLInputElement | null = null;
+        let nameInputEl: HTMLInputElement | null = null;
 
         const frag = this.wire(tpl, {
             anon: { className: () => (loggedIn() ? 'profile__anon hidden' : 'profile__anon') },
@@ -494,7 +542,53 @@ export class ProfileComponent extends Component {
             photoErr: {
                 textContent: () => this.svc.avatarError.get()?.message ?? '',
             },
+            nameDisplay: {
+                className: () =>
+                    this.nameEditing.get() ? 'profile__name-display hidden' : 'profile__name-display',
+            },
             name: () => this.svc.player.get()?.displayName ?? '…',
+            editName: {
+                disabled: () => this.svc.saving.get(),
+                onclick: () => {
+                    this.nameDraft.set(this.svc.player.get()?.displayName ?? '');
+                    this.nameErr.set('');
+                    this.nameEditing.set(true);
+                    queueMicrotask(() => nameInputEl?.focus());
+                },
+            },
+            nameForm: {
+                className: () =>
+                    this.nameEditing.get() ? 'profile__name-form' : 'profile__name-form hidden',
+                onsubmit: async (e: Event) => {
+                    e.preventDefault();
+                    const displayName = this.nameDraft.get().trim();
+                    if (!displayName) {
+                        this.nameErr.set('Enter a display name.');
+                        return;
+                    }
+                    this.nameErr.set('');
+                    if (await this.svc.saveDisplayName(displayName)) this.nameEditing.set(false);
+                },
+            },
+            nameInput: {
+                value: () => this.nameDraft.get(),
+                disabled: () => this.svc.saving.get(),
+                oninput: (e: Event) => this.nameDraft.set((e.target as HTMLInputElement).value),
+            },
+            cancelName: {
+                disabled: () => this.svc.saving.get(),
+                onclick: () => {
+                    this.nameEditing.set(false);
+                    this.nameErr.set('');
+                },
+            },
+            saveName: {
+                disabled: () => this.svc.saving.get() || this.nameDraft.get().trim() === '',
+                textContent: () => (this.svc.saving.get() ? 'Saving…' : 'Save'),
+            },
+            nameErr: {
+                textContent: () => this.nameErr.get() || this.svc.saveError.get()?.message || '',
+            },
             username: () => {
                 const p = this.svc.player.get();
                 return p ? `@${p.username}` : '';
@@ -682,6 +776,7 @@ export class ProfileComponent extends Component {
         this.track(() => select.destroy());
 
         photoFileEl = this.ref(frag, 'photoFile') as HTMLInputElement;
+        nameInputEl = this.ref(frag, 'nameInput') as HTMLInputElement;
 
         return frag;
     }

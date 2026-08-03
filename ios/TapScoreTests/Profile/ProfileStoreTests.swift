@@ -23,6 +23,7 @@ final class ProfileStoreTests: XCTestCase {
     // MARK: - Fixtures
 
     private static func player(
+        displayName: String = "Marcus Andersson",
         gender: String? = "M",
         homeClubId: String? = "club-1",
         handicapIndex: String = "18.4"
@@ -30,7 +31,7 @@ final class ProfileStoreTests: XCTestCase {
         let genderJSON = gender.map { "\"\($0)\"" } ?? "null"
         let clubJSON = homeClubId.map { "\"\($0)\"" } ?? "null"
         return """
-        {"id":"p-1","username":"marcus","displayName":"Marcus Andersson",
+        {"id":"p-1","username":"marcus","displayName":"\(displayName)",
          "nickname":null,"avatarUrl":null,"homeClubId":\(clubJSON),
          "handicapIndex":\(handicapIndex),"gender":\(genderJSON),"deletedAt":null}
         """
@@ -199,7 +200,43 @@ final class ProfileStoreTests: XCTestCase {
             .failed("The server sent a shape this build does not understand."))
     }
 
-    // MARK: - 2. Gender — the TriState contract
+    // MARK: - 2. Display name
+
+    @MainActor
+    func testSavingDisplayNameSendsOnlyTheNameKeyAndUpdatesTheSessionPlayer() async {
+        routeLoad()
+        RoundStubURLProtocol.route(
+            "/players/me/profile", Self.player(displayName: "Marcus Ny")
+        )
+        var adopted: Player?
+        let store = makeStore(onProfileUpdated: { adopted = $0 })
+        await store.load()
+
+        await store.saveDisplayName("  Marcus Ny  ")
+
+        let body = lastBody("/players/me/profile")
+        XCTAssertEqual(body?["displayName"] as? String, "Marcus Ny")
+        XCTAssertFalse(body?.keys.contains("gender") ?? true)
+        XCTAssertFalse(body?.keys.contains("homeClubId") ?? true)
+        XCTAssertEqual(store.player?.displayName, "Marcus Ny")
+        XCTAssertEqual(adopted?.displayName, "Marcus Ny")
+        XCTAssertNil(store.displayNameError)
+    }
+
+    @MainActor
+    func testBlankDisplayNameIsRefusedBeforeARequest() async {
+        routeLoad()
+        let store = makeStore()
+        await store.load()
+
+        await store.saveDisplayName("   ")
+
+        XCTAssertEqual(store.displayNameError, ProfileStore.displayNameRequiredMessage)
+        XCTAssertTrue(RoundStubURLProtocol.requests(for: "/players/me/profile").isEmpty)
+        XCTAssertEqual(store.player?.displayName, "Marcus Andersson")
+    }
+
+    // MARK: - 3. Gender — the TriState contract
 
     @MainActor
     func testSavingGenderSendsOnlyTheGenderKey() async {
@@ -215,6 +252,7 @@ final class ProfileStoreTests: XCTestCase {
         // THE ASSERTION THIS TEST EXISTS FOR: an untouched column must be
         // ABSENT, not null. A null here would wipe the home club. Fail-closed
         // form: a nil body is a failure, not a vacuous pass.
+        XCTAssertFalse(body?.keys.contains("displayName") ?? true)
         XCTAssertFalse(body?.keys.contains("homeClubId") ?? true)
         XCTAssertEqual(store.player?.gender, .f)
         XCTAssertNil(store.genderError)
@@ -251,7 +289,7 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertEqual(store.player?.gender, .m)
     }
 
-    // MARK: - 3. Home club — the other direction
+    // MARK: - 4. Home club — the other direction
 
     @MainActor
     func testSavingHomeClubSendsOnlyTheClubKey() async {
@@ -264,6 +302,7 @@ final class ProfileStoreTests: XCTestCase {
 
         let body = lastBody("/players/me/profile")
         XCTAssertEqual(body?["homeClubId"] as? String, "club-2")
+        XCTAssertFalse(body?.keys.contains("displayName") ?? true)
         XCTAssertFalse(body?.keys.contains("gender") ?? true)
         XCTAssertEqual(store.player?.homeClubId, "club-2")
     }
@@ -283,7 +322,7 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertNil(store.player?.homeClubId)
     }
 
-    // MARK: - 4. Handicap
+    // MARK: - 5. Handicap
 
     @MainActor
     func testSavingAnIndexPostsItAndRefetchesTheChain() async {

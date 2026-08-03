@@ -7,6 +7,7 @@ import { FriendsService } from './friends.service';
 import { isSearchable } from './friends-state';
 import {
     friendConnectionNote,
+    friendIdentityLine,
     friendSubtitle,
     partitionFriends,
     sortFriends,
@@ -94,6 +95,7 @@ const friendTpl = template(`
             ${avatarBadgeMarkup('friend-row__badge')}
             <span class="friend-row__who">
                 <span bind="name" class="friend-row__name"></span>
+                <span bind="identity" class="friend-row__identity"></span>
                 <span bind="subtitle" class="friend-row__subtitle"></span>
                 <span bind="connection" class="friend-row__connection"></span>
             </span>
@@ -239,12 +241,14 @@ export class FriendsComponent extends Component {
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                 }
                 & .friend-row__username,
+                & .friend-row__identity,
                 & .friend-row__subtitle,
                 & .friend-row__connection {
                     color: ${t('text-muted')}; font-size: 0.8rem;
                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                 }
                 & .friend-row__subtitle:empty,
+                & .friend-row__identity:empty,
                 & .friend-row__connection:empty { display: none; }
                 & .friend-row__hcp {
                     font-weight: 700; flex-shrink: 0;
@@ -489,6 +493,7 @@ export class FriendsComponent extends Component {
                 },
             },
             name: () => f.displayName,
+            identity: () => friendIdentityLine(this.liveFriend(f)),
             subtitle: () => friendSubtitle(this.liveFriend(f), now),
             connection: () => friendConnectionNote(this.liveFriend(f)) ?? '',
             hcp: () => (f.handicapIndex === null ? '–' : f.handicapIndex.toFixed(1)),

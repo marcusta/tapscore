@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import {
     friendConnectionNote,
+    friendIdentityLine,
     friendSubtitle,
     partitionFriends,
     relativeTime,
@@ -127,6 +128,12 @@ test('friendSubtitle self-explains the Suggested order', () => {
 
 test('friendSubtitle says "never played" for zero shared rounds', () => {
     expect(friendSubtitle(friend({ id: 'z', displayName: 'Zed' }), NOW)).toBe('never played');
+});
+
+test('friendIdentityLine carries username and home club without an empty separator', () => {
+    expect(friendIdentityLine(friend({ id: 'j', displayName: 'Johan', homeClubName: 'Linköpings Golfklubb' })))
+        .toBe('@j · Linköpings Golfklubb');
+    expect(friendIdentityLine(friend({ id: 'j', displayName: 'Johan', homeClubName: '  ' }))).toBe('@j');
 });
 
 // --- Connection sections -----------------------------------------------------

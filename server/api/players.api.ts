@@ -30,6 +30,9 @@ const UpdateHandicapInput = Type.Object({
 });
 
 const UpdateProfileInput = Type.Object({
+    // A name is a human-facing identity, not a login handle. Require at least
+    // one non-whitespace character here; the service trims the stored value.
+    displayName: Type.Optional(Type.String({ minLength: 1, pattern: '.*\\S.*' })),
     gender: Type.Optional(Type.Union([Gender, Type.Null()])),
     homeClubId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 });

@@ -105,6 +105,12 @@ export function friendSubtitle(friend: FriendProfile, now: string): string {
     return when ? `${plays}, ${when}` : plays;
 }
 
+/** Compact public identity below a friend's display name. */
+export function friendIdentityLine(friend: Pick<FriendProfile, 'username' | 'homeClubName'>): string {
+    const club = friend.homeClubName?.trim();
+    return club ? `@${friend.username} · ${club}` : `@${friend.username}`;
+}
+
 /** Quiet explanation for a contact that has not become a mutual friend. */
 export function friendConnectionNote(friend: FriendProfile): string | null {
     return friend.isMutual ? null : "hasn't added you back";

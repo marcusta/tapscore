@@ -128,6 +128,17 @@ export class ProfileService {
         return true;
     }
 
+    /** Save the human-facing display name. The username remains the login and
+     * public handle, so it is intentionally not part of this self-service edit. */
+    async saveDisplayName(displayName: string): Promise<boolean> {
+        const saved = await request(this.saving, this.saveError, () =>
+            api.players.updateProfile({ displayName }),
+        );
+        if (!saved) return false;
+        this.player.set(saved);
+        return true;
+    }
+
     /**
      * Record that the player looked at their index and it is still theirs.
      * Deliberately NOT a `saveIndex` with the same number: nothing changed, so
