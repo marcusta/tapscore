@@ -155,7 +155,11 @@ export type ManageTableProps<T> = {
      * buttons inside it never see the stacked full-width rule.
      */
     actions?: (row: T, ctx: ManageRowContext) => ManageCellValue | HTMLElement[];
-    /** Heading for the trailing column. Screen-reader only. */
+    /**
+     * Heading for the trailing column. Screen-reader only — it names the column
+     * for assistive technology and is visually hidden, so word it as a name
+     * ("Club actions") and not as a visible column title.
+     */
     actionsHeader?: string;
     /** Opt in to inline editing. */
     edit?: ManageTableEdit<T>;
@@ -283,6 +287,19 @@ export class ManageTableComponent<T> extends Component<ManageTableProps<T>> {
                 font-weight: 700;
                 text-transform: uppercase;
                 letter-spacing: 0.14em;
+                white-space: nowrap;
+            }
+
+            /* Same treatment as .mtable__caption--hidden: off-screen for the
+               eye, present for the accessibility tree. */
+            & .mtable__th-label--hidden {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                padding: 0;
+                margin: -1px;
+                overflow: hidden;
+                clip-path: inset(50%);
                 white-space: nowrap;
             }
 
@@ -568,20 +585,38 @@ export class ManageTableComponent<T> extends Component<ManageTableProps<T>> {
             row.appendChild(this.th(col.key, col.header));
         }
         if (this.hasActionsColumn()) {
-            row.appendChild(this.th(ACTIONS_KEY, this.props.actionsHeader ?? 'Actions'));
+            row.appendChild(this.th(ACTIONS_KEY, this.props.actionsHeader ?? 'Actions', true));
         }
 
         head.appendChild(row);
         return head;
     }
 
-    private th(key: string, header: string): HTMLElement {
+    /**
+     * `hiddenLabel` hides the TEXT, not the cell. The actions column's heading
+     * is documented screen-reader-only and has to stay a `columnheader` — it is
+     * what names the cell an assistive technology lands on when it arrows into
+     * the row's buttons — but printing "Club actions" in the overline strip
+     * above a pair of buttons is a label for something that already says what it
+     * is, and it sets a minimum width on a column meant to hug its content.
+     *
+     * The standard visually-hidden span, so the `<th>` keeps its fill and its
+     * bottom rule and the header strip stays unbroken across the table.
+     */
+    private th(key: string, header: string, hiddenLabel = false): HTMLElement {
         const th = document.createElement('th');
         th.className = 'mtable__th';
         th.setAttribute('role', 'columnheader');
         th.setAttribute('scope', 'col');
         th.setAttribute('data-key', key);
-        th.textContent = header;
+        if (hiddenLabel) {
+            const label = document.createElement('span');
+            label.className = 'mtable__th-label--hidden';
+            label.textContent = header;
+            th.appendChild(label);
+        } else {
+            th.textContent = header;
+        }
         return th;
     }
 

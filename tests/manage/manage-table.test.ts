@@ -180,6 +180,32 @@ test('the trailing actions column only exists when a screen asks for it', () => 
     ).toBe('Edit Linköpings GK');
 });
 
+test('the actions heading is a columnheader for AT and invisible to the eye', () => {
+    // `actionsHeader` is documented screen-reader-only, so it must not print
+    // "Row actions" in the overline strip above a pair of buttons — but it must
+    // still name the column an assistive technology arrows into.
+    const { host } = table({
+        actions: () => document.createElement('button'),
+        actionsHeader: 'Row actions',
+    });
+
+    const th = host.querySelector('th[data-key="__actions"]') as HTMLElement;
+    expect(th.getAttribute('role')).toBe('columnheader');
+    expect(th.getAttribute('scope')).toBe('col');
+    // The name is still readable — it is the TEXT that is hidden, in a span, so
+    // the cell keeps its fill and its bottom rule and the header strip stays
+    // unbroken across the table.
+    expect(th.textContent).toBe('Row actions');
+    const label = th.querySelector('.mtable__th-label--hidden');
+    expect(label?.textContent).toBe('Row actions');
+    expect(ManageTableComponent.styles).toContain('.mtable__th-label--hidden');
+
+    // A data column's heading is the visible thing it has always been.
+    const nameTh = host.querySelector('th[data-key="name"]') as HTMLElement;
+    expect(nameTh.querySelector('.mtable__th-label--hidden')).toBeNull();
+    expect(nameTh.textContent).toBe('Name');
+});
+
 test('the styles are token-only — no literal colour anywhere in the sheet', () => {
     // The manage-table-* vocabulary is the single styling source (AGENTS.md:
     // tokens only, no hex).

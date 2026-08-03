@@ -82,6 +82,35 @@ const manageTokens: Record<string, string> = {
     // rules that separated them.
     'manage-table-card-gap': 'var(--space-2)',
 
+    // ─── Destructive buttons ───
+    // OUTLINE at rest, filling only on hover — the framework's neutral default
+    // is a solid fill and says in so many words that an app wanting the outline
+    // sets `--btn-danger-bg` to transparent (default-theme.ts, `controlTokens`).
+    // This is that opt-in, and it lives HERE rather than in a component because
+    // it is a decision about what a destructive button LOOKS like across
+    // Manage, not about one screen: a solid button is the forward action's
+    // treatment (docs/design-guidelines.md §2), and the one button that looks
+    // like a button on a page should not be the one that destroys the record.
+    // Same shape as the framework's own confirm-dialog danger button and the
+    // player app's destructive controls.
+    //
+    // An explicit control token always beats the legacy bridge, which is why
+    // spelling the `--btn-danger-*` family here is enough — no component needs
+    // to hand-roll the skin over `btn()` any more; `btn(undefined, 'danger')`
+    // renders it.
+    //
+    // Hover lands on `--danger` itself rather than the neutral default's
+    // `--danger-strong`: the fill is the STATE CHANGE from transparent, so it
+    // reads at full strength already, and matching the plain terracotta keeps
+    // it identical to the confirm dialog it opens.
+    'btn-danger-bg': 'transparent',
+    'btn-danger-fg': 'var(--danger)',
+    'btn-danger-border': 'var(--danger)',
+    'btn-danger-shadow': 'none',
+    'btn-danger-bg-hover': 'var(--danger)',
+    'btn-danger-fg-hover': 'var(--on-danger)',
+    'btn-danger-border-hover': 'var(--danger)',
+
     // ─── Shell measurements ───
     // The two figures the layout is built from. Literals because they are
     // shapes, not steps on a scale: the sidebar is as wide as the longest

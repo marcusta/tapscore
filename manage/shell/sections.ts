@@ -1,6 +1,8 @@
 import type { Component } from '@basics/core/client/core';
 import type { ManageRolesService } from '../roles/roles.service';
-import { CoursesComponent } from '../courses/courses.component';
+import { ClubsComponent } from '../courses/clubs.component';
+import { ClubDetailComponent } from '../courses/club-detail.component';
+import { CLUBS_PATH, CLUB_PATH_PREFIX } from '../courses/routes';
 
 type ComponentCtor = new () => Component<any>;
 
@@ -36,10 +38,15 @@ export const SECTIONS: ManageSection[] = [
     {
         id: 'courses',
         label: 'Courses',
-        path: '/courses',
+        path: CLUBS_PATH,
         routes: {
-            // T4/T5 add '/courses/club' and '/courses/course' here.
-            '/courses': CoursesComponent,
+            // The landing page is the CLUB list — a course only exists under a
+            // club, so the club list is where the section starts (spec §3.2).
+            [CLUBS_PATH]: ClubsComponent,
+            // Registered as a prefix: `$swap` falls back to the longest key the
+            // route starts with, so this one key serves every
+            // `/courses/clubs/<id>`. T5 adds '/courses/courses' beside it.
+            [CLUB_PATH_PREFIX]: ClubDetailComponent,
         },
         // `CourseManagementAuthz` on the server: unscoped course_admin, with
         // super_admin as its deliberate superset.
