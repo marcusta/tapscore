@@ -7,6 +7,7 @@ enum RoleGrantRole: String, Codable, Sendable, Equatable {
     case seriesAdmin = "series_admin"
     case tourAdmin = "tour_admin"
     case competitionAdmin = "competition_admin"
+    case courseAdmin = "course_admin"
     case friendlyRoundOwner = "friendly_round_owner"
 }
 

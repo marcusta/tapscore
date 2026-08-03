@@ -7,6 +7,7 @@ import { seedPlayer } from '../db/seeds/players';
 import { setupRoutes, req, loginAs, type RouteTestContext } from '../testing/routes';
 import { createRoundsApi } from './rounds.api';
 import { createCourseRouteTemplatesApi } from './course-route-templates.api';
+import { CourseManagementAuthz } from './course-management-authz';
 import { registerBuiltInBallCreationStrategies } from '../domain/strategies/ball-creation';
 import { registerBuiltInFormats } from '../domain/formats';
 
@@ -18,7 +19,21 @@ beforeEach(() => {
 async function setup() {
     const ctx: RouteTestContext = await setupRoutes([seedPlayer]);
     mount(ctx.app, '/api', createRoundsApi(ctx.roundService));
-    mount(ctx.app, '/api', createCourseRouteTemplatesApi(ctx.courseRouteTemplateService));
+    mount(
+        ctx.app,
+        '/api',
+        createCourseRouteTemplatesApi(
+            ctx.courseRouteTemplateService,
+            new CourseManagementAuthz(ctx.roleService),
+        ),
+    );
+
+    const alice = await ctx.db
+        .selectFrom('players')
+        .select('id')
+        .where('username', '=', 'alice')
+        .executeTakeFirstOrThrow();
+    await ctx.roleService.grant({ playerId: alice.id, role: 'course_admin' });
 
     const club = await ctx.clubService.create({ name: 'Routes GC' });
     const course = await ctx.courseService.create({

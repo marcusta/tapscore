@@ -166,6 +166,38 @@ export class TeeService {
         return trx.deleteFrom('tee_ratings').where('tee_id', '=', teeId);
     }
 
+    private deleteRatingsExcept(
+        teeId: string,
+        genders: TeeGender[],
+        trx: Kysely<Database> = this.db,
+    ) {
+        let q = trx.deleteFrom('tee_ratings').where('tee_id', '=', teeId);
+        if (genders.length > 0) q = q.where('gender', 'not in', genders);
+        return q;
+    }
+
+    private upsertRatings(
+        rows: {
+            tee_id: string;
+            gender: TeeGender;
+            course_rating: number;
+            slope: number;
+            par: number;
+            total_length_m: number;
+        }[],
+        trx: Kysely<Database> = this.db,
+    ) {
+        return trx
+            .insertInto('tee_ratings')
+            .values(rows)
+            .onConflict((oc) => oc.columns(['tee_id', 'gender']).doUpdateSet((eb) => ({
+                course_rating: eb.ref('excluded.course_rating'),
+                slope: eb.ref('excluded.slope'),
+                par: eb.ref('excluded.par'),
+                total_length_m: eb.ref('excluded.total_length_m'),
+            })));
+    }
+
     // --- Methods ---
 
     async listByCourse(courseId: string): Promise<Tee[]> {
@@ -253,9 +285,8 @@ export class TeeService {
                 }
             }
             if (input.ratings !== undefined) {
-                await this.deleteRatingsFor(id, trx).execute();
                 if (input.ratings.length > 0) {
-                    await this.insertRatings(
+                    await this.upsertRatings(
                         input.ratings.map((r) => ({
                             tee_id: id,
                             gender: r.gender,
@@ -267,6 +298,13 @@ export class TeeService {
                         trx,
                     ).execute();
                 }
+                // Retained ratings were upserted first. The migration-059
+                // trigger only clears mappings for genders actually retired.
+                await this.deleteRatingsExcept(
+                    id,
+                    input.ratings.map((rating) => rating.gender),
+                    trx,
+                ).execute();
             }
         });
 

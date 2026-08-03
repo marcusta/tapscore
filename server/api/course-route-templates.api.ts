@@ -1,5 +1,6 @@
 import { Type, type Static } from '@sinclair/typebox';
-import { requireAuth } from '@basics/core/server/auth';
+import type { Context } from 'hono';
+import { requireAuth, requireUser } from '@basics/core/server/auth';
 import {
     CourseRouteTemplateService,
     RouteTemplateValidationError,
@@ -7,6 +8,7 @@ import {
 } from '../services/course-route-template.service';
 import { CourseRouteTemplateRoute } from '../domain/course-route-template';
 import type { CompilerDiagnostic } from '../domain/compiler/types';
+import type { CourseManagementAuthz } from './course-management-authz';
 
 // --- Input schemas ---
 //
@@ -44,8 +46,12 @@ type SaveResult =
     | { ok: true; template: CourseRouteTemplate }
     | { ok: false; diagnostics: CompilerDiagnostic[] };
 
-export function createCourseRouteTemplatesApi(svc: CourseRouteTemplateService) {
+export function createCourseRouteTemplatesApi(
+    svc: CourseRouteTemplateService,
+    authz: CourseManagementAuthz,
+) {
     const mw = [requireAuth()];
+    const gate = (c: Context) => authz.assertCanManageCourses(requireUser(c).id);
 
     // A route that fails the pure route compiler returns a structured
     // `{ ok: false, diagnostics }` the wizard attaches to the route control —
@@ -66,8 +72,8 @@ export function createCourseRouteTemplatesApi(svc: CourseRouteTemplateService) {
         listByCourse: { method: 'GET' as const, path: '/course-route-templates', fn: (input: Static<typeof ByCourseInput>) => svc.list(input.courseId), schema: ByCourseInput, middleware: mw },
         get: { method: 'GET' as const, path: '/course-route-templates/get', fn: (input: Static<typeof IdInput>) => svc.getById(input.id), schema: IdInput, middleware: mw },
         validate: { method: 'POST' as const, path: '/course-route-templates/validate', fn: (input: Static<typeof ValidateInput>) => svc.validateRoute(input.courseId, input.route), schema: ValidateInput, middleware: mw },
-        create: { method: 'POST' as const, path: '/course-route-templates', fn: (input: Static<typeof CreateInput>) => save(() => svc.create(input)), schema: CreateInput, middleware: mw },
-        update: { method: 'POST' as const, path: '/course-route-templates/update', fn: (input: Static<typeof UpdateInput>) => save(() => svc.update(input.id, { name: input.name, route: input.route })), schema: UpdateInput, middleware: mw },
-        remove: { method: 'DELETE' as const, path: '/course-route-templates/:id', fn: (input: Static<typeof IdInput>) => svc.remove(input.id), schema: IdInput, middleware: mw },
+        create: { method: 'POST' as const, path: '/course-route-templates', fn: async (input: Static<typeof CreateInput>, c: Context) => { await gate(c); return save(() => svc.create(input)); }, schema: CreateInput, middleware: mw },
+        update: { method: 'POST' as const, path: '/course-route-templates/update', fn: async (input: Static<typeof UpdateInput>, c: Context) => { await gate(c); return save(() => svc.update(input.id, { name: input.name, route: input.route })); }, schema: UpdateInput, middleware: mw },
+        remove: { method: 'DELETE' as const, path: '/course-route-templates/:id', fn: async (input: Static<typeof IdInput>, c: Context) => { await gate(c); await svc.remove(input.id); }, schema: IdInput, middleware: mw },
     };
 }

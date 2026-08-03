@@ -47,6 +47,23 @@ test('the whole chain replays on a connection that defaults legacy_alter_table O
             .query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'balls'`)
             .get();
         expect(balls).not.toBeNull();
+
+        // Tee roles are global, extensible data; course assignments remain
+        // gender-specific so a course can nominate different Club/Tournament/
+        // Beginner tees for men and women.
+        const teeRoles = sqlite
+            .query(`SELECT role_key, display_name, sort_order FROM tee_roles ORDER BY sort_order`)
+            .all();
+        expect(teeRoles).toEqual([
+            { role_key: 'club', display_name: 'Club', sort_order: 1 },
+            { role_key: 'tournament', display_name: 'Tournament', sort_order: 2 },
+            { role_key: 'beginner', display_name: 'Beginner', sort_order: 3 },
+        ]);
+
+        const courseTeeRoles = sqlite
+            .query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
+            .get('course_tee_roles');
+        expect(courseTeeRoles).not.toBeNull();
     } finally {
         await db.destroy();
     }

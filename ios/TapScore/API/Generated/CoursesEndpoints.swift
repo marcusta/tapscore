@@ -13,6 +13,14 @@ enum CoursesEndpoints {
         method: .get,
         path: "/courses/get",
         pathParams: [])
+    static let teeRoleCatalog = APIEndpoint<EmptyInput, [TeeRole]>(
+        method: .get,
+        path: "/courses/tee-roles/catalog",
+        pathParams: [])
+    static let teeRoles = APIEndpoint<CourseRouteTemplatesListByCourseInput, [CourseTeeRole]>(
+        method: .get,
+        path: "/courses/tee-roles",
+        pathParams: [])
     static let create = APIEndpoint<CoursesCreateInput, Course>(
         method: .post,
         path: "/courses",
@@ -25,6 +33,14 @@ enum CoursesEndpoints {
         method: .post,
         path: "/courses/holes/update",
         pathParams: [])
+    static let setTeeRole = APIEndpoint<CoursesSetTeeRoleInput, CourseTeeRole>(
+        method: .post,
+        path: "/courses/tee-roles",
+        pathParams: [])
+    static let clearTeeRole = APIEndpoint<CoursesClearTeeRoleInput, ClubsRemoveOutput>(
+        method: .delete,
+        path: "/courses/tee-roles/:courseId/:roleKey/:gender",
+        pathParams: ["courseId", "roleKey", "gender"])
     static let validate = APIEndpoint<ClubsGetInput, CourseValidation>(
         method: .get,
         path: "/courses/validate",

@@ -11,6 +11,7 @@ export interface RoleGrant {
         | 'series_admin'
         | 'tour_admin'
         | 'competition_admin'
+        | 'course_admin'
         | 'friendly_round_owner';
     scopeType: string | null;
     scopeId: string | null;

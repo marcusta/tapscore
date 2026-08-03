@@ -42,6 +42,7 @@ import { CompetitionAuthz } from './api/competition-authz';
 import { createAdminApi } from './api/admin.api';
 import { registerFriendlyRoundEvents } from './api/friendly-rounds-events';
 import { AdminAuthz } from './api/admin-authz';
+import { CourseManagementAuthz } from './api/course-management-authz';
 import { fetchWithSseIdleTimeout } from './sse-timeout';
 import { seedDev } from './db/seeds/dev';
 import { registerBuiltInBallCreationStrategies } from './domain/strategies/ball-creation';
@@ -143,9 +144,10 @@ mount(app, '/api', createFriendsApi(friendService));
 // (docs/proposals/friends-activity.md). Session-scoped: the viewer is the
 // session, the subject is the path param.
 mount(app, '/api', createFriendProfileApi(friendProfileService));
-mount(app, '/api', createClubsApi(clubService));
-mount(app, '/api', createCoursesApi(courseService));
-mount(app, '/api', createTeesApi(teeService));
+const courseManagementAuthz = new CourseManagementAuthz(roleService);
+mount(app, '/api', createClubsApi(clubService, courseManagementAuthz));
+mount(app, '/api', createCoursesApi(courseService, courseManagementAuthz));
+mount(app, '/api', createTeesApi(teeService, courseManagementAuthz));
 mount(app, '/api', createGuestPlayersApi(guestPlayerService));
 mount(app, '/api', createHandicapApi(handicapService));
 mount(app, '/api', createRoundsApi(roundService));
@@ -157,7 +159,7 @@ mount(app, '/api', createScorecardsApi(scorecardService));
 mount(app, '/api', createPlayerStatsApi(playerStatsService, friendlyRoundService));
 mount(app, '/api', createLeaderboardsApi(leaderboardService));
 mount(app, '/api', createFormatsApi());
-mount(app, '/api', createCourseRouteTemplatesApi(courseRouteTemplateService));
+mount(app, '/api', createCourseRouteTemplatesApi(courseRouteTemplateService, courseManagementAuthz));
 mount(app, '/api', createFriendlyRoundsApi(friendlyRoundService, guestClaimService, roundJoinService, roundEditService, roundLeaveService, seatClaimService));
 mount(app, '/api', createDashboardApi(dashboardService, friendlyRoundService, friendsActivityService));
 // Watching a friend's round: session + visibility scoped, read-only, and

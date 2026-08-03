@@ -108,9 +108,9 @@ export function createServices(db: Kysely<Database>) {
     const playerAvatarService = new PlayerAvatarService(db);
     const friendService = new FriendService(db);
     const clubService = new ClubService(db);
-    const courseService = new CourseService(db);
-    const courseRouteTemplateService = new CourseRouteTemplateService(db);
     const teeService = new TeeService(db);
+    const courseService = new CourseService(db, teeService);
+    const courseRouteTemplateService = new CourseRouteTemplateService(db);
     const guestPlayerService = new GuestPlayerService(db);
     const roleService = new RoleService(db);
     const adminService = new AdminService(db);

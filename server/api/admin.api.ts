@@ -17,6 +17,7 @@ const ROLE = Type.Union([
     Type.Literal('series_admin'),
     Type.Literal('tour_admin'),
     Type.Literal('competition_admin'),
+    Type.Literal('course_admin'),
     Type.Literal('friendly_round_owner'),
 ]);
 

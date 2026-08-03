@@ -1,6 +1,8 @@
 import { Type, type Static } from '@sinclair/typebox';
-import { requireAuth } from '@basics/core/server/auth';
+import type { Context } from 'hono';
+import { requireAuth, requireUser } from '@basics/core/server/auth';
 import type { TeeService } from '../services/tee.service';
+import type { CourseManagementAuthz } from './course-management-authz';
 
 // --- Input schemas ---
 
@@ -41,13 +43,14 @@ const UpdateTeeInput = Type.Object({
 
 // --- API descriptor ---
 
-export function createTeesApi(svc: TeeService) {
+export function createTeesApi(svc: TeeService, authz: CourseManagementAuthz) {
     const mw = [requireAuth()];
+    const gate = (c: Context) => authz.assertCanManageCourses(requireUser(c).id);
     return {
         listByCourse: { method: 'GET'    as const, path: '/tees/by-course', fn: (input: Static<typeof ByCourseInput>)    => svc.listByCourse(input.courseId), schema: ByCourseInput,  middleware: mw },
         get:          { method: 'GET'    as const, path: '/tees/get',       fn: (input: Static<typeof IdInput>)          => svc.getById(input.id),            schema: IdInput,        middleware: mw },
-        create:       { method: 'POST'   as const, path: '/tees',           fn: (input: Static<typeof CreateTeeInput>)   => svc.create(input),                schema: CreateTeeInput, middleware: mw },
-        update:       { method: 'POST'   as const, path: '/tees/update',    fn: (input: Static<typeof UpdateTeeInput>)   => svc.update(input.id, { name: input.name, colour: input.colour, holeLengths: input.holeLengths, ratings: input.ratings }), schema: UpdateTeeInput, middleware: mw },
-        remove:       { method: 'DELETE' as const, path: '/tees/:id',       fn: (input: Static<typeof IdInput>)          => svc.remove(input.id),             schema: IdInput,        middleware: mw },
+        create:       { method: 'POST'   as const, path: '/tees',           fn: async (input: Static<typeof CreateTeeInput>, c: Context) => { await gate(c); return svc.create(input); }, schema: CreateTeeInput, middleware: mw },
+        update:       { method: 'POST'   as const, path: '/tees/update',    fn: async (input: Static<typeof UpdateTeeInput>, c: Context) => { await gate(c); return svc.update(input.id, { name: input.name, colour: input.colour, holeLengths: input.holeLengths, ratings: input.ratings }); }, schema: UpdateTeeInput, middleware: mw },
+        remove:       { method: 'DELETE' as const, path: '/tees/:id',       fn: async (input: Static<typeof IdInput>, c: Context) => { await gate(c); await svc.remove(input.id); }, schema: IdInput, middleware: mw },
     };
 }

@@ -1,6 +1,15 @@
 import type { Kysely, Selectable } from 'kysely';
-import type { Database, CoursesTable, CourseHolesTable } from '../db/schema';
+import { ConflictError, NotFoundError } from '@basics/core/server/auth';
+import type {
+    Database,
+    CoursesTable,
+    CourseHolesTable,
+    TeeRolesTable,
+    CourseTeeRolesTable,
+    TeeGender,
+} from '../db/schema';
 import { validateCourse, type CourseValidation } from '../domain/course';
+import type { TeeService } from './tee.service';
 
 // --- Output types ---
 
@@ -47,10 +56,34 @@ export interface UpdateHoleInput {
     strokeIndex?: number;
 }
 
+/** A globally-defined, portable tee-selection intent. */
+export interface TeeRole {
+    roleKey: string;
+    displayName: string;
+    sortOrder: number;
+}
+
+/** One course's rated tee for a role and gender. */
+export interface CourseTeeRole {
+    courseId: string;
+    roleKey: string;
+    gender: TeeGender;
+    teeId: string;
+}
+
+export interface SetCourseTeeRoleInput {
+    courseId: string;
+    roleKey: string;
+    gender: TeeGender;
+    teeId: string;
+}
+
 // --- Row mapping ---
 
 type CourseRow = Selectable<CoursesTable>;
 type CourseHoleRow = Selectable<CourseHolesTable>;
+type TeeRoleRow = Selectable<TeeRolesTable>;
+type CourseTeeRoleRow = Selectable<CourseTeeRolesTable>;
 
 function toHole(row: CourseHoleRow): Hole {
     return { holeNumber: row.hole_number, par: row.par, strokeIndex: row.stroke_index };
@@ -66,8 +99,28 @@ function toCourse(row: CourseRow, holes: Hole[]): Course {
     };
 }
 
+function toTeeRole(row: TeeRoleRow): TeeRole {
+    return {
+        roleKey: row.role_key,
+        displayName: row.display_name,
+        sortOrder: row.sort_order,
+    };
+}
+
+function toCourseTeeRole(row: CourseTeeRoleRow): CourseTeeRole {
+    return {
+        courseId: row.course_id,
+        roleKey: row.role_key,
+        gender: row.gender,
+        teeId: row.tee_id,
+    };
+}
+
 export class CourseService {
-    constructor(private db: Kysely<Database>) {}
+    constructor(
+        private db: Kysely<Database>,
+        private teeService: TeeService,
+    ) {}
 
     // --- Queries (read) ---
 
@@ -89,6 +142,22 @@ export class CourseService {
             .selectAll()
             .where('course_id', '=', courseId)
             .orderBy('hole_number');
+    }
+
+    private teeRoles() {
+        return this.db.selectFrom('tee_roles').selectAll();
+    }
+
+    private teeRoleByKey(roleKey: string) {
+        return this.teeRoles().where('role_key', '=', roleKey);
+    }
+
+    private courseTeeRoles() {
+        return this.db.selectFrom('course_tee_roles').selectAll();
+    }
+
+    private teeRolesForCourse(courseId: string) {
+        return this.courseTeeRoles().where('course_id', '=', courseId);
     }
 
     // --- Queries (write) ---
@@ -128,6 +197,31 @@ export class CourseService {
             .updateTable('course_holes')
             .where('course_id', '=', courseId)
             .where('hole_number', '=', holeNumber);
+    }
+
+    private upsertTeeRole(
+        values: { course_id: string; role_key: string; gender: TeeGender; tee_id: string },
+        trx: Kysely<Database> = this.db,
+    ) {
+        return trx
+            .insertInto('course_tee_roles')
+            .values(values)
+            .onConflict((oc) => oc
+                .columns(['course_id', 'role_key', 'gender'])
+                .doUpdateSet({ tee_id: values.tee_id }));
+    }
+
+    private deleteTeeRole(
+        courseId: string,
+        roleKey: string,
+        gender: TeeGender,
+        trx: Kysely<Database> = this.db,
+    ) {
+        return trx
+            .deleteFrom('course_tee_roles')
+            .where('course_id', '=', courseId)
+            .where('role_key', '=', roleKey)
+            .where('gender', '=', gender);
     }
 
     // --- Methods ---
@@ -190,6 +284,63 @@ export class CourseService {
         if (!row) return null;
         const holes = await this.holesFor(id).execute();
         return toCourse(row, holes.map(toHole));
+    }
+
+    /** The global role catalogue, ordered for generic management clients. */
+    async listTeeRoles(): Promise<TeeRole[]> {
+        const rows = await this.teeRoles().orderBy('sort_order').execute();
+        return rows.map(toTeeRole);
+    }
+
+    /** All configured role mappings for one course; absent roles are intentional. */
+    async listTeeRolesForCourse(courseId: string): Promise<CourseTeeRole[]> {
+        const course = await this.byId(courseId).executeTakeFirst();
+        if (!course) throw new NotFoundError('course not found');
+        const rows = await this.teeRolesForCourse(courseId)
+            .orderBy('role_key')
+            .orderBy('gender')
+            .execute();
+        return rows.map(toCourseTeeRole);
+    }
+
+    /**
+     * Set or replace a course role assignment. A mapping is valid only when
+     * its tee is owned by this course and has the matching gender's rating —
+     * otherwise round creation could preselect a tee that cannot calculate a
+     * course handicap.
+     */
+    async setTeeRole(input: SetCourseTeeRoleInput): Promise<CourseTeeRole> {
+        const [course, role, tee] = await Promise.all([
+            this.byId(input.courseId).executeTakeFirst(),
+            this.teeRoleByKey(input.roleKey).executeTakeFirst(),
+            this.teeService.getById(input.teeId),
+        ]);
+        if (!course) throw new NotFoundError('course not found');
+        if (!role) throw new NotFoundError('tee role not found');
+        if (!tee) throw new NotFoundError('tee not found');
+        if (tee.courseId !== input.courseId) {
+            throw new ConflictError('tee must belong to the mapped course');
+        }
+        if (!tee.ratings.some((rating) => rating.gender === input.gender)) {
+            throw new ConflictError('tee has no rating for the mapped gender');
+        }
+
+        await this.upsertTeeRole({
+            course_id: input.courseId,
+            role_key: input.roleKey,
+            gender: input.gender,
+            tee_id: input.teeId,
+        }).execute();
+        return {
+            courseId: input.courseId,
+            roleKey: input.roleKey,
+            gender: input.gender,
+            teeId: input.teeId,
+        };
+    }
+
+    async clearTeeRole(courseId: string, roleKey: string, gender: TeeGender): Promise<void> {
+        await this.deleteTeeRole(courseId, roleKey, gender).execute();
     }
 
     async create(input: CreateCourseInput): Promise<Course> {

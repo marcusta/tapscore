@@ -26,6 +26,7 @@ const ROLES: RoleGrant['role'][] = [
     'series_admin',
     'tour_admin',
     'competition_admin',
+    'course_admin',
     'friendly_round_owner',
 ];
 

@@ -11,6 +11,8 @@ export interface Database {
     tees: TeesTable;
     tee_hole_lengths: TeeHoleLengthsTable;
     tee_ratings: TeeRatingsTable;
+    tee_roles: TeeRolesTable;
+    course_tee_roles: CourseTeeRolesTable;
     guest_players: GuestPlayersTable;
     handicap_history: HandicapHistoryTable;
     role_grants: RoleGrantsTable;
@@ -789,6 +791,7 @@ export interface RoleGrantsTable {
         | 'series_admin'
         | 'tour_admin'
         | 'competition_admin'
+        | 'course_admin'
         | 'friendly_round_owner';
     scope_type: string | null;
     scope_id: string | null;
@@ -845,6 +848,36 @@ export interface TeeRatingsTable {
     slope: number;
     par: number;
     total_length_m: number;
+}
+
+/**
+ * A globally-defined reason for choosing a tee, rather than a colour or a
+ * course-specific tee id. The initial catalogue is Club, Tournament and
+ * Beginner. It is deliberately data-backed and open: adding a future role
+ * must not require a `courses` table rebuild.
+ */
+export interface TeeRolesTable {
+    role_key: string;
+    display_name: string;
+    sort_order: number;
+    created_at: Generated<string>;
+}
+
+/**
+ * A course's mapping from a global tee role and rating gender to one of its
+ * tees. This is authoring data only: round creation resolves a mapping to a
+ * concrete tee and snapshots that tee on the round's ball players.
+ *
+ * The mapping's tee must belong to `course_id` and carry a rating for `gender`.
+ * SQLite cannot express either cross-table rule with these ordinary foreign
+ * keys, so the future course-tee-role write service must validate both in its
+ * transaction before it persists a row.
+ */
+export interface CourseTeeRolesTable {
+    course_id: string;
+    role_key: string;
+    gender: TeeGender;
+    tee_id: string;
 }
 
 export interface CoursesTable {

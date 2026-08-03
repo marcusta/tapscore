@@ -44,6 +44,75 @@ struct Course: Codable, Sendable, Equatable {
     }
 }
 
+struct TeeRole: Codable, Sendable, Equatable {
+    var roleKey: String
+    var displayName: String
+    var sortOrder: Double
+
+    enum CodingKeys: String, CodingKey {
+        case roleKey = "roleKey"
+        case displayName = "displayName"
+        case sortOrder = "sortOrder"
+    }
+
+    init(roleKey: String, displayName: String, sortOrder: Double) {
+        self.roleKey = roleKey
+        self.displayName = displayName
+        self.sortOrder = sortOrder
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.roleKey = try c.decode(String.self, forKey: .roleKey)
+        self.displayName = try c.decode(String.self, forKey: .displayName)
+        self.sortOrder = try c.decode(Double.self, forKey: .sortOrder)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(roleKey, forKey: .roleKey)
+        try c.encode(displayName, forKey: .displayName)
+        try c.encode(sortOrder, forKey: .sortOrder)
+    }
+}
+
+struct CourseTeeRole: Codable, Sendable, Equatable {
+    var courseId: String
+    var roleKey: String
+    var gender: PlayerGender
+    var teeId: String
+
+    enum CodingKeys: String, CodingKey {
+        case courseId = "courseId"
+        case roleKey = "roleKey"
+        case gender = "gender"
+        case teeId = "teeId"
+    }
+
+    init(courseId: String, roleKey: String, gender: PlayerGender, teeId: String) {
+        self.courseId = courseId
+        self.roleKey = roleKey
+        self.gender = gender
+        self.teeId = teeId
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.courseId = try c.decode(String.self, forKey: .courseId)
+        self.roleKey = try c.decode(String.self, forKey: .roleKey)
+        self.gender = try c.decode(PlayerGender.self, forKey: .gender)
+        self.teeId = try c.decode(String.self, forKey: .teeId)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(courseId, forKey: .courseId)
+        try c.encode(roleKey, forKey: .roleKey)
+        try c.encode(gender, forKey: .gender)
+        try c.encode(teeId, forKey: .teeId)
+    }
+}
+
 struct CourseValidation: Codable, Sendable, Equatable {
     var ok: Bool
     var issues: [CourseIssue]
@@ -316,5 +385,74 @@ struct CoursesUpdateHoleInput: Codable, Sendable, Equatable {
         try c.encode(holeNumber, forKey: .holeNumber)
         try c.encodeIfPresent(par, forKey: .par)
         try c.encodeIfPresent(strokeIndex, forKey: .strokeIndex)
+    }
+}
+
+struct CoursesSetTeeRoleInput: Codable, Sendable, Equatable {
+    var courseId: String
+    var roleKey: String
+    var gender: PlayerGender
+    var teeId: String
+
+    enum CodingKeys: String, CodingKey {
+        case courseId = "courseId"
+        case roleKey = "roleKey"
+        case gender = "gender"
+        case teeId = "teeId"
+    }
+
+    init(courseId: String, roleKey: String, gender: PlayerGender, teeId: String) {
+        self.courseId = courseId
+        self.roleKey = roleKey
+        self.gender = gender
+        self.teeId = teeId
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.courseId = try c.decode(String.self, forKey: .courseId)
+        self.roleKey = try c.decode(String.self, forKey: .roleKey)
+        self.gender = try c.decode(PlayerGender.self, forKey: .gender)
+        self.teeId = try c.decode(String.self, forKey: .teeId)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(courseId, forKey: .courseId)
+        try c.encode(roleKey, forKey: .roleKey)
+        try c.encode(gender, forKey: .gender)
+        try c.encode(teeId, forKey: .teeId)
+    }
+}
+
+struct CoursesClearTeeRoleInput: Codable, Sendable, Equatable {
+    var courseId: String
+    var roleKey: String
+    var gender: PlayerGender
+
+    enum CodingKeys: String, CodingKey {
+        case courseId = "courseId"
+        case roleKey = "roleKey"
+        case gender = "gender"
+    }
+
+    init(courseId: String, roleKey: String, gender: PlayerGender) {
+        self.courseId = courseId
+        self.roleKey = roleKey
+        self.gender = gender
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.courseId = try c.decode(String.self, forKey: .courseId)
+        self.roleKey = try c.decode(String.self, forKey: .roleKey)
+        self.gender = try c.decode(PlayerGender.self, forKey: .gender)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(courseId, forKey: .courseId)
+        try c.encode(roleKey, forKey: .roleKey)
+        try c.encode(gender, forKey: .gender)
     }
 }

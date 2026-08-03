@@ -9,6 +9,19 @@ export interface Course {
     holes: Hole[];
 }
 
+export interface TeeRole {
+    roleKey: string;
+    displayName: string;
+    sortOrder: number;
+}
+
+export interface CourseTeeRole {
+    courseId: string;
+    roleKey: string;
+    gender: 'M' | 'F';
+    teeId: string;
+}
+
 export interface CourseValidation {
     ok: boolean;
     issues: CourseIssue[];
@@ -31,9 +44,13 @@ export interface CoursesApi {
     list(): Promise<Course[]>;
     listByClub(input: { clubId: string }): Promise<Course[]>;
     get(input: { id: string }): Promise<null | Course>;
+    teeRoleCatalog(): Promise<TeeRole[]>;
+    teeRoles(input: { courseId: string }): Promise<CourseTeeRole[]>;
     create(input: { clubId: string; name: string; holeCount: 9 | 18; holes?: { holeNumber: number; par: number; strokeIndex: number }[] }): Promise<Course>;
     update(input: { id: string; name?: string; holeCount?: 9 | 18; holes?: { holeNumber: number; par: number; strokeIndex: number }[] }): Promise<Course>;
     updateHole(input: { courseId: string; holeNumber: number; par?: number; strokeIndex?: number }): Promise<Course>;
+    setTeeRole(input: { courseId: string; roleKey: string; gender: 'M' | 'F'; teeId: string }): Promise<CourseTeeRole>;
+    clearTeeRole(input: { courseId: string; roleKey: string; gender: 'M' | 'F' }): Promise<{ ok: boolean }>;
     validate(input: { id: string }): Promise<CourseValidation>;
     remove(input: { id: string }): Promise<{ ok: boolean }>;
 }
@@ -57,6 +74,16 @@ export function createCoursesClient(baseUrl: string): CoursesApi {
             const qs = params.toString();
             return apiFetch({ method: 'GET', url: `${baseUrl}/courses/get${qs ? '?' + qs : ''}` });
         },
+        async teeRoleCatalog() {
+            return apiFetch({ method: 'GET', url: `${baseUrl}/courses/tee-roles/catalog` });
+        },
+        async teeRoles(input) {
+            const params = new URLSearchParams();
+            for (const [k, v] of Object.entries(input as any))
+                if (v !== undefined) params.set(k, String(v));
+            const qs = params.toString();
+            return apiFetch({ method: 'GET', url: `${baseUrl}/courses/tee-roles${qs ? '?' + qs : ''}` });
+        },
         async create(input) {
             return apiFetch({ method: 'POST', url: `${baseUrl}/courses`, body: input });
         },
@@ -65,6 +92,12 @@ export function createCoursesClient(baseUrl: string): CoursesApi {
         },
         async updateHole(input) {
             return apiFetch({ method: 'POST', url: `${baseUrl}/courses/holes/update`, body: input });
+        },
+        async setTeeRole(input) {
+            return apiFetch({ method: 'POST', url: `${baseUrl}/courses/tee-roles`, body: input });
+        },
+        async clearTeeRole(input) {
+            return apiFetch({ method: 'DELETE', url: `${baseUrl}/courses/tee-roles/${input.courseId}/${input.roleKey}/${input.gender}` });
         },
         async validate(input) {
             const params = new URLSearchParams();
