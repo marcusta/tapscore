@@ -5,7 +5,7 @@ enum CoursesEndpoints {
         method: .get,
         path: "/courses",
         pathParams: [])
-    static let listByClub = APIEndpoint<CoursesListByClubInput, [Course]>(
+    static let listByClub = APIEndpoint<CoursesListByClubInput, [ClubCourse]>(
         method: .get,
         path: "/courses/by-club",
         pathParams: [])

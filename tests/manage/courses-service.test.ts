@@ -177,6 +177,27 @@ test('one load per club unless forced; a different club RESETS rather than merge
     expect(courses.courses.get().map((c) => c.id)).toEqual(['k9']);
 });
 
+test('the reset drops the previous club’s ISSUE LISTS with its rows, not one round trip later', async () => {
+    state.validations['k1'] = {
+        ok: false,
+        issues: [{ severity: 'error', code: 'missing_holes', message: 'Missing hole numbers: 3' }],
+    };
+    const { courses } = subject();
+    await courses.load('c1');
+    await settle();
+    expect(courses.validations.get().k1!.issues).toHaveLength(1);
+
+    const pending = courses.load('c2');
+    // Synchronously, in the same breath as the rows and the badges. An issue
+    // list that outlived them is the last thing on the page still describing a
+    // club nobody is looking at — and the holes panel reads it directly.
+    expect(courses.courses.get()).toEqual([]);
+    expect(courses.readiness.get()).toEqual({});
+    expect(courses.validations.get()).toEqual({});
+
+    await pending;
+});
+
 test('rows carry a readiness that starts at checking and settles per course', async () => {
     const held = gate('k2');
     state.validations['k1'] = { ok: true, issues: [] };

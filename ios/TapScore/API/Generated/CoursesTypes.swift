@@ -62,6 +62,71 @@ struct Course: Codable, Sendable, Equatable {
     }
 }
 
+struct ClubCourse: Codable, Sendable, Equatable {
+    var id: String
+    var clubId: String
+    var name: String
+    var holeCount: Double
+    var latitude: Double?
+    var longitude: Double?
+    var holes: [Hole]
+    var teeCount: Double
+
+    enum CodingKeys: String, CodingKey {
+        case id = "id"
+        case clubId = "clubId"
+        case name = "name"
+        case holeCount = "holeCount"
+        case latitude = "latitude"
+        case longitude = "longitude"
+        case holes = "holes"
+        case teeCount = "teeCount"
+    }
+
+    init(id: String, clubId: String, name: String, holeCount: Double, latitude: Double? = nil, longitude: Double? = nil, holes: [Hole], teeCount: Double) {
+        self.id = id
+        self.clubId = clubId
+        self.name = name
+        self.holeCount = holeCount
+        self.latitude = latitude
+        self.longitude = longitude
+        self.holes = holes
+        self.teeCount = teeCount
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
+        self.clubId = try c.decode(String.self, forKey: .clubId)
+        self.name = try c.decode(String.self, forKey: .name)
+        self.holeCount = try c.decode(Double.self, forKey: .holeCount)
+        self.latitude = try c.decodeIfPresent(Double.self, forKey: .latitude)
+        self.longitude = try c.decodeIfPresent(Double.self, forKey: .longitude)
+        self.holes = try c.decode([Hole].self, forKey: .holes)
+        self.teeCount = try c.decode(Double.self, forKey: .teeCount)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(clubId, forKey: .clubId)
+        try c.encode(name, forKey: .name)
+        try c.encode(holeCount, forKey: .holeCount)
+        if let latitude {
+            try c.encode(latitude, forKey: .latitude)
+        } else {
+            try c.encodeNil(forKey: .latitude)
+        }
+        if let longitude {
+            try c.encode(longitude, forKey: .longitude)
+        } else {
+            try c.encodeNil(forKey: .longitude)
+        }
+        try c.encode(holes, forKey: .holes)
+        try c.encode(teeCount, forKey: .teeCount)
+    }
+}
+
 struct TeeRole: Codable, Sendable, Equatable {
     var roleKey: String
     var displayName: String

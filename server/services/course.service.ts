@@ -40,6 +40,23 @@ export interface Course {
 }
 
 /**
+ * A club's course, carrying how many tees hang off it (manage-ui.md §3.3).
+ *
+ * The count rides on the LIST STATEMENT — one `left join` + `group by`, exactly
+ * the shape `ClubService.clubsWithCourseCounts` uses for `courseCount` — rather
+ * than arriving as a tee fetch per row. That is the whole reason T5 deferred the
+ * column: the cheap read did not exist, and "cheap" here means the list costs
+ * the same one statement whether the club has one course or forty.
+ *
+ * It is deliberately NOT on `Course`. `getById` and the setup picker have no use
+ * for it, and a field that is meaningful in one read and fabricated in the
+ * others is how a payload starts lying. Only the by-club list promises it.
+ */
+export interface ClubCourse extends Course {
+    teeCount: number;
+}
+
+/**
  * A course's map position, set or cleared as one value.
  *
  * Deliberately a pair and never a half: the authoring workflow is pasting
@@ -179,6 +196,43 @@ export class CourseService {
 
     private byClub(clubId: string) {
         return this.courses().where('club_id', '=', clubId);
+    }
+
+    /**
+     * One club's courses with their tee counts, in one statement.
+     *
+     * `left join`, not `inner`: a course with no tees is a real, listable course
+     * — a brand new one always is — and an inner join would silently drop
+     * exactly the rows an admin is looking for when they come to add tees.
+     *
+     * The columns are named explicitly rather than `selectAll()` because every
+     * non-aggregated column has to appear in `group by`, and a `selectAll()`
+     * that grows a column later would start returning one row per tee without
+     * anything failing loudly.
+     */
+    private coursesWithTeeCountsByClub(clubId: string) {
+        return this.db
+            .selectFrom('courses')
+            .leftJoin('tees', 'tees.course_id', 'courses.id')
+            .select(({ fn }) => [
+                'courses.id as id',
+                'courses.club_id as club_id',
+                'courses.name as name',
+                'courses.hole_count as hole_count',
+                'courses.latitude as latitude',
+                'courses.longitude as longitude',
+                fn.count<number>('tees.id').as('tee_count'),
+            ])
+            .where('courses.club_id', '=', clubId)
+            .groupBy([
+                'courses.id',
+                'courses.club_id',
+                'courses.name',
+                'courses.hole_count',
+                'courses.latitude',
+                'courses.longitude',
+            ])
+            .orderBy('courses.name');
     }
 
     private holesFor(courseId: string) {
@@ -354,12 +408,30 @@ export class CourseService {
         return courses;
     }
 
-    async listByClub(clubId: string): Promise<Course[]> {
-        const rows = await this.byClub(clubId).orderBy('name').execute();
-        const courses: Course[] = [];
+    /**
+     * One club's courses, each with its tee count (manage-ui.md §3.3).
+     *
+     * `teeCount` comes off the list statement itself; the holes still cost a
+     * read per course, as they did before, because they are a payload and not a
+     * figure.
+     */
+    async listByClub(clubId: string): Promise<ClubCourse[]> {
+        const rows = await this.coursesWithTeeCountsByClub(clubId).execute();
+        const courses: ClubCourse[] = [];
         for (const row of rows) {
             const holes = await this.holesFor(row.id).execute();
-            courses.push(toCourse(row, holes.map(toHole)));
+            courses.push({
+                id: row.id,
+                clubId: row.club_id,
+                name: row.name,
+                holeCount: row.hole_count,
+                latitude: row.latitude,
+                longitude: row.longitude,
+                holes: holes.map(toHole),
+                // SQLite's count() is an integer already; Number() is for the
+                // driver, which can hand a bigint back for an aggregate.
+                teeCount: Number(row.tee_count),
+            });
         }
         return courses;
     }

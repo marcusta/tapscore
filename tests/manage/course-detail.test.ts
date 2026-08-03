@@ -6,9 +6,10 @@ import { mount } from './harness';
 import type { Course } from '../../src/api/courses.gen';
 import type { ClubListItem } from '../../src/api/clubs.gen';
 
-// The course page — a STUB until T6/T7/T8 fill in holes, tees and the tee-role
-// matrix. What it already owes and is tested for: it is deep-linkable, it says
-// what is coming rather than showing an empty shell, it publishes the full trail
+// The course page — the FRAME the course's editors are stacked into (holes
+// today, tees and the tee-role matrix next). What it owes and is tested for: it
+// is deep-linkable, it mounts the holes editor with the id from the URL, it
+// leaves the later editors their own hosts, it publishes the full trail
 // (Clubs → {Club} → {Course}), and a link to a course that has since been
 // deleted lands somewhere honest.
 
@@ -101,9 +102,21 @@ test('a cold deep link loads the course and says what it is', async () => {
     expect(el(host, '[bind="title"]').textContent).toBe('Old course');
     expect(el(host, '[bind="subtitle"]').textContent).toBe('18 holes at Linköpings GK.');
     expect(el(host, '[bind="body"]').hidden).toBe(false);
-    // A stub that states what is coming is an honest answer to the click; an
-    // empty page is not.
-    expect(host.textContent).toContain('Holes, tees and tee roles arrive in the next slice');
+    // And the holes editor is mounted into its host, with the course's rows.
+    expect(el(host, '[bind="holesHost"]').querySelector('.mholes')).not.toBeNull();
+});
+
+test('each editor gets its own host, and an unfilled host spends no space', async () => {
+    const { host } = await page();
+
+    // Separate mount points, in the order a course is read: holes, then tees,
+    // then the tee-role matrix. Holes and tees are mounted; the matrix waits
+    // for its own slice (T8) and its empty host collapses.
+    for (const bind of ['holesHost', 'teesHost', 'teeRolesHost']) {
+        expect(el(host, `[bind="${bind}"]`)).not.toBeNull();
+    }
+    expect(el(host, '[bind="teesHost"]').querySelector('.mtees')).not.toBeNull();
+    expect(el(host, '[bind="teeRolesHost"]').childElementCount).toBe(0);
 });
 
 test('the page loads by CLUB, reusing the list the club page already fetched', async () => {

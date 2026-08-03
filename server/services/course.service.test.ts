@@ -99,6 +99,46 @@ test('listByClub returns only that club\'s courses', async () => {
     expect(aCourses[0].name).toBe('A1');
 });
 
+/**
+ * The `teeCount` column on the club page (manage-ui.md §3.3). The join is a
+ * `left join` + `group by`, which is the shape that fails in exactly two ways:
+ * a course with no tees vanishing, and a course with several tees coming back
+ * once per tee. Both are asserted here.
+ */
+test('listByClub carries a tee count, including zero', async () => {
+    const ctx = await createTestDb();
+    const club = await ctx.clubService.create({ name: 'A' });
+    const withTees = await ctx.courseService.create({
+        clubId: club.id,
+        name: 'A1',
+        holeCount: 18,
+        holes: holes18(),
+    });
+    const bare = await ctx.courseService.create({
+        clubId: club.id,
+        name: 'A2',
+        holeCount: 18,
+        holes: holes18(),
+    });
+
+    for (const name of ['Gul', 'Röd']) {
+        await ctx.teeService.create({
+            courseId: withTees.id,
+            name,
+            holeLengths: [],
+            ratings: [],
+        });
+    }
+
+    const courses = await ctx.courseService.listByClub(club.id);
+    // Two rows, not three: the course with two tees appears ONCE.
+    expect(courses).toHaveLength(2);
+    expect(courses.find((c) => c.id === withTees.id)!.teeCount).toBe(2);
+    expect(courses.find((c) => c.id === bare.id)!.teeCount).toBe(0);
+    // The holes still ride along — the join must not have cost the payload.
+    expect(courses.find((c) => c.id === bare.id)!.holes).toHaveLength(18);
+});
+
 test('update replaces holes when provided', async () => {
     const { courseService, clubId } = await setup();
     const created = await courseService.create({

@@ -1,7 +1,7 @@
 import { Computed, Signal, di } from '@basics/core/client/core';
 import { api } from '../api';
 import { failureMessage } from '../api-failure';
-import type { Course } from '../../src/api/courses.gen';
+import type { ClubCourse, Course, CourseValidation, Hole } from '../../src/api/courses.gen';
 import { ClubsService, type WriteOutcome } from './clubs.service';
 import { coursePayload, readinessOf, type CourseDraft, type Readiness } from './course-form';
 
@@ -39,7 +39,7 @@ import { coursePayload, readinessOf, type CourseDraft, type Readiness } from './
  */
 
 /** A course with the one derived figure the list column needs beside it. */
-export type CourseRow = Course & { readiness: Readiness };
+export type CourseRow = ClubCourse & { readiness: Readiness };
 
 const CHECKING: Readiness = { status: 'checking' };
 
@@ -48,10 +48,25 @@ export class CoursesService {
     readonly clubId = new Signal<string | null>(null);
 
     /** The club's courses, name-ordered by the server. */
-    readonly courses = new Signal<Course[]>([]);
+    readonly courses = new Signal<ClubCourse[]>([]);
 
     /** Readiness by course id — filled in as each validate call lands. */
     readonly readiness = new Signal<Record<string, Readiness>>({});
+
+    /**
+     * The full validation payload behind those badges, by course id.
+     *
+     * The list needs only the summary (`readiness`), but the holes editor is
+     * the SINGLE presentation of `/courses/validate` (spec §3.4) and states the
+     * issues themselves. Publishing both from the one call is what keeps the
+     * badge on the club page and the panel on the course page from ever
+     * disagreeing — they are two readings of the same answer, not two calls.
+     *
+     * A course whose check failed has a `readiness` of `unknown` and NO entry
+     * here, which is what stops a stale issue list outliving the check that
+     * produced it.
+     */
+    readonly validations = new Signal<Record<string, CourseValidation>>({});
 
     /** True while a list fetch is out, including a refetch after a write. */
     readonly loading = new Signal(false);
@@ -91,6 +106,10 @@ export class CoursesService {
             this.clubId.set(clubId);
             this.courses.set([]);
             this.readiness.set({});
+            // The issue lists go with the badges they belong to: a course page
+            // opened for the new club must never read the previous club's
+            // check while its own is still out.
+            this.validations.set({});
             this.loaded.set(false);
             this.inflight = null;
         }
@@ -126,7 +145,7 @@ export class CoursesService {
     }
 
     /** The row for an id, or null while the list is empty / the id unknown. */
-    byId(id: string): Course | null {
+    byId(id: string): ClubCourse | null {
         return this.courses.get().find((course) => course.id === id) ?? null;
     }
 
@@ -169,6 +188,113 @@ export class CoursesService {
         );
     }
 
+    // ─── Holes (spec §3.4) ───
+
+    /**
+     * Save one hole's par and stroke index.
+     *
+     * Per-hole, because that is the endpoint: there is no batch hole write, and
+     * the bulk `update` path replaces the WHOLE set (see `saveHoles`), which is
+     * not what changing hole 7's par means.
+     */
+    async saveHole(
+        courseId: string,
+        holeNumber: number,
+        patch: { par: number; strokeIndex: number },
+    ): Promise<WriteOutcome> {
+        return this.writeCourse(
+            () => api.courses.updateHole({ courseId, holeNumber, ...patch }),
+            'Could not save the hole. Check your connection and try again.',
+        );
+    }
+
+    /**
+     * Replace the course's entire hole set — the fix for a course with missing
+     * rows (`holes-form.ts`, `parseFill`). The server validates the set as a
+     * whole: exactly `holeCount` contiguous holes whose stroke indices are a
+     * permutation of 1..N.
+     */
+    async saveHoles(courseId: string, holes: Hole[]): Promise<WriteOutcome> {
+        return this.writeCourse(
+            () => api.courses.update({ id: courseId, holes }),
+            'Could not add the holes. Check your connection and try again.',
+        );
+    }
+
+    /**
+     * Re-ask `/courses/validate` for one course and publish the answer.
+     *
+     * Public because a hole save changes readiness and the badge on the club
+     * page has to agree with the panel on the course page — the write path
+     * below calls it, and a screen can call it to re-run a check that failed.
+     */
+    async refreshReadiness(courseId: string): Promise<void> {
+        // A course the list no longer holds — deleted, or a different club on
+        // screen — gets no badge at all rather than one parked at `Checking…`.
+        if (!this.holds(courseId)) return;
+        this.publish(courseId, CHECKING, null);
+        let validation: CourseValidation;
+        try {
+            validation = await api.courses.validate({ id: courseId });
+        } catch {
+            // Same rule as the list's first pass: a dead request is not
+            // evidence that a course is ready.
+            this.publish(courseId, { status: 'unknown' }, null);
+            return;
+        }
+        if (!this.holds(courseId)) return;
+        this.publish(courseId, readinessOf(validation), validation);
+    }
+
+    /** Whether the list currently holds this course — read without subscribing,
+     *  because this is a guard inside a write, not a rendered value. */
+    private holds(courseId: string): boolean {
+        return this.courses.peek().some((row) => row.id === courseId);
+    }
+
+    /**
+     * A hole write, which is not a list write.
+     *
+     * `updateHole` and `update` both return the course as it now stands, so the
+     * post-write truth is already in hand: the returned row goes into the list
+     * IN PLACE, and no `listByClub` refetch happens. That is not only about
+     * saving a request — the table's contract is that a refresh must not
+     * REORDER rows under an open editor, and a targeted replacement cannot.
+     *
+     * The course check is fired but NOT awaited. The write has landed and the
+     * new hole is already in the list, so waiting for `/courses/validate` would
+     * only hold the row in `Saving…` through a second round trip for an answer
+     * that belongs to a badge and a panel elsewhere on the page — both of which
+     * say `Checking…` in the meantime, which is the honest state.
+     */
+    private async writeCourse(
+        call: () => Promise<Course>,
+        fallback: string,
+    ): Promise<WriteOutcome> {
+        let course: Course;
+        try {
+            course = await call();
+        } catch (err) {
+            return { ok: false, message: failureMessage(err, fallback) };
+        }
+        this.applyCourse(course);
+        void this.refreshReadiness(course.id);
+        return { ok: true };
+    }
+
+    /**
+     * Put a course the server just returned back into the list, in place.
+     * The write endpoints return a bare `Course`; the row keeps its
+     * `teeCount` from the existing entry — a name/count/position edit
+     * cannot change how many tees the course has.
+     */
+    private applyCourse(course: Course): void {
+        if (!this.holds(course.id)) return;
+        this.courses.update((list) =>
+            list.map((row) => (row.id === course.id ? { ...row, ...course } : row)),
+        );
+    }
+
     /**
      * Every write: run it, refetch on success, word the failure on failure.
      *
@@ -205,21 +331,42 @@ export class CoursesService {
      * the course, and a dead request is not evidence for it. It does not raise
      * the page's error banner either — the list itself loaded fine.
      */
-    private checkReadiness(courses: Course[]): void {
+    private checkReadiness(courses: ClubCourse[]): void {
         this.readiness.set(Object.fromEntries(courses.map((course) => [course.id, CHECKING])));
+        this.validations.set({});
         for (const course of courses) {
             void (async () => {
+                let validation: CourseValidation | null = null;
                 let readiness: Readiness;
                 try {
-                    readiness = readinessOf(await api.courses.validate({ id: course.id }));
+                    validation = await api.courses.validate({ id: course.id });
+                    readiness = readinessOf(validation);
                 } catch {
                     readiness = { status: 'unknown' };
                 }
                 // The list may have moved on — a different club, or a refetch
                 // that dropped this course — while the call was out.
-                if (!this.courses.peek().some((row) => row.id === course.id)) return;
-                this.readiness.update((current) => ({ ...current, [course.id]: readiness }));
+                if (!this.holds(course.id)) return;
+                this.publish(course.id, readiness, validation);
             })();
         }
+    }
+
+    /** The badge and the panel, set together — see `validations`. */
+    private publish(
+        courseId: string,
+        readiness: Readiness,
+        validation: CourseValidation | null,
+    ): void {
+        this.readiness.update((current) => ({ ...current, [courseId]: readiness }));
+        this.validations.update((current) => {
+            if (validation === null) {
+                if (!(courseId in current)) return current;
+                const next = { ...current };
+                delete next[courseId];
+                return next;
+            }
+            return { ...current, [courseId]: validation };
+        });
     }
 }

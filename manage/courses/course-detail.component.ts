@@ -1,27 +1,35 @@
 import { Component, Router, effect, template } from '@basics/core/client/core';
 import { t } from '../theme';
-import { s, btn, card } from '../css';
+import { s, btn } from '../css';
 import { BreadcrumbService } from '../shell/breadcrumb.service';
 import { ClubsService } from './clubs.service';
 import { CoursesService } from './courses.service';
+import { HolesComponent } from './holes.component';
+import { TeesComponent } from './tees.component';
 import type { Course } from '../../src/api/courses.gen';
 import { CLUBS_PATH, COURSE_ROUTE, clubPath } from './routes';
 
 /*
- * One course — the STUB that T6 (holes), T7 (tees) and T8 (the tee-role matrix)
- * fill in. Deep-linkable at `/courses/course/<club>/<course>`; see `routes.ts`
- * for why the URL is not nested under the club's.
+ * One course. Deep-linkable at `/courses/course/<club>/<course>`; see
+ * `routes.ts` for why the URL is not nested under the club's.
  *
- * It exists now rather than with its first tab because the course list links
- * here: a name that is a link to nothing is worse than no link, and a page that
- * states what is coming is an honest answer to the click. What it does carry is
- * real and is not throwaway — the breadcrumb trail (spec §3.1: Clubs → {Club} →
- * {Course}), the deep-link load, and the not-found state for a course that has
- * been deleted since the link was made.
+ * What this page owns is the FRAME: the breadcrumb trail (spec §3.1: Clubs →
+ * {Club} → {Course}), the deep-link load, the not-found state for a course
+ * deleted since the link was made, and the order the course's editors appear
+ * in. The editors themselves are components mounted into hosts — holes (§3.4)
+ * today, tees (§3.5) and the tee-role matrix (§3.6) next — because each is a
+ * heading with its own grid, its own writes and its own failure states, and a
+ * page that inlined all three would be one file nobody could review.
+ *
+ * STACKED SECTIONS rather than tabs, deliberately: the three are read together
+ * (a tee's per-hole lengths only make sense beside the holes; a tee role points
+ * at a tee), and tabs would hide two thirds of a course behind a click while
+ * adding a second thing the URL has to remember.
  *
  * Data comes from the club's course list rather than a by-id read: the club
  * page has usually loaded it already, the service is load-once, and one list
- * fetch on a cold deep link is the same cost as one get.
+ * fetch on a cold deep link is the same cost as one get. That list carries each
+ * course's holes, so the holes editor needs no fetch of its own.
  */
 
 const tpl = template(`
@@ -43,11 +51,19 @@ const tpl = template(`
                 <p bind="subtitle" class="mcourse__lead"></p>
             </header>
 
-            <section class="mcourse__panel">
-                <h2 class="mcourse__panel-title">Holes, tees and tee roles</h2>
-                <p class="mcourse__lead">Holes, tees and tee roles arrive in the next slice. Until then, the course’s name, hole count and position are edited on the club page.</p>
-                <button bind="back" class="mcourse__secondary" type="button">Back to the club</button>
-            </section>
+            <!-- The course's holes (spec §3.4). A component taking the course
+                 id as a prop, spawned below; it publishes no breadcrumb of its
+                 own, because the trail this page sets is already its. -->
+            <div bind="holesHost" class="mcourse__section"></div>
+
+            <!-- T7 (spec §3.5) mounts the tees editor here. -->
+            <div bind="teesHost" class="mcourse__section"></div>
+
+            <!-- T8 (spec §3.6) mounts the tee-role matrix here. -->
+            <div bind="teeRolesHost" class="mcourse__section"></div>
+
+            <p class="mcourse__lead">The course’s name, hole count and position are edited on the club page.</p>
+            <button bind="back" class="mcourse__secondary" type="button">Back to the club</button>
         </div>
     </section>
 `);
@@ -101,29 +117,24 @@ export class CourseDetailComponent extends Component {
                 &[hidden] { display: none; }
             }
 
+            /* Stacked sections — holes, then tees, then tee roles — with the
+               wider section gap between them, because each one is a heading
+               with its own grid under it and not another paragraph. */
             & .mcourse__body {
                 display: flex;
                 flex-direction: column;
-                gap: ${t('manage-stack-gap')};
+                gap: ${t('manage-section-gap')};
 
                 &[hidden] { display: none; }
             }
 
-            & .mcourse__panel {
-                ${card({})}
-                display: flex;
-                flex-direction: column;
-                gap: ${t('manage-stack-gap')};
-                padding: ${t('manage-page-pad')};
-                align-items: flex-start;
-            }
+            /* An unfilled mount host must not spend a gap: the flex gap applies
+               to empty children too, so T7's and T8's hosts would push the page
+               apart before either exists. */
+            & .mcourse__section {
+                min-width: 0;
 
-            & .mcourse__panel-title {
-                margin: 0;
-                font-family: ${t('font-display')};
-                font-size: 1.15rem;
-                font-weight: 600;
-                color: ${t('text')};
+                &:empty { display: none; }
             }
 
             & .mcourse__secondary {
@@ -147,7 +158,7 @@ export class CourseDetailComponent extends Component {
     private params = this.router.params<{ clubId: string; courseId: string }>(COURSE_ROUTE);
 
     render(): DocumentFragment {
-        return this.wire(tpl, {
+        const frag = this.wire(tpl, {
             loadingNote: {
                 textContent: 'Loading course…',
                 hidden: () => this.settled(),
@@ -174,6 +185,25 @@ export class CourseDetailComponent extends Component {
             subtitle: () => this.summary(),
             back: { onclick: () => this.backToClub() },
         });
+
+        // The holes editor, spawned with the id read from the URL rather than
+        // with a signal: `$swap` tears this page down and rebuilds it on every
+        // route change, so the id is fixed for the life of the component. A
+        // truncated URL carries none and gets no editor — `onMount` sends it
+        // back to the club list instead.
+        const courseId = this.courseId();
+        if (courseId !== '') {
+            this.spawn(HolesComponent, this.ref(frag, 'holesHost'), { courseId });
+            // clubId rides along because tee create/delete must invalidate the
+            // club page's tee count, and the service's clubId is not
+            // trustworthy on a deep link.
+            this.spawn(TeesComponent, this.ref(frag, 'teesHost'), {
+                clubId: this.clubId(),
+                courseId,
+            });
+        }
+
+        return frag;
     }
 
     override onMount(): void {

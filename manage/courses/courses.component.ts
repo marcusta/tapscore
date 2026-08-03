@@ -276,6 +276,10 @@ export class CoursesComponent extends Component<CoursesProps> {
     private columns: ManageColumn<CourseRow>[] = [
         { key: 'name', header: 'Name', stackedLabel: false, cell: (row) => this.nameLink(row) },
         { key: 'holes', header: 'Holes', type: 'numeric', cell: (row) => row.holeCount },
+        // Carried on the course row itself (`listByClub`), not fetched per row:
+        // a count is the one thing about a course's tees this list has to say,
+        // and it is one join on a statement that already runs.
+        { key: 'tees', header: 'Tees', type: 'numeric', cell: (row) => row.teeCount },
         {
             key: 'position',
             header: 'Position',

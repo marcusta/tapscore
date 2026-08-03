@@ -106,6 +106,31 @@ export type ManageTableEdit<T> = {
     cancelLabel?: string;
     /** Shown on the row while a save is in flight. */
     savingLabel?: string;
+    /**
+     * Where the row's status line goes — `Saving…`, and the sentence a refused
+     * save leaves behind. Default: the row's own action cell, beside the
+     * buttons it belongs to, which is right in both arms of a table that
+     * STACKS.
+     *
+     * Hand in an element to host them somewhere else. The case this exists for
+     * is `stacked: false`: that table keeps its grid at every width and scrolls
+     * it sideways inside this component's own box, so at 375px the action
+     * column — and the refusal in it — starts PAST the box's right edge, and a
+     * save refused by Enter leaves `scrollLeft` at 0. The reason for the
+     * refusal is then a column of letter fragments, which is the one piece of
+     * copy on the screen that must never be unreadable.
+     *
+     * The table still builds and styles the element (the BEM names stay in
+     * here); the screen only decides where it lands, and should put it
+     * full-width beneath the grid where no horizontal scrolling can reach it.
+     * One `<p>` per row is created either way — the same count as today, in a
+     * different parent — and each is removed with its row.
+     *
+     * Two things move to the screen along with it: the message should NAME its
+     * row, since it no longer sits inside one, and the container should be
+     * placed where a message appearing does not shift the grid under a finger.
+     */
+    statusHost?: HTMLElement;
     /** Move focus to the row's first control on entering edit. Default true. */
     autoFocus?: boolean;
 };
@@ -229,6 +254,22 @@ function paint(host: HTMLElement, value: ManageCellValue, emptyCell: string): vo
 
 export class ManageTableComponent<T> extends Component<ManageTableProps<T>> {
     static styles = `
+        /* Worded, muted or danger — never a spinner glyph and never an emoji
+           (docs/design-guidelines.md §4).
+
+           Top-level rather than nested under \`.mtable-wrap\`, because
+           \`edit.statusHost\` lets a screen host this element outside the table's
+           box. The table still owns the look wherever it lands. */
+        .mtable__status {
+            margin: ${s('xs')} 0 0;
+            font-size: 0.8rem;
+            line-height: 1.4;
+            color: ${t('text-muted')};
+
+            &[hidden] { display: none; }
+            &.mtable__status--error { color: ${t('danger')}; font-weight: 600; }
+        }
+
         .mtable-wrap {
             width: 100%;
             min-width: 0;
@@ -342,18 +383,6 @@ export class ManageTableComponent<T> extends Component<ManageTableProps<T>> {
                 padding: 0 ${s('md')};
                 font-size: 0.85rem;
                 font-weight: 700;
-            }
-
-            /* Worded, muted or danger — never a spinner glyph and never an
-               emoji (docs/design-guidelines.md §4). */
-            & .mtable__status {
-                margin: ${s('xs')} 0 0;
-                font-size: 0.8rem;
-                line-height: 1.4;
-                color: ${t('text-muted')};
-
-                &[hidden] { display: none; }
-                &.mtable__status--error { color: ${t('danger')}; font-weight: 600; }
             }
 
             & .mtable__empty {
@@ -777,7 +806,11 @@ export class ManageTableComponent<T> extends Component<ManageTableProps<T>> {
             // and the row it belongs to is already under the user's cursor.
             status.setAttribute('role', 'status');
             status.setAttribute('aria-live', 'polite');
-            td.appendChild(status);
+            (edit.statusHost ?? td).appendChild(status);
+            // The cell is discarded with its row; an external host is not, so
+            // the element has to be taken back explicitly or a row that leaves
+            // the table would leave its status line behind.
+            track(() => status.remove());
 
             track(effect(() => {
                 const message = edit.controller.errorFor(ctx.key);

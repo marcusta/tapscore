@@ -11,6 +11,17 @@ export interface Course {
     holes: Hole[];
 }
 
+export interface ClubCourse {
+    id: string;
+    clubId: string;
+    name: string;
+    holeCount: number;
+    latitude: null | number;
+    longitude: null | number;
+    holes: Hole[];
+    teeCount: number;
+}
+
 export interface TeeRole {
     roleKey: string;
     displayName: string;
@@ -44,7 +55,7 @@ export interface CourseIssue {
 
 export interface CoursesApi {
     list(): Promise<Course[]>;
-    listByClub(input: { clubId: string }): Promise<Course[]>;
+    listByClub(input: { clubId: string }): Promise<ClubCourse[]>;
     get(input: { id: string }): Promise<null | Course>;
     teeRoleCatalog(): Promise<TeeRole[]>;
     teeRoles(input: { courseId: string }): Promise<CourseTeeRole[]>;
