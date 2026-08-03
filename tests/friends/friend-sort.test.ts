@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 import {
-    friendConnectionNote,
-    friendIdentityLine,
+    friendClubLine,
     friendSubtitle,
+    friendUsernameLine,
     partitionFriends,
     relativeTime,
     sortFriends,
@@ -130,10 +130,11 @@ test('friendSubtitle says "never played" for zero shared rounds', () => {
     expect(friendSubtitle(friend({ id: 'z', displayName: 'Zed' }), NOW)).toBe('never played');
 });
 
-test('friendIdentityLine carries username and home club without an empty separator', () => {
-    expect(friendIdentityLine(friend({ id: 'j', displayName: 'Johan', homeClubName: 'Linköpings Golfklubb' })))
-        .toBe('@j · Linköpings Golfklubb');
-    expect(friendIdentityLine(friend({ id: 'j', displayName: 'Johan', homeClubName: '  ' }))).toBe('@j');
+test('friend identity keeps the username and home club on independent lines', () => {
+    expect(friendUsernameLine(friend({ id: 'j', displayName: 'Johan' }))).toBe('@j');
+    expect(friendClubLine(friend({ id: 'j', displayName: 'Johan', homeClubName: 'Linköpings Golfklubb' })))
+        .toBe('Linköpings Golfklubb');
+    expect(friendClubLine(friend({ id: 'j', displayName: 'Johan', homeClubName: '  ' }))).toBe('');
 });
 
 // --- Connection sections -----------------------------------------------------
@@ -146,11 +147,4 @@ test('partitionFriends separates mutual friends from one-way contacts', () => {
 
     expect(sections.mutual).toEqual([mutual]);
     expect(sections.addedByMe).toEqual([contact]);
-});
-
-test('friendConnectionNote explains a one-way contact without annotating mutual friends', () => {
-    expect(friendConnectionNote(friend({ id: 'mutual', displayName: 'Mutual', isMutual: true }))).toBeNull();
-    expect(friendConnectionNote(friend({ id: 'contact', displayName: 'Contact', isMutual: false }))).toBe(
-        "hasn't added you back",
-    );
 });

@@ -10,8 +10,7 @@ struct FriendsView: View {
 
     /// Opens a friend's profile. Only MUTUAL rows call it — a one-way contact
     /// would just meet the server's 403, so their row does not navigate at all
-    /// (the "hasn't added you back" line is the explanation the row carries
-    /// instead).
+    /// (the surrounding "Added by me" section explains the state instead).
     var onOpenProfile: (FriendProfile) -> Void = { _ in }
 
     @State private var store: FriendsStore?
@@ -388,23 +387,20 @@ struct FriendsView: View {
                             )
                         if isLive { LiveDot(diameter: 7) }
                     }
-                    Text(FriendListModel.identity(friend))
+                    Text("@\(friend.username)")
                         .font(TapFont.ui(size: 12.8))
                         .foregroundStyle(TapColors.textMuted)
                         .lineLimit(1)
+                    if let club = FriendListModel.homeClub(friend) {
+                        Text(club)
+                            .font(TapFont.ui(size: 12.8))
+                            .foregroundStyle(TapColors.textMuted)
+                            .lineLimit(1)
+                    }
                     Text(FriendListModel.subtitle(friend, now: Date()))
                         .font(TapFont.ui(size: 12.8))
                         .foregroundStyle(TapColors.textMuted)
                         .lineLimit(1)
-                    // One-way connections only. Muted, wordy, and in the same
-                    // tone as the line above it — a colour or an icon here
-                    // would turn an ordinary state into a fault report.
-                    if let note = FriendListModel.connectionNote(friend) {
-                        Text(note)
-                            .font(TapFont.ui(size: 12))
-                            .foregroundStyle(TapColors.textMuted)
-                            .lineLimit(1)
-                    }
                 }
                 Spacer(minLength: 0)
                 handicap(friend.handicapIndex)

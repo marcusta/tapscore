@@ -67,25 +67,11 @@ enum FriendListModel {
         value.map { String(format: "%.1f", $0) } ?? "–"
     }
 
-    /// The compact profile identity under the display name in a friends row.
-    static func identity(_ friend: FriendProfile) -> String {
-        guard let club = friend.homeClubName?.trimmingCharacters(in: .whitespacesAndNewlines), !club.isEmpty else {
-            return "@\(friend.username)"
-        }
-        return "@\(friend.username) · \(club)"
-    }
-
-    /// The quiet line under a friend's name when the connection is one-way.
-    ///
-    /// Nil for a mutual friend — a working relationship gets NO annotation at
-    /// all. Only the asymmetric case says anything, and it says it as a fact
-    /// about the other person rather than as a problem with this row: no
-    /// warning colour, no icon, nothing that reads as an error. Adding somebody
-    /// who has not added you back is a perfectly ordinary state, and it is also
-    /// the reason their live rounds do not appear in your feed — which is why
-    /// it is worth one line of explanation rather than silence.
-    static func connectionNote(_ friend: FriendProfile) -> String? {
-        friend.isMutual ? nil : "hasn't added you back"
+    /// Home-club copy belongs on its own line under the public handle, so a
+    /// long handle can never clip it out of the friends card.
+    static func homeClub(_ friend: FriendProfile) -> String? {
+        let club = friend.homeClubName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return club?.isEmpty == false ? club : nil
     }
 
     static func subtitle(_ friend: FriendProfile, now: Date) -> String {

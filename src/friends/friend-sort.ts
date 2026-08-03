@@ -105,13 +105,13 @@ export function friendSubtitle(friend: FriendProfile, now: string): string {
     return when ? `${plays}, ${when}` : plays;
 }
 
-/** Compact public identity below a friend's display name. */
-export function friendIdentityLine(friend: Pick<FriendProfile, 'username' | 'homeClubName'>): string {
-    const club = friend.homeClubName?.trim();
-    return club ? `@${friend.username} · ${club}` : `@${friend.username}`;
+/** The stable public handle below a friend's display name. */
+export function friendUsernameLine(friend: Pick<FriendProfile, 'username'>): string {
+    return `@${friend.username}`;
 }
 
-/** Quiet explanation for a contact that has not become a mutual friend. */
-export function friendConnectionNote(friend: FriendProfile): string | null {
-    return friend.isMutual ? null : "hasn't added you back";
+/** Optional home club on its own line — it must never compete with a long
+ * username for the same truncated row. */
+export function friendClubLine(friend: Pick<FriendProfile, 'homeClubName'>): string {
+    return friend.homeClubName?.trim() ?? '';
 }

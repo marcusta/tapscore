@@ -22,16 +22,6 @@ final class FriendListModelTests: XCTestCase {
         )
     }
 
-    func testOnlyOneWayConnectionsAreAnnotated() {
-        // A working friendship says nothing at all — the absence of copy IS
-        // the design; annotating every row would make "friend" look conditional.
-        XCTAssertNil(FriendListModel.connectionNote(friend("a", name: "Anna")))
-        XCTAssertEqual(
-            FriendListModel.connectionNote(friend("b", name: "Bert", isMutual: false)),
-            "hasn't added you back"
-        )
-    }
-
     func testSectionsSeparateMutualFriendsFromOneWayContacts() {
         let mutual = friend("mutual", name: "Mutual", isMutual: true)
         let contact = friend("contact", name: "Contact", isMutual: false)
@@ -98,11 +88,11 @@ final class FriendListModelTests: XCTestCase {
         XCTAssertEqual(FriendListModel.handicap(nil), "–")
     }
 
-    func testIdentityCarriesUsernameAndHomeClubWithoutAnEmptySeparator() {
+    func testHomeClubNormalizesAnEmptyValueToNil() {
         var withClub = friend("johan", name: "Johan J")
         withClub.homeClubName = "Linköpings Golfklubb"
-        XCTAssertEqual(FriendListModel.identity(withClub), "@johan · Linköpings Golfklubb")
+        XCTAssertEqual(FriendListModel.homeClub(withClub), "Linköpings Golfklubb")
 
-        XCTAssertEqual(FriendListModel.identity(friend("johan", name: "Johan J")), "@johan")
+        XCTAssertNil(FriendListModel.homeClub(friend("johan", name: "Johan J")))
     }
 }

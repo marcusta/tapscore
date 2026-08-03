@@ -134,8 +134,8 @@ final class FriendsStore {
             // NOT reloaded. Local mutations deliberately never refetch the
             // whole list (pinned by `FriendsStoreTests`), so the optimistic
             // `isMutual: false` above stands until the next natural load. The
-            // visible consequence is at most one quiet "hasn't added you back"
-            // subtitle on somebody who had already added us — the honest
+            // visible consequence is at most one contact temporarily shown in
+            // "Added by me" despite having already added us — the honest
             // direction to be wrong in, and self-correcting on the next open.
         } catch {
             mutationError = Self.message(for: error, fallback: "Couldn't add that friend.")
