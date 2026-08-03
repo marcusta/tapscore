@@ -21,6 +21,13 @@
       "port": 5283
     },
     {
+      "name": "tapscore-manage",
+      "runtimeExecutable": "bunx",
+      "runtimeArgs": ["vite", "-c", "vite.manage.config.ts", "--port", "5293", "--strictPort"],
+      "port": 5293,
+      "url": "http://localhost:5293"
+    },
+    {
       "name": "tapscore-fixtures",
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "5190", "-d", "tmp/formats"],

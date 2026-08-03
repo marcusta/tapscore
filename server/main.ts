@@ -199,6 +199,17 @@ registerPlayerAvatarRoutes(app, playerAvatarService);
 // the server). Registered after the /api routes so they take precedence; any
 // other path falls through to index.html for client-side routing.
 app.use('/*', serveStatic({ root: './public' }));
+// Tapscore Manage is a second SPA built to ./public/manage
+// (docs/proposals/manage-ui.md). Its hashed assets come from the static
+// middleware above like the player app's; this fallback only has to catch
+// client-side routes, and must precede the player fallback below or /manage/
+// deep links would land in the player app.
+// The bare '/manage' is registered too — otherwise a URL typed without the
+// trailing slash would fall through to the player SPA. Asset URLs carry the
+// absolute base path, so the built app boots from either spelling (the vite
+// dev server has no such alias; there it is '/manage/' only).
+app.get('/manage', serveStatic({ path: './public/manage/index.html' }));
+app.get('/manage/*', serveStatic({ path: './public/manage/index.html' }));
 app.get('/*', serveStatic({ path: './public/index.html' }));
 
 // --- Dev seed ---
