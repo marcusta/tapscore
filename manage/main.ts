@@ -2,15 +2,17 @@ import { di, startApp, Theme } from '@basics/core/client/core';
 import { AuthService } from '@basics/core/client/auth';
 import './theme';
 import { syncThemeColor } from './theme-color';
-import { ManageAuthService } from './auth/manage-auth.service';
+import { BasePathAuthService } from '../src/auth/base-path-auth.service';
+import { authClient } from './auth/auth-client';
 import { AppComponent } from './app.component';
 
 // Tapscore Manage — entry point. Same shape as `src/main.ts`, and the two
 // deliberate differences are the ones the second app forced:
 //
-//  1. `ManageAuthService` instead of `BasePathAuthService`. Both exist to move
-//     the auth endpoints off the framework's own base; Manage's base points a
-//     level deeper than the API (see `manage/api-base.ts`).
+//  1. `BasePathAuthService` built over MANAGE's auth client. Both apps use the
+//     same service to move the auth endpoints off the framework's own base;
+//     Manage's base points a level deeper than the API (see
+//     `manage/api-base.ts`), which its `authClient` instance corrects.
 //  2. No route bounce after `load()`. The player app's login is an optional
 //     side door with its own route; here the signed-out state is a GATE the
 //     root component swaps in, not a page you can be on — so there is no
@@ -22,10 +24,10 @@ import { AppComponent } from './app.component';
 di.get(Theme);
 syncThemeColor();
 
-// Bind the manage-base subclass under the AuthService key BEFORE anything
+// Bind the manage-base instance under the AuthService key BEFORE anything
 // injects it. Every `inject(AuthService)` in this app resolves to this
 // instance.
-di.set(AuthService, new ManageAuthService());
+di.set(AuthService, new BasePathAuthService(authClient));
 const auth = di.get(AuthService);
 
 await startApp(AppComponent, '#app', {

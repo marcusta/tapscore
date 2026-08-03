@@ -1,5 +1,6 @@
 import { Signal } from '@basics/core/client/core';
 import { ApiError } from '@basics/core/client/api-error';
+import { notifySessionExpired } from '@basics/core/client/session';
 import { api } from '../api';
 import type { RoleGrant } from '../../src/api/admin.gen';
 
@@ -78,9 +79,16 @@ export class ManageRolesService {
                 this.roles.set(await api.admin.myRoles());
             } catch (err) {
                 this.roles.set([]);
-                // A 401 is not a failure to report — it means the session is
-                // gone, and the shell's gate reads that from AuthService.
-                if (!(err instanceof ApiError && err.status === 401)) {
+                // A 401 means the session died between the boot probe and this
+                // call. Nobody else will notice: the generated clients use
+                // `apiFetch` directly, not the framework's `request()` wrapper,
+                // so expiry has to be published HERE — AuthService's listener
+                // then clears `currentUser` and the shell's gate lands on
+                // the sign-in form, not on a false permission-denied screen.
+                // Same pattern as `src/request-failure.ts`.
+                if (err instanceof ApiError && err.status === 401) {
+                    notifySessionExpired();
+                } else {
                     this.error.set('Cannot reach the server.');
                     // Let the next attempt actually retry rather than handing
                     // back this settled failure.

@@ -2,7 +2,7 @@ import { Component, Signal, template } from '@basics/core/client/core';
 import { AuthService } from '@basics/core/client/auth';
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
-import { loginRequest } from './auth-client';
+import { authClient } from './auth-client';
 import { authErrorMessage } from '../../src/auth/auth-errors';
 import { ManageRolesService } from '../roles/roles.service';
 
@@ -14,7 +14,7 @@ import { ManageRolesService } from '../roles/roles.service';
 // PLAYER thing, and a fresh one would land straight on the permission-denied
 // screen. Registration stays where it means something.
 //
-// The submit calls `loginRequest` directly rather than `AuthService.login`,
+// The submit calls `authClient.login` directly rather than `AuthService.login`,
 // for the two reasons the player app has: the raw status is what tells a wrong
 // password from a rate limit (`authErrorMessage`, reused rather than rewritten),
 // and `login()` toggles `AuthService.loading`, which the boot gate watches —
@@ -165,7 +165,7 @@ export class SignInComponent extends Component {
         }
         this.busy.set(true);
         try {
-            const user = await loginRequest(this.username.trim(), this.password);
+            const user = await authClient.login(this.username.trim(), this.password);
             // A new session means a new set of grants; anything cached belongs
             // to whoever was signed in before.
             this.roles.clear();

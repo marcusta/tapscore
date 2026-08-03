@@ -3,7 +3,7 @@ import { AuthService } from '@basics/core/client/auth';
 import { SelectComponent, type SelectOption } from '@basics/core/client/ui/select';
 import type { Club } from '../api/clubs.gen';
 import { api } from '../api';
-import { loginRequest } from './auth-client';
+import { authClient } from './auth-client';
 import { authErrorMessage } from './auth-errors';
 import { parseHandicapIndex } from '../create/hcp-input';
 import { t } from '../theme';
@@ -222,7 +222,7 @@ export class LoginComponent extends Component {
             }
             this.busy.set(true);
             try {
-                const user = await loginRequest(this.username.trim(), this.password);
+                const user = await authClient.login(this.username.trim(), this.password);
                 this.auth.currentUser.set(user);
                 this.auth.error.set(null);
                 this.router.navigate(this.destination('/'), true);

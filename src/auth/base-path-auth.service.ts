@@ -1,32 +1,41 @@
 import { AuthService } from '@basics/core/client/auth';
 import { ApiError } from '@basics/core/client/api-error';
-import { loginRequest, meRequest, logoutRequest, logoutAllRequest } from './auth-client';
+import type { AuthClient } from './auth-client';
 
 /**
- * `AuthService` with the deploy base path applied.
+ * `AuthService` with an app-supplied API root applied.
  *
  * The vendored service builds its client with a hardcoded `'/api'`. In
- * production Caddy serves the app under `/tapscore/` and strips that prefix
+ * production Caddy serves the apps under `/tapscore/` and strips that prefix
  * before proxying, so an absolute `/api/auth/me` never reaches the backend —
- * it 404s at the edge and surfaces as "Network error". Everything else in the
- * app already routes through `API_BASE` (see `src/api.ts`); these two calls
- * were the last ones that did not.
+ * it 404s at the edge and surfaces as "Network error". Everything else already
+ * routes through an app's own API root; the injected `AuthClient` gives the
+ * auth calls the same treatment. The player app passes its root
+ * (`src/api-base.ts`); Manage passes its own, which sits one level ABOVE the
+ * manage bundle's base (`manage/api-base.ts`) — one subclass, two instances.
  *
- * Only the two URL-bearing methods are overridden — `currentUser` / `loading` /
- * `error` and every consumer of them stay exactly as the framework defines
- * them. Registered over the base class in `main.ts` via `di.set`, so
- * `inject(AuthService)` anywhere in the app resolves to this.
+ * Only the URL-bearing methods are overridden — `currentUser` / `loading` /
+ * `error`, the session-expiry subscription and every consumer of them stay
+ * exactly as the framework defines them. Each app registers its instance over
+ * the base class in its `main.ts` via `di.set`, so `inject(AuthService)`
+ * resolves to it.
  *
- * The login form does not go through `login()` — it calls `loginRequest`
- * directly so it can read the real status code (see `auth-errors.ts`). `login`
- * is still overridden so a future caller cannot silently reach the base class's
- * `/api` client and reintroduce this bug.
+ * The sign-in forms do not go through `login()` — they call
+ * `authClient.login` directly so they can read the real status code (see
+ * `auth-errors.ts`), and so a submit in flight does not flip
+ * `AuthService.loading`, which Manage's boot gate watches. `login` is still
+ * overridden so a future caller cannot silently reach the base class's `/api`
+ * client and reintroduce the base-path bug.
  */
 export class BasePathAuthService extends AuthService {
+    constructor(private client: AuthClient) {
+        super();
+    }
+
     override async login(username: string, password: string): Promise<boolean> {
         this.loading.set(true);
         try {
-            this.currentUser.set(await loginRequest(username, password));
+            this.currentUser.set(await this.client.login(username, password));
             this.error.set(null);
             return true;
         } catch {
@@ -37,14 +46,21 @@ export class BasePathAuthService extends AuthService {
         }
     }
 
-    /** A 401 here is the normal "not signed in" answer, not an error state. */
+    /**
+     * A 401 here is the normal "not signed in" answer, not an error state —
+     * and it also clears any stale identity: on boot `currentUser` is already
+     * null so the set is a no-op, while on a later re-check it means the
+     * session died and the user must read as signed out. Same rule the base
+     * class applies via its session-expiry listener.
+     */
     override async load(): Promise<void> {
         this.loading.set(true);
         try {
-            this.currentUser.set(await meRequest());
+            this.currentUser.set(await this.client.me());
             this.error.set(null);
         } catch (err) {
             if (err instanceof ApiError && err.status === 401) {
+                this.currentUser.set(null);
                 this.error.set(null);
             } else {
                 this.error.set({ message: 'Cannot reach the server.', code: 'network' });
@@ -63,7 +79,7 @@ export class BasePathAuthService extends AuthService {
     override async logout(): Promise<void> {
         this.loading.set(true);
         try {
-            await logoutRequest();
+            await this.client.logout();
             this.currentUser.set(null);
             this.error.set(null);
         } catch (err) {
@@ -88,7 +104,7 @@ export class BasePathAuthService extends AuthService {
     override async logoutEverywhere(): Promise<number | null> {
         this.loading.set(true);
         try {
-            const res = await logoutAllRequest();
+            const res = await this.client.logoutAll();
             this.currentUser.set(null);
             this.error.set(null);
             return res.revoked;
