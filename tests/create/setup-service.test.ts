@@ -16,8 +16,8 @@ let createResult: any = null;
 const apiMock = {
     setup: {
         courses: mock(async () => []),
-        teesByCourse: mock(async () => []),
-        teeRolesByCourse: mock(async () => []),
+        teesByCourse: mock(async (): Promise<Tee[]> => []),
+        teeRolesByCourse: mock(async (): Promise<CourseTeeRole[]> => []),
         formats: mock(async () => []),
     },
     guestPlayers: {

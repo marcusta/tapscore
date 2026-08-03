@@ -67,6 +67,7 @@ function player(handicapIndex: number | null): Player {
         avatarUrl: null,
         avatarVersion: null,
         homeClubId: null,
+        preferredTeeRoleKey: null,
         handicapIndex,
         gender: null,
         handicapConfirmedAt: null,
