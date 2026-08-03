@@ -216,7 +216,7 @@ struct ProfileView: View {
                             }
                         }
                     } else {
-                        HStack(alignment: .firstTextBaseline, spacing: TapSpacing.xs) {
+                        HStack(alignment: .firstTextBaseline, spacing: 2) {
                             Text(store.player?.displayName ?? "…")
                                 .font(TapFont.display(size: 28, weight: .semibold))
                                 .foregroundStyle(TapColors.text)
@@ -228,8 +228,9 @@ struct ProfileView: View {
                                 nameFocused = true
                             } label: {
                                 Image(systemName: "pencil")
-                                    .font(TapFont.ui(size: 15, weight: .semibold))
+                                    .font(TapFont.ui(size: 16, weight: .bold))
                                     .foregroundStyle(TapColors.textMuted)
+                                    .offset(y: -1)
                             }
                             .buttonStyle(.plain)
                             .disabled(store.isSaving)

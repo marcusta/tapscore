@@ -41,7 +41,7 @@ const tpl = template(`
                         <div bind="nameDisplay" class="profile__name-display">
                             <h1 bind="name"></h1>
                             <button bind="editName" class="profile__edit-name" type="button"
-                                aria-label="Edit display name" title="Edit display name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+                                aria-label="Edit display name" title="Edit display name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
                         </div>
                         <form bind="nameForm" class="profile__name-form">
                             <input bind="nameInput" autocomplete="name" aria-label="Display name" />
@@ -186,18 +186,19 @@ export class ProfileComponent extends Component {
                 & .profile__names { min-width: 0; }
 
                 & .profile__name-display {
-                    display: flex; align-items: center; gap: ${s('xs')};
+                    display: flex; align-items: flex-start;
                 }
                 & .profile__name-display.hidden, & .profile__name-form.hidden { display: none; }
                 & .profile__edit-name {
                     ${btn()}
                     display: grid; place-items: center;
-                    width: 32px; height: 32px; padding: 0;
+                    flex: 0 0 28px;
+                    width: 28px; height: 28px; margin: 0 0 0 2px; padding: 0;
                     color: ${t('text-muted')}; background: transparent;
                     border-color: transparent;
                     &:hover { color: ${t('text')}; background: ${t('hover-bg')}; }
                     &:disabled { opacity: 0.5; cursor: default; }
-                    & svg { width: 16px; height: 16px; }
+                    & svg { width: 18px; height: 18px; }
                 }
                 & .profile__name-form {
                     display: flex; align-items: center; gap: ${s('xs')};
