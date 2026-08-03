@@ -4,12 +4,20 @@
 // per-row editor and the add-the-missing-holes panel) and the two must not
 // disagree about what a stroke index is.
 //
-// The SERVER is the authority on all of it. What lives here exists because
-// `updateHole` and the bulk `update` throw plain `Error`s, which the framework
-// turns into a 500 with the message dropped — so a typo would reach the user as
-// "Could not save. Check your connection" and would beacon to the observability
-// stream as breakage. Everything the server states READABLY — and everything
-// the validation endpoint reports — is left to it.
+// The SERVER is the authority on all of it, and it now SAYS so: `updateHole`
+// and the bulk `update` refuse with `ConflictError` (409) or `NotFoundError`
+// (404) carrying a readable sentence, which `manage/api-failure.ts` repeats
+// verbatim. That was not true when this file was written — both threw plain
+// `Error`s, the framework turned them into 500s with the reason stripped, and
+// these functions were the only thing standing between a typo and "Could not
+// save. Check your connection".
+//
+// What that changes is the STANDING of the checks below: they are a courtesy,
+// not the authority. They answer without a round trip and they keep a refusal
+// in the same words as the rest of this screen — but a rule that only lives
+// here is a rule the server does not enforce, and a rule that disagrees with
+// the server is a bug in this file. Everything the validation endpoint reports
+// is still left to it entirely (see `issueLines`).
 //
 // ── These refusals are a conservative SUPERSET, not a mirror ──
 //
@@ -53,7 +61,8 @@ export type HoleParse = { ok: true; par: number; strokeIndex: number } | { ok: f
 /**
  * Read one row's pair — the conservative superset described at the top of this
  * file. The par rule is ours alone; the stroke-index RANGE is the server's,
- * repeated so its refusal arrives as a sentence rather than a 500.
+ * repeated so the answer arrives without a round trip and in this screen's
+ * words. The server refuses the same value with its own sentence.
  *
  * Deliberately NOT checked here: whether the stroke index is already used by
  * another hole. `CourseService.updateHole` is explicit that duplicates are
@@ -222,20 +231,20 @@ export type FillParse = { ok: true; holes: Hole[] } | { ok: false; message: stri
  * are a permutation of 1..N. There is no "blank" to write.
  *
  * So the panel asks for the real numbers, and this function refuses everything
- * the bulk update would refuse — with a sentence, because the server's own
- * refusal arrives as a 500 with the reason stripped — plus the par typos it
- * would happily store (see the superset note at the top of this file).
+ * the bulk update would refuse — in this screen's words, and without a round
+ * trip — plus the par typos the server would happily store (see the superset
+ * note at the top of this file).
  */
 export function parseFill(
     existing: Hole[],
     drafts: Map<number, HoleDraft>,
     holeCount: number,
 ): FillParse {
-    const extra = existing.filter((h) => h.holeNumber < 1 || h.holeNumber > holeCount);
+    const extra = extraHoles(existing, holeCount);
     if (extra.length > 0) {
         return {
             ok: false,
-            message: `This course also has ${count(extra.length, 'hole row', 'hole rows')} beyond hole ${holeCount}. Set the hole count to match the course on the club page first — adding holes cannot resolve that.`,
+            message: `This course also has ${count(extra.length, 'hole row', 'hole rows')} beyond hole ${holeCount}. Remove those rows in the panel below, or set the hole count to match the course on the club page — adding holes cannot resolve either.`,
         };
     }
 
@@ -269,6 +278,119 @@ export function parseFill(
     }
 
     return { ok: true, holes: [...filled].sort((a, b) => a.holeNumber - b.holeNumber) };
+}
+
+// ─── Hole rows beyond the count (spec §3.4 / the 18→9 hole-count edit) ───
+
+/**
+ * Rows the course does NOT claim: hole numbers outside 1..holeCount.
+ *
+ * The mirror image of `missingHoleNumbers`, and the state an 18 → 9 hole-count
+ * edit leaves behind — `CourseService.update` writes the new `hole_count` and
+ * leaves `course_holes` alone unless a complete set is sent, so nine rows are
+ * orphaned. `validateCourse` reports them as `unexpected_holes`, an ERROR, so
+ * the course reads as unready everywhere until they go.
+ *
+ * Sorted, because the panel below lists them by name.
+ */
+export function extraHoles(holes: Hole[], holeCount: number): Hole[] {
+    return holes
+        .filter((h) => h.holeNumber < 1 || h.holeNumber > holeCount)
+        .sort((a, b) => a.holeNumber - b.holeNumber);
+}
+
+export type TrimParse =
+    | { ok: true; holes: Hole[]; removed: Hole[] }
+    | { ok: false; message: string };
+
+/**
+ * The complete hole set to send in order to REMOVE the rows beyond the count.
+ *
+ * ── Why this goes through the bulk update and not a delete endpoint ──
+ *
+ * There is no per-row delete in the API, and there does not need to be:
+ * `POST /courses/update` with a `holes` array replaces the whole set inside one
+ * transaction (`CourseService.update`), so a row is deleted by being ABSENT
+ * from the payload. Sending the course's holes 1..N is therefore exactly the
+ * trim, with no new server surface and no second write path that could half
+ * finish.
+ *
+ * ── Why it can refuse before anything is sent ──
+ *
+ * `validateHoles` accepts only a complete set whose stroke indices are a
+ * permutation of 1..N, and the kept holes of a former eighteen carry stroke
+ * indices scattered over 1..18 — so the trim is usually blocked until the
+ * course's real nine stroke indices are entered in the grid. That is not a
+ * technicality to route around: a nine-hole course HAS stroke indices 1 to 9,
+ * and which hole gets which is an authoring decision with handicap strokes
+ * riding on it. Deriving them by rank would be the same fabrication
+ * `parseFill` refuses to do for par.
+ *
+ * So the refusal names what to fix and where, and the panel keeps its button
+ * disabled until the set would be accepted — the server's rule, mirrored to
+ * turn "409" into a sentence, never to replace it (`manage/api-failure.ts`).
+ */
+export function parseTrim(existing: Hole[], holeCount: number): TrimParse {
+    const removed = extraHoles(existing, holeCount);
+    if (removed.length === 0) {
+        return { ok: false, message: 'This course has no hole rows beyond its hole count.' };
+    }
+
+    const kept = existing
+        .filter((h) => h.holeNumber >= 1 && h.holeNumber <= holeCount)
+        .sort((a, b) => a.holeNumber - b.holeNumber);
+
+    const missing = missingHoleNumbers(kept, holeCount);
+    if (missing.length > 0) {
+        return {
+            ok: false,
+            message: `${cap(holeWord(missing.length))} ${list(missing)} ${missing.length === 1 ? 'has' : 'have'} no row either, so removing these would leave the course incomplete. Add the missing ${holeWord(missing.length)} first.`,
+        };
+    }
+
+    const outOfRange = kept.filter((h) => h.strokeIndex < 1 || h.strokeIndex > holeCount);
+    if (outOfRange.length > 0) {
+        return {
+            ok: false,
+            message: `${cap(holeWord(outOfRange.length))} ${list(outOfRange.map((h) => h.holeNumber))} still ${outOfRange.length === 1 ? 'has a stroke index' : 'have stroke indices'} above ${holeCount}. A ${holeCount}-hole course hands out stroke indices 1 to ${holeCount}, so give ${outOfRange.length === 1 ? 'it' : 'them'} a number in that range in the grid above, then remove these rows.`,
+        };
+    }
+
+    const clash = firstStrokeIndexClash(kept);
+    if (clash) {
+        return {
+            ok: false,
+            message: `Holes ${clash.holes[0]} and ${clash.holes[1]} both have stroke index ${clash.strokeIndex}. Every one of the course’s ${holeCount} holes needs its own number from 1 to ${holeCount}. Change one of them in the grid above, then remove these rows.`,
+        };
+    }
+
+    const unused = freeStrokeIndices(kept, holeCount);
+    if (unused.length > 0) {
+        return {
+            ok: false,
+            message: `Stroke ${unused.length === 1 ? 'index' : 'indices'} ${list(unused)} ${unused.length === 1 ? 'is' : 'are'} not assigned to any of the course’s ${holeCount} holes. Hand ${unused.length === 1 ? 'it' : 'them'} out in the grid above, then remove these rows.`,
+        };
+    }
+
+    return { ok: true, holes: kept, removed };
+}
+
+/** `Hole 12 — par 4, stroke index 12`: one row, and what goes with it. */
+export function trimLossLine(hole: Hole): string {
+    return `Hole ${hole.holeNumber} — par ${hole.par}, stroke index ${hole.strokeIndex}`;
+}
+
+/** The panel's opening sentence: what these rows are and why they are here. */
+export function trimLead(removed: Hole[], holeCount: number): string {
+    if (removed.length === 0) return '';
+    const numbers = removed.map((h) => h.holeNumber);
+    return `This course is set to ${holeCount} holes, but ${count(removed.length, 'row', 'rows')} beyond that ${removed.length === 1 ? 'is' : 'are'} still stored — ${holeWord(numbers.length)} ${list(numbers)}. A hole-count change leaves them behind on purpose, because the par and stroke index on them are real numbers somebody typed. They count towards nothing, and the course check reports them until they are gone.`;
+}
+
+/** What the confirm dialog states as the consequence. Never "are you sure". */
+export function trimConsequence(removed: Hole[], courseName: string, holeCount: number): string {
+    const numbers = removed.map((h) => h.holeNumber);
+    return `${cap(holeWord(numbers.length))} ${list(numbers)} — and the par and stroke index stored on ${numbers.length === 1 ? 'it' : 'them'} — are deleted from ${courseName}. The course keeps its ${holeCount} holes. This cannot be undone.`;
 }
 
 function firstStrokeIndexClash(holes: Hole[]): { strokeIndex: number; holes: [number, number] } | null {
@@ -327,7 +449,7 @@ export function explainIssue(code: string, holeCount: number): string {
         case 'missing_holes':
             return 'These holes have no par or stroke index yet, so the course is not complete. Add them below.';
         case 'unexpected_holes':
-            return `The course is set to ${holeCount} holes, but rows exist past that. Change the hole count on the club page if the course really has them.`;
+            return `The course is set to ${holeCount} holes, but rows exist past that. Remove them in the panel below, or change the hole count on the club page if the course really has them.`;
         case 'duplicate_stroke_index':
             return 'Two holes share a stroke index. Handicap strokes are handed out in stroke-index order, so each hole needs its own number.';
         case 'missing_stroke_indices':

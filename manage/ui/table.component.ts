@@ -818,6 +818,15 @@ export class ManageTableComponent<T> extends Component<ManageTableProps<T>> {
                 status.textContent = message ?? (saving ? edit.savingLabel ?? 'Saving…' : '');
                 status.className = message ? 'mtable__status mtable__status--error' : 'mtable__status';
                 status.hidden = !message && !saving;
+                // A hosted status line can sit far from the row it speaks for —
+                // the holes grid puts it below all eighteen rows so it stays
+                // readable at 375px. A refusal that lands below the fold reads
+                // as "Save did nothing", so bring it into view. `nearest` is a
+                // no-op when it is already on screen, and only a REFUSAL earns
+                // the scroll; the "Saving…" hint is not worth moving the page.
+                if (message && typeof status.scrollIntoView === 'function') {
+                    status.scrollIntoView({ block: 'nearest' });
+                }
             }));
         }
 

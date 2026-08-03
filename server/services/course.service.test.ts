@@ -220,7 +220,7 @@ test('updateHole rejects SI out of range', async () => {
     const c = await courseService.create({ clubId, name: 'North', holeCount: 18 });
     await expect(
         courseService.updateHole(c.id, 5, { strokeIndex: 99 }),
-    ).rejects.toThrow(/strokeIndex must be 1..18/);
+    ).rejects.toThrow(/Stroke index runs from 1 to 18/);
 });
 
 test('remove cascades to holes', async () => {

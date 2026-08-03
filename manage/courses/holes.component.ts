@@ -1,15 +1,18 @@
-import { Component, Computed, effect, template } from '@basics/core/client/core';
+import { Component, Computed, effect, Signal, template } from '@basics/core/client/core';
+import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import { t } from '../theme';
 import { s, btn, card } from '../css';
 import { field, fieldControl, fieldLabel } from '../ui/recipes';
 import { ManageTableComponent, actionButton, type ManageColumn } from '../ui/table.component';
 import { RowEditController } from '../ui/row-edit';
+import { closeOnEscape, destructiveConfirm } from '../ui/confirm';
 import { CoursesService } from './courses.service';
 import { readinessLabel, readinessTone } from './course-form';
 import type { Readiness } from './course-form';
 import {
     blankDraft,
     checkStatus,
+    extraHoles,
     freeStrokeIndices,
     holeDraft,
     issueLines,
@@ -18,7 +21,11 @@ import {
     parSummary,
     parseFill,
     parseHole,
+    parseTrim,
     summaryNote,
+    trimConsequence,
+    trimLead,
+    trimLossLine,
     type HoleDraft,
     type IssueLine,
 } from './holes-form';
@@ -125,6 +132,17 @@ const tpl = template(`
                 </div>
             </form>
         </section>
+
+        <section bind="trim" class="mholes__panel">
+            <h3 class="mholes__panel-title">Hole rows beyond the course’s count</h3>
+            <p bind="trimLead" class="mholes__lead"></p>
+            <ul bind="trimLoss" class="mholes__loss"></ul>
+            <p bind="trimBlocked" class="mholes__note"></p>
+            <button bind="trimOpen" class="mholes__danger" type="button"></button>
+            <p bind="trimError" class="mholes__error" role="alert"></p>
+        </section>
+
+        <div bind="confirmHost"></div>
     </section>
 `);
 
@@ -433,6 +451,43 @@ export class HolesComponent extends Component<HolesProps> {
 
                 &[hidden] { display: none; }
             }
+
+            /* Terracotta, the danger family — the same treatment the club
+               page's Delete carries, from the theme's --btn-danger-* tokens
+               rather than a skin hand-rolled here. Sizing after the recipe
+               (ADR-005). */
+            & .mholes__danger {
+                ${btn(undefined, 'danger')}
+                min-height: ${t('manage-touch-target')};
+                padding: 0 ${s('lg')};
+                font-size: 0.9rem;
+                font-weight: 700;
+                align-self: flex-start;
+                white-space: nowrap;
+            }
+
+            /* What a trim deletes, listed row by row. Not a table: it is three
+               facts about each row read once before a decision, and the widest
+               of them is "stroke index 18". */
+            & .mholes__loss {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+                margin: 0;
+                padding-left: ${s('md')};
+                border-left: 3px solid ${t('danger')};
+                list-style: none;
+
+                &:empty { display: none; }
+            }
+
+            & .mholes__loss-item {
+                margin: 0;
+                color: ${t('text')};
+                font-size: 0.9rem;
+                font-variant-numeric: tabular-nums;
+                line-height: 1.45;
+            }
         }
     `;
 
@@ -453,6 +508,15 @@ export class HolesComponent extends Component<HolesProps> {
     private fillEditor = new RowEditController();
     private fillDrafts = new Map<number, HoleDraft>();
     private fillHost: HTMLElement | null = null;
+
+    /** The trim panel's confirm dialog. Owned here; closed by the dialog. */
+    private trimOpen = new Signal(false);
+
+    /** True while the trim's bulk write is out. */
+    private trimming = new Signal(false);
+
+    /** A refused trim, worded by the server. Cleared when a new one starts. */
+    private trimError = new Signal<string | null>(null);
 
     /** One live disposer per row key — see `CoursesComponent.actionEffects`:
      *  the table builds row actions inside `untrack()`, so a button that has to
@@ -551,6 +615,25 @@ export class HolesComponent extends Component<HolesProps> {
                 disabled: () => this.fillSaving(),
                 onclick: () => this.closeFill(),
             },
+
+            trim: { hidden: () => this.extras().length === 0 },
+            trimLead: { textContent: () => trimLead(this.extras(), this.holeCount()) },
+            // Why the blocker is stated even though the button is disabled: a
+            // control that cannot be pressed and does not say why is the same
+            // dead end this panel exists to remove.
+            trimBlocked: {
+                textContent: () => this.trimBlocker() ?? '',
+                hidden: () => this.trimBlocker() === null,
+            },
+            trimOpen: {
+                textContent: () => this.trimLabel(),
+                disabled: () => this.busy() || this.trimBlocker() !== null,
+                onclick: () => this.trimOpen.set(true),
+            },
+            trimError: {
+                textContent: () => this.trimError.get() ?? '',
+                hidden: () => this.trimError.get() === null,
+            },
         });
 
         // Built here rather than as a field: a `Computed` created at field-init
@@ -596,6 +679,39 @@ export class HolesComponent extends Component<HolesProps> {
             (line) => line.key,
         );
 
+        this.$each(
+            this.ref(frag, 'trimLoss'),
+            () => this.extras(),
+            (hole) => this.lossItem(hole),
+            // Keyed on the VALUES, not on the hole number: a row whose par was
+            // corrected while the panel was open must re-render, or the list
+            // would keep promising to delete the old numbers.
+            (hole) => `${hole.holeNumber}:${hole.par}:${hole.strokeIndex}`,
+        );
+
+        this.spawn(
+            ConfirmComponent,
+            this.ref(frag, 'confirmHost'),
+            destructiveConfirm({
+                open: this.trimOpen,
+                title: () => {
+                    const extras = this.extras();
+                    return extras.length === 1
+                        ? `Remove hole ${extras[0].holeNumber}?`
+                        : `Remove ${extras.length} hole rows?`;
+                },
+                consequence: () =>
+                    trimConsequence(
+                        this.extras(),
+                        this.course()?.name ?? 'this course',
+                        this.holeCount(),
+                    ),
+                confirmLabel: () => (this.extras().length === 1 ? 'Remove hole row' : 'Remove hole rows'),
+                onconfirm: () => void this.trim(),
+            }),
+        );
+        this.track(closeOnEscape(this.trimOpen));
+
         this.track(() => {
             for (const dispose of this.actionEffects.values()) dispose();
             this.actionEffects.clear();
@@ -633,6 +749,10 @@ export class HolesComponent extends Component<HolesProps> {
 
     private missing(): number[] {
         return missingHoleNumbers(this.course()?.holes ?? [], this.holeCount());
+    }
+
+    private extras(): Hole[] {
+        return extraHoles(this.course()?.holes ?? [], this.holeCount());
     }
 
     // ─── The grid ───
@@ -682,6 +802,12 @@ export class HolesComponent extends Component<HolesProps> {
         if (this.fillSaving()) {
             this.editor.fail(
                 'The missing holes are still being added. Wait for that to finish, then save this hole again.',
+            );
+            return;
+        }
+        if (this.trimming.peek()) {
+            this.editor.fail(
+                'The extra hole rows are still being removed. Wait for that to finish, then save this hole again.',
             );
             return;
         }
@@ -742,13 +868,14 @@ export class HolesComponent extends Component<HolesProps> {
     /**
      * A write is in flight, from either editor.
      *
-     * The screen's one exclusion rule. The grid and the fill panel may both be
-     * OPEN — that is what makes the clash message's advice followable — but
-     * they write to the same hole set, and the bulk update sends the set whole,
-     * so their saves must not overlap.
+     * The screen's one exclusion rule. The grid, the fill panel and the trim
+     * panel may all be OPEN — that is what makes their advice followable, since
+     * every one of them says "fix it in the grid above" — but they write to the
+     * same hole set, and the bulk update sends the set whole, so their saves
+     * must not overlap.
      */
     private busy(): boolean {
-        return this.editor.phase.get() === 'saving' || this.fillSaving();
+        return this.editor.phase.get() === 'saving' || this.fillSaving() || this.trimming.get();
     }
 
     private fillLead(): string {
@@ -869,11 +996,80 @@ export class HolesComponent extends Component<HolesProps> {
         }
 
         const saved = await this.fillEditor.commit(() =>
-            this.courses.saveHoles(course.id, parsed.holes),
+            this.courses.saveHoles(
+                course.id,
+                parsed.holes,
+                'Could not add the holes. Check your connection and try again.',
+            ),
         );
         if (saved) {
             this.fillDrafts.clear();
             if (this.fillHost) this.fillHost.textContent = '';
+        }
+    }
+
+    // ─── Hole rows beyond the count ───
+
+    private lossItem(hole: Hole): HTMLElement {
+        const item = document.createElement('li');
+        item.className = 'mholes__loss-item';
+        item.textContent = trimLossLine(hole);
+        return item;
+    }
+
+    private trimLabel(): string {
+        const extras = this.extras();
+        if (this.trimming.get()) return 'Removing…';
+        return extras.length === 1
+            ? `Remove hole ${extras[0].holeNumber}`
+            : `Remove these ${extras.length} hole rows`;
+    }
+
+    /**
+     * Why the trim cannot run yet, or null when it can.
+     *
+     * `parseTrim` refuses whenever the KEPT holes' stroke indices are not a
+     * permutation of 1..holeCount, which is the normal state of a former
+     * eighteen — so this sentence, not the button, is what the panel usually
+     * shows first, and it names the grid rows to fix.
+     */
+    private trimBlocker(): string | null {
+        const course = this.course();
+        if (!course) return null;
+        const parsed = parseTrim(course.holes, course.holeCount);
+        return parsed.ok ? null : parsed.message;
+    }
+
+    /**
+     * Delete the rows beyond the count, by sending the set WITHOUT them.
+     *
+     * The bulk update replaces the whole hole set (`CourseService.update`), so
+     * absence is the delete — there is no per-row endpoint and this needs none.
+     * Re-parsed here rather than trusting what the button was enabled on: the
+     * course refetches after every hole save, and the confirm dialog can be
+     * open across one.
+     */
+    private async trim(): Promise<void> {
+        const course = this.course();
+        if (!course || this.busy() || this.trimming.get()) return;
+
+        const parsed = parseTrim(course.holes, course.holeCount);
+        if (!parsed.ok) {
+            this.trimError.set(parsed.message);
+            return;
+        }
+
+        this.trimError.set(null);
+        this.trimming.set(true);
+        try {
+            const outcome = await this.courses.saveHoles(
+                course.id,
+                parsed.holes,
+                'Could not remove the hole rows. Check your connection and try again.',
+            );
+            if (!outcome.ok) this.trimError.set(outcome.message);
+        } finally {
+            this.trimming.set(false);
         }
     }
 

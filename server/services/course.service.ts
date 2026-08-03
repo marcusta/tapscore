@@ -143,10 +143,24 @@ function toCourse(row: CourseRow, holes: Hole[]): Course {
     };
 }
 
-// --- Position validation (manage-ui.md §3.3a) ---
+// --- Input refusals ---
 
-/** The catalog's domain-error shape: 409 with a machine-readable `detail.code`. */
-function refusePosition(code: string, message: string): never {
+/**
+ * The catalog's domain-error shape: 409 with a machine-readable `detail.code`
+ * and a message meant to be READ.
+ *
+ * Every refusal this service makes about the VALUES it was handed goes through
+ * here — positions (§3.3a) and hole sets alike. The reason is the manage
+ * client: `manage/api-failure.ts` repeats a 4xx message verbatim and flattens
+ * everything else into "Could not save…", so a bare `Error` reaches the user as
+ * a 500 with the reason stripped, AND beacons to the observability stream as
+ * breakage. A refusal is the server working correctly; it must say so in a
+ * sentence.
+ *
+ * A row that is simply absent is NOT this — that is `NotFoundError`, the
+ * convention `setTeeRole` already follows for a missing course, role or tee.
+ */
+function refuseCourse(code: string, message: string): never {
     const err = new ConflictError(message);
     (err as ConflictError & { detail?: unknown }).detail = { code };
     throw err;
@@ -154,7 +168,7 @@ function refusePosition(code: string, message: string): never {
 
 function assertDegrees(value: number, limit: number, label: string): void {
     if (!Number.isFinite(value) || value < -limit || value > limit) {
-        refusePosition(
+        refuseCourse(
             'course_position_out_of_range',
             `${label} must be between -${limit} and ${limit} (got ${value}).`,
         );
@@ -543,8 +557,27 @@ export class CourseService {
         };
     }
 
+    /**
+     * Patch a course's fields, and — when `holes` is sent — REPLACE its hole
+     * set outright.
+     *
+     * "Replace" is load-bearing and worth stating, because it is the only way
+     * a hole ROW is ever removed: the transaction deletes every
+     * `course_holes` row for the course and inserts what it was given. So a
+     * course whose `hole_count` was lowered 18 → 9, and which therefore still
+     * carries rows 10..18 (a hole-count edit alone never touches them), is
+     * trimmed by sending its holes 1..9 — no separate delete endpoint, and no
+     * partial-set escape hatch, because `validateHoles` requires the complete
+     * set. That is the affordance the holes editor's "extra rows" panel drives
+     * (manage-ui.md §3.4).
+     *
+     * Omitting `holes` leaves the rows exactly as they are, including a
+     * `holeCount` change: adding or removing rows is an authoring decision
+     * with real par and stroke-index values in it, never a side effect.
+     */
     async update(id: string, input: UpdateCourseInput): Promise<Course> {
-        const existing = await this.byId(id).executeTakeFirstOrThrow();
+        const existing = await this.byId(id).executeTakeFirst();
+        if (!existing) throw new NotFoundError('course not found');
         const nextHoleCount = input.holeCount ?? existing.hole_count;
         if (input.holes !== undefined) this.validateHoles(nextHoleCount, input.holes);
         const position = this.resolvePosition(input);
@@ -666,7 +699,7 @@ export class CourseService {
      */
     async validate(courseId: string): Promise<CourseValidation> {
         const course = await this.getById(courseId);
-        if (!course) throw new Error(`course ${courseId} not found`);
+        if (!course) throw new NotFoundError('course not found');
         return validateCourse(course);
     }
 
@@ -684,19 +717,23 @@ export class CourseService {
         holeNumber: number,
         patch: UpdateHoleInput,
     ): Promise<Course> {
-        const course = await this.byId(courseId).executeTakeFirstOrThrow();
+        const course = await this.byId(courseId).executeTakeFirst();
+        if (!course) throw new NotFoundError('course not found');
         const target = await this.holesFor(courseId)
             .where('hole_number', '=', holeNumber)
             .executeTakeFirst();
         if (!target) {
-            throw new Error(`course ${courseId} has no hole ${holeNumber}`);
+            throw new NotFoundError(`This course has no hole ${holeNumber}.`);
         }
 
         const newPar = patch.par ?? target.par;
         const newSI = patch.strokeIndex ?? target.stroke_index;
 
         if (newSI < 1 || newSI > course.hole_count) {
-            throw new Error(`strokeIndex must be 1..${course.hole_count} (got ${newSI})`);
+            refuseCourse(
+                'course_stroke_index_out_of_range',
+                `Stroke index runs from 1 to ${course.hole_count}, one number per hole (got ${newSI}).`,
+            );
         }
 
         await this.updateHoleQ(courseId, holeNumber)
@@ -735,7 +772,7 @@ export class CourseService {
         if (latitude === null && longitude === null) return { latitude: null, longitude: null };
 
         if (typeof latitude !== 'number' || typeof longitude !== 'number') {
-            refusePosition(
+            refuseCourse(
                 'course_position_incomplete',
                 'A course position needs both a latitude and a longitude — set them together, or clear both.',
             );
@@ -753,23 +790,46 @@ export class CourseService {
         }));
     }
 
+    /**
+     * The rules a COMPLETE hole set has to satisfy — the bulk `holes` payload
+     * on `create` and `update`.
+     *
+     * Refusals are `refuseCourse`, not bare `Error`s: this is the server saying
+     * no to what it was handed, and the manage client shows a 4xx message
+     * verbatim (see `refuseCourse`). It is also the path that TRIMS a course
+     * whose hole count was lowered — `update` replaces the whole set, so
+     * sending 1..9 removes rows 10..18 — and a trim refused with a stripped
+     * 500 would leave the admin with no way to read why.
+     */
     private validateHoles(holeCount: number, holes: Hole[]): void {
         if (holeCount !== 9 && holeCount !== 18) {
-            throw new Error(`holeCount must be 9 or 18 (got ${holeCount})`);
+            refuseCourse(
+                'course_hole_count_invalid',
+                `A course has 9 or 18 holes (got ${holeCount}).`,
+            );
         }
         if (holes.length !== holeCount) {
-            throw new Error(`Expected ${holeCount} holes, got ${holes.length}`);
+            refuseCourse(
+                'course_hole_set_size',
+                `Expected ${holeCount} holes in the set, got ${holes.length} — this write replaces the course's complete hole set.`,
+            );
         }
         const numbers = holes.map((h) => h.holeNumber).sort((a, b) => a - b);
         for (let i = 0; i < holeCount; i++) {
             if (numbers[i] !== i + 1) {
-                throw new Error(`Hole numbers must be 1..${holeCount}, contiguous and unique`);
+                refuseCourse(
+                    'course_hole_numbers_invalid',
+                    `Hole numbers must run from 1 to ${holeCount}, each exactly once.`,
+                );
             }
         }
         const indices = holes.map((h) => h.strokeIndex).sort((a, b) => a - b);
         for (let i = 0; i < holeCount; i++) {
             if (indices[i] !== i + 1) {
-                throw new Error(`Stroke indices must be 1..${holeCount}, contiguous and unique`);
+                refuseCourse(
+                    'course_stroke_indices_invalid',
+                    `Stroke indices must run from 1 to ${holeCount}, each exactly once.`,
+                );
             }
         }
     }

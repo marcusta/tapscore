@@ -3,6 +3,7 @@ import {
     blankDraft,
     checkStatus,
     explainIssue,
+    extraHoles,
     freeStrokeIndices,
     issueLines,
     missingHoleNumbers,
@@ -10,15 +11,21 @@ import {
     parSummary,
     parseFill,
     parseHole,
+    parseTrim,
     summaryNote,
+    trimConsequence,
+    trimLead,
+    trimLossLine,
     type HoleDraft,
 } from '../../manage/courses/holes-form';
 import type { CourseIssue, CourseValidation, Hole } from '../../src/api/courses.gen';
 
-// The hole grid's rules, away from the DOM. What is asserted here is the part
-// the server states UNREADABLY (`updateHole` and the bulk `update` throw plain
-// `Error`s, which arrive as a 500 with the reason stripped) plus the wording of
-// the course check — the two things a user reads when something is wrong.
+// The hole grid's rules, away from the DOM. The server now refuses the same
+// values readably itself (`CourseService.refuseCourse` — 409 with a sentence),
+// so what is asserted here is not a stand-in for a missing server rule: it is
+// the wording this screen uses to say the same thing without a round trip, plus
+// the wording of the course check. Both are what a user reads when something is
+// wrong, and both have to agree with the server.
 
 function hole(holeNumber: number, par = 4, strokeIndex = holeNumber): Hole {
     return { holeNumber, par, strokeIndex };
@@ -178,12 +185,16 @@ test('a set that leaves stroke indices unused is refused — the server takes a 
     }
 });
 
-test('rows beyond the hole count block the fill and point at the hole count, not at the holes', () => {
+test('rows beyond the hole count block the fill and point at the two ways out, not at the holes', () => {
     const parsed = parseFill([hole(1, 4, 1), hole(2, 4, 2)], new Map(), 1);
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) {
         expect(parsed.message).toContain('1 hole row');
-        expect(parsed.message).toContain('Set the hole count to match the course');
+        // Both real resolutions, and neither of them is "add holes": remove the
+        // rows (the trim panel), or raise the count if the course really has
+        // them.
+        expect(parsed.message).toContain('Remove those rows in the panel below');
+        expect(parsed.message).toContain('set the hole count to match the course');
     }
 });
 
@@ -263,4 +274,95 @@ test('the check line states the outcome in words, and a check that never ran is 
         18,
     );
     expect(mixed).toBe('1 problem to fix, and 1 warning.');
+});
+
+// ─── parseTrim: the rows a lowered hole count leaves behind ───
+//
+// The dead end this closes: lowering 18 → 9 writes the new count and leaves
+// rows 10..18 alone (`CourseService.update` touches `course_holes` only for a
+// complete set), the course check reports `unexpected_holes` — an ERROR — and
+// nothing in the API deletes a single row. The way out is the bulk update
+// itself: it REPLACES the set, so the rows go by being absent from the payload.
+
+test('the trim sends the kept holes and names exactly what is lost', () => {
+    const holes = [...Array.from({ length: 9 }, (_, i) => hole(i + 1, 4, i + 1)), hole(10, 5, 10), hole(11, 3, 11)];
+    const parsed = parseTrim(holes, 9);
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+        // The payload is the course as it will stand: 1..9, nothing else.
+        expect(parsed.holes.map((h) => h.holeNumber)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        // And the rows that go are handed back whole, because the panel lists
+        // their par and stroke index before the question is asked.
+        expect(parsed.removed).toEqual([hole(10, 5, 10), hole(11, 3, 11)]);
+    }
+});
+
+test('extraHoles is the mirror of missingHoleNumbers, in order', () => {
+    const holes = [hole(3), hole(12), hole(1), hole(10)];
+    expect(extraHoles(holes, 9).map((h) => h.holeNumber)).toEqual([10, 12]);
+    expect(extraHoles(holes, 18)).toEqual([]);
+});
+
+test('a former eighteen is blocked until its nine stroke indices are real', () => {
+    // What a real 18-hole course looks like after the count drops to 9: the
+    // kept holes carry stroke indices scattered over 1..18. Nothing here
+    // renumbers them by rank — which hole is hardest is an authoring decision
+    // with handicap strokes riding on it, the same reason `parseFill` refuses
+    // to invent a par.
+    const kept = Array.from({ length: 9 }, (_, i) => hole(i + 1, 4, i * 2 + 1));
+    const parsed = parseTrim([...kept, hole(10), hole(11)], 9);
+
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+        expect(parsed.message).toContain('stroke indices above 9');
+        // Says where the work happens, because the grid is the only place it
+        // can be done.
+        expect(parsed.message).toContain('in the grid above');
+    }
+});
+
+test('a duplicate among the kept holes is named by both holes', () => {
+    const kept = Array.from({ length: 9 }, (_, i) => hole(i + 1, 4, i + 1));
+    kept[4] = hole(5, 4, 2);
+    const parsed = parseTrim([...kept, hole(10)], 9);
+
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+        expect(parsed.message).toContain('Holes 2 and 5');
+        expect(parsed.message).toContain('stroke index 2');
+    }
+});
+
+test('a stroke index nobody holds is named too — the set has to be a permutation', () => {
+    // In range, no duplicate, and still not a permutation: hole 9 is missing a
+    // row, so index 9 is unheld. That is the `missing` arm.
+    const kept = Array.from({ length: 8 }, (_, i) => hole(i + 1, 4, i + 1));
+    const parsed = parseTrim([...kept, hole(10)], 9);
+
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.message).toContain('has no row either');
+});
+
+test('nothing beyond the count is not a trim to offer', () => {
+    const parsed = parseTrim(eighteen(), 18);
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.message).toContain('no hole rows beyond');
+});
+
+test('the trim states the loss as facts, not as a count', () => {
+    expect(trimLossLine(hole(12, 5, 3))).toBe('Hole 12 — par 5, stroke index 3');
+
+    const lead = trimLead([hole(10), hole(11)], 9);
+    expect(lead).toContain('set to 9 holes');
+    expect(lead).toContain('holes 10 and 11');
+    // Says why they are there, so the state does not read as corruption.
+    expect(lead).toContain('hole-count change leaves them behind');
+
+    const consequence = trimConsequence([hole(10), hole(11)], 'Old course', 9);
+    expect(consequence).toContain('Holes 10 and 11');
+    expect(consequence).toContain('deleted from Old course');
+    expect(consequence).toContain('keeps its 9 holes');
+    // Never "are you sure" — what becomes true (manage/ui/confirm.ts).
+    expect(consequence).not.toContain('sure');
 });

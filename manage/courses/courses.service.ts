@@ -209,15 +209,21 @@ export class CoursesService {
     }
 
     /**
-     * Replace the course's entire hole set — the fix for a course with missing
-     * rows (`holes-form.ts`, `parseFill`). The server validates the set as a
+     * Replace the course's entire hole set. The server validates the set as a
      * whole: exactly `holeCount` contiguous holes whose stroke indices are a
      * permutation of 1..N.
+     *
+     * Two callers, one endpoint, because replacement covers both directions:
+     * `parseFill` sends the rows a course is MISSING, and `parseTrim` sends the
+     * set without the rows beyond the count — a row is deleted by being absent
+     * from the payload (`holes-form.ts`). Hence `fallback`: the two failures are
+     * not the same sentence, and the fallback is only ever shown when the server
+     * said nothing worth repeating.
      */
-    async saveHoles(courseId: string, holes: Hole[]): Promise<WriteOutcome> {
+    async saveHoles(courseId: string, holes: Hole[], fallback?: string): Promise<WriteOutcome> {
         return this.writeCourse(
             () => api.courses.update({ id: courseId, holes }),
-            'Could not add the holes. Check your connection and try again.',
+            fallback ?? 'Could not save the holes. Check your connection and try again.',
         );
     }
 

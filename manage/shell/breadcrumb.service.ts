@@ -28,3 +28,19 @@ export class BreadcrumbService {
         this.crumbs.set(crumbs);
     }
 }
+
+/**
+ * The `$each` identity of one crumb.
+ *
+ * The path is part of the key, not decoration: a crumb's row is wired ONCE
+ * from the captured value (link-or-current is decided at wire time), so a
+ * reused row keeps whatever it was first rendered as. The clubs list publishes
+ * `Clubs` with no path — it is the current page — and the club page republishes
+ * `Clubs` WITH a path at the same index. Keyed on label alone those two are the
+ * same row, and the trail's first step silently stays an un-clickable
+ * `aria-current="page"` after the navigation. Keying on the path too retires
+ * the old row and wires a real link.
+ */
+export function crumbKey(crumb: Crumb, index: number): string {
+    return `${index}:${crumb.label}:${crumb.path ?? ''}`;
+}

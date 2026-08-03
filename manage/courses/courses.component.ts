@@ -475,6 +475,9 @@ export class CoursesComponent extends Component<CoursesProps> {
         if (!this.fields || this.saving()) return;
         const key = this.editor.key.get();
         if (key === null) return;
+        // A refusal describes the write it refused; a NEW write starting means
+        // that answer is stale, whatever this one's outcome.
+        this.deleteFailure.set(null);
 
         const draft = this.fields.draft.get();
         const errors = validateCourse(draft);

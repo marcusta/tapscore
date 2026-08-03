@@ -3,6 +3,10 @@
 Spec: [manage-ui.md](manage-ui.md). Read it first; this file only says who
 builds what, in which order.
 
+Status (2026-08-03): M0 and M1 are landed, T9 with them; T10 is the closing
+integration pass. Each task heading carries the commit that landed it — T6 and
+T7 share one, because the holes and tees editors went in together.
+
 ## Working model
 
 - Each task below is scoped for one **implementation sub-agent**; every task
@@ -20,7 +24,7 @@ builds what, in which order.
 
 ## Milestone 0 — Foundation (serial: T0 → T1 → T2, then T3)
 
-### T0 — Build plumbing and serving
+### T0 — Build plumbing and serving — **landed** (`d69521f`)
 Two-line change philosophy: after this task, an empty manage app builds,
 deploys and serves; nothing visible changes for players.
 - `manage/` dir with `index.html` + minimal `main.ts` ("Tapscore Manage"
@@ -42,7 +46,7 @@ twice, confirm `public/manage` survives); fallback ordering vs the player
 catch-all; API base resolves to `/tapscore/api` under the prod base and
 `/api` in dev; no player-app behavior change.
 
-### T1 — Shared theme tokens
+### T1 — Shared theme tokens — **landed** (`576e8c3`)
 - Extract Tapscore tokens from `src/theme.ts` into the shared module (spec
   §2.4). Pure refactor for the player app: its theme exports keep identical
   names and values.
@@ -56,7 +60,7 @@ properties before/after); bridge call still made once; new manage tokens
 follow the accent/action/danger vocabulary split; ADR-005 ordering in any new
 css.
 
-### T2 — Shell, navigation, authorization
+### T2 — Shell, navigation, authorization — **landed** (`c41fb8d`)
 - Manage shell per spec §3.1: sidebar ↔ drawer responsive nav, section
   registry with Courses as sole entry, breadcrumbs, router with deep-linkable
   routes, loading/failure states.
@@ -71,7 +75,7 @@ check; 403 still handled if roles change mid-session); responsive shell at
 both widths; design-guidelines conformance (words over symbols, control
 choices); route structure extensible for future sections.
 
-### T3 — Shared responsive table + form primitives
+### T3 — Shared responsive table + form primitives — **landed** (`212c214`)
 - The table/list component (columns wide, stacked cards narrow), inline-edit
   row pattern, confirm-destructive pattern, and the editing-grid container
   (horizontal scroll within its own box) per spec §2.5.
@@ -84,7 +88,7 @@ leakage); tests actually exercise narrow mode.
 
 ## Milestone 1 — Course management (after M0; T4 ∥ T5; then T6 ∥ T7 ∥ T8)
 
-### T4 — Clubs (spec §3.2)
+### T4 — Clubs (spec §3.2) — **landed** (`99cce2e`)
 List + search, create, inline edit, delete with confirm. Delete-blocked
 messaging consumes the T9 guard errors (until T9 lands, surface the server
 error as-is).
@@ -92,7 +96,7 @@ error as-is).
 **T4-R:** search is client-side and stays responsive with the full club list;
 form validation states; error surfaces on every write; both widths/themes.
 
-### T5 — Courses on the club page (spec §3.3 + §3.3a)
+### T5 — Courses on the club page (spec §3.3 + §3.3a) — **landed** (`96c1ca9`)
 Course list with readiness badge (`/courses/validate`), create, edit
 name/hole-count, delete with confirm. Includes the Coordinates field
 (§3.3a) — the server slice for it lands with T9.
@@ -101,7 +105,7 @@ name/hole-count, delete with confirm. Includes the Coordinates field
 fabrication); badge states match the validation payload (`ok` vs error vs
 warning); navigation from list → course detail.
 
-### T6 — Holes editor (spec §3.4)
+### T6 — Holes editor (spec §3.4) — **landed** (`b628f7a`)
 Par/SI grid with per-row saves, live front/back/total summaries, validation
 panel presenting `/courses/validate` issues.
 
@@ -109,7 +113,7 @@ panel presenting `/courses/validate` issues.
 vs confirmed state on row save; validation re-fetched after edits; grid
 scroll containment on narrow screens.
 
-### T7 — Tees editor (spec §3.5)
+### T7 — Tees editor (spec §3.5) — **landed** (`b628f7a`, with T6)
 Tee list, create/edit/delete, per-hole length grid with SI override, ratings
 per gender including the explicit unrated-gender state. Also owed from T5:
 the course list's tee-count column (spec §3.3) was deferred because no cheap
@@ -121,7 +125,7 @@ payload shape matches `UpdateTeeInput` (lengths + ratings together);
 colour presented worded per design guidelines; delete-blocked path when a
 role mapping exists.
 
-### T8 — Tee-role matrix (spec §3.6) — the headline feature
+### T8 — Tee-role matrix (spec §3.6) — the headline feature — **landed** (`a38df06`)
 Role × gender matrix from the catalog endpoint, rated-tees-only options,
 explicit clear, ⓘ popover with live resolution ("Club / Men resolves to →").
 Supersession: player-app account-menu entry now links to the manage URL;
@@ -134,7 +138,7 @@ imports, account-menu link correct in prod base path.
 
 ## Milestone 2 — Hardening and closure (T9 can start with M1)
 
-### T9 — Delete-reference guards + GPS columns, server (spec §3.7, §3.3a) ∥ with M1
+### T9 — Delete-reference guards + GPS columns, server (spec §3.7, §3.3a) ∥ with M1 — **landed** (`7c6fb12`)
 Guards in Club/Course/Tee remove paths with reference-naming errors; route
 tests beside `course-management.routes.test.ts`. Also carries the §3.3a
 server slice (migration, service, API schema, regenerated clients) so T5
@@ -144,10 +148,24 @@ only wires the form field. One task because both edit `course.service.ts`.
 copy names the actual blocker; no behavior change for unreferenced deletes;
 tests fail without the guards.
 
-### T10 — Integration pass and deploy artifact
+### T10 — Integration pass and deploy artifact — **in progress**
 Empty states, cross-links, breadcrumb correctness, request-failure retry
 paths; full QA walk (both themes, both widths: clubs → course → holes → tees
 → roles); rebuild and commit `public/` + `public/manage/`.
+
+Also carried by T10: the **read-only route list** §3.8 grants v1
+(`manage/courses/route-templates.component.ts`) — a list and a muted line
+saying routes are authored elsewhere, no create/edit/delete.
+
+**Accepted deviation, needs a server change to close:** §3.8's last bullet says
+the UI should not present Delete as a live affordance for a course that can
+never be deleted (a course with rounds is `RESTRICT`-locked; the guard turns
+the 500 into a clear 409). The club page still shows an enabled Delete on every
+course, and a round-bearing one refuses on click with the guard's sentence.
+Closing it honestly needs a `roundCount` on the by-club course rows — nothing
+in the payload carries one today, and inferring "deletable" client-side would
+be a second copy of a rule the server owns. Left as-is for M1: the refusal is
+correct and readable; only the affordance is optimistic.
 
 **T10-R (final review, wider lens):** walk the spec top-to-bottom as a
 checklist; confirm deferred items (§3.8) did not creep in; confirm the

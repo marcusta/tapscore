@@ -6,6 +6,7 @@
 import { createClubsClient } from '../src/api/clubs.gen';
 import { createCoursesClient } from '../src/api/courses.gen';
 import { createTeesClient } from '../src/api/tees.gen';
+import { createCourseRouteTemplatesClient } from '../src/api/course-route-templates.gen';
 import { createAdminClient } from '../src/api/admin.gen';
 import { API_BASE } from './api-base';
 
@@ -17,6 +18,10 @@ export const api = {
     clubs: createClubsClient(API_BASE),
     courses: createCoursesClient(API_BASE),
     tees: createTeesClient(API_BASE),
+    // Read-only here: the course page LISTS a course's routes (spec §3.8), and
+    // authoring `definition_json` is explicitly deferred, so only
+    // `listByCourse` is used of this client's surface.
+    courseRouteTemplates: createCourseRouteTemplatesClient(API_BASE),
     // Carries `GET /me/roles`, the caller-scoped roles bootstrap the shell
     // gates presentation on (T2).
     admin: createAdminClient(API_BASE),

@@ -6,7 +6,7 @@ import { s, btn } from '../css';
 import { SHELL_MEDIA_WIDE } from '../breakpoint';
 import { ManageRolesService } from '../roles/roles.service';
 import { NavComponent } from './nav.component';
-import { BreadcrumbService, type Crumb } from './breadcrumb.service';
+import { BreadcrumbService, crumbKey, type Crumb } from './breadcrumb.service';
 import { NotFoundComponent } from './not-found.component';
 import { sectionRoutes, unlockedSections } from './sections';
 
@@ -495,7 +495,7 @@ export class ShellComponent extends Component {
                     },
                     track,
                 ),
-            (crumb, index) => `${index}:${crumb.label}`,
+            crumbKey,
         );
     }
 }

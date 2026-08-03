@@ -253,6 +253,35 @@ test('a rejected save shows the message ON the row and leaves the draft alone', 
     expect(rowEl(h, 'c1').querySelector('.mtable__status')?.hasAttribute('hidden')).toBe(true);
 });
 
+test('a refusal scrolls its status into view; "Saving…" never does', async () => {
+    const h = table();
+    h.edit.begin('c1');
+
+    // The guard under test: scroll on `message` only. Widening it to the
+    // in-flight hint would yank the viewport on every save.
+    const calls: string[] = [];
+    (HTMLElement.prototype as { scrollIntoView: () => void }).scrollIntoView = function (
+        this: HTMLElement,
+    ) {
+        calls.push(this.className);
+    };
+
+    let release: (() => void) | null = null;
+    const inFlight = h.edit.commit(
+        () => new Promise<{ ok: false; message: string }>((resolve) => {
+            release = () => resolve({ ok: false, message: 'The server said no.' });
+        }),
+    );
+    // Mid-flight: the "Saving…" hint is showing and must not have scrolled.
+    expect(calls).toEqual([]);
+
+    release!();
+    await inFlight;
+
+    expect(calls.length).toBe(1);
+    expect(calls[0]).toContain('mtable__status');
+});
+
 test("entering edit hands focus to the row's first control", async () => {
     const h = table();
     h.edit.begin('c1');

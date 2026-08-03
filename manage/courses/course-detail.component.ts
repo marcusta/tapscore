@@ -7,6 +7,7 @@ import { CoursesService } from './courses.service';
 import { HolesComponent } from './holes.component';
 import { TeesComponent } from './tees.component';
 import { TeeRolesComponent } from './tee-roles.component';
+import { RouteTemplatesComponent } from './route-templates.component';
 import type { Course } from '../../src/api/courses.gen';
 import { CLUBS_PATH, COURSE_ROUTE, clubPath } from './routes';
 
@@ -18,11 +19,12 @@ import { CLUBS_PATH, COURSE_ROUTE, clubPath } from './routes';
  * {Club} → {Course}), the deep-link load, the not-found state for a course
  * deleted since the link was made, and the order the course's editors appear
  * in. The editors themselves are components mounted into hosts — holes (§3.4),
- * tees (§3.5) and the tee-role matrix (§3.6) — because each is a heading with
- * its own grid, its own writes and its own failure states, and a page that
- * inlined all three would be one file nobody could review.
+ * tees (§3.5) and the tee-role matrix (§3.6), plus the read-only route list
+ * (§3.8) — because each is a heading with its own grid, its own writes and its
+ * own failure states, and a page that inlined all four would be one file nobody
+ * could review.
  *
- * STACKED SECTIONS rather than tabs, deliberately: the three are read together
+ * STACKED SECTIONS rather than tabs, deliberately: they are read together
  * (a tee's per-hole lengths only make sense beside the holes; a tee role points
  * at a tee), and tabs would hide two thirds of a course behind a click while
  * adding a second thing the URL has to remember.
@@ -64,6 +66,12 @@ const tpl = template(`
                  a role points AT a tee, so the list it points into has to have
                  been read first. -->
             <div bind="teeRolesHost" class="mcourse__section"></div>
+
+            <!-- The course's saved routes (spec §3.8), read-only. Last of the
+                 four because it is the most derived: a route is written in
+                 terms of the holes above it and can override a tee's lengths,
+                 so it is read after both. -->
+            <div bind="routesHost" class="mcourse__section"></div>
 
             <p class="mcourse__lead">The course’s name, hole count and position are edited on the club page.</p>
             <button bind="back" class="mcourse__secondary" type="button">Back to the club</button>
@@ -205,6 +213,7 @@ export class CourseDetailComponent extends Component {
                 courseId,
             });
             this.spawn(TeeRolesComponent, this.ref(frag, 'teeRolesHost'), { courseId });
+            this.spawn(RouteTemplatesComponent, this.ref(frag, 'routesHost'), { courseId });
         }
 
         return frag;

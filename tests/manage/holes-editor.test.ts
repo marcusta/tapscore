@@ -609,3 +609,108 @@ test('the clash message’s escape route works: fix it in the grid, come back, n
     expect(state.bulkWrites[0]!.holes).toHaveLength(18);
     expect(el(host, '[bind="fill"]').hidden).toBe(true);
 });
+
+// ─── Hole rows beyond the count (the 18 → 9 dead end) ───
+
+const nineOf = (over: Partial<Course> = {}): Course =>
+    course({
+        holeCount: 9,
+        holes: [
+            ...Array.from({ length: 9 }, (_, i) => hole(i + 1, 4, i + 1)),
+            ...Array.from({ length: 9 }, (_, i) => hole(i + 10, 5, i + 10)),
+        ],
+        ...over,
+    });
+
+const openDialog = (): HTMLElement => document.querySelector('.ui-confirm.open') as HTMLElement;
+
+test('extra rows are listed with what is stored on them, not just counted', async () => {
+    state.courses = [nineOf()];
+    const { host } = await editor();
+
+    expect(el(host, '[bind="trim"]').hidden).toBe(false);
+    const lead = el(host, '[bind="trimLead"]').textContent ?? '';
+    expect(lead).toContain('set to 9 holes');
+    expect(lead).toContain('holes 10, 11, 12, 13, 14, 15, 16, 17 and 18');
+
+    // Every row that would go, with its par and stroke index — the fact a
+    // count cannot carry.
+    const lost = [...host.querySelectorAll('[bind="trimLoss"] li')].map((li) => li.textContent);
+    expect(lost).toHaveLength(9);
+    expect(lost[0]).toBe('Hole 10 — par 5, stroke index 10');
+    expect(lost[8]).toBe('Hole 18 — par 5, stroke index 18');
+});
+
+test('the trim asks before it deletes, and sends the set WITHOUT the extra rows', async () => {
+    state.courses = [nineOf()];
+    const { host } = await editor();
+
+    button(el(host, '[bind="trim"]'), 'Remove these 9 hole rows').click();
+    const message = el(openDialog(), '.ui-confirm__message').textContent ?? '';
+    expect(message).toContain('Holes 10, 11, 12, 13, 14, 15, 16, 17 and 18');
+    expect(message).toContain('keeps its 9 holes');
+    expect(message).toContain('cannot be undone');
+
+    (openDialog().querySelector('.ui-confirm__btn--danger') as HTMLButtonElement).click();
+    await settle();
+
+    // One bulk write, carrying exactly the holes that stay. Absence is the
+    // delete — there is no per-row endpoint and this needs none.
+    expect(state.bulkWrites).toHaveLength(1);
+    expect(state.bulkWrites[0]!.holes!.map((h) => h.holeNumber)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(state.holeWrites).toHaveLength(0);
+    expect(el(host, '[bind="trim"]').hidden).toBe(true);
+});
+
+test('a former eighteen says which stroke indices to fix before it will trim', async () => {
+    // The real shape: the kept nine carry stroke indices from 1..18.
+    state.courses = [
+        nineOf({
+            holes: [
+                ...Array.from({ length: 9 }, (_, i) => hole(i + 1, 4, i * 2 + 1)),
+                hole(10, 5, 2),
+            ],
+        }),
+    ];
+    const { host } = await editor();
+
+    const blocked = el(host, '[bind="trimBlocked"]');
+    expect(blocked.hidden).toBe(false);
+    expect(blocked.textContent).toContain('in the grid above');
+    // The control is not pressable, and the sentence beside it says why —
+    // a disabled button with no reason is the dead end this panel removes.
+    expect((el(host, '[bind="trimOpen"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(state.bulkWrites).toHaveLength(0);
+});
+
+test('a refused trim shows the server’s own sentence and keeps the rows', async () => {
+    state.courses = [nineOf()];
+    const { host } = await editor();
+
+    state.failWith = new ApiError(409, 'Stroke indices must run from 1 to 9, each exactly once.');
+    button(el(host, '[bind="trim"]'), 'Remove these 9 hole rows').click();
+    (openDialog().querySelector('.ui-confirm__btn--danger') as HTMLButtonElement).click();
+    await settle();
+
+    const error = el(host, '[bind="trimError"]');
+    expect(error.hidden).toBe(false);
+    expect(error.textContent).toBe('Stroke indices must run from 1 to 9, each exactly once.');
+    // Still offered, because nothing was removed.
+    expect(el(host, '[bind="trim"]').hidden).toBe(false);
+});
+
+test('the course check points at the panel that can actually fix the rows', async () => {
+    state.courses = [nineOf()];
+    state.validations = {
+        k1: {
+            ok: false,
+            issues: [
+                { severity: 'error', code: 'unexpected_holes', message: 'Hole numbers outside 1..9: 10, 11' },
+            ],
+        },
+    };
+    const { host } = await editor();
+
+    const explanation = el(host, '.mholes__issue-text').textContent ?? '';
+    expect(explanation).toContain('Remove them in the panel below');
+});

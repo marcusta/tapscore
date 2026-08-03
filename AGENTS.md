@@ -41,6 +41,18 @@ Adding or restyling a UI control on either client? Read
 cross-surface rulings (which control a bounded choice gets, how a selection
 reads, labels vs explanations, words over symbols).
 
+## The two web apps
+
+`src/` is the player SPA. `manage/` is **Tapscore Manage**, a second SPA for
+administering the catalog (clubs, courses, holes, tees, tee roles) and, later,
+competitions and tours. Separate build, separate entry, same repo, same origin,
+same session cookie; authorization is `course_admin` / `super_admin` via
+`CourseManagementAuthz`. It serves at `/manage/` in dev and
+`/tapscore/manage/` in production, and it reuses the generated clients in
+`src/api/*.gen.ts` through its own base-path shim (`manage/api-base.ts`).
+Read [docs/proposals/manage-ui.md](docs/proposals/manage-ui.md) before changing
+anything under `manage/`.
+
 ## Dependencies
 
 `@basics/core` is installed via `file:./vendor/basics-core-<X.Y.Z>.tgz`. Behaviour:
@@ -169,8 +181,11 @@ scattered literals.
 
 ```bash
 bun run dev:server       # Bun server on :3030 with --watch
+bun run dev:client       # vite dev server for the player app (src/)
+bun run dev:manage       # vite dev server for Tapscore Manage (manage/)
+bun run build            # BOTH artifacts: public/ (player) then public/manage/
 bun run check:server     # tsgo on server/
-bun run check:client     # tsgo on src/
+bun run check:client     # tsgo on src/ and manage/
 bun run check:test       # tsgo on tests/
 bun run test:server      # server tests
 bun run test:client      # project client/pure UI tests
@@ -231,7 +246,16 @@ Deployed at `https://app.swedenindoorgolf.se/tapscore/` — the app is served
 under the `/tapscore/` base path, so client routes and the API both sit beneath
 it (for example `https://app.swedenindoorgolf.se/tapscore/api/health`).
 
-**The `@basics/core` 1.1.0 migration is not deployed yet.** Pre-deploy QA walk,
-in **both** light and dark themes: create round → score entry → leaderboard →
-settings, checking confirm dialogs and selects at each step (those surfaces
-depend most on the bridged control tokens).
+**The build artifact is committed** — the deploy has no build step. After any
+client change run `bun run build` and commit the output **with** the source, and
+that means **both** trees: `public/` (player) and `public/manage/` (Manage).
+Order matters and the script already encodes it — the player build has
+`emptyOutDir: true` on `public/`, so it must run first or it wipes
+`public/manage/`. Never run one of the two builds alone.
+
+**`@basics/core` 1.4.0 is the current framework release** (see
+`vendor/basics-core-1.4.0.tgz`). Every framework upgrade still owes the same
+pre-deploy QA walk, in **both** light and dark themes: create round → score
+entry → leaderboard → settings, checking confirm dialogs and selects at each
+step (those surfaces depend most on the bridged control tokens). Manage's own
+walk is clubs → course → holes → tees → roles, at both widths.
