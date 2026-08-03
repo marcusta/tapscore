@@ -18,7 +18,6 @@ import { ProfileComponent } from '../profile/profile.component';
 import { StatsDashboardComponent } from '../stats/stats-dashboard.component';
 import { RoundStatsComponent } from '../stats/round-stats.component';
 import { AdminComponent } from '../admin/admin.component';
-import { CourseSetupComponent } from '../course-setup/course-setup.component';
 import { CompetitionsComponent } from '../competition/competitions.component';
 import { CompetitionDetailComponent } from '../competition/competition-detail.component';
 import { features } from '../features';
@@ -115,7 +114,6 @@ export class AppComponent extends Component {
             // Always routed — the gate is the server's super_admin check, not
             // the absence of a route. Non-admins reaching /admin see a refusal.
             '/admin': AdminComponent,
-            '/course-setup': CourseSetupComponent,
             // Toggled off in prod: the routes go away too, so a stale
             // /competitions link falls through to the landing fallback.
             ...(features.competitions

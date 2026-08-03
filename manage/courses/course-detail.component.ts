@@ -6,6 +6,7 @@ import { ClubsService } from './clubs.service';
 import { CoursesService } from './courses.service';
 import { HolesComponent } from './holes.component';
 import { TeesComponent } from './tees.component';
+import { TeeRolesComponent } from './tee-roles.component';
 import type { Course } from '../../src/api/courses.gen';
 import { CLUBS_PATH, COURSE_ROUTE, clubPath } from './routes';
 
@@ -16,10 +17,10 @@ import { CLUBS_PATH, COURSE_ROUTE, clubPath } from './routes';
  * What this page owns is the FRAME: the breadcrumb trail (spec §3.1: Clubs →
  * {Club} → {Course}), the deep-link load, the not-found state for a course
  * deleted since the link was made, and the order the course's editors appear
- * in. The editors themselves are components mounted into hosts — holes (§3.4)
- * today, tees (§3.5) and the tee-role matrix (§3.6) next — because each is a
- * heading with its own grid, its own writes and its own failure states, and a
- * page that inlined all three would be one file nobody could review.
+ * in. The editors themselves are components mounted into hosts — holes (§3.4),
+ * tees (§3.5) and the tee-role matrix (§3.6) — because each is a heading with
+ * its own grid, its own writes and its own failure states, and a page that
+ * inlined all three would be one file nobody could review.
  *
  * STACKED SECTIONS rather than tabs, deliberately: the three are read together
  * (a tee's per-hole lengths only make sense beside the holes; a tee role points
@@ -56,10 +57,12 @@ const tpl = template(`
                  own, because the trail this page sets is already its. -->
             <div bind="holesHost" class="mcourse__section"></div>
 
-            <!-- T7 (spec §3.5) mounts the tees editor here. -->
+            <!-- The course's tees (spec §3.5). -->
             <div bind="teesHost" class="mcourse__section"></div>
 
-            <!-- T8 (spec §3.6) mounts the tee-role matrix here. -->
+            <!-- The tee-role matrix (spec §3.6). Below the tees deliberately:
+                 a role points AT a tee, so the list it points into has to have
+                 been read first. -->
             <div bind="teeRolesHost" class="mcourse__section"></div>
 
             <p class="mcourse__lead">The course’s name, hole count and position are edited on the club page.</p>
@@ -201,6 +204,7 @@ export class CourseDetailComponent extends Component {
                 clubId: this.clubId(),
                 courseId,
             });
+            this.spawn(TeeRolesComponent, this.ref(frag, 'teeRolesHost'), { courseId });
         }
 
         return frag;

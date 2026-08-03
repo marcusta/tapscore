@@ -13,6 +13,7 @@ import { HomeStatsService } from '../landing/home-stats.service';
 import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import { signOutSequence } from '../auth/sign-out';
 import { avatarBadgeBindings, avatarBadgeCss, avatarBadgeMarkup } from './avatar-badge';
+import { manageUrl } from './manage-url';
 import {
     accountControl,
     accountMenuKinds,
@@ -48,7 +49,7 @@ const tpl = template(`
             </div>
             <div class="acct__actions" role="group" aria-label="Account">
                 <button bind="profile" class="acct__row" type="button">Profile</button>
-                <button bind="courseSetup" class="acct__row" type="button">Course setup</button>
+                <a bind="courseSetup" class="acct__row">Course setup</a>
                 <button bind="admin" class="acct__row" type="button">Admin</button>
                 <button bind="signout" class="acct__row acct__row--quiet" type="button">Sign out</button>
                 <button bind="signoutAll" class="acct__row acct__row--quiet" type="button">Sign out everywhere</button>
@@ -152,6 +153,11 @@ export class AccountMenuComponent extends Component {
                     border: none;
                     border-radius: ${t('radius-sm')};
                     text-align: left;
+                    /* The Course setup row is an anchor (it leaves this app),
+                       and the rest are buttons; these two declarations are what
+                       make the anchor read as the same row. */
+                    text-decoration: none;
+                    box-sizing: border-box;
                     font-family: inherit;
                     font-size: 0.95rem;
                     font-weight: 600;
@@ -280,12 +286,16 @@ export class AccountMenuComponent extends Component {
                     this.router.navigate('/profile');
                 },
             },
+            // The one row that LEAVES this app. Course setup is now the Manage
+            // app's course pages (clubs → course → holes, tees, tee roles), a
+            // separate bundle served beside this one — so it is an anchor with
+            // a real href, not a router navigation: the browser has to load the
+            // other document, and a link is also what lets it be opened in a
+            // new tab, which a management task frequently wants.
             courseSetup: {
                 className: () => this.rowClass('course-setup'),
-                onclick: () => {
-                    this.open.set(false);
-                    this.router.navigate('/course-setup');
-                },
+                href: manageUrl(),
+                onclick: () => this.open.set(false),
             },
             admin: {
                 className: () => this.rowClass('admin'),
