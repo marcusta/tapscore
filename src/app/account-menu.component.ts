@@ -48,6 +48,7 @@ const tpl = template(`
             </div>
             <div class="acct__actions" role="group" aria-label="Account">
                 <button bind="profile" class="acct__row" type="button">Profile</button>
+                <button bind="courseSetup" class="acct__row" type="button">Course setup</button>
                 <button bind="admin" class="acct__row" type="button">Admin</button>
                 <button bind="signout" class="acct__row acct__row--quiet" type="button">Sign out</button>
                 <button bind="signoutAll" class="acct__row acct__row--quiet" type="button">Sign out everywhere</button>
@@ -171,7 +172,7 @@ export class AccountMenuComponent extends Component {
     private activity = this.inject(FriendsActivityService);
     private friendProfile = this.inject(FriendProfileService);
     private spectate = this.inject(SpectateService);
-    // Presentation only — /api/admin/* is gated server-side on the grant.
+        // Presentation only — /api/admin/* is gated server-side on the grant.
     private admins = this.inject(AdminService);
     // Sign-out has to reset the landing too — signing out while on '/' never
     // remounts it. See `signOutSequence`.
@@ -188,6 +189,7 @@ export class AccountMenuComponent extends Component {
         username: this.profile.player.get()?.username ?? this.auth.currentUser.get()?.username ?? null,
         // A failed roles fetch leaves the list empty → false → row hidden.
         isSuperAdmin: this.admins.isSuperAdmin(),
+        canManageCourses: this.admins.canManageCourses(),
     }));
 
     private signOutAllOpen = new Signal(false);
@@ -276,6 +278,13 @@ export class AccountMenuComponent extends Component {
                 onclick: () => {
                     this.open.set(false);
                     this.router.navigate('/profile');
+                },
+            },
+            courseSetup: {
+                className: () => this.rowClass('course-setup'),
+                onclick: () => {
+                    this.open.set(false);
+                    this.router.navigate('/course-setup');
                 },
             },
             admin: {

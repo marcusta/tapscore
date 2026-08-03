@@ -71,6 +71,29 @@ test('GET /setup/tees/by-course returns a course\'s tees with gender ratings, NO
     expect(male.par).toBe(72);
 });
 
+test('GET /setup/tee-roles exposes portable roles and course assignments with NO login', async () => {
+    const { ctx, course, tee } = await setup();
+    await ctx.courseService.setTeeRole({
+        courseId: course.id, roleKey: 'club', gender: 'M', teeId: tee.id,
+    });
+
+    const catalogue = await req(ctx.app, 'GET', '/api/setup/tee-roles/catalog');
+    expect(catalogue.status).toBe(200);
+    expect(await catalogue.json()).toEqual(expect.arrayContaining([
+        expect.objectContaining({ roleKey: 'club', displayName: 'Club' }),
+    ]));
+
+    const mappings = await req(
+        ctx.app,
+        'GET',
+        `/api/setup/tee-roles/by-course?courseId=${course.id}`,
+    );
+    expect(mappings.status).toBe(200);
+    expect(await mappings.json()).toEqual([
+        { courseId: course.id, roleKey: 'club', gender: 'M', teeId: tee.id },
+    ]);
+});
+
 test('GET /setup/formats returns the registered descriptors with NO login', async () => {
     const { ctx } = await setup();
     const res = await req(ctx.app, 'GET', '/api/setup/formats');

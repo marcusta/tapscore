@@ -2,7 +2,13 @@
 // rows the popover shows. Kept out of the component so the composition per
 // auth/role state is testable without a DOM (same split as `rows`/`partition`).
 
-export type AccountMenuRowKind = 'identity' | 'profile' | 'admin' | 'signout' | 'signout-all';
+export type AccountMenuRowKind =
+    | 'identity'
+    | 'profile'
+    | 'course-setup'
+    | 'admin'
+    | 'signout'
+    | 'signout-all';
 
 export interface AccountMenuIdentity {
     kind: 'identity';
@@ -11,7 +17,7 @@ export interface AccountMenuIdentity {
 }
 
 export interface AccountMenuAction {
-    kind: 'profile' | 'admin' | 'signout' | 'signout-all';
+    kind: 'profile' | 'course-setup' | 'admin' | 'signout' | 'signout-all';
     label: string;
 }
 
@@ -29,6 +35,8 @@ export interface AccountMenuState {
      * server gates `/api/admin/*` regardless.
      */
     isSuperAdmin: boolean;
+    /** True for global course_admin or super_admin. */
+    canManageCourses?: boolean;
 }
 
 /**
@@ -45,6 +53,7 @@ export function accountMenuRows(state: AccountMenuState): AccountMenuRow[] {
         },
         { kind: 'profile', label: 'Profile' },
     ];
+    if (state.canManageCourses) rows.push({ kind: 'course-setup', label: 'Course setup' });
     if (state.isSuperAdmin) rows.push({ kind: 'admin', label: 'Admin' });
     rows.push({ kind: 'signout', label: 'Sign out' });
     // Last, and never adjacent to Profile/Admin: a mis-tap here signs the

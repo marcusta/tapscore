@@ -13,6 +13,14 @@ enum SetupEndpoints {
         method: .get,
         path: "/setup/tees/by-course",
         pathParams: [])
+    static let teeRoleCatalog = APIEndpoint<EmptyInput, [TeeRole]>(
+        method: .get,
+        path: "/setup/tee-roles/catalog",
+        pathParams: [])
+    static let teeRolesByCourse = APIEndpoint<CourseRouteTemplatesListByCourseInput, [CourseTeeRole]>(
+        method: .get,
+        path: "/setup/tee-roles/by-course",
+        pathParams: [])
     static let formats = APIEndpoint<EmptyInput, [FormatDescriptor]>(
         method: .get,
         path: "/setup/formats",

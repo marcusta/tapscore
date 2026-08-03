@@ -159,7 +159,7 @@ final class ProfileStore {
         // dashboard entry. Either may fail without hiding the profile's core
         // facts. The probe uses `limit: 1` because its rows are thrown away;
         // only `roundsWithStats` is read from its first page.
-        async let teeRoleCatalog = try? await api.send(CoursesEndpoints.teeRoleCatalog)
+        async let teeRoleCatalog = try? await api.send(SetupEndpoints.teeRoleCatalog)
         async let statsProbe = try? await api.send(
             PlayerStatsEndpoints.myStats, PlayerStatsMyStatsInput(limit: 1, cursor: nil))
         do {

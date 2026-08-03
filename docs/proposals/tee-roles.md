@@ -22,6 +22,20 @@ Roles are global rather than arbitrary per-course labels. Adding a role is
 data-additive, but it becomes selectable without client code only once the
 profile/create UI consumes the catalogue generically.
 
+## Read and authoring interfaces
+
+The public read side belongs to the no-login setup catalogue, not the
+course-authoring interface:
+
+- `GET /setup/tee-roles/catalog`
+- `GET /setup/tee-roles/by-course?courseId=…`
+
+Round setup can therefore resolve defaults before a player has authenticated.
+Course, tee and mapping authoring stays on the authenticated `/courses` and
+`/tees` interfaces; every mutation is gated by global `course_admin` or
+`super_admin`. This keeps a round creator dependent on a small read interface,
+not a broad administrator-shaped one.
+
 ## Round creation
 
 The flow stays round-first:

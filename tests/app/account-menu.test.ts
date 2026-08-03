@@ -15,6 +15,7 @@ const signedIn = {
     displayName: 'Marcus Andersson',
     username: 'marcus',
     isSuperAdmin: false,
+    canManageCourses: false,
 };
 
 test('signed out: the control is Sign in and there is no menu', () => {
@@ -35,16 +36,24 @@ test('signed in: avatar control, identity + Profile + Sign out (no Admin)', () =
     });
 });
 
-test('unscoped super_admin: Admin sits between Profile and Sign out', () => {
-    const state = { ...signedIn, isSuperAdmin: true };
+test('course_admin sees Course setup but not the cross-player Admin surface', () => {
+    const state = { ...signedIn, canManageCourses: true };
     expect(accountMenuKinds(state)).toEqual([
-        'identity', 'profile', 'admin', 'signout', 'signout-all',
+        'identity', 'profile', 'course-setup', 'signout', 'signout-all',
+    ]);
+});
+
+test('unscoped super_admin: Course setup and Admin sit between Profile and Sign out', () => {
+    const state = { ...signedIn, isSuperAdmin: true, canManageCourses: true };
+    expect(accountMenuKinds(state)).toEqual([
+        'identity', 'profile', 'course-setup', 'admin', 'signout', 'signout-all',
     ]);
     // The whole ordered list, not just the kinds — labels and identity are part
     // of the contract the component binds on.
     expect(accountMenuRows(state)).toEqual([
         { kind: 'identity', displayName: 'Marcus Andersson', username: 'marcus' },
         { kind: 'profile', label: 'Profile' },
+        { kind: 'course-setup', label: 'Course setup' },
         { kind: 'admin', label: 'Admin' },
         { kind: 'signout', label: 'Sign out' },
         // Last on purpose — see `accountMenuRows`.

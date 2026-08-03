@@ -26,6 +26,19 @@ export interface Tee {
     ratings: TeeRating[];
 }
 
+export interface TeeRole {
+    roleKey: string;
+    displayName: string;
+    sortOrder: number;
+}
+
+export interface CourseTeeRole {
+    courseId: string;
+    roleKey: string;
+    gender: 'M' | 'F';
+    teeId: string;
+}
+
 export interface FormatDescriptor {
     id: string;
     label: string;
@@ -163,6 +176,8 @@ export interface SetupApi {
     clubs(): Promise<Club[]>;
     courses(): Promise<SetupCourse[]>;
     teesByCourse(input: { courseId: string }): Promise<Tee[]>;
+    teeRoleCatalog(): Promise<TeeRole[]>;
+    teeRolesByCourse(input: { courseId: string }): Promise<CourseTeeRole[]>;
     formats(): Promise<FormatDescriptor[]>;
     aggregations(): Promise<AggregationDescriptor[]>;
     formations(): Promise<FormationDescriptor[]>;
@@ -182,6 +197,16 @@ export function createSetupClient(baseUrl: string): SetupApi {
                 if (v !== undefined) params.set(k, String(v));
             const qs = params.toString();
             return apiFetch({ method: 'GET', url: `${baseUrl}/setup/tees/by-course${qs ? '?' + qs : ''}` });
+        },
+        async teeRoleCatalog() {
+            return apiFetch({ method: 'GET', url: `${baseUrl}/setup/tee-roles/catalog` });
+        },
+        async teeRolesByCourse(input) {
+            const params = new URLSearchParams();
+            for (const [k, v] of Object.entries(input as any))
+                if (v !== undefined) params.set(k, String(v));
+            const qs = params.toString();
+            return apiFetch({ method: 'GET', url: `${baseUrl}/setup/tee-roles/by-course${qs ? '?' + qs : ''}` });
         },
         async formats() {
             return apiFetch({ method: 'GET', url: `${baseUrl}/setup/formats` });

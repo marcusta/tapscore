@@ -36,6 +36,12 @@ export function createSetupApi(courses: CourseService, tees: TeeService, clubs: 
         clubs:       { method: 'GET' as const, path: '/setup/clubs',          fn: ()                                       => clubs.list() },
         courses:     { method: 'GET' as const, path: '/setup/courses',        fn: ()                                       => courses.listForSetup() },
         teesByCourse:{ method: 'GET' as const, path: '/setup/tees/by-course',  fn: (input: Static<typeof ByCourseInput>)    => tees.listByCourse(input.courseId), schema: ByCourseInput },
+        // Portable role semantics and a course's gender-specific assignments
+        // are consumed while resolving round defaults. They are course facts,
+        // so they belong on this public SELECT-side interface rather than the
+        // authenticated course-authoring interface.
+        teeRoleCatalog: { method: 'GET' as const, path: '/setup/tee-roles/catalog', fn: () => courses.listTeeRoles() },
+        teeRolesByCourse: { method: 'GET' as const, path: '/setup/tee-roles/by-course', fn: (input: Static<typeof ByCourseInput>) => courses.listTeeRolesForCourse(input.courseId), schema: ByCourseInput },
         formats:     { method: 'GET' as const, path: '/setup/formats',         fn: (): FormatDescriptor[]                   => formatCatalog() },
         aggregations:{ method: 'GET' as const, path: '/setup/aggregations',    fn: (): AggregationDescriptor[]              => aggregationCatalog() },
         formations:  { method: 'GET' as const, path: '/setup/formations',      fn: (): FormationDescriptor[]                => formationCatalog() },

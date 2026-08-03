@@ -57,13 +57,15 @@ test('course catalog writes require course_admin, while super_admin is its super
     expect(role.status).toBe(200);
     expect(await role.json()).toEqual({ courseId: course.id, roleKey: 'club', gender: 'M', teeId: tee.id });
 
-    const mappings = await (await req(
+    const mappingsResponse = await req(
         ctx.app,
         'GET',
         `/api/courses/tee-roles?courseId=${course.id}`,
         undefined,
         regularCookie,
-    )).json();
+    );
+    expect(mappingsResponse.status).toBe(200);
+    const mappings = await mappingsResponse.json();
     expect(mappings).toHaveLength(1);
 
     // Global operator remains able to maintain the same course catalog.

@@ -44,6 +44,14 @@ export class AdminService {
             .some((g) => g.role === 'super_admin' && g.scopeType === null);
     }
 
+    /** The global grant which may author clubs, courses, tees and mappings. */
+    canManageCourses(): boolean {
+        return this.isSuperAdmin()
+            || this.roles
+                .get()
+                .some((g) => g.role === 'course_admin' && g.scopeType === null);
+    }
+
     /**
      * Load the caller's own grants. Load-once (unless forced) and quiet: an
      * anonymous caller gets a 401 here, which is not an error worth surfacing
