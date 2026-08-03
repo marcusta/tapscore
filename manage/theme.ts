@@ -87,11 +87,47 @@ const manageTokens: Record<string, string> = {
 };
 
 /**
+ * The shell CHROME — sidebar, top bar, drawer — which is the one surface in
+ * either client painted on dark ink in BOTH colour schemes.
+ *
+ * `topbar-bg` is deep fairway ink light and dark alike (that is what makes the
+ * player app's tab bar read the same at noon and at night), so the foreground
+ * that sits on it is a warm cream in both — and the shared palette spells that
+ * cream under a different name in each scheme (`primary-text` light, `text`
+ * dark; the two both invert with the page, which is exactly what the chrome
+ * must not do). Hence the one parameter: everything else here is DERIVED from
+ * it with `color-mix`, so the muted, hover, active and hairline values follow
+ * automatically and no scheme carries a second copy.
+ *
+ * `manage-chrome-active-bg` is a raised translucent pill rather than a solid
+ * fill, per docs/design-guidelines.md §2 — selection reads by elevation, not
+ * saturation, and a nav item that merely says where you are must not look like
+ * the button you press to move forward.
+ */
+const chromeTokens = (fg: string): Record<string, string> => ({
+    'manage-chrome-bg': 'var(--topbar-bg)',
+    'manage-chrome-fg': fg,
+    'manage-chrome-fg-muted': 'color-mix(in srgb, var(--manage-chrome-fg) 66%, transparent)',
+    'manage-chrome-border': 'color-mix(in srgb, var(--manage-chrome-fg) 14%, transparent)',
+    'manage-chrome-hover-bg': 'color-mix(in srgb, var(--manage-chrome-fg) 9%, transparent)',
+    'manage-chrome-active-bg': 'color-mix(in srgb, var(--manage-chrome-fg) 16%, transparent)',
+    // The scrim behind the drawer. Ink rather than pure black so the dimmed
+    // page keeps the clubhouse cast instead of going grey.
+    'manage-scrim': 'color-mix(in srgb, var(--topbar-bg) 62%, transparent)',
+});
+
+/**
  * The complete token maps for Manage — the shared Tapscore palette plus the
  * additions above, merged over the framework's neutral base and expanded with
  * the derived `--field-*` / `--btn-*` control tokens.
  */
-export const resolvedLight = resolveTapscoreTokens('light', manageTokens);
-export const resolvedDark = resolveTapscoreTokens('dark', manageTokens);
+export const resolvedLight = resolveTapscoreTokens('light', {
+    ...manageTokens,
+    ...chromeTokens('var(--primary-text)'),
+});
+export const resolvedDark = resolveTapscoreTokens('dark', {
+    ...manageTokens,
+    ...chromeTokens('var(--text)'),
+});
 
 export const t = createTokens(resolvedLight, resolvedDark);

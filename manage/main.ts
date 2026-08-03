@@ -1,54 +1,41 @@
-// Placeholder entry — T2 (shell, router, roles) replaces this with the real
-// app boot. It renders enough to prove the plumbing: the bundle builds, the
-// server serves it under /manage/, the base-path-corrected API root resolves
-// the way `api-base.ts` claims it does, and the shared Tapscore theme paints
-// it in whichever colour scheme the browser — or the player app's stored
-// preference — asks for.
+import { di, startApp, Theme } from '@basics/core/client/core';
+import { AuthService } from '@basics/core/client/auth';
+import './theme';
+import { syncThemeColor } from './theme-color';
+import { ManageAuthService } from './auth/manage-auth.service';
+import { AppComponent } from './app.component';
 
-import { di, Theme } from '@basics/core/client/core';
-import { t } from './theme';
-import { API_BASE } from './api-base';
+// Tapscore Manage — entry point. Same shape as `src/main.ts`, and the two
+// deliberate differences are the ones the second app forced:
+//
+//  1. `ManageAuthService` instead of `BasePathAuthService`. Both exist to move
+//     the auth endpoints off the framework's own base; Manage's base points a
+//     level deeper than the API (see `manage/api-base.ts`).
+//  2. No route bounce after `load()`. The player app's login is an optional
+//     side door with its own route; here the signed-out state is a GATE the
+//     root component swaps in, not a page you can be on — so there is no
+//     "already signed in, get off the login page" case to handle.
 
 // Installs `data-theme` on <html> from prefers-color-scheme + localStorage.
 // Without it the token blocks sit in the document but neither selector
 // matches, so not a single var() resolves.
 di.get(Theme);
+syncThemeColor();
 
-const style = document.createElement('style');
-style.textContent = `
-    .boot {
-        display: flex;
-        flex-direction: column;
-        gap: ${t('manage-stack-gap')};
-        align-items: center;
-        justify-content: center;
-        height: 100%;
-        padding: ${t('manage-page-pad')};
-        color: ${t('text')};
-        text-align: center;
-    }
-    .boot__title {
-        margin: 0;
-        font-family: ${t('font-display')};
-        font-size: 2rem;
-        font-weight: 600;
-    }
-    .boot__note {
-        margin: 0;
-        color: ${t('text-muted')};
-        font-size: 0.875rem;
-    }
-`;
-document.head.appendChild(style);
+// Bind the manage-base subclass under the AuthService key BEFORE anything
+// injects it. Every `inject(AuthService)` in this app resolves to this
+// instance.
+di.set(AuthService, new ManageAuthService());
+const auth = di.get(AuthService);
 
-const app = document.querySelector('#app');
-if (app) {
-    app.className = 'boot';
-    const heading = document.createElement('h1');
-    heading.className = 'boot__title';
-    heading.textContent = 'Tapscore Manage';
-    const apiBase = document.createElement('p');
-    apiBase.className = 'boot__note';
-    apiBase.textContent = `API base: ${API_BASE}`;
-    app.append(heading, apiBase);
-}
+await startApp(AppComponent, '#app', {
+    hot: import.meta.hot,
+    onInit: async () => {
+        // Answer "is there a session" before the first paint, so the gate does
+        // not flash the sign-in form at someone who is already signed in. The
+        // roles call that follows is NOT awaited here — it is driven by the
+        // session inside `AppComponent`, and its wait is an honest loading
+        // state rather than a blank page.
+        await auth.load();
+    },
+});

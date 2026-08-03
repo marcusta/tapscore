@@ -3,6 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <!--
+        The browser UI colour, matching the ink the shell chrome is painted in:
+        `--topbar-bg`, light scheme (the same token and the same value the
+        player app's index.html carries, because both apps' chrome is the same
+        bar). This literal is the pre-boot value only — `manage/theme-color.ts`
+        rewrites it from the resolved token map as soon as the theme is known,
+        including the dark-scheme ink and a stored preference that disagrees
+        with the system.
+    -->
+    <meta name="theme-color" content="#1e3526">
     <title>Tapscore Manage</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -29,7 +39,7 @@
 
         #app { height: 100%; }
     </style>
-  <script type="module" crossorigin src="/tapscore/manage/assets/index-B0p02gD9.js"></script>
+  <script type="module" crossorigin src="/tapscore/manage/assets/index-CFc5sSea.js"></script>
 </head>
 <body>
     <div id="app"></div>
