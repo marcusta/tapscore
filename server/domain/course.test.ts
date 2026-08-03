@@ -11,7 +11,7 @@ function holes18(): Hole[] {
 }
 
 function makeCourse(holes: Hole[], holeCount = 18): Course {
-    return { id: 'c1', clubId: 'club1', name: 'X', holeCount, holes };
+    return { id: 'c1', clubId: 'club1', name: 'X', holeCount, latitude: null, longitude: null, holes };
 }
 
 test('skeleton course validates ok', () => {

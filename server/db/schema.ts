@@ -885,6 +885,14 @@ export interface CoursesTable {
     club_id: string;
     name: string;
     hole_count: number;
+    /**
+     * WGS84 decimal degrees (migration 061). Nullable, and null together with
+     * `longitude` — `CourseService` is the single write path and enforces
+     * both-or-neither, which SQLite cannot express as a column CHECK. A course
+     * without a position is complete, never a validation issue.
+     */
+    latitude: number | null;
+    longitude: number | null;
     created_at: Generated<string>;
 }
 

@@ -6,6 +6,8 @@ export interface Course {
     clubId: string;
     name: string;
     holeCount: number;
+    latitude: null | number;
+    longitude: null | number;
     holes: Hole[];
 }
 
@@ -46,8 +48,8 @@ export interface CoursesApi {
     get(input: { id: string }): Promise<null | Course>;
     teeRoleCatalog(): Promise<TeeRole[]>;
     teeRoles(input: { courseId: string }): Promise<CourseTeeRole[]>;
-    create(input: { clubId: string; name: string; holeCount: 9 | 18; holes?: { holeNumber: number; par: number; strokeIndex: number }[] }): Promise<Course>;
-    update(input: { id: string; name?: string; holeCount?: 9 | 18; holes?: { holeNumber: number; par: number; strokeIndex: number }[] }): Promise<Course>;
+    create(input: { clubId: string; name: string; holeCount: 9 | 18; holes?: { holeNumber: number; par: number; strokeIndex: number }[]; latitude?: null | number; longitude?: null | number }): Promise<Course>;
+    update(input: { id: string; name?: string; holeCount?: 9 | 18; holes?: { holeNumber: number; par: number; strokeIndex: number }[]; latitude?: null | number; longitude?: null | number }): Promise<Course>;
     updateHole(input: { courseId: string; holeNumber: number; par?: number; strokeIndex?: number }): Promise<Course>;
     setTeeRole(input: { courseId: string; roleKey: string; gender: 'M' | 'F'; teeId: string }): Promise<CourseTeeRole>;
     clearTeeRole(input: { courseId: string; roleKey: string; gender: 'M' | 'F' }): Promise<{ ok: boolean }>;

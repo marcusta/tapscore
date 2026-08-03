@@ -7,6 +7,8 @@ struct Course: Codable, Sendable, Equatable {
     var clubId: String
     var name: String
     var holeCount: Double
+    var latitude: Double?
+    var longitude: Double?
     var holes: [Hole]
 
     enum CodingKeys: String, CodingKey {
@@ -14,14 +16,18 @@ struct Course: Codable, Sendable, Equatable {
         case clubId = "clubId"
         case name = "name"
         case holeCount = "holeCount"
+        case latitude = "latitude"
+        case longitude = "longitude"
         case holes = "holes"
     }
 
-    init(id: String, clubId: String, name: String, holeCount: Double, holes: [Hole]) {
+    init(id: String, clubId: String, name: String, holeCount: Double, latitude: Double? = nil, longitude: Double? = nil, holes: [Hole]) {
         self.id = id
         self.clubId = clubId
         self.name = name
         self.holeCount = holeCount
+        self.latitude = latitude
+        self.longitude = longitude
         self.holes = holes
     }
 
@@ -31,6 +37,8 @@ struct Course: Codable, Sendable, Equatable {
         self.clubId = try c.decode(String.self, forKey: .clubId)
         self.name = try c.decode(String.self, forKey: .name)
         self.holeCount = try c.decode(Double.self, forKey: .holeCount)
+        self.latitude = try c.decodeIfPresent(Double.self, forKey: .latitude)
+        self.longitude = try c.decodeIfPresent(Double.self, forKey: .longitude)
         self.holes = try c.decode([Hole].self, forKey: .holes)
     }
 
@@ -40,6 +48,16 @@ struct Course: Codable, Sendable, Equatable {
         try c.encode(clubId, forKey: .clubId)
         try c.encode(name, forKey: .name)
         try c.encode(holeCount, forKey: .holeCount)
+        if let latitude {
+            try c.encode(latitude, forKey: .latitude)
+        } else {
+            try c.encodeNil(forKey: .latitude)
+        }
+        if let longitude {
+            try c.encode(longitude, forKey: .longitude)
+        } else {
+            try c.encodeNil(forKey: .longitude)
+        }
         try c.encode(holes, forKey: .holes)
     }
 }
@@ -282,19 +300,25 @@ struct CoursesCreateInput: Codable, Sendable, Equatable {
     var name: String
     var holeCount: Double
     var holes: [CoursesCreateInputHolesItem]?
+    var latitude: TriState<Double>
+    var longitude: TriState<Double>
 
     enum CodingKeys: String, CodingKey {
         case clubId = "clubId"
         case name = "name"
         case holeCount = "holeCount"
         case holes = "holes"
+        case latitude = "latitude"
+        case longitude = "longitude"
     }
 
-    init(clubId: String, name: String, holeCount: Double, holes: [CoursesCreateInputHolesItem]? = nil) {
+    init(clubId: String, name: String, holeCount: Double, holes: [CoursesCreateInputHolesItem]? = nil, latitude: TriState<Double> = .absent, longitude: TriState<Double> = .absent) {
         self.clubId = clubId
         self.name = name
         self.holeCount = holeCount
         self.holes = holes
+        self.latitude = latitude
+        self.longitude = longitude
     }
 
     init(from decoder: any Decoder) throws {
@@ -303,6 +327,20 @@ struct CoursesCreateInput: Codable, Sendable, Equatable {
         self.name = try c.decode(String.self, forKey: .name)
         self.holeCount = try c.decode(Double.self, forKey: .holeCount)
         self.holes = try c.decodeIfPresent([CoursesCreateInputHolesItem].self, forKey: .holes)
+        if c.contains(.latitude) {
+            self.latitude = try c.decodeNil(forKey: .latitude)
+                ? .null
+                : .value(try c.decode(Double.self, forKey: .latitude))
+        } else {
+            self.latitude = .absent
+        }
+        if c.contains(.longitude) {
+            self.longitude = try c.decodeNil(forKey: .longitude)
+                ? .null
+                : .value(try c.decode(Double.self, forKey: .longitude))
+        } else {
+            self.longitude = .absent
+        }
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -311,6 +349,16 @@ struct CoursesCreateInput: Codable, Sendable, Equatable {
         try c.encode(name, forKey: .name)
         try c.encode(holeCount, forKey: .holeCount)
         try c.encodeIfPresent(holes, forKey: .holes)
+        switch latitude {
+        case .absent: break
+        case .null: try c.encodeNil(forKey: .latitude)
+        case .value(let v): try c.encode(v, forKey: .latitude)
+        }
+        switch longitude {
+        case .absent: break
+        case .null: try c.encodeNil(forKey: .longitude)
+        case .value(let v): try c.encode(v, forKey: .longitude)
+        }
     }
 }
 
@@ -319,19 +367,25 @@ struct CoursesUpdateInput: Codable, Sendable, Equatable {
     var name: String?
     var holeCount: Double?
     var holes: [CoursesCreateInputHolesItem]?
+    var latitude: TriState<Double>
+    var longitude: TriState<Double>
 
     enum CodingKeys: String, CodingKey {
         case id = "id"
         case name = "name"
         case holeCount = "holeCount"
         case holes = "holes"
+        case latitude = "latitude"
+        case longitude = "longitude"
     }
 
-    init(id: String, name: String? = nil, holeCount: Double? = nil, holes: [CoursesCreateInputHolesItem]? = nil) {
+    init(id: String, name: String? = nil, holeCount: Double? = nil, holes: [CoursesCreateInputHolesItem]? = nil, latitude: TriState<Double> = .absent, longitude: TriState<Double> = .absent) {
         self.id = id
         self.name = name
         self.holeCount = holeCount
         self.holes = holes
+        self.latitude = latitude
+        self.longitude = longitude
     }
 
     init(from decoder: any Decoder) throws {
@@ -340,6 +394,20 @@ struct CoursesUpdateInput: Codable, Sendable, Equatable {
         self.name = try c.decodeIfPresent(String.self, forKey: .name)
         self.holeCount = try c.decodeIfPresent(Double.self, forKey: .holeCount)
         self.holes = try c.decodeIfPresent([CoursesCreateInputHolesItem].self, forKey: .holes)
+        if c.contains(.latitude) {
+            self.latitude = try c.decodeNil(forKey: .latitude)
+                ? .null
+                : .value(try c.decode(Double.self, forKey: .latitude))
+        } else {
+            self.latitude = .absent
+        }
+        if c.contains(.longitude) {
+            self.longitude = try c.decodeNil(forKey: .longitude)
+                ? .null
+                : .value(try c.decode(Double.self, forKey: .longitude))
+        } else {
+            self.longitude = .absent
+        }
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -348,6 +416,16 @@ struct CoursesUpdateInput: Codable, Sendable, Equatable {
         try c.encodeIfPresent(name, forKey: .name)
         try c.encodeIfPresent(holeCount, forKey: .holeCount)
         try c.encodeIfPresent(holes, forKey: .holes)
+        switch latitude {
+        case .absent: break
+        case .null: try c.encodeNil(forKey: .latitude)
+        case .value(let v): try c.encode(v, forKey: .latitude)
+        }
+        switch longitude {
+        case .absent: break
+        case .null: try c.encodeNil(forKey: .longitude)
+        case .value(let v): try c.encode(v, forKey: .longitude)
+        }
     }
 }
 

@@ -117,7 +117,9 @@ hole updates, tee-role set/clear, validation), gated by
 
 - **Club** — name, location?, logo_url?; has courses.
 - **Course** — club_id, name, hole_count; has `course_holes` (hole_number,
-  par, stroke_index), tees, tee-role mappings, route templates.
+  par, stroke_index), tees, tee-role mappings, route templates. **v1 adds a
+  GPS position** (§3.3a): nullable `latitude`/`longitude` columns, WGS84
+  decimal degrees.
 - **Tee** — course_id, name, colour?; has `tee_hole_lengths` (per-hole
   length_m, stroke_index_override?) and `tee_ratings` per gender
   (course_rating, slope, par, total_length_m).
@@ -153,6 +155,23 @@ hole updates, tee-role set/clear, validation), gated by
 - Edit course name and hole count (hole-count change follows the existing
   service semantics for adding/removing holes).
 - Delete course — confirm dialog; blocked when referenced (§3.7).
+
+### 3.3a Course GPS position (owner addition, 2026-08-03)
+
+- New nullable `latitude` / `longitude` REAL columns on `courses` (WGS84
+  decimal degrees; additive migration). Nullable is deliberate — a course
+  without a position is complete, never flagged as an error.
+- Purpose: future proximity features — the player app suggesting nearby
+  courses when starting a round. That consumer is **out of scope here**; v1
+  only captures and edits the data.
+- Manage UI: one "Coordinates" text field on the course form, accepting a
+  pasted `"57.7089, 11.9746"` pair (the shape Google/Apple Maps copy out),
+  parsed and validated server-side (lat −90..90, long −180..180, both-or-
+  neither) and shown re-formatted; clearable. One field, not two — pasting
+  from a map is the real workflow, nobody types the halves separately.
+- Course-level, not club-level, per the owner's call: two courses at one
+  club can sit apart, and a round is played on a course. A club-level
+  fallback can be derived later if a consumer wants it.
 
 ### 3.4 Holes editor
 
@@ -196,8 +215,10 @@ hole updates, tee-role set/clear, validation), gated by
 
 - `ClubService.remove` / `CourseService.remove` / `TeeService.remove` are
   bare deletes today. Add reference guards in the services (block with a
-  clear error naming the blocking references: courses under a club; rounds,
-  templates or tee-role mappings under a course; role mappings under a tee).
+  clear error naming the blocking references: courses under a club, and
+  players holding it as their home club — that FK has no ON DELETE and would
+  otherwise surface as a raw 500; rounds, templates or tee-role mappings
+  under a course; role mappings under a tee).
   Historical rounds snapshot course data, so this is about integrity of the
   authoring catalog, not about protecting past scorecards — the error copy
   should say what actually blocks.
@@ -218,6 +239,11 @@ hole updates, tee-role set/clear, validation), gated by
 - **Club-scoped course_admin grants** — deferred in `course-management-authz`
   already; revisit when clubs have owners.
 - **CSV/bulk import, course duplication** — nice-to-haves, none blocking.
+- **Course archive/deactivate** — a course with rounds is permanently
+  undeletable (`rounds.course_id` is RESTRICT; the guard turns the 500 into
+  a clear 409). Retiring such a course from pickers is an archive flag, a
+  deliberate future decision — the UI should not present Delete as a live
+  affordance for it.
 
 ## 4. Quality bar
 

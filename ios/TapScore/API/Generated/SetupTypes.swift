@@ -7,6 +7,8 @@ struct SetupCourse: Codable, Sendable, Equatable {
     var clubId: String
     var name: String
     var holeCount: Double
+    var latitude: Double?
+    var longitude: Double?
     var holes: [Hole]
     var clubName: String
 
@@ -15,15 +17,19 @@ struct SetupCourse: Codable, Sendable, Equatable {
         case clubId = "clubId"
         case name = "name"
         case holeCount = "holeCount"
+        case latitude = "latitude"
+        case longitude = "longitude"
         case holes = "holes"
         case clubName = "clubName"
     }
 
-    init(id: String, clubId: String, name: String, holeCount: Double, holes: [Hole], clubName: String) {
+    init(id: String, clubId: String, name: String, holeCount: Double, latitude: Double? = nil, longitude: Double? = nil, holes: [Hole], clubName: String) {
         self.id = id
         self.clubId = clubId
         self.name = name
         self.holeCount = holeCount
+        self.latitude = latitude
+        self.longitude = longitude
         self.holes = holes
         self.clubName = clubName
     }
@@ -34,6 +40,8 @@ struct SetupCourse: Codable, Sendable, Equatable {
         self.clubId = try c.decode(String.self, forKey: .clubId)
         self.name = try c.decode(String.self, forKey: .name)
         self.holeCount = try c.decode(Double.self, forKey: .holeCount)
+        self.latitude = try c.decodeIfPresent(Double.self, forKey: .latitude)
+        self.longitude = try c.decodeIfPresent(Double.self, forKey: .longitude)
         self.holes = try c.decode([Hole].self, forKey: .holes)
         self.clubName = try c.decode(String.self, forKey: .clubName)
     }
@@ -44,6 +52,16 @@ struct SetupCourse: Codable, Sendable, Equatable {
         try c.encode(clubId, forKey: .clubId)
         try c.encode(name, forKey: .name)
         try c.encode(holeCount, forKey: .holeCount)
+        if let latitude {
+            try c.encode(latitude, forKey: .latitude)
+        } else {
+            try c.encodeNil(forKey: .latitude)
+        }
+        if let longitude {
+            try c.encode(longitude, forKey: .longitude)
+        } else {
+            try c.encodeNil(forKey: .longitude)
+        }
         try c.encode(holes, forKey: .holes)
         try c.encode(clubName, forKey: .clubName)
     }

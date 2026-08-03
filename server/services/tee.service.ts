@@ -6,6 +6,7 @@ import type {
     TeeRatingsTable,
     TeeGender,
 } from '../db/schema';
+import { refuseDelete, type DeleteBlocker } from './catalog-delete-guard';
 
 // --- Output types ---
 
@@ -130,6 +131,21 @@ export class TeeService {
 
     private deleteById(id: string, trx: Kysely<Database> = this.db) {
         return trx.deleteFrom('tees').where('id', '=', id);
+    }
+
+    /** The course role assignments that name this tee, with catalog labels. */
+    private teeRolesNaming(teeId: string) {
+        return this.db
+            .selectFrom('course_tee_roles')
+            .innerJoin('tee_roles', 'tee_roles.role_key', 'course_tee_roles.role_key')
+            .select([
+                'course_tee_roles.role_key as role_key',
+                'course_tee_roles.gender as gender',
+                'tee_roles.display_name as display_name',
+            ])
+            .where('course_tee_roles.tee_id', '=', teeId)
+            .orderBy('tee_roles.sort_order')
+            .orderBy('course_tee_roles.gender');
     }
 
     private insertHoleLengths(
@@ -313,7 +329,49 @@ export class TeeService {
         return result;
     }
 
+    /**
+     * Delete a tee, refusing while a course role assignment names it.
+     *
+     * Ruling (docs/proposals/manage-ui.md §3.5/§3.7):
+     *
+     *  - **Tee-role mappings block.** `course_tee_roles.tee_id` is
+     *    `ON DELETE cascade` (migration 057), so today deleting a tee silently
+     *    retires the course's "Club / Men plays here" decision. That decision
+     *    has reach beyond the tee: a player's portable
+     *    `players.preferred_tee_role_key` resolves through it at round setup,
+     *    so its loss changes what a future round preselects for people who
+     *    never touched this course. Name the mapping and make the admin clear
+     *    it deliberately (§3.6 has an explicit Clear).
+     *  - **Rounds do NOT block.** Every historical reference to a tee —
+     *    `round_tee_holes.tee_id` (migration 017), `round_play_tee_holes.tee_id`
+     *    (018/022), `ball_players.tee_id` (039) — is `ON DELETE set null`
+     *    beside a frozen `tee_name_snapshot`, and course rating / slope / par
+     *    are snapshotted onto the ball player at compile time. That is a
+     *    deliberate design: a played round survives its tee's retirement
+     *    intact. Blocking here would instead make every tee ever played from
+     *    permanently undeletable, which is the opposite of what those
+     *    migrations bought.
+     *  - **Lengths and ratings cascade.** `tee_hole_lengths` and `tee_ratings`
+     *    are the tee's own description; they have no meaning without it.
+     */
     async remove(id: string): Promise<void> {
+        const mappings = await this.teeRolesNaming(id).execute();
+        if (mappings.length > 0) {
+            const labels = mappings.map(
+                (m) => `${m.display_name} / ${m.gender === 'M' ? 'Men' : 'Women'}`,
+            );
+            const noun = mappings.length === 1 ? 'tee-role mapping' : 'tee-role mappings';
+            const blockers: DeleteBlocker[] = [
+                {
+                    kind: 'tee_role_mappings',
+                    count: mappings.length,
+                    phrase: `${mappings.length} ${noun} (${labels.join(', ')})`,
+                    items: labels,
+                },
+            ];
+            refuseDelete('tee_delete_blocked', 'tee', blockers);
+        }
+
         await this.deleteById(id).execute();
     }
 }

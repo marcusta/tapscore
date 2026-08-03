@@ -70,6 +70,8 @@ const course: SetupCourse = {
     clubName: 'Club',
     name: 'Course',
     holeCount: 18,
+    latitude: null,
+    longitude: null,
     holes: Array.from({ length: 18 }, (_, i) => ({
         holeNumber: i + 1,
         par: 4,

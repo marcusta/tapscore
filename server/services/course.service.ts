@@ -10,6 +10,11 @@ import type {
 } from '../db/schema';
 import { validateCourse, type CourseValidation } from '../domain/course';
 import type { TeeService } from './tee.service';
+import {
+    countWithNames,
+    refuseDelete,
+    type DeleteBlocker,
+} from './catalog-delete-guard';
 
 // --- Output types ---
 
@@ -24,7 +29,27 @@ export interface Course {
     clubId: string;
     name: string;
     holeCount: number;
+    /**
+     * WGS84 decimal degrees (migration 061). Always null together with
+     * `longitude` — a course either has a position or it has none, and having
+     * none is a complete, valid course, never a validation issue.
+     */
+    latitude: number | null;
+    longitude: number | null;
     holes: Hole[];
+}
+
+/**
+ * A course's map position, set or cleared as one value.
+ *
+ * Deliberately a pair and never a half: the authoring workflow is pasting
+ * `"57.7089, 11.9746"` out of a map app (manage-ui.md §3.3a), and half a
+ * coordinate locates nothing. Both `undefined` on an update means "leave the
+ * position alone".
+ */
+export interface CoursePositionInput {
+    latitude?: number | null;
+    longitude?: number | null;
 }
 
 /** A course enriched with its club's display name, for the setup picker. */
@@ -32,7 +57,7 @@ export interface SetupCourse extends Course {
     clubName: string;
 }
 
-export interface CreateCourseInput {
+export interface CreateCourseInput extends CoursePositionInput {
     clubId: string;
     name: string;
     holeCount: 9 | 18;
@@ -45,7 +70,7 @@ export interface CreateCourseInput {
     holes?: Hole[];
 }
 
-export interface UpdateCourseInput {
+export interface UpdateCourseInput extends CoursePositionInput {
     name?: string;
     holeCount?: 9 | 18;
     holes?: Hole[];
@@ -95,8 +120,28 @@ function toCourse(row: CourseRow, holes: Hole[]): Course {
         clubId: row.club_id,
         name: row.name,
         holeCount: row.hole_count,
+        latitude: row.latitude,
+        longitude: row.longitude,
         holes,
     };
+}
+
+// --- Position validation (manage-ui.md §3.3a) ---
+
+/** The catalog's domain-error shape: 409 with a machine-readable `detail.code`. */
+function refusePosition(code: string, message: string): never {
+    const err = new ConflictError(message);
+    (err as ConflictError & { detail?: unknown }).detail = { code };
+    throw err;
+}
+
+function assertDegrees(value: number, limit: number, label: string): void {
+    if (!Number.isFinite(value) || value < -limit || value > limit) {
+        refusePosition(
+            'course_position_out_of_range',
+            `${label} must be between -${limit} and ${limit} (got ${value}).`,
+        );
+    }
 }
 
 function toTeeRole(row: TeeRoleRow): TeeRole {
@@ -160,10 +205,46 @@ export class CourseService {
         return this.courseTeeRoles().where('course_id', '=', courseId);
     }
 
+    private roundsOnCourse(courseId: string) {
+        return this.db
+            .selectFrom('rounds')
+            .select(['id', 'date'])
+            .where('course_id', '=', courseId);
+    }
+
+    private routeTemplatesFor(courseId: string) {
+        return this.db
+            .selectFrom('course_route_templates')
+            .select(['id', 'name'])
+            .where('course_id', '=', courseId)
+            .orderBy('name');
+    }
+
+    /** This course's role assignments, with catalog labels for the message. */
+    private teeRoleLabelsFor(courseId: string) {
+        return this.db
+            .selectFrom('course_tee_roles')
+            .innerJoin('tee_roles', 'tee_roles.role_key', 'course_tee_roles.role_key')
+            .select([
+                'course_tee_roles.gender as gender',
+                'tee_roles.display_name as display_name',
+            ])
+            .where('course_tee_roles.course_id', '=', courseId)
+            .orderBy('tee_roles.sort_order')
+            .orderBy('course_tee_roles.gender');
+    }
+
     // --- Queries (write) ---
 
     private insertCourse(
-        values: { id: string; club_id: string; name: string; hole_count: number },
+        values: {
+            id: string;
+            club_id: string;
+            name: string;
+            hole_count: number;
+            latitude: number | null;
+            longitude: number | null;
+        },
         trx: Kysely<Database> = this.db,
     ) {
         return trx.insertInto('courses').values(values);
@@ -249,6 +330,8 @@ export class CourseService {
                 'courses.club_id as club_id',
                 'courses.name as name',
                 'courses.hole_count as hole_count',
+                'courses.latitude as latitude',
+                'courses.longitude as longitude',
                 'clubs.name as club_name',
             ])
             .orderBy('clubs.name')
@@ -262,6 +345,8 @@ export class CourseService {
                 clubId: row.club_id,
                 name: row.name,
                 holeCount: row.hole_count,
+                latitude: row.latitude,
+                longitude: row.longitude,
                 holes: holes.map(toHole),
                 clubName: row.club_name,
             });
@@ -349,11 +434,19 @@ export class CourseService {
                 ? input.holes
                 : this.defaultHoles(input.holeCount);
         this.validateHoles(input.holeCount, holes);
+        const position = this.resolvePosition(input) ?? { latitude: null, longitude: null };
 
         const id = crypto.randomUUID();
         await this.db.transaction().execute(async (trx) => {
             await this.insertCourse(
-                { id, club_id: input.clubId, name: input.name, hole_count: input.holeCount },
+                {
+                    id,
+                    club_id: input.clubId,
+                    name: input.name,
+                    hole_count: input.holeCount,
+                    latitude: position.latitude,
+                    longitude: position.longitude,
+                },
                 trx,
             ).execute();
             await this.insertHoles(
@@ -372,6 +465,8 @@ export class CourseService {
             clubId: input.clubId,
             name: input.name,
             holeCount: input.holeCount,
+            latitude: position.latitude,
+            longitude: position.longitude,
             holes: [...holes].sort((a, b) => a.holeNumber - b.holeNumber),
         };
     }
@@ -380,11 +475,16 @@ export class CourseService {
         const existing = await this.byId(id).executeTakeFirstOrThrow();
         const nextHoleCount = input.holeCount ?? existing.hole_count;
         if (input.holes !== undefined) this.validateHoles(nextHoleCount, input.holes);
+        const position = this.resolvePosition(input);
 
         await this.db.transaction().execute(async (trx) => {
             const patch: Record<string, unknown> = {};
             if (input.name !== undefined) patch.name = input.name;
             if (input.holeCount !== undefined) patch.hole_count = input.holeCount;
+            if (position !== undefined) {
+                patch.latitude = position.latitude;
+                patch.longitude = position.longitude;
+            }
             if (Object.keys(patch).length > 0) {
                 await this.updateById(id, trx).set(patch).execute();
             }
@@ -407,7 +507,82 @@ export class CourseService {
         return result;
     }
 
+    /**
+     * Delete a course, refusing while anything still points at it.
+     *
+     * Ruling (docs/proposals/manage-ui.md §3.3/§3.7). What blocks:
+     *
+     *  - **Rounds.** `rounds.course_id` is `ON DELETE restrict` (migration
+     *    009) — the only restrict in the catalog — so this delete is already
+     *    impossible; without the guard it surfaces as a raw SQLite error and a
+     *    500. Note what this is NOT about: a played round snapshots its holes
+     *    (`round_course_holes`), tee lengths and ratings, so its scorecard
+     *    would survive perfectly well. The live FK is what blocks, and the
+     *    message says so.
+     *  - **Route templates.** `course_route_templates` cascades, but a
+     *    template is an authored, named document ("10 + first 8") with
+     *    hand-built `definition_json` that nothing else can reconstruct.
+     *    Losing one to a click on Delete Course is exactly the silent
+     *    destruction this guard exists to prevent.
+     *  - **Tee-role mappings.** Same reasoning as `TeeService.remove`: a
+     *    mapping is a course-level policy that players' portable
+     *    `preferred_tee_role_key` resolves through. Clearing it (§3.6) is one
+     *    explicit action, and requiring it here is what makes the tee cascade
+     *    below safe — once no mapping is left, every tee on this course would
+     *    have passed its own delete guard too.
+     *
+     * What cascades, deliberately:
+     *
+     *  - `course_holes` — the course's own par/SI description, regenerable
+     *    from defaults and meaningless without the course.
+     *  - `tees`, and through them `tee_hole_lengths` and `tee_ratings`. A tee
+     *    is wholly course-owned: it cannot be moved, and it describes this
+     *    course's physical layout. Historical references null out by design
+     *    (see `TeeService.remove`), so nothing downstream breaks.
+     */
     async remove(id: string): Promise<void> {
+        const [rounds, templates, mappings] = await Promise.all([
+            this.roundsOnCourse(id).execute(),
+            this.routeTemplatesFor(id).execute(),
+            this.teeRoleLabelsFor(id).execute(),
+        ]);
+
+        const blockers: DeleteBlocker[] = [];
+        if (rounds.length > 0) {
+            blockers.push({
+                kind: 'rounds',
+                count: rounds.length,
+                phrase: `${rounds.length} ${rounds.length === 1 ? 'round' : 'rounds'} played on it`,
+            });
+        }
+        if (templates.length > 0) {
+            blockers.push({
+                kind: 'route_templates',
+                count: templates.length,
+                phrase: countWithNames(
+                    templates.length,
+                    'route template',
+                    'route templates',
+                    templates.map((t) => t.name),
+                ),
+                items: templates.map((t) => t.name),
+            });
+        }
+        if (mappings.length > 0) {
+            const labels = mappings.map(
+                (m) => `${m.display_name} / ${m.gender === 'M' ? 'Men' : 'Women'}`,
+            );
+            blockers.push({
+                kind: 'tee_role_mappings',
+                count: mappings.length,
+                phrase: `${mappings.length} ${
+                    mappings.length === 1 ? 'tee-role mapping' : 'tee-role mappings'
+                } (${labels.join(', ')})`,
+                items: labels,
+            });
+        }
+        if (blockers.length > 0) refuseDelete('course_delete_blocked', 'course', blockers);
+
         await this.deleteById(id).execute();
     }
 
@@ -459,6 +634,43 @@ export class CourseService {
         const result = await this.getById(courseId);
         if (!result) throw new Error(`Course ${courseId} not found after updateHole`);
         return result;
+    }
+
+    /**
+     * Normalise and validate a course position (manage-ui.md §3.3a).
+     *
+     * Returns `undefined` when the caller mentioned neither half — an update
+     * that says nothing about the position must not clear it. Otherwise
+     * returns the pair to persist, having enforced:
+     *
+     *  - **both or neither.** Half a coordinate is not a position, and the
+     *    authoring UI is a single field carrying a pasted pair, so a lone
+     *    latitude is a client bug, not a partial save. This is checked on the
+     *    INPUT rather than merged against the stored row on purpose: merging
+     *    would let "set only latitude" mean two different things depending on
+     *    what happened to be in the database.
+     *  - **range.** Latitude −90..90, longitude −180..180, both finite. Out of
+     *    range is not a real place on earth; there is nothing to round to.
+     *
+     * Refusals use the catalog's domain-error shape (`ConflictError` +
+     * `detail.code`), so the manage client can show the message verbatim.
+     */
+    private resolvePosition(
+        input: CoursePositionInput,
+    ): { latitude: number | null; longitude: number | null } | undefined {
+        const { latitude, longitude } = input;
+        if (latitude === undefined && longitude === undefined) return undefined;
+        if (latitude === null && longitude === null) return { latitude: null, longitude: null };
+
+        if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+            refusePosition(
+                'course_position_incomplete',
+                'A course position needs both a latitude and a longitude — set them together, or clear both.',
+            );
+        }
+        assertDegrees(latitude, 90, 'Latitude');
+        assertDegrees(longitude, 180, 'Longitude');
+        return { latitude, longitude };
     }
 
     private defaultHoles(holeCount: number): Hole[] {

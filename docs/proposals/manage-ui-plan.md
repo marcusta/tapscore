@@ -92,9 +92,10 @@ error as-is).
 **T4-R:** search is client-side and stays responsive with the full club list;
 form validation states; error surfaces on every write; both widths/themes.
 
-### T5 — Courses on the club page (spec §3.3)
+### T5 — Courses on the club page (spec §3.3 + §3.3a)
 Course list with readiness badge (`/courses/validate`), create, edit
-name/hole-count, delete with confirm.
+name/hole-count, delete with confirm. Includes the Coordinates field
+(§3.3a) — the server slice for it lands with T9.
 
 **T5-R:** hole-count edit follows service semantics (no client-side hole
 fabrication); badge states match the validation payload (`ok` vs error vs
@@ -130,9 +131,11 @@ imports, account-menu link correct in prod base path.
 
 ## Milestone 2 — Hardening and closure (T9 can start with M1)
 
-### T9 — Delete-reference guards, server (spec §3.7) ∥ with M1
+### T9 — Delete-reference guards + GPS columns, server (spec §3.7, §3.3a) ∥ with M1
 Guards in Club/Course/Tee remove paths with reference-naming errors; route
-tests beside `course-management.routes.test.ts`.
+tests beside `course-management.routes.test.ts`. Also carries the §3.3a
+server slice (migration, service, API schema, regenerated clients) so T5
+only wires the form field. One task because both edit `course.service.ts`.
 
 **T9-R:** guard queries cover all reference kinds listed in the spec; error
 copy names the actual blocker; no behavior change for unreferenced deletes;

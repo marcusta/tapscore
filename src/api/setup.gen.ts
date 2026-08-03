@@ -13,6 +13,8 @@ export interface SetupCourse {
     clubId: string;
     name: string;
     holeCount: number;
+    latitude: null | number;
+    longitude: null | number;
     holes: Hole[];
     clubName: string;
 }

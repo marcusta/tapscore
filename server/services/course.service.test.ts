@@ -200,7 +200,10 @@ test('remove cascades to holes', async () => {
     expect(leftover).toHaveLength(0);
 });
 
-test('deleting club cascades to courses', async () => {
+// The FK still cascades — the guard in `ClubService.remove` (§3.7) is what
+// stands between an admin and that cascade, so the schema-level behaviour has
+// to be asserted below the service.
+test('the clubs → courses foreign key still cascades', async () => {
     const ctx = await createTestDb();
     const club = await ctx.clubService.create({ name: 'A' });
     const course = await ctx.courseService.create({
@@ -209,6 +212,71 @@ test('deleting club cascades to courses', async () => {
         holeCount: 18,
         holes: holes18(),
     });
-    await ctx.clubService.remove(club.id);
+    await ctx.db.deleteFrom('clubs').where('id', '=', club.id).execute();
     expect(await ctx.courseService.getById(course.id)).toBeNull();
+});
+
+// --- Course position (manage-ui.md §3.3a) ---
+
+test('a course created without a position has none, and that is not an error', async () => {
+    const { courseService, clubId } = await setup();
+    const c = await courseService.create({ clubId, name: 'North', holeCount: 18, holes: holes18() });
+    expect(c.latitude).toBeNull();
+    expect(c.longitude).toBeNull();
+    expect((await courseService.validate(c.id)).ok).toBe(true);
+});
+
+test('a position survives create → read → unrelated update', async () => {
+    const { courseService, clubId } = await setup();
+    const c = await courseService.create({
+        clubId, name: 'North', holeCount: 18, holes: holes18(),
+        latitude: 58.3891, longitude: 15.5761,
+    });
+    expect((await courseService.getById(c.id))!.latitude).toBeCloseTo(58.3891, 6);
+    const renamed = await courseService.update(c.id, { name: 'South' });
+    expect(renamed.longitude).toBeCloseTo(15.5761, 6);
+});
+
+test('a position is cleared only by passing both halves as null', async () => {
+    const { courseService, clubId } = await setup();
+    const c = await courseService.create({
+        clubId, name: 'North', holeCount: 18, holes: holes18(),
+        latitude: 58.3891, longitude: 15.5761,
+    });
+    const cleared = await courseService.update(c.id, { latitude: null, longitude: null });
+    expect(cleared.latitude).toBeNull();
+    expect(cleared.longitude).toBeNull();
+});
+
+test('half a position is refused rather than half-stored', async () => {
+    const { courseService, clubId } = await setup();
+    await expect(
+        courseService.create({
+            clubId, name: 'Half', holeCount: 18, holes: holes18(), latitude: 58.3891,
+        }),
+    ).rejects.toThrow(/both a latitude and a longitude/);
+
+    const c = await courseService.create({ clubId, name: 'North', holeCount: 18, holes: holes18() });
+    await expect(courseService.update(c.id, { longitude: 15.5761 })).rejects.toThrow(
+        /both a latitude and a longitude/,
+    );
+    expect((await courseService.getById(c.id))!.longitude).toBeNull();
+});
+
+test('a position off the globe is refused, on either axis and either sign', async () => {
+    const { courseService, clubId } = await setup();
+    const attempt = (latitude: number, longitude: number) =>
+        courseService.create({
+            clubId, name: `Bad ${latitude}/${longitude}`, holeCount: 18, holes: holes18(),
+            latitude, longitude,
+        });
+
+    await expect(attempt(90.0001, 0)).rejects.toThrow(/Latitude must be between -90 and 90/);
+    await expect(attempt(-90.0001, 0)).rejects.toThrow(/Latitude must be between -90 and 90/);
+    await expect(attempt(0, 180.0001)).rejects.toThrow(/Longitude must be between -180 and 180/);
+    await expect(attempt(0, -180.0001)).rejects.toThrow(/Longitude must be between -180 and 180/);
+
+    // The poles and the antimeridian are real places.
+    await expect(attempt(90, 180)).resolves.toBeDefined();
+    await expect(attempt(-90, -180)).resolves.toBeDefined();
 });

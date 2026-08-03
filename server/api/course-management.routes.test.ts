@@ -68,7 +68,9 @@ test('course catalog writes require course_admin, while super_admin is its super
     const mappings = await mappingsResponse.json();
     expect(mappings).toHaveLength(1);
 
-    // Global operator remains able to maintain the same course catalog.
+    // Global operator remains able to maintain the same course catalog — after
+    // retiring the role mapping the delete guard names (§3.7).
+    expect((await req(ctx.app, 'DELETE', `/api/courses/tee-roles/${course.id}/club/M`, undefined, operatorCookie)).status).toBe(200);
     expect((await req(ctx.app, 'DELETE', `/api/courses/${course.id}`, undefined, operatorCookie)).status).toBe(200);
 });
 
