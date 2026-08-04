@@ -32,7 +32,11 @@ export interface DeleteBlockerItem {
 }
 
 export interface DeleteBlockedDetail {
-    /** e.g. `club_delete_blocked`, `course_delete_blocked`, `tee_delete_blocked`. */
+    /**
+     * e.g. `club_delete_blocked`, `course_delete_blocked`, `tee_delete_blocked`
+     * — and `tee_rating_removal_blocked`, which is not a delete at all but
+     * refuses over the same references in the same shape (`refuseReferenced`).
+     */
     code: string;
     blockers: DeleteBlockerItem[];
 }

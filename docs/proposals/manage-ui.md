@@ -195,6 +195,20 @@ hole updates, tee-role set/clear, validation), gated by
     legitimate).
 - Delete tee: blocked when a tee-role mapping points at it, with a message
   naming the mapping (§3.7).
+- **Ruling R1 (T8 review, 2026-08-04) — retiring a RATING is blocked by the
+  same mappings.** Un-ticking "Rated" for a gender and saving used to succeed,
+  with migration 059's `course_tee_roles_clear_removed_rating` trigger silently
+  taking the course's "Club / Women plays here" decision along with it. That
+  decision reaches beyond this course — a player's portable
+  `players.preferred_tee_role_key` resolves through it at round setup — and a
+  save is not a press that means "throw it away". So `TeeService.update`
+  refuses (409 `tee_rating_removal_blocked`, same blocker vocabulary as a
+  blocked delete) while an assignment names this tee for a gender being
+  retired; the operator clears it under Tee roles first. The trigger stays
+  exactly as it is: it is the integrity net for direct SQL and future
+  non-service paths, never the user-facing mechanism. The tee editor shows the
+  refusal beside the rating tracks and does not put the tick back — the draft
+  is the user's.
 
 ### 3.6 Tee roles (the headline feature)
 

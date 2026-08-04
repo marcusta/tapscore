@@ -75,6 +75,14 @@ type TeeRow = Tee & { courseHoleCount: number };
 /** The sentinel `RowEditController` key for the create panel. */
 const CREATE_KEY = '__new';
 
+/**
+ * The server's `detail.code` for "a tee role still assigns this tee for a
+ * gender you just un-rated" (`TeeService.update`, ruling R1 §3.5). Branched on
+ * for PLACEMENT only — the sentence itself is the server's and is shown
+ * verbatim, and an unrecognised code still lands on the panel's error line.
+ */
+const RATING_REMOVAL_BLOCKED = 'tee_rating_removal_blocked';
+
 const tpl = template(`
     <section class="mtees">
         <header class="mtees__head">
@@ -246,6 +254,19 @@ export class TeesComponent extends Component<TeesProps> {
     private editor = new RowEditController();
     private errors = new Signal<TeeFieldErrors>({});
 
+    /**
+     * The server's refusal to retire a rating a tee role still assigns
+     * (`tee_rating_removal_blocked`, ruling R1 §3.5). It is held apart from the
+     * controller's error because it belongs BESIDE the rating tracks, not on
+     * the panel's general line — and it is shown in exactly one of the two
+     * places, never both, so the same sentence is not said twice.
+     *
+     * Nothing here re-words it, and nothing untick-related is rolled back: the
+     * draft is the user's, the save simply did not land, so the gender they
+     * un-rated stays un-rated on screen with the reason under it.
+     */
+    private ratingConflict = new Signal<string | null>(null);
+
     private deleteOpen = new Signal(false);
     private deleteTarget = new Signal<Tee | null>(null);
     private deleteFailure = new Signal<string | null>(null);
@@ -349,6 +370,7 @@ export class TeesComponent extends Component<TeesProps> {
             errors: this.errors,
             busy: { get: () => this.saving() },
             holeCount: { get: () => this.holeCount() },
+            ratingsFailure: this.ratingConflict,
         });
 
         this.spawn(ManageTableComponent<TeeRow>, this.ref(frag, 'tableHost'), {
@@ -446,6 +468,9 @@ export class TeesComponent extends Component<TeesProps> {
     }
 
     private panelError(): string | null {
+        // A rating refusal has already been placed next to the tracks it names;
+        // repeating it here would print the same sentence twice on one panel.
+        if (this.ratingConflict.get() !== null) return null;
         const key = this.editor.key.get();
         return key === null ? null : this.editor.errorFor(key);
     }
@@ -458,7 +483,7 @@ export class TeesComponent extends Component<TeesProps> {
 
     private openCreate(): void {
         if (this.saving()) return;
-        this.errors.set({});
+        this.clearMessages();
         this.editor.begin(CREATE_KEY);
         this.fields?.seed(emptyDraft(this.holeCount()));
         this.fields?.focusFirst();
@@ -466,7 +491,7 @@ export class TeesComponent extends Component<TeesProps> {
 
     private openEdit(tee: Tee): void {
         if (this.saving()) return;
-        this.errors.set({});
+        this.clearMessages();
         this.editor.begin(tee.id);
         this.fields?.seed(draftFrom(tee, this.holeCount()));
         this.fields?.focusFirst();
@@ -474,7 +499,13 @@ export class TeesComponent extends Component<TeesProps> {
 
     private closePanel(): void {
         this.editor.cancel();
+        this.clearMessages();
+    }
+
+    /** Field complaints and the server's last word, both retired together. */
+    private clearMessages(): void {
         this.errors.set({});
+        this.ratingConflict.set(null);
     }
 
     private async submit(): Promise<void> {
@@ -482,6 +513,7 @@ export class TeesComponent extends Component<TeesProps> {
         const key = this.editor.key.get();
         if (key === null) return;
 
+        this.ratingConflict.set(null);
         const draft = this.fields.current();
         const errors = validateTee(draft, this.holeCount());
         this.errors.set(errors);
@@ -493,11 +525,18 @@ export class TeesComponent extends Component<TeesProps> {
             return;
         }
 
-        await this.editor.commit(() =>
-            key === CREATE_KEY
-                ? this.tees.create(this.props.courseId, this.props.clubId, draft)
-                : this.tees.update(key, draft),
-        );
+        await this.editor.commit(async () => {
+            const outcome =
+                key === CREATE_KEY
+                    ? await this.tees.create(this.props.courseId, this.props.clubId, draft)
+                    : await this.tees.update(key, draft);
+            // Placement only — the controller still holds the failure, and the
+            // panel stays open with the draft either way.
+            if (!outcome.ok && outcome.code === RATING_REMOVAL_BLOCKED) {
+                this.ratingConflict.set(outcome.message);
+            }
+            return outcome;
+        });
     }
 
     // ─── Rows ───

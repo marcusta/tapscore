@@ -82,10 +82,28 @@ export function refuseDelete(
     subject: string,
     blockers: DeleteBlocker[],
 ): never {
-    const err = new ConflictError(
+    refuseReferenced(
+        code,
         `Cannot delete this ${subject} — it is still referenced by ` +
             `${joinPhrases(blockers.map((b) => b.phrase))}.`,
+        blockers,
     );
+}
+
+/**
+ * The refusal underneath `refuseDelete`, for the one guard that is not a
+ * delete: `TeeService.update` refuses to retire a RATING while a course tee
+ * role still assigns this tee for that gender (§3.5 ruling R1). The reference
+ * vocabulary is identical — same `DeleteBlockerKind`, same `detail` shape, so
+ * `manage/delete-blockers.ts` reads it unchanged — only the sentence differs,
+ * because "cannot delete this tee" is not what happened.
+ */
+export function refuseReferenced(
+    code: string,
+    message: string,
+    blockers: DeleteBlocker[],
+): never {
+    const err = new ConflictError(message);
     (err as ConflictError & { detail?: unknown }).detail = {
         code,
         // `items` is capped like the phrase's name sample: `count` answers

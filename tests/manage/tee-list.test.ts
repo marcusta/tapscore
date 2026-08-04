@@ -318,12 +318,12 @@ test('an unrated gender reads as a stated fact, not four empty boxes', async () 
     expect(el(women, '.mtrating__absent').hidden).toBe(false);
     const absent = el(women, '.mtrating__absent').textContent ?? '';
     expect(absent).toContain('No women’s rating');
-    // The destructive half, stated before the press: saving deletes the rating
-    // row, and migration 059's trigger deletes every course tee-role mapping
-    // naming this tee for women along with it. "Will not be offered" was future
-    // tense for something that has already happened by the time you look.
-    expect(absent).toContain('Saving removes any tee role on this course');
-    expect(absent).toContain('deleted, not hidden');
+    // What the save actually does now (ruling R1): it is REFUSED while a tee
+    // role still assigns this tee for women. The old copy warned that saving
+    // deleted that assignment — true while migration 059's trigger was the
+    // user-facing mechanism, and a wrong model of the catalog since.
+    expect(absent).toContain('saving is refused until you clear that assignment');
+    expect(absent).not.toContain('deleted, not hidden');
     // And nothing was pre-filled behind the hidden state.
     expect((el(host, '#manage-tee-F-slope') as HTMLInputElement).value).toBe('');
 });
@@ -532,6 +532,68 @@ test('a refused save keeps the panel open with the draft and the SERVER sentence
     expect(el(host, '[bind="panelError"]').textContent).toBe(
         'A tee named Gul 2 already exists on this course.',
     );
+});
+
+test('a refused rating removal lands beside the rating controls, and the tick stays off', async () => {
+    const { host } = await section();
+    rowButton(rows(host)[0]!, 'Edit').click();
+
+    // Un-rate women on a tee the course's Club / Women role still points at.
+    byText(ratingBlock(host, 'F'), 'button', 'Not rated').click();
+    state.failWith = new ApiError(
+        409,
+        "Cannot remove this tee's rating — Club / Women still assigns this tee on this "
+            + 'course. Clear that assignment in Tee roles first, then save.',
+        undefined,
+        undefined,
+        {
+            code: 'tee_rating_removal_blocked',
+            blockers: [{ kind: 'tee_role_mappings', count: 1, items: ['Club / Women'] }],
+        },
+    );
+    submit(host);
+    await settle();
+
+    // Beside the tracks it is about — the sentence names a gender, and the
+    // control for that gender is right there.
+    const conflict = el(host, '.mteefields__conflict');
+    expect(conflict.hidden).toBe(false);
+    expect(conflict.textContent).toContain('Club / Women');
+    expect(conflict.textContent).toContain('Clear that assignment in Tee roles first');
+    // Said once: the panel's general line stays empty.
+    expect(el(host, '[bind="panelError"]').hidden).toBe(true);
+
+    // Nothing is optimistically put back. The draft is the user's — women read
+    // as not rated, with the reason under it — so the fix is one click on the
+    // other screen and one press of Save, not a re-typing of the whole edit.
+    expect(ratingTrack(host, 'F').map((b) => b.getAttribute('aria-pressed'))).toEqual([
+        'false',
+        'true',
+    ]);
+    expect(el(host, '.mtees__panel').hidden).toBe(false);
+    // And the stored rating is untouched: the server refused the whole save.
+    expect(state.tees[0]!.ratings).toEqual([MEN, WOMEN]);
+});
+
+test('a refusal with no code stays on the panel line, and clears on the next attempt', async () => {
+    const { host } = await section();
+    rowButton(rows(host)[0]!, 'Edit').click();
+    byText(ratingBlock(host, 'F'), 'button', 'Not rated').click();
+
+    // An ordinary 409 is not a rating conflict — it has no business sitting
+    // under the tracks.
+    state.failWith = new ApiError(409, 'A tee named Gul already exists on this course.');
+    submit(host);
+    await settle();
+
+    expect(el(host, '.mteefields__conflict').hidden).toBe(true);
+    expect(el(host, '[bind="panelError"]').textContent).toContain('already exists');
+
+    // Retrying succeeds and the panel closes — no message survives the save it
+    // was about.
+    submit(host);
+    await settle();
+    expect(el(host, '.mtees__panel').hidden).toBe(true);
 });
 
 test('Escape backs out of the panel, the same exit Cancel is', async () => {

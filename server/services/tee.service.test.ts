@@ -155,3 +155,91 @@ test('deleting course cascades to tees', async () => {
     await ctx.courseService.remove(course.id);
     expect(await ctx.teeService.getById(tee.id)).toBeNull();
 });
+
+// ─── Retiring a rating a tee role still assigns (ruling R1, §3.5) ───
+
+const MEN = { gender: 'M' as const, courseRating: 70.2, slope: 128, par: 72, totalLengthM: 5600 };
+const WOMEN = { gender: 'F' as const, courseRating: 72.5, slope: 135, par: 72, totalLengthM: 5100 };
+
+async function ratedTee() {
+    const ctx = await setup();
+    const tee = await ctx.teeService.create({
+        courseId: ctx.courseId,
+        name: 'Yellow',
+        holeLengths: [],
+        ratings: [MEN, WOMEN],
+    });
+    await ctx.courseService.setTeeRole({
+        courseId: ctx.courseId, roleKey: 'club', gender: 'F', teeId: tee.id,
+    });
+    return { ...ctx, tee };
+}
+
+const roles = (ctx: { db: Awaited<ReturnType<typeof createTestDb>>['db'] }, teeId: string) =>
+    ctx.db.selectFrom('course_tee_roles').selectAll().where('tee_id', '=', teeId).execute();
+
+test('update refuses to retire a rating a course tee role still assigns, naming it', async () => {
+    const { teeService, tee, db } = await ratedTee();
+
+    // The subset case — men are RETAINED, so only the women's rating is going,
+    // and it is the women's assignment that stands in the way.
+    await expect(teeService.update(tee.id, { ratings: [MEN] })).rejects.toThrow(
+        /Club \/ Women/,
+    );
+
+    // Refused, not partially applied: the rating and the assignment both stand.
+    const after = await teeService.getById(tee.id);
+    expect(after!.ratings.map((r) => r.gender).sort()).toEqual(['F', 'M']);
+    expect(await roles({ db }, tee.id)).toHaveLength(1);
+});
+
+test('the refusal carries the same blocker vocabulary a blocked delete does', async () => {
+    const { teeService, tee } = await ratedTee();
+
+    const err = await teeService.update(tee.id, { ratings: [MEN] }).catch((e: unknown) => e);
+    const detail = (err as { detail: { code: string; blockers: unknown[] } }).detail;
+    expect(detail.code).toBe('tee_rating_removal_blocked');
+    expect(detail.blockers[0]).toEqual({
+        kind: 'tee_role_mappings', count: 1, items: ['Club / Women'],
+    });
+    // And it says what to do about it, not only what is wrong.
+    expect((err as Error).message).toContain('Clear that assignment in Tee roles first');
+});
+
+test('retiring EVERY rating is refused by the same guard', async () => {
+    const { teeService, tee } = await ratedTee();
+    await expect(teeService.update(tee.id, { ratings: [] })).rejects.toThrow(/Club \/ Women/);
+});
+
+test('an edit that retires an UNASSIGNED gender still goes through', async () => {
+    const { teeService, tee, db } = await ratedTee();
+
+    // Women are assigned; men are not — so dropping the men's rating is nobody's
+    // decision but this tee's.
+    const updated = await teeService.update(tee.id, { ratings: [WOMEN] });
+    expect(updated.ratings.map((r) => r.gender)).toEqual(['F']);
+    expect(await roles({ db }, tee.id)).toHaveLength(1);
+});
+
+test('clearing the assignment first is the named remedy, and it works', async () => {
+    const { teeService, courseService, courseId, tee, db } = await ratedTee();
+
+    await courseService.clearTeeRole(courseId, 'club', 'F');
+    const updated = await teeService.update(tee.id, { ratings: [MEN] });
+
+    expect(updated.ratings.map((r) => r.gender)).toEqual(['M']);
+    expect(await roles({ db }, tee.id)).toHaveLength(0);
+});
+
+test('migration 059’s trigger still clears a mapping on a direct tee_ratings delete', async () => {
+    const { tee, db } = await ratedTee();
+
+    // The service guard is the user-facing mechanism; the trigger is the
+    // integrity net underneath it, for direct SQL and any future non-service
+    // path. Deleting the rating out from under the service must still leave no
+    // unresolvable assignment behind.
+    await db.deleteFrom('tee_ratings')
+        .where('tee_id', '=', tee.id).where('gender', '=', 'F').execute();
+
+    expect(await roles({ db }, tee.id)).toHaveLength(0);
+});

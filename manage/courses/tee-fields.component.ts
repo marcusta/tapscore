@@ -69,6 +69,14 @@ export type TeeFieldsProps = {
     busy?: Readable<boolean>;
     /** The COURSE's hole count, for the lengths grid. */
     holeCount: Readable<number>;
+    /**
+     * A server refusal that is ABOUT the ratings — today only ruling R1's
+     * "a tee role still assigns this tee for women" (§3.5). It is shown here,
+     * next to the tracks that caused it, rather than on the panel's general
+     * error line: the message names a gender, and the control that gender
+     * belongs to is on this screen.
+     */
+    ratingsFailure?: Readable<string | null>;
 };
 
 /** The half of the draft this component owns directly; lengths are the grid's. */
@@ -102,6 +110,7 @@ const tpl = template(`
         </div>
 
         <div bind="ratingsHost" class="mteefields__ratings"></div>
+        <p bind="ratingsFailure" class="mteefields__conflict" role="alert"></p>
 
         <div bind="lengthsHost"></div>
     </div>
@@ -160,6 +169,14 @@ export class TeeFieldsComponent extends Component<TeeFieldsProps> {
                 border-radius: ${t('radius-pill')};
                 border: 1px solid ${t('border-strong')};
                 background: ${t('surface-sunken')};
+
+                &[hidden] { display: none; }
+            }
+
+            /* The server's rating refusal, under the two tracks it is about. */
+            & .mteefields__conflict {
+                ${fieldError()}
+                margin: 0;
 
                 &[hidden] { display: none; }
             }
@@ -270,6 +287,11 @@ export class TeeFieldsComponent extends Component<TeeFieldsProps> {
             },
             colours: { id: ids.colours },
             colourHint: { id: `${ids.colour}-hint`, textContent: `${COLOUR_HINT}. Optional` },
+
+            ratingsFailure: {
+                textContent: () => this.props.ratingsFailure?.get() ?? '',
+                hidden: () => (this.props.ratingsFailure?.get() ?? null) === null,
+            },
         });
 
         this.nameInput = this.ref(frag, 'name') as HTMLInputElement;
@@ -380,23 +402,21 @@ export class TeeFieldsComponent extends Component<TeeFieldsProps> {
 
         const absent = document.createElement('p');
         absent.className = 'mtrating__absent';
-        // What is true AND what follows from it — including the part that is
-        // DESTRUCTIVE and used to be written in the future tense.
+        // What is true AND what follows from it.
         //
-        // Saving an unrated gender deletes the tee's rating row for it
-        // (`teePayload` drops it, `TeeService.update` deletes it), and
-        // migration 059 puts a trigger on that delete which removes every
-        // `course_tee_roles` mapping naming this tee for this gender. So this
-        // is not "the tee will not be offered from now on" — a mapping that
-        // exists today is GONE after Save, and re-ticking the box afterwards
-        // does not bring it back. The copy has to say so before the press,
-        // because nothing after it does.
+        // This copy used to warn that saving DELETES any tee role assigning
+        // this tee to this gender — which was accurate while migration 059's
+        // trigger was the user-facing mechanism. Ruling R1 moved that decision
+        // out of the trigger's hands: `TeeService.update` now REFUSES the save
+        // while such an assignment exists, so nothing is destroyed behind the
+        // press. The line says that instead, because a warning about a deletion
+        // that can no longer happen teaches the wrong model of the catalog.
         const who = genderLabel(gender).toLowerCase();
         absent.textContent =
-            `No ${who}’s rating. Saving removes any tee role on this course that assigns `
-            + `this tee to ${who} — that assignment is deleted, not hidden — so the tee is no `
-            + `longer offered for ${who}, and rounds cannot use it for a `
-            + `${gender === 'M' ? 'man' : 'woman'}’s handicap.`;
+            `No ${who}’s rating. The tee is not offered for ${who}, and rounds cannot use it `
+            + `for a ${gender === 'M' ? 'man' : 'woman'}’s handicap. If a tee role on this `
+            + `course still assigns this tee to ${who}, saving is refused until you clear that `
+            + `assignment under Tee roles.`;
         block.appendChild(absent);
 
         const error = document.createElement('p');

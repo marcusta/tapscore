@@ -1,6 +1,7 @@
 import { Signal, di } from '@basics/core/client/core';
 import { api } from '../api';
 import { failureMessage } from '../api-failure';
+import { deleteBlockedDetail } from '../delete-blockers';
 import type { Tee } from '../../src/api/tees.gen';
 import type { WriteOutcome } from './clubs.service';
 import { CoursesService } from './courses.service';
@@ -120,6 +121,11 @@ export class TeesService {
      * The arrays are always sent WHOLE, never patched: on the server the lengths
      * are replaced outright and any gender missing from `ratings` is deleted,
      * which is how the unrated state is expressed (`tee-form.ts`).
+     *
+     * That deletion is REFUSED (409, `tee_rating_removal_blocked`) while a
+     * course tee role still assigns this tee for the gender being retired —
+     * ruling R1 §3.5. Nothing is pre-checked here: the mapping lives on a
+     * different screen and the server owns the rule.
      */
     async update(id: string, draft: TeeDraft): Promise<WriteOutcome> {
         const { name, colour, holeLengths, ratings } = teePayload(draft);
@@ -162,7 +168,14 @@ export class TeesService {
         try {
             await call();
         } catch (err) {
-            return { ok: false, message: failureMessage(err, fallback) };
+            // The code rides along so the screen can PLACE the refusal (a
+            // rating conflict belongs beside the rating controls). The sentence
+            // is still the whole message — see `WriteOutcome`.
+            return {
+                ok: false,
+                message: failureMessage(err, fallback),
+                code: deleteBlockedDetail(err)?.code,
+            };
         }
         const courseId = this.courseId.get();
         await Promise.all([

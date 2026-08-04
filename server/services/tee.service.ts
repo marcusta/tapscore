@@ -6,7 +6,7 @@ import type {
     TeeRatingsTable,
     TeeGender,
 } from '../db/schema';
-import { refuseDelete, type DeleteBlocker } from './catalog-delete-guard';
+import { refuseDelete, refuseReferenced, type DeleteBlocker } from './catalog-delete-guard';
 
 // --- Output types ---
 
@@ -72,6 +72,15 @@ function toRating(row: TeeRatingRow): TeeRating {
     };
 }
 
+/**
+ * `Club / Men` — how a course tee-role assignment is named in a refusal. One
+ * implementation, because `remove` and `update` refuse over the same rows and
+ * two spellings of the same assignment would read as two different things.
+ */
+function roleLabels(rows: { gender: TeeGender; display_name: string }[]): string[] {
+    return rows.map((row) => `${row.display_name} / ${row.gender === 'M' ? 'Men' : 'Women'}`);
+}
+
 function toTee(row: TeeRow, holeLengths: TeeHoleLength[], ratings: TeeRating[]): Tee {
     return {
         id: row.id,
@@ -134,8 +143,8 @@ export class TeeService {
     }
 
     /** The course role assignments that name this tee, with catalog labels. */
-    private teeRolesNaming(teeId: string) {
-        return this.db
+    private teeRolesNaming(teeId: string, trx: Kysely<Database> = this.db) {
+        return trx
             .selectFrom('course_tee_roles')
             .innerJoin('tee_roles', 'tee_roles.role_key', 'course_tee_roles.role_key')
             .select([
@@ -146,6 +155,22 @@ export class TeeService {
             .where('course_tee_roles.tee_id', '=', teeId)
             .orderBy('tee_roles.sort_order')
             .orderBy('course_tee_roles.gender');
+    }
+
+    /**
+     * The role assignments that name this tee for a gender it is about to STOP
+     * being rated for — the ones an edit would silently retire. An empty
+     * `retained` means every rating is going, so every assignment qualifies.
+     */
+    private teeRolesLosingRating(
+        teeId: string,
+        retained: TeeGender[],
+        trx: Kysely<Database> = this.db,
+    ) {
+        const q = this.teeRolesNaming(teeId, trx);
+        return retained.length > 0
+            ? q.where('course_tee_roles.gender', 'not in', retained)
+            : q;
     }
 
     private insertHoleLengths(
@@ -301,6 +326,44 @@ export class TeeService {
                 }
             }
             if (input.ratings !== undefined) {
+                const retained = input.ratings.map((rating) => rating.gender);
+
+                // Ruling R1 (docs/proposals/manage-ui.md §3.5): retiring a
+                // rating a course tee role still assigns is REFUSED, not
+                // absorbed.
+                //
+                // Migration 059 puts a trigger on `DELETE FROM tee_ratings`
+                // that clears the now-unresolvable `course_tee_roles` rows.
+                // That trigger stays — it is the integrity net for direct SQL
+                // and for any future non-service path — but it must not be the
+                // user-facing mechanism: a tee-role decision reaches beyond
+                // this course (a player's portable
+                // `players.preferred_tee_role_key` resolves through it at round
+                // setup), and untick-then-Save is not a press that means "throw
+                // that decision away". So the operator clears the assignment
+                // first, deliberately, exactly as `remove` makes them.
+                const losing = await this.teeRolesLosingRating(id, retained, trx).execute();
+                if (losing.length > 0) {
+                    const labels = roleLabels(losing);
+                    const noun = losing.length === 1 ? 'tee role' : 'tee roles';
+                    const blockers: DeleteBlocker[] = [
+                        {
+                            kind: 'tee_role_mappings',
+                            count: losing.length,
+                            phrase: `${losing.length} ${noun} (${labels.join(', ')})`,
+                            items: labels,
+                        },
+                    ];
+                    refuseReferenced(
+                        'tee_rating_removal_blocked',
+                        `Cannot remove this tee's rating — ${labels.join(', ')} ` +
+                            `${losing.length === 1 ? 'still assigns' : 'still assign'} this tee ` +
+                            `on this course. Clear ${losing.length === 1 ? 'that assignment' : 'those assignments'} ` +
+                            `in Tee roles first, then save.`,
+                        blockers,
+                    );
+                }
+
                 if (input.ratings.length > 0) {
                     await this.upsertRatings(
                         input.ratings.map((r) => ({
@@ -314,13 +377,10 @@ export class TeeService {
                         trx,
                     ).execute();
                 }
-                // Retained ratings were upserted first. The migration-059
-                // trigger only clears mappings for genders actually retired.
-                await this.deleteRatingsExcept(
-                    id,
-                    input.ratings.map((rating) => rating.gender),
-                    trx,
-                ).execute();
+                // Retained ratings were upserted first, and the guard above has
+                // established that no assignment depends on the genders about
+                // to go — so the migration-059 trigger fires on nothing here.
+                await this.deleteRatingsExcept(id, retained, trx).execute();
             }
         });
 
@@ -357,9 +417,7 @@ export class TeeService {
     async remove(id: string): Promise<void> {
         const mappings = await this.teeRolesNaming(id).execute();
         if (mappings.length > 0) {
-            const labels = mappings.map(
-                (m) => `${m.display_name} / ${m.gender === 'M' ? 'Men' : 'Women'}`,
-            );
+            const labels = roleLabels(mappings);
             const noun = mappings.length === 1 ? 'tee-role mapping' : 'tee-role mappings';
             const blockers: DeleteBlocker[] = [
                 {

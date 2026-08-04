@@ -44,7 +44,17 @@ export type ClubRow = ClubListItem;
  * `RowEditController.commit`, so a failed save keeps the row open with the
  * server's sentence on it.
  */
-export type WriteOutcome = { ok: true } | { ok: false; message: string };
+export type WriteOutcome =
+    | { ok: true }
+    /**
+     * `code` is the server's `detail.code` when the refusal carried one (see
+     * `manage/delete-blockers.ts`). It exists so a screen can PLACE a refusal —
+     * the tee editor puts `tee_rating_removal_blocked` beside the rating
+     * controls it is about, rather than on the panel's general error line. It
+     * is never a substitute for `message`: nothing re-words a refusal from its
+     * code, and a screen that ignores `code` still shows the sentence.
+     */
+    | { ok: false; message: string; code?: string };
 
 /**
  * The filter, as a pure function so it is testable without a component and

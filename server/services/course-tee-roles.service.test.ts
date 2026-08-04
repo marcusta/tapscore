@@ -46,15 +46,38 @@ test('a course role must use the course tee with the matching gender rating', as
     expect(await courseService.listTeeRolesForCourse(course.id)).toEqual([assigned]);
 });
 
-test('retiring a tee rating clears only that gender role mapping', async () => {
+test('retiring a tee rating an assignment depends on is REFUSED, not absorbed', async () => {
     const { courseService, teeService, course, tee } = await setup();
     await courseService.setTeeRole({ courseId: course.id, roleKey: 'club', gender: 'M', teeId: tee.id });
     await courseService.setTeeRole({ courseId: course.id, roleKey: 'club', gender: 'F', teeId: tee.id });
 
+    // Ruling R1 (§3.5): this used to succeed, with migration 059's trigger
+    // silently taking the women's assignment with it. The assignment reaches
+    // beyond this course — a player's portable `preferred_tee_role_key`
+    // resolves through it — so the operator clears it deliberately instead.
+    await expect(teeService.update(tee.id, {
+        ratings: [{ gender: 'M', courseRating: 70.1, slope: 123, par: 72, totalLengthM: 5600 }],
+    })).rejects.toThrow(/Club \/ Women/);
+
+    // Both assignments and both ratings stand: the save was refused whole.
+    expect(await courseService.listTeeRolesForCourse(course.id)).toEqual([
+        { courseId: course.id, roleKey: 'club', gender: 'F', teeId: tee.id },
+        { courseId: course.id, roleKey: 'club', gender: 'M', teeId: tee.id },
+    ]);
+    expect((await teeService.getById(tee.id))!.ratings).toHaveLength(2);
+});
+
+test('once the assignment is cleared, retiring that rating goes through', async () => {
+    const { courseService, teeService, course, tee } = await setup();
+    await courseService.setTeeRole({ courseId: course.id, roleKey: 'club', gender: 'M', teeId: tee.id });
+    await courseService.setTeeRole({ courseId: course.id, roleKey: 'club', gender: 'F', teeId: tee.id });
+
+    await courseService.clearTeeRole(course.id, 'club', 'F');
     await teeService.update(tee.id, {
         ratings: [{ gender: 'M', courseRating: 70.1, slope: 123, par: 72, totalLengthM: 5600 }],
     });
 
+    // And the men's assignment — whose rating was retained — is untouched.
     expect(await courseService.listTeeRolesForCourse(course.id)).toEqual([
         { courseId: course.id, roleKey: 'club', gender: 'M', teeId: tee.id },
     ]);
