@@ -253,8 +253,8 @@ Order matters and the script already encodes it — the player build has
 `emptyOutDir: true` on `public/`, so it must run first or it wipes
 `public/manage/`. Never run one of the two builds alone.
 
-**`@basics/core` 1.4.0 is the current framework release** (see
-`vendor/basics-core-1.4.0.tgz`). Every framework upgrade still owes the same
+**`@basics/core` 1.6.0 is the current framework release** (see
+`vendor/basics-core-1.6.0.tgz`). Every framework upgrade still owes the same
 pre-deploy QA walk, in **both** light and dark themes: create round → score
 entry → leaderboard → settings, checking confirm dialogs and selects at each
 step (those surfaces depend most on the bridged control tokens). Manage's own

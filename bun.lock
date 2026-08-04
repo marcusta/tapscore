@@ -5,7 +5,7 @@
     "": {
       "name": "tapscore",
       "dependencies": {
-        "@basics/core": "file:./vendor/basics-core-1.5.0.tgz",
+        "@basics/core": "file:./vendor/basics-core-1.6.0.tgz",
         "@sinclair/typebox": "0.34.48",
         "hono": "4.11.9",
         "kysely": "0.27.6",
@@ -20,7 +20,7 @@
     },
   },
   "packages": {
-    "@basics/core": ["@basics/core@./vendor/basics-core-1.5.0.tgz", { "peerDependencies": { "@sinclair/typebox": "^0.34", "happy-dom": "^20", "hono": "^4", "kysely": "^0.27", "kysely-bun-sqlite": "^0.3", "typescript": "^5" }, "optionalPeers": ["happy-dom"] }, "sha512-MPArNR37WNUjpFrqcIRD00yMQt/NTFIYf6tuDQ2peSJbSkUusfu5sZp8XtK1S3dPhxdmQFmP5F90aeJxEB0ugw=="],
+    "@basics/core": ["@basics/core@./vendor/basics-core-1.6.0.tgz", { "peerDependencies": { "@sinclair/typebox": "^0.34", "happy-dom": "^20", "hono": "^4", "kysely": "^0.27", "kysely-bun-sqlite": "^0.3", "typescript": "^5" }, "optionalPeers": ["happy-dom"] }, "sha512-MXlFKLcUGxOoo0bdWuw2nMHEBZFE/e0F7PPDeHLq3EXeeQkrRjK5cSj7eQRNf0NZpvIGLE3KSlw/utLyGMy4Nw=="],
 
     "@esbuild/aix-ppc64": ["@esbuild/aix-ppc64@0.27.7", "", { "os": "aix", "cpu": "ppc64" }, "sha512-EKX3Qwmhz1eMdEJokhALr0YiD0lhQNwDqkPYyPhiSwKrh7/4KRjQc04sZ8db+5DVVnZ1LmbNDI1uAMPEUBnQPg=="],
 
