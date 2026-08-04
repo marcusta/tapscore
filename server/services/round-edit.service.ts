@@ -39,8 +39,19 @@ import type { Round, RoundService } from './round.service';
  *     organizational; finalization locks arrive with competition rounds
  *     (Phase 4). The `round_complete` reason/diagnostic is dormant.
  *   - no stored draft (non-draft round)     → `not_editable`;
- *   - ANY score event exists → course + route changes refused
- *                                           → `edit_locked_course_route`;
+ *   - COURSE + ROUTE stay editable while scored, as long as every SCORED hole
+ *     occurrence survives the edit. Play-hole def-ids are POSITIONAL
+ *     (`ph-{ordinal}`), so a score is glued to the position it was entered at,
+ *     not to a course hole number. That is what makes the two real-world
+ *     recoveries work without restarting the round:
+ *       · started on the wrong COURSE — same 18 positions, new course; the
+ *         scores stay on played-hole 1, 2, 3 and par/SI/CH recompute. Every
+ *         tee must be re-picked for the new course (`tee_wrong_course`).
+ *       · started on the wrong HOLE — the wizard's start-hole control ROTATES
+ *         the itinerary, which keeps `ph-1…ph-18` on their positions, so the
+ *         three cards already entered now name holes 10, 11, 12.
+ *     An edit that would DROP a scored occurrence (e.g. full_18 → front_9
+ *     after scoring hole 12) is still refused → `scored_hole_removed`.
  *   - removing a producer whose ball has score events
  *                                           → `producer_has_scores`.
  *     FK reality: `score_events.ball_id` is `ON DELETE RESTRICT` (migration
@@ -199,14 +210,9 @@ export class RoundEditService {
 
         const scored = await this.hasScores(roundId);
 
-        // --- Lock: course + route frozen once anything is scored -------------
-        if (scored && !sameCourseAndRoute(stored.draft, resolved)) {
-            return refuse(
-                'edit_locked_course_route',
-                'scores have been recorded — the course and route can no longer change',
-                'route',
-            );
-        }
+        // Course + route are NOT frozen by the mere existence of scores — the
+        // orphan guards below are the real rule, and they refuse exactly the
+        // edits that would destroy recorded play. See the class comment.
 
         // --- Build + compile (pure; nothing persists yet) ---------------------
         const built = buildRoundDefinition(resolved);
@@ -357,8 +363,9 @@ export class RoundEditService {
      * ball missing from the new compile (producer removal → `producer_has_scores`;
      * anything else, e.g. a scored team reshuffle changing the ball's
      * content-addressed id → `scored_ball_orphaned`), and a scored occurrence
-     * missing from the new itinerary (`edit_locked_course_route` safety net —
-     * normally unreachable behind the draft-level route lock).
+     * missing from the new itinerary (`scored_hole_removed`). That last one is
+     * the ONLY route refusal now that course/route stay editable while scored —
+     * it is the rule, not a safety net.
      */
     private async scoredSubjectDiagnostics(
         roundId: string,
@@ -405,8 +412,9 @@ export class RoundEditService {
         );
         if (orphanedHoles.size > 0) {
             diags.push({
-                code: 'edit_locked_course_route',
-                message: 'scores have been recorded on holes this edit would remove — the route can no longer change',
+                code: 'scored_hole_removed',
+                message:
+                    'scores have been recorded on holes this edit would remove — keep those holes on the route',
                 path: 'route',
             });
         }
@@ -425,7 +433,7 @@ export class RoundEditService {
      *     still returned by `statsForRound`, no longer appendable. Refusing
      *     keeps the round's stats and its roster describing the same thing.
      *
-     * Distinct codes, not `edit_locked_course_route` / `producer_has_scores`:
+     * Distinct codes, not `scored_hole_removed` / `producer_has_scores`:
      * both clients rewrite those two into a "scores have been recorded"
      * sentence, which would be a lie here. An unknown code falls through to
      * this message verbatim on web and iOS alike.
@@ -484,37 +492,4 @@ function keptPlayerIds(producers: RoundDefinition['producers']): Set<string> {
 
 function refuse(code: string, message: string, path?: string): EditRoundResult {
     return { ok: false, diagnostics: [{ code, message, ...(path !== undefined ? { path } : {}) }] };
-}
-
-/**
- * Draft-level course/route equality: courseId + roundType + the whole `route`
- * document (compared canonically — key order insensitive, arrays ordered).
- * Both sides are resolved drafts, so a template-created round compares its
- * frozen route, never the live template.
- */
-function sameCourseAndRoute(a: RoundSetupDraft, b: RoundSetupDraft): boolean {
-    const pick = (d: RoundSetupDraft) => ({
-        courseId: d.courseId,
-        roundType: d.roundType ?? 'full_18',
-        route: d.route ?? null,
-    });
-    return canonicalJson(pick(a)) === canonicalJson(pick(b));
-}
-
-/** JSON with recursively sorted object keys; `undefined` values dropped. */
-function canonicalJson(v: unknown): string {
-    return JSON.stringify(sortKeys(v));
-}
-
-function sortKeys(v: unknown): unknown {
-    if (Array.isArray(v)) return v.map(sortKeys);
-    if (v !== null && typeof v === 'object') {
-        const out: Record<string, unknown> = {};
-        for (const k of Object.keys(v as Record<string, unknown>).sort()) {
-            const val = (v as Record<string, unknown>)[k];
-            if (val !== undefined) out[k] = sortKeys(val);
-        }
-        return out;
-    }
-    return v;
 }

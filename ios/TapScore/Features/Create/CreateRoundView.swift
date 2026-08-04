@@ -73,6 +73,9 @@ struct CreateRoundView: View {
     /// store answers add/formation with a Bool; this is where that Bool is
     /// turned into words, on the card that was tapped.
     @State private var ballTeamNotice: [UUID: String] = [:]
+    /// A save is waiting on the "these holes move" confirm (edit + scores + a
+    /// changed course or route).
+    @State private var routeChangeConfirm = false
     @ScaledMetric(relativeTo: .body) private var allowanceFieldWidth: CGFloat = 84
 
     var body: some View {
@@ -85,6 +88,16 @@ struct CreateRoundView: View {
                 }
             }
             .background(TapColors.bg)
+            .alert("Move this round to the new holes?", isPresented: $routeChangeConfirm) {
+                Button("Save changes") {
+                    if let store { Task { await save(store) } }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(
+                    "The scores you have already entered stay where they are — first hole played stays first, and so on. Only the hole they belong to changes: course, hole number, par and stroke index."
+                )
+            }
             .navigationTitle(mode.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(TapColors.bg, for: .navigationBar)
@@ -280,7 +293,14 @@ struct CreateRoundView: View {
                 }
                 if store.step == .format, mode.isEditing {
                     Button(store.submitting ? "Saving…" : "Save changes") {
-                        Task { await save(store) }
+                        // Moving a SCORED round to another course or start hole
+                        // keeps every score on the position it was entered at,
+                        // so say that out loud before saving.
+                        if store.scoredRouteChange {
+                            routeChangeConfirm = true
+                        } else {
+                            Task { await save(store) }
+                        }
                     }
                     .buttonStyle(.tap(.primary, size: .prominent, fillsWidth: true))
                     .disabled(!store.canSubmit)
@@ -379,11 +399,12 @@ struct CreateRoundView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
 
-        // B4: a round with scores has settled its course and its route — the
-        // balls are already addressed to them. The reason is stated ONCE, above
-        // both locked controls, rather than repeated on each.
-        if store.courseRouteLocked {
-            notice(CreateStore.courseRouteLockNotice, tone: .muted)
+        // B4: a round with scores keeps its course and route EDITABLE — that
+        // is the "started on the wrong course / the wrong hole" repair. What it
+        // owes the user is the rule the scores follow, stated ONCE above both
+        // controls rather than repeated on each.
+        if store.scoredRoundEdit {
+            notice(CreateStore.scoredEditNotice, tone: .muted)
         }
 
         VStack(alignment: .leading, spacing: TapSpacing.sm) {
@@ -394,7 +415,6 @@ struct CreateRoundView: View {
             // same screen as the course they belong to; expanded inline, they
             // are a club list away.
             courseField(store)
-                .disabled(store.courseRouteLocked)
         }
 
         if store.courseId != nil {
@@ -450,7 +470,6 @@ struct CreateRoundView: View {
                         action: { store.setRoutePreset(preset) })
                 }
             }
-            .disabled(store.courseRouteLocked)
         }
 
         if store.permittedStartHoles.count > 1 {
@@ -467,7 +486,6 @@ struct CreateRoundView: View {
                     selection: store.startHole,
                     groups: CreatePickerRows.startHoles(store.permittedStartHoles),
                     onSelect: { store.setStartHole($0) })
-                    .disabled(store.courseRouteLocked)
                 if !store.isPostingEligible {
                     // B3.7: the draft already says so; say it out loud rather
                     // than let a handicap record quietly not move.

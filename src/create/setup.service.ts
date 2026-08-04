@@ -364,8 +364,15 @@ export class SetupService {
     // --- Edit mode (Phase 3.5) -------------------------------------------------
     /** The share token being edited; null ⇒ create mode. Set by `loadForEdit`. */
     readonly editToken = new Signal<string | null>(null);
-    /** True once any score exists — course + route lock (server refuses too). */
+    /**
+     * True once any score exists. NOT a lock: course and start hole stay
+     * editable mid-round (that is the "started on the wrong course / wrong
+     * hole" recovery — the server keeps every score on the hole POSITION it was
+     * entered at). It drives the warning note and the confirm before saving.
+     */
     readonly hasScores = new Signal(false);
+    /** Course + route as they stood when the edit opened; null ⇒ create mode. */
+    private editBaseline: { courseId: string; preset: RoutePreset; startHole: number } | null = null;
     /** The stored round status while editing (`not_started` | `active`). */
     readonly editStatus = new Signal<'not_started' | 'active' | 'complete' | null>(null);
     /** A non-editable reason from `setup()` (complete / no stored draft). */
@@ -435,6 +442,7 @@ export class SetupService {
         this.error.set(null);
         this.editToken.set(null);
         this.hasScores.set(false);
+        this.editBaseline = null;
         this.editStatus.set(null);
         this.editBlockedReason.set(null);
         this.editPlayedAt = null;
@@ -569,12 +577,40 @@ export class SetupService {
         this.nextTeamKey = forms.nextTeamKey;
         this.nextGroupKey = forms.nextGroupKey;
         this.nextSlotKey = forms.nextSlotKey;
+        this.editBaseline = {
+            courseId: forms.courseId,
+            preset: forms.preset,
+            startHole: forms.startHole,
+        };
+    }
+
+    /**
+     * Editing a SCORED round in a way that re-labels the holes already played —
+     * a different course, a different preset, or a different start hole. The
+     * scores themselves survive: they stay on the hole positions they were
+     * entered at, so played-hole 1 stays played-hole 1 and only its identity
+     * (course, number, par, SI) changes. Worth one confirm, never a refusal.
+     */
+    scoredRouteChange(): boolean {
+        const base = this.editBaseline;
+        if (base === null || !this.hasScores.get()) return false;
+        return (
+            base.courseId !== this.courseId.get() ||
+            base.preset !== this.preset.get() ||
+            base.startHole !== this.startHole.get()
+        );
     }
 
     async selectCourse(id: string): Promise<void> {
         this.courseId.set(id);
-        this.preset.set('full_18');
-        this.startHole.set(1);
+        // A course switch resets the route — EXCEPT while editing, where the
+        // route describes holes that may already carry scores. Someone fixing
+        // "wrong course" on a round they started on hole 10 must not silently
+        // lose the rotation and take a `scored_hole_removed` refusal for it.
+        if (this.editToken.get() === null) {
+            this.preset.set('full_18');
+            this.startHole.set(1);
+        }
         const [tees, mappings] = await Promise.all([
             request(this.loading, this.error, () => api.setup.teesByCourse({ courseId: id })),
             api.setup.teeRolesByCourse?.({ courseId: id }).catch(() => []) ?? Promise.resolve([]),

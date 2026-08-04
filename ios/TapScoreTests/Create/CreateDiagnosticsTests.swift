@@ -126,7 +126,7 @@ final class CreateDiagnosticsTests: XCTestCase {
             diagnostic(
                 code: "producer_count_violation", path: "slots[slot-0]",
                 formatId: "stableford_individual", actual: 2, allowedMin: 1, allowedMax: 1),
-            diagnostic(code: "edit_locked_course_route", path: "course"),
+            diagnostic(code: "scored_hole_removed", path: "route"),
             diagnostic(code: "round_complete", path: nil),
         ]
         for d in all {

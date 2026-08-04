@@ -152,8 +152,8 @@ export function humanizeDiagnostic(
             return d.message;
         case 'scored_ball_orphaned':
             return d.message;
-        case 'edit_locked_course_route':
-            return 'Scores have already been recorded — the course and route are locked for this round.';
+        case 'scored_hole_removed':
+            return 'This route drops holes that already have scores on them. Keep those holes on the route — the course and the start hole can still change.';
         case 'round_complete':
             return 'This round is complete — its setup can no longer be edited.';
         case 'not_editable':

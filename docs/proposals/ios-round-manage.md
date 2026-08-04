@@ -319,7 +319,7 @@ When the setup payload says `hasScores == true`:
 - `.notOk{diagnostics}` → render diagnostics inline against the controls they
   name where the create flow already has a mapping (`CreateDiagnostics`), else
   as the global error. Server codes to expect: `producer_has_scores`,
-  `scored_ball_orphaned`, `edit_locked_course_route`, `unknown_tee`,
+  `scored_ball_orphaned`, `scored_hole_removed`, `unknown_tee`,
   `tee_wrong_course`, `unknown_player`, `unknown_guest`, compiler codes.
 - Thrown/HTTP failure → global error **"Could not save the round. Try
   again."**

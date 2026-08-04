@@ -1208,7 +1208,7 @@ mandated reading is Course (with route and tees) → Players → Format.
 ## 14. Out of scope
 
 - Edit mode (`editSetup`) — its producer-identity rules (`p-<key>` for new rows),
-  its edit locks (`producer_has_scores`, `edit_locked_course_route`,
+  its edit locks (`producer_has_scores`, `scored_hole_removed`,
   `round_complete`) and the draft→forms inverse are untouched by this rework.
 - Playing groups (§7).
 - Any change to the format catalog, the compiler, or the server's tee ordering.

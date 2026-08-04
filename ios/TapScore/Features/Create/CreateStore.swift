@@ -420,12 +420,32 @@ final class CreateStore {
 
     var isEditing: Bool { editToken != nil }
 
-    /// B4: the two controls a scored round cannot move. Everything else — the
-    /// roster, the tees, the formats — stays editable.
-    var courseRouteLocked: Bool { isEditing && hasScores }
+    /// B4: editing a round that already has scores. NOT a lock — the course,
+    /// the preset and the start hole all stay usable, because "I started on the
+    /// wrong course" and "I started on the wrong hole" are exactly the mistakes
+    /// this screen exists to repair, and neither is worth replaying the round
+    /// for. The server keeps every score on the hole POSITION it was entered
+    /// at, and refuses only an edit that would drop a hole already scored.
+    var scoredRoundEdit: Bool { isEditing && hasScores }
 
-    static let courseRouteLockNotice =
-        "Scores have been recorded — the course and route are locked for this round."
+    /// The course or the route moved on a round that already has scores — one
+    /// confirm before saving, never a refusal. What changes is which hole each
+    /// card belongs to, not the cards.
+    var scoredRouteChange: Bool {
+        guard scoredRoundEdit, let loaded = loadedDraft, let courseId else { return false }
+        let base = EditDraftAssembler.route(from: loaded)
+        return courseId != loaded.courseId
+            || base.preset != routePreset
+            || base.startHole != startHole
+    }
+
+    static let scoredEditNotice =
+        """
+        Scores are already recorded. You can still change the course, the route \
+        and the start hole — every score stays on the hole it was entered on, \
+        counting from the start. Holes you have already scored have to stay on \
+        the route.
+        """
 
     // MARK: - Loading
 
@@ -597,27 +617,28 @@ final class CreateStore {
     /// all survive, because a user correcting the course they picked has not
     /// changed their mind about who is playing.
     func selectCourse(_ id: String) async {
-        // B4: a scored round's course is settled. The control is drawn disabled
-        // too, but refusing the write means a stale tap cannot move a round
-        // whose balls are already addressed to this course's tees.
-        guard !courseRouteLocked else { return }
         guard courseId != id else { return }
         courseId = id
         clubId = courses.first { $0.id == id }?.clubId ?? clubId
-        clearCourseSelection(keepingCourse: true)
+        // The route reset is a CREATE-flow rule. While editing, the route
+        // describes holes that may already carry scores: someone fixing "wrong
+        // course" on a round they teed off on 10 must not silently lose the
+        // rotation and take a `scored_hole_removed` refusal for it.
+        clearCourseSelection(keepingCourse: true, keepingRoute: isEditing)
         await loadTees(courseId: id)
     }
 
-    private func clearCourseSelection(keepingCourse: Bool = false) {
+    private func clearCourseSelection(keepingCourse: Bool = false, keepingRoute: Bool = false) {
         if !keepingCourse { courseId = nil }
         maleTeeId = nil
         femaleTeeId = nil
         tees = []
-        routePreset = .full18
-        startHole = permittedStartHoles.first ?? 1
         // Overrides are NOT dropped here: which of them the new course can
         // still honour is only knowable once its tees have loaded, so that
         // decision lives in `loadTees` (B2.10).
+        guard !keepingRoute else { return }
+        routePreset = .full18
+        startHole = permittedStartHoles.first ?? 1
     }
 
     /// B2.10, precisely: on a course change, a row is re-defaulted only when
@@ -654,7 +675,11 @@ final class CreateStore {
             dropOverridesAbsent(from: tees)
             maleTeeId = TeeOrder.defaultTee(in: tees, for: .m)?.id
             femaleTeeId = TeeOrder.defaultTee(in: tees, for: .f)?.id
-            startHole = permittedStartHoles.first ?? 1
+            // Only fall back when the new course's route cannot offer the hole
+            // we are on — an edit correcting the course keeps its rotation.
+            if !permittedStartHoles.contains(startHole) {
+                startHole = permittedStartHoles.first ?? 1
+            }
             // The course (and so every course handicap) has changed under the
             // roster; untouched shared balls re-order and re-seed.
             reseedBallTeams()
@@ -982,7 +1007,6 @@ final class CreateStore {
     /// Spec §3.2 B3.4: a preset change keeps the start hole when the new hole
     /// set still contains it, otherwise falls to that set's first hole.
     func setRoutePreset(_ preset: RoundType) {
-        guard !courseRouteLocked else { return }
         guard preset != routePreset else { return }
         routePreset = preset
         let holes = permittedStartHoles
@@ -990,7 +1014,6 @@ final class CreateStore {
     }
 
     func setStartHole(_ hole: Int) {
-        guard !courseRouteLocked else { return }
         guard permittedStartHoles.contains(hole) || permittedStartHoles.isEmpty else { return }
         startHole = hole
     }

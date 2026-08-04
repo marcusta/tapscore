@@ -4,8 +4,11 @@
 // (round_setup_drafts): createFromDraft stores v1, self-join appends, and the
 // token-scoped edit endpoint replaces the whole draft and recompiles through
 // the 2.6d composed-correction path. Content-addressed ids keep untouched
-// balls' score events valid; locks (course/route after scoring, scored-
-// producer removal) refuse with structured diagnostics. NOTE: a `complete`
+// balls' score events valid. Course + route stay editable while scored —
+// play-hole def-ids are positional, so a score is glued to the position it was
+// entered at (the wrong-course / wrong-start-hole recoveries below); only an
+// edit that ORPHANS recorded play (scored hole dropped, scored producer
+// removed) refuses, with structured diagnostics. NOTE: a `complete`
 // friendly round is NOT locked — "finish" is organizational only; finalization
 // locks arrive with competition rounds (Phase 4).
 
@@ -362,42 +365,18 @@ test('edit records the session identity when one is present', async () => {
 
 // --- Locks -----------------------------------------------------------------------
 
-test('LOCK: course + route changes refused once ANY score event exists', async () => {
+test('LOCK: a route change that DROPS a scored hole is refused', async () => {
     const { ctx, draft } = await setup();
     const { token, round } = await createRound(ctx, draft);
     const balls = (await ctx.friendlyRoundService.ballsByToken(token))!;
-    await scoreHoles(ctx, token, round, [{ ballId: balls[0]!.id, strokes: 5 }], 1);
+    // 12 holes scored — front_9 would drop the last three occurrences.
+    await scoreHoles(ctx, token, round, [{ ballId: balls[0]!.id, strokes: 5 }], 12);
 
-    // Route change (roundType full_18 → front_9).
     const routeEdit: RoundSetupDraft = { ...draft, roundType: 'front_9' };
     const r1 = await ctx.roundEditService.editByToken({ token, draft: routeEdit });
     expect(r1!.ok).toBe(false);
     if (r1!.ok) return;
-    expect(r1!.diagnostics[0]!.code).toBe('edit_locked_course_route');
-
-    // Course change.
-    const club2 = await ctx.clubService.create({ name: 'Other GC' });
-    const course2 = await ctx.courseService.create({
-        clubId: club2.id,
-        name: 'Elsewhere',
-        holeCount: 18,
-        holes: Array.from({ length: 18 }, (_, i) => ({ holeNumber: i + 1, par: 4, strokeIndex: i + 1 })),
-    });
-    const tee2 = await ctx.teeService.create({
-        courseId: course2.id,
-        name: 'White',
-        holeLengths: [],
-        ratings: [{ gender: 'M', courseRating: 72, slope: 113, par: 72, totalLengthM: 6100 }],
-    });
-    const courseEdit: RoundSetupDraft = {
-        ...draft,
-        courseId: course2.id,
-        producers: draft.producers.map((p) => ({ ...p, teeId: tee2.id })),
-    };
-    const r2 = await ctx.roundEditService.editByToken({ token, draft: courseEdit });
-    expect(r2!.ok).toBe(false);
-    if (r2!.ok) return;
-    expect(r2!.diagnostics[0]!.code).toBe('edit_locked_course_route');
+    expect(r1!.diagnostics[0]!.code).toBe('scored_hole_removed');
 
     // Non-route edits stay open while scored: start time still editable.
     const timeEdit: RoundSetupDraft = {
@@ -406,6 +385,100 @@ test('LOCK: course + route changes refused once ANY score event exists', async (
     };
     const r3 = await ctx.roundEditService.editByToken({ token, draft: timeEdit });
     expect(r3!.ok).toBe(true);
+});
+
+test('STARTED ON THE WRONG COURSE: the course moves mid-round, scores keep their positions', async () => {
+    const { ctx, draft } = await setup();
+    const { token, round } = await createRound(ctx, draft);
+    const balls = (await ctx.friendlyRoundService.ballsByToken(token))!;
+    const ivarBall = balls.find((b) => b.players[0]!.displayName === 'Ivar')!;
+    await scoreHoles(ctx, token, round, [{ ballId: ivarBall.id, strokes: 5 }], 3);
+
+    // The course he was ACTUALLY standing on: par 5 first hole, CR 71.
+    const club2 = await ctx.clubService.create({ name: 'Other GC' });
+    const course2 = await ctx.courseService.create({
+        clubId: club2.id,
+        name: 'Elsewhere',
+        holeCount: 18,
+        holes: Array.from({ length: 18 }, (_, i) => ({
+            holeNumber: i + 1,
+            par: i === 0 ? 5 : 4,
+            strokeIndex: i + 1,
+        })),
+    });
+    const tee2 = await ctx.teeService.create({
+        courseId: course2.id,
+        name: 'White',
+        holeLengths: [],
+        ratings: [{ gender: 'M', courseRating: 71, slope: 113, par: 72, totalLengthM: 6100 }],
+    });
+    const res = await ctx.roundEditService.editByToken({
+        token,
+        draft: {
+            ...draft,
+            courseId: course2.id,
+            producers: draft.producers.map((p) => ({ ...p, teeId: tee2.id })),
+        },
+    });
+    expect(res!.ok).toBe(true);
+    if (!res!.ok) return;
+    expect(res!.round.courseId).toBe(course2.id);
+    expect(res!.round.courseNameSnapshot).toBe('Elsewhere');
+
+    // Every score survived, on the position it was entered at, and the first
+    // position now carries the NEW course's par 5.
+    const cards = (await ctx.friendlyRoundService.scorecardByToken(token))!;
+    const ivarCard = cards.find((c) => c.ballId === ivarBall.id)!;
+    const scored = ivarCard.holes.filter((h) => h.strokes !== null);
+    expect(scored.length).toBe(3);
+    expect(scored.map((h) => h.strokes)).toEqual([5, 5, 5]);
+    const firstHoleId = round.playingGroups[0]!.playedOrder[0]!.playHoleId;
+    const parRow = await ctx.db
+        .selectFrom('round_play_holes')
+        .select('par')
+        .where('id', '=', firstHoleId)
+        .executeTakeFirstOrThrow();
+    expect(parRow.par).toBe(5);
+    // CH follows the new tee rating: 8 + (71 − 72) = 7.
+    const ballsAfter = await ctx.roundService.ballsForRound(round.id);
+    expect(ballsAfter.find((b) => b.players[0]!.displayName === 'Ivar')!.courseHandicap).toBe(7);
+});
+
+test('STARTED ON THE WRONG HOLE: rotating the route keeps the scores on their positions', async () => {
+    const { ctx, draft } = await setup();
+    const { token, round } = await createRound(ctx, draft);
+    const balls = (await ctx.friendlyRoundService.ballsByToken(token))!;
+    const ivarBall = balls.find((b) => b.players[0]!.displayName === 'Ivar')!;
+    await scoreHoles(ctx, token, round, [{ ballId: ivarBall.id, strokes: 6 }], 3);
+    expect(round.playingGroups[0]!.playedOrder[0]!.courseHoleNumber).toBe(1);
+
+    // He actually teed off on 10 — the wizard's start-hole control rotates the
+    // itinerary (10…18, 1…9), which is what this draft says.
+    const rotated = [...Array(9).keys()]
+        .map((i) => i + 10)
+        .concat([...Array(9).keys()].map((i) => i + 1));
+    const res = await ctx.roundEditService.editByToken({
+        token,
+        draft: {
+            ...draft,
+            roundType: 'custom_holes',
+            route: {
+                playHoles: rotated.map((n) => ({ courseHoleNumber: n })),
+                routeHandicapPolicy: { type: 'explicit', postingEligible: false },
+            },
+        },
+    });
+    expect(res!.ok).toBe(true);
+    if (!res!.ok) return;
+
+    // Same three scores, same positions — now naming holes 10, 11, 12.
+    const after = await ctx.roundService.getById(round.id);
+    const order = after!.playingGroups[0]!.playedOrder;
+    expect(order.slice(0, 3).map((o) => o.courseHoleNumber)).toEqual([10, 11, 12]);
+    const cards = (await ctx.friendlyRoundService.scorecardByToken(token))!;
+    const ivarCard = cards.find((c) => c.ballId === ivarBall.id)!;
+    const scoredHoleIds = ivarCard.holes.filter((h) => h.strokes !== null).map((h) => h.playHoleId);
+    expect(scoredHoleIds).toEqual(order.slice(0, 3).map((o) => o.playHoleId));
 });
 
 test('course change IS allowed before any score (rounds row follows)', async () => {

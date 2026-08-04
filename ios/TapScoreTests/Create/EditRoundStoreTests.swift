@@ -190,34 +190,47 @@ final class EditRoundStoreTests: XCTestCase {
         XCTAssertFalse(store.editHydrated)
     }
 
-    // MARK: - B4: the scores lock
+    // MARK: - B4: a scored round stays movable
 
-    func testScoredRoundLocksCourseAndRoute() async {
+    /// "I started on the wrong hole": the start-hole control still moves on a
+    /// scored round, and the move is flagged for a confirm rather than refused.
+    func testScoredRoundKeepsStartHoleEditable() async {
         routeEditSetup(hasScores: true)
         let store = CreateStore(api: RoundStubURLProtocol.makeAPI())
         await store.loadForEdit(token: "tok")
 
         XCTAssertTrue(store.hasScores)
-        XCTAssertTrue(store.courseRouteLocked)
-        XCTAssertEqual(
-            CreateStore.courseRouteLockNotice,
-            "Scores have been recorded — the course and route are locked for this round.")
+        XCTAssertTrue(store.scoredRoundEdit)
+        XCTAssertFalse(store.scoredRouteChange)
 
-        // Drawn disabled AND refused: a stale tap must not move a round whose
-        // balls are already addressed to this course's tees.
-        await store.selectCourse("course-2")
-        store.setRoutePreset(.back9)
         store.setStartHole(4)
-        XCTAssertEqual(store.courseId, "course-1")
+        XCTAssertEqual(store.startHole, 4)
+        XCTAssertTrue(store.scoredRouteChange)
+    }
+
+    /// "I started on the wrong course": picking another course keeps the ROUTE
+    /// the player already set. Resetting it here would silently drop a rotation
+    /// and earn a `scored_hole_removed` refusal from the server.
+    func testScoredCourseChangeKeepsTheRoute() async {
+        routeEditSetup(hasScores: true)
+        let store = CreateStore(api: RoundStubURLProtocol.makeAPI())
+        await store.loadForEdit(token: "tok")
+
+        store.setStartHole(4)
+        await store.selectCourse("course-2")
+
+        XCTAssertEqual(store.courseId, "course-2")
         XCTAssertEqual(store.routePreset, .full18)
-        XCTAssertEqual(store.startHole, 1)
+        XCTAssertEqual(store.startHole, 4)
+        XCTAssertTrue(store.scoredRouteChange)
     }
 
     func testUnscoredRoundLeavesCourseAndRouteEditable() async throws {
         routeEditSetup(hasScores: false)
         let store = CreateStore(api: RoundStubURLProtocol.makeAPI())
         await store.loadForEdit(token: "tok")
-        XCTAssertFalse(store.courseRouteLocked)
+        XCTAssertFalse(store.scoredRoundEdit)
+        XCTAssertFalse(store.scoredRouteChange)
 
         store.setRoutePreset(.back9)
         XCTAssertEqual(store.routePreset, .back9)

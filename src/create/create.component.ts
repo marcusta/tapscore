@@ -1,6 +1,7 @@
 import { Component, Router, template, effect, Signal } from '@basics/core/client/core';
 import { AuthService } from '@basics/core/client/auth';
 import { SelectComponent, type SelectOption } from '@basics/core/client/ui/select';
+import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { SetupService, type RoutePreset } from './setup.service';
@@ -47,7 +48,7 @@ const tpl = template(`
                 <label class="setup__teerow"><span>Men</span><div bind="maleDefaultTee"></div></label>
                 <label class="setup__teerow"><span>Women</span><div bind="femaleDefaultTee"></div></label>
             </div>
-            <p bind="lockNote" class="setup__locknote hidden">Scores have been recorded — the course and route are locked for this round.</p>
+            <p bind="lockNote" class="setup__locknote hidden">Scores are already recorded. You can still change the course, the route and the start hole — every score stays on the hole it was entered on, counting from the start. Holes you have already scored have to stay on the route.</p>
             <p bind="routeErr" class="setup__warn"></p>
         </section>
 
@@ -124,6 +125,7 @@ const tpl = template(`
         <div bind="banner" class="setup__banner"></div>
         <button bind="create" class="setup__create" type="button">Create round</button>
         <button bind="cancel" class="setup__cancel hidden" type="button">Cancel</button>
+        <div bind="confirmHost"></div>
 
         <div bind="hcpPad" class="hcp hidden">
             <div bind="hcpBackdrop" class="hcp__backdrop"></div>
@@ -824,6 +826,8 @@ export class CreateComponent extends Component {
     private hcpPadFor = new Signal<number | null>(null);
     /** The pad's uncommitted text, in golf notation ("18,4", "+2.4"). */
     private hcpDraft = new Signal('');
+    /** Confirm before saving a course/route change onto an already-scored round. */
+    private routeChangeOpen = new Signal(false);
 
     render(): DocumentFragment {
         // A `?token=` in the URL puts the flow in EDIT MODE — load the stored
@@ -870,8 +874,12 @@ export class CreateComponent extends Component {
         // Edit mode where the round is no longer editable (complete / no stored
         // draft): the form is hidden and a friendly note shown instead.
         const editBlocked = () => isEdit && this.svc.editBlockedReason.get() !== null;
-        // Course + route are frozen once anything is scored (server refuses too).
-        const courseLocked = () => isEdit && this.svc.hasScores.get();
+        // Editing a round that already has scores. NOT a lock — course, preset
+        // and start hole stay usable, because "I started on the wrong course /
+        // the wrong hole" is exactly the mistake this screen has to repair.
+        // Scores stay on the hole POSITIONS they were entered at; the note
+        // below says so, and `scoredRouteChange()` asks before saving.
+        const scoredEdit = () => isEdit && this.svc.hasScores.get();
 
         // The "Add me" row rides on the logged-in profile: shown while signed
         // in and not already on the roster.
@@ -918,12 +926,12 @@ export class CreateComponent extends Component {
                     this.svc.roundName.set((e.target as HTMLInputElement).value),
             },
             lockNote: {
-                className: () => (courseLocked() ? 'setup__locknote' : 'setup__locknote hidden'),
+                className: () => (scoredEdit() ? 'setup__locknote' : 'setup__locknote hidden'),
             },
             routeErr: { textContent: () => this.svc.humanizedRoute().join('\n') },
             teeDefaults: {
                 className: () =>
-                    !isEdit && !courseLocked() && this.svc.tees.get().length > 0
+                    !isEdit && this.svc.tees.get().length > 0
                         ? 'setup__tee-defaults'
                         : 'setup__tee-defaults hidden',
             },
@@ -1046,12 +1054,16 @@ export class CreateComponent extends Component {
                         : isEdit
                           ? 'Save changes'
                           : 'Create round',
-                onclick: async () => {
-                    const result = await this.svc.submit();
-                    if (result.ok) {
-                        // Edit lands back on the same round; create on the new one.
-                        this.router.navigate('/round', { query: { token: result.token } });
+                onclick: () => {
+                    // Re-labelling the holes of a round that already has scores
+                    // is legal and often the whole point of opening this screen
+                    // — but it moves every card onto a different hole, so it is
+                    // asked about once rather than done silently.
+                    if (this.svc.scoredRouteChange()) {
+                        this.routeChangeOpen.set(true);
+                        return;
                     }
+                    void this.save();
                 },
             },
             // --- Handicap keypad (bottom sheet) ---
@@ -1142,11 +1154,7 @@ export class CreateComponent extends Component {
                         b: {
                             textContent: () => this.svc.presetLabel(p),
                             className: () => (this.svc.preset.get() === p ? 'on' : ''),
-                            // Route is locked once anything is scored (edit mode).
-                            disabled: () => courseLocked(),
-                            onclick: () => {
-                                if (!courseLocked()) this.svc.setPreset(p);
-                            },
+                            onclick: () => this.svc.setPreset(p),
                         },
                     },
                     track,
@@ -1185,8 +1193,6 @@ export class CreateComponent extends Component {
                 },
             },
             placeholder: 'Select a course',
-            // Course is frozen once anything is scored (edit mode; server refuses too).
-            disabled: { get: () => courseLocked() },
         });
         this.mountSelect(this.ref(frag, 'startHole'), compTrack, {
             value: this.bound(
@@ -1195,7 +1201,6 @@ export class CreateComponent extends Component {
                 (v) => this.svc.startHole.set(Number(v)),
             ),
             options: { get: () => this.svc.startHoleOptions().map((n) => ({ value: String(n), label: String(n) })) },
-            disabled: { get: () => courseLocked() },
         });
         const teeOptions = () => this.svc.tees.get().map((tee) => ({ value: tee.id, label: tee.name }));
         this.mountSelect(this.ref(frag, 'maleDefaultTee'), compTrack, {
@@ -1335,7 +1340,23 @@ export class CreateComponent extends Component {
             (slot) => slot.key,
         );
 
+        this.spawn(ConfirmComponent, this.ref(frag, 'confirmHost'), {
+            open: this.routeChangeOpen,
+            title: 'Move this round to the new holes?',
+            message:
+                'The scores already entered stay where they are: the first hole you scored stays the first hole you played, and so on down the card. Only which hole each one is — course, number, par and stroke index — changes.',
+            confirmLabel: 'Save changes',
+            cancelLabel: 'Cancel',
+            onconfirm: () => void this.save(),
+        });
+
         return frag;
+    }
+
+    /** Submit the wizard, landing on the round (edit: the same one; create: the new one). */
+    private async save(): Promise<void> {
+        const result = await this.svc.submit();
+        if (result.ok) this.router.navigate('/round', { query: { token: result.token } });
     }
 
     /**

@@ -557,12 +557,13 @@ test('POST /friendly-rounds/setup edits the round with NO login; a lock refuses 
     expect(okBody.ok).toBe(true);
     expect(okBody.round.formatSlots).toHaveLength(1);
 
-    // Lock path: score a hole, then try a route change → structured refusal.
+    // Lock path: score hole 12, then shrink the route to the front nine —
+    // that would drop the scored occurrence → structured refusal.
     const balls = await (await req(ctx.app, 'GET', `/api/friendly-rounds/balls?token=${token}`)).json();
     const round = created.round;
     await req(ctx.app, 'POST', '/api/friendly-rounds/score', {
         token, ballId: balls[0].id,
-        playHoleId: round.playingGroups[0].playedOrder[0].playHoleId,
+        playHoleId: round.playingGroups[0].playedOrder[11].playHoleId,
         strokes: 5, eventType: 'score_entered', clientEventId: 'setup-http-1',
     });
     const locked = await req(ctx.app, 'POST', '/api/friendly-rounds/setup', {
@@ -571,7 +572,7 @@ test('POST /friendly-rounds/setup edits the round with NO login; a lock refuses 
     expect(locked.status).toBe(200);
     const lockedBody = await locked.json();
     expect(lockedBody.ok).toBe(false);
-    expect(lockedBody.diagnostics[0].code).toBe('edit_locked_course_route');
+    expect(lockedBody.diagnostics[0].code).toBe('scored_hole_removed');
 });
 
 test('DELETE /friendly-rounds/:token requires the signed-in creator', async () => {
