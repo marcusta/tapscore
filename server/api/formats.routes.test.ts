@@ -32,7 +32,7 @@ test('GET /api/formats returns the registered serializable descriptors', async (
     // scoring format. The bundled composite formats (scramble/greensomes/
     // foursomes) were removed (ADR-0003) — compositions live in the teams step.
     expect(Array.isArray(data)).toBe(true);
-    expect(data.length).toBe(9);
+    expect(data.length).toBe(10);
     const ids = data.map((d) => d.id);
     expect(ids).toEqual([...ids].sort());
     expect(ids).toContain('stableford_individual');

@@ -569,6 +569,25 @@ enum RoundFixtures {
       "metrics":[]}]
     """
 
+    /// Fairways and greens' shape: a boolean gated to par 4 and up, plus a
+    /// bounded count every hole. The count is what makes this the number-input
+    /// fixture — bounds and all, since the stepper clamps to what the FORMAT
+    /// declared.
+    /// Carries the round fixture's own format id, since the store reads inputs
+    /// through `formatSlots`.
+    static let formatsWithNumberInput = """
+    [{"id":"stableford_individual","label":"Fairways and greens",
+      "labels":{"en":"Fairways and greens","sv":null},
+      "description":"","scoringMode":"fairways_greens","teamShape":"individual",
+      "requirements":{"balls":{"producerCount":{"min":1,"max":4},"ballMode":"own"},
+        "scoreEntry":{"strokes":true,
+          "metadata":[{"key":"fairway","label":"Fairway","kind":"boolean",
+            "appliesWhen":{"minPar":4}},
+            {"key":"putts","label":"Putts","kind":"number","min":0,"max":3}]}},
+      "defaults":{"allowanceConfig":{"type":"flat","pct":100},"formatConfig":null},
+      "metrics":[]}]
+    """
+
     // MARK: - Player stats
 
     /// `GET /friendly-rounds/stats-configs` — the promptable set. Only `p-1`

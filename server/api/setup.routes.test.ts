@@ -101,7 +101,7 @@ test('GET /setup/formats returns the registered descriptors with NO login', asyn
     const data = (await res.json()) as Array<Record<string, unknown>>;
     // Same serializable catalog as the auth-gated GET /formats — the no-login
     // setup flow reads it without a cookie, exactly like courses/tees above.
-    expect(data.length).toBe(9);
+    expect(data.length).toBe(10);
     const ids = data.map((d) => d.id);
     expect(ids).toEqual([...ids].sort());
     expect(ids).toContain('stableford_individual');

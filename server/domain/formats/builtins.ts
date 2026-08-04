@@ -54,6 +54,8 @@ import { stablefordBetterBall } from '../strategies/formats/stableford-better-ba
 import { talibanBetterBall } from '../strategies/formats/taliban-better-ball';
 import { umbrella4Ball } from '../strategies/formats/umbrella-4-ball';
 import { umbrella4BallPresenter } from '../strategies/formats/umbrella-4-ball.presenter';
+import { fairwaysGreensIndividual } from '../strategies/formats/fairways-greens-individual';
+import { fairwaysGreensIndividualPresenter } from '../strategies/formats/fairways-greens-individual.presenter';
 import { umbrellaIndividual } from '../strategies/formats/umbrella-individual';
 import { umbrellaIndividualPresenter } from '../strategies/formats/umbrella-individual.presenter';
 import { matchPlayBetterBall } from '../strategies/formats/match-play-better-ball';
@@ -236,6 +238,39 @@ const BUILTINS: BuiltinMeta[] = [
                 // ignores it on par 3s); declare the same scope so the toggle
                 // only appears where it matters.
                 { key: 'fairway', label: 'Fairway', kind: 'boolean', appliesWhen: { minPar: 4 } },
+            ],
+        },
+    },
+    {
+        strategy: fairwaysGreensIndividual,
+        label: 'Fairways and greens',
+        labelSv: 'Fairways och greener',
+        description: 'Per-hole points for fairway, GIR, up and down, birdie and eagle; 3-putts and doubles cost.',
+        scoringMode: 'fairways_greens',
+        teamShape: 'individual',
+        metrics: POINTS_HIGH,
+        // Absolute running totals, NOT normalized: every point is earned
+        // against par, so the number means the same alone or in a four-ball.
+        resultDisplay: { scoreGridComponentId: 'category-matrix-grid' },
+        renderResult: fairwaysGreensIndividualPresenter,
+        scoresAnyBall: true,
+        preset: {
+            tagline: {
+                en: 'Points for hitting fairways and greens, not just for scoring.',
+                sv: 'Poäng för träffade fairways och greener, inte bara för scoren.',
+            },
+            rank: 9,
+        },
+        // Two inputs; GIR, up-and-down, 3-putt, birdie, eagle and double all
+        // DERIVE from strokes + par + putts (see the strategy header).
+        scoreEntry: {
+            strokes: true,
+            metadata: [
+                { key: 'fairway', label: 'Fairway', kind: 'boolean', appliesWhen: { minPar: 4 } },
+                // 0–3, where 3 reads "3+" — the same bounds and wire values as
+                // the personal-stats putts prompt, so a player who tracks
+                // putting answers once and both channels get it.
+                { key: 'putts', label: 'Putts', kind: 'number', min: 0, max: 3 },
             ],
         },
     },

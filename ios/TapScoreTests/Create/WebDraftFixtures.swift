@@ -21,6 +21,110 @@ enum WebDraftFixtures {
         "clientAdapterId": null,
         "configFields": [
           {
+            "default": "gross",
+            "key": "scoreBasis",
+            "kind": "select",
+            "labels": {
+              "en": "Birdies and eagles",
+              "sv": "Birdies och eagles"
+            },
+            "options": [
+              {
+                "hint": {
+                  "en": "Scores count as played — handicap strokes are ignored.",
+                  "sv": "Scoren räknas som den spelades – slagtilldelning ignoreras."
+                },
+                "labels": {
+                  "en": "Gross",
+                  "sv": "Brutto"
+                },
+                "value": "gross"
+              },
+              {
+                "hint": {
+                  "en": "Handicap strokes count, so a net birdie pays the same as a gross one.",
+                  "sv": "Slagtilldelning räknas, en nettobirdie ger lika mycket som en bruttobirdie."
+                },
+                "labels": {
+                  "en": "Net",
+                  "sv": "Netto"
+                },
+                "value": "net"
+              }
+            ]
+          }
+        ],
+        "defaults": {
+          "allowanceConfig": {
+            "pct": 100,
+            "type": "flat"
+          },
+          "formatConfig": {
+            "scoreBasis": "gross"
+          }
+        },
+        "description": "Per-hole points for fairway, GIR, up and down, birdie and eagle; 3-putts and doubles cost.",
+        "id": "fairways_greens_individual",
+        "label": "Fairways and greens",
+        "labels": {
+          "en": "Fairways and greens",
+          "sv": "Fairways och greener"
+        },
+        "metrics": [
+          {
+            "direction": "high",
+            "id": "points",
+            "label": "Points"
+          }
+        ],
+        "preset": {
+          "rank": 9,
+          "tagline": {
+            "en": "Points for hitting fairways and greens, not just for scoring.",
+            "sv": "Poäng för träffade fairways och greener, inte bara för scoren."
+          }
+        },
+        "requirements": {
+          "balls": {
+            "ballMode": "own",
+            "producerCount": {
+              "max": 1,
+              "min": 1
+            },
+            "requiresSlotTeamGrouping": false
+          },
+          "scoreEntry": {
+            "metadata": [
+              {
+                "appliesWhen": {
+                  "minPar": 4
+                },
+                "key": "fairway",
+                "kind": "boolean",
+                "label": "Fairway"
+              },
+              {
+                "key": "putts",
+                "kind": "number",
+                "label": "Putts",
+                "max": 3,
+                "min": 0
+              }
+            ],
+            "strokes": true
+          }
+        },
+        "resultDisplay": {
+          "scoreGridComponentId": "category-matrix-grid"
+        },
+        "scoresAnyBall": true,
+        "scoringMode": "fairways_greens",
+        "teamShape": "individual"
+      },
+      {
+        "clientAdapterId": null,
+        "configFields": [
+          {
             "default": "delta_from_min",
             "key": "handicapMode",
             "kind": "select",
@@ -1116,6 +1220,72 @@ enum WebDraftFixtures {
             "lowScoreRule": "net"
           },
           "formatId": "umbrella_individual",
+          "subjects": [
+            {
+              "kind": "player",
+              "producerDefId": "p1"
+            },
+            {
+              "kind": "player",
+              "producerDefId": "p2"
+            },
+            {
+              "kind": "player",
+              "producerDefId": "p3"
+            }
+          ]
+        }
+      ],
+      "playedAt": "2026-01-02",
+      "producers": [
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-1",
+            "kind": "guest"
+          },
+          "producerDefId": "p1",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-2",
+            "kind": "guest"
+          },
+          "producerDefId": "p2",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-3",
+            "kind": "guest"
+          },
+          "producerDefId": "p3",
+          "teeId": "tee-y"
+        }
+      ],
+      "roundType": "full_18"
+    }
+    """
+
+    static let fairwaysGreensIndividualThree = """
+    {
+      "courseId": "c1",
+      "formats": [
+        {
+          "allowanceConfig": {
+            "pct": 100,
+            "type": "flat"
+          },
+          "formatConfig": {
+            "scoreBasis": "gross"
+          },
+          "formatId": "fairways_greens_individual",
           "subjects": [
             {
               "kind": "player",

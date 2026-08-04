@@ -107,6 +107,15 @@ export interface MetadataInput {
     label: string;
     kind: 'boolean' | 'number';
     appliesWhen?: MetadataApplies;
+    /**
+     * Stepper bounds for `kind: 'number'`. `min` defaults to 0; `max` absent ⇒
+     * unbounded upward. The top value renders as "n+", so a `putts` input capped
+     * at 3 reads "3 or more" — the same convention (and the same wire values) as
+     * the personal-stats putts prompt, which matters because a key declared by
+     * both channels is captured once and written to both.
+     */
+    min?: number;
+    max?: number;
 }
 
 /**
@@ -498,6 +507,17 @@ export function assertValidDescriptor(d: FormatDescriptor): void {
                 }
                 if (seenKey.has(mi.key)) fail(id, `duplicate scoreEntry.metadata key '${mi.key}'`);
                 seenKey.add(mi.key);
+                for (const bound of ['min', 'max'] as const) {
+                    const v = mi[bound];
+                    if (v === undefined) continue;
+                    if (mi.kind !== 'number') {
+                        fail(id, `metadata input '${mi.key}' declares ${bound} but is not kind number`);
+                    }
+                    if (!Number.isInteger(v)) fail(id, `metadata input '${mi.key}' ${bound} must be an integer`);
+                }
+                if (mi.min !== undefined && mi.max !== undefined && mi.max < mi.min) {
+                    fail(id, `metadata input '${mi.key}' max must be ≥ min`);
+                }
             }
         }
     }

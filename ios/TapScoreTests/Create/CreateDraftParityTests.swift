@@ -81,6 +81,15 @@ final class CreateDraftParityTests: XCTestCase {
             fixture: WebDraftFixtures.umbrellaIndividualThree)
     }
 
+    /// Per-ball metadata AND config fields on one individual format — umbrella
+    /// covers the metadata half but declares no config, so this is its own shape.
+    func testFairwaysGreensIndividualThreePlayersMatchesWeb() async throws {
+        try await assertParity(
+            formatId: "fairways_greens_individual",
+            indices: [12, 12, 12],
+            fixture: WebDraftFixtures.fairwaysGreensIndividualThree)
+    }
+
     /// A ball-count minimum with no maximum and no team grouping — the shape no
     /// other scenario has (Stableford individual declares no `slotBallCount` at
     /// all, Köpenhamnare bounds it at both ends).

@@ -633,18 +633,51 @@ struct StatsView: View {
         return "Hole \(store.occurrenceLabel(hole.playHoleId)) · Par \(store.par(of: hole.playHoleId))"
     }
 
-    /// Web: `.se-stats__group` — a centred label over a Miss/Hit segmented pair.
+    /// Web: `.se-stats__group` — a centred label over a Miss/Hit segmented pair,
+    /// or over a stepper when the format asks for a count rather than a fact.
+    @ViewBuilder
     private func group(_ input: MetadataInput) -> some View {
-        let on = store.pendingMeta[input.key] == true
-        return VStack(spacing: TapSpacing.sm) {
+        let on = store.pendingMeta[input.key] == .bool(true)
+        VStack(spacing: TapSpacing.sm) {
             Text(input.label)
                 .font(TapFont.display(size: 16.8, weight: .bold))
                 .foregroundStyle(KeypadPalette.ink)
                 .multilineTextAlignment(.center)
-            HStack(spacing: TapSpacing.sm) {
-                segment("Miss", selected: !on, tone: .miss) { store.setMetadata(key: input.key, value: false) }
-                segment("Hit", selected: on, tone: .hit) { store.setMetadata(key: input.key, value: true) }
+            switch input.kind {
+            case .number:
+                metaStepper(input)
+            case .boolean:
+                HStack(spacing: TapSpacing.sm) {
+                    segment("Miss", selected: !on, tone: .miss) { store.setMetadata(key: input.key, value: false) }
+                    segment("Hit", selected: on, tone: .hit) { store.setMetadata(key: input.key, value: true) }
+                }
             }
+        }
+    }
+
+    /// The format's own counter, drawn exactly like the stats stepper beside it
+    /// — same control for the same question, so a player looking for putts finds
+    /// one row whichever channel is asking. Untouched shows its floor dimmed.
+    private func metaStepper(_ input: MetadataInput) -> some View {
+        let lower = input.min.map { Int($0) } ?? 0
+        let upper = input.max.map { Int($0) }
+        let stored = store.pendingMetaNumber(input.key)
+        let value = stored ?? lower
+        return HStack(spacing: TapSpacing.xl) {
+            KeypadStepperButton(system: "minus", size: 52) {
+                store.stepMetadata(input.key, by: -1, min: lower, max: upper)
+            }
+            .accessibilityLabel("Fewer \(input.label)")
+            Text(StatVocabulary.stepperText(value, max: upper))
+                .font(TapFont.display(size: 33.6, weight: .bold, tabular: true))
+                .foregroundStyle(stored == nil ? KeypadPalette.inkMuted : KeypadPalette.ink)
+                .frame(width: 72)
+                .accessibilityLabel(
+                    stored == nil ? "\(input.label) not answered" : "\(input.label) \(value)")
+            KeypadStepperButton(system: "plus", size: 52) {
+                store.stepMetadata(input.key, by: 1, min: lower, max: upper)
+            }
+            .accessibilityLabel("More \(input.label)")
         }
     }
 

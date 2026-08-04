@@ -171,8 +171,11 @@ final class RoundStore {
     private(set) var holeCompleteOnEntry = false
     private(set) var toast: String?
     private(set) var pendingJump: PendingHoleJump?
-    /// Per-hole metadata toggles for the open ball+hole, committed with strokes.
-    private(set) var pendingMeta: [String: Bool] = [:]
+    /// Per-hole metadata answers for the open ball+hole, committed with strokes.
+    /// `.bool` for a toggle, `.number` for a counter; a NUMBER key stays absent
+    /// until somebody answers it, because zero putts is a fact and "nobody said"
+    /// is not.
+    private(set) var pendingMeta: [String: JSONValue] = [:]
     private var lastMetaKey: String?
 
     // MARK: - Player stats capture
@@ -1237,15 +1240,16 @@ final class RoundStore {
 
     // MARK: - Metadata inputs (umbrella GIR/fairway)
 
-    /// The boolean metadata inputs declared across the round's formats, deduped
-    /// by key — one toggle even if two formats consume GIR.
+    /// The metadata inputs declared across the round's formats, deduped by key —
+    /// one control even if two formats consume GIR. A `.boolean` renders as the
+    /// Miss/Hit pair, a `.number` as a stepper.
     var metadataInputs: [MetadataInput] {
         let byId = Dictionary(formats.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         var seen = Set<String>()
         var out: [MetadataInput] = []
         for slot in round?.formatSlots ?? [] {
             for input in byId[slot.formatId]?.requirements.scoreEntry?.metadata ?? [] {
-                guard input.kind == .boolean, !seen.contains(input.key) else { continue }
+                guard !seen.contains(input.key) else { continue }
                 seen.insert(input.key)
                 out.append(input)
             }
@@ -1271,29 +1275,81 @@ final class RoundStore {
     }
 
     func metadataValue(ballId: String, playHoleId: String, key: String) -> Bool {
+        storedMetadata(ballId: ballId, playHoleId: playHoleId)?[key] == .bool(true)
+    }
+
+    /// The stored count for a number input, or nil when nobody answered it —
+    /// which is why this is not `-> Int` with a zero default.
+    func metadataNumber(ballId: String, playHoleId: String, key: String) -> Int? {
+        guard case .number(let n) = storedMetadata(ballId: ballId, playHoleId: playHoleId)?[key]
+        else { return nil }
+        return Int(n)
+    }
+
+    private func storedMetadata(ballId: String, playHoleId: String) -> [String: JSONValue]? {
         if let cell = cells[Self.cellKey(ballId, playHoleId)], case .value(let m) = cell.metadata {
-            return m[key] == .bool(true)
+            return m
         }
         let stored = scorecards.first { $0.ballId == ballId }?
             .holes.first { $0.playHoleId == playHoleId }?.metadata
-        if case .value(let m) = stored { return m[key] == .bool(true) }
-        return false
+        if case .value(let m) = stored { return m }
+        return nil
     }
 
-    /// Explicit booleans for every applicable toggle, so turning one OFF
-    /// persists. `.absent` for a strokes-only round (no stats step at all).
+    /// The answer for every applicable input — explicit `false` for an untouched
+    /// toggle so turning one OFF persists, explicit `null` for an unanswered
+    /// count so it stays distinguishable from zero. The scorecard keeps only the
+    /// latest blob, so a key left out would silently inherit the last event's.
+    /// `.absent` for a strokes-only round (no stats step at all).
     private var metadataSnapshot: TriState<[String: JSONValue]> {
         let inputs = metadataInputsForCurrentHole
         guard !inputs.isEmpty else { return .absent }
         var out: [String: JSONValue] = [:]
-        for input in inputs { out[input.key] = .bool(pendingMeta[input.key] == true) }
+        for input in inputs {
+            switch input.kind {
+            case .number:
+                if case .number(let n) = pendingMeta[input.key] {
+                    out[input.key] = .number(n)
+                } else {
+                    out[input.key] = .null
+                }
+            case .boolean:
+                out[input.key] = .bool(pendingMeta[input.key] == .bool(true))
+            }
+        }
         return .value(out)
+    }
+
+    /// The pending count for a number input, nil until answered.
+    func pendingMetaNumber(_ key: String) -> Int? {
+        guard case .number(let n) = pendingMeta[key] else { return nil }
+        return Int(n)
     }
 
     /// Set one toggle and persist the full snapshot. The score is already in by
     /// the time the stats screen shows, so this re-sends strokes + the snapshot.
     func setMetadata(key: String, value: Bool) {
-        pendingMeta[key] = value
+        pendingMeta[key] = .bool(value)
+        persistMetadata()
+    }
+
+    /// The number twin, same persistence.
+    func setMetadata(key: String, number: Int) {
+        pendingMeta[key] = .number(Double(number))
+        persistMetadata()
+    }
+
+    /// Nudge a number input. Any nudge answers it — `StatStep.step`'s rule, so
+    /// both steppers on the plate move the same way on a first tap — and the
+    /// result is clamped to the bounds the FORMAT declared.
+    func stepMetadata(_ key: String, by delta: Int, min lower: Int, max upper: Int?) {
+        var next = (pendingMetaNumber(key) ?? lower) + delta
+        if next < lower { next = lower }
+        if let upper, next > upper { next = upper }
+        setMetadata(key: key, number: next)
+    }
+
+    private func persistMetadata() {
         guard let ball = ballUnderCursor, let hole = currentPlayedHole else { return }
         guard let strokes = strokes(ballId: ball.id, playHoleId: hole.playHoleId) else { return }
         Task {
@@ -1442,10 +1498,17 @@ final class RoundStore {
     /// tracks stats for are untouched — those balls still render the plain
     /// format toggle.
     private func mirrorToFormatMetadata(_ key: StatEventKey) {
-        guard metadataInputsForCurrentHole.contains(where: { $0.key == key.rawValue }) else {
-            return
+        guard let input = metadataInputsForCurrentHole.first(where: { $0.key == key.rawValue })
+        else { return }
+        switch input.kind {
+        case .number:
+            // The stats layer stores its answers as decimal strings; the format
+            // channel wants a number. An unparsable (or cleared) answer leaves
+            // the format key alone rather than writing a wrong count.
+            if let n = statStep?.intValue(of: key) { setMetadata(key: key.rawValue, number: n) }
+        case .boolean:
+            setMetadata(key: key.rawValue, value: statValue(key) == "1")
         }
-        setMetadata(key: key.rawValue, value: statValue(key) == "1")
     }
 
     /// Rebuild the step when the (player, hole) under the cursor changes,
@@ -1977,10 +2040,21 @@ final class RoundStore {
         let key = Self.cellKey(ball.id, hole.playHoleId)
         guard key != lastMetaKey else { return }
         lastMetaKey = key
-        var seed: [String: Bool] = [:]
+        var seed: [String: JSONValue] = [:]
         for input in metadataInputsForCurrentHole {
-            seed[input.key] = metadataValue(
-                ballId: ball.id, playHoleId: hole.playHoleId, key: input.key)
+            switch input.kind {
+            case .number:
+                // Only a real stored count seeds; anything else leaves the key
+                // absent, which is what the stepper draws as "not answered".
+                if let n = metadataNumber(
+                    ballId: ball.id, playHoleId: hole.playHoleId, key: input.key)
+                {
+                    seed[input.key] = .number(Double(n))
+                }
+            case .boolean:
+                seed[input.key] = .bool(
+                    metadataValue(ballId: ball.id, playHoleId: hole.playHoleId, key: input.key))
+            }
         }
         pendingMeta = seed
     }

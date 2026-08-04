@@ -75,6 +75,8 @@ export interface MetadataInput {
     label: string;
     kind: 'number' | 'boolean';
     appliesWhen?: MetadataApplies;
+    min?: number;
+    max?: number;
 }
 
 export interface MetadataApplies {

@@ -175,6 +175,13 @@ const scenarios: Scenario[] = [
         players: ['Anna', 'Bert', 'Cleo'],
     },
     {
+        // Per-ball metadata AND config fields on one individual format — the
+        // shape umbrella does not cover, since it declares no config.
+        name: 'fairwaysGreensIndividualThree',
+        formatIds: ['fairways_greens_individual'],
+        players: ['Anna', 'Bert', 'Cleo'],
+    },
+    {
         name: 'matchPlayIndividualTwo',
         formatIds: ['match_play_individual'],
         players: ['Anna', 'Bert'],

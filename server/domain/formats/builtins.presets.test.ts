@@ -25,6 +25,7 @@ const PRESET_ORDER = [
     'stableford_better_ball', // 6 — Bästboll poängbogey
     'umbrella_individual', // 7 — Umbrella
     'umbrella_4_ball', // 8 — Umbrella in pairs
+    'fairways_greens_individual', // 9 — Fairways and greens
 ];
 
 /**

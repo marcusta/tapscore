@@ -782,7 +782,10 @@ export class ScoreEntryComponent extends Component {
     // Per-hole metadata toggles (umbrella GIR/fairway) for the open ball+hole,
     // committed alongside strokes. Reseeded from stored state when the selected
     // ball/hole changes (`lastMetaKey` guards against clobbering live toggles).
-    private pendingMeta = new Signal<Record<string, boolean>>({});
+    // A number input's key is ABSENT until answered — a missing putt count is a
+    // different fact from zero putts, and a format that derives GIR from putts
+    // must not read an untouched row as "holed it from off the green".
+    private pendingMeta = new Signal<Record<string, boolean | number>>({});
     private lastMetaKey: string | null = null;
     private toastMsg = new Signal<string | null>(null);
     /** Ball id whose handicap-derivation dialog is open; null = closed. */
@@ -818,9 +821,9 @@ export class ScoreEntryComponent extends Component {
     private occLabel = (playHoleId: string): string => this.svc.occLabel(playHoleId);
     private ballName = (b: RoundBall) => ballDisplayName(b);
 
-    /** Boolean metadata toggles applicable to the current hole (umbrella GIR/fairway). */
-    private metaInputs = (): MetadataInput[] =>
-        this.svc.metadataInputsForHole(this.svc.currentPlayHole()).filter((m) => m.kind === 'boolean');
+    /** Format metadata inputs applicable to the current hole (umbrella GIR/fairway,
+     * fairways-and-greens putts) — a toggle for `boolean`, a stepper for `number`. */
+    private metaInputs = (): MetadataInput[] => this.svc.metadataInputsForHole(this.svc.currentPlayHole());
 
     /** Strokes display: no-result → "–", pickup(0) → "0", else the count. */
     private displayScore = (strokes: number | null): string =>
@@ -1277,9 +1280,18 @@ export class ScoreEntryComponent extends Component {
                 const key = `${ball.id}|${ph.playHoleId}`;
                 if (key === this.lastMetaKey) return;
                 this.lastMetaKey = key;
-                const seed: Record<string, boolean> = {};
-                for (const mi of this.metaInputs())
-                    seed[mi.key] = this.svc.metadataFor(ball.id, ph.playHoleId, mi.key) === true;
+                const seed: Record<string, boolean | number> = {};
+                for (const mi of this.metaInputs()) {
+                    const stored = this.svc.metadataFor(ball.id, ph.playHoleId, mi.key);
+                    if (mi.kind === 'number') {
+                        // Leave the key absent when nothing is stored, so the
+                        // stepper opens dimmed on its floor rather than
+                        // claiming an answer nobody gave.
+                        if (typeof stored === 'number') seed[mi.key] = stored;
+                    } else {
+                        seed[mi.key] = stored === true;
+                    }
+                }
                 this.pendingMeta.set(seed);
             }),
         );
@@ -1671,18 +1683,30 @@ export class ScoreEntryComponent extends Component {
         });
     };
 
-    /** Explicit booleans for every applicable toggle (so turning one OFF persists). */
+    /**
+     * The COMPLETE picture for the hole: an explicit boolean for every toggle
+     * (so turning one OFF persists), and for a number input either the answer or
+     * an explicit `null` — the scorecard keeps only the latest event's blob, so
+     * a key left out would silently keep whatever the previous event said.
+     */
     private metaSnapshot(): Record<string, unknown> | undefined {
         const inputs = this.metaInputs();
         if (inputs.length === 0) return undefined;
         const pending = this.pendingMeta.get();
         const out: Record<string, unknown> = {};
-        for (const mi of inputs) out[mi.key] = pending[mi.key] === true;
+        for (const mi of inputs) {
+            if (mi.kind === 'number') {
+                const v = pending[mi.key];
+                out[mi.key] = typeof v === 'number' ? v : null;
+            } else {
+                out[mi.key] = pending[mi.key] === true;
+            }
+        }
         return out;
     }
 
-    /** Set an explicit value for one toggle and persist the full snapshot. */
-    private setMeta(key: string, value: boolean): void {
+    /** Set an explicit value for one input and persist the full snapshot. */
+    private setMeta(key: string, value: boolean | number): void {
         const cur = this.pendingMeta.get();
         this.pendingMeta.set({ ...cur, [key]: value });
         // The score is already in by the time the stats screen shows, so re-send
@@ -1695,6 +1719,7 @@ export class ScoreEntryComponent extends Component {
     }
 
     private metaChip(mi: MetadataInput, track: (d: () => void) => void): HTMLElement {
+        if (mi.kind === 'number') return this.metaStepper(mi, track);
         return this.wireEl(
             chipTpl,
             {
@@ -1706,6 +1731,44 @@ export class ScoreEntryComponent extends Component {
                 hit: {
                     className: () => (this.pendingMeta.get()[mi.key] ? 'se-seg on-hit' : 'se-seg'),
                     onclick: () => this.setMeta(mi.key, true),
+                },
+            },
+            track,
+        );
+    }
+
+    /**
+     * A format's `number` input, drawn as the SAME stepper the stats half uses
+     * for putts — one control per question means one look for it too. Any nudge
+     * answers it, so `-1` from untouched records the floor rather than reading
+     * as another un-answer.
+     */
+    private metaStepper(mi: MetadataInput, track: (d: () => void) => void): HTMLElement {
+        const min = mi.min ?? 0;
+        const max = mi.max ?? null;
+        const value = (): number | null => {
+            const v = this.pendingMeta.get()[mi.key];
+            return typeof v === 'number' ? v : null;
+        };
+        const step = (delta: number): void => {
+            // `StatStep.step` verbatim: delta off the floor, clamped. Both
+            // steppers sit on the same plate, so a first tap must move the same
+            // way in both — `-1` from untouched lands on (and answers) the floor.
+            const next = Math.min(max ?? Infinity, Math.max(min, (value() ?? min) + delta));
+            this.setMeta(mi.key, next);
+        };
+        return this.wireEl(
+            statStepTpl,
+            {
+                glabel: { textContent: mi.label },
+                minus: { onclick: () => step(-1), 'aria-label': `Fewer ${mi.label}` },
+                plus: { onclick: () => step(1), 'aria-label': `More ${mi.label}` },
+                val: {
+                    textContent: () => stepperText(value() ?? min, max),
+                    className: () =>
+                        value() === null ? 'se-stats__step-val unanswered' : 'se-stats__step-val',
+                    'aria-label': () =>
+                        value() === null ? `${mi.label} not answered` : `${mi.label} ${value()}`,
                 },
             },
             track,
@@ -1900,9 +1963,18 @@ export class ScoreEntryComponent extends Component {
      * boolean in place is strictly safer; a real miss is one tap away.
      */
     private mirrorStatToMeta(key: StatEventKey): void {
-        if (!this.metaInputs().some((mi) => mi.key === key)) return;
+        const input = this.metaInputs().find((mi) => mi.key === key);
+        if (!input) return;
         const value = this.svc.statValue(key);
         if (value === null) return;
+        if (input.kind === 'number') {
+            // The stats layer stores its stepper answers as decimal strings; a
+            // format's number channel wants the number. Same value, same
+            // meaning (including a capped "3" that means 3 or more).
+            const n = Number(value);
+            if (Number.isInteger(n)) this.setMeta(key, n);
+            return;
+        }
         this.setMeta(key, value === '1');
     }
 

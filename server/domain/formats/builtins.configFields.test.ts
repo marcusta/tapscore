@@ -19,6 +19,7 @@ beforeEach(() => {
 
 /** Formats that declare knobs today — asserted so a dropped declaration fails. */
 const FORMATS_WITH_CONFIG_FIELDS = [
+    'fairways_greens_individual',
     'kopenhamnare_individual',
     'taliban_better_ball',
     'umbrella_4_ball',

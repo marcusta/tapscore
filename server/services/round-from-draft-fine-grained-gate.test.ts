@@ -150,7 +150,7 @@ test('the format catalog no longer offers the bundled composite formats', () => 
     clearFormats();
     registerBuiltInFormats();
     const ids = formatCatalog().map((d) => d.id);
-    expect(ids).toHaveLength(9);
+    expect(ids).toHaveLength(10);
     for (const gone of ['scramble', 'greensomes', 'stroke_play_foursomes']) {
         expect(ids).not.toContain(gone);
     }

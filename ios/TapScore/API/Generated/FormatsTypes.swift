@@ -629,19 +629,25 @@ struct MetadataInput: Codable, Sendable, Equatable {
     var label: String
     var kind: MetadataInputKind
     var appliesWhen: MetadataApplies?
+    var min: Double?
+    var max: Double?
 
     enum CodingKeys: String, CodingKey {
         case key = "key"
         case label = "label"
         case kind = "kind"
         case appliesWhen = "appliesWhen"
+        case min = "min"
+        case max = "max"
     }
 
-    init(key: String, label: String, kind: MetadataInputKind, appliesWhen: MetadataApplies? = nil) {
+    init(key: String, label: String, kind: MetadataInputKind, appliesWhen: MetadataApplies? = nil, min: Double? = nil, max: Double? = nil) {
         self.key = key
         self.label = label
         self.kind = kind
         self.appliesWhen = appliesWhen
+        self.min = min
+        self.max = max
     }
 
     init(from decoder: any Decoder) throws {
@@ -650,6 +656,8 @@ struct MetadataInput: Codable, Sendable, Equatable {
         self.label = try c.decode(String.self, forKey: .label)
         self.kind = try c.decode(MetadataInputKind.self, forKey: .kind)
         self.appliesWhen = try c.decodeIfPresent(MetadataApplies.self, forKey: .appliesWhen)
+        self.min = try c.decodeIfPresent(Double.self, forKey: .min)
+        self.max = try c.decodeIfPresent(Double.self, forKey: .max)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -658,6 +666,8 @@ struct MetadataInput: Codable, Sendable, Equatable {
         try c.encode(label, forKey: .label)
         try c.encode(kind, forKey: .kind)
         try c.encodeIfPresent(appliesWhen, forKey: .appliesWhen)
+        try c.encodeIfPresent(min, forKey: .min)
+        try c.encodeIfPresent(max, forKey: .max)
     }
 }
 

@@ -487,6 +487,103 @@ final class RoundStatsCaptureTests: XCTestCase {
         XCTAssertEqual(statRequests().count, 0, "no stat events for a guest")
     }
 
+    // MARK: - Number metadata inputs
+
+    /// The last posted score's metadata blob.
+    private func lastMetadata() -> [String: Any]? {
+        RoundStubURLProtocol.requests(for: "/friendly-rounds/score").last?
+            .json?["metadata"] as? [String: Any]
+    }
+
+    /// Fairways and greens asks every ball for a putt COUNT, not a fact. An
+    /// untouched count must reach the server as null — zero putts is a chip-in,
+    /// and the server derives GIR and 3-putts from the difference.
+    func testAnUnansweredCountPostsNullRatherThanZero() async {
+        routeRound(formats: RoundFixtures.formatsWithNumberInput)
+        let store = makeStore()
+        await store.load()
+        XCTAssertEqual(store.metadataInputsForCurrentHole.map(\.key), ["fairway", "putts"])
+
+        store.openKeypad(ballId: "ball-2")
+        XCTAssertEqual(store.formatMetadataInputsForStep.map(\.key), ["fairway", "putts"])
+        XCTAssertNil(store.pendingMetaNumber("putts"))
+
+        store.commit(4)
+        await waitUntil("the score to post") { self.scoreRequests() == 1 }
+        XCTAssertEqual(lastMetadata()?["fairway"] as? Bool, false)
+        XCTAssertTrue(
+            lastMetadata()?["putts"] is NSNull, "an untouched count is not an answered zero")
+    }
+
+    /// Any nudge answers the input and the result is clamped to the bounds the
+    /// FORMAT declared — so `-1` from untouched records zero, and `+` stops at
+    /// the cap, which reads as "3 or more".
+    func testSteppingAnswersTheCountAndClampsToTheDeclaredBounds() async {
+        routeRound(formats: RoundFixtures.formatsWithNumberInput)
+        let store = makeStore()
+        await store.load()
+        store.openKeypad(ballId: "ball-2")
+        store.commit(4)
+        await waitUntil("the score to post") { self.scoreRequests() == 1 }
+
+        store.stepMetadata("putts", by: -1, min: 0, max: 3)
+        XCTAssertEqual(store.pendingMetaNumber("putts"), 0)
+        await waitUntil("the count to post") { self.scoreRequests() == 2 }
+        XCTAssertEqual(lastMetadata()?["putts"] as? Int, 0)
+
+        for _ in 0..<5 { store.stepMetadata("putts", by: 1, min: 0, max: 3) }
+        XCTAssertEqual(store.pendingMetaNumber("putts"), 3)
+        store.stepMetadata("putts", by: -1, min: 0, max: 3)
+        XCTAssertEqual(store.pendingMetaNumber("putts"), 2)
+        await waitUntil("the last count to post") { (self.lastMetadata()?["putts"] as? Int) == 2 }
+    }
+
+    /// One key, one control — the number case. The player tracks putting, so the
+    /// stats prompt owns the row and its answer drives the format channel as a
+    /// NUMBER, not the boolean the shared-key mirror writes for a toggle.
+    func testASharedCountRendersOnceAndMirrorsAsANumber() async {
+        routeRound(formats: RoundFixtures.formatsWithNumberInput)
+        let store = makeStore()
+        await store.load()
+
+        store.openKeypad(ballId: "ball-1")
+        XCTAssertEqual(
+            store.formatMetadataInputsForStep.map(\.key), ["fairway"],
+            "putts is drawn once, by the stats half")
+        XCTAssertTrue(store.statPrompts.map(\.key).contains(.putts))
+
+        store.commit(4)
+        await waitUntil("the stats step to open") { store.statsOpen }
+        await waitUntil("the score to post") { self.scoreRequests() == 1 }
+
+        store.stepStat(.putts, by: 1)
+        store.stepStat(.putts, by: 1)
+        await waitUntil("the mirrored count") { (self.lastMetadata()?["putts"] as? Int) == 2 }
+
+        // And the stats channel still posts its own event, unchanged.
+        store.statsDone()
+        await waitUntil("the batch to post") { self.statRequests().count == 1 }
+        XCTAssertEqual(lastBatch().last?["value"] as? String, "2")
+    }
+
+    /// A stored count prefills the stepper on a revisit; an unstored one leaves
+    /// it unanswered rather than snapping to the floor.
+    func testAStoredCountReseedsOnRevisit() async {
+        routeRound(formats: RoundFixtures.formatsWithNumberInput)
+        let store = makeStore()
+        await store.load()
+        store.openKeypad(ballId: "ball-2")
+        store.commit(4)
+        await waitUntil("the score to post") { self.scoreRequests() == 1 }
+        store.stepMetadata("putts", by: 2, min: 0, max: 3)
+        await waitUntil("the count to post") { self.scoreRequests() == 2 }
+
+        store.selectBall(index: 0)
+        XCTAssertNil(store.pendingMetaNumber("putts"), "another ball's count is not this one's")
+        store.selectBall(index: 1)
+        XCTAssertEqual(store.pendingMetaNumber("putts"), 2)
+    }
+
     // MARK: - Offline
 
     /// Kill recovery: an answer that never got acked is replayed after the next
