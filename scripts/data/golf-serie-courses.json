@@ -1,0 +1,6063 @@
+{
+  "schemaVersion": 1,
+  "source": "golf-serie production database",
+  "exportedAt": "2026-08-03T21:31:33.336Z",
+  "courses": [
+    {
+      "sourceId": 37,
+      "clubName": "Askersunds Golfklubb",
+      "courseName": "Askersunds GK",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 3,
+          "par": 5,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 4,
+          "par": 3,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 6,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 7,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 9,
+          "par": 5,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 11,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 12,
+          "par": 3,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 13,
+          "par": 5,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 15,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 16,
+          "par": 5,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 17,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 6
+        }
+      ],
+      "tees": [
+        {
+          "id": 106,
+          "name": "Svart",
+          "colour": "Black",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 73.8,
+              "slope": 139
+            }
+          ]
+        },
+        {
+          "id": 107,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 69.3,
+              "slope": 129
+            },
+            {
+              "gender": "F",
+              "courseRating": 74.3,
+              "slope": 141
+            }
+          ]
+        },
+        {
+          "id": 108,
+          "name": "Vit",
+          "colour": "White",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 71.6,
+              "slope": 135
+            },
+            {
+              "gender": "F",
+              "courseRating": 77.2,
+              "slope": 147
+            }
+          ]
+        },
+        {
+          "id": 109,
+          "name": "Blå",
+          "colour": "Blue",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 67.3,
+              "slope": 125
+            },
+            {
+              "gender": "F",
+              "courseRating": 71.9,
+              "slope": 136
+            }
+          ]
+        },
+        {
+          "id": 110,
+          "name": "Röd",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 67.6,
+              "slope": 126
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 32,
+      "clubName": "Bråvikens Golfklubb",
+      "courseName": "Gul/Gul",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 2,
+          "par": 5,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 3,
+          "par": 3,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 4,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 6,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 7,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 8,
+          "par": 5,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 11,
+          "par": 5,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 12,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 15,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 16,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 17,
+          "par": 5,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 4
+        }
+      ],
+      "tees": [
+        {
+          "id": 81,
+          "name": "T1",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 72.2,
+              "slope": 133
+            }
+          ]
+        },
+        {
+          "id": 82,
+          "name": "T2",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 70.2,
+              "slope": 129
+            },
+            {
+              "gender": "F",
+              "courseRating": 76,
+              "slope": 127
+            }
+          ]
+        },
+        {
+          "id": 83,
+          "name": "T3",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 68.1,
+              "slope": 125
+            },
+            {
+              "gender": "F",
+              "courseRating": 73.5,
+              "slope": 122
+            }
+          ]
+        },
+        {
+          "id": 84,
+          "name": "T5",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 66.2,
+              "slope": 104
+            }
+          ]
+        },
+        {
+          "id": 85,
+          "name": "T4",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 66.7,
+              "slope": 123
+            },
+            {
+              "gender": "F",
+              "courseRating": 71.8,
+              "slope": 118
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 33,
+      "clubName": "Bråvikens Golfklubb",
+      "courseName": "Gul/Röd",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 2,
+          "par": 5,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 3,
+          "par": 3,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 4,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 6,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 7,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 8,
+          "par": 5,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 11,
+          "par": 5,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 13,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 15,
+          "par": 5,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 16,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 6
+        }
+      ],
+      "tees": [
+        {
+          "id": 86,
+          "name": "T1",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 72.6,
+              "slope": 135
+            }
+          ]
+        },
+        {
+          "id": 87,
+          "name": "T2",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 70.7,
+              "slope": 131
+            },
+            {
+              "gender": "F",
+              "courseRating": 76.9,
+              "slope": 131
+            }
+          ]
+        },
+        {
+          "id": 88,
+          "name": "T3",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 68.8,
+              "slope": 124
+            },
+            {
+              "gender": "F",
+              "courseRating": 74.1,
+              "slope": 125
+            }
+          ]
+        },
+        {
+          "id": 89,
+          "name": "T4",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 67.7,
+              "slope": 111
+            }
+          ]
+        },
+        {
+          "id": 90,
+          "name": "T5",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 67.7,
+              "slope": 125
+            },
+            {
+              "gender": "F",
+              "courseRating": 73.2,
+              "slope": 123
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 31,
+      "clubName": "Bråvikens Golfklubb",
+      "courseName": "Gul/Vit",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 2,
+          "par": 5,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 3,
+          "par": 3,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 4,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 6,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 7,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 8,
+          "par": 5,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 10,
+          "par": 5,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 11,
+          "par": 4,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 14,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 15,
+          "par": 5,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 16,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 8
+        }
+      ],
+      "tees": [
+        {
+          "id": 76,
+          "name": "T1",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 72.9,
+              "slope": 141
+            }
+          ]
+        },
+        {
+          "id": 77,
+          "name": "T2",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 70.7,
+              "slope": 137
+            },
+            {
+              "gender": "F",
+              "courseRating": 77,
+              "slope": 134
+            }
+          ]
+        },
+        {
+          "id": 78,
+          "name": "T3",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 68.9,
+              "slope": 133
+            },
+            {
+              "gender": "F",
+              "courseRating": 74.9,
+              "slope": 128
+            }
+          ]
+        },
+        {
+          "id": 79,
+          "name": "T5",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 67.1,
+              "slope": 112
+            }
+          ]
+        },
+        {
+          "id": 80,
+          "name": "T4",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 67.4,
+              "slope": 130
+            },
+            {
+              "gender": "F",
+              "courseRating": 73.1,
+              "slope": 125
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 28,
+      "clubName": "Bråvikens Golfklubb",
+      "courseName": "Röd/Gul",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 2,
+          "par": 5,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 4,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 6,
+          "par": 5,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 11,
+          "par": 5,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 12,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 15,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 16,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 17,
+          "par": 5,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 4
+        }
+      ],
+      "tees": [
+        {
+          "id": 61,
+          "name": "T1",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 72.6,
+              "slope": 135
+            }
+          ]
+        },
+        {
+          "id": 62,
+          "name": "T2",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 70.7,
+              "slope": 131
+            },
+            {
+              "gender": "F",
+              "courseRating": 76.9,
+              "slope": 131
+            }
+          ]
+        },
+        {
+          "id": 63,
+          "name": "T3",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 68.8,
+              "slope": 124
+            },
+            {
+              "gender": "F",
+              "courseRating": 74.1,
+              "slope": 125
+            }
+          ]
+        },
+        {
+          "id": 64,
+          "name": "T5",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 67.7,
+              "slope": 111
+            }
+          ]
+        },
+        {
+          "id": 65,
+          "name": "T4",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 67.7,
+              "slope": 125
+            },
+            {
+              "gender": "F",
+              "courseRating": 73.2,
+              "slope": 123
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 30,
+      "clubName": "Bråvikens Golfklubb",
+      "courseName": "Röd/Röd",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 2,
+          "par": 5,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 4,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 6,
+          "par": 5,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 11,
+          "par": 5,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 13,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 15,
+          "par": 5,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 16,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 6
+        }
+      ],
+      "tees": [
+        {
+          "id": 71,
+          "name": "T1",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 73.1,
+              "slope": 136
+            }
+          ]
+        },
+        {
+          "id": 72,
+          "name": "T2",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 71.3,
+              "slope": 133
+            },
+            {
+              "gender": "F",
+              "courseRating": 77.8,
+              "slope": 136
+            }
+          ]
+        },
+        {
+          "id": 73,
+          "name": "T3",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 68.8,
+              "slope": 128
+            },
+            {
+              "gender": "F",
+              "courseRating": 75,
+              "slope": 127
+            }
+          ]
+        },
+        {
+          "id": 74,
+          "name": "T5",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 69.5,
+              "slope": 117
+            }
+          ]
+        },
+        {
+          "id": 75,
+          "name": "T4",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 68.7,
+              "slope": 128
+            },
+            {
+              "gender": "F",
+              "courseRating": 74.6,
+              "slope": 127
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 29,
+      "clubName": "Bråvikens Golfklubb",
+      "courseName": "Röd/Vit",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 2,
+          "par": 5,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 4,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 6,
+          "par": 5,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 10,
+          "par": 5,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 11,
+          "par": 4,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 14,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 15,
+          "par": 5,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 16,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 8
+        }
+      ],
+      "tees": [
+        {
+          "id": 66,
+          "name": "T1",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 73.4,
+              "slope": 143
+            }
+          ]
+        },
+        {
+          "id": 67,
+          "name": "T2",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 71.3,
+              "slope": 139
+            },
+            {
+              "gender": "F",
+              "courseRating": 78,
+              "slope": 137
+            }
+          ]
+        },
+        {
+          "id": 68,
+          "name": "T3",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 69.3,
+              "slope": 135
+            },
+            {
+              "gender": "F",
+              "courseRating": 75.5,
+              "slope": 131
+            }
+          ]
+        },
+        {
+          "id": 69,
+          "name": "T5",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 68.9,
+              "slope": 118
+            }
+          ]
+        },
+        {
+          "id": 70,
+          "name": "T4",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 68.5,
+              "slope": 132
+            },
+            {
+              "gender": "F",
+              "courseRating": 74.5,
+              "slope": 129
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 36,
+      "clubName": "Bråvikens Golfklubb",
+      "courseName": "Vit/Gul",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 5,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 4,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 5,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 6,
+          "par": 5,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 11,
+          "par": 5,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 12,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 15,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 16,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 17,
+          "par": 5,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 4
+        }
+      ],
+      "tees": [
+        {
+          "id": 101,
+          "name": "White",
+          "colour": "White",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 72.9,
+              "slope": 141
+            }
+          ]
+        },
+        {
+          "id": 102,
+          "name": "Yellow",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 70.7,
+              "slope": 137
+            },
+            {
+              "gender": "F",
+              "courseRating": 77,
+              "slope": 134
+            }
+          ]
+        },
+        {
+          "id": 103,
+          "name": "Blue",
+          "colour": "Blue",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 68.9,
+              "slope": 133
+            },
+            {
+              "gender": "F",
+              "courseRating": 74.9,
+              "slope": 128
+            }
+          ]
+        },
+        {
+          "id": 104,
+          "name": "Orange",
+          "colour": "Orange",
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 67.1,
+              "slope": 112
+            }
+          ]
+        },
+        {
+          "id": 105,
+          "name": "Red",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 67.4,
+              "slope": 130
+            },
+            {
+              "gender": "F",
+              "courseRating": 73.1,
+              "slope": 125
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 35,
+      "clubName": "Bråvikens Golfklubb",
+      "courseName": "Vit/Röd",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 5,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 4,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 5,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 6,
+          "par": 5,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 11,
+          "par": 5,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 13,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 15,
+          "par": 5,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 16,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 6
+        }
+      ],
+      "tees": [
+        {
+          "id": 96,
+          "name": "T1",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 73.4,
+              "slope": 143
+            }
+          ]
+        },
+        {
+          "id": 97,
+          "name": "T2",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 71.3,
+              "slope": 139
+            },
+            {
+              "gender": "F",
+              "courseRating": 78,
+              "slope": 137
+            }
+          ]
+        },
+        {
+          "id": 98,
+          "name": "T3",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 69.3,
+              "slope": 135
+            },
+            {
+              "gender": "F",
+              "courseRating": 75.5,
+              "slope": 131
+            }
+          ]
+        },
+        {
+          "id": 99,
+          "name": "T5",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 68.9,
+              "slope": 118
+            }
+          ]
+        },
+        {
+          "id": 100,
+          "name": "T4",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 68.5,
+              "slope": 132
+            },
+            {
+              "gender": "F",
+              "courseRating": 74.5,
+              "slope": 129
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 34,
+      "clubName": "Bråvikens Golfklubb",
+      "courseName": "Vit/Vit",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 5,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 4,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 5,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 6,
+          "par": 5,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 10,
+          "par": 5,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 11,
+          "par": 4,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 14,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 15,
+          "par": 5,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 16,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 8
+        }
+      ],
+      "tees": [
+        {
+          "id": 91,
+          "name": "T1",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 73.7,
+              "slope": 148
+            }
+          ]
+        },
+        {
+          "id": 92,
+          "name": "T2",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 71.1,
+              "slope": 145
+            },
+            {
+              "gender": "F",
+              "courseRating": 78.1,
+              "slope": 139
+            }
+          ]
+        },
+        {
+          "id": 93,
+          "name": "T3",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 69.8,
+              "slope": 139
+            },
+            {
+              "gender": "F",
+              "courseRating": 76.2,
+              "slope": 136
+            }
+          ]
+        },
+        {
+          "id": 94,
+          "name": "T5",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 68.3,
+              "slope": 120
+            }
+          ]
+        },
+        {
+          "id": 95,
+          "name": "T4",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 68.2,
+              "slope": 137
+            },
+            {
+              "gender": "F",
+              "courseRating": 74.4,
+              "slope": 131
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 16,
+      "clubName": "Default Club",
+      "courseName": "Bethpage Black",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 3,
+          "par": 3,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 4,
+          "par": 5,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 7,
+          "par": 5,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 8,
+          "par": 3,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 11,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 13,
+          "par": 5,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 14,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 15,
+          "par": 4,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 16,
+          "par": 4,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 17,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 18
+        }
+      ],
+      "tees": []
+    },
+    {
+      "sourceId": 14,
+      "clubName": "Default Club",
+      "courseName": "Bråviken",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 2,
+          "par": 5,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 4,
+          "par": 3,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 6,
+          "par": 5,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 10,
+          "par": 5,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 11,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 14,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 15,
+          "par": 5,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 16,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 18
+        }
+      ],
+      "tees": []
+    },
+    {
+      "sourceId": 15,
+      "clubName": "Default Club",
+      "courseName": "DPC Portrush",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 2,
+          "par": 5,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 3,
+          "par": 3,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 4,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 6,
+          "par": 3,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 7,
+          "par": 5,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 11,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 12,
+          "par": 5,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 13,
+          "par": 3,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 15,
+          "par": 4,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 16,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 18
+        }
+      ],
+      "tees": []
+    },
+    {
+      "sourceId": 12,
+      "clubName": "Default Club",
+      "courseName": "Hylinge",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 5,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 3,
+          "par": 3,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 4,
+          "par": 5,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 11,
+          "par": 3,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 15,
+          "par": 5,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 16,
+          "par": 4,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 17,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 18,
+          "par": 5,
+          "strokeIndex": 18
+        }
+      ],
+      "tees": []
+    },
+    {
+      "sourceId": 19,
+      "clubName": "Default Club",
+      "courseName": "Pebble Beach",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 2,
+          "par": 5,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 4,
+          "par": 4,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 5,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 6,
+          "par": 5,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 11,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 12,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 14,
+          "par": 5,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 15,
+          "par": 4,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 16,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 17,
+          "par": 3,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 18,
+          "par": 5,
+          "strokeIndex": 5
+        }
+      ],
+      "tees": [
+        {
+          "id": 10,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 73.4,
+              "slope": 137
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 17,
+      "clubName": "Default Club",
+      "courseName": "Quail Hollow Club",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 5,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 4,
+          "par": 3,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 6,
+          "par": 3,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 7,
+          "par": 5,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 10,
+          "par": 5,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 11,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 13,
+          "par": 3,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 15,
+          "par": 5,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 16,
+          "par": 4,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 17,
+          "par": 3,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 1
+        }
+      ],
+      "tees": [
+        {
+          "id": 7,
+          "name": "Grön",
+          "colour": "Green",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 72.2,
+              "slope": 134
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 18,
+      "clubName": "Default Club",
+      "courseName": "Spyglass Hill",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 5,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 3,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 4,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 5,
+          "par": 3,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 7,
+          "par": 5,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 11,
+          "par": 5,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 12,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 14,
+          "par": 5,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 15,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 16,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 8
+        }
+      ],
+      "tees": [
+        {
+          "id": 9,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 73.3,
+              "slope": 140
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 20,
+      "clubName": "Default Club",
+      "courseName": "TPC Sawgrass",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 2,
+          "par": 5,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 3,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 4,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 7,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 8,
+          "par": 3,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 9,
+          "par": 5,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 11,
+          "par": 5,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 13,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 15,
+          "par": 4,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 16,
+          "par": 5,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 17,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 2
+        }
+      ],
+      "tees": [
+        {
+          "id": 8,
+          "name": "Vit",
+          "colour": "White",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 72.8,
+              "slope": 145
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 6,
+      "clubName": "Default Club",
+      "courseName": "Vreta",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 5,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 3,
+          "par": 3,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 4,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 5,
+          "par": 5,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 11,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 12,
+          "par": 5,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 13,
+          "par": 3,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 15,
+          "par": 5,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 16,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 18
+        }
+      ],
+      "tees": []
+    },
+    {
+      "sourceId": 27,
+      "clubName": "Flemminge Golf",
+      "courseName": "Flemminge Golf",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 5,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 2,
+          "par": 3,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 4,
+          "par": 3,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 5,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 6,
+          "par": 3,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 7,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 10,
+          "par": 5,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 11,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 13,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 14,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 15,
+          "par": 3,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 16,
+          "par": 4,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 4
+        }
+      ],
+      "tees": [
+        {
+          "id": 57,
+          "name": "White",
+          "colour": "White",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 62.5,
+              "slope": 104
+            }
+          ]
+        },
+        {
+          "id": 58,
+          "name": "Yellow",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 61.4,
+              "slope": 102
+            },
+            {
+              "gender": "F",
+              "courseRating": 63.9,
+              "slope": 103
+            }
+          ]
+        },
+        {
+          "id": 59,
+          "name": "Red",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 59.7,
+              "slope": 99
+            },
+            {
+              "gender": "F",
+              "courseRating": 61,
+              "slope": 97
+            }
+          ]
+        },
+        {
+          "id": 60,
+          "name": "Orange",
+          "colour": "Orange",
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 59.6,
+              "slope": 94
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 24,
+      "clubName": "Ingelsta Golfklubb",
+      "courseName": "Ingelsta Golfklubb",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 3,
+          "par": 3,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 4,
+          "par": 5,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 5,
+          "par": 3,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 6,
+          "par": 5,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 9,
+          "par": 3,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 11,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 13,
+          "par": 3,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 15,
+          "par": 3,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 16,
+          "par": 5,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 17,
+          "par": 3,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 18,
+          "par": 5,
+          "strokeIndex": 18
+        }
+      ],
+      "tees": [
+        {
+          "id": 47,
+          "name": "Vit",
+          "colour": "White",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 66.5,
+              "slope": 118
+            }
+          ]
+        },
+        {
+          "id": 48,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 64.6,
+              "slope": 114
+            },
+            {
+              "gender": "F",
+              "courseRating": 68.8,
+              "slope": 118
+            }
+          ]
+        },
+        {
+          "id": 49,
+          "name": "Blå",
+          "colour": "Blue",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 63.5,
+              "slope": 112
+            },
+            {
+              "gender": "F",
+              "courseRating": 67.5,
+              "slope": 115
+            }
+          ]
+        },
+        {
+          "id": 50,
+          "name": "Röd",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 61.1,
+              "slope": 110
+            },
+            {
+              "gender": "F",
+              "courseRating": 62.8,
+              "slope": 105
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 40,
+      "clubName": "Katrineholms Golfklubb",
+      "courseName": "Gamla Banan",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 5,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 2,
+          "par": 3,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 4,
+          "par": 5,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 6,
+          "par": 5,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 11,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 12,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 15,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 16,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 17,
+          "par": 5,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 4
+        }
+      ],
+      "tees": [
+        {
+          "id": 119,
+          "name": "Tee5",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 74,
+              "slope": 133
+            }
+          ]
+        },
+        {
+          "id": 120,
+          "name": "Tee4",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 71.6,
+              "slope": 130
+            },
+            {
+              "gender": "F",
+              "courseRating": 77,
+              "slope": 143
+            }
+          ]
+        },
+        {
+          "id": 121,
+          "name": "Tee3",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 69.2,
+              "slope": 124
+            },
+            {
+              "gender": "F",
+              "courseRating": 73.7,
+              "slope": 134
+            }
+          ]
+        },
+        {
+          "id": 122,
+          "name": "Tee1",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 66,
+              "slope": 119
+            }
+          ]
+        },
+        {
+          "id": 123,
+          "name": "Tee2",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 66.5,
+              "slope": 118
+            },
+            {
+              "gender": "F",
+              "courseRating": 70.4,
+              "slope": 129
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 42,
+      "clubName": "Kinda Golfklubb",
+      "courseName": "Kinda GK",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 5,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 4,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 5,
+          "par": 5,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 10,
+          "par": 5,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 11,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 13,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 14,
+          "par": 5,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 15,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 16,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 16
+        }
+      ],
+      "tees": [
+        {
+          "id": 129,
+          "name": "Orange",
+          "colour": "Orange",
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 64.7,
+              "slope": 106
+            }
+          ]
+        },
+        {
+          "id": 130,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 71.7,
+              "slope": 132
+            },
+            {
+              "gender": "F",
+              "courseRating": 77.8,
+              "slope": 134
+            }
+          ]
+        },
+        {
+          "id": 131,
+          "name": "Röd",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 67.5,
+              "slope": 124
+            },
+            {
+              "gender": "F",
+              "courseRating": 72.7,
+              "slope": 123
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 9,
+      "clubName": "Landeryds Golfklubb",
+      "courseName": "Classic",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 5,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 2,
+          "par": 3,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 4,
+          "par": 3,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 7,
+          "par": 5,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 9,
+          "par": 3,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 10,
+          "par": 5,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 11,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 13,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 15,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 16,
+          "par": 5,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 17,
+          "par": 3,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 14
+        }
+      ],
+      "tees": [
+        {
+          "id": 1,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 67.6,
+              "slope": 122
+            },
+            {
+              "gender": "F",
+              "courseRating": 73,
+              "slope": 123
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "name": "Röd",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 63.9,
+              "slope": 115
+            },
+            {
+              "gender": "F",
+              "courseRating": 68.5,
+              "slope": 113
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 10,
+      "clubName": "Landeryds Golfklubb",
+      "courseName": "Masters",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 3,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 4,
+          "par": 5,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 5,
+          "par": 5,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 11,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 12,
+          "par": 5,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 13,
+          "par": 5,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 15,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 16,
+          "par": 5,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 17,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 10
+        }
+      ],
+      "tees": [
+        {
+          "id": 3,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 71,
+              "slope": 138
+            },
+            {
+              "gender": "F",
+              "courseRating": 76.7,
+              "slope": 142
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "name": "Vit",
+          "colour": "White",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 73.2,
+              "slope": 143
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "name": "Blå",
+          "colour": "Blue",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 69.4,
+              "slope": 136
+            },
+            {
+              "gender": "F",
+              "courseRating": 75,
+              "slope": 134
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "name": "Röd",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 67,
+              "slope": 130
+            },
+            {
+              "gender": "F",
+              "courseRating": 71.8,
+              "slope": 130
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 21,
+      "clubName": "Landeryds Golfklubb",
+      "courseName": "Vesterby Links",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 5,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 4,
+          "par": 4,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 5,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 7,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 8,
+          "par": 3,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 10,
+          "par": 5,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 11,
+          "par": 3,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 12,
+          "par": 5,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 15,
+          "par": 3,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 16,
+          "par": 4,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 17,
+          "par": 3,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 18,
+          "par": 5,
+          "strokeIndex": 11
+        }
+      ],
+      "tees": [
+        {
+          "id": 21,
+          "name": "Vit",
+          "colour": "White",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 73.1,
+              "slope": 129
+            }
+          ]
+        },
+        {
+          "id": 22,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 69.8,
+              "slope": 121
+            },
+            {
+              "gender": "F",
+              "courseRating": 75.3,
+              "slope": 133
+            }
+          ]
+        },
+        {
+          "id": 23,
+          "name": "Blå",
+          "colour": "Blue",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 67.6,
+              "slope": 117
+            },
+            {
+              "gender": "F",
+              "courseRating": 72.8,
+              "slope": 127
+            }
+          ]
+        },
+        {
+          "id": 24,
+          "name": "Röd",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 64.3,
+              "slope": 110
+            },
+            {
+              "gender": "F",
+              "courseRating": 68.7,
+              "slope": 118
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 1,
+      "clubName": "Linköpings Golfklubb",
+      "courseName": "Linköpings Golfklubb 1-18",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 3,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 4,
+          "par": 5,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 5,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 6,
+          "par": 5,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 10,
+          "par": 5,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 11,
+          "par": 3,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 14,
+          "par": 5,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 15,
+          "par": 4,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 16,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 9
+        }
+      ],
+      "tees": [
+        {
+          "id": 11,
+          "name": "Vit",
+          "colour": "White",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 70.7,
+              "slope": 127
+            }
+          ]
+        },
+        {
+          "id": 12,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 69.5,
+              "slope": 124
+            },
+            {
+              "gender": "F",
+              "courseRating": 76,
+              "slope": 134
+            }
+          ]
+        },
+        {
+          "id": 13,
+          "name": "Blå",
+          "colour": "Blue",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 68,
+              "slope": 118
+            },
+            {
+              "gender": "F",
+              "courseRating": 73.5,
+              "slope": 128
+            }
+          ]
+        },
+        {
+          "id": 14,
+          "name": "Orange",
+          "colour": "Orange",
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 65.7,
+              "slope": 112
+            }
+          ]
+        },
+        {
+          "id": 15,
+          "name": "Röd",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 65.9,
+              "slope": 114
+            },
+            {
+              "gender": "F",
+              "courseRating": 70.9,
+              "slope": 121
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 39,
+      "clubName": "Mauritzbergs Slott & Golf",
+      "courseName": "Slottsbanan",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 5,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 4,
+          "par": 3,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 6,
+          "par": 5,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 11,
+          "par": 4,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 13,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 15,
+          "par": 5,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 16,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 18,
+          "par": 5,
+          "strokeIndex": 8
+        }
+      ],
+      "tees": [
+        {
+          "id": 115,
+          "name": "Vit",
+          "colour": "White",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 74.9,
+              "slope": 133
+            }
+          ]
+        },
+        {
+          "id": 116,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 71.9,
+              "slope": 128
+            },
+            {
+              "gender": "F",
+              "courseRating": 78.2,
+              "slope": 133
+            }
+          ]
+        },
+        {
+          "id": 117,
+          "name": "Blå",
+          "colour": "Blue",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 71.5,
+              "slope": 125
+            },
+            {
+              "gender": "F",
+              "courseRating": 77.4,
+              "slope": 131
+            }
+          ]
+        },
+        {
+          "id": 118,
+          "name": "Röd",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 67.4,
+              "slope": 118
+            },
+            {
+              "gender": "F",
+              "courseRating": 72.6,
+              "slope": 121
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 13,
+      "clubName": "Mjölby Golfklubb",
+      "courseName": "Mjölby Golfklubb",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 4,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 5,
+          "par": 5,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 7,
+          "par": 5,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 9,
+          "par": 3,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 10,
+          "par": 5,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 11,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 14,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 15,
+          "par": 4,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 16,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 17,
+          "par": 5,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 18,
+          "par": 3,
+          "strokeIndex": 16
+        }
+      ],
+      "tees": [
+        {
+          "id": 30,
+          "name": "Orange",
+          "colour": "Orange",
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 66.9,
+              "slope": 115
+            }
+          ]
+        },
+        {
+          "id": 31,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 68.9,
+              "slope": 124
+            },
+            {
+              "gender": "F",
+              "courseRating": 75,
+              "slope": 129
+            }
+          ]
+        },
+        {
+          "id": 32,
+          "name": "Röd",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 65.8,
+              "slope": 110
+            },
+            {
+              "gender": "F",
+              "courseRating": 70.2,
+              "slope": 122
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 7,
+      "clubName": "Motala Golfklubb",
+      "courseName": "Park/Skogsbanan",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 3,
+          "par": 3,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 4,
+          "par": 5,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 7,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 9,
+          "par": 5,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 10,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 11,
+          "par": 5,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 13,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 15,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 16,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 6
+        }
+      ],
+      "tees": [
+        {
+          "id": 16,
+          "name": "White",
+          "colour": "White",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 70.8,
+              "slope": 132
+            }
+          ]
+        },
+        {
+          "id": 17,
+          "name": "Yellow",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 69.3,
+              "slope": 128
+            },
+            {
+              "gender": "F",
+              "courseRating": 75.1,
+              "slope": 133
+            }
+          ]
+        },
+        {
+          "id": 18,
+          "name": "Blue",
+          "colour": "Blue",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 67,
+              "slope": 123
+            },
+            {
+              "gender": "F",
+              "courseRating": 72.3,
+              "slope": 127
+            }
+          ]
+        },
+        {
+          "id": 19,
+          "name": "Orange",
+          "colour": "Orange",
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 65.6,
+              "slope": 113
+            }
+          ]
+        },
+        {
+          "id": 20,
+          "name": "Röd",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 65.1,
+              "slope": 119
+            },
+            {
+              "gender": "F",
+              "courseRating": 69.9,
+              "slope": 122
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 22,
+      "clubName": "Norrköping Söderköping Golfklubb",
+      "courseName": "Hylinge 18-hål",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 5,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 3,
+          "par": 3,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 4,
+          "par": 5,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 11,
+          "par": 3,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 15,
+          "par": 5,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 16,
+          "par": 4,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 17,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 18,
+          "par": 5,
+          "strokeIndex": 8
+        }
+      ],
+      "tees": [
+        {
+          "id": 33,
+          "name": "Vit",
+          "colour": "White",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 70.3,
+              "slope": 128
+            }
+          ]
+        },
+        {
+          "id": 34,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 68.9,
+              "slope": 127
+            },
+            {
+              "gender": "F",
+              "courseRating": 75.4,
+              "slope": 135
+            }
+          ]
+        },
+        {
+          "id": 35,
+          "name": "Blå",
+          "colour": "Blue",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 66.8,
+              "slope": 122
+            },
+            {
+              "gender": "F",
+              "courseRating": 72.4,
+              "slope": 126
+            }
+          ]
+        },
+        {
+          "id": 36,
+          "name": "Orange",
+          "colour": "Orange",
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 64,
+              "slope": 110
+            }
+          ]
+        },
+        {
+          "id": 37,
+          "name": "Röd",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 64.7,
+              "slope": 110
+            },
+            {
+              "gender": "F",
+              "courseRating": 68.9,
+              "slope": 123
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 23,
+      "clubName": "Norrköping Söderköping Golfklubb",
+      "courseName": "Hylinge 9-hål",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 2,
+          "par": 5,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 3,
+          "par": 3,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 4,
+          "par": 4,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 5,
+          "par": 3,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 6,
+          "par": 5,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 9,
+          "par": 5,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 11,
+          "par": 5,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 12,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 14,
+          "par": 3,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 15,
+          "par": 5,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 16,
+          "par": 3,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 18,
+          "par": 5,
+          "strokeIndex": 8
+        }
+      ],
+      "tees": [
+        {
+          "id": 38,
+          "name": "Vit",
+          "colour": "White",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 70.7,
+              "slope": 126
+            }
+          ]
+        },
+        {
+          "id": 39,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 69.2,
+              "slope": 127
+            },
+            {
+              "gender": "F",
+              "courseRating": 75.9,
+              "slope": 132
+            }
+          ]
+        },
+        {
+          "id": 40,
+          "name": "Blå",
+          "colour": "Blue",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 67.9,
+              "slope": 120
+            },
+            {
+              "gender": "F",
+              "courseRating": 73.9,
+              "slope": 128
+            }
+          ]
+        },
+        {
+          "id": 41,
+          "name": "Orange",
+          "colour": "Orange",
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 67,
+              "slope": 114
+            }
+          ]
+        },
+        {
+          "id": 42,
+          "name": "Röd",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 66.6,
+              "slope": 117
+            },
+            {
+              "gender": "F",
+              "courseRating": 72,
+              "slope": 123
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 11,
+      "clubName": "Norrköping Söderköping Golfklubb",
+      "courseName": "Klinga",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 5,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 4,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 7,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 9,
+          "par": 5,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 11,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 12,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 14,
+          "par": 5,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 15,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 16,
+          "par": 5,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 17,
+          "par": 3,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 18,
+          "par": 3,
+          "strokeIndex": 10
+        }
+      ],
+      "tees": [
+        {
+          "id": 25,
+          "name": "Vit",
+          "colour": "White",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 71.2,
+              "slope": 137
+            }
+          ]
+        },
+        {
+          "id": 26,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 70.4,
+              "slope": 135
+            },
+            {
+              "gender": "F",
+              "courseRating": 76.4,
+              "slope": 134
+            }
+          ]
+        },
+        {
+          "id": 27,
+          "name": "Blå",
+          "colour": "Blue",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 68.9,
+              "slope": 132
+            },
+            {
+              "gender": "F",
+              "courseRating": 74.6,
+              "slope": 130
+            }
+          ]
+        },
+        {
+          "id": 28,
+          "name": "Orange",
+          "colour": "Orange",
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 66.9,
+              "slope": 113
+            }
+          ]
+        },
+        {
+          "id": 29,
+          "name": "Röd",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 66.4,
+              "slope": 127
+            },
+            {
+              "gender": "F",
+              "courseRating": 71.6,
+              "slope": 123
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 38,
+      "clubName": "Ombergs Golf Resort",
+      "courseName": "Ombergs Golf Resort",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 4,
+          "par": 4,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 5,
+          "par": 3,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 7,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 8,
+          "par": 5,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 9,
+          "par": 3,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 11,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 13,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 14,
+          "par": 5,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 15,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 16,
+          "par": 5,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 18,
+          "par": 5,
+          "strokeIndex": 6
+        }
+      ],
+      "tees": [
+        {
+          "id": 111,
+          "name": "Vit",
+          "colour": "White",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 72.4,
+              "slope": 135
+            }
+          ]
+        },
+        {
+          "id": 112,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 70.8,
+              "slope": 132
+            },
+            {
+              "gender": "F",
+              "courseRating": 76.4,
+              "slope": 133
+            }
+          ]
+        },
+        {
+          "id": 113,
+          "name": "Blå",
+          "colour": "Blue",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 67.8,
+              "slope": 126
+            },
+            {
+              "gender": "F",
+              "courseRating": 72.8,
+              "slope": 125
+            }
+          ]
+        },
+        {
+          "id": 114,
+          "name": "Röd",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 66.3,
+              "slope": 123
+            },
+            {
+              "gender": "F",
+              "courseRating": 70.9,
+              "slope": 121
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 43,
+      "clubName": "Tranås Golfklubb",
+      "courseName": "Korthålsbanan",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 3,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 2,
+          "par": 3,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 3,
+          "par": 3,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 4,
+          "par": 3,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 5,
+          "par": 3,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 6,
+          "par": 3,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 8,
+          "par": 3,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 9,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 10,
+          "par": 3,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 11,
+          "par": 3,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 12,
+          "par": 3,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 13,
+          "par": 3,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 14,
+          "par": 3,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 15,
+          "par": 3,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 16,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 17,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 18,
+          "par": 3,
+          "strokeIndex": 18
+        }
+      ],
+      "tees": [
+        {
+          "id": 132,
+          "name": "White",
+          "colour": "White",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 54,
+              "slope": 113
+            },
+            {
+              "gender": "F",
+              "courseRating": 54,
+              "slope": 113
+            }
+          ]
+        },
+        {
+          "id": 133,
+          "name": "Red",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 54,
+              "slope": 113
+            },
+            {
+              "gender": "F",
+              "courseRating": 54,
+              "slope": 113
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 41,
+      "clubName": "Tranås Golfklubb",
+      "courseName": "Norraby",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 3,
+          "par": 5,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 4,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 5,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 7,
+          "par": 5,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 8,
+          "par": 3,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 10,
+          "par": 3,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 11,
+          "par": 5,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 12,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 14,
+          "par": 5,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 15,
+          "par": 4,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 16,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 6
+        }
+      ],
+      "tees": [
+        {
+          "id": 124,
+          "name": "Vit",
+          "colour": "White",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 72.6,
+              "slope": 135
+            }
+          ]
+        },
+        {
+          "id": 125,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 71,
+              "slope": 132
+            },
+            {
+              "gender": "F",
+              "courseRating": 78,
+              "slope": 139
+            }
+          ]
+        },
+        {
+          "id": 126,
+          "name": "Blå",
+          "colour": "Blue",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 68.2,
+              "slope": 123
+            },
+            {
+              "gender": "F",
+              "courseRating": 73.5,
+              "slope": 129
+            }
+          ]
+        },
+        {
+          "id": 127,
+          "name": "Orange",
+          "colour": "Orange",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 61,
+              "slope": 112
+            },
+            {
+              "gender": "F",
+              "courseRating": 66.3,
+              "slope": 115
+            }
+          ]
+        },
+        {
+          "id": 128,
+          "name": "Röd",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 66.2,
+              "slope": 114
+            },
+            {
+              "gender": "F",
+              "courseRating": 71.1,
+              "slope": 123
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 8,
+      "clubName": "Vadstena Golfklubb",
+      "courseName": "Vadstena Golfklubb",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 5,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 4,
+          "par": 5,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 5,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 9,
+          "par": 3,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 10,
+          "par": 5,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 11,
+          "par": 3,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 12,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 15,
+          "par": 5,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 16,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 17,
+          "par": 3,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 13
+        }
+      ],
+      "tees": [
+        {
+          "id": 43,
+          "name": "58",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 70.4,
+              "slope": 123
+            },
+            {
+              "gender": "F",
+              "courseRating": 76.5,
+              "slope": 126
+            }
+          ]
+        },
+        {
+          "id": 44,
+          "name": "53",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 67.8,
+              "slope": 118
+            },
+            {
+              "gender": "F",
+              "courseRating": 73.3,
+              "slope": 119
+            }
+          ]
+        },
+        {
+          "id": 45,
+          "name": "50",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 65.8,
+              "slope": 114
+            },
+            {
+              "gender": "F",
+              "courseRating": 70.9,
+              "slope": 114
+            }
+          ]
+        },
+        {
+          "id": 46,
+          "name": "45",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 68.8,
+              "slope": 109
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 44,
+      "clubName": "Vingåkers GK",
+      "courseName": "Vingåkers Golfklubb",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 5,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 4,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 5,
+          "par": 5,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 7,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 8,
+          "par": 3,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 10,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 11,
+          "par": 4,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 12,
+          "par": 5,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 14,
+          "par": 5,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 15,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 16,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 17,
+          "par": 4,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 18,
+          "par": 4,
+          "strokeIndex": 14
+        }
+      ],
+      "tees": [
+        {
+          "id": 134,
+          "name": "61",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 72.9,
+              "slope": 129
+            },
+            {
+              "gender": "F",
+              "courseRating": 78.7,
+              "slope": 137
+            }
+          ]
+        },
+        {
+          "id": 135,
+          "name": "57",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 71.4,
+              "slope": 126
+            },
+            {
+              "gender": "F",
+              "courseRating": 76.8,
+              "slope": 133
+            }
+          ]
+        },
+        {
+          "id": 136,
+          "name": "53",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 69.1,
+              "slope": 122
+            },
+            {
+              "gender": "F",
+              "courseRating": 74.1,
+              "slope": 127
+            }
+          ]
+        },
+        {
+          "id": 137,
+          "name": "42",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "F",
+              "courseRating": 67.4,
+              "slope": 113
+            }
+          ]
+        },
+        {
+          "id": 138,
+          "name": "48",
+          "colour": null,
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 66.8,
+              "slope": 116
+            },
+            {
+              "gender": "F",
+              "courseRating": 71.2,
+              "slope": 121
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 25,
+      "clubName": "Åtvidabergs Golfklubb",
+      "courseName": "Villa Baro Golf Åtvidaberg",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 2,
+          "par": 5,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 4,
+          "par": 3,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 6,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 7,
+          "par": 3,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 8,
+          "par": 4,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 9,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 11,
+          "par": 4,
+          "strokeIndex": 10
+        },
+        {
+          "holeNumber": 12,
+          "par": 5,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 15,
+          "par": 3,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 16,
+          "par": 4,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 17,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 18,
+          "par": 5,
+          "strokeIndex": 4
+        }
+      ],
+      "tees": [
+        {
+          "id": 51,
+          "name": "Vit",
+          "colour": "White",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 71.3,
+              "slope": 125
+            }
+          ]
+        },
+        {
+          "id": 52,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 69.2,
+              "slope": 121
+            },
+            {
+              "gender": "F",
+              "courseRating": 74.1,
+              "slope": 129
+            }
+          ]
+        },
+        {
+          "id": 53,
+          "name": "Blå",
+          "colour": "Blue",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 67.4,
+              "slope": 117
+            },
+            {
+              "gender": "F",
+              "courseRating": 72,
+              "slope": 125
+            }
+          ]
+        },
+        {
+          "id": 54,
+          "name": "Röd",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 65.4,
+              "slope": 113
+            },
+            {
+              "gender": "F",
+              "courseRating": 69.5,
+              "slope": 119
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sourceId": 26,
+      "clubName": "Östad Golf",
+      "courseName": "Östad Golf",
+      "holes": [
+        {
+          "holeNumber": 1,
+          "par": 4,
+          "strokeIndex": 17
+        },
+        {
+          "holeNumber": 2,
+          "par": 4,
+          "strokeIndex": 3
+        },
+        {
+          "holeNumber": 3,
+          "par": 4,
+          "strokeIndex": 1
+        },
+        {
+          "holeNumber": 4,
+          "par": 3,
+          "strokeIndex": 13
+        },
+        {
+          "holeNumber": 5,
+          "par": 4,
+          "strokeIndex": 5
+        },
+        {
+          "holeNumber": 6,
+          "par": 5,
+          "strokeIndex": 15
+        },
+        {
+          "holeNumber": 7,
+          "par": 4,
+          "strokeIndex": 11
+        },
+        {
+          "holeNumber": 8,
+          "par": 3,
+          "strokeIndex": 7
+        },
+        {
+          "holeNumber": 9,
+          "par": 5,
+          "strokeIndex": 9
+        },
+        {
+          "holeNumber": 10,
+          "par": 4,
+          "strokeIndex": 16
+        },
+        {
+          "holeNumber": 11,
+          "par": 3,
+          "strokeIndex": 14
+        },
+        {
+          "holeNumber": 12,
+          "par": 5,
+          "strokeIndex": 2
+        },
+        {
+          "holeNumber": 13,
+          "par": 4,
+          "strokeIndex": 6
+        },
+        {
+          "holeNumber": 14,
+          "par": 4,
+          "strokeIndex": 8
+        },
+        {
+          "holeNumber": 15,
+          "par": 3,
+          "strokeIndex": 12
+        },
+        {
+          "holeNumber": 16,
+          "par": 5,
+          "strokeIndex": 4
+        },
+        {
+          "holeNumber": 17,
+          "par": 3,
+          "strokeIndex": 18
+        },
+        {
+          "holeNumber": 18,
+          "par": 5,
+          "strokeIndex": 10
+        }
+      ],
+      "tees": [
+        {
+          "id": 55,
+          "name": "Gul",
+          "colour": "Yellow",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 71.3,
+              "slope": 129
+            },
+            {
+              "gender": "F",
+              "courseRating": 76.7,
+              "slope": 127
+            }
+          ]
+        },
+        {
+          "id": 56,
+          "name": "Röd",
+          "colour": "Red",
+          "ratings": [
+            {
+              "gender": "M",
+              "courseRating": 67.7,
+              "slope": 117
+            },
+            {
+              "gender": "F",
+              "courseRating": 72,
+              "slope": 117
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

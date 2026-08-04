@@ -24,6 +24,8 @@
         "render:formats": "bun scripts/render-formats.ts",
         "seed": "bun scripts/seed.ts",
         "seed:prod": "bun scripts/seed-prod.ts",
+        "export:golf-serie-courses": "bun scripts/export-golf-serie-course-catalogue.ts",
+        "import:golf-serie-courses": "bun scripts/import-golf-serie-courses.ts",
         "seed:list": "bun scripts/seed.ts list",
         "seed:formats": "bun scripts/seed-formats.ts",
         "check:format-fixtures": "bun scripts/check-format-fixtures.ts",
