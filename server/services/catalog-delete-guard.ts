@@ -24,10 +24,22 @@ import { ConflictError } from '@basics/core/server/auth';
  * service documents its own on the `remove` method.
  */
 
+/**
+ * Every reference kind a catalog delete can be blocked by. Closed vocabulary:
+ * a client renders blockers by branching on this, so a new kind here must also
+ * land in the client mirror (`manage/delete-blockers.ts`).
+ */
+export type DeleteBlockerKind =
+    | 'courses'
+    | 'home_club_players'
+    | 'rounds'
+    | 'route_templates'
+    | 'tee_role_mappings';
+
 /** One kind of reference that stands in the way of a delete. */
 export interface DeleteBlocker {
-    /** Machine-readable reference kind, e.g. `courses`, `rounds`. */
-    kind: string;
+    /** Machine-readable reference kind. */
+    kind: DeleteBlockerKind;
     count: number;
     /** Human phrase naming the blocker, e.g. `2 courses (North, South)`. */
     phrase: string;
