@@ -160,6 +160,8 @@ enum CreateDiagnostics {
             return d.message
         case "scored_hole_removed":
             return "This route drops holes that already have scores on them. Keep those holes on the route — the course and the start hole can still change."
+        case "competition_route_locked":
+            return "This round is part of a competition — its course and holes are set by the organizer and cannot be changed here."
         case "round_complete":
             return "This round is complete — its setup can no longer be edited."
         case "not_editable":

@@ -115,9 +115,14 @@ enum EditDraftFixtures {
     """
 
     /// `GET /friendly-rounds/setup`, editable arm, wrapped around `richFour`.
-    static func setup(hasScores: Bool = false, draft: String = richFour) -> String {
+    static func setup(
+        hasScores: Bool = false,
+        competitionRound: Bool = false,
+        draft: String = richFour
+    ) -> String {
         """
         {"editable":true,"status":"active","hasScores":\(hasScores),
+         "competitionRound":\(competitionRound),
          "draft":\(draft),"draftVersion":3}
         """
     }
@@ -407,6 +412,7 @@ extension XCTestCase {
     /// the GET's path and so must be routed BY METHOD.
     func routeEditSetup(
         hasScores: Bool = false,
+        competitionRound: Bool = false,
         draft: String = EditDraftFixtures.richFour,
         balls: String = EditDraftFixtures.balls
     ) {
@@ -414,7 +420,8 @@ extension XCTestCase {
         RoundStubURLProtocol.route(
             "/friendly-rounds/setup",
             method: "GET",
-            EditDraftFixtures.setup(hasScores: hasScores, draft: draft))
+            EditDraftFixtures.setup(
+                hasScores: hasScores, competitionRound: competitionRound, draft: draft))
         RoundStubURLProtocol.route("/friendly-rounds/balls", balls)
     }
 

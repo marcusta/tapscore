@@ -52,6 +52,12 @@ import type { Round, RoundService } from './round.service';
  *         three cards already entered now name holes 10, 11, 12.
  *     An edit that would DROP a scored occurrence (e.g. full_18 → front_9
  *     after scoring hole 12) is still refused → `scored_hole_removed`.
+ *   - COMPETITION rounds are the exception: course + itinerary are frozen there
+ *     whether or not anything is scored → `competition_route_locked`. A
+ *     competition round's holes are the organizer's published field (an admin
+ *     holds the share token, so this path reaches them), and one participant
+ *     re-labelling everybody's round is not a recovery, it is a corruption.
+ *     The rest of a competition round's setup stays editable here.
  *   - removing a producer whose ball has score events
  *                                           → `producer_has_scores`.
  *     FK reality: `score_events.ball_id` is `ON DELETE RESTRICT` (migration
@@ -84,8 +90,13 @@ export type SetupReadResult =
     | {
           editable: true;
           status: RoundStatus;
-          /** True once any score event exists — the client greys course/route. */
+          /** True once any score event exists — the client warns before moving
+           *  the round to another course or start hole. */
           hasScores: boolean;
+          /** True when this round belongs to a competition. Course + route are
+           *  the organizer's published field, not one token holder's to move,
+           *  so the client keeps those two controls locked. */
+          competitionRound: boolean;
           draft: RoundSetupDraft;
           draftVersion: number;
       }
@@ -126,6 +137,18 @@ export class RoundEditService {
         return row ?? null;
     }
 
+    /** Does this round hang off a competition? (`competition_rounds.round_id`
+     *  is UNIQUE — a round belongs to at most one.) */
+    private async isCompetitionRound(roundId: string): Promise<boolean> {
+        const row = await this.db
+            .selectFrom('competition_rounds')
+            .select('id')
+            .where('round_id', '=', roundId)
+            .limit(1)
+            .executeTakeFirst();
+        return row !== undefined;
+    }
+
     private async hasScores(roundId: string): Promise<boolean> {
         const row = await this.db
             .selectFrom('score_events')
@@ -156,6 +179,7 @@ export class RoundEditService {
             editable: true,
             status: round.status,
             hasScores: await this.hasScores(round.id),
+            competitionRound: await this.isCompetitionRound(round.id),
             draft: stored.draft,
             draftVersion: stored.version,
         };
@@ -213,6 +237,22 @@ export class RoundEditService {
         // Course + route are NOT frozen by the mere existence of scores — the
         // orphan guards below are the real rule, and they refuse exactly the
         // edits that would destroy recorded play. See the class comment.
+        //
+        // A COMPETITION round is the exception, scored or not. There the course
+        // and the itinerary are the organizer's published field, shared with
+        // every participant and with results already computed against it; a
+        // token holder moving it would silently re-label somebody else's round.
+        // Everything else on a competition round stays editable through this
+        // path.
+        if (routeIdentityChanged(stored.draft, resolved)) {
+            if (await this.isCompetitionRound(roundId)) {
+                return refuse(
+                    'competition_route_locked',
+                    'this round is part of a competition — its course and holes are set by the organizer and cannot be changed here',
+                    'route',
+                );
+            }
+        }
 
         // --- Build + compile (pure; nothing persists yet) ---------------------
         const built = buildRoundDefinition(resolved);
@@ -488,6 +528,37 @@ function keptPlayerIds(producers: RoundDefinition['producers']): Set<string> {
         if (p.playerRef.kind === 'player') ids.add(p.playerRef.id);
     }
     return ids;
+}
+
+/**
+ * Does `next` play a different course, or a different itinerary, than `prev`?
+ *
+ * Only the fields that decide WHICH HOLES ARE PLAYED, IN WHICH ORDER count:
+ * the course, the preset, and the explicit `playHoles` list (both start-hole
+ * rotations and custom routes land there). Everything else on the route object
+ * — SI mode, handicap policy, sections, playing groups — describes how the
+ * round is scored or grouped, not where it is played, and stays editable on a
+ * competition round like the rest of the setup.
+ *
+ * Both drafts are RESOLVED (template ids already frozen into `playHoles`), so
+ * this compares like with like.
+ */
+function routeIdentityChanged(prev: RoundSetupDraft, next: RoundSetupDraft): boolean {
+    if (prev.courseId !== next.courseId) return true;
+    if ((prev.roundType ?? 'full_18') !== (next.roundType ?? 'full_18')) return true;
+    return JSON.stringify(routeHoles(prev)) !== JSON.stringify(routeHoles(next));
+}
+
+/** The itinerary as a comparable list — hole number plus its per-hole
+ *  overrides, in play order. Undefined `playHoles` ⇒ the preset says it all. */
+function routeHoles(draft: RoundSetupDraft): unknown[] | null {
+    const holes = draft.route?.playHoles;
+    if (!holes) return null;
+    return holes.map((h) => [
+        h.courseHoleNumber,
+        h.parOverride ?? null,
+        h.baseStrokeIndexOverride ?? null,
+    ]);
 }
 
 function refuse(code: string, message: string, path?: string): EditRoundResult {

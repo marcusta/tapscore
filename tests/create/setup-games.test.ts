@@ -491,6 +491,17 @@ test('loading a stored draft for edit picks no cards and opens the flexible form
     expect(svc.picked.get()).toHaveLength(0);
     expect(svc.customSlots()).toHaveLength(1);
     expect(svc.showFlexible()).toBe(true);
+    // A plain friendly round: the course and start-hole controls stay live.
+    expect(svc.competitionRound.get()).toBe(false);
+
+    // The same round wrapped in a competition locks those two controls — its
+    // holes are the organizer's field, not one token holder's to move.
+    (apiMock as any).friendlyRounds.setup = mock(async () => ({
+        ...stored,
+        competitionRound: true,
+    }));
+    await svc.loadForEdit('tok-1');
+    expect(svc.competitionRound.get()).toBe(true);
 });
 
 // --- Phase C gate ---------------------------------------------------------

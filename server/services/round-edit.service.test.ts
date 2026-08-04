@@ -481,6 +481,137 @@ test('STARTED ON THE WRONG HOLE: rotating the route keeps the scores on their po
     expect(scoredHoleIds).toEqual(order.slice(0, 3).map((o) => o.playHoleId));
 });
 
+/** Attach `roundId` to a fresh competition, the way Slice 2 materialises one. */
+async function joinCompetition(ctx: TestContext, roundId: string) {
+    const owner = await ctx.playerService.register({
+        username: `organizer-${crypto.randomUUID().slice(0, 8)}`,
+        password: 'password123',
+        displayName: 'Organizer',
+    });
+    const comp = await ctx.competitionService.create({
+        name: 'Klubbmästerskapet',
+        ownerPlayerId: owner.id,
+    });
+    await ctx.db
+        .insertInto('competition_rounds')
+        .values({
+            id: crypto.randomUUID(),
+            competition_id: comp.id,
+            round_id: roundId,
+            round_number: 1,
+        })
+        .execute();
+}
+
+// A competition round's holes are the organizer's published field, and an
+// admin holds the share token — so the wrong-course / wrong-hole recoveries
+// above must NOT reach through this path onto everybody else's round. Frozen
+// whether or not anything is scored.
+test('COMPETITION: the course is frozen even before a score is entered', async () => {
+    const { ctx, draft } = await setup();
+    const { token, round } = await createRound(ctx, draft);
+    await joinCompetition(ctx, round.id);
+
+    const club2 = await ctx.clubService.create({ name: 'Away GC' });
+    const course2 = await ctx.courseService.create({
+        clubId: club2.id,
+        name: 'Away Links',
+        holeCount: 18,
+        holes: Array.from({ length: 18 }, (_, i) => ({ holeNumber: i + 1, par: 4, strokeIndex: i + 1 })),
+    });
+    const tee2 = await ctx.teeService.create({
+        courseId: course2.id,
+        name: 'Blue',
+        holeLengths: [],
+        ratings: [{ gender: 'M', courseRating: 71, slope: 113, par: 72, totalLengthM: 5900 }],
+    });
+
+    const res = await ctx.roundEditService.editByToken({
+        token,
+        draft: {
+            ...draft,
+            courseId: course2.id,
+            producers: draft.producers.map((p) => ({ ...p, teeId: tee2.id })),
+        },
+    });
+    expect(res!.ok).toBe(false);
+    if (res!.ok) return;
+    expect(res!.diagnostics[0]!.code).toBe('competition_route_locked');
+    expect(res!.diagnostics[0]!.path).toBe('route');
+
+    const after = await ctx.roundService.getById(round.id);
+    expect(after!.courseId).toBe(draft.courseId);
+});
+
+test('COMPETITION: the start hole is frozen too — a rotation is a route change', async () => {
+    const { ctx, draft } = await setup();
+    const { token, round } = await createRound(ctx, draft);
+    await joinCompetition(ctx, round.id);
+
+    const rotated = [...Array(9).keys()]
+        .map((i) => i + 10)
+        .concat([...Array(9).keys()].map((i) => i + 1));
+    const res = await ctx.roundEditService.editByToken({
+        token,
+        draft: {
+            ...draft,
+            roundType: 'custom_holes',
+            route: {
+                playHoles: rotated.map((n) => ({ courseHoleNumber: n })),
+                routeHandicapPolicy: { type: 'explicit', postingEligible: false },
+            },
+        },
+    });
+    expect(res!.ok).toBe(false);
+    if (res!.ok) return;
+    expect(res!.diagnostics[0]!.code).toBe('competition_route_locked');
+});
+
+// The freeze is the COURSE and the HOLES, not the whole document — an
+// organizer still fixes a tee, an index or a format on a competition round.
+test('COMPETITION: everything except course + holes stays editable', async () => {
+    const { ctx, draft } = await setup();
+    const { token, round } = await createRound(ctx, draft);
+    await joinCompetition(ctx, round.id);
+
+    const teeRow = await ctx.db
+        .selectFrom('tees')
+        .select(['id'])
+        .where('name', '=', 'Red')
+        .executeTakeFirstOrThrow();
+    const res = await ctx.roundEditService.editByToken({
+        token,
+        draft: {
+            ...draft,
+            producers: [
+                { ...(draft.producers[0] as DraftIdentityProducer), teeId: teeRow.id },
+                draft.producers[1]!,
+            ],
+        },
+    });
+    expect(res!.ok).toBe(true);
+    if (!res!.ok) return;
+
+    // Red is CR 70 on a par-72 course → CH = 8 − 2 = 6.
+    const balls = await ctx.roundService.ballsForRound(round.id);
+    expect(balls.find((b) => b.players[0]!.displayName === 'Ivar')!.courseHandicap).toBe(6);
+});
+
+test('the setup read flags a competition round so the client can lock the two controls', async () => {
+    const { ctx, draft } = await setup();
+    const { token, round } = await createRound(ctx, draft);
+
+    const plain = await ctx.roundEditService.setupByToken(token);
+    expect(plain!.editable).toBe(true);
+    if (!plain!.editable) return;
+    expect(plain!.competitionRound).toBe(false);
+
+    await joinCompetition(ctx, round.id);
+    const wrapped = await ctx.roundEditService.setupByToken(token);
+    if (!wrapped!.editable) throw new Error('expected editable');
+    expect(wrapped!.competitionRound).toBe(true);
+});
+
 test('course change IS allowed before any score (rounds row follows)', async () => {
     const { ctx, draft } = await setup();
     const { token, round } = await createRound(ctx, draft);

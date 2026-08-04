@@ -225,6 +225,26 @@ final class EditRoundStoreTests: XCTestCase {
         XCTAssertTrue(store.scoredRouteChange)
     }
 
+    /// The one surviving lock: a competition round's holes are the organizer's
+    /// published field. Dead controls, scored or not, and the server refuses it
+    /// too (`competition_route_locked`).
+    func testCompetitionRoundLocksCourseAndRoute() async {
+        routeEditSetup(hasScores: true, competitionRound: true)
+        let store = CreateStore(api: RoundStubURLProtocol.makeAPI())
+        await store.loadForEdit(token: "tok")
+
+        XCTAssertTrue(store.competitionRound)
+        XCTAssertTrue(store.courseRouteLocked)
+        let course = store.courseId
+        await store.selectCourse("course-2")
+        store.setRoutePreset(.back9)
+        store.setStartHole(4)
+        XCTAssertEqual(store.courseId, course)
+        XCTAssertEqual(store.routePreset, .full18)
+        XCTAssertEqual(store.startHole, 1)
+        XCTAssertFalse(store.scoredRouteChange)
+    }
+
     func testUnscoredRoundLeavesCourseAndRouteEditable() async throws {
         routeEditSetup(hasScores: false)
         let store = CreateStore(api: RoundStubURLProtocol.makeAPI())

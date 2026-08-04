@@ -403,7 +403,12 @@ struct CreateRoundView: View {
         // is the "started on the wrong course / the wrong hole" repair. What it
         // owes the user is the rule the scores follow, stated ONCE above both
         // controls rather than repeated on each.
-        if store.scoredRoundEdit {
+        //
+        // A COMPETITION round is the exception: those holes belong to the
+        // organizer's field, so the two controls go dead and say why.
+        if store.courseRouteLocked {
+            notice(CreateStore.competitionRouteNotice, tone: .muted)
+        } else if store.scoredRoundEdit {
             notice(CreateStore.scoredEditNotice, tone: .muted)
         }
 
@@ -415,10 +420,12 @@ struct CreateRoundView: View {
             // same screen as the course they belong to; expanded inline, they
             // are a club list away.
             courseField(store)
+                .disabled(store.courseRouteLocked)
         }
 
         if store.courseId != nil {
             routeSection(store)
+                .disabled(store.courseRouteLocked)
             teeDefaultsSection(store)
         }
     }

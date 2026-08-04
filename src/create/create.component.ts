@@ -48,7 +48,7 @@ const tpl = template(`
                 <label class="setup__teerow"><span>Men</span><div bind="maleDefaultTee"></div></label>
                 <label class="setup__teerow"><span>Women</span><div bind="femaleDefaultTee"></div></label>
             </div>
-            <p bind="lockNote" class="setup__locknote hidden">Scores are already recorded. You can still change the course, the route and the start hole — every score stays on the hole it was entered on, counting from the start. Holes you have already scored have to stay on the route.</p>
+            <p bind="lockNote" class="setup__locknote hidden"></p>
             <p bind="routeErr" class="setup__warn"></p>
         </section>
 
@@ -880,6 +880,11 @@ export class CreateComponent extends Component {
         // Scores stay on the hole POSITIONS they were entered at; the note
         // below says so, and `scoredRouteChange()` asks before saving.
         const scoredEdit = () => isEdit && this.svc.hasScores.get();
+        // A competition round IS locked on course + route, scored or not: those
+        // holes are the organizer's published field, shared with the whole
+        // competition, not one token holder's to move. Everything else on the
+        // round stays editable here.
+        const competitionEdit = () => isEdit && this.svc.competitionRound.get();
 
         // The "Add me" row rides on the logged-in profile: shown while signed
         // in and not already on the roster.
@@ -926,7 +931,16 @@ export class CreateComponent extends Component {
                     this.svc.roundName.set((e.target as HTMLInputElement).value),
             },
             lockNote: {
-                className: () => (scoredEdit() ? 'setup__locknote' : 'setup__locknote hidden'),
+                className: () =>
+                    competitionEdit() || scoredEdit()
+                        ? 'setup__locknote'
+                        : 'setup__locknote hidden',
+                textContent: () =>
+                    competitionEdit()
+                        ? 'This round is part of a competition. The course and the holes are set by the organizer and cannot be changed here — everything else on the round still can be.'
+                        : scoredEdit()
+                          ? 'Scores are already recorded. You can still change the course, the route and the start hole — every score stays on the hole it was entered on, counting from the start. Holes you have already scored have to stay on the route.'
+                          : '',
             },
             routeErr: { textContent: () => this.svc.humanizedRoute().join('\n') },
             teeDefaults: {
@@ -1154,6 +1168,7 @@ export class CreateComponent extends Component {
                         b: {
                             textContent: () => this.svc.presetLabel(p),
                             className: () => (this.svc.preset.get() === p ? 'on' : ''),
+                            disabled: () => competitionEdit(),
                             onclick: () => this.svc.setPreset(p),
                         },
                     },
@@ -1193,6 +1208,7 @@ export class CreateComponent extends Component {
                 },
             },
             placeholder: 'Select a course',
+            disabled: { get: () => competitionEdit() },
         });
         this.mountSelect(this.ref(frag, 'startHole'), compTrack, {
             value: this.bound(
@@ -1201,6 +1217,7 @@ export class CreateComponent extends Component {
                 (v) => this.svc.startHole.set(Number(v)),
             ),
             options: { get: () => this.svc.startHoleOptions().map((n) => ({ value: String(n), label: String(n) })) },
+            disabled: { get: () => competitionEdit() },
         });
         const teeOptions = () => this.svc.tees.get().map((tee) => ({ value: tee.id, label: tee.name }));
         this.mountSelect(this.ref(frag, 'maleDefaultTee'), compTrack, {

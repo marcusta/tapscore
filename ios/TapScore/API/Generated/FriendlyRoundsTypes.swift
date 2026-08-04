@@ -2253,6 +2253,7 @@ struct FriendlyRoundsSetupOutputEditable: Codable, Sendable, Equatable {
     let editable: Bool = true
     var status: RoundStatus
     var hasScores: Bool
+    var competitionRound: Bool
     var draft: CompetitionsCreateRoundOutputOkDraft
     var draftVersion: Double
 
@@ -2260,13 +2261,15 @@ struct FriendlyRoundsSetupOutputEditable: Codable, Sendable, Equatable {
         case editable = "editable"
         case status = "status"
         case hasScores = "hasScores"
+        case competitionRound = "competitionRound"
         case draft = "draft"
         case draftVersion = "draftVersion"
     }
 
-    init(status: RoundStatus, hasScores: Bool, draft: CompetitionsCreateRoundOutputOkDraft, draftVersion: Double) {
+    init(status: RoundStatus, hasScores: Bool, competitionRound: Bool, draft: CompetitionsCreateRoundOutputOkDraft, draftVersion: Double) {
         self.status = status
         self.hasScores = hasScores
+        self.competitionRound = competitionRound
         self.draft = draft
         self.draftVersion = draftVersion
     }
@@ -2276,6 +2279,7 @@ struct FriendlyRoundsSetupOutputEditable: Codable, Sendable, Equatable {
         _ = try c.decode(Bool.self, forKey: .editable)
         self.status = try c.decode(RoundStatus.self, forKey: .status)
         self.hasScores = try c.decode(Bool.self, forKey: .hasScores)
+        self.competitionRound = try c.decode(Bool.self, forKey: .competitionRound)
         self.draft = try c.decode(CompetitionsCreateRoundOutputOkDraft.self, forKey: .draft)
         self.draftVersion = try c.decode(Double.self, forKey: .draftVersion)
     }
@@ -2285,6 +2289,7 @@ struct FriendlyRoundsSetupOutputEditable: Codable, Sendable, Equatable {
         try c.encode(editable, forKey: .editable)
         try c.encode(status, forKey: .status)
         try c.encode(hasScores, forKey: .hasScores)
+        try c.encode(competitionRound, forKey: .competitionRound)
         try c.encode(draft, forKey: .draft)
         try c.encode(draftVersion, forKey: .draftVersion)
     }

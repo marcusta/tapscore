@@ -444,9 +444,14 @@ enum RoundFixtures {
     /// The `GET /friendly-rounds/setup` editability probe, in both shapes. The
     /// editable arm needs a real draft, so it borrows the create suite's web
     /// fixture rather than inventing a second spelling of the same document.
-    static func setupEditable(status: String = "active", hasScores: Bool = false) -> String {
+    static func setupEditable(
+        status: String = "active",
+        hasScores: Bool = false,
+        competitionRound: Bool = false
+    ) -> String {
         """
         {"editable":true,"status":"\(status)","hasScores":\(hasScores),
+         "competitionRound":\(competitionRound),
          "draft":\(WebDraftFixtures.stablefordIndividualThree),"draftVersion":1}
         """
     }

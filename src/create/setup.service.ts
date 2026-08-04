@@ -371,6 +371,14 @@ export class SetupService {
      * entered at). It drives the warning note and the confirm before saving.
      */
     readonly hasScores = new Signal(false);
+    /**
+     * True when the edited round belongs to a competition. THIS one is a lock,
+     * and the only one on course + start hole: those holes are the organizer's
+     * published field, shared with everybody in the competition, so a token
+     * holder does not move them. The server refuses it either way
+     * (`competition_route_locked`); this keeps the controls from offering it.
+     */
+    readonly competitionRound = new Signal(false);
     /** Course + route as they stood when the edit opened; null ⇒ create mode. */
     private editBaseline: { courseId: string; preset: RoutePreset; startHole: number } | null = null;
     /** The stored round status while editing (`not_started` | `active`). */
@@ -442,6 +450,7 @@ export class SetupService {
         this.error.set(null);
         this.editToken.set(null);
         this.hasScores.set(false);
+        this.competitionRound.set(false);
         this.editBaseline = null;
         this.editStatus.set(null);
         this.editBlockedReason.set(null);
@@ -527,6 +536,10 @@ export class SetupService {
             return;
         }
         this.hasScores.set(setup.hasScores);
+        // `=== true`, not a bare assignment: a server that predates the flag
+        // must read as "not a competition", never as undefined leaking into a
+        // control's disabled state.
+        this.competitionRound.set(setup.competitionRound === true);
         this.editPlayedAt = setup.draft.playedAt;
         // An edit shows the stored name as-is — including the empty one. No
         // default is seeded here: a round deliberately left unnamed must not

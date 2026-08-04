@@ -413,8 +413,11 @@ final class CreateStore {
     private(set) var loadedDraft: CompetitionsCreateRoundOutputOkDraft?
     private(set) var editHydrated = false
     private(set) var editBlockedReason: EditBlockedReason?
-    /// The round has scores, so the course and the route are settled (B4).
+    /// The round has scores. NOT a lock — see `scoredRoundEdit` (B4).
     private(set) var hasScores = false
+    /// The round belongs to a competition, so its course and its holes are the
+    /// organizer's published field and stay frozen here whatever the scores say.
+    private(set) var competitionRound = false
     /// The edit was accepted by the server.
     private(set) var editSaved = false
 
@@ -427,6 +430,13 @@ final class CreateStore {
     /// for. The server keeps every score on the hole POSITION it was entered
     /// at, and refuses only an edit that would drop a hole already scored.
     var scoredRoundEdit: Bool { isEditing && hasScores }
+
+    /// The one real lock left on the course + route controls: a competition
+    /// round. Those holes are the organizer's published field, shared with the
+    /// whole competition, so a token holder does not move them, scored or not.
+    /// The server refuses it either way (`competition_route_locked`); this
+    /// keeps the controls from offering it. Everything else stays editable.
+    var courseRouteLocked: Bool { isEditing && competitionRound }
 
     /// The course or the route moved on a round that already has scores — one
     /// confirm before saving, never a refusal. What changes is which hole each
@@ -445,6 +455,13 @@ final class CreateStore {
         and the start hole — every score stays on the hole it was entered on, \
         counting from the start. Holes you have already scored have to stay on \
         the route.
+        """
+
+    static let competitionRouteNotice =
+        """
+        This round is part of a competition. The course and the holes are set \
+        by the organizer and cannot be changed here — everything else on the \
+        round still can be.
         """
 
     // MARK: - Loading
@@ -617,6 +634,7 @@ final class CreateStore {
     /// all survive, because a user correcting the course they picked has not
     /// changed their mind about who is playing.
     func selectCourse(_ id: String) async {
+        guard !courseRouteLocked else { return }
         guard courseId != id else { return }
         courseId = id
         clubId = courses.first { $0.id == id }?.clubId ?? clubId
@@ -1007,6 +1025,7 @@ final class CreateStore {
     /// Spec §3.2 B3.4: a preset change keeps the start hole when the new hole
     /// set still contains it, otherwise falls to that set's first hole.
     func setRoutePreset(_ preset: RoundType) {
+        guard !courseRouteLocked else { return }
         guard preset != routePreset else { return }
         routePreset = preset
         let holes = permittedStartHoles
@@ -1014,6 +1033,7 @@ final class CreateStore {
     }
 
     func setStartHole(_ hole: Int) {
+        guard !courseRouteLocked else { return }
         guard permittedStartHoles.contains(hole) || permittedStartHoles.isEmpty else { return }
         startHole = hole
     }
@@ -1656,6 +1676,7 @@ final class CreateStore {
             }
 
             hasScores = editable.hasScores
+            competitionRound = editable.competitionRound
             loadedDraft = editable.draft
 
             // The tees BEFORE the prefill: `loadTees` re-defaults the round's
