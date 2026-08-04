@@ -97,7 +97,11 @@ final class ProfileStoreTests: XCTestCase {
         RoundStubURLProtocol.route("/players/me/stats-config", method: "GET", stats)
         RoundStubURLProtocol.route("/players/me", method: "GET", me)
         RoundStubURLProtocol.route("/clubs", clubs)
-        RoundStubURLProtocol.route("/courses/tee-roles/catalog", method: "GET", teeRoles)
+        // `/setup/…`, not `/courses/…`: the store reads the catalogue through
+        // the OPEN setup route (`SetupEndpoints.teeRoleCatalog`). The courses
+        // spelling of the same list sits behind course-management middleware,
+        // and stubbing that one left the store reading an unstubbed path.
+        RoundStubURLProtocol.route("/setup/tee-roles/catalog", method: "GET", teeRoles)
     }
 
     @MainActor
