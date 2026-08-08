@@ -34,7 +34,8 @@
         "db:migrate": "bun ./scripts/migrate.ts",
         "db:health": "bun ./scripts/health.ts",
         "fw:update": "bun scripts/fw.ts update",
-        "fw:check": "bun scripts/fw.ts assert-not-linked"
+        "fw:check": "bun scripts/fw.ts assert-not-linked",
+        "ios:deploy": "bash scripts/deploy-ios.sh"
     },
     "dependencies": {
         "@basics/core": "file:./vendor/basics-core-1.6.0.tgz",
