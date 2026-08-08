@@ -833,14 +833,24 @@ final class StatsPanelViewsTests: XCTestCase {
         }
 
         // No bunker attempt in this window, so every bunker leg is absent — and
-        // all three groups agree about that, because they share one gate.
+        // all the groups agree about that, because they share one gate. The
+        // counter was never touched, so the extra-strokes figure and the
+        // groups' multi-chip rows are absent too, and each outcome group is
+        // its four putt buckets.
         XCTAssertFalse(StatsPanelsView.hasBunkerLeg(panel))
         XCTAssertEqual(
             StatsPanelsView.shortGameBlocks(panel).map(\.walk),
             [
+                "subhead:missMixHead", "split:difficultyMix",
                 "subhead:scrambleHead", "bar:scrambleStandard", "bar:scrambleHard",
+                "subhead:afterStandardHead", "bar:afterStandardChipIn",
+                "bar:afterStandardOnePutt", "bar:afterStandardTwoPutt",
+                "bar:afterStandardThreePutt",
+                "subhead:afterHardHead", "bar:afterHardChipIn",
+                "bar:afterHardOnePutt", "bar:afterHardTwoPutt",
+                "bar:afterHardThreePutt",
                 "subhead:chipHead", "bar:chipStandard", "bar:chipHard",
-                "bar:conversionInside2m",
+                "bar:savedInside2m", "bar:conversionInside2m",
                 "subhead:chipInsHead", "figure:chipInsStandard", "figure:chipInsHard",
             ])
     }

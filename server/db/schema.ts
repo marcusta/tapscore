@@ -668,6 +668,56 @@ export interface PlayerStatMeasureColumns {
     att_chip_outside2m_bunker: number;
     att_chip_holed_bunker: number;
     att_sg_strokes_effective_bunker: number;
+
+    /**
+     * SHORT-GAME OUTCOMES (migration 062) — what happened after the chip.
+     *
+     * `scramble_single_chip_{d}` counts attempts that took exactly one shot to
+     * reach the green (`COALESCE(short_game_strokes, 1) = 1` — an untouched
+     * stepper models one chip, as everywhere). Its four outcome buckets
+     * (chip-in / one putt / two putts / three or more) PARTITION it, and
+     * single-chip plus `holes_multi_chip_{d}` partitions
+     * `scramble_attempts_{d}`.
+     *
+     * `scramble_inside_2m_resolved_{d}` narrows `scramble_inside_2m_{d}` to
+     * holes with a putt count (both first-putt vocabularies map onto inside
+     * 2 m, like the att_chip_* family); `…saved` is its one-putt numerator —
+     * the failure decomposition between a bad chip and a missed putt.
+     *
+     * `holes_scored_miss_{d}` / `strokes_vs_par_miss_{d}` split the
+     * `strokes_vs_par_gir_miss` pair by difficulty. Score-based, so no
+     * putting-coherence guard.
+     */
+    scramble_single_chip_standard: number;
+    scramble_chip_in_standard: number;
+    scramble_chip_one_putt_standard: number;
+    scramble_chip_two_putt_standard: number;
+    scramble_chip_three_putt_standard: number;
+    scramble_single_chip_hard: number;
+    scramble_chip_in_hard: number;
+    scramble_chip_one_putt_hard: number;
+    scramble_chip_two_putt_hard: number;
+    scramble_chip_three_putt_hard: number;
+    scramble_single_chip_bunker: number;
+    scramble_chip_in_bunker: number;
+    scramble_chip_one_putt_bunker: number;
+    scramble_chip_two_putt_bunker: number;
+    scramble_chip_three_putt_bunker: number;
+    /** Complete the multi-chip family the bunker leg (055) started. */
+    holes_multi_chip_standard: number;
+    holes_multi_chip_hard: number;
+    scramble_inside_2m_resolved_standard: number;
+    scramble_inside_2m_saved_standard: number;
+    scramble_inside_2m_resolved_hard: number;
+    scramble_inside_2m_saved_hard: number;
+    scramble_inside_2m_resolved_bunker: number;
+    scramble_inside_2m_saved_bunker: number;
+    holes_scored_miss_standard: number;
+    strokes_vs_par_miss_standard: number;
+    holes_scored_miss_hard: number;
+    strokes_vs_par_miss_hard: number;
+    holes_scored_miss_bunker: number;
+    strokes_vs_par_miss_bunker: number;
 }
 
 /**

@@ -456,6 +456,41 @@ test('the round view is the hand-computed arithmetic of the worked example', asy
         attSgStrokesEffectiveStandard: 1,
         attSgStrokesEffectiveHard: 1,
         attSgStrokesEffectiveBunker: 0,
+
+        // Short-game outcomes (migration 062). Both attempts modelled as one
+        // chip (the counter is untouched): H2 chipped and one-putted, H3
+        // chipped in. H2's chip finished inside 2 m and the putt went in —
+        // the resolved/saved pair. Costs: H2 +2 on the standard miss, H3 −1
+        // on the hard one.
+        scrambleSingleChipStandard: 1,
+        scrambleChipInStandard: 0,
+        scrambleChipOnePuttStandard: 1,
+        scrambleChipTwoPuttStandard: 0,
+        scrambleChipThreePuttStandard: 0,
+        scrambleSingleChipHard: 1,
+        scrambleChipInHard: 1,
+        scrambleChipOnePuttHard: 0,
+        scrambleChipTwoPuttHard: 0,
+        scrambleChipThreePuttHard: 0,
+        scrambleSingleChipBunker: 0,
+        scrambleChipInBunker: 0,
+        scrambleChipOnePuttBunker: 0,
+        scrambleChipTwoPuttBunker: 0,
+        scrambleChipThreePuttBunker: 0,
+        holesMultiChipStandard: 0,
+        holesMultiChipHard: 0,
+        scrambleInside2mResolvedStandard: 1,
+        scrambleInside2mSavedStandard: 1,
+        scrambleInside2mResolvedHard: 0,
+        scrambleInside2mSavedHard: 0,
+        scrambleInside2mResolvedBunker: 0,
+        scrambleInside2mSavedBunker: 0,
+        holesScoredMissStandard: 1,
+        strokesVsParMissStandard: 2,
+        holesScoredMissHard: 1,
+        strokesVsParMissHard: -1,
+        holesScoredMissBunker: 0,
+        strokesVsParMissBunker: 0,
     });
 });
 
@@ -1078,6 +1113,42 @@ test('totals are the sum of every round measure, newest round first', async () =
         attSgStrokesEffectiveStandard: 0,
         attSgStrokesEffectiveHard: 1,
         attSgStrokesEffectiveBunker: 0,
+
+        // Short-game outcomes (migration 062), summed across the rounds. Both
+        // attempts are single chips (counter untouched): A.H3's standard chip
+        // one-putted, A.H2's hard chip two-putted. A.H2's chip finished inside
+        // 2 m but the putt stayed out — resolved 1, saved 0, the missed-putt
+        // failure. A.H3 has no bucket, so the standard resolved pair is empty.
+        // Costs: standard miss A.H3 at even, hard miss A.H2 at +2.
+        scrambleSingleChipStandard: 1,
+        scrambleChipInStandard: 0,
+        scrambleChipOnePuttStandard: 1,
+        scrambleChipTwoPuttStandard: 0,
+        scrambleChipThreePuttStandard: 0,
+        scrambleSingleChipHard: 1,
+        scrambleChipInHard: 0,
+        scrambleChipOnePuttHard: 0,
+        scrambleChipTwoPuttHard: 1,
+        scrambleChipThreePuttHard: 0,
+        scrambleSingleChipBunker: 0,
+        scrambleChipInBunker: 0,
+        scrambleChipOnePuttBunker: 0,
+        scrambleChipTwoPuttBunker: 0,
+        scrambleChipThreePuttBunker: 0,
+        holesMultiChipStandard: 0,
+        holesMultiChipHard: 0,
+        scrambleInside2mResolvedStandard: 0,
+        scrambleInside2mSavedStandard: 0,
+        scrambleInside2mResolvedHard: 1,
+        scrambleInside2mSavedHard: 0,
+        scrambleInside2mResolvedBunker: 0,
+        scrambleInside2mSavedBunker: 0,
+        holesScoredMissStandard: 1,
+        strokesVsParMissStandard: 0,
+        holesScoredMissHard: 1,
+        strokesVsParMissHard: 2,
+        holesScoredMissBunker: 0,
+        strokesVsParMissBunker: 0,
     });
 
     // And the per-round split behind them.
@@ -2190,4 +2261,95 @@ test('a bunker hole is a full member of the scramble family and the cohort', asy
     // 1 (untouched) + 2 (counted) — and C >= 1 per miss still holds.
     expect(m.attSgStrokesEffectiveBunker).toBe(3);
     expect(m.attSgStrokesEffectiveBunker).toBeGreaterThanOrEqual(m.attMissBunker);
+});
+
+// --- Short-game outcomes (migration 062) -------------------------------------
+
+test('the chip outcome buckets partition the single-chip attempts, and multi-chip completes the attempts', async () => {
+    const f = await fixture();
+    // Five missed greens. H1 standard, untouched counter (models one chip),
+    // three putts, with a bucket OUTSIDE 2 m. H2 standard, DOUBLE chip, then
+    // one putt — a scramble success by the putts <= 1 rule, but a multi-chip
+    // hole, so it is outside the single-chip distribution. H3 and H4 hard
+    // single chips, two putts each; H4's finished inside 2 m and the putt
+    // stayed out — the missed-putt failure. H5 a holed bunker shot.
+    await f.stat(1, 'gir', '0');
+    await f.stat(1, 'short_game_difficulty', 'standard');
+    await f.stat(1, 'first_putt', '4_to_8m');
+    await f.stat(1, 'putts', '3');
+    await f.score(1, 7);
+    await f.stat(2, 'gir', '0');
+    await f.stat(2, 'short_game_difficulty', 'standard');
+    await f.stat(2, 'short_game_strokes', '2');
+    await f.stat(2, 'putts', '1');
+    await f.score(2, 5);
+    await f.stat(3, 'gir', '0');
+    await f.stat(3, 'short_game_difficulty', 'hard');
+    await f.stat(3, 'first_putt', '2_to_4m');
+    await f.stat(3, 'putts', '2');
+    await f.score(3, 4);
+    await f.stat(4, 'gir', '0');
+    await f.stat(4, 'short_game_difficulty', 'hard');
+    await f.stat(4, 'first_putt', 'inside_1m');
+    await f.stat(4, 'putts', '2');
+    await f.score(4, 7);
+    await f.stat(5, 'gir', '0');
+    await f.stat(5, 'short_game_difficulty', 'bunker');
+    await f.stat(5, 'putts', '0');
+    await f.score(5, 3);
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+    // Single-chip + multi-chip = attempts, per difficulty.
+    expect(m.scrambleSingleChipStandard).toBe(1);
+    expect(m.holesMultiChipStandard).toBe(1);
+    expect(m.scrambleSingleChipStandard + m.holesMultiChipStandard).toBe(
+        m.scrambleAttemptsStandard,
+    );
+    expect(m.scrambleSingleChipHard).toBe(2);
+    expect(m.holesMultiChipHard).toBe(0);
+    expect(m.scrambleSingleChipHard + m.holesMultiChipHard).toBe(m.scrambleAttemptsHard);
+    expect(m.scrambleSingleChipBunker).toBe(1);
+    expect(m.scrambleSingleChipBunker + m.holesMultiChipBunker).toBe(
+        m.scrambleAttemptsBunker,
+    );
+
+    // The four outcome buckets partition each single-chip count.
+    expect(m.scrambleChipInStandard).toBe(0);
+    expect(m.scrambleChipOnePuttStandard).toBe(0);
+    expect(m.scrambleChipTwoPuttStandard).toBe(0);
+    expect(m.scrambleChipThreePuttStandard).toBe(1);
+    expect(m.scrambleChipTwoPuttHard).toBe(2);
+    expect(m.scrambleChipInBunker).toBe(1);
+    expect(
+        m.scrambleChipInHard + m.scrambleChipOnePuttHard + m.scrambleChipTwoPuttHard +
+            m.scrambleChipThreePuttHard,
+    ).toBe(m.scrambleSingleChipHard);
+
+    // H2's one-putt is a success but NOT a single-chip one-putt: the double
+    // chip put it outside the distribution, not into a wrong bucket.
+    expect(m.scrambleSuccessesStandard).toBe(1);
+
+    // Saves from inside 2 m: H4 is the only chip that finished inside 2 m with
+    // a putt count, and the putt stayed out. H1's outside-2m bucket and H3's
+    // are not "inside" holes, whatever their putt counts say.
+    expect(m.scrambleInside2mResolvedStandard).toBe(0);
+    expect(m.scrambleInside2mResolvedHard).toBe(1);
+    expect(m.scrambleInside2mSavedHard).toBe(0);
+    expect(m.scrambleInside2mSavedHard).toBeLessThanOrEqual(m.scrambleInside2mResolvedHard);
+
+    // Cost of a miss, per difficulty: standard +3 +1, hard +1 +2, bunker −1.
+    expect(m.holesScoredMissStandard).toBe(2);
+    expect(m.strokesVsParMissStandard).toBe(4);
+    expect(m.holesScoredMissHard).toBe(2);
+    expect(m.strokesVsParMissHard).toBe(3);
+    expect(m.holesScoredMissBunker).toBe(1);
+    expect(m.strokesVsParMissBunker).toBe(-1);
+    // …and the three legs reconcile with the whole-miss pair.
+    expect(
+        m.holesScoredMissStandard + m.holesScoredMissHard + m.holesScoredMissBunker,
+    ).toBe(m.holesScoredGirMiss);
+    expect(
+        m.strokesVsParMissStandard + m.strokesVsParMissHard + m.strokesVsParMissBunker,
+    ).toBe(m.strokesVsParGirMiss);
 });

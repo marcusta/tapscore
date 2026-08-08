@@ -33,7 +33,11 @@ import {
     girByPar,
     girRateByTee,
     greenMissDispersion,
+    chipOutcomes,
+    difficultyMix,
     hardChipShare,
+    missCostVsPar,
+    savedFromInside2m,
     inPlayRate,
     insightLines,
     meanOfPresent,
@@ -249,6 +253,19 @@ const WORKED_EXAMPLE: StatMeasures = measures({
     attChipHoledHard: 1,
     attSgStrokesEffectiveStandard: 1,
     attSgStrokesEffectiveHard: 1,
+    // Short-game outcomes (migration 062): both attempts are single chips —
+    // H2's standard chip one-putted, H3's hard chip went in. H2's chip
+    // finished inside 2 m and the putt dropped. Costs: H2 +2, H3 −1.
+    scrambleSingleChipStandard: 1,
+    scrambleChipOnePuttStandard: 1,
+    scrambleSingleChipHard: 1,
+    scrambleChipInHard: 1,
+    scrambleInside2mResolvedStandard: 1,
+    scrambleInside2mSavedStandard: 1,
+    holesScoredMissStandard: 1,
+    strokesVsParMissStandard: 2,
+    holesScoredMissHard: 1,
+    strokesVsParMissHard: -1,
 });
 
 /**
@@ -689,6 +706,35 @@ const SWEEP: StatMeasures = {
     attSgStrokesEffectiveStandard: 172,
     attSgStrokesEffectiveHard: 173,
     attSgStrokesEffectiveBunker: 174,
+    scrambleSingleChipStandard: 175,
+    scrambleChipInStandard: 176,
+    scrambleChipOnePuttStandard: 177,
+    scrambleChipTwoPuttStandard: 178,
+    scrambleChipThreePuttStandard: 179,
+    scrambleSingleChipHard: 180,
+    scrambleChipInHard: 181,
+    scrambleChipOnePuttHard: 182,
+    scrambleChipTwoPuttHard: 183,
+    scrambleChipThreePuttHard: 184,
+    scrambleSingleChipBunker: 185,
+    scrambleChipInBunker: 186,
+    scrambleChipOnePuttBunker: 187,
+    scrambleChipTwoPuttBunker: 188,
+    scrambleChipThreePuttBunker: 189,
+    holesMultiChipStandard: 190,
+    holesMultiChipHard: 191,
+    scrambleInside2mResolvedStandard: 192,
+    scrambleInside2mSavedStandard: 193,
+    scrambleInside2mResolvedHard: 194,
+    scrambleInside2mSavedHard: 195,
+    scrambleInside2mResolvedBunker: 196,
+    scrambleInside2mSavedBunker: 197,
+    holesScoredMissStandard: 198,
+    strokesVsParMissStandard: 199,
+    holesScoredMissHard: 200,
+    strokesVsParMissHard: 201,
+    holesScoredMissBunker: 202,
+    strokesVsParMissBunker: 203,
 };
 
 test('every measure column is additive, including the ones no rate reads', () => {
@@ -696,8 +742,8 @@ test('every measure column is additive, including the ones no rate reads', () =>
     // The count is asserted (and mirrored in the Swift twin) so that a field
     // added to the server's measure set and forgotten here is caught, rather
     // than sweeping a smaller set and passing.
-    expect(keys).toHaveLength(174);
-    expect(new Set(Object.values(SWEEP)).size).toBe(174);
+    expect(keys).toHaveLength(203);
+    expect(new Set(Object.values(SWEEP)).size).toBe(203);
 
     // Key-by-key rather than spot checks: a column missing from `addMeasures`
     // would read as its first round's value forever, and only a full sweep sees
@@ -2078,6 +2124,33 @@ const WINDOW_B: StatMeasures = measures({
     holesMultiChip: 4,
     holesMultiChipBunker: 1,
 
+    // Short-game outcomes (062). Single + multi partition each attempt count
+    // (3+2 = 5, 3+1 = 4, 2+1 = 3) and each quartet sums to its single count.
+    holesMultiChipStandard: 2,
+    holesMultiChipHard: 1,
+    scrambleSingleChipStandard: 3,
+    scrambleChipInStandard: 1,
+    scrambleChipOnePuttStandard: 1,
+    scrambleChipTwoPuttStandard: 1,
+    scrambleSingleChipHard: 3,
+    scrambleChipOnePuttHard: 1,
+    scrambleChipTwoPuttHard: 1,
+    scrambleChipThreePuttHard: 1,
+    scrambleSingleChipBunker: 2,
+    scrambleChipInBunker: 1,
+    scrambleChipOnePuttBunker: 1,
+    scrambleInside2mResolvedStandard: 2,
+    scrambleInside2mSavedStandard: 1,
+    scrambleInside2mResolvedHard: 1,
+    scrambleInside2mResolvedBunker: 1,
+    scrambleInside2mSavedBunker: 1,
+    holesScoredMissStandard: 5,
+    strokesVsParMissStandard: 3,
+    holesScoredMissHard: 4,
+    strokesVsParMissHard: 5,
+    holesScoredMissBunker: 3,
+    strokesVsParMissBunker: 4,
+
     penaltiesRecorded: 20,
     holesWithPenalty: 6,
     penaltiesTotal: 7,
@@ -2180,6 +2253,52 @@ test('the hard-chip share counts bunkers in its denominator', () => {
     // 4 hard of (5 standard + 4 hard + 3 bunker) — a bunker is a missed green
     // that was NOT a hard chip, so leaving it out would inflate the share.
     expect(hardChipShare(WINDOW_B)).toEqual({ value: 1 / 3, n: 4, d: 12 });
+});
+
+// --- Short-game outcomes (migration 062) ---------------------------------------
+
+test('chip outcomes share ONE denominator per difficulty, and the five shares sum to 1', () => {
+    const o = chipOutcomes(WINDOW_B);
+    expect(o.standard.chipIn).toEqual({ value: 0.2, n: 1, d: 5 });
+    expect(o.standard.onePutt).toEqual({ value: 0.2, n: 1, d: 5 });
+    expect(o.standard.twoPutt).toEqual({ value: 0.2, n: 1, d: 5 });
+    expect(o.standard.threePlus).toEqual({ value: 0, n: 0, d: 5 });
+    expect(o.standard.multiChip).toEqual({ value: 0.4, n: 2, d: 5 });
+    // The partition: chip-in + one + two + three-plus + multi-chip = attempts.
+    for (const leg of [o.standard, o.hard, o.bunker, o.overall]) {
+        const sum =
+            leg.chipIn.n + leg.onePutt.n + leg.twoPutt.n + leg.threePlus.n + leg.multiChip.n;
+        expect(sum).toBe(leg.chipIn.d);
+    }
+    // Overall is the sum of the legs — a bunker outcome cannot vanish.
+    expect(o.overall.multiChip).toEqual({ value: 1 / 3, n: 4, d: 12 });
+    expect(o.overall.chipIn).toEqual({ value: 2 / 12, n: 2, d: 12 });
+});
+
+test('saved-from-inside-2m divides by the RESOLVED inside-2m chips, never the raw count', () => {
+    const s = savedFromInside2m(WINDOW_B);
+    expect(s.standard).toEqual({ value: 0.5, n: 1, d: 2 });
+    expect(s.hard).toEqual({ value: 0, n: 0, d: 1 });
+    expect(s.bunker).toEqual({ value: 1, n: 1, d: 1 });
+    expect(s.overall).toEqual({ value: 0.5, n: 2, d: 4 });
+});
+
+test('the miss cost is a signed vs-par average per difficulty, reconciling with the whole', () => {
+    const c = missCostVsPar(WINDOW_B);
+    expect(c.standard).toEqual({ value: 0.6, n: 3, d: 5 });
+    expect(c.hard).toEqual({ value: 1.25, n: 5, d: 4 });
+    expect(c.bunker).toEqual({ value: 4 / 3, n: 4, d: 3 });
+    expect(c.overall).toEqual({ value: 1, n: 12, d: 12 });
+});
+
+test('the difficulty mix partitions the attempts across the three lies', () => {
+    const mix = difficultyMix(WINDOW_B);
+    expect(mix.standard).toEqual({ value: 5 / 12, n: 5, d: 12 });
+    expect(mix.hard).toEqual({ value: 4 / 12, n: 4, d: 12 });
+    expect(mix.bunker).toEqual({ value: 3 / 12, n: 3, d: 12 });
+    expect(mix.standard.value! + mix.hard.value! + mix.bunker.value!).toBeCloseTo(1, 9);
+    // A window with no attempt at all has no mix, not a 0% one.
+    expect(difficultyMix(measures()).standard).toEqual({ value: null, n: 0, d: 0 });
 });
 
 // --- Capture v2: the two-way miss insight --------------------------------------

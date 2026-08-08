@@ -205,10 +205,18 @@ export const STATS_COPY = {
     teeFan: 'Side is recorded whenever the drive left the fairway. The darker block is trouble.',
     scrambling: 'Missed greens where you still got up and down for par or better.',
     sandSave: 'Missed greens from a bunker where you still got up and down.',
+    missMixHead: 'What your missed greens leave you',
+    missMix:
+        'How your missed greens split between standard, hard and bunker lies. It describes the trouble your approaches leave behind, not how you play from it.',
+    chipOutcomes:
+        'What each missed green turned into. The rows share the same denominator — that difficulty’s attempts — so they add up to 100%. Holes where you did not count chips are treated as one chip.',
     multiChip:
         'Missed greens that took more than one shot to reach the green. Holes where you did not count are treated as one.',
-    multiChipBunker: 'Bunker holes that took more than one shot to get out.',
     extraShortGameStrokes: 'Short-game shots beyond one per missed green, across this window.',
+    savedInside2m:
+        'Chips that finished inside 2 m where the next putt went in. Beside “Chipped to inside 2 m” it splits a failed scramble into its two causes: a chip left too far out, or a makeable putt missed.',
+    missCost:
+        'Your average score against par on the holes where you missed the green, split by how hard the recovery was. The gap between the rows is what a hard miss actually costs over a standard one.',
     penaltySourceInfoTitle: 'Where the penalties came from',
     resultsHeading: 'Results',
     scoreTypesHead: 'Holes by score',
@@ -608,7 +616,49 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
         case 'shortGame': {
             const p = model.shortGame;
             if (!p) return [];
+            // One outcome group per difficulty — the same five rows in the same
+            // order, each share over that difficulty's ATTEMPTS so the visible
+            // rows sum to 1. The multi-chip row rides the counter gate: with
+            // nothing counted every hole models as one chip and the row would
+            // be a confident 0% about the model, not the player.
+            const outcomeGroup = (
+                idPrefix: string,
+                text: string,
+                o: (typeof p.outcomes)['standard'],
+                attempts: number,
+            ): StatsBlock[] =>
+                attempts > 0
+                    ? [
+                          { kind: 'subhead' as const, id: `${idPrefix}Head`, text },
+                          bar(`${idPrefix}ChipIn`, 'Holed the chip', o.chipIn),
+                          bar(`${idPrefix}OnePutt`, 'One putt', o.onePutt),
+                          bar(`${idPrefix}TwoPutt`, 'Two putts', o.twoPutt),
+                          bar(`${idPrefix}ThreePutt`, 'Three or more putts', o.threePlus),
+                          ...(p.shortGameStrokesRecorded > 0
+                              ? [bar(`${idPrefix}MultiChip`, 'More than one chip', o.multiChip)]
+                              : []),
+                      ]
+                    : [];
             return [
+                // The mix first: what kind of trouble the approaches left, the
+                // context every difficulty-split figure below is read against.
+                // Bunker rides its usual gate; the other two always draw.
+                {
+                    kind: 'subhead',
+                    id: 'missMixHead',
+                    text: STATS_COPY.missMixHead,
+                },
+                {
+                    kind: 'split',
+                    id: 'difficultyMix',
+                    segments: [
+                        { id: 'standard', title: 'Standard', tone: 'fairway', share: p.mix.standard.value, value: formatRate(p.mix.standard) },
+                        { id: 'hard', title: 'Hard', tone: 'inplay', share: p.mix.hard.value, value: formatRate(p.mix.hard) },
+                        ...(p.scrambleAttemptsBunker > 0
+                            ? [{ id: 'bunker', title: 'Bunker', tone: 'trouble' as const, share: p.mix.bunker.value, value: formatRate(p.mix.bunker) }]
+                            : []),
+                    ],
+                },
                 { kind: 'subhead', id: 'scrambleHead', text: 'Scrambling' },
                 bar('scrambleStandard', 'Standard', p.scramble.standard),
                 bar('scrambleHard', 'Hard', p.scramble.hard),
@@ -630,19 +680,49 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                           bar('sandSave', 'Sand save', p.sandSave),
                       ]
                     : []),
-                // The counter block, gated as a GROUP on at least one COUNTED
-                // hole: with nothing counted every hole models as one stroke, so
-                // all three numbers would be a confident restatement of the
-                // model rather than a reading of the player.
+                // The counter figure, on the counter gate as before. The two
+                // multi-chip BARS that used to sit beside it moved into the
+                // outcome groups below — per difficulty, one fact in one place.
                 ...(p.shortGameStrokesRecorded > 0
                     ? [
-                          bar('multiChipBunker', 'More than one from sand', p.multiChipBunker),
                           figure(
                               'extraShortGameStrokes',
                               'Extra short-game shots',
                               String(p.extraShortGameStrokes),
                           ),
-                          bar('multiChip', 'More than one chip', p.multiChip),
+                      ]
+                    : []),
+                // What each attempt turned into (migration 062). A group per
+                // difficulty, on the difficulty's own attempt gate.
+                ...outcomeGroup(
+                    'afterStandard',
+                    'After a standard chip',
+                    p.outcomes.standard,
+                    p.scramble.standard.d,
+                ),
+                ...outcomeGroup('afterHard', 'After a hard chip', p.outcomes.hard, p.scramble.hard.d),
+                ...outcomeGroup(
+                    'afterBunker',
+                    'After a bunker shot',
+                    p.outcomes.bunker,
+                    p.scrambleAttemptsBunker,
+                ),
+                // What a miss costs, per difficulty — signed averages vs par,
+                // the same unit as the tee card's three absolutes. Gated as a
+                // GROUP on any leg having a scored hole; inside it the standard
+                // and hard rows always print, bunker rides its usual gate.
+                ...(p.missCost.standard.d > 0 || p.missCost.hard.d > 0 || p.missCost.bunker.d > 0
+                    ? [
+                          {
+                              kind: 'subhead' as const,
+                              id: 'missCostHead',
+                              text: 'Average vs par, by how hard the miss was',
+                          },
+                          figure('missCostStandard', 'Standard', vsPar(p.missCost.standard)),
+                          figure('missCostHard', 'Hard', vsPar(p.missCost.hard)),
+                          ...(p.scrambleAttemptsBunker > 0 || p.missCost.bunker.d > 0
+                              ? [figure('missCostBunker', 'Bunker', vsPar(p.missCost.bunker))]
+                              : []),
                       ]
                     : []),
                 { kind: 'subhead', id: 'chipHead', text: 'Chipped to inside 2 m' },
@@ -651,6 +731,10 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                 ...(p.scrambleAttemptsBunker > 0
                     ? [bar('chipBunker', 'Bunker', p.chipInside2m.bunker)]
                     : []),
+                // The putting half of the failure split: when the chip DID get
+                // inside 2 m, did the save follow? Reads beside the chipping
+                // half above it.
+                bar('savedInside2m', 'Saved when inside 2 m', p.savedInside2m.overall),
                 bar('conversionInside2m', 'Holed from inside 2 m', p.conversionInside2m),
                 // The legs, not the sum: the rows match the groups above them,
                 // and the total is the addition of what is visible. Bunker rides

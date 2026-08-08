@@ -74,6 +74,17 @@ final class RoundStatsStoreTests: XCTestCase {
         "attChipOutside2mHard", "attChipHoledHard", "attMissBunker", "attChipInside2mBunker",
         "attChipOutside2mBunker", "attChipHoledBunker", "attSgStrokesEffectiveStandard",
         "attSgStrokesEffectiveHard", "attSgStrokesEffectiveBunker",
+        "scrambleSingleChipStandard", "scrambleChipInStandard", "scrambleChipOnePuttStandard",
+        "scrambleChipTwoPuttStandard", "scrambleChipThreePuttStandard", "scrambleSingleChipHard",
+        "scrambleChipInHard", "scrambleChipOnePuttHard", "scrambleChipTwoPuttHard",
+        "scrambleChipThreePuttHard", "scrambleSingleChipBunker", "scrambleChipInBunker",
+        "scrambleChipOnePuttBunker", "scrambleChipTwoPuttBunker", "scrambleChipThreePuttBunker",
+        "holesMultiChipStandard", "holesMultiChipHard", "scrambleInside2mResolvedStandard",
+        "scrambleInside2mSavedStandard", "scrambleInside2mResolvedHard",
+        "scrambleInside2mSavedHard", "scrambleInside2mResolvedBunker",
+        "scrambleInside2mSavedBunker", "holesScoredMissStandard", "strokesVsParMissStandard",
+        "holesScoredMissHard", "strokesVsParMissHard", "holesScoredMissBunker",
+        "strokesVsParMissBunker",
     ]
 
     private static func roundJSON(

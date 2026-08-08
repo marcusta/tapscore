@@ -163,22 +163,27 @@ final class StatsChartsWave4Tests: XCTestCase {
             $0.shortGameStrokesEffective = 17
             $0.holesMultiChip = 4
             $0.holesMultiChipBunker = 1
+            $0.holesMultiChipStandard = 2
+            $0.holesMultiChipHard = 1
         }
         let blocks = StatsPanelsView.shortGameBlocks(panel)
+        // "More than one from sand" is the bunker outcome group's multi-chip
+        // row now — same numerator, same denominator, one home.
         let rows = blocks.filter {
-            ["sandSave", "multiChipBunker", "extraShortGameStrokes", "multiChip"].contains($0.id)
+            ["sandSave", "extraShortGameStrokes", "afterStandardMultiChip", "afterBunkerMultiChip"]
+                .contains($0.id)
         }
         XCTAssertEqual(
             rows.map(\.title),
             [
-                "Sand save", "More than one from sand", "Extra short-game shots",
+                "Sand save", "Extra short-game shots", "More than one chip",
                 "More than one chip",
             ])
         // Percentages at every denominator: "2 of 3" and "1 of 3" are exactly
         // the fraction rendering the owner retired (2026-08-02).
-        XCTAssertEqual(rows.map(\.value), ["67%", "33%", "5", "33%"])
-        // …and the three rates draw a bar, the counter does not.
-        XCTAssertEqual(rows.map(\.kind), ["bar", "bar", "figure", "bar"])
+        XCTAssertEqual(rows.map(\.value), ["67%", "5", "40%", "33%"])
+        // …and the rates draw a bar, the counter does not.
+        XCTAssertEqual(rows.map(\.kind), ["bar", "figure", "bar", "bar"])
     }
 
     /// A window with no bunker at all loses the sand rows and keeps the rest —
@@ -193,19 +198,21 @@ final class StatsChartsWave4Tests: XCTestCase {
             $0.shortGameStrokesEffectiveStandard = 6
             $0.shortGameStrokesEffective = 6
             $0.holesMultiChip = 2
+            $0.holesMultiChipStandard = 2
         }
         let blocks = StatsPanelsView.shortGameBlocks(panel)
         XCTAssertFalse(blocks.contains { $0.id == "sandSave" })
+        XCTAssertFalse(blocks.contains { $0.id == "afterBunkerHead" })
         XCTAssertEqual(
             blocks.filter {
-                ["multiChipBunker", "extraShortGameStrokes", "multiChip"].contains($0.id)
+                ["extraShortGameStrokes", "afterStandardMultiChip"].contains($0.id)
             }.map(\.title),
-            ["More than one from sand", "Extra short-game shots", "More than one chip"])
+            ["Extra short-game shots", "More than one chip"])
     }
 
     /// Without a single COUNTED hole every stroke count is the modeled 1, so
-    /// the three counter rows would be structurally zero — an absence dressed
-    /// as a reading. They go together.
+    /// the counter figure and the groups' multi-chip rows would be structurally
+    /// zero — an absence dressed as a reading. They go together.
     func testTheCounterRowsAreAbsentUntilSomethingWasCounted() {
         let panel = shortGame {
             $0.girRecorded = 10
@@ -215,12 +222,17 @@ final class StatsChartsWave4Tests: XCTestCase {
             $0.scrambleSuccessesBunker = 1
         }
         let blocks = StatsPanelsView.shortGameBlocks(panel)
-        for id in ["multiChipBunker", "extraShortGameStrokes", "multiChip"] {
+        for id in [
+            "extraShortGameStrokes", "afterStandardMultiChip", "afterBunkerMultiChip",
+        ] {
             XCTAssertFalse(blocks.contains { $0.id == id }, id)
         }
         // …but the sand save is a scramble rate, not a counter, so it stays —
         // and it reads as a percentage off two attempts.
         XCTAssertEqual(blocks.first { $0.id == "sandSave" }?.value, "50%")
+        // The outcome groups themselves stay: their four putt buckets need no
+        // counter, only the multi-chip row does.
+        XCTAssertTrue(blocks.contains { $0.id == "afterStandardChipIn" })
     }
 
     // MARK: - The bunker leg of the three groups

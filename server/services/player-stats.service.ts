@@ -479,6 +479,57 @@ export interface StatMeasures {
     attSgStrokesEffectiveStandard: number;
     attSgStrokesEffectiveHard: number;
     attSgStrokesEffectiveBunker: number;
+
+    /**
+     * SHORT-GAME OUTCOMES (migration 062) — the distribution behind the
+     * scramble rate, per difficulty.
+     *
+     * `scrambleSingleChip{D}` counts attempts that took exactly one shot to
+     * reach the green (an untouched stroke counter models one chip); its four
+     * outcome buckets (chip-in / one putt / two putts / three or more)
+     * PARTITION it, and single-chip + `holesMultiChip{D}` partitions
+     * `scrambleAttempts{D}` — one bar per difficulty whose segments sum to the
+     * attempts.
+     *
+     * `scrambleInside2mResolved{D}` narrows `scrambleInside2m{D}` to holes
+     * whose putt count exists; `…Saved` is the one-putt outcome over it. The
+     * failure decomposition: a failed scramble left outside 2 m is a chipping
+     * problem, one inside 2 m that still took two putts is a putting problem.
+     *
+     * `holesScoredMiss{D}` / `strokesVsParMiss{D}` split the
+     * `strokesVsParGirMiss` pair by difficulty — what a hard miss actually
+     * costs against par, next to what a standard one does.
+     */
+    scrambleSingleChipStandard: number;
+    scrambleChipInStandard: number;
+    scrambleChipOnePuttStandard: number;
+    scrambleChipTwoPuttStandard: number;
+    scrambleChipThreePuttStandard: number;
+    scrambleSingleChipHard: number;
+    scrambleChipInHard: number;
+    scrambleChipOnePuttHard: number;
+    scrambleChipTwoPuttHard: number;
+    scrambleChipThreePuttHard: number;
+    scrambleSingleChipBunker: number;
+    scrambleChipInBunker: number;
+    scrambleChipOnePuttBunker: number;
+    scrambleChipTwoPuttBunker: number;
+    scrambleChipThreePuttBunker: number;
+    /** The standard/hard legs of the multi-chip family (bunker shipped in 055). */
+    holesMultiChipStandard: number;
+    holesMultiChipHard: number;
+    scrambleInside2mResolvedStandard: number;
+    scrambleInside2mSavedStandard: number;
+    scrambleInside2mResolvedHard: number;
+    scrambleInside2mSavedHard: number;
+    scrambleInside2mResolvedBunker: number;
+    scrambleInside2mSavedBunker: number;
+    holesScoredMissStandard: number;
+    strokesVsParMissStandard: number;
+    holesScoredMissHard: number;
+    strokesVsParMissHard: number;
+    holesScoredMissBunker: number;
+    strokesVsParMissBunker: number;
 }
 
 /**
@@ -874,6 +925,35 @@ function toMeasures(row: PlayerRoundStatsV3View | PlayerStatTotalsV3View): StatM
         attSgStrokesEffectiveStandard: row.att_sg_strokes_effective_standard,
         attSgStrokesEffectiveHard: row.att_sg_strokes_effective_hard,
         attSgStrokesEffectiveBunker: row.att_sg_strokes_effective_bunker,
+        scrambleSingleChipStandard: row.scramble_single_chip_standard,
+        scrambleChipInStandard: row.scramble_chip_in_standard,
+        scrambleChipOnePuttStandard: row.scramble_chip_one_putt_standard,
+        scrambleChipTwoPuttStandard: row.scramble_chip_two_putt_standard,
+        scrambleChipThreePuttStandard: row.scramble_chip_three_putt_standard,
+        scrambleSingleChipHard: row.scramble_single_chip_hard,
+        scrambleChipInHard: row.scramble_chip_in_hard,
+        scrambleChipOnePuttHard: row.scramble_chip_one_putt_hard,
+        scrambleChipTwoPuttHard: row.scramble_chip_two_putt_hard,
+        scrambleChipThreePuttHard: row.scramble_chip_three_putt_hard,
+        scrambleSingleChipBunker: row.scramble_single_chip_bunker,
+        scrambleChipInBunker: row.scramble_chip_in_bunker,
+        scrambleChipOnePuttBunker: row.scramble_chip_one_putt_bunker,
+        scrambleChipTwoPuttBunker: row.scramble_chip_two_putt_bunker,
+        scrambleChipThreePuttBunker: row.scramble_chip_three_putt_bunker,
+        holesMultiChipStandard: row.holes_multi_chip_standard,
+        holesMultiChipHard: row.holes_multi_chip_hard,
+        scrambleInside2mResolvedStandard: row.scramble_inside_2m_resolved_standard,
+        scrambleInside2mSavedStandard: row.scramble_inside_2m_saved_standard,
+        scrambleInside2mResolvedHard: row.scramble_inside_2m_resolved_hard,
+        scrambleInside2mSavedHard: row.scramble_inside_2m_saved_hard,
+        scrambleInside2mResolvedBunker: row.scramble_inside_2m_resolved_bunker,
+        scrambleInside2mSavedBunker: row.scramble_inside_2m_saved_bunker,
+        holesScoredMissStandard: row.holes_scored_miss_standard,
+        strokesVsParMissStandard: row.strokes_vs_par_miss_standard,
+        holesScoredMissHard: row.holes_scored_miss_hard,
+        strokesVsParMissHard: row.strokes_vs_par_miss_hard,
+        holesScoredMissBunker: row.holes_scored_miss_bunker,
+        strokesVsParMissBunker: row.strokes_vs_par_miss_bunker,
     };
 }
 
@@ -1062,6 +1142,35 @@ function zeroMeasures(): StatMeasures {
         attSgStrokesEffectiveStandard: 0,
         attSgStrokesEffectiveHard: 0,
         attSgStrokesEffectiveBunker: 0,
+        scrambleSingleChipStandard: 0,
+        scrambleChipInStandard: 0,
+        scrambleChipOnePuttStandard: 0,
+        scrambleChipTwoPuttStandard: 0,
+        scrambleChipThreePuttStandard: 0,
+        scrambleSingleChipHard: 0,
+        scrambleChipInHard: 0,
+        scrambleChipOnePuttHard: 0,
+        scrambleChipTwoPuttHard: 0,
+        scrambleChipThreePuttHard: 0,
+        scrambleSingleChipBunker: 0,
+        scrambleChipInBunker: 0,
+        scrambleChipOnePuttBunker: 0,
+        scrambleChipTwoPuttBunker: 0,
+        scrambleChipThreePuttBunker: 0,
+        holesMultiChipStandard: 0,
+        holesMultiChipHard: 0,
+        scrambleInside2mResolvedStandard: 0,
+        scrambleInside2mSavedStandard: 0,
+        scrambleInside2mResolvedHard: 0,
+        scrambleInside2mSavedHard: 0,
+        scrambleInside2mResolvedBunker: 0,
+        scrambleInside2mSavedBunker: 0,
+        holesScoredMissStandard: 0,
+        strokesVsParMissStandard: 0,
+        holesScoredMissHard: 0,
+        strokesVsParMissHard: 0,
+        holesScoredMissBunker: 0,
+        strokesVsParMissBunker: 0,
     };
 }
 

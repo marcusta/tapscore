@@ -204,29 +204,45 @@ enum StatsPanelInfo {
                 // vocabulary for the bunker scramble — three sentences deep
                 // under a heading that does not contain the word.
                 card(
+                    "missMix", StatsCopy.missMixHead,
+                    body(StatsCopy.missMix, measuredOver(attempts, .holes))),
+                card(
                     "scrambling", "Scrambling",
                     body(StatsCopy.scrambling, measuredOver(attempts, .holes))),
                 card(
                     "sandSave", "Sand save",
                     body(StatsCopy.sandSave, measuredOver(p.sandSave.d, .holes))),
                 card(
-                    "multiChipBunker", "More than one from sand",
-                    body(
-                        StatsCopy.multiChipBunker,
-                        measuredOver(p.multiChipFromBunker.d, .holes))),
-                card(
                     "extraShortGameStrokes", "Extra short-game shots",
                     body(
                         StatsCopy.extraShortGameStrokes,
                         measuredOver(p.shortGameStrokesRecorded, .holes))),
+                // ONE card for the three outcome groups: same five rows, same
+                // denominator rule, so one explanation serves them all. The
+                // multi-chip sentence rides along because its row lives inside
+                // the groups now.
                 card(
-                    "multiChip", "More than one chip",
-                    body(StatsCopy.multiChip, measuredOver(p.multiChip.d, .holes))),
+                    "chipOutcomes", "After the chip",
+                    body(
+                        StatsCopy.chipOutcomes, StatsCopy.multiChip,
+                        measuredOver(attempts, .holes))),
+                card(
+                    "missCost", "Average vs par, by how hard the miss was",
+                    body(
+                        StatsCopy.missCost,
+                        measuredOver(
+                            p.missCost.standard.d + p.missCost.hard.d + p.missCost.bunker.d,
+                            .holes))),
                 card(
                     "chipInside2m", "Chipped to inside 2 m",
                     body(
                         StatsCopy.conversionInside2m,
                         measuredOver(p.conversionInside2m.d, .holes))),
+                card(
+                    "savedInside2m", "Saved when inside 2 m",
+                    body(
+                        StatsCopy.savedInside2m,
+                        measuredOver(p.savedInside2m.overall.d, .holes))),
                 // Counts, not rates: there is no denominator to report, so the
                 // card is the sentence alone.
                 card("chipIns", "Chip-ins", StatsCopy.chipIns),

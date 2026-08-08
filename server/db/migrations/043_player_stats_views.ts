@@ -848,7 +848,163 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             COALESCE(SUM(CASE WHEN attributable = 1 AND gir = 0
                                AND short_game_difficulty = 'bunker'
                               THEN COALESCE(short_game_strokes, 1) ELSE 0 END), 0)
-                AS att_sg_strokes_effective_bunker
+                AS att_sg_strokes_effective_bunker,
+
+            -- === SHORT-GAME OUTCOMES (migration 062) ===
+            --
+            -- What happened AFTER the chip, per difficulty — the distribution
+            -- behind the scramble rate. Three families, all over the existing
+            -- scramble-ATTEMPT cohort (coherent, missed green, difficulty
+            -- answered, putt count recorded), so every rate divides by a
+            -- denominator that already exists or ships here beside it.
+            --
+            -- 1. SINGLE-CHIP PUTT DISTRIBUTION. 'scramble_single_chip_{d}' is
+            --    the denominator: attempts that took exactly one shot to reach
+            --    the green, via the same COALESCE(short_game_strokes, 1) = 1
+            --    modelling the counter family uses — an untouched stepper is
+            --    one chip. Its four outcome buckets (chip-in / one putt / two
+            --    putts / three or more) PARTITION it, and together with
+            --    'holes_multi_chip_{d}' the single-chip count partitions
+            --    'scramble_attempts_{d}': every attempt is single-chip or
+            --    multi-chip, so a client can draw one bar whose segments sum
+            --    to the attempts. 'putts = 0' needs no first_putt guard —
+            --    putting_coherent already discards the contradiction.
+            --
+            -- 2. THE MULTI-CHIP SPLIT. 'holes_multi_chip' (all difficulties)
+            --    and its bunker leg predate this; the standard and hard legs
+            --    complete the family, same predicate with the literal swapped.
+            --
+            -- 3. SAVES FROM INSIDE 2 M. The failure decomposition: a failed
+            --    scramble is either a chip left outside 2 m (chipping) or a
+            --    makeable putt missed (putting). 'resolved' narrows
+            --    'scramble_inside_2m_{d}' to holes whose putt count exists —
+            --    same guard as 'first_putt_*_resolved' — and 'saved' is the
+            --    one-putt outcome over it. BOTH first-putt vocabularies map
+            --    onto inside 2 m here, exactly as the att_chip_* family maps
+            --    them; the coarse-only 'scramble_inside_2m_{d}' spelling is
+            --    the pre-044 asymmetry and is deliberately not this family's
+            --    problem.
+            --
+            -- 4. COST OF A MISS. 'strokes_vs_par_miss_{d}' over
+            --    'holes_scored_miss_{d}' — the per-difficulty split of the
+            --    existing 'strokes_vs_par_gir_miss' pair, same shape, no
+            --    putting guard: cost reads the scorecard, not the putt count.
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'standard' AND putts IS NOT NULL
+                        AND COALESCE(short_game_strokes, 1) = 1
+                       THEN 1 END) AS scramble_single_chip_standard,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'standard' AND putts = 0
+                        AND COALESCE(short_game_strokes, 1) = 1
+                       THEN 1 END) AS scramble_chip_in_standard,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'standard' AND putts = 1
+                        AND COALESCE(short_game_strokes, 1) = 1
+                       THEN 1 END) AS scramble_chip_one_putt_standard,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'standard' AND putts = 2
+                        AND COALESCE(short_game_strokes, 1) = 1
+                       THEN 1 END) AS scramble_chip_two_putt_standard,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'standard' AND putts >= 3
+                        AND COALESCE(short_game_strokes, 1) = 1
+                       THEN 1 END) AS scramble_chip_three_putt_standard,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'hard' AND putts IS NOT NULL
+                        AND COALESCE(short_game_strokes, 1) = 1
+                       THEN 1 END) AS scramble_single_chip_hard,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'hard' AND putts = 0
+                        AND COALESCE(short_game_strokes, 1) = 1
+                       THEN 1 END) AS scramble_chip_in_hard,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'hard' AND putts = 1
+                        AND COALESCE(short_game_strokes, 1) = 1
+                       THEN 1 END) AS scramble_chip_one_putt_hard,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'hard' AND putts = 2
+                        AND COALESCE(short_game_strokes, 1) = 1
+                       THEN 1 END) AS scramble_chip_two_putt_hard,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'hard' AND putts >= 3
+                        AND COALESCE(short_game_strokes, 1) = 1
+                       THEN 1 END) AS scramble_chip_three_putt_hard,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'bunker' AND putts IS NOT NULL
+                        AND COALESCE(short_game_strokes, 1) = 1
+                       THEN 1 END) AS scramble_single_chip_bunker,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'bunker' AND putts = 0
+                        AND COALESCE(short_game_strokes, 1) = 1
+                       THEN 1 END) AS scramble_chip_in_bunker,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'bunker' AND putts = 1
+                        AND COALESCE(short_game_strokes, 1) = 1
+                       THEN 1 END) AS scramble_chip_one_putt_bunker,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'bunker' AND putts = 2
+                        AND COALESCE(short_game_strokes, 1) = 1
+                       THEN 1 END) AS scramble_chip_two_putt_bunker,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'bunker' AND putts >= 3
+                        AND COALESCE(short_game_strokes, 1) = 1
+                       THEN 1 END) AS scramble_chip_three_putt_bunker,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'standard' AND putts IS NOT NULL
+                        AND short_game_strokes >= 2
+                       THEN 1 END) AS holes_multi_chip_standard,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'hard' AND putts IS NOT NULL
+                        AND short_game_strokes >= 2
+                       THEN 1 END) AS holes_multi_chip_hard,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'standard'
+                        AND first_putt IN ('inside_1m', '1_to_2m', 'inside_2m')
+                        AND putts IS NOT NULL
+                       THEN 1 END) AS scramble_inside_2m_resolved_standard,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'standard'
+                        AND first_putt IN ('inside_1m', '1_to_2m', 'inside_2m')
+                        AND putts = 1
+                       THEN 1 END) AS scramble_inside_2m_saved_standard,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'hard'
+                        AND first_putt IN ('inside_1m', '1_to_2m', 'inside_2m')
+                        AND putts IS NOT NULL
+                       THEN 1 END) AS scramble_inside_2m_resolved_hard,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'hard'
+                        AND first_putt IN ('inside_1m', '1_to_2m', 'inside_2m')
+                        AND putts = 1
+                       THEN 1 END) AS scramble_inside_2m_saved_hard,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'bunker'
+                        AND first_putt IN ('inside_1m', '1_to_2m', 'inside_2m')
+                        AND putts IS NOT NULL
+                       THEN 1 END) AS scramble_inside_2m_resolved_bunker,
+            COUNT(CASE WHEN putting_coherent = 1 AND gir = 0
+                        AND short_game_difficulty = 'bunker'
+                        AND first_putt IN ('inside_1m', '1_to_2m', 'inside_2m')
+                        AND putts = 1
+                       THEN 1 END) AS scramble_inside_2m_saved_bunker,
+            COUNT(CASE WHEN gir = 0 AND short_game_difficulty = 'standard'
+                        AND strokes IS NOT NULL
+                       THEN 1 END) AS holes_scored_miss_standard,
+            COALESCE(SUM(CASE WHEN gir = 0 AND short_game_difficulty = 'standard'
+                              THEN strokes - par END), 0)
+                AS strokes_vs_par_miss_standard,
+            COUNT(CASE WHEN gir = 0 AND short_game_difficulty = 'hard'
+                        AND strokes IS NOT NULL
+                       THEN 1 END) AS holes_scored_miss_hard,
+            COALESCE(SUM(CASE WHEN gir = 0 AND short_game_difficulty = 'hard'
+                              THEN strokes - par END), 0)
+                AS strokes_vs_par_miss_hard,
+            COUNT(CASE WHEN gir = 0 AND short_game_difficulty = 'bunker'
+                        AND strokes IS NOT NULL
+                       THEN 1 END) AS holes_scored_miss_bunker,
+            COALESCE(SUM(CASE WHEN gir = 0 AND short_game_difficulty = 'bunker'
+                              THEN strokes - par END), 0)
+                AS strokes_vs_par_miss_bunker
         FROM sequenced
         GROUP BY player_id, round_id
     `.execute(db);
@@ -1015,7 +1171,41 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             SUM(att_chip_inside2m_bunker) AS att_chip_inside2m_bunker,
             SUM(att_chip_outside2m_bunker) AS att_chip_outside2m_bunker,
             SUM(att_chip_holed_bunker) AS att_chip_holed_bunker,
-            SUM(att_sg_strokes_effective_bunker) AS att_sg_strokes_effective_bunker
+            SUM(att_sg_strokes_effective_bunker) AS att_sg_strokes_effective_bunker,
+
+            -- === SHORT-GAME OUTCOMES (migration 062) ===
+            SUM(scramble_single_chip_standard) AS scramble_single_chip_standard,
+            SUM(scramble_chip_in_standard) AS scramble_chip_in_standard,
+            SUM(scramble_chip_one_putt_standard) AS scramble_chip_one_putt_standard,
+            SUM(scramble_chip_two_putt_standard) AS scramble_chip_two_putt_standard,
+            SUM(scramble_chip_three_putt_standard) AS scramble_chip_three_putt_standard,
+            SUM(scramble_single_chip_hard) AS scramble_single_chip_hard,
+            SUM(scramble_chip_in_hard) AS scramble_chip_in_hard,
+            SUM(scramble_chip_one_putt_hard) AS scramble_chip_one_putt_hard,
+            SUM(scramble_chip_two_putt_hard) AS scramble_chip_two_putt_hard,
+            SUM(scramble_chip_three_putt_hard) AS scramble_chip_three_putt_hard,
+            SUM(scramble_single_chip_bunker) AS scramble_single_chip_bunker,
+            SUM(scramble_chip_in_bunker) AS scramble_chip_in_bunker,
+            SUM(scramble_chip_one_putt_bunker) AS scramble_chip_one_putt_bunker,
+            SUM(scramble_chip_two_putt_bunker) AS scramble_chip_two_putt_bunker,
+            SUM(scramble_chip_three_putt_bunker) AS scramble_chip_three_putt_bunker,
+            SUM(holes_multi_chip_standard) AS holes_multi_chip_standard,
+            SUM(holes_multi_chip_hard) AS holes_multi_chip_hard,
+            SUM(scramble_inside_2m_resolved_standard)
+                AS scramble_inside_2m_resolved_standard,
+            SUM(scramble_inside_2m_saved_standard)
+                AS scramble_inside_2m_saved_standard,
+            SUM(scramble_inside_2m_resolved_hard) AS scramble_inside_2m_resolved_hard,
+            SUM(scramble_inside_2m_saved_hard) AS scramble_inside_2m_saved_hard,
+            SUM(scramble_inside_2m_resolved_bunker)
+                AS scramble_inside_2m_resolved_bunker,
+            SUM(scramble_inside_2m_saved_bunker) AS scramble_inside_2m_saved_bunker,
+            SUM(holes_scored_miss_standard) AS holes_scored_miss_standard,
+            SUM(strokes_vs_par_miss_standard) AS strokes_vs_par_miss_standard,
+            SUM(holes_scored_miss_hard) AS holes_scored_miss_hard,
+            SUM(strokes_vs_par_miss_hard) AS strokes_vs_par_miss_hard,
+            SUM(holes_scored_miss_bunker) AS holes_scored_miss_bunker,
+            SUM(strokes_vs_par_miss_bunker) AS strokes_vs_par_miss_bunker
         FROM v_player_round_stats
         GROUP BY player_id
     `.execute(db);

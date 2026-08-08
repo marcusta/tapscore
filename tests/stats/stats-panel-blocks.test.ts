@@ -827,6 +827,26 @@ const WINDOW_B: StatMeasures = measures({
     shortGameStrokesEffective: 17,
     holesMultiChip: 4,
     holesMultiChipBunker: 1,
+    // Short-game outcomes (062): single + multi partition each attempt count
+    // (3+2, 3+1, 2+1), and each single-chip quartet sums to its single count.
+    holesMultiChipStandard: 2,
+    holesMultiChipHard: 1,
+    scrambleSingleChipStandard: 3,
+    scrambleChipInStandard: 1,
+    scrambleChipOnePuttStandard: 1,
+    scrambleChipTwoPuttStandard: 1,
+    scrambleSingleChipHard: 3,
+    scrambleChipOnePuttHard: 1,
+    scrambleChipTwoPuttHard: 1,
+    scrambleChipThreePuttHard: 1,
+    scrambleSingleChipBunker: 2,
+    scrambleChipInBunker: 1,
+    scrambleChipOnePuttBunker: 1,
+    scrambleInside2mResolvedStandard: 2,
+    scrambleInside2mSavedStandard: 1,
+    scrambleInside2mResolvedHard: 1,
+    scrambleInside2mResolvedBunker: 1,
+    scrambleInside2mSavedBunker: 1,
     penaltiesRecorded: 20,
     holesWithPenalty: 6,
     penaltiesTotal: 7,
@@ -950,9 +970,11 @@ test('the short-game card names the bunker figures in plain words', () => {
         'Missed greens from a bunker where you still got up and down.',
     );
 
-    const fromSand = block('shortGame', 'multiChipBunker')!;
+    // "More than one from sand" is the bunker outcome group's multi-chip row
+    // now — same numerator, same denominator, one home.
+    const fromSand = block('shortGame', 'afterBunkerMultiChip')!;
     if (fromSand.kind !== 'bar') throw new Error('expected a bar');
-    expect(fromSand.title).toBe('More than one from sand');
+    expect(fromSand.title).toBe('More than one chip');
     expect(fromSand.value).toBe('33%');
 
     const extra = block('shortGame', 'extraShortGameStrokes')!;
@@ -960,12 +982,12 @@ test('the short-game card names the bunker figures in plain words', () => {
     expect(extra.title).toBe('Extra short-game shots');
     expect(extra.value).toBe('5');
 
-    const multi = block('shortGame', 'multiChip')!;
+    const multi = block('shortGame', 'afterStandardMultiChip')!;
     if (multi.kind !== 'bar') throw new Error('expected a bar');
     expect(multi.title).toBe('More than one chip');
-    // 4 of 12 eligible missed greens. The denominator is opportunities rather
+    // 2 of 5 standard attempts. The denominator is opportunities rather
     // than answered steppers — a distinction the sheet makes, not the row.
-    expect(multi.value).toBe('33%');
+    expect(multi.value).toBe('40%');
 });
 
 test('no short-game figure blames the golfer', () => {
@@ -978,17 +1000,18 @@ test('no short-game figure blames the golfer', () => {
     }
 });
 
-test('the four bunker figures are ordered sand save, from sand, extra, chips', () => {
+test('the card opens with the mix, then scrambling, sand save and the counter figure', () => {
     const ids = panelBlocks('shortGame', WINDOW_B_MODEL).map((b) => b.id);
-    expect(ids.slice(0, 8)).toEqual([
+    expect(ids.slice(0, 9)).toEqual([
+        'missMixHead',
+        'difficultyMix',
         'scrambleHead',
         'scrambleStandard',
         'scrambleHard',
         'scrambleBunker',
         'sandSave',
-        'multiChipBunker',
         'extraShortGameStrokes',
-        'multiChip',
+        'afterStandardHead',
     ]);
     // The pre-existing catalog is untouched behind them.
     expect(ids).toContain('chipHead');
@@ -1222,6 +1245,32 @@ const WALK: StatMeasures = measures({
     shortGameStrokesEffectiveBunker: 3,
     holesMultiChip: 3,
     holesMultiChipBunker: 1,
+    // Short-game outcomes (062). Single + multi partition each attempt count,
+    // the quartets sum to their single counts, and the three cost legs
+    // reconcile with the gir-miss pair above (5+4+3 = 12, 6+6+2 = 14).
+    holesMultiChipStandard: 1,
+    holesMultiChipHard: 1,
+    scrambleSingleChipStandard: 4,
+    scrambleChipInStandard: 1,
+    scrambleChipOnePuttStandard: 2,
+    scrambleChipTwoPuttStandard: 1,
+    scrambleSingleChipHard: 3,
+    scrambleChipInHard: 1,
+    scrambleChipTwoPuttHard: 1,
+    scrambleChipThreePuttHard: 1,
+    scrambleSingleChipBunker: 2,
+    scrambleChipOnePuttBunker: 2,
+    scrambleInside2mResolvedStandard: 3,
+    scrambleInside2mSavedStandard: 2,
+    scrambleInside2mResolvedHard: 1,
+    scrambleInside2mResolvedBunker: 1,
+    scrambleInside2mSavedBunker: 1,
+    holesScoredMissStandard: 5,
+    strokesVsParMissStandard: 6,
+    holesScoredMissHard: 4,
+    strokesVsParMissHard: 6,
+    holesScoredMissBunker: 3,
+    strokesVsParMissBunker: 2,
 });
 
 const WALK_MODEL = buildDashboardModel([round({ measures: WALK })]);
@@ -1308,20 +1357,43 @@ test('Putting walks: the spread, the ladder under its headers, the distribution,
     ]);
 });
 
-test('Short game walks: scrambling, chipping close, then the chip-in counts', () => {
+test('Short game walks: mix, scrambling, the outcome groups, the cost, chipping close, chip-ins', () => {
     expect(walk('shortGame')).toEqual([
+        'subhead:missMixHead',
+        'split:difficultyMix',
         'subhead:scrambleHead',
         'bar:scrambleStandard',
         'bar:scrambleHard',
         'bar:scrambleBunker',
         'bar:sandSave',
-        'bar:multiChipBunker',
         'figure:extraShortGameStrokes',
-        'bar:multiChip',
+        'subhead:afterStandardHead',
+        'bar:afterStandardChipIn',
+        'bar:afterStandardOnePutt',
+        'bar:afterStandardTwoPutt',
+        'bar:afterStandardThreePutt',
+        'bar:afterStandardMultiChip',
+        'subhead:afterHardHead',
+        'bar:afterHardChipIn',
+        'bar:afterHardOnePutt',
+        'bar:afterHardTwoPutt',
+        'bar:afterHardThreePutt',
+        'bar:afterHardMultiChip',
+        'subhead:afterBunkerHead',
+        'bar:afterBunkerChipIn',
+        'bar:afterBunkerOnePutt',
+        'bar:afterBunkerTwoPutt',
+        'bar:afterBunkerThreePutt',
+        'bar:afterBunkerMultiChip',
+        'subhead:missCostHead',
+        'figure:missCostStandard',
+        'figure:missCostHard',
+        'figure:missCostBunker',
         'subhead:chipHead',
         'bar:chipStandard',
         'bar:chipHard',
         'bar:chipBunker',
+        'bar:savedInside2m',
         'bar:conversionInside2m',
         'subhead:chipInsHead',
         'figure:chipInsStandard',

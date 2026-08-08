@@ -271,6 +271,11 @@ export function panelInfoCards(
                 // for the bunker scramble — three sentences deep under a heading
                 // that does not contain the word.
                 card(
+                    'missMix',
+                    STATS_COPY.missMixHead,
+                    body(STATS_COPY.missMix, measuredOver(attempts, UNIT_HOLES)),
+                ),
+                card(
                     'scrambling',
                     'Scrambling',
                     body(STATS_COPY.scrambling, measuredOver(attempts, UNIT_HOLES)),
@@ -281,11 +286,6 @@ export function panelInfoCards(
                     body(STATS_COPY.sandSave, measuredOver(p.sandSave.d, UNIT_HOLES)),
                 ),
                 card(
-                    'multiChipBunker',
-                    'More than one from sand',
-                    body(STATS_COPY.multiChipBunker, measuredOver(p.multiChipBunker.d, UNIT_HOLES)),
-                ),
-                card(
                     'extraShortGameStrokes',
                     'Extra short-game shots',
                     body(
@@ -293,10 +293,29 @@ export function panelInfoCards(
                         measuredOver(p.shortGameStrokesRecorded, UNIT_HOLES),
                     ),
                 ),
+                // ONE card for the three outcome groups: same five rows, same
+                // denominator rule, so one explanation serves them all. The
+                // multi-chip sentence rides along because its row lives inside
+                // the groups now.
                 card(
-                    'multiChip',
-                    'More than one chip',
-                    body(STATS_COPY.multiChip, measuredOver(p.multiChip.d, UNIT_HOLES)),
+                    'chipOutcomes',
+                    'After the chip',
+                    body(
+                        STATS_COPY.chipOutcomes,
+                        STATS_COPY.multiChip,
+                        measuredOver(attempts, UNIT_HOLES),
+                    ),
+                ),
+                card(
+                    'missCost',
+                    'Average vs par, by how hard the miss was',
+                    body(
+                        STATS_COPY.missCost,
+                        measuredOver(
+                            p.missCost.standard.d + p.missCost.hard.d + p.missCost.bunker.d,
+                            UNIT_HOLES,
+                        ),
+                    ),
                 ),
                 card(
                     'chipInside2m',
@@ -304,6 +323,14 @@ export function panelInfoCards(
                     body(
                         STATS_COPY.conversionInside2m,
                         measuredOver(p.conversionInside2m.d, UNIT_HOLES),
+                    ),
+                ),
+                card(
+                    'savedInside2m',
+                    'Saved when inside 2 m',
+                    body(
+                        STATS_COPY.savedInside2m,
+                        measuredOver(p.savedInside2m.overall.d, UNIT_HOLES),
                     ),
                 ),
                 // Counts, not rates: there is no denominator to report, so the

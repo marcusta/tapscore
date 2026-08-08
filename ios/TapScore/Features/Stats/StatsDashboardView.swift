@@ -823,11 +823,19 @@ enum StatsCopy {
         "Side is recorded whenever the drive left the fairway. The darker block is trouble."
     static let scrambling = "Missed greens where you still got up and down for par or better."
     static let sandSave = "Missed greens from a bunker where you still got up and down."
+    static let missMixHead = "What your missed greens leave you"
+    static let missMix =
+        "How your missed greens split between standard, hard and bunker lies. It describes the trouble your approaches leave behind, not how you play from it."
+    static let chipOutcomes =
+        "What each missed green turned into. The rows share the same denominator \u{2014} that difficulty\u{2019}s attempts \u{2014} so they add up to 100%. Holes where you did not count chips are treated as one chip."
     static let multiChip =
         "Missed greens that took more than one shot to reach the green. Holes where you did not count are treated as one."
-    static let multiChipBunker = "Bunker holes that took more than one shot to get out."
     static let extraShortGameStrokes =
         "Short-game shots beyond one per missed green, across this window."
+    static let savedInside2m =
+        "Chips that finished inside 2 m where the next putt went in. Beside \u{201C}Chipped to inside 2 m\u{201D} it splits a failed scramble into its two causes: a chip left too far out, or a makeable putt missed."
+    static let missCost =
+        "Your average score against par on the holes where you missed the green, split by how hard the recovery was. The gap between the rows is what a hard miss actually costs over a standard one."
     static let penaltySourceInfoTitle = "Where the penalties came from"
 
     /// The ⓘ card's live sentence. Absolute counts, not percentages: the sample

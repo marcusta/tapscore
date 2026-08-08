@@ -857,7 +857,36 @@ enum StatMeasuresMath {
         attChipHoledBunker: 0,
         attSgStrokesEffectiveStandard: 0,
         attSgStrokesEffectiveHard: 0,
-        attSgStrokesEffectiveBunker: 0
+        attSgStrokesEffectiveBunker: 0,
+        scrambleSingleChipStandard: 0,
+        scrambleChipInStandard: 0,
+        scrambleChipOnePuttStandard: 0,
+        scrambleChipTwoPuttStandard: 0,
+        scrambleChipThreePuttStandard: 0,
+        scrambleSingleChipHard: 0,
+        scrambleChipInHard: 0,
+        scrambleChipOnePuttHard: 0,
+        scrambleChipTwoPuttHard: 0,
+        scrambleChipThreePuttHard: 0,
+        scrambleSingleChipBunker: 0,
+        scrambleChipInBunker: 0,
+        scrambleChipOnePuttBunker: 0,
+        scrambleChipTwoPuttBunker: 0,
+        scrambleChipThreePuttBunker: 0,
+        holesMultiChipStandard: 0,
+        holesMultiChipHard: 0,
+        scrambleInside2mResolvedStandard: 0,
+        scrambleInside2mSavedStandard: 0,
+        scrambleInside2mResolvedHard: 0,
+        scrambleInside2mSavedHard: 0,
+        scrambleInside2mResolvedBunker: 0,
+        scrambleInside2mSavedBunker: 0,
+        holesScoredMissStandard: 0,
+        strokesVsParMissStandard: 0,
+        holesScoredMissHard: 0,
+        strokesVsParMissHard: 0,
+        holesScoredMissBunker: 0,
+        strokesVsParMissBunker: 0
     )
 
     /// Field-by-field addition. Written out rather than iterated on purpose: the
@@ -1048,7 +1077,46 @@ enum StatMeasuresMath {
                 + b.attSgStrokesEffectiveStandard,
             attSgStrokesEffectiveHard: a.attSgStrokesEffectiveHard + b.attSgStrokesEffectiveHard,
             attSgStrokesEffectiveBunker: a.attSgStrokesEffectiveBunker
-                + b.attSgStrokesEffectiveBunker
+                + b.attSgStrokesEffectiveBunker,
+            scrambleSingleChipStandard: a.scrambleSingleChipStandard
+                + b.scrambleSingleChipStandard,
+            scrambleChipInStandard: a.scrambleChipInStandard + b.scrambleChipInStandard,
+            scrambleChipOnePuttStandard: a.scrambleChipOnePuttStandard
+                + b.scrambleChipOnePuttStandard,
+            scrambleChipTwoPuttStandard: a.scrambleChipTwoPuttStandard
+                + b.scrambleChipTwoPuttStandard,
+            scrambleChipThreePuttStandard: a.scrambleChipThreePuttStandard
+                + b.scrambleChipThreePuttStandard,
+            scrambleSingleChipHard: a.scrambleSingleChipHard + b.scrambleSingleChipHard,
+            scrambleChipInHard: a.scrambleChipInHard + b.scrambleChipInHard,
+            scrambleChipOnePuttHard: a.scrambleChipOnePuttHard + b.scrambleChipOnePuttHard,
+            scrambleChipTwoPuttHard: a.scrambleChipTwoPuttHard + b.scrambleChipTwoPuttHard,
+            scrambleChipThreePuttHard: a.scrambleChipThreePuttHard + b.scrambleChipThreePuttHard,
+            scrambleSingleChipBunker: a.scrambleSingleChipBunker + b.scrambleSingleChipBunker,
+            scrambleChipInBunker: a.scrambleChipInBunker + b.scrambleChipInBunker,
+            scrambleChipOnePuttBunker: a.scrambleChipOnePuttBunker + b.scrambleChipOnePuttBunker,
+            scrambleChipTwoPuttBunker: a.scrambleChipTwoPuttBunker + b.scrambleChipTwoPuttBunker,
+            scrambleChipThreePuttBunker: a.scrambleChipThreePuttBunker
+                + b.scrambleChipThreePuttBunker,
+            holesMultiChipStandard: a.holesMultiChipStandard + b.holesMultiChipStandard,
+            holesMultiChipHard: a.holesMultiChipHard + b.holesMultiChipHard,
+            scrambleInside2mResolvedStandard: a.scrambleInside2mResolvedStandard
+                + b.scrambleInside2mResolvedStandard,
+            scrambleInside2mSavedStandard: a.scrambleInside2mSavedStandard
+                + b.scrambleInside2mSavedStandard,
+            scrambleInside2mResolvedHard: a.scrambleInside2mResolvedHard
+                + b.scrambleInside2mResolvedHard,
+            scrambleInside2mSavedHard: a.scrambleInside2mSavedHard + b.scrambleInside2mSavedHard,
+            scrambleInside2mResolvedBunker: a.scrambleInside2mResolvedBunker
+                + b.scrambleInside2mResolvedBunker,
+            scrambleInside2mSavedBunker: a.scrambleInside2mSavedBunker
+                + b.scrambleInside2mSavedBunker,
+            holesScoredMissStandard: a.holesScoredMissStandard + b.holesScoredMissStandard,
+            strokesVsParMissStandard: a.strokesVsParMissStandard + b.strokesVsParMissStandard,
+            holesScoredMissHard: a.holesScoredMissHard + b.holesScoredMissHard,
+            strokesVsParMissHard: a.strokesVsParMissHard + b.strokesVsParMissHard,
+            holesScoredMissBunker: a.holesScoredMissBunker + b.holesScoredMissBunker,
+            strokesVsParMissBunker: a.strokesVsParMissBunker + b.strokesVsParMissBunker
         )
     }
 
@@ -1417,6 +1485,109 @@ enum StatMeasuresMath {
                 m.scrambleInside2mStandard + m.scrambleInside2mHard + m.scrambleInside2mBunker,
                 m.scrambleFirstPuttStandard + m.scrambleFirstPuttHard
                     + m.scrambleFirstPuttBunker))
+    }
+
+    // MARK: Short-game outcomes (migration 062)
+
+    /// What a missed green turned into: the five outcomes of an attempt, EVERY
+    /// one over the same denominator — that difficulty's attempts — so the five
+    /// shares sum to 1 and a panel can print them as one partition. The four
+    /// putt buckets cover the single-chip attempts (an untouched stroke counter
+    /// models as one chip, as everywhere) and `multiChip` is the rest.
+    struct ChipOutcomes: Equatable, Sendable {
+        /// The single chip that went in.
+        var chipIn: Rate
+        /// Chip, one putt — the up-and-down.
+        var onePutt: Rate
+        /// Chip, two putts — the bogey save.
+        var twoPutt: Rate
+        /// Chip, three putts or more.
+        var threePlus: Rate
+        /// More than one shot to reach the green, whatever the putts.
+        var multiChip: Rate
+    }
+
+    static func chipOutcomes(_ m: StatMeasures) -> ByDifficulty<ChipOutcomes> {
+        func leg(
+            _ chipIn: Double, _ onePutt: Double, _ twoPutt: Double, _ threePlus: Double,
+            _ multiChip: Double, _ attempts: Double
+        ) -> ChipOutcomes {
+            ChipOutcomes(
+                chipIn: rate(chipIn, attempts),
+                onePutt: rate(onePutt, attempts),
+                twoPutt: rate(twoPutt, attempts),
+                threePlus: rate(threePlus, attempts),
+                multiChip: rate(multiChip, attempts))
+        }
+        return ByDifficulty(
+            standard: leg(
+                m.scrambleChipInStandard, m.scrambleChipOnePuttStandard,
+                m.scrambleChipTwoPuttStandard, m.scrambleChipThreePuttStandard,
+                m.holesMultiChipStandard, m.scrambleAttemptsStandard),
+            hard: leg(
+                m.scrambleChipInHard, m.scrambleChipOnePuttHard,
+                m.scrambleChipTwoPuttHard, m.scrambleChipThreePuttHard,
+                m.holesMultiChipHard, m.scrambleAttemptsHard),
+            bunker: leg(
+                m.scrambleChipInBunker, m.scrambleChipOnePuttBunker,
+                m.scrambleChipTwoPuttBunker, m.scrambleChipThreePuttBunker,
+                m.holesMultiChipBunker, m.scrambleAttemptsBunker),
+            overall: leg(
+                m.scrambleChipInStandard + m.scrambleChipInHard + m.scrambleChipInBunker,
+                m.scrambleChipOnePuttStandard + m.scrambleChipOnePuttHard
+                    + m.scrambleChipOnePuttBunker,
+                m.scrambleChipTwoPuttStandard + m.scrambleChipTwoPuttHard
+                    + m.scrambleChipTwoPuttBunker,
+                m.scrambleChipThreePuttStandard + m.scrambleChipThreePuttHard
+                    + m.scrambleChipThreePuttBunker,
+                m.holesMultiChip,
+                m.scrambleAttemptsStandard + m.scrambleAttemptsHard
+                    + m.scrambleAttemptsBunker))
+    }
+
+    /// The putting half of the failure decomposition: when the chip DID finish
+    /// inside 2 m, how often the putt went in. Over `scrambleInside2mResolved*`
+    /// — chips to inside 2 m whose putt count exists — never over the raw
+    /// inside-2m count, for the same reason make% divides by a `*Resolved`
+    /// column. Beside `chipInside2mRate` (the chipping half) this splits a
+    /// failed scramble into its two causes.
+    static func savedFromInside2m(_ m: StatMeasures) -> ByDifficulty<Rate> {
+        ByDifficulty(
+            standard: rate(m.scrambleInside2mSavedStandard, m.scrambleInside2mResolvedStandard),
+            hard: rate(m.scrambleInside2mSavedHard, m.scrambleInside2mResolvedHard),
+            bunker: rate(m.scrambleInside2mSavedBunker, m.scrambleInside2mResolvedBunker),
+            overall: rate(
+                m.scrambleInside2mSavedStandard + m.scrambleInside2mSavedHard
+                    + m.scrambleInside2mSavedBunker,
+                m.scrambleInside2mResolvedStandard + m.scrambleInside2mResolvedHard
+                    + m.scrambleInside2mResolvedBunker))
+    }
+
+    /// What a miss of each difficulty costs against par, per scored hole — the
+    /// per-difficulty split of the missed-green side of `costOfMissedGreen`. A
+    /// signed average (positive = over par), same unit as the vs-par tee trio.
+    static func missCostVsPar(_ m: StatMeasures) -> ByDifficulty<Rate> {
+        ByDifficulty(
+            standard: rate(m.strokesVsParMissStandard, m.holesScoredMissStandard),
+            hard: rate(m.strokesVsParMissHard, m.holesScoredMissHard),
+            bunker: rate(m.strokesVsParMissBunker, m.holesScoredMissBunker),
+            overall: rate(
+                m.strokesVsParMissStandard + m.strokesVsParMissHard + m.strokesVsParMissBunker,
+                m.holesScoredMissStandard + m.holesScoredMissHard + m.holesScoredMissBunker))
+    }
+
+    /// How the recorded attempts split across the three lies — context for the
+    /// difficulty-split rates around it, not a skill measure: it says what kind
+    /// of trouble the approach left, and it moves with the reader's own
+    /// judgement of "hard". The three shares partition 1.
+    static func difficultyMix(_ m: StatMeasures) -> ByDifficulty<Rate> {
+        let attempts =
+            m.scrambleAttemptsStandard + m.scrambleAttemptsHard + m.scrambleAttemptsBunker
+        return ByDifficulty(
+            standard: rate(m.scrambleAttemptsStandard, attempts),
+            hard: rate(m.scrambleAttemptsHard, attempts),
+            bunker: rate(m.scrambleAttemptsBunker, attempts),
+            overall: rate(attempts, attempts))
     }
 
     // MARK: Dispersion (wave 4)

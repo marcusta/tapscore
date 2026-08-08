@@ -232,6 +232,35 @@ export interface StatMeasures {
     attSgStrokesEffectiveStandard: number;
     attSgStrokesEffectiveHard: number;
     attSgStrokesEffectiveBunker: number;
+    scrambleSingleChipStandard: number;
+    scrambleChipInStandard: number;
+    scrambleChipOnePuttStandard: number;
+    scrambleChipTwoPuttStandard: number;
+    scrambleChipThreePuttStandard: number;
+    scrambleSingleChipHard: number;
+    scrambleChipInHard: number;
+    scrambleChipOnePuttHard: number;
+    scrambleChipTwoPuttHard: number;
+    scrambleChipThreePuttHard: number;
+    scrambleSingleChipBunker: number;
+    scrambleChipInBunker: number;
+    scrambleChipOnePuttBunker: number;
+    scrambleChipTwoPuttBunker: number;
+    scrambleChipThreePuttBunker: number;
+    holesMultiChipStandard: number;
+    holesMultiChipHard: number;
+    scrambleInside2mResolvedStandard: number;
+    scrambleInside2mSavedStandard: number;
+    scrambleInside2mResolvedHard: number;
+    scrambleInside2mSavedHard: number;
+    scrambleInside2mResolvedBunker: number;
+    scrambleInside2mSavedBunker: number;
+    holesScoredMissStandard: number;
+    strokesVsParMissStandard: number;
+    holesScoredMissHard: number;
+    strokesVsParMissHard: number;
+    holesScoredMissBunker: number;
+    strokesVsParMissBunker: number;
 }
 
 export interface PlayerRoundStats {

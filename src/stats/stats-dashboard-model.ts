@@ -22,8 +22,10 @@ import {
     birdieConversion,
     bounceBackRate,
     chipInside2mRate,
+    chipOutcomes,
     costOfMissedGreen,
     DEFAULT_SG_BASELINE,
+    difficultyMix,
     doubleBogeyPlusPerRound,
     extraShortGameStrokes,
     fairwayRate,
@@ -36,8 +38,6 @@ import {
     greenMissDispersion,
     hardChipShare,
     meanOfPresent,
-    multiChipFromBunkerRate,
-    multiChipRate,
     onePuttRate,
     penaltiesPerRound,
     penaltyHoleShare,
@@ -49,11 +49,13 @@ import {
     puttsPerGirHole,
     puttsPerHoleByPar,
     puttsTotalResolved,
+    missCostVsPar,
     rate,
     rateDisplay,
     recoveryRate,
     resultsSummary,
     sandSaveRate,
+    savedFromInside2m,
     scrambleRate,
     STROKES_LOST_COMPONENTS,
     strokesLostV3,
@@ -72,6 +74,7 @@ import {
     type ByDifficulty,
     type ByParGroup,
     type ByTee,
+    type ChipOutcomes,
     type GreenMissDispersion,
     type PenaltySourceSplit,
     type PenaltySplit,
@@ -325,6 +328,30 @@ export interface StatsPuttingPanel {
 
 export interface StatsShortGamePanel {
     scramble: ByDifficulty<Rate>;
+    /**
+     * How the attempts split across the three lies (migration 062) — context
+     * next to the scrambling bars, not a skill figure: it says what kind of
+     * trouble the approach left. The three shares partition 1.
+     */
+    mix: ByDifficulty<Rate>;
+    /**
+     * What each attempt turned into: chip-in / one putt / two putts / three
+     * or more / more than one chip, every share over that difficulty's
+     * attempts, so a difficulty's five rows sum to 1.
+     */
+    outcomes: ByDifficulty<ChipOutcomes>;
+    /**
+     * The putting half of a failed scramble: chips that finished inside 2 m
+     * and still saved. Beside `chipInside2m` (the chipping half) it says
+     * whether the failures are chips left long or makeable putts missed.
+     */
+    savedInside2m: ByDifficulty<Rate>;
+    /**
+     * What a miss of each difficulty costs against par, per scored hole — the
+     * per-difficulty split of the approach card's missed-green cost. Signed,
+     * positive = over par.
+     */
+    missCost: ByDifficulty<Rate>;
     chipInside2m: ByDifficulty<Rate>;
     /**
      * The conversion half of the chip pair: how often a putt from inside 2 m
@@ -348,12 +375,12 @@ export interface StatsShortGamePanel {
     /** Its own gate: without a bunker attempt the figure is absent, not zero. */
     scrambleAttemptsBunker: number;
     /**
-     * The short-game COUNTER family (proposal §3.4c). All three gate on
+     * The short-game COUNTER family (proposal §3.4c). Both gate on
      * `shortGameStrokesRecorded`: with nothing counted every hole models as one
-     * shot, so the numbers would all read as a perfect window.
+     * shot, so the numbers would read as a perfect window. The multi-chip RATES
+     * live inside `outcomes` now, per difficulty — the overall pair the panel
+     * used to carry was the coarse version of the same fact.
      */
-    multiChip: Rate;
-    multiChipBunker: Rate;
     extraShortGameStrokes: number;
     shortGameStrokesRecorded: number;
 }
@@ -709,6 +736,10 @@ export function shortGamePanel(m: StatMeasures): StatsShortGamePanel | null {
     const faced = m.firstPuttInside1mResolved + m.firstPutt1To2mResolved;
     return {
         scramble: scrambleRate(m),
+        mix: difficultyMix(m),
+        outcomes: chipOutcomes(m),
+        savedInside2m: savedFromInside2m(m),
+        missCost: missCostVsPar(m),
         chipInside2m: chipInside2mRate(m),
         conversionInside2m: rate(made, faced),
         chipIns: {
@@ -719,8 +750,6 @@ export function shortGamePanel(m: StatMeasures): StatsShortGamePanel | null {
         },
         sandSave: sandSaveRate(m),
         scrambleAttemptsBunker: m.scrambleAttemptsBunker,
-        multiChip: multiChipRate(m),
-        multiChipBunker: multiChipFromBunkerRate(m),
         extraShortGameStrokes: extraShortGameStrokes(m),
         shortGameStrokesRecorded: m.shortGameStrokesRecorded,
     };

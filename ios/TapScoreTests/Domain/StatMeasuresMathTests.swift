@@ -174,6 +174,19 @@ final class StatMeasuresMathTests: XCTestCase {
         m.attChipHoledHard = 1
         m.attSgStrokesEffectiveStandard = 1
         m.attSgStrokesEffectiveHard = 1
+        // Short-game outcomes (migration 062): both attempts are single chips —
+        // H2's standard chip one-putted, H3's hard chip went in. H2's chip
+        // finished inside 2 m and the putt dropped. Costs: H2 +2, H3 −1.
+        m.scrambleSingleChipStandard = 1
+        m.scrambleChipOnePuttStandard = 1
+        m.scrambleSingleChipHard = 1
+        m.scrambleChipInHard = 1
+        m.scrambleInside2mResolvedStandard = 1
+        m.scrambleInside2mSavedStandard = 1
+        m.holesScoredMissStandard = 1
+        m.strokesVsParMissStandard = 2
+        m.holesScoredMissHard = 1
+        m.strokesVsParMissHard = -1
     }
 
     /// A full eighteen with every short-game term populated.
@@ -514,6 +527,35 @@ final class StatMeasuresMathTests: XCTestCase {
         m.attSgStrokesEffectiveStandard = 172
         m.attSgStrokesEffectiveHard = 173
         m.attSgStrokesEffectiveBunker = 174
+        m.scrambleSingleChipStandard = 175
+        m.scrambleChipInStandard = 176
+        m.scrambleChipOnePuttStandard = 177
+        m.scrambleChipTwoPuttStandard = 178
+        m.scrambleChipThreePuttStandard = 179
+        m.scrambleSingleChipHard = 180
+        m.scrambleChipInHard = 181
+        m.scrambleChipOnePuttHard = 182
+        m.scrambleChipTwoPuttHard = 183
+        m.scrambleChipThreePuttHard = 184
+        m.scrambleSingleChipBunker = 185
+        m.scrambleChipInBunker = 186
+        m.scrambleChipOnePuttBunker = 187
+        m.scrambleChipTwoPuttBunker = 188
+        m.scrambleChipThreePuttBunker = 189
+        m.holesMultiChipStandard = 190
+        m.holesMultiChipHard = 191
+        m.scrambleInside2mResolvedStandard = 192
+        m.scrambleInside2mSavedStandard = 193
+        m.scrambleInside2mResolvedHard = 194
+        m.scrambleInside2mSavedHard = 195
+        m.scrambleInside2mResolvedBunker = 196
+        m.scrambleInside2mSavedBunker = 197
+        m.holesScoredMissStandard = 198
+        m.strokesVsParMissStandard = 199
+        m.holesScoredMissHard = 200
+        m.strokesVsParMissHard = 201
+        m.holesScoredMissBunker = 202
+        m.strokesVsParMissBunker = 203
     }
 
     func testEveryMeasureColumnIsAdditiveIncludingTheOnesNoRateReads() throws {
@@ -530,8 +572,8 @@ final class StatMeasuresMathTests: XCTestCase {
         // The count is asserted (and mirrored in the TypeScript twin) so that a
         // field added to the server's measure set and forgotten in the fixture
         // is caught, rather than sweeping a smaller set and passing.
-        XCTAssertEqual(singleFields.count, 174)
-        XCTAssertEqual(Set(singleFields.values).count, 174)
+        XCTAssertEqual(singleFields.count, 203)
+        XCTAssertEqual(Set(singleFields.values).count, 203)
         for (key, single) in singleFields {
             XCTAssertEqual(doubledFields[key], single * 2, "column \(key) is not additive")
         }
@@ -543,7 +585,7 @@ final class StatMeasuresMathTests: XCTestCase {
         let doubledExample = try decoder.decode(
             [String: Double].self,
             from: encoder.encode(StatMeasuresMath.sum([workedExample, workedExample])))
-        XCTAssertEqual(exampleFields.count, 174)
+        XCTAssertEqual(exampleFields.count, 203)
         for (key, single) in exampleFields {
             XCTAssertEqual(doubledExample[key], single * 2, "column \(key) is not additive")
         }
@@ -2180,6 +2222,34 @@ final class StatMeasuresMathTests: XCTestCase {
         m.holesMultiChip = 4
         m.holesMultiChipBunker = 1
 
+        // Short-game outcomes (062). Single + multi partition each attempt
+        // count (3+2 = 5, 3+1 = 4, 2+1 = 3) and each quartet sums to its
+        // single count. Same values as the TypeScript twin's WINDOW_B.
+        m.holesMultiChipStandard = 2
+        m.holesMultiChipHard = 1
+        m.scrambleSingleChipStandard = 3
+        m.scrambleChipInStandard = 1
+        m.scrambleChipOnePuttStandard = 1
+        m.scrambleChipTwoPuttStandard = 1
+        m.scrambleSingleChipHard = 3
+        m.scrambleChipOnePuttHard = 1
+        m.scrambleChipTwoPuttHard = 1
+        m.scrambleChipThreePuttHard = 1
+        m.scrambleSingleChipBunker = 2
+        m.scrambleChipInBunker = 1
+        m.scrambleChipOnePuttBunker = 1
+        m.scrambleInside2mResolvedStandard = 2
+        m.scrambleInside2mSavedStandard = 1
+        m.scrambleInside2mResolvedHard = 1
+        m.scrambleInside2mResolvedBunker = 1
+        m.scrambleInside2mSavedBunker = 1
+        m.holesScoredMissStandard = 5
+        m.strokesVsParMissStandard = 3
+        m.holesScoredMissHard = 4
+        m.strokesVsParMissHard = 5
+        m.holesScoredMissBunker = 3
+        m.strokesVsParMissBunker = 4
+
         m.penaltiesRecorded = 20
         m.holesWithPenalty = 6
         m.penaltiesTotal = 7
@@ -2231,6 +2301,52 @@ final class StatMeasuresMathTests: XCTestCase {
         assertRate(StatMeasuresMath.multiChipRate(windowB), 4.0 / 12.0, 4, 12)
         assertRate(StatMeasuresMath.multiChipFromBunkerRate(windowB), 1.0 / 3.0, 1, 3)
         XCTAssertEqual(StatMeasuresMath.extraShortGameStrokes(windowB), 5)
+    }
+
+    // MARK: - Short-game outcomes (migration 062)
+
+    /// Twin of `tests/round/stat-measures.test.ts` — chip outcomes share ONE
+    /// denominator per difficulty, and the five shares sum to 1.
+    func testChipOutcomesPartitionEachDifficultysAttempts() {
+        let o = StatMeasuresMath.chipOutcomes(windowB)
+        assertRate(o.standard.chipIn, 0.2, 1, 5)
+        assertRate(o.standard.onePutt, 0.2, 1, 5)
+        assertRate(o.standard.twoPutt, 0.2, 1, 5)
+        assertRate(o.standard.threePlus, 0, 0, 5)
+        assertRate(o.standard.multiChip, 0.4, 2, 5)
+        for leg in [o.standard, o.hard, o.bunker, o.overall] {
+            let sum =
+                leg.chipIn.n + leg.onePutt.n + leg.twoPutt.n + leg.threePlus.n + leg.multiChip.n
+            XCTAssertEqual(sum, leg.chipIn.d)
+        }
+        // Overall is the sum of the legs — a bunker outcome cannot vanish.
+        assertRate(o.overall.multiChip, 1.0 / 3.0, 4, 12)
+        assertRate(o.overall.chipIn, 2.0 / 12.0, 2, 12)
+    }
+
+    func testSavedFromInside2mDividesByTheResolvedInside2mChips() {
+        let s = StatMeasuresMath.savedFromInside2m(windowB)
+        assertRate(s.standard, 0.5, 1, 2)
+        assertRate(s.hard, 0, 0, 1)
+        assertRate(s.bunker, 1, 1, 1)
+        assertRate(s.overall, 0.5, 2, 4)
+    }
+
+    func testMissCostIsASignedVsParAveragePerDifficulty() {
+        let c = StatMeasuresMath.missCostVsPar(windowB)
+        assertRate(c.standard, 0.6, 3, 5)
+        assertRate(c.hard, 1.25, 5, 4)
+        assertRate(c.bunker, 4.0 / 3.0, 4, 3)
+        assertRate(c.overall, 1, 12, 12)
+    }
+
+    func testTheDifficultyMixPartitionsTheAttempts() {
+        let mix = StatMeasuresMath.difficultyMix(windowB)
+        assertRate(mix.standard, 5.0 / 12.0, 5, 12)
+        assertRate(mix.hard, 4.0 / 12.0, 4, 12)
+        assertRate(mix.bunker, 3.0 / 12.0, 3, 12)
+        // A window with no attempt at all has no mix, not a 0% one.
+        XCTAssertNil(StatMeasuresMath.difficultyMix(StatMeasuresMath.zero).standard.value)
     }
 
     /// Boundary walk on the two-way-miss rule: 10 recorded misses, and each

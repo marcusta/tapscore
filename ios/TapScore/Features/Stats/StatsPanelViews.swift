@@ -774,8 +774,50 @@ struct StatsPanelsView: View {
         panel.sandSaveAttempts > 0
     }
 
-    static func shortGameBlocks(_ panel: StatsShortGamePanel) -> [StatsBlock] {
+    /// One outcome group per difficulty — the same five rows in the same
+    /// order, each share over that difficulty's ATTEMPTS so the visible rows
+    /// sum to 1. The multi-chip row rides the counter gate: with nothing
+    /// counted every hole models as one chip and the row would be a confident
+    /// 0% about the model, not the player.
+    private static func outcomeGroup(
+        _ idPrefix: String, _ text: String, _ o: StatMeasuresMath.ChipOutcomes,
+        attempts: Double, counterRecorded: Double
+    ) -> [StatsBlock] {
+        guard attempts > 0 else { return [] }
         var out: [StatsBlock] = [
+            .subhead(id: "\(idPrefix)Head", text: text),
+            bar("\(idPrefix)ChipIn", "Holed the chip", o.chipIn),
+            bar("\(idPrefix)OnePutt", "One putt", o.onePutt),
+            bar("\(idPrefix)TwoPutt", "Two putts", o.twoPutt),
+            bar("\(idPrefix)ThreePutt", "Three or more putts", o.threePlus),
+        ]
+        if counterRecorded > 0 {
+            out.append(bar("\(idPrefix)MultiChip", "More than one chip", o.multiChip))
+        }
+        return out
+    }
+
+    static func shortGameBlocks(_ panel: StatsShortGamePanel) -> [StatsBlock] {
+        // The mix first: what kind of trouble the approaches left, the context
+        // every difficulty-split figure below is read against. Bunker rides its
+        // usual gate; the other two always draw.
+        var mixSegments: [StatsSplitBar.Segment] = [
+            .init(id: "standard", share: panel.mix.standard.value ?? 0, color: TapColors.primary),
+            .init(id: "hard", share: panel.mix.hard.value ?? 0, color: TapColors.accent),
+        ]
+        var mixLegend: [StatsLegendItem] = [
+            StatsLegendItem("Standard", TapColors.primary, StatsFormat.rate(panel.mix.standard)),
+            StatsLegendItem("Hard", TapColors.accent, StatsFormat.rate(panel.mix.hard)),
+        ]
+        if hasBunkerLeg(panel) {
+            mixSegments.append(
+                .init(id: "bunker", share: panel.mix.bunker.value ?? 0, color: TapColors.danger))
+            mixLegend.append(
+                StatsLegendItem("Bunker", TapColors.danger, StatsFormat.rate(panel.mix.bunker)))
+        }
+        var out: [StatsBlock] = [
+            .subhead(id: "missMixHead", text: StatsCopy.missMixHead),
+            .split(id: "difficultyMix", segments: mixSegments, legend: mixLegend),
             .subhead(id: "scrambleHead", text: "Scrambling"),
             bar("scrambleStandard", "Standard", panel.scramble.standard),
             bar("scrambleHard", "Hard", panel.scramble.hard),
@@ -787,17 +829,52 @@ struct StatsPanelsView: View {
             // sand save over zero bunkers.
             out.append(bar("sandSave", "Sand save", panel.sandSave))
         }
-        // The counter block, gated as a GROUP on at least one COUNTED hole:
-        // with nothing counted every hole models as one stroke, so all three
-        // numbers would be a confident restatement of the model rather than a
-        // reading of the player.
+        // The counter figure, on the counter gate as before. The two multi-chip
+        // BARS that used to sit beside it moved into the outcome groups below —
+        // per difficulty, one fact in one place.
         if panel.shortGameStrokesRecorded > 0 {
-            out.append(bar("multiChipBunker", "More than one from sand", panel.multiChipFromBunker))
             out.append(
                 figure(
                     "extraShortGameStrokes", "Extra short-game shots",
                     StatsFormat.count(panel.extraShortGameStrokes)))
-            out.append(bar("multiChip", "More than one chip", panel.multiChip))
+        }
+        // What each attempt turned into (migration 062). A group per
+        // difficulty, on the difficulty's own attempt gate.
+        out.append(
+            contentsOf: outcomeGroup(
+                "afterStandard", "After a standard chip", panel.outcomes.standard,
+                attempts: panel.scramble.standard.d,
+                counterRecorded: panel.shortGameStrokesRecorded))
+        out.append(
+            contentsOf: outcomeGroup(
+                "afterHard", "After a hard chip", panel.outcomes.hard,
+                attempts: panel.scramble.hard.d,
+                counterRecorded: panel.shortGameStrokesRecorded))
+        out.append(
+            contentsOf: outcomeGroup(
+                "afterBunker", "After a bunker shot", panel.outcomes.bunker,
+                attempts: panel.sandSaveAttempts,
+                counterRecorded: panel.shortGameStrokesRecorded))
+        // What a miss costs, per difficulty — signed averages vs par, the same
+        // unit as the tee card's three absolutes. Gated as a GROUP on any leg
+        // having a scored hole; inside it the standard and hard rows always
+        // print, bunker rides its usual gate.
+        let cost = panel.missCost
+        if cost.standard.d > 0 || cost.hard.d > 0 || cost.bunker.d > 0 {
+            out.append(
+                .subhead(id: "missCostHead", text: "Average vs par, by how hard the miss was"))
+            out.append(
+                figure(
+                    "missCostStandard", "Standard",
+                    StatsFormat.average(cost.standard, signed: true)))
+            out.append(
+                figure("missCostHard", "Hard", StatsFormat.average(cost.hard, signed: true)))
+            if hasBunkerLeg(panel) || cost.bunker.d > 0 {
+                out.append(
+                    figure(
+                        "missCostBunker", "Bunker",
+                        StatsFormat.average(cost.bunker, signed: true)))
+            }
         }
         out.append(.subhead(id: "chipHead", text: "Chipped to inside 2 m"))
         out.append(bar("chipStandard", "Standard", panel.chipInside2m.standard))
@@ -805,6 +882,9 @@ struct StatsPanelsView: View {
         if hasBunkerLeg(panel) {
             out.append(bar("chipBunker", "Bunker", panel.chipInside2m.bunker))
         }
+        // The putting half of the failure split: when the chip DID get inside
+        // 2 m, did the save follow? Reads beside the chipping half above it.
+        out.append(bar("savedInside2m", "Saved when inside 2 m", panel.savedInside2m.overall))
         out.append(bar("conversionInside2m", "Holed from inside 2 m", panel.conversionInside2m))
         // The legs, not the sum: the rows match the groups above them, and the
         // total is the addition of what is visible.

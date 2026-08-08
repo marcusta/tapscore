@@ -218,6 +218,22 @@ struct StatsPuttingPanel: Equatable, Sendable {
 
 struct StatsShortGamePanel: Equatable, Sendable {
     var scramble: ByDifficulty<Rate>
+    /// How the attempts split across the three lies (migration 062) — context
+    /// next to the scrambling bars, not a skill figure: it says what kind of
+    /// trouble the approach left. The three shares partition 1.
+    var mix: ByDifficulty<Rate>
+    /// What each attempt turned into: chip-in / one putt / two putts / three
+    /// or more / more than one chip, every share over that difficulty's
+    /// attempts, so a difficulty's five rows sum to 1.
+    var outcomes: ByDifficulty<StatMeasuresMath.ChipOutcomes>
+    /// The putting half of a failed scramble: chips that finished inside 2 m
+    /// and still saved. Beside `chipInside2m` (the chipping half) it says
+    /// whether the failures are chips left long or makeable putts missed.
+    var savedInside2m: ByDifficulty<Rate>
+    /// What a miss of each difficulty costs against par, per scored hole — the
+    /// per-difficulty split of the approach card's missed-green cost. Signed,
+    /// positive = over par.
+    var missCost: ByDifficulty<Rate>
     var chipInside2m: ByDifficulty<Rate>
     /// The conversion half of the chip pair: how often a putt from inside 2m
     /// goes in.
@@ -236,15 +252,14 @@ struct StatsShortGamePanel: Equatable, Sendable {
     /// Up-and-downs from sand. Gated on `scrambleAttemptsBunker`.
     var sandSave: Rate
     var sandSaveAttempts: Double
-    /// Missed greens that took more than one shot to reach the green, over ALL
-    /// eligible holes (proposal §3.4c) — a share of opportunities, not of
-    /// answered steppers.
-    var multiChip: Rate
-    var multiChipFromBunker: Rate
-    /// Effective short-game strokes above one per attempt. A COUNT.
+    /// Effective short-game strokes above one per attempt. A COUNT. The
+    /// multi-chip RATES live inside `outcomes` now, per difficulty — the
+    /// overall pair the panel used to carry was the coarse version of the
+    /// same fact.
     var extraShortGameStrokes: Double
-    /// The gate for all three counter figures: with no counted hole the numbers
-    /// are all modeled-1 and say nothing.
+    /// The gate for the counter figure and the outcome groups' multi-chip
+    /// rows: with no counted hole the numbers are all modeled-1 and say
+    /// nothing.
     var shortGameStrokesRecorded: Double
 }
 
@@ -567,6 +582,10 @@ struct StatsDashboardModel: Equatable, Sendable {
         let faced = m.firstPuttInside1mResolved + m.firstPutt1To2mResolved
         return StatsShortGamePanel(
             scramble: StatMeasuresMath.scrambleRate(m),
+            mix: StatMeasuresMath.difficultyMix(m),
+            outcomes: StatMeasuresMath.chipOutcomes(m),
+            savedInside2m: StatMeasuresMath.savedFromInside2m(m),
+            missCost: StatMeasuresMath.missCostVsPar(m),
             chipInside2m: StatMeasuresMath.chipInside2mRate(m),
             conversionInside2m: StatMeasuresMath.rate(made, faced),
             chipIns: ByDifficulty(
@@ -576,8 +595,6 @@ struct StatsDashboardModel: Equatable, Sendable {
                 overall: m.scrambleHoledStandard + m.scrambleHoledHard + m.scrambleHoledBunker),
             sandSave: StatMeasuresMath.sandSaveRate(m),
             sandSaveAttempts: m.scrambleAttemptsBunker,
-            multiChip: StatMeasuresMath.multiChipRate(m),
-            multiChipFromBunker: StatMeasuresMath.multiChipFromBunkerRate(m),
             extraShortGameStrokes: StatMeasuresMath.extraShortGameStrokes(m),
             shortGameStrokesRecorded: m.shortGameStrokesRecorded)
     }
