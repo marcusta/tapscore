@@ -502,12 +502,13 @@ export class TeeFieldsComponent extends Component<TeeFieldsProps> {
         }
         for (const gender of GENDERS) {
             if (errors.ratings?.[gender] === undefined) continue;
-            const first = RATING_FIELDS.map((spec) =>
-                this.ratingInputs.get(`${gender}:${spec.key}`),
-            ).find((input): input is HTMLInputElement => input !== undefined);
-            if (first) {
-                first.focus();
-                first.select();
+            // The box the message is ABOUT, not the block's first: landing the
+            // caret in a field that is fine reads as "nothing happened".
+            const key = errors.ratingFields?.[gender] ?? RATING_FIELDS[0]!.key;
+            const input = this.ratingInputs.get(`${gender}:${key}`);
+            if (input) {
+                input.focus();
+                input.select();
                 return true;
             }
         }

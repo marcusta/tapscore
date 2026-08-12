@@ -132,13 +132,41 @@ test('a blank tee is valid once it has a name — neither gender rated', () => {
 test('half a rating is refused — `tee_ratings` has no nullable columns', () => {
     const draft = emptyDraft(18);
     draft.name = 'Gul';
-    draft.ratings.M = { rated: true, courseRating: '71.4', slope: '', par: '72', totalLengthM: '' };
+    draft.ratings.M = { rated: true, courseRating: '71.4', slope: '', par: '', totalLengthM: '' };
 
-    const message = validateTee(draft, 18).ratings?.M;
+    const errors = validateTee(draft, 18);
+    const message = errors.ratings?.M;
     expect(message).toContain('slope');
-    expect(message).toContain('total length');
-    // And it names the way out that is not "fill in four numbers you do not have".
+    expect(message).toContain('par');
+    // And it names the way out that is not "fill in figures you do not have".
     expect(message).toContain('not rated');
+    // The field the caret should land in — the first one at fault, so a refusal
+    // never focuses a box that was fine.
+    expect(errors.ratingFields?.M).toBe('slope');
+});
+
+test('a blank total length is a valid rating and goes out as 0', () => {
+    // The catalog convention: a total length the club never recorded is stored
+    // as 0 (`tee_ratings.total_length_m` is not nullable). The form must not
+    // demand a number nobody has.
+    const draft = emptyDraft(18);
+    draft.name = 'Gul';
+    draft.ratings.M = { rated: true, courseRating: '71.4', slope: '132', par: '72', totalLengthM: '' };
+
+    expect(hasErrors(validateTee(draft, 18))).toBe(false);
+    expect(teePayload(draft).ratings).toEqual([
+        { gender: 'M', courseRating: 71.4, slope: 132, par: 72, totalLengthM: 0 },
+    ]);
+});
+
+test('a FILLED total length is still checked — blank is the only free pass', () => {
+    const draft = emptyDraft(18);
+    draft.name = 'Gul';
+    draft.ratings.M = { rated: true, courseRating: '71.4', slope: '132', par: '72', totalLengthM: '58l2' };
+
+    const errors = validateTee(draft, 18);
+    expect(errors.ratings?.M).toContain('total length');
+    expect(errors.ratingFields?.M).toBe('totalLengthM');
 });
 
 test('a stored rating of zero round-trips — the catalog is full of them', () => {

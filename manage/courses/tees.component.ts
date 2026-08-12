@@ -472,7 +472,22 @@ export class TeesComponent extends Component<TeesProps> {
         // repeating it here would print the same sentence twice on one panel.
         if (this.ratingConflict.get() !== null) return null;
         const key = this.editor.key.get();
-        return key === null ? null : this.editor.errorFor(key);
+        if (key === null) return null;
+        const server = this.editor.errorFor(key);
+        if (server !== null) return server;
+        // A refused DRAFT gets a pointer, not the complaint itself — the
+        // complaint sits under its field, but this panel is tall and the user
+        // is at the buttons, so without a line HERE a refusal reads as a
+        // button that does nothing.
+        const errors = this.errors.get();
+        const complaints =
+            (errors.name !== undefined ? 1 : 0) +
+            (errors.lengths !== undefined ? 1 : 0) +
+            Object.keys(errors.ratings ?? {}).length;
+        if (complaints === 0) return null;
+        return complaints === 1
+            ? 'Nothing was saved — fix the field marked above.'
+            : 'Nothing was saved — fix the fields marked above.';
     }
 
     private openTee(): Tee | null {

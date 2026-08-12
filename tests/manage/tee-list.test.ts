@@ -383,8 +383,16 @@ test('half a rating is refused under its own block and never reaches the server'
     const error = el(ratingBlock(host, 'F'), '.mtrating__error');
     expect(error.hidden).toBe(false);
     expect(error.textContent).toContain('Women');
-    // The server's line stays empty: the same complaint is not said twice.
-    expect(el(host, '[bind="panelError"]').hidden).toBe(true);
+    // The panel line carries a POINTER, not the complaint again — the panel is
+    // tall and the user is at the buttons, so a silent line here made a
+    // refused draft read as a button that does nothing.
+    const panelError = el(host, '[bind="panelError"]');
+    expect(panelError.hidden).toBe(false);
+    expect(panelError.textContent).toBe('Nothing was saved — fix the field marked above.');
+    expect(panelError.textContent).not.toContain('Women');
+    // And the caret lands in the box the message is about — the first EMPTY
+    // figure, not the block's first field.
+    expect(document.activeElement?.id).toBe('manage-tee-F-slope');
 });
 
 // ─── The lengths grid ───

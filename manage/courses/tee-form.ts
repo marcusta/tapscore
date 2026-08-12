@@ -79,7 +79,16 @@ export type TeeFieldErrors = {
     lengths?: string;
     badHoles?: number[];
     ratings?: Partial<Record<Gender, string>>;
+    /**
+     * The first figure each complained-about gender's message is ABOUT, so the
+     * form can put the caret in the offending box. Focusing the block's first
+     * field instead sent the user to a box that was fine — which read as
+     * "nothing happened".
+     */
+    ratingFields?: Partial<Record<Gender, RatingKey>>;
 };
+
+export type RatingKey = 'courseRating' | 'slope' | 'par' | 'totalLengthM';
 
 /**
  * The tee colours this catalog actually uses, offered as SUGGESTIONS and never
@@ -222,26 +231,45 @@ export function validateTee(draft: TeeDraft, holeCount: number): TeeFieldErrors 
     }
 
     const ratings: Partial<Record<Gender, string>> = {};
+    const ratingFields: Partial<Record<Gender, RatingKey>> = {};
     for (const gender of GENDERS) {
-        const message = validateRating(draft.ratings[gender], gender);
-        if (message !== null) ratings[gender] = message;
+        const fault = validateRating(draft.ratings[gender], gender);
+        if (fault !== null) {
+            ratings[gender] = fault.message;
+            ratingFields[gender] = fault.field;
+        }
     }
-    if (Object.keys(ratings).length > 0) errors.ratings = ratings;
+    if (Object.keys(ratings).length > 0) {
+        errors.ratings = ratings;
+        errors.ratingFields = ratingFields;
+    }
 
     return errors;
 }
 
 /**
- * A rating is all four figures or none of them. Half a rating cannot be stored
- * — `tee_ratings` has no nullable columns — so a partly filled block is a
- * question the form has to ask rather than a payload it can send.
+ * A rating is the three figures that rate — course rating, slope, par — or none
+ * of them. Half a rating cannot be stored (`tee_ratings` has no nullable
+ * columns), so a partly filled block is a question the form has to ask rather
+ * than a payload it can send.
+ *
+ * Total length is the exception: a length the club never recorded is stored as
+ * 0 by catalog convention (most of the catalog's ratings sit at exactly that),
+ * so a blank box is a real answer and `teePayload` sends the 0 — the form never
+ * demands a number nobody has.
  */
-function validateRating(rating: RatingDraft, gender: Gender): string | null {
+function validateRating(
+    rating: RatingDraft,
+    gender: Gender,
+): { message: string; field: RatingKey } | null {
     if (!rating.rated) return null;
 
-    const missing = RATING_FIELDS.filter((f) => rating[f.key].trim() === '').map((f) => f.label);
+    const missing = RATING_FIELDS.filter((f) => !f.optional && rating[f.key].trim() === '');
     if (missing.length > 0) {
-        return `${genderLabel(gender)}: fill in ${listWords(missing)}, or set this tee to not rated for ${genderLabel(gender).toLowerCase()}.`;
+        return {
+            message: `${genderLabel(gender)}: fill in ${listWords(missing.map((f) => f.label))}, or set this tee to not rated for ${genderLabel(gender).toLowerCase()}.`,
+            field: missing[0]!.key,
+        };
     }
 
     // Zero is ACCEPTED, deliberately. `tee_ratings` has no nullable columns, so
@@ -250,16 +278,17 @@ function validateRating(rating: RatingDraft, gender: Gender): string | null {
     // would make those tees unsavable until the user invented a number, which is
     // the opposite of what a catalog editor is for. The server imposes no
     // minimum either (`tees.api.ts`: a plain `Type.Number()`).
-    const bad = RATING_FIELDS.filter((f) =>
-        f.whole
-            ? !isWholeNumber(rating[f.key].trim())
-            : nonNegativeNumber(rating[f.key].trim()) === null,
-    );
+    const bad = RATING_FIELDS.filter((f) => {
+        const text = rating[f.key].trim();
+        if (f.optional && text === '') return false;
+        return f.whole ? !isWholeNumber(text) : nonNegativeNumber(text) === null;
+    });
     if (bad.length > 0) {
         const field = bad[0]!;
-        return field.whole
+        const message = field.whole
             ? `${genderLabel(gender)}: ${field.label.toLowerCase()} is a whole number, e.g. ${field.example}.`
             : `${genderLabel(gender)}: ${field.label.toLowerCase()} is a number, e.g. ${field.example}. Use a dot for decimals.`;
+        return { message, field: field.key };
     }
 
     return null;
@@ -267,16 +296,18 @@ function validateRating(rating: RatingDraft, gender: Gender): string | null {
 
 /** The four figures a rating is made of, in the order the block presents them. */
 export const RATING_FIELDS: {
-    key: 'courseRating' | 'slope' | 'par' | 'totalLengthM';
+    key: RatingKey;
     label: string;
     /** Whole numbers reject "72.5" rather than quietly truncating it. */
     whole: boolean;
     example: string;
+    /** Blank is a real answer — see `validateRating` on total length. */
+    optional?: boolean;
 }[] = [
     { key: 'courseRating', label: 'Course rating', whole: false, example: '71.4' },
     { key: 'slope', label: 'Slope', whole: true, example: '132' },
     { key: 'par', label: 'Par', whole: true, example: '72' },
-    { key: 'totalLengthM', label: 'Total length (m)', whole: true, example: '5812' },
+    { key: 'totalLengthM', label: 'Total length (m)', whole: true, example: '5812', optional: true },
 ];
 
 export function hasErrors(errors: TeeFieldErrors): boolean {
@@ -324,12 +355,15 @@ export function teePayload(draft: TeeDraft): {
     for (const gender of GENDERS) {
         const rating = draft.ratings[gender];
         if (!rating.rated) continue;
+        const totalLength = rating.totalLengthM.trim();
         ratings.push({
             gender,
             courseRating: Number(rating.courseRating.trim()),
             slope: Number(rating.slope.trim()),
             par: Number(rating.par.trim()),
-            totalLengthM: Number(rating.totalLengthM.trim()),
+            // Blank means "never recorded", stored as 0 by catalog convention —
+            // see `validateRating`.
+            totalLengthM: totalLength === '' ? 0 : Number(totalLength),
         });
     }
 
