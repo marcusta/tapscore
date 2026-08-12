@@ -249,6 +249,64 @@ test('Enter saves from the field, so the grid is keyboard-workable', async () =>
     expect(state.holeWrites).toEqual([{ courseId: 'k1', holeNumber: 3, par: 3, strokeIndex: 3 }]);
 });
 
+// ─── The keyboard loop: Enter advances ───
+
+test('an Enter-committed save opens the NEXT hole with focus in its Par field', async () => {
+    const { host } = await editor();
+    button(rowEl(host, 3), 'Edit').click();
+    type(inputs(rowEl(host, 3))[0]!, '5');
+    press(inputs(rowEl(host, 3))[0]!, 'Enter');
+    await settle();
+
+    // Hole 3 saved and closed; hole 4 is open, seeded from its row, with the
+    // caret in Par — so a full card is par, Tab, stroke index, Enter, repeat.
+    expect(state.holeWrites).toEqual([{ courseId: 'k1', holeNumber: 3, par: 5, strokeIndex: 3 }]);
+    expect(inputs(rowEl(host, 3))).toHaveLength(0);
+    const next = inputs(rowEl(host, 4));
+    expect(next.map((i) => i.value)).toEqual(['4', '4']);
+    expect(document.activeElement).toBe(next[0]);
+});
+
+test('the Save BUTTON does not advance — a click asked to save this row, nothing more', async () => {
+    const { host } = await editor();
+    button(rowEl(host, 3), 'Edit').click();
+    type(inputs(rowEl(host, 3))[0]!, '5');
+    button(rowEl(host, 3), 'Save').click();
+    await settle();
+
+    expect(state.holeWrites).toHaveLength(1);
+    expect(host.querySelectorAll('input.mholes__input')).toHaveLength(0);
+});
+
+test('Enter on the LAST hole saves and closes — there is nowhere to advance to', async () => {
+    const { host } = await editor();
+    button(rowEl(host, 18), 'Edit').click();
+    type(inputs(rowEl(host, 18))[0]!, '5');
+    press(inputs(rowEl(host, 18))[0]!, 'Enter');
+    await settle();
+
+    expect(state.holeWrites).toHaveLength(1);
+    expect(host.querySelectorAll('input.mholes__input')).toHaveLength(0);
+});
+
+test('a REFUSED Enter-save stays on the refused hole rather than advancing past it', async () => {
+    const { host } = await editor();
+    button(rowEl(host, 3), 'Edit').click();
+    type(inputs(rowEl(host, 3))[0]!, 'four');
+    press(inputs(rowEl(host, 3))[0]!, 'Enter');
+    await settle();
+
+    expect(inputs(rowEl(host, 3))[0]!.value).toBe('four');
+    expect(inputs(rowEl(host, 4))).toHaveLength(0);
+
+    // And the refusal did not leave a stale flag behind: fixing the typo and
+    // saving with the BUTTON stays a plain save.
+    type(inputs(rowEl(host, 3))[0]!, '4');
+    button(rowEl(host, 3), 'Save').click();
+    await settle();
+    expect(host.querySelectorAll('input.mholes__input')).toHaveLength(0);
+});
+
 test('a REFUSED save keeps the row open with what was typed and the reason on it', async () => {
     const { host } = await editor();
     state.failWith = new ApiError(409, 'Stroke index 4 is already used by hole 4');

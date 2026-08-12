@@ -86,7 +86,7 @@ const tpl = template(`
     <section class="mholes">
         <header class="mholes__heading">
             <h2 class="mholes__title">Holes</h2>
-            <p class="mholes__lead">Par and stroke index, one hole per row. Stroke index 1 is the hardest hole — it is where the first handicap stroke falls.</p>
+            <p class="mholes__lead">Par and stroke index, one hole per row. Stroke index 1 is the hardest hole — it is where the first handicap stroke falls. Enter saves a row and opens the next hole, so a full card can be typed straight through.</p>
         </header>
 
         <dl class="mholes__summary">
@@ -504,6 +504,18 @@ export class HolesComponent extends Component<HolesProps> {
      */
     private draft: HoleDraft = blankDraft();
 
+    /**
+     * The hole whose save was asked for with ENTER, or null.
+     *
+     * Enter is the keyboard loop's commit — par, Tab, stroke index, Enter — and
+     * a save it lands opens the NEXT hole's editor so eighteen rows can be typed
+     * straight through. The Save button deliberately does not advance: a mouse
+     * user pressed "save this row", not "and open another". Set by the grid
+     * inputs' own keydown (which fires before the table row's Enter-commit
+     * listener), consumed and cleared at the top of `saveRow`.
+     */
+    private advanceFrom: number | null = null;
+
     /** The second editor: the add-missing-holes panel (see `parseFill`). */
     private fillEditor = new RowEditController();
     private fillDrafts = new Map<number, HoleDraft>();
@@ -543,6 +555,9 @@ export class HolesComponent extends Component<HolesProps> {
                     oninput: (value) => {
                         this.draft.par = value;
                     },
+                    onenter: () => {
+                        this.advanceFrom = row.holeNumber;
+                    },
                 }),
         },
         {
@@ -556,6 +571,9 @@ export class HolesComponent extends Component<HolesProps> {
                     value: this.draft.strokeIndex,
                     oninput: (value) => {
                         this.draft.strokeIndex = value;
+                    },
+                    onenter: () => {
+                        this.advanceFrom = row.holeNumber;
                     },
                 }),
         },
@@ -792,6 +810,11 @@ export class HolesComponent extends Component<HolesProps> {
     }
 
     private async saveRow(row: Hole): Promise<void> {
+        // Consumed whatever happens next: a refused save must not leave a stale
+        // flag that would make a later Save CLICK advance.
+        const advance = this.advanceFrom === row.holeNumber;
+        this.advanceFrom = null;
+
         const course = this.course();
         if (!course) return;
 
@@ -821,13 +844,28 @@ export class HolesComponent extends Component<HolesProps> {
             return;
         }
 
-        await this.editor.commit(async () => {
+        const saved = await this.editor.commit(async () => {
             const outcome = await this.courses.saveHole(course.id, row.holeNumber, {
                 par: parsed.par,
                 strokeIndex: parsed.strokeIndex,
             });
             return outcome.ok ? outcome : { ok: false, message: named(row, outcome.message) };
         });
+
+        // The keyboard loop: an Enter-committed save opens the next hole, and
+        // the table hands focus to its Par input (its first control). Read from
+        // the course as it stands AFTER the save — the write refetched it, so
+        // `row`'s siblings are stale objects. The last hole simply closes.
+        if (saved && advance) {
+            const holes = [...(this.course()?.holes ?? [])].sort(
+                (a, b) => a.holeNumber - b.holeNumber,
+            );
+            const next = holes.find((h) => h.holeNumber > row.holeNumber);
+            if (next) {
+                this.draft = holeDraft(next);
+                this.editor.begin(String(next.holeNumber));
+            }
+        }
     }
 
     // ─── The course check ───
@@ -1086,6 +1124,13 @@ export class HolesComponent extends Component<HolesProps> {
         label: string;
         value: string;
         oninput: (value: string) => void;
+        /**
+         * Fired on Enter, BEFORE the table row's own Enter listener commits
+         * (target listeners run first). The grid cells use it to mark the save
+         * as keyboard-driven; the fill panel's fields do not pass it, because
+         * that form's Enter submits the panel, not a row.
+         */
+        onenter?: () => void;
     }): HTMLInputElement {
         const input = document.createElement('input');
         input.type = 'text';
@@ -1095,6 +1140,11 @@ export class HolesComponent extends Component<HolesProps> {
         input.value = opts.value;
         input.setAttribute('aria-label', opts.label);
         input.addEventListener('input', () => opts.oninput(input.value));
+        if (opts.onenter) {
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') opts.onenter!();
+            });
+        }
         return input;
     }
 }
