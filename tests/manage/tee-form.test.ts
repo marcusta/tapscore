@@ -159,6 +159,34 @@ test('a blank total length is a valid rating and goes out as 0', () => {
     ]);
 });
 
+test('a decimal comma is accepted where a decimal is — "70,8" is 70.8', () => {
+    // A Swedish keyboard's decimal mark. Unambiguous in a single-number field
+    // (unlike coordinates, where the comma separates the pair).
+    const draft = emptyDraft(18);
+    draft.name = 'Gul';
+    draft.ratings.M = { rated: true, courseRating: '70,8', slope: '132', par: '71', totalLengthM: '' };
+    draft.lengths[0]!.lengthM = '342,5';
+
+    expect(hasErrors(validateTee(draft, 18))).toBe(false);
+    const payload = teePayload(draft);
+    expect(payload.ratings).toEqual([
+        { gender: 'M', courseRating: 70.8, slope: 132, par: 71, totalLengthM: 0 },
+    ]);
+    expect(payload.holeLengths).toEqual([
+        { holeNumber: 1, lengthM: 342.5, strokeIndexOverride: null },
+    ]);
+});
+
+test('a comma does not smuggle a decimal into a whole-number field', () => {
+    const draft = emptyDraft(18);
+    draft.name = 'Gul';
+    draft.ratings.M = { rated: true, courseRating: '70.8', slope: '132,5', par: '71', totalLengthM: '' };
+
+    const errors = validateTee(draft, 18);
+    expect(errors.ratings?.M).toContain('whole number');
+    expect(errors.ratingFields?.M).toBe('slope');
+});
+
 test('a FILLED total length is still checked — blank is the only free pass', () => {
     const draft = emptyDraft(18);
     draft.name = 'Gul';

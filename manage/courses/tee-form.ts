@@ -287,7 +287,7 @@ function validateRating(
         const field = bad[0]!;
         const message = field.whole
             ? `${genderLabel(gender)}: ${field.label.toLowerCase()} is a whole number, e.g. ${field.example}.`
-            : `${genderLabel(gender)}: ${field.label.toLowerCase()} is a number, e.g. ${field.example}. Use a dot for decimals.`;
+            : `${genderLabel(gender)}: ${field.label.toLowerCase()} is a number, e.g. ${field.example}.`;
         return { message, field: field.key };
     }
 
@@ -358,7 +358,8 @@ export function teePayload(draft: TeeDraft): {
         const totalLength = rating.totalLengthM.trim();
         ratings.push({
             gender,
-            courseRating: Number(rating.courseRating.trim()),
+            // Through the same parse validation used — "71,4" is 71.4, not NaN.
+            courseRating: nonNegativeNumber(rating.courseRating.trim()) ?? NaN,
             slope: Number(rating.slope.trim()),
             par: Number(rating.par.trim()),
             // Blank means "never recorded", stored as 0 by catalog convention —
@@ -534,17 +535,30 @@ export const DELETE_CONSEQUENCE_UNKNOWN =
 
 // ─── Parsing helpers ───
 
+/**
+ * "71,4" → "71.4" — a decimal comma is what a Swedish keyboard produces, and in
+ * a SINGLE-number field it is unambiguous, so the decimal fields accept both
+ * marks. (Coordinates deliberately do not — there the comma is the pair's
+ * separator, see `course-form.ts`.) Only the exact one-comma decimal shape is
+ * rewritten; anything else passes through to fail the number check honestly.
+ */
+function normaliseDecimal(text: string): string {
+    return /^\d+,\d+$/.test(text) ? text.replace(',', '.') : text;
+}
+
 /** A finite number greater than zero, or null. Rejects what `Number()` allows. */
 function positiveNumber(text: string): number | null {
-    if (!/^\d+(\.\d+)?$/.test(text)) return null;
-    const value = Number(text);
+    const normalised = normaliseDecimal(text);
+    if (!/^\d+(\.\d+)?$/.test(normalised)) return null;
+    const value = Number(normalised);
     return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 /** A finite number, zero or above. Same acceptance, minus the `> 0`. */
 function nonNegativeNumber(text: string): number | null {
-    if (!/^\d+(\.\d+)?$/.test(text)) return null;
-    const value = Number(text);
+    const normalised = normaliseDecimal(text);
+    if (!/^\d+(\.\d+)?$/.test(normalised)) return null;
+    const value = Number(normalised);
     return Number.isFinite(value) ? value : null;
 }
 
