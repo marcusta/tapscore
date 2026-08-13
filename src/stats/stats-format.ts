@@ -380,22 +380,6 @@ export function formatCost(value: number | null): string {
     return signedNumber(value, 1);
 }
 
-/**
- * Strokes lost or gained, per 18 attributed holes. Positive = lost.
- *
- * Worded rather than coloured alone: the sign is doing semantic work (`+1.8`
- * costs you strokes) that is the opposite of the usual reading of a plus, so
- * the label beside it always says which way is good.
- *
- * "per 18" rather than "/round": the figure is scaled to eighteen ATTRIBUTED
- * holes, so a nine and an eighteen sit on one scale, and a round is no longer
- * the unit. Spelled out with a space because "/18" beside a signed decimal
- * reads as a fraction.
- */
-export function strokesPer18(value: number): string {
-    return `${signedNumber(value)} per 18`;
-}
-
 /** A score relative to par, in the app's usual scorecard voice. */
 export function vsPar(value: number): string {
     if (value === 0) return 'E';

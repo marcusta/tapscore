@@ -55,7 +55,6 @@ import {
     quantity,
     roundTypeTitle,
     signedNumber,
-    strokesPer18,
     UNIT_ROUNDS,
     venueTitle,
     vsPar,
@@ -758,10 +757,14 @@ ${SG_INFO_STYLES}
                             },
                         },
                         value: {
+                            // Bare signed figure — the "per 18" every row used
+                            // to repeat lives in the section hint now
+                            // (2026-08-13). Positive = lost stays worded there
+                            // too, since the sign reads opposite to a score.
                             textContent: () => {
                                 const live = this.priorityNow(p.component);
                                 return live && live.per18 !== null
-                                    ? strokesPer18(live.per18)
+                                    ? signedNumber(live.per18)
                                     : STATS_COPY.notEnoughData;
                             },
                         },

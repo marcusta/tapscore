@@ -7,7 +7,6 @@ import {
     componentTitle,
     groupSample,
     missedGreenSample,
-    strokesPer18,
     vsParByTeeSample,
     formatAverage,
     formatCount,
@@ -133,11 +132,11 @@ test('every one of the five components has a plain title', () => {
     expect(componentTitle('penalties')).toBe('Penalties');
 });
 
-test('a priority figure is stated per 18 attributed holes, with a typographic minus', () => {
-    expect(strokesPer18(1.25)).toBe('+1.3 per 18');
-    expect(strokesPer18(-1.25)).toBe('\u22121.2 per 18');
+test('a priority figure is a bare signed number with a typographic minus — "per 18" lives in the section hint', () => {
+    expect(signedNumber(1.25)).toBe('+1.3');
+    expect(signedNumber(-1.25)).toBe('\u22121.2');
     // −0.0 normalises: a rounding artefact must not read as a loss.
-    expect(strokesPer18(-0.04)).toBe('0.0 per 18');
+    expect(signedNumber(-0.04)).toBe('0.0');
 });
 
 test('bucket, venue and round type titles', () => {

@@ -141,7 +141,9 @@ export const STATS_COPY = {
     notEnoughData: 'Not enough data',
     notRecorded: 'Not recorded',
     priorities: 'Practice priorities',
-    prioritiesHint: 'Where your shots go, worst first. Positive costs you shots.',
+    // Carries the unit for the whole list — the rows print bare signed figures,
+    // so "per 18 holes" said once here replaces "per 18" said on every line.
+    prioritiesHint: 'Where your shots go, worst first, in strokes per 18 holes. Positive costs you shots.',
     prioritiesInfo: 'How this works',
     trends: 'Trends',
     trendsHint: 'Oldest round on the left. A round with no reading is skipped, never plotted as zero.',
