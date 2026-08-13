@@ -225,6 +225,9 @@ test('the doubles breakdown gets one card, and it explains the priority order', 
         round(
             measures({
                 holesScored: 18,
+                // Captured round — a capture-less round's doubles never reach
+                // the breakdown (owner ruling 2026-08-13).
+                penaltiesRecorded: 18,
                 doubleBogeyPlus: 5,
                 dblPenalty: 3,
                 dblThreePutt: 2,

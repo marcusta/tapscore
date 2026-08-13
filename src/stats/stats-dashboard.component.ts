@@ -1132,12 +1132,22 @@ ${SG_INFO_STYLES}
      * "10 rounds" — or "10 of 87 rounds" when the window is a slice of a larger
      * history. The denominator is the server's own count of rounds with stats,
      * falling back to what has actually been fetched.
+     *
+     * When some rounds in the window carry no stat answers, this line also
+     * says so — "6 rounds · stat capture on 2" — and it is the ONLY place
+     * that says so (owner ruling, 2026-08-13): one coverage line up top, no
+     * per-section framing, no per-row hole counts.
      */
     private sampleMarker(): string {
         const inWindow = this.svc.windowRounds.get().length;
         const total = this.svc.roundsWithStats.get() ?? this.svc.loadedCount();
-        if (total <= inWindow) return quantity(inWindow, UNIT_ROUNDS);
-        return `${formatNumber(inWindow, 0)} of ${quantity(total, UNIT_ROUNDS)}`;
+        const head =
+            total <= inWindow
+                ? quantity(inWindow, UNIT_ROUNDS)
+                : `${formatNumber(inWindow, 0)} of ${quantity(total, UNIT_ROUNDS)}`;
+        const captured = this.svc.model.get().statCaptureRounds;
+        if (inWindow === 0 || captured >= inWindow) return head;
+        return `${head} · stat capture on ${formatNumber(captured, 0)}`;
     }
 
     /**

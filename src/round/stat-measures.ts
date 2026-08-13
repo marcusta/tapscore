@@ -583,6 +583,31 @@ export function sumMeasures(rows: readonly StatMeasures[]): StatMeasures {
     return out;
 }
 
+/**
+ * Did this round record ANY stat answer, of any module?
+ *
+ * The owner ruling (2026-08-13): a round without stat capture belongs in the
+ * Results (its score is real) and in NO capture-derived figure. Most rates
+ * self-filter through their own recorded denominators, but a share taken over
+ * the SCORE — the doubles-cause breakdown — must be filtered at the round
+ * level, or every double on a capture-less round reads as "Not enough
+ * recorded" and drowns the recorded ones.
+ *
+ * "Any answer" is deliberate: one recorded hole makes the player's intent
+ * clear, and the per-hole classifier already files thin holes honestly.
+ */
+export function hasStatCapture(m: StatMeasures): boolean {
+    return (
+        m.teeRecorded > 0 ||
+        m.girRecorded > 0 ||
+        m.puttsRecorded > 0 ||
+        m.firstPuttRecorded > 0 ||
+        m.penaltiesRecorded > 0 ||
+        m.greenMissRecorded > 0 ||
+        m.shortGameStrokesRecorded > 0
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Putting buckets
 // ---------------------------------------------------------------------------

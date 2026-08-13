@@ -64,6 +64,7 @@ import {
     strokesLostForBundle,
     sgPer18,
     strokesVsParByTee,
+    hasStatCapture,
     sumMeasures,
     teeMissDispersion,
     threePuttRate,
@@ -437,6 +438,12 @@ export interface StatsRoundRow {
 export interface StatsDashboardModel {
     /** Rounds in the window, newest first. */
     rounds: StatsRoundRow[];
+    /**
+     * Rounds in the window with any stat answer recorded (`hasStatCapture`).
+     * The header's one coverage line — "6 rounds · stat capture on 2" — and
+     * the round-level filter behind the doubles breakdown.
+     */
+    statCaptureRounds: number;
     /** `sumMeasures` over the window — the denominator of every rate on screen. */
     totals: StatMeasures;
     /** The summed window's own waterfall, for the "over these N rounds" total. */
@@ -458,6 +465,7 @@ export interface StatsDashboardModel {
 
 export const EMPTY_DASHBOARD_MODEL: StatsDashboardModel = {
     rounds: [],
+    statCaptureRounds: 0,
     totals: ZERO_MEASURES,
     waterfall: strokesLostV3(ZERO_MEASURES),
     priorities: [],
@@ -496,6 +504,13 @@ export function buildDashboardModel(
     const totals = sumMeasures(ordered.map((r) => r.measures));
     const perRound = ordered.map((r) => strokesLostForBundle(r.measures, bundle));
     const roundCount = ordered.length;
+    // The capture-only sum (owner ruling, 2026-08-13): a round without any
+    // stat answer contributes its SCORE to the Results and to the score-only
+    // figures, and nothing to the capture-derived ones. Per-stat rates already
+    // self-filter through their recorded denominators; what needs this sum is
+    // the doubles-cause breakdown, whose denominator is the score itself.
+    const capturedRows = ordered.filter((r) => hasStatCapture(r.measures));
+    const capturedTotals = sumMeasures(capturedRows.map((r) => r.measures));
 
     return {
         rounds: ordered.map((row, i) => {
@@ -518,6 +533,7 @@ export function buildDashboardModel(
                 waterfall,
             };
         }),
+        statCaptureRounds: capturedRows.length,
         totals,
         waterfall: strokesLostForBundle(totals, bundle),
         priorities: buildPriorities(perRound),
@@ -526,7 +542,7 @@ export function buildDashboardModel(
         approach: approachPanel(totals),
         putting: puttingPanel(totals, bundle),
         shortGame: shortGamePanel(totals),
-        scoring: scoringPanel(totals, roundCount),
+        scoring: scoringPanel(totals, roundCount, capturedTotals),
         // From the ROWS, not the totals: the best round and the window's mix of
         // round lengths are per-round facts a sum destroys — two nines add up to
         // eighteen holes and are still not a round.
@@ -777,18 +793,29 @@ export function shortGamePanel(m: StatMeasures): StatsShortGamePanel | null {
     };
 }
 
-export function scoringPanel(m: StatMeasures, roundCount: number): StatsScoringPanel | null {
+/**
+ * `m` is the whole window — the score-derived figures read it. `captured` is
+ * the same sum over only the rounds with stat capture: the doubles-cause
+ * breakdown reads THAT, because its denominator is the score itself, and a
+ * capture-less round's doubles would all land in "Not enough recorded" and
+ * say nothing about the reader's game.
+ */
+export function scoringPanel(
+    m: StatMeasures,
+    roundCount: number,
+    captured: StatMeasures,
+): StatsScoringPanel | null {
     if (m.holesScored <= 0) return null;
     return {
         avgVsParByParGroup: avgVsParByParGroup(m),
         doubleBogeyPlusPerRound: doubleBogeyPlusPerRound(m, roundCount),
-        doubleCauseGroups: doubleCauseGroups(m),
-        doubleBogeyPlusHoles: m.doubleBogeyPlus,
+        doubleCauseGroups: doubleCauseGroups(captured),
+        doubleBogeyPlusHoles: captured.doubleBogeyPlus,
         penaltyDoubleSources: {
-            tee: m.dblPenaltyTee,
-            approach: m.dblPenaltyApproach,
-            short: m.dblPenaltyShort,
-            unknown: m.dblPenaltyUnknown,
+            tee: captured.dblPenaltyTee,
+            approach: captured.dblPenaltyApproach,
+            short: captured.dblPenaltyShort,
+            unknown: captured.dblPenaltyUnknown,
         },
         bounceBack: bounceBackRate(m),
     };

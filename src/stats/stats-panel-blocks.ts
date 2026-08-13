@@ -46,10 +46,8 @@ import {
     formatCount,
     NO_VALUE,
     quantity,
-    rateWithSample,
     formatRate,
     signedNumber,
-    UNIT_GREENS,
     UNIT_HOLES,
     UNIT_LABELLED_PENALTY_HOLES,
     UNIT_ROUNDS,
@@ -307,24 +305,25 @@ export function rungReading(rung: { title: string; value: string | null; cost: s
  * recorded), it just has nothing to say until it is opened.
  */
 export function panelHeadline(id: StatsPanelId, model: StatsDashboardModel): string | null {
+    // Bare values, no "(14 of 24)" samples: the header carries the window's one
+    // coverage line, and per-line hole counts were the noise it replaced
+    // (owner ruling, 2026-08-13). The scoring line keeps its rounds sample —
+    // "per round" is only readable against how many rounds that was.
     switch (id) {
         case 'tee': {
-            const r = model.tee && rateWithSample(model.tee.fairway);
+            const r = model.tee && formatRate(model.tee.fairway);
             return r ? `Fairways ${r}` : null;
         }
         case 'approach': {
-            const r = model.approach && rateWithSample(model.approach.gir);
+            const r = model.approach && formatRate(model.approach.gir);
             return r ? `Greens in regulation ${r}` : null;
         }
-        case 'putting':
-            return model.putting
-                ? averageWithSample(model.putting.puttsPerGirHole, {
-                      unit: UNIT_GREENS,
-                      label: 'putts per green hit',
-                  })
-                : null;
+        case 'putting': {
+            const r = model.putting && formatAverage(model.putting.puttsPerGirHole);
+            return r ? `${r} putts per green hit` : null;
+        }
         case 'shortGame': {
-            const r = model.shortGame && rateWithSample(model.shortGame.scramble.overall);
+            const r = model.shortGame && formatRate(model.shortGame.scramble.overall);
             return r ? `Scrambling ${r}` : null;
         }
         case 'scoring':
@@ -939,12 +938,11 @@ export interface ResultsHistogramRow {
 export function resultsSubtitle(results: ResultsSummary | null): string {
     if (!results || results.rounds === 0) return '';
     const head = quantity(results.rounds, UNIT_ROUNDS);
-    const first = results.lengths[0];
-    // One length: the mix would read "5 rounds — 5 × 18 holes", which says the
-    // five twice. Just name the length.
-    if (results.lengths.length === 1 && first) {
-        return `${head} — ${quantity(first.holeCount, UNIT_HOLES)}`;
-    }
+    // One length: just the round count. "6 rounds — 18 holes" was one of the
+    // denominator spellings the 2026-08-13 cleanup removed; a hole count earns
+    // its place only when the window MIXES lengths, where it explains why the
+    // hero average is scaled.
+    if (results.lengths.length <= 1) return head;
     const mix = results.lengths
         .map((l) => `${formatCount(l.rounds)} × ${quantity(l.holeCount, UNIT_HOLES)}`)
         .join(', ');
@@ -962,25 +960,19 @@ function bestLabel(holeCount: number): string {
 const NORMALISED_HOLES = 18;
 
 /**
- * The hero's one muted line.
+ * The hero's one muted line: "scaled to 18", printed only when the window
+ * holds a length class that is not eighteen — the figure is then a
+ * NORMALISATION rather than a plain per-round reading, and the label
+ * ("Average vs par", no longer "per 18") no longer says so on its own.
  *
- * Two independent reasons to print it, and either alone is enough:
- *
- * - the denominator DIVERGES from the round count the subtitle already gave, so
- *   "over 51 holes" says which holes the average is actually over;
- * - the window holds a length class that is not eighteen, so the figure is a
- *   NORMALISATION rather than a plain per-round reading, and the label —
- *   "Average vs par", no longer "per 18" — no longer says so on its own.
- *
- * An all-18 window says nothing about scaling: there is none to see, and a
- * standing "scaled to 18" on the common case is the noise this card removed.
+ * The "over 51 holes" reading this line used to carry is gone (owner ruling,
+ * 2026-08-13): how many holes a figure was computed over is ⓘ-sheet detail,
+ * not card copy. An all-18 window says nothing at all — a standing "scaled to
+ * 18" on the common case is the noise this card removed.
  */
 function heroQualifier(results: ResultsSummary): string | null {
     const scaled = results.lengths.some((cls) => cls.holeCount !== NORMALISED_HOLES);
-    const diverges = results.holesScored !== results.holesExpected;
-    if (!scaled && !diverges) return null;
-    const over = `over ${quantity(results.holesScored, UNIT_HOLES)}`;
-    return scaled ? `${over}, scaled to 18` : over;
+    return scaled ? 'scaled to 18' : null;
 }
 
 /**

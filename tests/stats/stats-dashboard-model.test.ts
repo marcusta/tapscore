@@ -223,6 +223,46 @@ test('per-round figures divide by the ROW count — a nine-hole round is one rou
     expect(model.scoring!.doubleBogeyPlusPerRound.d).toBe(2);
 });
 
+test('a round without stat capture feeds the Results and nothing else — the doubles breakdown never sees it', () => {
+    // The owner's own window (2026-08-13): rounds scored without any stat
+    // answers. Their doubles would ALL classify as "Not enough recorded" and
+    // drown the recorded rounds, so the doubles-cause block filters at the
+    // round level. Score-derived figures keep the whole window.
+    const captured = measures({
+        holesScored: 18,
+        strokesTotal: 90,
+        parTotal: 72,
+        teeRecorded: 18,
+        doubleBogeyPlus: 4,
+        dblThreePutt: 3,
+        dblUnattributed: 1,
+    });
+    const scoreOnly = measures({
+        holesScored: 18,
+        strokesTotal: 95,
+        parTotal: 72,
+        doubleBogeyPlus: 6,
+        dblUnattributed: 6,
+    });
+    const model = buildDashboardModel([
+        row({ roundId: 'a', date: '2026-05-01', measures: captured }),
+        row({ roundId: 'b', date: '2026-05-02', measures: scoreOnly }),
+    ]);
+    // The header's one coverage line reads this: 2 rounds, stat capture on 1.
+    expect(model.statCaptureRounds).toBe(1);
+    // The breakdown is over the CAPTURED round's 4 doubles, not the window's 10
+    // — three putts 3 of 4, not-enough-recorded 1 of 4, not 7 of 10.
+    expect(model.scoring!.doubleBogeyPlusHoles).toBe(4);
+    const threePutt = model.scoring!.doubleCauseGroups.find((g) => g.id === 'threePutt')!;
+    const unattributed = model.scoring!.doubleCauseGroups.find((g) => g.id === 'unattributed')!;
+    expect(threePutt.share).toEqual({ value: 0.75, n: 3, d: 4 });
+    expect(unattributed.share).toEqual({ value: 0.25, n: 1, d: 4 });
+    // The score-derived figures still read the whole window.
+    expect(model.scoring!.doubleBogeyPlusPerRound).toEqual({ value: 5, n: 10, d: 2 });
+    expect(model.results!.rounds).toBe(2);
+    expect(model.results!.holesScored).toBe(36);
+});
+
 // --- Priorities --------------------------------------------------------------
 
 test('priorities rank worst first and absent components sink to the bottom', () => {

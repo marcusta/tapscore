@@ -56,11 +56,11 @@ test('an absent panel has no headline and no blocks at all', () => {
     expect(panelBlocks('tee', EMPTY_DASHBOARD_MODEL)).toEqual([]);
 });
 
-test('the tee headline reads the fairway rate with its sample', () => {
+test('the tee headline reads the bare fairway rate — coverage lives in the header line', () => {
     const model = buildDashboardModel([
         round({ measures: measures({ teeRecorded: 10, fairwayHits: 6 }) }),
     ]);
-    expect(panelHeadline('tee', model)).toBe('Fairways 60% (6 of 10)');
+    expect(panelHeadline('tee', model)).toBe('Fairways 60%');
 });
 
 test('the tee panel leads with the split and carries the trouble tax with BOTH its denominators', () => {
@@ -411,15 +411,14 @@ const RESULTS_ROWS: readonly ResultsRow[] = [
     },
 ];
 
-test('the results subtitle carries the round count and the window\u2019s mix of lengths', () => {
+test('the results subtitle carries the round count, and the mix only when lengths differ', () => {
     expect(resultsSubtitle(resultsSummary(RESULTS_ROWS))).toBe(
         '5 rounds — 4 × 18 holes, 1 × 9 holes',
     );
-    // One length: the mix would say the count twice, so it just names the length.
-    expect(resultsSubtitle(resultsSummary(RESULTS_ROWS.slice(2, 3)))).toBe('1 round — 9 holes');
-    expect(resultsSubtitle(resultsSummary([RESULTS_ROWS[1]!, RESULTS_ROWS[4]!]))).toBe(
-        '2 rounds — 18 holes',
-    );
+    // One length: just the count. A standing hole count on the common case is
+    // the denominator noise the 2026-08-13 cleanup removed.
+    expect(resultsSubtitle(resultsSummary(RESULTS_ROWS.slice(2, 3)))).toBe('1 round');
+    expect(resultsSubtitle(resultsSummary([RESULTS_ROWS[1]!, RESULTS_ROWS[4]!]))).toBe('2 rounds');
     expect(resultsSubtitle(resultsSummary([]))).toBe('');
     expect(resultsSubtitle(null)).toBe('');
 });
@@ -432,9 +431,9 @@ test('the results tiles lead with the hero average and split best by length', ()
             label: 'Average vs par',
             // An AVERAGE, so `signedNumber` and not the scorecard voice.
             value: '+9.9',
-            // 51 scored of 81 expected, so the denominator earns its line — and
-            // the window holds a nine, so the figure says it was normalised.
-            qualifier: 'over 51 holes, scaled to 18',
+            // The window holds a nine, so the figure says it was normalised.
+            // The hole count itself is ⓘ-sheet detail now, not card copy.
+            qualifier: 'scaled to 18',
             hero: true,
         },
         {
@@ -464,16 +463,17 @@ test('the hero qualifier says "scaled to 18" only when a length other than 18 is
     const hero = (rows: Parameters<typeof resultsSummary>[0]) =>
         resultsTiles(resultsSummary(rows))[0]?.qualifier;
 
-    // The common case: every round eighteen holes and every hole scored. No
-    // denominator to explain and no normalisation to announce — no line at all.
+    // The common case: every round eighteen holes. No normalisation to
+    // announce — no line at all.
     expect(hero([RESULTS_ROWS[1]!, RESULTS_ROWS[4]!])).toBe(null);
 
-    // A complete nine: nothing diverges, but ×2 got it to eighteen and the
-    // label no longer says "per 18", so the qualifier has to.
-    expect(hero([RESULTS_ROWS[2]!])).toBe('over 9 holes, scaled to 18');
+    // A nine in the window: ×2 got it to eighteen and the label no longer says
+    // "per 18", so the qualifier has to.
+    expect(hero([RESULTS_ROWS[2]!])).toBe('scaled to 18');
 
-    // Eighteens only, one of them part-scored: the denominator line, no scaling.
-    expect(hero(RESULTS_ROWS.filter((_, i) => i !== 2))).toBe('over 42 holes');
+    // Eighteens only, one of them part-scored: the "over 42 holes" this line
+    // used to print is gone — hole counts are ⓘ-sheet detail (2026-08-13).
+    expect(hero(RESULTS_ROWS.filter((_, i) => i !== 2))).toBe(null);
 });
 
 test('the results histogram keeps its five rows, and drops the bars on a thin window', () => {
@@ -511,9 +511,9 @@ test('the results histogram keeps its five rows, and drops the bars on a thin wi
             // Level par over the holes it has — and `signedNumber` normalises
             // the sign away at zero.
             value: '0.0',
-            // All-18 window: the denominator diverges, but there is no scaling
-            // across lengths to announce.
-            qualifier: 'over 3 holes',
+            // All-18 window: no scaling across lengths to announce, and the
+            // diverging denominator is ⓘ-sheet detail, not a card line.
+            qualifier: null,
             hero: true,
         },
     ]);
@@ -1434,6 +1434,9 @@ test('the doubles breakdown draws every group and every sub-row, or none — nev
         round({
             measures: measures({
                 holesScored: 18,
+                // The round has to COUNT as captured — a capture-less round's
+                // doubles never reach the breakdown (owner ruling 2026-08-13).
+                penaltiesRecorded: 18,
                 doubleBogeyPlus: 4,
                 dblPenalty: 3,
                 dblThreePutt: 1,

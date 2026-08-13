@@ -74,6 +74,7 @@ import {
     strokesLostComponent,
     strokesLostForBundle,
     strokesVsParByTee,
+    hasStatCapture,
     sumMeasures,
     teeMissDispersion,
     threePuttRate,
@@ -526,6 +527,27 @@ test('display policy: percentage above the floor, raw fraction below it, absent 
 test('an empty window is all zeroes, and one round sums to itself', () => {
     expect(sumMeasures([])).toEqual(ZERO_MEASURES);
     expect(sumMeasures([WORKED_EXAMPLE])).toEqual(WORKED_EXAMPLE);
+});
+
+test('a round counts as stat-captured on ANY recorded answer, and a scored-only round does not', () => {
+    // A full scorecard with no answers is not capture — the score fields never
+    // decide it.
+    expect(hasStatCapture(ZERO_MEASURES)).toBe(false);
+    expect(
+        hasStatCapture({ ...ZERO_MEASURES, holesScored: 18, strokesTotal: 90, parTotal: 72, doubleBogeyPlus: 6 }),
+    ).toBe(false);
+    // One answer of any module is enough — intent is clear from the first tap.
+    for (const key of [
+        'teeRecorded',
+        'girRecorded',
+        'puttsRecorded',
+        'firstPuttRecorded',
+        'penaltiesRecorded',
+        'greenMissRecorded',
+        'shortGameStrokesRecorded',
+    ] as const) {
+        expect(hasStatCapture({ ...ZERO_MEASURES, [key]: 1 })).toBe(true);
+    }
 });
 
 /**
