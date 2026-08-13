@@ -766,12 +766,16 @@ ${SG_INFO_STYLES}
                             },
                         },
                         sample: {
+                            // Only the null-value explanation survives here.
+                            // The "over 2 rounds" every row used to repeat is
+                            // the header's one coverage line now (2026-08-13);
+                            // the "How this works" sheet keeps the per-row
+                            // coverage detail.
                             textContent: () => {
                                 const live = this.priorityNow(p.component);
-                                if (!live) return '';
-                                return live.per18 === null
+                                return live && live.per18 === null
                                     ? priorityCoverage(live.roundsInWindow)
-                                    : `over ${quantity(live.roundsCovered, UNIT_ROUNDS)}`;
+                                    : '';
                             },
                         },
                     },
