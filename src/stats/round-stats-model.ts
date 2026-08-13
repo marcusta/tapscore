@@ -27,9 +27,11 @@ import type {
 import type { MarkerTemplate } from '../round/marker-tokens';
 import {
     baselineDeltas,
+    classifyDoubleCause,
     DEFAULT_SG_BASELINE,
     insightLines,
     strokesLostForBundle,
+    type DoubleCause,
     type InsightLine,
     type SgBaselineBundle,
     type StrokesLost,
@@ -127,6 +129,17 @@ export interface RoundStatsHoleCell {
     shortGame: ShortGameDifficulty | null;
     penalties: number | null;
     recoveryOk: boolean | null;
+    /**
+     * What manufactured this hole, when it was a double bogey or worse
+     * (`docs/proposals/double-cause-breakdown.md` §4.4). null on every other
+     * hole, and on a double the reader recorded nothing about it reads
+     * `unattributed` rather than disappearing.
+     *
+     * The SAME classifier the scoring card's "Where your doubles come from"
+     * block counts with — the per-hole rows are already served, so naming the
+     * cause on the strip costs no request.
+     */
+    doubleCause: DoubleCause | null;
 }
 
 /** Derive one cell from the server's per-hole row. */
@@ -154,6 +167,7 @@ export function holeCell(row: PlayerRoundHoleStats): RoundStatsHoleCell {
         shortGame: stats.shortGameDifficulty,
         penalties: stats.penalties,
         recoveryOk: stats.recoveryOk,
+        doubleCause: classifyDoubleCause(row),
     };
 }
 

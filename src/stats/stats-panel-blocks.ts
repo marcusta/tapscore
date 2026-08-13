@@ -24,6 +24,7 @@ import {
     rate,
     SCORE_TYPES,
     SG_BASELINES_V1,
+    type DoubleCause,
     type Rate,
     type ResultsSummary,
     type ScoreType,
@@ -222,6 +223,19 @@ export const STATS_COPY = {
     scoreTypesHead: 'Holes by score',
     avgVsParByPar: 'Your average score against par on each kind of hole.',
     doubleBogeyPlus: 'Holes at double bogey or worse, per round.',
+    doubleCausesHead: 'Where your doubles come from',
+    doubleCauses:
+        'What manufactured each hole at double bogey or worse. One cause per hole, so the rows add up to 100%.',
+    // The order IS the reading: the rows are checked strongest evidence first,
+    // and a row lower down means "and nothing above it applies".
+    doubleCausesOrder:
+        'A hole is checked against the rows from the top down and lands in the first that fits, so a lower row also means nothing above it applied. A trouble tee shot you recovered from, followed by three putts, is a three-putt double — the tee shot was already paid for.',
+    doubleCausesPenalty:
+        'Penalty doubles split by where the penalty happened: off the tee, on the approach, or around the green. One source is recorded per hole, so a hole with two penalties counts under its main one.',
+    doubleCausesLongGame:
+        '“Long game” is the residual — strokes lost to full swings between tee and green. It is only claimed on a hole that recorded enough to rule everything else out: whether you hit the green, how many putts you took, where the tee shot finished on a par 4 or 5, and how hard the chip was when you missed.',
+    doubleCausesUnattributed:
+        '“Not enough recorded” is a double you did not record enough about to name. Those holes are counted, never dropped, and the row shrinks as you record more.',
     bounceBack: 'Holes after a bogey or worse that came back at par or better.',
 } as const;
 
@@ -392,6 +406,34 @@ function teeFanBlock(p: StatsTeePanel): StatsBlock {
 /** Whether any tee bucket has a scored hole behind it. */
 function vsParByTeeRecorded(p: StatsTeePanel): boolean {
     return p.vsParByTee.fairway.d > 0 || p.vsParByTee.inPlay.d > 0 || p.vsParByTee.trouble.d > 0;
+}
+
+/**
+ * The reader-facing name of a double's cause — words, never jargon
+ * (design-guidelines ruling). One table, used by the scoring block AND by the
+ * round screen's per-hole annotation, so a cause is the same word in both
+ * places.
+ *
+ * "Long game" is the residual's name: strokes lost to full swings between tee
+ * and green. The ⓘ card owns the precise definition.
+ */
+export function doubleCauseTitle(cause: DoubleCause): string {
+    switch (cause) {
+        case 'penalty':
+            return 'Penalty';
+        case 'failedRecovery':
+            return 'Failed recovery';
+        case 'multiChip':
+            return 'More than one chip';
+        case 'threePutt':
+            return 'Three putts';
+        case 'troubleTee':
+            return 'Trouble off the tee';
+        case 'fullSwing':
+            return 'Long game';
+        case 'unattributed':
+            return 'Not enough recorded';
+    }
 }
 
 /** The open panel's contents, in reading order. Empty for an absent panel. */
@@ -762,6 +804,27 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                     'Doubles or worse',
                     formatAverage(p.doubleBogeyPlusPerRound, 2),
                 ),
+                // Where the doubles come from (migration 063). Gated as a GROUP
+                // on the window having a double at all: zero doubles means there
+                // is nothing to explain, and seven "Not recorded" rows would be
+                // a page of apology for a good window. Inside the group all
+                // seven rows always print — a zero row is information ("no
+                // three-putt doubles"), and the block must not change height as
+                // the window changes. Same shape as the results histogram: the
+                // SHARE alone in the value cell, because the seven partition one
+                // denominator the reader was never asked to add up.
+                ...(p.doubleBogeyPlusHoles > 0
+                    ? [
+                          {
+                              kind: 'subhead' as const,
+                              id: 'doubleCausesHead',
+                              text: STATS_COPY.doubleCausesHead,
+                          },
+                          ...p.doubleCauses.map((row) =>
+                              bar(`dblCause-${row.id}`, doubleCauseTitle(row.id), row.share),
+                          ),
+                      ]
+                    : []),
                 bar('bounceBack', 'Bounce-back', p.bounceBack),
             ];
         }

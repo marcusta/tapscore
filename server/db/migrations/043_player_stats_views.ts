@@ -291,7 +291,49 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
                         OR (phs.gir = 0 AND phs.short_game_difficulty IS NOT NULL
                                         AND phs.putts = 0 AND phs.first_putt IS NULL)
                      )
-                   THEN 1 ELSE 0 END AS attributable
+                   THEN 1 ELSE 0 END AS attributable,
+                   -- THE DOUBLE-CAUSE CLASSIFIER (migration 063,
+                   -- docs/proposals/double-cause-breakdown.md §1). One cause per
+                   -- double-bogey-or-worse hole, NULL on every other hole.
+                   --
+                   -- The order is SPECIFICITY OF EVIDENCE, strongest first: each
+                   -- bucket is only reached once every bucket above it has
+                   -- declined, so a later bucket implicitly means "and nothing
+                   -- more directly explains the strokes". A trouble tee shot
+                   -- whose recovery came off, followed by a three-putt, is a
+                   -- three-putt double — the tee shot was already paid for.
+                   --
+                   -- 'full_swing' is the residual and the only bucket making a
+                   -- NEGATIVE claim ("nothing recorded explains it"), so it is
+                   -- the only one that demands coverage: a GIR answer, a
+                   -- coherent putt count, a tee answer on par 4/5, and a
+                   -- difficulty on a missed green. Deliberately NOT the
+                   -- 'attributable' cohort above — that one also wants a FINE
+                   -- first_putt bucket the classifier never consults, and
+                   -- requiring it would push legacy holes into 'unattributed'
+                   -- for no gain. 'unattributed' is never dropped (Postel): a
+                   -- gap is a gap, not an exclusion.
+                   --
+                   -- The putting-coherence test is spelled out rather than
+                   -- reading 'putting_coherent': a SELECT list cannot see its
+                   -- own aliases, the same reason 'attributable' re-inlines it.
+                   CASE
+                       WHEN hs.strokes IS NULL OR hs.strokes < rph.par + 2 THEN NULL
+                       WHEN COALESCE(phs.penalties, 0) >= 1 THEN 'penalty'
+                       WHEN phs.recovery_ok = 0 THEN 'failed_recovery'
+                       WHEN phs.gir = 0 AND COALESCE(phs.short_game_strokes, 1) > 1
+                            THEN 'multi_chip'
+                       WHEN NOT (phs.putts = 0 AND phs.first_putt IS NOT NULL)
+                        AND phs.putts >= 3 THEN 'three_putt'
+                       WHEN phs.tee_result = 'trouble' THEN 'trouble_tee'
+                       WHEN phs.gir IS NOT NULL
+                        AND NOT (phs.putts = 0 AND phs.first_putt IS NOT NULL)
+                        AND phs.putts IS NOT NULL
+                        AND (rph.par <= 3 OR phs.tee_result IS NOT NULL)
+                        AND (phs.gir = 1 OR phs.short_game_difficulty IS NOT NULL)
+                            THEN 'full_swing'
+                       ELSE 'unattributed'
+                   END AS dbl_cause
             FROM round_players sp
             JOIN round_play_holes rph ON rph.round_id = sp.round_id
             LEFT JOIN player_hole_stats phs
@@ -1004,7 +1046,41 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
                        THEN 1 END) AS holes_scored_miss_bunker,
             COALESCE(SUM(CASE WHEN gir = 0 AND short_game_difficulty = 'bunker'
                               THEN strokes - par END), 0)
-                AS strokes_vs_par_miss_bunker
+                AS strokes_vs_par_miss_bunker,
+
+            -- === WHERE THE DOUBLES COME FROM (migration 063) ===
+            --
+            -- The seven buckets of 'dbl_cause' (computed once per hole in the
+            -- 'hole' CTE, priority-ordered there), counted. They PARTITION
+            -- 'double_bogey_plus' identically — every double-or-worse hole
+            -- carries exactly one cause and no other hole carries any — so a
+            -- client can draw shares that add to 100% with a denominator that
+            -- already exists. A pickup (NULL strokes) has no cause because it
+            -- has no score bucket either; the two families stay in step.
+            --
+            -- The penalty bucket then gets a geography split, partitioning
+            -- 'dbl_penalty' by 'penalty_source' with the NULL leg spelled out
+            -- so nothing falls off the edge — the follow-up the headline row
+            -- invites ("off the tee, or into the green?") without a second
+            -- capture pass. One source per hole, so a two-penalty hole
+            -- collapses to its primary; that is already the recorded
+            -- semantics, not a new approximation.
+            COUNT(CASE WHEN dbl_cause = 'penalty' THEN 1 END) AS dbl_penalty,
+            COUNT(CASE WHEN dbl_cause = 'failed_recovery' THEN 1 END)
+                AS dbl_failed_recovery,
+            COUNT(CASE WHEN dbl_cause = 'multi_chip' THEN 1 END) AS dbl_multi_chip,
+            COUNT(CASE WHEN dbl_cause = 'three_putt' THEN 1 END) AS dbl_three_putt,
+            COUNT(CASE WHEN dbl_cause = 'trouble_tee' THEN 1 END) AS dbl_trouble_tee,
+            COUNT(CASE WHEN dbl_cause = 'full_swing' THEN 1 END) AS dbl_full_swing,
+            COUNT(CASE WHEN dbl_cause = 'unattributed' THEN 1 END) AS dbl_unattributed,
+            COUNT(CASE WHEN dbl_cause = 'penalty' AND penalty_source = 'tee'
+                       THEN 1 END) AS dbl_penalty_tee,
+            COUNT(CASE WHEN dbl_cause = 'penalty' AND penalty_source = 'approach'
+                       THEN 1 END) AS dbl_penalty_approach,
+            COUNT(CASE WHEN dbl_cause = 'penalty' AND penalty_source = 'short_or_green'
+                       THEN 1 END) AS dbl_penalty_short,
+            COUNT(CASE WHEN dbl_cause = 'penalty' AND penalty_source IS NULL
+                       THEN 1 END) AS dbl_penalty_unknown
         FROM sequenced
         GROUP BY player_id, round_id
     `.execute(db);
@@ -1205,7 +1281,20 @@ export async function createPlayerStatsViews(db: Kysely<any>): Promise<void> {
             SUM(holes_scored_miss_hard) AS holes_scored_miss_hard,
             SUM(strokes_vs_par_miss_hard) AS strokes_vs_par_miss_hard,
             SUM(holes_scored_miss_bunker) AS holes_scored_miss_bunker,
-            SUM(strokes_vs_par_miss_bunker) AS strokes_vs_par_miss_bunker
+            SUM(strokes_vs_par_miss_bunker) AS strokes_vs_par_miss_bunker,
+
+            -- === WHERE THE DOUBLES COME FROM (migration 063) ===
+            SUM(dbl_penalty) AS dbl_penalty,
+            SUM(dbl_failed_recovery) AS dbl_failed_recovery,
+            SUM(dbl_multi_chip) AS dbl_multi_chip,
+            SUM(dbl_three_putt) AS dbl_three_putt,
+            SUM(dbl_trouble_tee) AS dbl_trouble_tee,
+            SUM(dbl_full_swing) AS dbl_full_swing,
+            SUM(dbl_unattributed) AS dbl_unattributed,
+            SUM(dbl_penalty_tee) AS dbl_penalty_tee,
+            SUM(dbl_penalty_approach) AS dbl_penalty_approach,
+            SUM(dbl_penalty_short) AS dbl_penalty_short,
+            SUM(dbl_penalty_unknown) AS dbl_penalty_unknown
         FROM v_player_round_stats
         GROUP BY player_id
     `.execute(db);

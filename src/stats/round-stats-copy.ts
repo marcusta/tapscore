@@ -19,6 +19,7 @@
 
 import type { InsightLine, StrokesLostComponent } from '../round/stat-measures';
 import { componentTitle, formatDay, formatNumber, vsPar } from './stats-format';
+import { doubleCauseTitle } from './stats-panel-blocks';
 import type {
     FirstPutt,
     RoundStatsHoleCell,
@@ -196,6 +197,14 @@ export function holeLines(cell: RoundStatsHoleCell): HoleLine[] {
     const lines: HoleLine[] = [];
     const score = scoreLine(cell);
     if (score !== null) lines.push({ label: 'Score', value: score });
+    // The double's cause, in the same word the scoring card's "Where your
+    // doubles come from" block uses — a WORD, never a glyph, and read directly
+    // under the score it explains. Absent on every hole that is not a double
+    // bogey or worse; a double with nothing recorded says "Not enough
+    // recorded", which is a statement rather than a silence.
+    if (cell.doubleCause !== null) {
+        lines.push({ label: 'Mainly from', value: doubleCauseTitle(cell.doubleCause) });
+    }
     if (cell.tee !== null) lines.push({ label: 'Tee shot', value: teeTitle(cell.tee) });
     if (cell.gir !== null) {
         lines.push({ label: 'Green in regulation', value: cell.gir ? 'Hit' : 'Missed' });

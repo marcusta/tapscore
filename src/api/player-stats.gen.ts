@@ -261,6 +261,17 @@ export interface StatMeasures {
     strokesVsParMissHard: number;
     holesScoredMissBunker: number;
     strokesVsParMissBunker: number;
+    dblPenalty: number;
+    dblFailedRecovery: number;
+    dblMultiChip: number;
+    dblThreePutt: number;
+    dblTroubleTee: number;
+    dblFullSwing: number;
+    dblUnattributed: number;
+    dblPenaltyTee: number;
+    dblPenaltyApproach: number;
+    dblPenaltyShort: number;
+    dblPenaltyUnknown: number;
 }
 
 export interface PlayerRoundStats {

@@ -530,6 +530,33 @@ export interface StatMeasures {
     strokesVsParMissHard: number;
     holesScoredMissBunker: number;
     strokesVsParMissBunker: number;
+
+    /**
+     * WHERE THE DOUBLES COME FROM (migration 063) — one cause per double-bogey-
+     * or-worse hole.
+     *
+     * The seven cause counts PARTITION `doubleBogeyPlus`: a priority CASE
+     * (specificity of evidence, strongest first) gives every double+ hole
+     * exactly one cause, so the seven sum to the denominator and their shares
+     * add to 100%. `dblUnattributed` is the double+ hole without enough
+     * recorded to say — counted, never dropped, and it shrinks as more is
+     * recorded.
+     *
+     * `dblPenalty{Tee,Approach,Short,Unknown}` partition `dblPenalty` by where
+     * the penalty happened, answering the follow-up the headline row invites.
+     * One source per hole, so a two-penalty hole collapses to its primary.
+     */
+    dblPenalty: number;
+    dblFailedRecovery: number;
+    dblMultiChip: number;
+    dblThreePutt: number;
+    dblTroubleTee: number;
+    dblFullSwing: number;
+    dblUnattributed: number;
+    dblPenaltyTee: number;
+    dblPenaltyApproach: number;
+    dblPenaltyShort: number;
+    dblPenaltyUnknown: number;
 }
 
 /**
@@ -954,6 +981,17 @@ function toMeasures(row: PlayerRoundStatsV3View | PlayerStatTotalsV3View): StatM
         strokesVsParMissHard: row.strokes_vs_par_miss_hard,
         holesScoredMissBunker: row.holes_scored_miss_bunker,
         strokesVsParMissBunker: row.strokes_vs_par_miss_bunker,
+        dblPenalty: row.dbl_penalty,
+        dblFailedRecovery: row.dbl_failed_recovery,
+        dblMultiChip: row.dbl_multi_chip,
+        dblThreePutt: row.dbl_three_putt,
+        dblTroubleTee: row.dbl_trouble_tee,
+        dblFullSwing: row.dbl_full_swing,
+        dblUnattributed: row.dbl_unattributed,
+        dblPenaltyTee: row.dbl_penalty_tee,
+        dblPenaltyApproach: row.dbl_penalty_approach,
+        dblPenaltyShort: row.dbl_penalty_short,
+        dblPenaltyUnknown: row.dbl_penalty_unknown,
     };
 }
 
@@ -1171,6 +1209,17 @@ function zeroMeasures(): StatMeasures {
         strokesVsParMissHard: 0,
         holesScoredMissBunker: 0,
         strokesVsParMissBunker: 0,
+        dblPenalty: 0,
+        dblFailedRecovery: 0,
+        dblMultiChip: 0,
+        dblThreePutt: 0,
+        dblTroubleTee: 0,
+        dblFullSwing: 0,
+        dblUnattributed: 0,
+        dblPenaltyTee: 0,
+        dblPenaltyApproach: 0,
+        dblPenaltyShort: 0,
+        dblPenaltyUnknown: 0,
     };
 }
 

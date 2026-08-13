@@ -1,11 +1,16 @@
 import { expect, test } from 'bun:test';
-import type { StatMeasures } from '../../src/api/player-stats.gen';
+import type {
+    PlayerHoleStats,
+    PlayerRoundHoleStats,
+    StatMeasures,
+} from '../../src/api/player-stats.gen';
 import {
     CHIP_EXPECTED_PUTTS_V1,
     CHIP_EXPECTED_PUTTS_V1_BY_DIFFICULTY,
     CHIP_EXPECTED_PUTTS_V2,
     CHIP_OUTCOME_EXPECTED_PUTTS_V1,
     DEFAULT_SG_BASELINE,
+    DOUBLE_CAUSES,
     EXPECTED_PUTTS_V1,
     INSIGHT_BEST_PUTTING_MIN_WINDOW,
     MIN_ATTRIBUTED_FOR_DELTA,
@@ -22,8 +27,10 @@ import {
     baselineDeltas,
     birdieConversion,
     bounceBackRate,
+    classifyDoubleCause,
     chipInside2mRate,
     doubleBogeyPlusPerRound,
+    doubleCauseRows,
     extraShortGameStrokes,
     fairwayRate,
     firstPuttMix,
@@ -735,6 +742,17 @@ const SWEEP: StatMeasures = {
     strokesVsParMissHard: 201,
     holesScoredMissBunker: 202,
     strokesVsParMissBunker: 203,
+    dblPenalty: 204,
+    dblFailedRecovery: 205,
+    dblMultiChip: 206,
+    dblThreePutt: 207,
+    dblTroubleTee: 208,
+    dblFullSwing: 209,
+    dblUnattributed: 210,
+    dblPenaltyTee: 211,
+    dblPenaltyApproach: 212,
+    dblPenaltyShort: 213,
+    dblPenaltyUnknown: 214,
 };
 
 test('every measure column is additive, including the ones no rate reads', () => {
@@ -742,8 +760,8 @@ test('every measure column is additive, including the ones no rate reads', () =>
     // The count is asserted (and mirrored in the Swift twin) so that a field
     // added to the server's measure set and forgotten here is caught, rather
     // than sweeping a smaller set and passing.
-    expect(keys).toHaveLength(203);
-    expect(new Set(Object.values(SWEEP)).size).toBe(203);
+    expect(keys).toHaveLength(214);
+    expect(new Set(Object.values(SWEEP)).size).toBe(214);
 
     // Key-by-key rather than spot checks: a column missing from `addMeasures`
     // would read as its first round's value forever, and only a full sweep sees
@@ -2384,4 +2402,264 @@ test('the bunker chip baseline sits between standard and hard', () => {
     // v1 has no bunker reading of its own, so it falls back to the flat table —
     // the whole point of keeping the two tables separate.
     expect(CHIP_EXPECTED_PUTTS_V1_BY_DIFFICULTY.bunker).toBe(CHIP_EXPECTED_PUTTS_V1);
+});
+
+// --- Where the doubles come from (migration 063) ------------------------------
+//
+// The TS half of a classifier that exists twice: this function and the
+// `dbl_cause` CASE in the 043 `hole` CTE. The matrix below is the SQL/TS
+// cross-check the proposal (§6) asks for — the SAME twelve holes (H1–H13,
+// no H4), under the
+// same names, as `server/services/player-stats-aggregates.test.ts`'s
+// 'the cause classifier picks one bucket per hole, strongest evidence first'.
+// A bucket that moves in one file must move in the other, or the two suites
+// disagree and one of them is wrong.
+//
+// Mirrored rather than imported: no test under `tests/` runs against the
+// server's DB and nothing under `server/` imports from `src/`, so the pin is
+// two matrices that name each other.
+
+/** A per-hole row, everything unrecorded unless the case says otherwise. */
+function holeRow(
+    over: Partial<PlayerHoleStats> = {},
+    score: number | null = null,
+    par = 4,
+): PlayerRoundHoleStats {
+    return {
+        playHoleId: 'h',
+        ordinal: 1,
+        courseHoleNumber: 1,
+        par,
+        lengthM: null,
+        score,
+        stats: {
+            roundId: 'r1',
+            playHoleId: 'h',
+            playerId: 'p1',
+            teeResult: null,
+            teeMissDir: null,
+            gir: null,
+            greenMissDir: null,
+            firstPutt: null,
+            putts: null,
+            shortGameDifficulty: null,
+            shortGameStrokes: null,
+            penalties: null,
+            penaltySource: null,
+            recoveryOk: null,
+            ...over,
+        },
+    };
+}
+
+test('the cause classifier picks one bucket per hole, strongest evidence first', () => {
+    // H1  6 — one penalty off the tee                     → penalty
+    expect(
+        classifyDoubleCause(holeRow({ penalties: 1, penaltySource: 'tee' }, 6)),
+    ).toBe('penalty');
+    // H2  6 — trouble, recovery FAILED                    → failedRecovery
+    expect(
+        classifyDoubleCause(
+            holeRow({ teeResult: 'trouble', recoveryOk: false, penalties: 0 }, 6),
+        ),
+    ).toBe('failedRecovery');
+    // H3  par 3, 5 — green missed, two putts, no difficulty answered: par 3s
+    //     never carry a tee answer, so nothing here can be claimed
+    //                                                     → unattributed
+    expect(
+        classifyDoubleCause(holeRow({ gir: false, putts: 2, penalties: 0 }, 5, 3)),
+    ).toBe('unattributed');
+    // H5  6 — green missed, TWO short-game strokes        → multiChip
+    expect(
+        classifyDoubleCause(
+            holeRow(
+                {
+                    gir: false,
+                    shortGameDifficulty: 'standard',
+                    shortGameStrokes: 2,
+                    putts: 2,
+                    penalties: 0,
+                },
+                6,
+            ),
+        ),
+    ).toBe('multiChip');
+    // H6  6 — green missed, one chip, three putts         → threePutt
+    expect(
+        classifyDoubleCause(
+            holeRow(
+                { gir: false, shortGameDifficulty: 'standard', putts: 3, penalties: 0 },
+                6,
+            ),
+        ),
+    ).toBe('threePutt');
+    // H7  6 — trouble off the tee, nothing after it       → troubleTee
+    expect(classifyDoubleCause(holeRow({ teeResult: 'trouble', penalties: 0 }, 6))).toBe(
+        'troubleTee',
+    );
+    // H8  6 — fairway, green hit, two putts, no penalty: fully recorded and
+    //     nothing above fired, so the strokes went somewhere between the tee
+    //     and the green                                   → fullSwing
+    expect(
+        classifyDoubleCause(
+            holeRow(
+                {
+                    teeResult: 'fairway',
+                    gir: true,
+                    firstPutt: '2_to_4m',
+                    putts: 2,
+                    penalties: 0,
+                },
+                6,
+            ),
+        ),
+    ).toBe('fullSwing');
+    // H9  6 — nothing recorded at all                     → unattributed
+    expect(classifyDoubleCause(holeRow({}, 6))).toBe('unattributed');
+    // H10 6 — a penalty AND three putts: penalty outranks → penalty
+    expect(
+        classifyDoubleCause(holeRow({ gir: true, putts: 3, penalties: 1 }, 6)),
+    ).toBe('penalty');
+    // H11 6 — trouble, recovery OK, then three putts: the tee shot was paid
+    //     for, the putts were not                          → threePutt
+    expect(
+        classifyDoubleCause(
+            holeRow(
+                {
+                    teeResult: 'trouble',
+                    recoveryOk: true,
+                    gir: true,
+                    putts: 3,
+                    penalties: 0,
+                },
+                6,
+            ),
+        ),
+    ).toBe('threePutt');
+    // H12 6 — two chips AND three putts: the duplicated chip is the more
+    //     specific fact                                    → multiChip
+    expect(
+        classifyDoubleCause(
+            holeRow(
+                {
+                    gir: false,
+                    shortGameDifficulty: 'standard',
+                    shortGameStrokes: 2,
+                    putts: 3,
+                    penalties: 0,
+                },
+                6,
+            ),
+        ),
+    ).toBe('multiChip');
+    // H13 6 — green HIT and three putts: a hit green three-putts into a double
+    //     just as loudly                                   → threePutt
+    expect(
+        classifyDoubleCause(
+            holeRow({ teeResult: 'fairway', gir: true, putts: 3, penalties: 0 }, 6),
+        ),
+    ).toBe('threePutt');
+});
+
+test('a hole that is not a double bogey or worse has no cause at all', () => {
+    // Par, bogey, no score, and the PICK-UP — the app writes strokes 0, which
+    // the view NULLIFs, so a picked-up hole is in no score bucket and therefore
+    // in no cause bucket either, whatever its answers say.
+    expect(classifyDoubleCause(holeRow({ penalties: 2 }, 4))).toBeNull();
+    expect(classifyDoubleCause(holeRow({ penalties: 2 }, 5))).toBeNull();
+    expect(classifyDoubleCause(holeRow({ penalties: 2 }, null))).toBeNull();
+    expect(classifyDoubleCause(holeRow({ penalties: 2 }, 0))).toBeNull();
+    // A par 3 double starts at 5, a par 5 double at 7.
+    expect(classifyDoubleCause(holeRow({ penalties: 1 }, 4, 3))).toBeNull();
+    expect(classifyDoubleCause(holeRow({ penalties: 1 }, 5, 3))).toBe('penalty');
+    expect(classifyDoubleCause(holeRow({ penalties: 1 }, 6, 5))).toBeNull();
+    expect(classifyDoubleCause(holeRow({ penalties: 1 }, 7, 5))).toBe('penalty');
+});
+
+test('the classifier reads its two conventions the way the view does', () => {
+    // COALESCE(short_game_strokes, 1): an untouched stepper models as ONE chip,
+    // so a real double-chip hole nobody counted falls through rather than
+    // claiming a multi-chip double. Postel, not a bug.
+    expect(
+        classifyDoubleCause(
+            holeRow(
+                {
+                    teeResult: 'fairway',
+                    gir: false,
+                    shortGameDifficulty: 'standard',
+                    putts: 2,
+                    penalties: 0,
+                },
+                6,
+            ),
+        ),
+    ).toBe('fullSwing');
+    // Putting coherence: 0 putts beside a recorded first-putt bucket is a
+    // contradiction, so the putt count is unrecorded — which also costs the
+    // hole its full-swing coverage.
+    expect(
+        classifyDoubleCause(
+            holeRow(
+                {
+                    teeResult: 'fairway',
+                    gir: true,
+                    firstPutt: '2_to_4m',
+                    putts: 0,
+                    penalties: 0,
+                },
+                6,
+            ),
+        ),
+    ).toBe('unattributed');
+    // Full swing demands its coverage: the same hole without a tee answer on a
+    // par 4 cannot claim it…
+    expect(
+        classifyDoubleCause(holeRow({ gir: true, putts: 2, penalties: 0 }, 6)),
+    ).toBe('unattributed');
+    // …and a missed green with no difficulty answered cannot either.
+    expect(
+        classifyDoubleCause(
+            holeRow({ teeResult: 'fairway', gir: false, putts: 2, penalties: 0 }, 6),
+        ),
+    ).toBe('unattributed');
+    // The penalty exception: a hole with nothing but a penalty count is still a
+    // penalty double.
+    expect(classifyDoubleCause(holeRow({ penalties: 2 }, 6))).toBe('penalty');
+});
+
+test('the seven cause rows partition the doubles, always all seven', () => {
+    const m = measures({
+        doubleBogeyPlus: 10,
+        dblPenalty: 4,
+        dblFailedRecovery: 1,
+        dblMultiChip: 1,
+        dblThreePutt: 2,
+        dblTroubleTee: 0,
+        dblFullSwing: 1,
+        dblUnattributed: 1,
+    });
+    const rows = doubleCauseRows(m);
+    expect(rows.map((r) => r.id)).toEqual([...DOUBLE_CAUSES]);
+    expect(DOUBLE_CAUSES).toEqual([
+        'penalty',
+        'failedRecovery',
+        'multiChip',
+        'threePutt',
+        'troubleTee',
+        'fullSwing',
+        'unattributed',
+    ]);
+    expect(rows.map((r) => r.count)).toEqual([4, 1, 1, 2, 0, 1, 1]);
+    // Every share over the SAME denominator, so the seven add to 1 — and the
+    // zero row is a real 0%, not an absence.
+    for (const row of rows) expect(row.share.d).toBe(10);
+    expect(rows.find((r) => r.id === 'penalty')!.share.value).toBe(0.4);
+    expect(rows.find((r) => r.id === 'troubleTee')!.share.value).toBe(0);
+    expect(rows.reduce((sum, r) => sum + (r.share.value ?? 0), 0)).toBeCloseTo(1, 12);
+    // No double in the window: seven rows still, every one of them absent
+    // rather than 0% — the block that draws these is gated on the same
+    // denominator.
+    const empty = doubleCauseRows(ZERO_MEASURES);
+    expect(empty).toHaveLength(7);
+    for (const row of empty) expect(row.share).toEqual({ value: null, n: 0, d: 0 });
 });

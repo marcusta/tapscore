@@ -718,6 +718,33 @@ export interface PlayerStatMeasureColumns {
     strokes_vs_par_miss_hard: number;
     holes_scored_miss_bunker: number;
     strokes_vs_par_miss_bunker: number;
+
+    /**
+     * WHERE THE DOUBLES COME FROM (migration 063) — one cause per double-bogey-
+     * or-worse hole, counted.
+     *
+     * The seven `dbl_*` cause counts PARTITION `double_bogey_plus`: every
+     * double+ hole is assigned exactly one cause by the priority CASE in the
+     * 043 `hole` CTE (specificity of evidence, strongest first), and no other
+     * hole is assigned any. So the seven sum to the denominator identically and
+     * a client can draw shares that add to 100%. `dbl_unattributed` is the
+     * double+ hole without enough recorded to say — counted, never dropped.
+     *
+     * `dbl_penalty_{tee,approach,short,unknown}` then partition `dbl_penalty`
+     * by `penalty_source`, the NULL leg included so nothing falls off the edge.
+     * One source per hole, so a two-penalty hole collapses to its primary.
+     */
+    dbl_penalty: number;
+    dbl_failed_recovery: number;
+    dbl_multi_chip: number;
+    dbl_three_putt: number;
+    dbl_trouble_tee: number;
+    dbl_full_swing: number;
+    dbl_unattributed: number;
+    dbl_penalty_tee: number;
+    dbl_penalty_approach: number;
+    dbl_penalty_short: number;
+    dbl_penalty_unknown: number;
 }
 
 /**

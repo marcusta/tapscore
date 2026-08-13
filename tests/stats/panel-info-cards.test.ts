@@ -215,3 +215,50 @@ test('the ladder card names whichever of the four cohorts is selected', () => {
         expect(inside.kind === 'rung' && inside.cost).not.toBe('—');
     }
 });
+
+test('the doubles breakdown gets one card, and it explains the priority order', () => {
+    // Seven rows, one card: they share a denominator and a reading order, and
+    // seven near-identical cards would bury the one thing a reader needs — that
+    // a hole lands in the FIRST row that fits.
+    const model = buildDashboardModel([
+        round(
+            measures({
+                holesScored: 18,
+                doubleBogeyPlus: 5,
+                dblPenalty: 3,
+                dblThreePutt: 2,
+                dblPenaltyTee: 2,
+                dblPenaltyApproach: 1,
+            }),
+        ),
+    ]);
+    const cards = panelInfoCards('scoring', model, DEFAULT_SG_BASELINE_INFO);
+    const card = cards.find((c) => c.id === 'doubleCauses');
+    if (card === undefined) throw new Error('no doubleCauses card');
+    // The card is titled with the subhead the rows sit under, word for word.
+    expect(card.title).toBe(STATS_COPY.doubleCausesHead);
+    expect(card.body).toContain('lands in the first that fits');
+    // The denominator the seven shares are taken over — the doubles, not the
+    // holes and not the rounds.
+    expect(card.body).toContain('Measured over 5 holes.');
+    // The two rows that need a caveat of their own, and the penalty geography
+    // with its one-source-per-hole limit.
+    expect(card.body).toContain('“Long game” is the residual');
+    expect(card.body).toContain('counted, never dropped');
+    expect(card.body).toContain('off the tee, on the approach, or around the green');
+    expect(card.body).toContain('One source is recorded per hole');
+    // …and the split itself, LIVE — this sheet is the one surface that shows
+    // the four geography numbers, so the sentence must carry the reader's own.
+    // The empty legs (around the green, no source) drop rather than read as 0.
+    expect(card.body).toContain('Your penalty doubles: 2 off the tee and 1 on the approach.');
+    expect(card.body).not.toContain(' 0 ');
+});
+
+test('no doubles in the window, no card explaining where they came from', () => {
+    // The sheet answers the panel it is attached to. With the block gone the
+    // card would explain a breakdown the reader cannot see.
+    const model = buildDashboardModel([round(measures({ holesScored: 18, holesPar: 18 }))]);
+    const ids = panelInfoCards('scoring', model, DEFAULT_SG_BASELINE_INFO).map((c) => c.id);
+    expect(ids).not.toContain('doubleCauses');
+    expect(ids).toContain('bounceBack');
+});

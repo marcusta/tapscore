@@ -33,6 +33,7 @@ import {
     groupSample,
     missedGreenSample,
     missedGreenTaxSample,
+    penaltyDoubleGeography,
     penaltyTaxSample,
     quantity,
     troubleTaxSample,
@@ -73,6 +74,22 @@ function measuredOver(d: number, unit: SampleUnit): string | null {
 /** "Measured over 9 holes with a penalty vs 45 without." — for a tax's two sides. */
 function measured(sample: string | null): string | null {
     return sample === null ? null : `Measured ${sample}.`;
+}
+
+/**
+ * "Your penalty doubles: 2 off the tee, 1 on the approach and 1 around the
+ * green." — the live geography split the penalty sentence promises. Omitted
+ * entirely when the window has no penalty doubles: the caveat sentence still
+ * explains the split, but there is nothing to state.
+ */
+function penaltyDoubleSplit(g: {
+    tee: number;
+    approach: number;
+    short: number;
+    unknown: number;
+}): string | null {
+    const split = penaltyDoubleGeography(g);
+    return split === null ? null : `Your penalty doubles: ${split}.`;
 }
 
 /** One paragraph from its sentences, dropping the ones that had nothing to say. */
@@ -355,6 +372,34 @@ export function panelInfoCards(
                         measuredOver(p.doubleBogeyPlusPerRound.d, UNIT_ROUNDS),
                     ),
                 ),
+                // ONE card for the seven cause rows: they share a denominator
+                // and a priority order, so one explanation serves them all.
+                // Order fixed by the proposal (§4.3): what the block is, the
+                // priority order and why, the denominator, then the two rows
+                // that need a caveat of their own — "Long game" (claimed only
+                // on a fully recorded hole) and "Not enough recorded" (counted,
+                // never dropped). The penalty geography detail rides along,
+                // one-source-per-hole caveat included, and the split itself is
+                // stated LIVE — the only surface that shows those four numbers,
+                // per the ⓘ ruling that a sheet is about the player, not about
+                // the feature.
+                ...(p.doubleBogeyPlusHoles > 0
+                    ? [
+                          card(
+                              'doubleCauses',
+                              STATS_COPY.doubleCausesHead,
+                              body(
+                                  STATS_COPY.doubleCauses,
+                                  STATS_COPY.doubleCausesOrder,
+                                  measuredOver(p.doubleBogeyPlusHoles, UNIT_HOLES),
+                                  STATS_COPY.doubleCausesLongGame,
+                                  STATS_COPY.doubleCausesUnattributed,
+                                  STATS_COPY.doubleCausesPenalty,
+                                  penaltyDoubleSplit(p.penaltyDoubleSources),
+                              ),
+                          ),
+                      ]
+                    : []),
                 card(
                     'bounceBack',
                     'Bounce-back',

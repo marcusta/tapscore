@@ -1402,15 +1402,85 @@ test('Short game walks: mix, scrambling, the outcome groups, the cost, chipping 
     ]);
 });
 
-test('Scoring walks: the three par averages, doubles, bounce-back', () => {
+test('Scoring walks: the three par averages, doubles, where they come from, bounce-back', () => {
     expect(walk('scoring')).toEqual([
         'subhead:vsParHead',
         'figure:par3',
         'figure:par4',
         'figure:par5',
         'figure:doubles',
+        'subhead:doubleCausesHead',
+        'bar:dblCause-penalty',
+        'bar:dblCause-failedRecovery',
+        'bar:dblCause-multiChip',
+        'bar:dblCause-threePutt',
+        'bar:dblCause-troubleTee',
+        'bar:dblCause-fullSwing',
+        'bar:dblCause-unattributed',
         'bar:bounceBack',
     ]);
+});
+
+test('the doubles breakdown draws all seven rows, or none — never a subset', () => {
+    // Six of the seven buckets are empty. They are still drawn, because a
+    // breakdown that hides its zeros reads as "these are the only ways I lose
+    // shots" — the shape of the spread IS the finding.
+    const model = buildDashboardModel([
+        round({
+            measures: measures({
+                holesScored: 18,
+                doubleBogeyPlus: 3,
+                dblPenalty: 3,
+            }),
+        }),
+    ]);
+    const rows = panelBlocks('scoring', model).filter((b) => b.id.startsWith('dblCause-'));
+    expect(rows.map((b) => b.id)).toEqual([
+        'dblCause-penalty',
+        'dblCause-failedRecovery',
+        'dblCause-multiChip',
+        'dblCause-threePutt',
+        'dblCause-troubleTee',
+        'dblCause-fullSwing',
+        'dblCause-unattributed',
+    ]);
+    // The titles are the row names the info sheet then explains, word for word.
+    expect(rows.map((b) => (b.kind === 'bar' ? b.title : null))).toEqual([
+        'Penalty',
+        'Failed recovery',
+        'More than one chip',
+        'Three putts',
+        'Trouble off the tee',
+        'Long game',
+        'Not enough recorded',
+    ]);
+    // Share-only cells: every row over the SAME denominator, the doubles.
+    expect(rows.map((b) => (b.kind === 'bar' ? b.value : null))).toEqual([
+        '100%',
+        '0%',
+        '0%',
+        '0%',
+        '0%',
+        '0%',
+        '0%',
+    ]);
+    expect(rows.map((b) => (b.kind === 'bar' ? b.share : null))).toEqual([
+        1, 0, 0, 0, 0, 0, 0,
+    ]);
+});
+
+test('no double in the window, no breakdown — the whole block goes, subhead included', () => {
+    // A clean window has nothing to break down, and seven 0% rows under a
+    // heading about doubles would read as a claim about a player who did not
+    // make any.
+    const model = buildDashboardModel([
+        round({ measures: measures({ holesScored: 18, holesPar: 18, doubleBogeyPlus: 0 }) }),
+    ]);
+    const ids = panelBlocks('scoring', model).map((b) => b.id);
+    expect(ids).not.toContain('doubleCausesHead');
+    expect(ids.filter((id) => id.startsWith('dblCause-'))).toEqual([]);
+    // The panel itself is untouched — the doubles figure and bounce-back stay.
+    expect(ids).toContain('doubles');
 });
 
 test('the walk covers every panel, so no card can be silently dropped from it', () => {

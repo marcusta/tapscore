@@ -48,7 +48,7 @@
 // are. The bunker leg is safe, and so would a fourth be. What is NOT safe is a
 // leg wired into `attStrokes` but not into `sumC` — the C-sensitivity fixture
 // in `tests/round/stat-measures.test.ts` is the guard against exactly that.
-import type { StatMeasures } from '../api/player-stats.gen';
+import type { PlayerRoundHoleStats, StatMeasures } from '../api/player-stats.gen';
 
 // ---------------------------------------------------------------------------
 // Guarded rates
@@ -322,6 +322,20 @@ export const ZERO_MEASURES: StatMeasures = Object.freeze({
         attSgStrokesEffectiveStandard: 0,
         attSgStrokesEffectiveHard: 0,
         attSgStrokesEffectiveBunker: 0,
+        // Where the doubles come from (migration 063): the seven cause buckets
+        // that partition `doubleBogeyPlus`, and the geography split of the
+        // penalty bucket.
+        dblPenalty: 0,
+        dblFailedRecovery: 0,
+        dblMultiChip: 0,
+        dblThreePutt: 0,
+        dblTroubleTee: 0,
+        dblFullSwing: 0,
+        dblUnattributed: 0,
+        dblPenaltyTee: 0,
+        dblPenaltyApproach: 0,
+        dblPenaltyShort: 0,
+        dblPenaltyUnknown: 0,
 });
 
 /**
@@ -547,6 +561,18 @@ export function addMeasures(a: StatMeasures, b: StatMeasures): StatMeasures {
         attSgStrokesEffectiveStandard: a.attSgStrokesEffectiveStandard + b.attSgStrokesEffectiveStandard,
         attSgStrokesEffectiveHard: a.attSgStrokesEffectiveHard + b.attSgStrokesEffectiveHard,
         attSgStrokesEffectiveBunker: a.attSgStrokesEffectiveBunker + b.attSgStrokesEffectiveBunker,
+        // Where the doubles come from (migration 063).
+        dblPenalty: a.dblPenalty + b.dblPenalty,
+        dblFailedRecovery: a.dblFailedRecovery + b.dblFailedRecovery,
+        dblMultiChip: a.dblMultiChip + b.dblMultiChip,
+        dblThreePutt: a.dblThreePutt + b.dblThreePutt,
+        dblTroubleTee: a.dblTroubleTee + b.dblTroubleTee,
+        dblFullSwing: a.dblFullSwing + b.dblFullSwing,
+        dblUnattributed: a.dblUnattributed + b.dblUnattributed,
+        dblPenaltyTee: a.dblPenaltyTee + b.dblPenaltyTee,
+        dblPenaltyApproach: a.dblPenaltyApproach + b.dblPenaltyApproach,
+        dblPenaltyShort: a.dblPenaltyShort + b.dblPenaltyShort,
+        dblPenaltyUnknown: a.dblPenaltyUnknown + b.dblPenaltyUnknown,
     };
 }
 
@@ -1298,6 +1324,124 @@ export function doubleBogeyPlusPerRound(m: StatMeasures, roundCount: number): Ra
 /** Birdie-or-better on the hole after a double bogey or worse. */
 export function bounceBackRate(m: StatMeasures): Rate {
     return rate(m.bounceBackSuccesses, m.bounceBackOpportunities);
+}
+
+// --- Where the doubles come from (migration 063) ---
+//
+// One cause per double-bogey-or-worse hole, assigned by a priority CASE whose
+// order is SPECIFICITY OF EVIDENCE, strongest first: each bucket is only
+// reached once every bucket above it has declined, so a later bucket implicitly
+// means "and nothing more directly explains the strokes". A trouble tee shot
+// whose recovery came off, followed by a three-putt, is a three-putt double —
+// the tee shot was already paid for.
+//
+// `docs/proposals/double-cause-breakdown.md` §1 is the specification, and the
+// SQL twin lives in the 043 `hole` CTE (`dbl_cause`). Two implementations of
+// one classifier is a real risk, so the fixture matrix in
+// `tests/round/stat-measures.test.ts` mirrors the server's, case for case.
+
+/**
+ * The seven causes, in DISPLAY order — which is also the priority order the
+ * classifier resolves them in, so the block reads top-down as "strongest
+ * evidence first".
+ */
+export const DOUBLE_CAUSES = [
+    'penalty',
+    'failedRecovery',
+    'multiChip',
+    'threePutt',
+    'troubleTee',
+    'fullSwing',
+    'unattributed',
+] as const;
+export type DoubleCause = (typeof DOUBLE_CAUSES)[number];
+
+/** One cause row: its count, and its share of the window's double+ holes. */
+export interface DoubleCauseRow {
+    id: DoubleCause;
+    count: number;
+    share: Rate;
+}
+
+/** The measure column each cause is counted in. */
+function doubleCauseCount(m: StatMeasures, cause: DoubleCause): number {
+    switch (cause) {
+        case 'penalty':
+            return m.dblPenalty;
+        case 'failedRecovery':
+            return m.dblFailedRecovery;
+        case 'multiChip':
+            return m.dblMultiChip;
+        case 'threePutt':
+            return m.dblThreePutt;
+        case 'troubleTee':
+            return m.dblTroubleTee;
+        case 'fullSwing':
+            return m.dblFullSwing;
+        case 'unattributed':
+            return m.dblUnattributed;
+    }
+}
+
+/**
+ * The seven rows, always all seven, each share over `doubleBogeyPlus`.
+ *
+ * The buckets PARTITION that denominator — every double+ hole carries exactly
+ * one cause — so the seven shares add to 100%. At zero doubles every share is
+ * `absent` rather than 0%, and the block that draws these is gated on the same
+ * denominator.
+ */
+export function doubleCauseRows(m: StatMeasures): DoubleCauseRow[] {
+    return DOUBLE_CAUSES.map((id) => {
+        const count = doubleCauseCount(m, id);
+        return { id, count, share: rate(count, m.doubleBogeyPlus) };
+    });
+}
+
+/**
+ * The cause of ONE hole, or null when the hole is not a double bogey or worse.
+ *
+ * The single client implementation of the §1 CASE, over a per-hole row the
+ * round screen already holds. Written branch for branch as the SQL:
+ *
+ *  - a picked-up hole (the app writes strokes `0`, the view `NULLIF`s it) has
+ *    no score and therefore no cause;
+ *  - `penalties` reads through `?? 0` — the documented penalty exception, an
+ *    untouched prompt is zero and never a blocker;
+ *  - `shortGameStrokes` reads through `?? 1` — the NULL-means-one convention,
+ *    so an uncounted hole models exactly one chip and falls through;
+ *  - putting coherence is derived here the way the view derives it: putts `0`
+ *    beside a recorded first-putt bucket is a contradiction, and the putt count
+ *    is treated as unrecorded;
+ *  - `fullSwing` is the residual and the only bucket making a NEGATIVE claim
+ *    ("nothing recorded explains it"), so it is the only one demanding
+ *    coverage: a GIR answer, a coherent putt count, a tee answer on par 4/5
+ *    (`teeResult` is never asked on a par 3), and a difficulty on a missed
+ *    green.
+ */
+export function classifyDoubleCause(hole: PlayerRoundHoleStats): DoubleCause | null {
+    // The pick-up: strokes `0` is "abandoned", never the digit zero.
+    const strokes = hole.score === null || hole.score === 0 ? null : hole.score;
+    if (strokes === null || strokes < hole.par + 2) return null;
+    const s = hole.stats;
+    // Rule 3, as in the view: 0 putts beside a recorded first putt is a
+    // contradiction, and the putt answers are treated as unrecorded.
+    const puttingCoherent = !(s.putts === 0 && s.firstPutt !== null);
+    if ((s.penalties ?? 0) >= 1) return 'penalty';
+    if (s.recoveryOk === false) return 'failedRecovery';
+    if (s.gir === false && (s.shortGameStrokes ?? 1) > 1) return 'multiChip';
+    if (puttingCoherent && s.putts !== null && s.putts >= 3) return 'threePutt';
+    if (s.teeResult === 'trouble') return 'troubleTee';
+    if (
+        s.gir !== null &&
+        puttingCoherent &&
+        s.putts !== null &&
+        (hole.par <= 3 || s.teeResult !== null) &&
+        (s.gir === true || s.shortGameDifficulty !== null)
+    ) {
+        return 'fullSwing';
+    }
+    return 'unattributed';
 }
 
 // --- Results (the headline scoring figures) ---

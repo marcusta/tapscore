@@ -491,6 +491,22 @@ test('the round view is the hand-computed arithmetic of the worked example', asy
         strokesVsParMissHard: -1,
         holesScoredMissBunker: 0,
         strokesVsParMissBunker: 0,
+
+        // Double causes (migration 063). One double+ hole in the round — H2,
+        // a 6 on the par 4 — and it carries a penalty, which outranks every
+        // other bucket. No penalty_source was recorded, so the geography split
+        // puts it in the unknown leg.
+        dblPenalty: 1,
+        dblFailedRecovery: 0,
+        dblMultiChip: 0,
+        dblThreePutt: 0,
+        dblTroubleTee: 0,
+        dblFullSwing: 0,
+        dblUnattributed: 0,
+        dblPenaltyTee: 0,
+        dblPenaltyApproach: 0,
+        dblPenaltyShort: 0,
+        dblPenaltyUnknown: 1,
     });
 });
 
@@ -1149,6 +1165,21 @@ test('totals are the sum of every round measure, newest round first', async () =
         strokesVsParMissHard: 2,
         holesScoredMissBunker: 0,
         strokesVsParMissBunker: 0,
+
+        // Double causes (migration 063). The only double+ hole across the two
+        // rounds is A.H2 (6 on the par 4), and its penalty outranks the
+        // trouble tee shot and everything else. No penalty_source recorded.
+        dblPenalty: 1,
+        dblFailedRecovery: 0,
+        dblMultiChip: 0,
+        dblThreePutt: 0,
+        dblTroubleTee: 0,
+        dblFullSwing: 0,
+        dblUnattributed: 0,
+        dblPenaltyTee: 0,
+        dblPenaltyApproach: 0,
+        dblPenaltyShort: 0,
+        dblPenaltyUnknown: 1,
     });
 
     // And the per-round split behind them.
@@ -2352,4 +2383,215 @@ test('the chip outcome buckets partition the single-chip attempts, and multi-chi
     expect(
         m.strokesVsParMissStandard + m.strokesVsParMissHard + m.strokesVsParMissBunker,
     ).toBe(m.strokesVsParGirMiss);
+});
+
+// --- Where the doubles come from (migration 063) ------------------------------
+
+test('the seven cause buckets partition the double+ holes, and the geography legs partition the penalty bucket', async () => {
+    const f = await fixture();
+    // Ten holes get a hand below. Seven of them are double bogey or worse and
+    // so carry exactly one cause; the other three (the pickup, the par, the
+    // unrecorded hole) must carry none — as must every untouched hole on the
+    // rest of the card.
+    //
+    //  H1  par 4, 6 — 1 penalty from the APPROACH          → penalty/approach
+    //  H2  par 4, PICKED UP — two penalties recorded, no score. The stat
+    //      answers stand, but an unscored hole is in no score bucket, so it is
+    //      in no cause bucket either: the two families stay in step.
+    //  H3  par 3, 5 — green hit, three putts               → three_putt
+    //  H5  par 4, 6 — nothing recorded at all              → unattributed
+    //  H6  par 4, 4 — a par, so not a double at all
+    //  H7  nothing: no score, no stats — the unrecorded hole
+    //  H8  par 4, 6 — trouble off the tee, recovery FAILED → failed_recovery
+    //  H9  par 4, 6 — 1 penalty AROUND THE GREEN           → penalty/short
+    //  H10 par 4, 6 — 1 penalty off the TEE                → penalty/tee
+    //  H11 par 4, 6 — 1 penalty, no source recorded        → penalty/unknown
+    await f.stat(1, 'penalties', '1');
+    await f.stat(1, 'penalty_source', 'approach');
+    await f.score(1, 6);
+
+    await f.stat(2, 'gir', '0');
+    await f.stat(2, 'penalties', '2');
+    await f.score(2, 0);
+
+    await f.stat(3, 'gir', '1');
+    await f.stat(3, 'putts', '3');
+    await f.score(3, 5);
+
+    await f.score(5, 6);
+
+    await f.score(6, 4);
+
+    await f.stat(8, 'tee_result', 'trouble');
+    await f.stat(8, 'recovery_ok', '0');
+    await f.score(8, 6);
+
+    await f.stat(9, 'penalties', '1');
+    await f.stat(9, 'penalty_source', 'short_or_green');
+    await f.score(9, 6);
+
+    await f.stat(10, 'penalties', '1');
+    await f.stat(10, 'penalty_source', 'tee');
+    await f.score(10, 6);
+
+    await f.stat(11, 'penalties', '1');
+    await f.score(11, 6);
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+
+    expect(m.doubleBogeyPlus).toBe(7);
+    expect(m.dblPenalty).toBe(4);
+    expect(m.dblFailedRecovery).toBe(1);
+    expect(m.dblMultiChip).toBe(0);
+    expect(m.dblThreePutt).toBe(1);
+    expect(m.dblTroubleTee).toBe(0);
+    expect(m.dblFullSwing).toBe(0);
+    expect(m.dblUnattributed).toBe(1);
+
+    // The partition invariant: every double+ hole in exactly one bucket, and
+    // the pickup and the unrecorded hole in none. This is what lets the client
+    // draw shares that add to 100%.
+    expect(
+        m.dblPenalty +
+            m.dblFailedRecovery +
+            m.dblMultiChip +
+            m.dblThreePutt +
+            m.dblTroubleTee +
+            m.dblFullSwing +
+            m.dblUnattributed,
+    ).toBe(m.doubleBogeyPlus);
+
+    // …and the geography legs partition the penalty bucket, the NULL leg
+    // included so nothing falls off the edge.
+    expect(m.dblPenaltyTee).toBe(1);
+    expect(m.dblPenaltyApproach).toBe(1);
+    expect(m.dblPenaltyShort).toBe(1);
+    expect(m.dblPenaltyUnknown).toBe(1);
+    expect(
+        m.dblPenaltyTee + m.dblPenaltyApproach + m.dblPenaltyShort + m.dblPenaltyUnknown,
+    ).toBe(m.dblPenalty);
+});
+
+// The SQL half of the cross-check: the same H1..H13 holes run against
+// `classifyDoubleCause` in `tests/round/stat-measures.test.ts`'s test of the
+// same name. A bucket that moves here must move there too.
+test('the cause classifier picks one bucket per hole, strongest evidence first', async () => {
+    const f = await fixture();
+    // One hole per bucket, then the co-occurrences that pin the priority
+    // order. Every hole is a double bogey or worse.
+    //
+    // The seven buckets:
+    //  H1  6 — one penalty off the tee                     → penalty
+    //  H2  6 — trouble, recovery FAILED                    → failed_recovery
+    //  H5  6 — green missed, TWO short-game strokes        → multi_chip
+    //  H6  6 — green missed, one chip, three putts         → three_putt
+    //  H7  6 — trouble off the tee, nothing after it       → trouble_tee
+    //  H8  6 — fairway, green hit, two putts, no penalty: fully recorded and
+    //          nothing above fired, so the strokes went somewhere between the
+    //          tee and the green                           → full_swing
+    //  H9  6 — nothing recorded at all                     → unattributed
+    //
+    // The co-occurrences:
+    //  H3  par 3, 5 — green missed, two putts, no difficulty answered: par 3s
+    //      never carry a tee answer, so nothing here can be claimed
+    //                                                      → unattributed
+    //  H10 6 — a penalty AND three putts: penalty outranks  → penalty
+    //  H11 6 — trouble, recovery OK, then three putts: the tee shot was paid
+    //      for, the putts were not                          → three_putt
+    //  H12 6 — two chips AND three putts: the duplicated chip is the more
+    //      specific fact                                    → multi_chip
+    //  H13 6 — green HIT and three putts: a hit green three-putts into a
+    //      double just as loudly                            → three_putt
+    await f.stat(1, 'penalties', '1');
+    await f.stat(1, 'penalty_source', 'tee');
+    await f.score(1, 6);
+
+    await f.stat(2, 'tee_result', 'trouble');
+    await f.stat(2, 'recovery_ok', '0');
+    await f.stat(2, 'penalties', '0');
+    await f.score(2, 6);
+
+    await f.stat(3, 'gir', '0');
+    await f.stat(3, 'putts', '2');
+    await f.stat(3, 'penalties', '0');
+    await f.score(3, 5);
+
+    await f.stat(5, 'gir', '0');
+    await f.stat(5, 'short_game_difficulty', 'standard');
+    await f.stat(5, 'short_game_strokes', '2');
+    await f.stat(5, 'putts', '2');
+    await f.stat(5, 'penalties', '0');
+    await f.score(5, 6);
+
+    await f.stat(6, 'gir', '0');
+    await f.stat(6, 'short_game_difficulty', 'standard');
+    await f.stat(6, 'putts', '3');
+    await f.stat(6, 'penalties', '0');
+    await f.score(6, 6);
+
+    await f.stat(7, 'tee_result', 'trouble');
+    await f.stat(7, 'penalties', '0');
+    await f.score(7, 6);
+
+    await f.stat(8, 'tee_result', 'fairway');
+    await f.stat(8, 'gir', '1');
+    await f.stat(8, 'first_putt', '2_to_4m');
+    await f.stat(8, 'putts', '2');
+    await f.stat(8, 'penalties', '0');
+    await f.score(8, 6);
+
+    await f.score(9, 6);
+
+    await f.stat(10, 'gir', '1');
+    await f.stat(10, 'putts', '3');
+    await f.stat(10, 'penalties', '1');
+    await f.score(10, 6);
+
+    await f.stat(11, 'tee_result', 'trouble');
+    await f.stat(11, 'recovery_ok', '1');
+    await f.stat(11, 'gir', '1');
+    await f.stat(11, 'putts', '3');
+    await f.stat(11, 'penalties', '0');
+    await f.score(11, 6);
+
+    await f.stat(12, 'gir', '0');
+    await f.stat(12, 'short_game_difficulty', 'standard');
+    await f.stat(12, 'short_game_strokes', '2');
+    await f.stat(12, 'putts', '3');
+    await f.stat(12, 'penalties', '0');
+    await f.score(12, 6);
+
+    await f.stat(13, 'tee_result', 'fairway');
+    await f.stat(13, 'gir', '1');
+    await f.stat(13, 'putts', '3');
+    await f.stat(13, 'penalties', '0');
+    await f.score(13, 6);
+
+    const { measures: m } = (await f.ctx.playerStatsService.summaryForPlayer(f.playerId))
+        .rounds[0]!;
+
+    expect(m.doubleBogeyPlus).toBe(12);
+    expect(m.dblPenalty).toBe(2); // H1, H10
+    expect(m.dblFailedRecovery).toBe(1); // H2
+    expect(m.dblMultiChip).toBe(2); // H5, H12
+    expect(m.dblThreePutt).toBe(3); // H6, H11, H13
+    expect(m.dblTroubleTee).toBe(1); // H7
+    expect(m.dblFullSwing).toBe(1); // H8
+    expect(m.dblUnattributed).toBe(2); // H3, H9
+    expect(
+        m.dblPenalty +
+            m.dblFailedRecovery +
+            m.dblMultiChip +
+            m.dblThreePutt +
+            m.dblTroubleTee +
+            m.dblFullSwing +
+            m.dblUnattributed,
+    ).toBe(m.doubleBogeyPlus);
+
+    // H10's penalty has no source; H1's is off the tee.
+    expect(m.dblPenaltyTee).toBe(1);
+    expect(m.dblPenaltyUnknown).toBe(1);
+    expect(m.dblPenaltyApproach).toBe(0);
+    expect(m.dblPenaltyShort).toBe(0);
 });

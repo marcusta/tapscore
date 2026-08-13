@@ -291,6 +291,41 @@ export function missedGreenSample(cost: VsParSplit): string | null {
     ]);
 }
 
+// The geography legs read as places, not nouns, so they do not pluralise —
+// "2 off the tee" is already right in both numbers.
+const UNIT_PEN_DBL_TEE: SampleUnit = { one: 'off the tee', many: 'off the tee' };
+const UNIT_PEN_DBL_APPROACH: SampleUnit = { one: 'on the approach', many: 'on the approach' };
+const UNIT_PEN_DBL_SHORT: SampleUnit = { one: 'around the green', many: 'around the green' };
+const UNIT_PEN_DBL_UNKNOWN: SampleUnit = {
+    one: 'with no source recorded',
+    many: 'with no source recorded',
+};
+
+/**
+ * "2 off the tee, 1 on the approach and 1 with no source recorded" — how the
+ * penalty doubles split by geography (migration 063: the four legs partition
+ * the penalty cause bucket). No "over" prefix: this is a split being stated,
+ * not a sample being measured. Empty legs drop; null when there are none.
+ */
+export function penaltyDoubleGeography(g: {
+    tee: number;
+    approach: number;
+    short: number;
+    unknown: number;
+}): string | null {
+    const legs = [
+        { d: g.tee, unit: UNIT_PEN_DBL_TEE },
+        { d: g.approach, unit: UNIT_PEN_DBL_APPROACH },
+        { d: g.short, unit: UNIT_PEN_DBL_SHORT },
+        { d: g.unknown, unit: UNIT_PEN_DBL_UNKNOWN },
+    ]
+        .filter((p) => p.d > 0)
+        .map((p) => quantity(p.d, p.unit));
+    const last = legs.pop();
+    if (last === undefined) return null;
+    return legs.length === 0 ? last : `${legs.join(', ')} and ${last}`;
+}
+
 // `isThin` and `THIN_SAMPLE` used to live here. Both are gone with the middle
 // band of the display policy (owner ruling, 2026-08-02): a bar always draws its
 // share, and a sample is stated as a denominator rather than judged.

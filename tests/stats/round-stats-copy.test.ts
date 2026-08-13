@@ -125,6 +125,25 @@ test('a hole nobody answered has only its score line', () => {
     expect(holeLines(cell({}, null))).toEqual([]);
 });
 
+test('a double or worse names its cause under the score, and nothing milder does', () => {
+    // An unrecorded double still gets the row — "Not enough recorded" is a
+    // statement, not a silence — and it reads directly under the score.
+    const bare = holeLines(cell({}, 6));
+    expect(bare.map((l) => l.label)).toEqual(['Score', 'Mainly from']);
+    expect(bare[1]!.value).toBe('Not enough recorded');
+    // The cause word is the scoring block's own title, via the one classifier.
+    expect(
+        holeLines(cell({ penalties: 1 }, 6)).find((l) => l.label === 'Mainly from')!.value,
+    ).toBe('Penalty');
+    expect(
+        holeLines(cell({ gir: true, putts: 3 }, 6)).find((l) => l.label === 'Mainly from')!.value,
+    ).toBe('Three putts');
+    // A bogey never carries the row, whatever was recorded on it.
+    expect(holeLines(cell({ penalties: 1 }, 5)).some((l) => l.label === 'Mainly from')).toBe(
+        false,
+    );
+});
+
 test('a recorded zero penalty says "None" — it is an answer, not an absence', () => {
     const lines = holeLines(cell({ penalties: 0 }));
     expect(lines.find((l) => l.label === 'Penalties')!.value).toBe('None');
@@ -158,7 +177,10 @@ test('two holes share not one detail-row key — the label alone is NOT a key', 
     // keep bindings closed over the previous hole's values. The panel then
     // shows the old hole's numbers under the new hole's title.
     const seven = holeDetailRows(cell({ teeResult: 'fairway', putts: 1 }, 4, 'h7'));
-    const eight = holeDetailRows(cell({ teeResult: 'trouble', putts: 3 }, 6, 'h8'));
+    // Both holes score a BOGEY: a double bogey or worse carries the extra
+    // "Mainly from" cause row (`classifyDoubleCause`), and this test is about
+    // two holes with the SAME labels needing different keys.
+    const eight = holeDetailRows(cell({ teeResult: 'trouble', putts: 3 }, 5, 'h8'));
 
     expect(seven.map((r) => r.label)).toEqual(eight.map((r) => r.label));
     const shared = seven.map((r) => r.key).filter((k) => eight.some((r) => r.key === k));

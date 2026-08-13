@@ -27,6 +27,7 @@ import {
     DEFAULT_SG_BASELINE,
     difficultyMix,
     doubleBogeyPlusPerRound,
+    doubleCauseRows,
     extraShortGameStrokes,
     fairwayRate,
     firstPuttMix,
@@ -75,6 +76,7 @@ import {
     type ByParGroup,
     type ByTee,
     type ChipOutcomes,
+    type DoubleCauseRow,
     type GreenMissDispersion,
     type PenaltySourceSplit,
     type PenaltySplit,
@@ -388,6 +390,23 @@ export interface StatsShortGamePanel {
 export interface StatsScoringPanel {
     avgVsParByParGroup: ByParGroup<Rate>;
     doubleBogeyPlusPerRound: Rate;
+    /**
+     * Where the doubles come from (migration 063): the seven cause rows, always
+     * all seven, each share over `doubleBogeyPlusHoles`. The buckets partition
+     * that denominator, so the shares add to 100%.
+     */
+    doubleCauses: DoubleCauseRow[];
+    /**
+     * The block's own gate and the rows' denominator — holes at double bogey or
+     * worse in the window. Zero doubles means there is nothing to explain.
+     */
+    doubleBogeyPlusHoles: number;
+    /**
+     * The geography split of the penalty cause bucket (§2 of the proposal):
+     * the four legs partition the "Penalty" row. Read only by the info sheet,
+     * which states the split as a live sentence.
+     */
+    penaltyDoubleSources: { tee: number; approach: number; short: number; unknown: number };
     bounceBack: Rate;
 }
 
@@ -760,6 +779,14 @@ export function scoringPanel(m: StatMeasures, roundCount: number): StatsScoringP
     return {
         avgVsParByParGroup: avgVsParByParGroup(m),
         doubleBogeyPlusPerRound: doubleBogeyPlusPerRound(m, roundCount),
+        doubleCauses: doubleCauseRows(m),
+        doubleBogeyPlusHoles: m.doubleBogeyPlus,
+        penaltyDoubleSources: {
+            tee: m.dblPenaltyTee,
+            approach: m.dblPenaltyApproach,
+            short: m.dblPenaltyShort,
+            unknown: m.dblPenaltyUnknown,
+        },
         bounceBack: bounceBackRate(m),
     };
 }
