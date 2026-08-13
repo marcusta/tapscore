@@ -25,6 +25,8 @@ import {
     SCORE_TYPES,
     SG_BASELINES_V1,
     type DoubleCause,
+    type DoubleCauseGroupId,
+    type DoubleCauseSubId,
     type Rate,
     type ResultsSummary,
     type ScoreType,
@@ -85,8 +87,13 @@ export type StatsBlock =
           id: string;
           segments: { id: string; title: string; tone: StatsSegmentTone; share: number | null; value: string | null }[];
       }
-    /** Label, mini bar, reading. */
-    | { kind: 'bar'; id: string; title: string; share: number | null; value: string | null }
+    /**
+     * Label, mini bar, reading. `sub: true` indents the row under the bar
+     * above it — the doubles block's mechanism rows under their phase group.
+     * The bar and value columns stay in the shared geometry; only the title
+     * shifts, so every bar on the screen still lines up.
+     */
+    | { kind: 'bar'; id: string; title: string; share: number | null; value: string | null; sub?: true }
     /**
      * One rung of the putting ladder: a bar against a baseline tick, the make
      * reading, and what the distance cost against the selected cohort.
@@ -225,15 +232,16 @@ export const STATS_COPY = {
     doubleBogeyPlus: 'Holes at double bogey or worse, per round.',
     doubleCausesHead: 'Where your doubles come from',
     doubleCauses:
-        'What manufactured each hole at double bogey or worse. One cause per hole, so the rows add up to 100%.',
-    // The order IS the reading: the rows are checked strongest evidence first,
-    // and a row lower down means "and nothing above it applies".
+        'What manufactured each hole at double bogey or worse, grouped by where on the course the damage happened. One cause per hole, so the groups add up to 100%, and the indented rows split a group by mechanism.',
+    // The priority order survives the grouping: a hole still gets exactly ONE
+    // cause, resolved strongest evidence first, and the grouping only decides
+    // which phase that cause is filed under.
     doubleCausesOrder:
-        'A hole is checked against the rows from the top down and lands in the first that fits, so a lower row also means nothing above it applied. A trouble tee shot you recovered from, followed by three putts, is a three-putt double — the tee shot was already paid for.',
+        'A hole gets one cause, checked strongest evidence first: penalty, then failed recovery, then more than one chip, then three putts, then trouble off the tee, then the long-game residual. A trouble tee shot you recovered from, followed by three putts, is a three-putt double — the tee shot was already paid for.',
     doubleCausesPenalty:
-        'Penalty doubles split by where the penalty happened: off the tee, on the approach, or around the green. One source is recorded per hole, so a hole with two penalties counts under its main one.',
+        'A penalty double is filed under the phase where the penalty happened: off the tee, on the approach, or around the green. One source is recorded per hole, so a hole with two penalties counts under its main one — and a penalty with no source recorded counts under “Not enough recorded”, because the phase is exactly what was not recorded.',
     doubleCausesLongGame:
-        '“Long game” is the residual — strokes lost to full swings between tee and green. It is only claimed on a hole that recorded enough to rule everything else out: whether you hit the green, how many putts you took, where the tee shot finished on a par 4 or 5, and how hard the chip was when you missed.',
+        '“Full swing” is the long-game residual — strokes lost to full swings between tee and green. It is only claimed on a hole that recorded enough to rule everything else out: whether you hit the green, how many putts you took, where the tee shot finished on a par 4 or 5, and how hard the chip was when you missed.',
     doubleCausesUnattributed:
         '“Not enough recorded” is a double you did not record enough about to name. Those holes are counted, never dropped, and the row shrinks as you record more.',
     bounceBack: 'Holes after a bogey or worse that came back at par or better.',
@@ -246,6 +254,11 @@ export const STATS_COPY = {
  */
 function bar(id: string, title: string, r: Rate): StatsBlock {
     return { kind: 'bar', id, title, share: r.value, value: formatRate(r) };
+}
+
+/** A bar row indented under the group bar above it. Same geometry, shifted title. */
+function subBar(id: string, title: string, r: Rate): StatsBlock {
+    return { kind: 'bar', id, title, share: r.value, value: formatRate(r), sub: true };
 }
 
 /**
@@ -410,9 +423,13 @@ function vsParByTeeRecorded(p: StatsTeePanel): boolean {
 
 /**
  * The reader-facing name of a double's cause — words, never jargon
- * (design-guidelines ruling). One table, used by the scoring block AND by the
- * round screen's per-hole annotation, so a cause is the same word in both
- * places.
+ * (design-guidelines ruling). Used by the round screen's per-hole annotation
+ * ("Mainly from: …"). The scoring block groups the same causes by phase and
+ * takes its words from `doubleCauseGroupTitle` / `doubleCauseSubTitle` below;
+ * every word here appears there too, except that the block refines the
+ * `fullSwing` residual to "Full swing" under a group already titled "Long
+ * game", and files a `penalty` with no recorded source under "Not enough
+ * recorded" (its phase is the thing that was not recorded).
  *
  * "Long game" is the residual's name: strokes lost to full swings between tee
  * and green. The ⓘ card owns the precise definition.
@@ -433,6 +450,48 @@ export function doubleCauseTitle(cause: DoubleCause): string {
             return 'Long game';
         case 'unattributed':
             return 'Not enough recorded';
+    }
+}
+
+/**
+ * The phase-group rows of the doubles block, per the owner's 2026-08-13
+ * ruling. Three of the five are composites; "Three putts" and "Not enough
+ * recorded" keep their cause words as the group title rather than gaining an
+ * indented copy of themselves.
+ */
+export function doubleCauseGroupTitle(id: DoubleCauseGroupId): string {
+    switch (id) {
+        case 'offTee':
+            return 'Off the tee';
+        case 'longGame':
+            return 'Long game';
+        case 'shortGame':
+            return 'Short game';
+        case 'threePutt':
+            return 'Three putts';
+        case 'unattributed':
+            return 'Not enough recorded';
+    }
+}
+
+/**
+ * The mechanism rows inside a group. The three penalty legs all read
+ * "Penalty" — the group above them already says where it happened.
+ */
+export function doubleCauseSubTitle(id: DoubleCauseSubId): string {
+    switch (id) {
+        case 'troubleTee':
+            return 'Trouble off the tee';
+        case 'failedRecovery':
+            return 'Failed recovery';
+        case 'fullSwing':
+            return 'Full swing';
+        case 'multiChip':
+            return 'More than one chip';
+        case 'penaltyTee':
+        case 'penaltyApproach':
+        case 'penaltyShort':
+            return 'Penalty';
     }
 }
 
@@ -804,15 +863,17 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                     'Doubles or worse',
                     formatAverage(p.doubleBogeyPlusPerRound, 2),
                 ),
-                // Where the doubles come from (migration 063). Gated as a GROUP
-                // on the window having a double at all: zero doubles means there
-                // is nothing to explain, and seven "Not recorded" rows would be
-                // a page of apology for a good window. Inside the group all
-                // seven rows always print — a zero row is information ("no
-                // three-putt doubles"), and the block must not change height as
-                // the window changes. Same shape as the results histogram: the
-                // SHARE alone in the value cell, because the seven partition one
-                // denominator the reader was never asked to add up.
+                // Where the doubles come from (migration 063), grouped by
+                // phase of the game (owner ruling, 2026-08-13). Gated as a
+                // WHOLE on the window having a double at all: zero doubles
+                // means there is nothing to explain, and a column of "Not
+                // recorded" rows would be a page of apology for a good window.
+                // Inside the block every group and every sub-row always prints
+                // — a zero row is information ("no three-putt doubles"), and
+                // the block must not change height as the window changes. The
+                // SHARE alone sits in the value cell, because groups and subs
+                // alike partition one denominator the reader was never asked
+                // to add up.
                 ...(p.doubleBogeyPlusHoles > 0
                     ? [
                           {
@@ -820,9 +881,12 @@ export function panelBlocks(id: StatsPanelId, model: StatsDashboardModel): Stats
                               id: 'doubleCausesHead',
                               text: STATS_COPY.doubleCausesHead,
                           },
-                          ...p.doubleCauses.map((row) =>
-                              bar(`dblCause-${row.id}`, doubleCauseTitle(row.id), row.share),
-                          ),
+                          ...p.doubleCauseGroups.flatMap((g) => [
+                              bar(`dblGroup-${g.id}`, doubleCauseGroupTitle(g.id), g.share),
+                              ...g.subs.map((s) =>
+                                  subBar(`dblCause-${s.id}`, doubleCauseSubTitle(s.id), s.share),
+                              ),
+                          ]),
                       ]
                     : []),
                 bar('bounceBack', 'Bounce-back', p.bounceBack),

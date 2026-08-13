@@ -1356,46 +1356,91 @@ export const DOUBLE_CAUSES = [
 ] as const;
 export type DoubleCause = (typeof DOUBLE_CAUSES)[number];
 
-/** One cause row: its count, and its share of the window's double+ holes. */
-export interface DoubleCauseRow {
-    id: DoubleCause;
-    count: number;
-    share: Rate;
-}
+/**
+ * The five phase groups of the doubles block, in DISPLAY order — tee to green
+ * to putter, with the unattributable remainder last. The owner's 2026-08-13
+ * ruling: the block reads by WHERE on the course the double was manufactured,
+ * with the mechanism rows indented under their phase.
+ */
+export const DOUBLE_CAUSE_GROUPS = [
+    'offTee',
+    'longGame',
+    'shortGame',
+    'threePutt',
+    'unattributed',
+] as const;
+export type DoubleCauseGroupId = (typeof DOUBLE_CAUSE_GROUPS)[number];
 
-/** The measure column each cause is counted in. */
-function doubleCauseCount(m: StatMeasures, cause: DoubleCause): number {
-    switch (cause) {
-        case 'penalty':
-            return m.dblPenalty;
-        case 'failedRecovery':
-            return m.dblFailedRecovery;
-        case 'multiChip':
-            return m.dblMultiChip;
-        case 'threePutt':
-            return m.dblThreePutt;
-        case 'troubleTee':
-            return m.dblTroubleTee;
-        case 'fullSwing':
-            return m.dblFullSwing;
-        case 'unattributed':
-            return m.dblUnattributed;
-    }
+/**
+ * A mechanism row inside a group: one of the classifier's causes, or one
+ * penalty-geography leg. The `penalty` cause does not appear as itself — its
+ * four legs are filed under the phase where the penalty happened, which is
+ * what makes the grouping possible at all.
+ */
+export type DoubleCauseSubId =
+    | 'troubleTee'
+    | 'failedRecovery'
+    | 'penaltyTee'
+    | 'fullSwing'
+    | 'penaltyApproach'
+    | 'multiChip'
+    | 'penaltyShort';
+
+export interface DoubleCauseGroup {
+    id: DoubleCauseGroupId;
+    share: Rate;
+    /** The group's mechanism split, in display order. Empty when the group IS one mechanism. */
+    subs: { id: DoubleCauseSubId; share: Rate }[];
 }
 
 /**
- * The seven rows, always all seven, each share over `doubleBogeyPlus`.
+ * The five groups, always all five, every share over `doubleBogeyPlus`.
  *
- * The buckets PARTITION that denominator — every double+ hole carries exactly
- * one cause — so the seven shares add to 100%. At zero doubles every share is
- * `absent` rather than 0%, and the block that draws these is gated on the same
- * denominator.
+ * The groups PARTITION that denominator: the seven causes partition the
+ * doubles, the four `dbl_penalty_*` legs partition the `penalty` cause, and
+ * each leg is filed under its phase — tee under "Off the tee", approach under
+ * "Long game", short-or-green under "Short game". A penalty whose source was
+ * never recorded folds into `unattributed`: the block groups by phase, and
+ * that hole's phase is exactly what was not recorded. (Its round story still
+ * says "Penalty" — the cause IS known, its geography is not.)
+ *
+ * Within a group the subs partition the group total the same way. At zero
+ * doubles every share is `absent` rather than 0%, and the block that draws
+ * these is gated on the same denominator.
  */
-export function doubleCauseRows(m: StatMeasures): DoubleCauseRow[] {
-    return DOUBLE_CAUSES.map((id) => {
-        const count = doubleCauseCount(m, id);
-        return { id, count, share: rate(count, m.doubleBogeyPlus) };
-    });
+export function doubleCauseGroups(m: StatMeasures): DoubleCauseGroup[] {
+    const d = m.doubleBogeyPlus;
+    const sub = (id: DoubleCauseSubId, count: number) => ({ id, share: rate(count, d) });
+    return [
+        {
+            id: 'offTee',
+            share: rate(m.dblTroubleTee + m.dblFailedRecovery + m.dblPenaltyTee, d),
+            subs: [
+                sub('troubleTee', m.dblTroubleTee),
+                sub('failedRecovery', m.dblFailedRecovery),
+                sub('penaltyTee', m.dblPenaltyTee),
+            ],
+        },
+        {
+            id: 'longGame',
+            share: rate(m.dblFullSwing + m.dblPenaltyApproach, d),
+            subs: [
+                sub('fullSwing', m.dblFullSwing),
+                sub('penaltyApproach', m.dblPenaltyApproach),
+            ],
+        },
+        {
+            id: 'shortGame',
+            share: rate(m.dblMultiChip + m.dblPenaltyShort, d),
+            subs: [sub('multiChip', m.dblMultiChip), sub('penaltyShort', m.dblPenaltyShort)],
+        },
+        { id: 'threePutt', share: rate(m.dblThreePutt, d), subs: [] },
+        {
+            id: 'unattributed',
+            share: rate(m.dblUnattributed + m.dblPenaltyUnknown, d),
+            subs: [],
+        },
+    ];
 }
 
 /**

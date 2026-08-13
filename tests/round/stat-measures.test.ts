@@ -30,7 +30,7 @@ import {
     classifyDoubleCause,
     chipInside2mRate,
     doubleBogeyPlusPerRound,
-    doubleCauseRows,
+    doubleCauseGroups,
     extraShortGameStrokes,
     fairwayRate,
     firstPuttMix,
@@ -2627,19 +2627,10 @@ test('the classifier reads its two conventions the way the view does', () => {
     expect(classifyDoubleCause(holeRow({ penalties: 2 }, 6))).toBe('penalty');
 });
 
-test('the seven cause rows partition the doubles, always all seven', () => {
-    const m = measures({
-        doubleBogeyPlus: 10,
-        dblPenalty: 4,
-        dblFailedRecovery: 1,
-        dblMultiChip: 1,
-        dblThreePutt: 2,
-        dblTroubleTee: 0,
-        dblFullSwing: 1,
-        dblUnattributed: 1,
-    });
-    const rows = doubleCauseRows(m);
-    expect(rows.map((r) => r.id)).toEqual([...DOUBLE_CAUSES]);
+test('the five phase groups partition the doubles, penalty legs filed under their phase', () => {
+    // The classifier's priority order is pinned separately; here the seven
+    // causes and the four penalty legs must fold into five groups without a
+    // hole appearing twice or vanishing.
     expect(DOUBLE_CAUSES).toEqual([
         'penalty',
         'failedRecovery',
@@ -2649,17 +2640,65 @@ test('the seven cause rows partition the doubles, always all seven', () => {
         'fullSwing',
         'unattributed',
     ]);
-    expect(rows.map((r) => r.count)).toEqual([4, 1, 1, 2, 0, 1, 1]);
-    // Every share over the SAME denominator, so the seven add to 1 — and the
-    // zero row is a real 0%, not an absence.
-    for (const row of rows) expect(row.share.d).toBe(10);
-    expect(rows.find((r) => r.id === 'penalty')!.share.value).toBe(0.4);
-    expect(rows.find((r) => r.id === 'troubleTee')!.share.value).toBe(0);
-    expect(rows.reduce((sum, r) => sum + (r.share.value ?? 0), 0)).toBeCloseTo(1, 12);
-    // No double in the window: seven rows still, every one of them absent
-    // rather than 0% — the block that draws these is gated on the same
-    // denominator.
-    const empty = doubleCauseRows(ZERO_MEASURES);
-    expect(empty).toHaveLength(7);
-    for (const row of empty) expect(row.share).toEqual({ value: null, n: 0, d: 0 });
+    const m = measures({
+        doubleBogeyPlus: 10,
+        dblPenalty: 4,
+        dblFailedRecovery: 1,
+        dblMultiChip: 1,
+        dblThreePutt: 2,
+        dblTroubleTee: 0,
+        dblFullSwing: 1,
+        dblUnattributed: 1,
+        // The four legs partition dblPenalty, unknown included.
+        dblPenaltyTee: 2,
+        dblPenaltyApproach: 1,
+        dblPenaltyShort: 0,
+        dblPenaltyUnknown: 1,
+    });
+    const groups = doubleCauseGroups(m);
+    expect(groups.map((g) => g.id)).toEqual([
+        'offTee',
+        'longGame',
+        'shortGame',
+        'threePutt',
+        'unattributed',
+    ]);
+    // offTee = trouble 0 + failed recovery 1 + tee penalties 2; longGame =
+    // full swing 1 + approach penalty 1; shortGame = multi-chip 1 + short
+    // penalty 0; threePutt = 2; unattributed = 1 + the sourceless penalty.
+    expect(groups.map((g) => g.share.n)).toEqual([3, 2, 1, 2, 2]);
+    // Every share — groups and subs — over the SAME denominator, so the five
+    // add to 1, and a zero row is a real 0%, not an absence.
+    for (const g of groups) {
+        expect(g.share.d).toBe(10);
+        for (const s of g.subs) expect(s.share.d).toBe(10);
+        // The subs partition their group.
+        if (g.subs.length > 0) {
+            expect(g.subs.reduce((sum, s) => sum + s.share.n, 0)).toBe(g.share.n);
+        }
+    }
+    expect(groups.reduce((sum, g) => sum + (g.share.value ?? 0), 0)).toBeCloseTo(1, 12);
+    // The mechanism split, in display order.
+    expect(groups[0]!.subs.map((s) => [s.id, s.share.n])).toEqual([
+        ['troubleTee', 0],
+        ['failedRecovery', 1],
+        ['penaltyTee', 2],
+    ]);
+    expect(groups[1]!.subs.map((s) => [s.id, s.share.n])).toEqual([
+        ['fullSwing', 1],
+        ['penaltyApproach', 1],
+    ]);
+    expect(groups[2]!.subs.map((s) => [s.id, s.share.n])).toEqual([
+        ['multiChip', 1],
+        ['penaltyShort', 0],
+    ]);
+    // Single-mechanism groups carry no sub-rows — an indented copy of the
+    // group row would say nothing.
+    expect(groups[3]!.subs).toEqual([]);
+    expect(groups[4]!.subs).toEqual([]);
+    // No double in the window: five groups still, every share absent rather
+    // than 0% — the block that draws these is gated on the same denominator.
+    const empty = doubleCauseGroups(ZERO_MEASURES);
+    expect(empty).toHaveLength(5);
+    for (const g of empty) expect(g.share).toEqual({ value: null, n: 0, d: 0 });
 });

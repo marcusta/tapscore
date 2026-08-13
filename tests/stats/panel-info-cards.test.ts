@@ -217,9 +217,10 @@ test('the ladder card names whichever of the four cohorts is selected', () => {
 });
 
 test('the doubles breakdown gets one card, and it explains the priority order', () => {
-    // Seven rows, one card: they share a denominator and a reading order, and
-    // seven near-identical cards would bury the one thing a reader needs — that
-    // a hole lands in the FIRST row that fits.
+    // Five groups and their sub-rows, one card: they share a denominator and
+    // a resolution order, and a card per row would bury the one thing a
+    // reader needs — that a hole gets exactly ONE cause, strongest evidence
+    // first, filed under the phase it happened in.
     const model = buildDashboardModel([
         round(
             measures({
@@ -237,16 +238,18 @@ test('the doubles breakdown gets one card, and it explains the priority order', 
     if (card === undefined) throw new Error('no doubleCauses card');
     // The card is titled with the subhead the rows sit under, word for word.
     expect(card.title).toBe(STATS_COPY.doubleCausesHead);
-    expect(card.body).toContain('lands in the first that fits');
-    // The denominator the seven shares are taken over — the doubles, not the
+    expect(card.body).toContain('checked strongest evidence first');
+    // The denominator the shares are taken over — the doubles, not the
     // holes and not the rounds.
     expect(card.body).toContain('Measured over 5 holes.');
-    // The two rows that need a caveat of their own, and the penalty geography
-    // with its one-source-per-hole limit.
-    expect(card.body).toContain('“Long game” is the residual');
+    // The two rows that need a caveat of their own, and how a penalty double
+    // lands in a phase — one source per hole, sourceless under "Not enough
+    // recorded".
+    expect(card.body).toContain('“Full swing” is the long-game residual');
     expect(card.body).toContain('counted, never dropped');
     expect(card.body).toContain('off the tee, on the approach, or around the green');
     expect(card.body).toContain('One source is recorded per hole');
+    expect(card.body).toContain('a penalty with no source recorded counts under “Not enough recorded”');
     // …and the split itself, LIVE — this sheet is the one surface that shows
     // the four geography numbers, so the sentence must carry the reader's own.
     // The empty legs (around the green, no source) drop rather than read as 0.

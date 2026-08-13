@@ -110,6 +110,17 @@ const barTpl = template(`
     </div>
 `);
 
+// A bar row indented under a group bar (`sub: true`). Same three cells in the
+// same shared geometry — only the title is inset and quietened, so the bars
+// and values still line up down the whole screen.
+const barSubTpl = template(`
+    <div class="block block--bar block--bar-sub">
+        <span bind="title" class="block__title"></span>
+        <span bind="bar" class="block__bar"></span>
+        <span bind="value" class="block__value"></span>
+    </div>
+`);
+
 // `role="img"` + a composed label: the row's three cells are a picture, a
 // percentage and a signed number, and read out one by one they are gibberish
 // ("plus one point two"). `rungReading` says it in words instead.
@@ -267,6 +278,14 @@ ${SG_INFO_STYLES}
                 font-size: 0.9rem; font-weight: 700;
                 font-variant-numeric: tabular-nums;
                 &.block__value--absent { font-weight: 400; color: ${t('text-muted')}; }
+            }
+            /* A mechanism row under its phase group: the title steps in and
+               quietens, the value drops its weight so the group totals stay
+               the headline — the bar and value columns do NOT move, keeping
+               the one shared geometry. */
+            & .block--bar-sub {
+                & .block__title { padding-left: ${s('md')}; font-size: 0.85rem; color: ${t('text-muted')}; }
+                & .block__value { font-weight: 400; }
             }
             /* Quieter than the value beside it, deliberately: Holed is the
                row's headline reading and Cost is the gloss on it. Same size
@@ -486,7 +505,7 @@ ${SG_INFO_STYLES}
             }
             case 'bar':
                 return this.wireEl(
-                    barTpl,
+                    block.sub ? barSubTpl : barTpl,
                     {
                         title: () => block.title,
                         bar: {

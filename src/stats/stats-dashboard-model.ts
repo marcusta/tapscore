@@ -27,7 +27,7 @@ import {
     DEFAULT_SG_BASELINE,
     difficultyMix,
     doubleBogeyPlusPerRound,
-    doubleCauseRows,
+    doubleCauseGroups,
     extraShortGameStrokes,
     fairwayRate,
     firstPuttMix,
@@ -76,7 +76,7 @@ import {
     type ByParGroup,
     type ByTee,
     type ChipOutcomes,
-    type DoubleCauseRow,
+    type DoubleCauseGroup,
     type GreenMissDispersion,
     type PenaltySourceSplit,
     type PenaltySplit,
@@ -391,11 +391,14 @@ export interface StatsScoringPanel {
     avgVsParByParGroup: ByParGroup<Rate>;
     doubleBogeyPlusPerRound: Rate;
     /**
-     * Where the doubles come from (migration 063): the seven cause rows, always
-     * all seven, each share over `doubleBogeyPlusHoles`. The buckets partition
-     * that denominator, so the shares add to 100%.
+     * Where the doubles come from (migration 063), grouped by phase of the
+     * game (owner ruling, 2026-08-13): five groups, always all five, each
+     * share over `doubleBogeyPlusHoles`. The groups partition that denominator
+     * — penalty doubles are filed under the phase where the penalty happened —
+     * so the shares add to 100%, and within a group the subs partition the
+     * group.
      */
-    doubleCauses: DoubleCauseRow[];
+    doubleCauseGroups: DoubleCauseGroup[];
     /**
      * The block's own gate and the rows' denominator — holes at double bogey or
      * worse in the window. Zero doubles means there is nothing to explain.
@@ -779,7 +782,7 @@ export function scoringPanel(m: StatMeasures, roundCount: number): StatsScoringP
     return {
         avgVsParByParGroup: avgVsParByParGroup(m),
         doubleBogeyPlusPerRound: doubleBogeyPlusPerRound(m, roundCount),
-        doubleCauses: doubleCauseRows(m),
+        doubleCauseGroups: doubleCauseGroups(m),
         doubleBogeyPlusHoles: m.doubleBogeyPlus,
         penaltyDoubleSources: {
             tee: m.dblPenaltyTee,

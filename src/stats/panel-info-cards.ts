@@ -372,17 +372,17 @@ export function panelInfoCards(
                         measuredOver(p.doubleBogeyPlusPerRound.d, UNIT_ROUNDS),
                     ),
                 ),
-                // ONE card for the seven cause rows: they share a denominator
-                // and a priority order, so one explanation serves them all.
-                // Order fixed by the proposal (§4.3): what the block is, the
-                // priority order and why, the denominator, then the two rows
-                // that need a caveat of their own — "Long game" (claimed only
-                // on a fully recorded hole) and "Not enough recorded" (counted,
-                // never dropped). The penalty geography detail rides along,
-                // one-source-per-hole caveat included, and the split itself is
-                // stated LIVE — the only surface that shows those four numbers,
-                // per the ⓘ ruling that a sheet is about the player, not about
-                // the feature.
+                // ONE card for the whole grouped block: groups and sub-rows
+                // share a denominator and a priority order, so one explanation
+                // serves them all. Order per the proposal (§4.3): what the
+                // block is, the priority order and why, the denominator, then
+                // the two rows that need a caveat of their own — "Full swing"
+                // (the residual, claimed only on a fully recorded hole) and
+                // "Not enough recorded" (counted, never dropped). The penalty
+                // sentence explains how a penalty double lands in a phase, and
+                // the split itself is stated LIVE — the only surface that adds
+                // the four geography numbers up, per the ⓘ ruling that a sheet
+                // is about the player, not about the feature.
                 ...(p.doubleBogeyPlusHoles > 0
                     ? [
                           card(
