@@ -175,6 +175,7 @@ export type ScoringMode =
     | 'taliban'
     | 'umbrella'
     | 'skins'
+    | 'fairways_greens'
     | 'custom';
 export type TeamShape =
     | 'individual'

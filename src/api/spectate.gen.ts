@@ -43,7 +43,7 @@ export interface FormatSlot {
     slotIndex: number;
     slotDefId: string;
     formatId: string;
-    scoringMode: 'custom' | 'stroke_play' | 'stableford' | 'match_play' | 'kopenhamnare' | 'taliban' | 'umbrella' | 'skins';
+    scoringMode: 'custom' | 'stroke_play' | 'stableford' | 'match_play' | 'kopenhamnare' | 'taliban' | 'umbrella' | 'skins' | 'fairways_greens';
     teamShape: 'custom' | 'individual' | 'better_ball' | 'four_ball';
     allowancePct: number;
     allowanceConfig: { type: 'flat'; pct: number } | { type: 'split'; bands: ({ upToCh: null | number; pct: number })[] };

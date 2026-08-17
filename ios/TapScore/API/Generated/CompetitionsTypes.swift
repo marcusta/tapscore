@@ -1631,6 +1631,7 @@ enum ScoringMode: String, Codable, Sendable, Equatable {
     case taliban = "taliban"
     case umbrella = "umbrella"
     case skins = "skins"
+    case fairwaysGreens = "fairways_greens"
 }
 
 enum TeamShape: String, Codable, Sendable, Equatable {
