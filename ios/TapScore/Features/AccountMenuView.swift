@@ -22,6 +22,8 @@ struct AccountSheetRows: Equatable {
     let showsConnectApple: Bool
     /// The dev-server override screen.
     let showsServer: Bool
+    /// This device's failed API calls, verbatim (`DiagnosticsView`).
+    let showsDiagnostics: Bool
 
     /// - Parameters:
     ///   - isSuperAdmin: from `AppEnvironment.probeRolesIfNeeded()`; every
@@ -38,6 +40,7 @@ struct AccountSheetRows: Equatable {
     ) {
         self.showsAdmin = isSuperAdmin
         self.showsServer = isSuperAdmin
+        self.showsDiagnostics = isSuperAdmin
         self.showsConnectApple = credentials.offersAppleLink && !appleLinkedThisSession
     }
 }
@@ -217,6 +220,7 @@ struct AccountSheetView: View {
     @State private var showsServerSettings = false
     @State private var showsAdmin = false
     @State private var showsProfile = false
+    @State private var showsDiagnostics = false
 
     init(player: Player, onOpenProfile: (() -> Void)? = nil) {
         self.player = player
@@ -245,6 +249,7 @@ struct AccountSheetView: View {
                         .foregroundStyle(TapColors.textMuted)
                 }
                 if rows.showsServer { serverRow }
+                if rows.showsDiagnostics { diagnosticsRow }
 
                 if let problem {
                     Text(problem)
@@ -275,6 +280,9 @@ struct AccountSheetView: View {
         }
         .sheet(isPresented: $showsAdmin) {
             AdminHomeView()
+        }
+        .sheet(isPresented: $showsDiagnostics) {
+            DiagnosticsView()
         }
         .sheet(isPresented: $showsProfile) {
             ProfileView()
@@ -394,6 +402,18 @@ struct AccountSheetView: View {
             detail: environment.configuration.baseURL.absoluteString,
             identifier: "server-settings-row"
         ) { showsServerSettings = true }
+    }
+
+    /// Same grant, same absence rule as the other operator rows. The screen
+    /// behind it is where the real API errors live — the player-facing copy
+    /// stays vague on purpose, so the only way to read the mechanism is this
+    /// row, and the only account that gets the row is an operator's.
+    private var diagnosticsRow: some View {
+        row(
+            title: "Diagnostics",
+            detail: "Failed API calls on this device",
+            identifier: "diagnostics-row"
+        ) { showsDiagnostics = true }
     }
 
     private func row(

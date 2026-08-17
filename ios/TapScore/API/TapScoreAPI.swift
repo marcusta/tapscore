@@ -31,17 +31,29 @@ actor TapScoreAPI {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
     private let tokenProvider: TokenProvider
+    private let diagnostics: APIDiagnostics
 
     init(
         configuration: APIConfiguration,
         session: URLSession = .shared,
-        tokenProvider: @escaping TokenProvider = { nil }
+        tokenProvider: @escaping TokenProvider = { nil },
+        diagnostics: APIDiagnostics = .shared
     ) {
         self.configuration = configuration
         self.session = session
         self.decoder = JSONDecoder()
         self.encoder = JSONEncoder()
         self.tokenProvider = tokenProvider
+        self.diagnostics = diagnostics
+    }
+
+    /// Every `APIError` this client throws passes through here on the way out,
+    /// so the Diagnostics screen sees exactly what the caller saw. Recording
+    /// is the transport's job for the same reason bearer injection is (seam
+    /// rule 1): one implementation, nothing to drift from.
+    private func recorded(_ error: APIError, method: String, path: String) -> APIError {
+        diagnostics.record(method: method, path: path, error: error)
+        return error
     }
 
     // MARK: - Implemented probe
@@ -73,7 +85,7 @@ actor TapScoreAPI {
         } catch let error as APIError {
             throw error
         } catch {
-            throw APIError.decoding("\(Player.self): \(error)")
+            throw recorded(.decoding("\(Player.self): \(error)"), method: "GET", path: "players/me")
         }
     }
 
@@ -119,7 +131,7 @@ actor TapScoreAPI {
         do {
             return try decoder.decode(T.self, from: data)
         } catch {
-            throw APIError.decoding("\(T.self): \(error)")
+            throw recorded(.decoding("\(T.self): \(error)"), method: method, path: path)
         }
     }
 
@@ -155,7 +167,7 @@ actor TapScoreAPI {
         }
         if !items.isEmpty { components?.queryItems = items.sorted { $0.name < $1.name } }
         guard let url = components?.url else {
-            throw APIError.network("Could not build a URL for \(path)")
+            throw recorded(.network("Could not build a URL for \(path)"), method: method, path: path)
         }
 
         var urlRequest = URLRequest(url: url)
@@ -180,18 +192,22 @@ actor TapScoreAPI {
         do {
             (data, response) = try await session.data(for: urlRequest)
         } catch {
-            throw APIError.network(error.localizedDescription)
+            throw recorded(.network(error.localizedDescription), method: method, path: path)
         }
         guard let http = response as? HTTPURLResponse else {
-            throw APIError.network("Response was not HTTP")
+            throw recorded(.network("Response was not HTTP"), method: method, path: path)
         }
         switch http.statusCode {
         case 200..<300:
             return data
         case 401:
-            throw APIError.unauthorized
+            throw recorded(.unauthorized, method: method, path: path)
         default:
-            throw APIError.server(code: http.statusCode, message: Self.errorMessage(from: data))
+            throw recorded(
+                .server(code: http.statusCode, message: Self.errorMessage(from: data)),
+                method: method,
+                path: path
+            )
         }
     }
 
@@ -300,7 +316,11 @@ actor TapScoreAPI {
         do {
             return try decoder.decode(Output.self, from: data)
         } catch {
-            throw APIError.decoding("\(Output.self): \(error)")
+            throw recorded(
+                .decoding("\(Output.self): \(error)"),
+                method: endpoint.method.rawValue,
+                path: relativePath
+            )
         }
     }
 

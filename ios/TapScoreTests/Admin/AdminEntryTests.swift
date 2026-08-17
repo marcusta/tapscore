@@ -84,7 +84,8 @@ final class AdminEntryTests: XCTestCase {
         XCTAssertTrue(environment.isSuperAdmin)
         let rows = AccountSheetRows(isSuperAdmin: environment.isSuperAdmin)
         XCTAssertTrue(rows.showsAdmin)
-        XCTAssertTrue(rows.showsServer, "Both operator rows answer to the same grant.")
+        XCTAssertTrue(rows.showsServer, "All operator rows answer to the same grant.")
+        XCTAssertTrue(rows.showsDiagnostics, "All operator rows answer to the same grant.")
     }
 
     @MainActor
@@ -112,6 +113,7 @@ final class AdminEntryTests: XCTestCase {
         let rows = AccountSheetRows(isSuperAdmin: environment.isSuperAdmin)
         XCTAssertFalse(rows.showsAdmin)
         XCTAssertFalse(rows.showsServer)
+        XCTAssertFalse(rows.showsDiagnostics)
     }
 
     /// Every failure direction means "not an admin", silently — a 403 from the
@@ -139,6 +141,7 @@ final class AdminEntryTests: XCTestCase {
         let rows = AccountSheetRows(isSuperAdmin: false)
         XCTAssertFalse(rows.showsAdmin)
         XCTAssertFalse(rows.showsServer)
+        XCTAssertFalse(rows.showsDiagnostics)
     }
 
     // MARK: - The identity framing
