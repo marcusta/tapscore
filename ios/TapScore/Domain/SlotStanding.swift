@@ -58,6 +58,11 @@ func slotStanding(forBallId ballId: String, in view: SlotResultView) -> SlotStan
             }
             let up = leader == own
             let magnitude = jsNumberString(panel.magnitude)
+            // Closed-out match: the row reads the final scoreline ("4&3")
+            // on both sides — colour still says who won.
+            if panel.finished, let remaining = panel.closeOutRemaining {
+                return .match(text: "\(magnitude)&\(jsNumberString(remaining))", up: up)
+            }
             return .match(text: "\(magnitude) \(up ? "UP" : "DN")", up: up)
         }
     }

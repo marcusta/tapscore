@@ -166,6 +166,29 @@ test('match panel: own side reads UP, the other DN, level reads AS', () => {
         ]),
     );
     expect(level.slotStandingFor(ball('a1'))).toEqual({ kind: 'match', text: 'AS', tone: 'even' });
+
+    // Closed out early: both sides read the final scoreline; tone says who won.
+    const closed = svcWith(
+        resultWith([
+            {
+                kind: 'match_summary',
+                title: 'Match results',
+                matches: [
+                    {
+                        sideA: { ballIds: ['a1'] },
+                        sideB: { ballIds: ['b1'] },
+                        leader: 'a',
+                        magnitude: 4,
+                        finished: true,
+                        thru: 15,
+                        closeOutRemaining: 3,
+                    },
+                ],
+            },
+        ]),
+    );
+    expect(closed.slotStandingFor(ball('a1'))).toEqual({ kind: 'match', text: '4&3', tone: 'under' });
+    expect(closed.slotStandingFor(ball('b1'))).toEqual({ kind: 'match', text: '4&3', tone: 'over' });
 });
 
 test('null fallbacks: no result, unknown ball, null total, undecided match', () => {

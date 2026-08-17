@@ -982,7 +982,11 @@ func layoutMatchSummary(_ section: MatchSummarySection, _ nameOf: NameOf) -> Mat
                 sideAName: m.sideA.ballIds.map { nameOf($0) }.joined(separator: NAME_JOINER),
                 sideBName: m.sideB.ballIds.map { nameOf($0) }.joined(separator: NAME_JOINER),
                 leader: m.leader,
-                standing: m.magnitude == 0 ? "AS" : "\(jsNumberString(m.magnitude)) UP",
+                standing: m.magnitude == 0
+                    ? "AS"
+                    : m.finished && m.closeOutRemaining != nil
+                        ? "\(jsNumberString(m.magnitude)) & \(jsNumberString(m.closeOutRemaining!))"
+                        : "\(jsNumberString(m.magnitude)) UP",
                 status: m.finished ? "Final" : "thru \(jsNumberString(m.thru))"
             )
         }

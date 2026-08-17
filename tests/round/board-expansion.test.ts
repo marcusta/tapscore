@@ -162,7 +162,7 @@ test('with no ranked board at all, every card stays standalone', () => {
         kind: 'match_summary',
         title: 'Match',
         matches: [
-            { sideA: { ballIds: ['a'] }, sideB: { ballIds: ['b'] }, leader: null, magnitude: 0, finished: false, thru: 9 },
+            { sideA: { ballIds: ['a'] }, sideB: { ballIds: ['b'] }, leader: null, magnitude: 0, finished: false, thru: 9, closeOutRemaining: null },
         ],
     };
     const plan = planBoard(slot({ leaderboard: [ms], cards: [card(['a'])] }));

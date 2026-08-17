@@ -914,7 +914,8 @@
             "leader": "a",
             "magnitude": 6,
             "finished": true,
-            "thru": 18
+            "thru": 18,
+            "closeOutRemaining": null
           }
         ]
       }

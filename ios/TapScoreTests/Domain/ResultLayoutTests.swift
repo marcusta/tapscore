@@ -560,6 +560,15 @@ final class ResultLayoutTests: XCTestCase {
                     finished: true,
                     thru: 16
                 ),
+                MatchPanel(
+                    sideA: MatchPanelSideA(ballIds: ["a"]),
+                    sideB: MatchPanelSideA(ballIds: ["b"]),
+                    leader: .b,
+                    magnitude: 3,
+                    finished: true,
+                    thru: 16,
+                    closeOutRemaining: 2
+                ),
             ]
         )
         let layout = layoutMatchSummary(section, nameOf)
@@ -578,6 +587,9 @@ final class ResultLayoutTests: XCTestCase {
         XCTAssertEqual(layout.matches[1].sideAName, "name:a & name:b")
         XCTAssertEqual(layout.matches[1].standing, "3 UP")
         XCTAssertEqual(layout.matches[1].status, "Final")
+        // Closed out early → the golf scoreline, never a still-running lead.
+        XCTAssertEqual(layout.matches[2].standing, "3 & 2")
+        XCTAssertEqual(layout.matches[2].status, "Final")
     }
 
     // --- card attachment ----------------------------------------------------

@@ -889,6 +889,15 @@ export class RoundViewService {
                 if (panel.leader === null || panel.magnitude === 0) {
                     return { kind: 'match', text: 'AS', tone: 'even' };
                 }
+                // Closed-out match: the row reads the final scoreline ("4&3")
+                // on both sides — colour still says who won.
+                if (panel.finished && panel.closeOutRemaining !== null) {
+                    return {
+                        kind: 'match',
+                        text: `${panel.magnitude}&${panel.closeOutRemaining}`,
+                        tone: panel.leader === own ? 'under' : 'over',
+                    };
+                }
                 const up = panel.leader === own;
                 return {
                     kind: 'match',

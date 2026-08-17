@@ -91,6 +91,23 @@ final class SlotStandingTests: XCTestCase {
             ))
         ])
         XCTAssertEqual(slotStanding(forBallId: "a1", in: level), .match(text: "AS", up: nil))
+
+        // Closed out early: both sides read the final scoreline; `up` says who won.
+        let closed = view([
+            .matchSummary(MatchSummarySection(
+                title: "Match results",
+                matches: [
+                    MatchPanel(
+                        sideA: MatchPanelSideA(ballIds: ["a1"]),
+                        sideB: MatchPanelSideA(ballIds: ["b1"]),
+                        leader: .a, magnitude: 4, finished: true, thru: 15,
+                        closeOutRemaining: 3
+                    )
+                ]
+            ))
+        ])
+        XCTAssertEqual(slotStanding(forBallId: "a1", in: closed), .match(text: "4&3", up: true))
+        XCTAssertEqual(slotStanding(forBallId: "b1", in: closed), .match(text: "4&3", up: false))
     }
 
     /// TS: `null fallbacks: no result, unknown ball, null total, undecided match`

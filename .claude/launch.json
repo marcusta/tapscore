@@ -9,6 +9,14 @@
       "autoPort": true
     },
     {
+      "name": "tapscore-server-fixtures",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["--watch", "server/main.ts"],
+      "port": 3030,
+      "autoPort": true,
+      "env": { "DB_PATH": "tmp/manual-format-fixtures.sqlite" }
+    },
+    {
       "name": "tapscore-client",
       "runtimeExecutable": "bunx",
       "runtimeArgs": ["vite", "--port", "5183", "--strictPort"],

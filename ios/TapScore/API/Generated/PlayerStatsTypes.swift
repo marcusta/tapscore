@@ -607,6 +607,17 @@ struct StatMeasures: Codable, Sendable, Equatable {
     var strokesVsParMissHard: Double
     var holesScoredMissBunker: Double
     var strokesVsParMissBunker: Double
+    var dblPenalty: Double
+    var dblFailedRecovery: Double
+    var dblMultiChip: Double
+    var dblThreePutt: Double
+    var dblTroubleTee: Double
+    var dblFullSwing: Double
+    var dblUnattributed: Double
+    var dblPenaltyTee: Double
+    var dblPenaltyApproach: Double
+    var dblPenaltyShort: Double
+    var dblPenaltyUnknown: Double
 
     enum CodingKeys: String, CodingKey {
         case teeRecorded = "teeRecorded"
@@ -812,9 +823,20 @@ struct StatMeasures: Codable, Sendable, Equatable {
         case strokesVsParMissHard = "strokesVsParMissHard"
         case holesScoredMissBunker = "holesScoredMissBunker"
         case strokesVsParMissBunker = "strokesVsParMissBunker"
+        case dblPenalty = "dblPenalty"
+        case dblFailedRecovery = "dblFailedRecovery"
+        case dblMultiChip = "dblMultiChip"
+        case dblThreePutt = "dblThreePutt"
+        case dblTroubleTee = "dblTroubleTee"
+        case dblFullSwing = "dblFullSwing"
+        case dblUnattributed = "dblUnattributed"
+        case dblPenaltyTee = "dblPenaltyTee"
+        case dblPenaltyApproach = "dblPenaltyApproach"
+        case dblPenaltyShort = "dblPenaltyShort"
+        case dblPenaltyUnknown = "dblPenaltyUnknown"
     }
 
-    init(teeRecorded: Double, fairwayHits: Double, inPlayHits: Double, troubleCount: Double, teeMissRecorded: Double, teeMissLeft: Double, teeMissRight: Double, teeTroubleLeft: Double, teeTroubleRight: Double, girRecorded: Double, girHits: Double, greenMissRecorded: Double, greenMissLong: Double, greenMissShort: Double, greenMissLeft: Double, greenMissRight: Double, firstPuttRecorded: Double, firstPuttInside1m: Double, firstPutt1To2m: Double, firstPutt2To4m: Double, firstPutt4To8m: Double, firstPuttOver8m: Double, firstPuttInside1mResolved: Double, firstPutt1To2mResolved: Double, firstPutt2To4mResolved: Double, firstPutt4To8mResolved: Double, firstPuttOver8mResolved: Double, onePuttInside1m: Double, onePutt1To2m: Double, onePutt2To4m: Double, onePutt4To8m: Double, onePuttOver8m: Double, puttsRecorded: Double, puttsTotal: Double, threePutts: Double, threePuttsFromOver8m: Double, scrambleAttemptsStandard: Double, scrambleSuccessesStandard: Double, scrambleAttemptsHard: Double, scrambleSuccessesHard: Double, scrambleFirstPuttStandard: Double, scrambleInside2mStandard: Double, scrambleFirstPuttHard: Double, scrambleInside2mHard: Double, scrambleHoledStandard: Double, scrambleHoledHard: Double, scrambleAttemptsBunker: Double, scrambleSuccessesBunker: Double, scrambleFirstPuttBunker: Double, scrambleInside2mBunker: Double, scrambleHoledBunker: Double, shortGameStrokesRecorded: Double, shortGameStrokesEffective: Double, shortGameStrokesEffectiveStandard: Double, shortGameStrokesEffectiveHard: Double, shortGameStrokesEffectiveBunker: Double, holesMultiChip: Double, holesMultiChipBunker: Double, penaltiesRecorded: Double, penaltiesTotal: Double, recoveryAttempts: Double, recoverySuccesses: Double, penaltySourceRecorded: Double, penaltiesTee: Double, penaltiesApproach: Double, penaltiesShort: Double, holesScored: Double, strokesTotal: Double, parTotal: Double, holesScoredPar3: Double, strokesPar3: Double, holesScoredPar4: Double, strokesPar4: Double, holesScoredPar5: Double, strokesPar5: Double, holesEagleOrBetter: Double, holesBirdie: Double, holesPar: Double, holesBogey: Double, doubleBogeyPlus: Double, girHolesScored: Double, birdiesOnGir: Double, bounceBackOpportunities: Double, bounceBackSuccesses: Double, holesScoredFairway: Double, strokesVsParFairway: Double, holesScoredInPlay: Double, strokesVsParInPlay: Double, holesScoredTrouble: Double, strokesVsParTrouble: Double, girRecordedFairway: Double, girHitsFairway: Double, girRecordedInPlay: Double, girHitsInPlay: Double, girRecordedTrouble: Double, girHitsTrouble: Double, girFirstPuttRecorded: Double, girFirstPuttInside1m: Double, girFirstPutt1To2m: Double, girFirstPutt2To4m: Double, girFirstPutt4To8m: Double, girFirstPuttOver8m: Double, puttsRecordedGir: Double, puttsTotalGir: Double, puttsTotalInside1mResolved: Double, puttsTotal1To2mResolved: Double, puttsTotal2To4mResolved: Double, puttsTotal4To8mResolved: Double, puttsTotalOver8mResolved: Double, strokesVsParGirHit: Double, holesScoredGirMiss: Double, strokesVsParGirMiss: Double, girRecordedPar3: Double, girHitsPar3: Double, girRecordedPar4: Double, girHitsPar4: Double, girRecordedPar5: Double, girHitsPar5: Double, holesZeroPutt: Double, holesOnePutt: Double, holesTwoPutt: Double, puttsRecordedPar3: Double, puttsTotalPar3: Double, puttsRecordedPar4: Double, puttsTotalPar4: Double, puttsRecordedPar5: Double, puttsTotalPar5: Double, holesWithPenalty: Double, holesScoredPenalty: Double, strokesVsParPenalty: Double, holesScoredPenaltyFree: Double, strokesVsParPenaltyFree: Double, teeRecordedPar4: Double, fairwayHitsPar4: Double, inPlayHitsPar4: Double, troubleCountPar4: Double, teeRecordedPar5: Double, fairwayHitsPar5: Double, inPlayHitsPar5: Double, troubleCountPar5: Double, attHolesPar3Gir: Double, attHolesPar3Miss: Double, attHolesPar45Gir: Double, attHolesPar45Miss: Double, attStrokes: Double, attPutts: Double, attPenalties: Double, attFairwayPar4: Double, attInPlayPar4: Double, attTroublePar4: Double, attFairwayPar5: Double, attInPlayPar5: Double, attTroublePar5: Double, attGirFirstPuttInside1m: Double, attGirFirstPutt1To2m: Double, attGirFirstPutt2To4m: Double, attGirFirstPutt4To8m: Double, attGirFirstPuttOver8m: Double, attGirHoled: Double, attMissStandard: Double, attMissHard: Double, attChipInside2mStandard: Double, attChipOutside2mStandard: Double, attChipHoledStandard: Double, attChipInside2mHard: Double, attChipOutside2mHard: Double, attChipHoledHard: Double, attMissBunker: Double, attChipInside2mBunker: Double, attChipOutside2mBunker: Double, attChipHoledBunker: Double, attSgStrokesEffectiveStandard: Double, attSgStrokesEffectiveHard: Double, attSgStrokesEffectiveBunker: Double, scrambleSingleChipStandard: Double, scrambleChipInStandard: Double, scrambleChipOnePuttStandard: Double, scrambleChipTwoPuttStandard: Double, scrambleChipThreePuttStandard: Double, scrambleSingleChipHard: Double, scrambleChipInHard: Double, scrambleChipOnePuttHard: Double, scrambleChipTwoPuttHard: Double, scrambleChipThreePuttHard: Double, scrambleSingleChipBunker: Double, scrambleChipInBunker: Double, scrambleChipOnePuttBunker: Double, scrambleChipTwoPuttBunker: Double, scrambleChipThreePuttBunker: Double, holesMultiChipStandard: Double, holesMultiChipHard: Double, scrambleInside2mResolvedStandard: Double, scrambleInside2mSavedStandard: Double, scrambleInside2mResolvedHard: Double, scrambleInside2mSavedHard: Double, scrambleInside2mResolvedBunker: Double, scrambleInside2mSavedBunker: Double, holesScoredMissStandard: Double, strokesVsParMissStandard: Double, holesScoredMissHard: Double, strokesVsParMissHard: Double, holesScoredMissBunker: Double, strokesVsParMissBunker: Double) {
+    init(teeRecorded: Double, fairwayHits: Double, inPlayHits: Double, troubleCount: Double, teeMissRecorded: Double, teeMissLeft: Double, teeMissRight: Double, teeTroubleLeft: Double, teeTroubleRight: Double, girRecorded: Double, girHits: Double, greenMissRecorded: Double, greenMissLong: Double, greenMissShort: Double, greenMissLeft: Double, greenMissRight: Double, firstPuttRecorded: Double, firstPuttInside1m: Double, firstPutt1To2m: Double, firstPutt2To4m: Double, firstPutt4To8m: Double, firstPuttOver8m: Double, firstPuttInside1mResolved: Double, firstPutt1To2mResolved: Double, firstPutt2To4mResolved: Double, firstPutt4To8mResolved: Double, firstPuttOver8mResolved: Double, onePuttInside1m: Double, onePutt1To2m: Double, onePutt2To4m: Double, onePutt4To8m: Double, onePuttOver8m: Double, puttsRecorded: Double, puttsTotal: Double, threePutts: Double, threePuttsFromOver8m: Double, scrambleAttemptsStandard: Double, scrambleSuccessesStandard: Double, scrambleAttemptsHard: Double, scrambleSuccessesHard: Double, scrambleFirstPuttStandard: Double, scrambleInside2mStandard: Double, scrambleFirstPuttHard: Double, scrambleInside2mHard: Double, scrambleHoledStandard: Double, scrambleHoledHard: Double, scrambleAttemptsBunker: Double, scrambleSuccessesBunker: Double, scrambleFirstPuttBunker: Double, scrambleInside2mBunker: Double, scrambleHoledBunker: Double, shortGameStrokesRecorded: Double, shortGameStrokesEffective: Double, shortGameStrokesEffectiveStandard: Double, shortGameStrokesEffectiveHard: Double, shortGameStrokesEffectiveBunker: Double, holesMultiChip: Double, holesMultiChipBunker: Double, penaltiesRecorded: Double, penaltiesTotal: Double, recoveryAttempts: Double, recoverySuccesses: Double, penaltySourceRecorded: Double, penaltiesTee: Double, penaltiesApproach: Double, penaltiesShort: Double, holesScored: Double, strokesTotal: Double, parTotal: Double, holesScoredPar3: Double, strokesPar3: Double, holesScoredPar4: Double, strokesPar4: Double, holesScoredPar5: Double, strokesPar5: Double, holesEagleOrBetter: Double, holesBirdie: Double, holesPar: Double, holesBogey: Double, doubleBogeyPlus: Double, girHolesScored: Double, birdiesOnGir: Double, bounceBackOpportunities: Double, bounceBackSuccesses: Double, holesScoredFairway: Double, strokesVsParFairway: Double, holesScoredInPlay: Double, strokesVsParInPlay: Double, holesScoredTrouble: Double, strokesVsParTrouble: Double, girRecordedFairway: Double, girHitsFairway: Double, girRecordedInPlay: Double, girHitsInPlay: Double, girRecordedTrouble: Double, girHitsTrouble: Double, girFirstPuttRecorded: Double, girFirstPuttInside1m: Double, girFirstPutt1To2m: Double, girFirstPutt2To4m: Double, girFirstPutt4To8m: Double, girFirstPuttOver8m: Double, puttsRecordedGir: Double, puttsTotalGir: Double, puttsTotalInside1mResolved: Double, puttsTotal1To2mResolved: Double, puttsTotal2To4mResolved: Double, puttsTotal4To8mResolved: Double, puttsTotalOver8mResolved: Double, strokesVsParGirHit: Double, holesScoredGirMiss: Double, strokesVsParGirMiss: Double, girRecordedPar3: Double, girHitsPar3: Double, girRecordedPar4: Double, girHitsPar4: Double, girRecordedPar5: Double, girHitsPar5: Double, holesZeroPutt: Double, holesOnePutt: Double, holesTwoPutt: Double, puttsRecordedPar3: Double, puttsTotalPar3: Double, puttsRecordedPar4: Double, puttsTotalPar4: Double, puttsRecordedPar5: Double, puttsTotalPar5: Double, holesWithPenalty: Double, holesScoredPenalty: Double, strokesVsParPenalty: Double, holesScoredPenaltyFree: Double, strokesVsParPenaltyFree: Double, teeRecordedPar4: Double, fairwayHitsPar4: Double, inPlayHitsPar4: Double, troubleCountPar4: Double, teeRecordedPar5: Double, fairwayHitsPar5: Double, inPlayHitsPar5: Double, troubleCountPar5: Double, attHolesPar3Gir: Double, attHolesPar3Miss: Double, attHolesPar45Gir: Double, attHolesPar45Miss: Double, attStrokes: Double, attPutts: Double, attPenalties: Double, attFairwayPar4: Double, attInPlayPar4: Double, attTroublePar4: Double, attFairwayPar5: Double, attInPlayPar5: Double, attTroublePar5: Double, attGirFirstPuttInside1m: Double, attGirFirstPutt1To2m: Double, attGirFirstPutt2To4m: Double, attGirFirstPutt4To8m: Double, attGirFirstPuttOver8m: Double, attGirHoled: Double, attMissStandard: Double, attMissHard: Double, attChipInside2mStandard: Double, attChipOutside2mStandard: Double, attChipHoledStandard: Double, attChipInside2mHard: Double, attChipOutside2mHard: Double, attChipHoledHard: Double, attMissBunker: Double, attChipInside2mBunker: Double, attChipOutside2mBunker: Double, attChipHoledBunker: Double, attSgStrokesEffectiveStandard: Double, attSgStrokesEffectiveHard: Double, attSgStrokesEffectiveBunker: Double, scrambleSingleChipStandard: Double, scrambleChipInStandard: Double, scrambleChipOnePuttStandard: Double, scrambleChipTwoPuttStandard: Double, scrambleChipThreePuttStandard: Double, scrambleSingleChipHard: Double, scrambleChipInHard: Double, scrambleChipOnePuttHard: Double, scrambleChipTwoPuttHard: Double, scrambleChipThreePuttHard: Double, scrambleSingleChipBunker: Double, scrambleChipInBunker: Double, scrambleChipOnePuttBunker: Double, scrambleChipTwoPuttBunker: Double, scrambleChipThreePuttBunker: Double, holesMultiChipStandard: Double, holesMultiChipHard: Double, scrambleInside2mResolvedStandard: Double, scrambleInside2mSavedStandard: Double, scrambleInside2mResolvedHard: Double, scrambleInside2mSavedHard: Double, scrambleInside2mResolvedBunker: Double, scrambleInside2mSavedBunker: Double, holesScoredMissStandard: Double, strokesVsParMissStandard: Double, holesScoredMissHard: Double, strokesVsParMissHard: Double, holesScoredMissBunker: Double, strokesVsParMissBunker: Double, dblPenalty: Double, dblFailedRecovery: Double, dblMultiChip: Double, dblThreePutt: Double, dblTroubleTee: Double, dblFullSwing: Double, dblUnattributed: Double, dblPenaltyTee: Double, dblPenaltyApproach: Double, dblPenaltyShort: Double, dblPenaltyUnknown: Double) {
         self.teeRecorded = teeRecorded
         self.fairwayHits = fairwayHits
         self.inPlayHits = inPlayHits
@@ -1018,6 +1040,17 @@ struct StatMeasures: Codable, Sendable, Equatable {
         self.strokesVsParMissHard = strokesVsParMissHard
         self.holesScoredMissBunker = holesScoredMissBunker
         self.strokesVsParMissBunker = strokesVsParMissBunker
+        self.dblPenalty = dblPenalty
+        self.dblFailedRecovery = dblFailedRecovery
+        self.dblMultiChip = dblMultiChip
+        self.dblThreePutt = dblThreePutt
+        self.dblTroubleTee = dblTroubleTee
+        self.dblFullSwing = dblFullSwing
+        self.dblUnattributed = dblUnattributed
+        self.dblPenaltyTee = dblPenaltyTee
+        self.dblPenaltyApproach = dblPenaltyApproach
+        self.dblPenaltyShort = dblPenaltyShort
+        self.dblPenaltyUnknown = dblPenaltyUnknown
     }
 
     init(from decoder: any Decoder) throws {
@@ -1225,6 +1258,17 @@ struct StatMeasures: Codable, Sendable, Equatable {
         self.strokesVsParMissHard = try c.decode(Double.self, forKey: .strokesVsParMissHard)
         self.holesScoredMissBunker = try c.decode(Double.self, forKey: .holesScoredMissBunker)
         self.strokesVsParMissBunker = try c.decode(Double.self, forKey: .strokesVsParMissBunker)
+        self.dblPenalty = try c.decode(Double.self, forKey: .dblPenalty)
+        self.dblFailedRecovery = try c.decode(Double.self, forKey: .dblFailedRecovery)
+        self.dblMultiChip = try c.decode(Double.self, forKey: .dblMultiChip)
+        self.dblThreePutt = try c.decode(Double.self, forKey: .dblThreePutt)
+        self.dblTroubleTee = try c.decode(Double.self, forKey: .dblTroubleTee)
+        self.dblFullSwing = try c.decode(Double.self, forKey: .dblFullSwing)
+        self.dblUnattributed = try c.decode(Double.self, forKey: .dblUnattributed)
+        self.dblPenaltyTee = try c.decode(Double.self, forKey: .dblPenaltyTee)
+        self.dblPenaltyApproach = try c.decode(Double.self, forKey: .dblPenaltyApproach)
+        self.dblPenaltyShort = try c.decode(Double.self, forKey: .dblPenaltyShort)
+        self.dblPenaltyUnknown = try c.decode(Double.self, forKey: .dblPenaltyUnknown)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -1432,6 +1476,17 @@ struct StatMeasures: Codable, Sendable, Equatable {
         try c.encode(strokesVsParMissHard, forKey: .strokesVsParMissHard)
         try c.encode(holesScoredMissBunker, forKey: .holesScoredMissBunker)
         try c.encode(strokesVsParMissBunker, forKey: .strokesVsParMissBunker)
+        try c.encode(dblPenalty, forKey: .dblPenalty)
+        try c.encode(dblFailedRecovery, forKey: .dblFailedRecovery)
+        try c.encode(dblMultiChip, forKey: .dblMultiChip)
+        try c.encode(dblThreePutt, forKey: .dblThreePutt)
+        try c.encode(dblTroubleTee, forKey: .dblTroubleTee)
+        try c.encode(dblFullSwing, forKey: .dblFullSwing)
+        try c.encode(dblUnattributed, forKey: .dblUnattributed)
+        try c.encode(dblPenaltyTee, forKey: .dblPenaltyTee)
+        try c.encode(dblPenaltyApproach, forKey: .dblPenaltyApproach)
+        try c.encode(dblPenaltyShort, forKey: .dblPenaltyShort)
+        try c.encode(dblPenaltyUnknown, forKey: .dblPenaltyUnknown)
     }
 }
 

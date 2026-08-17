@@ -349,6 +349,7 @@ describe('presenter contract golden output', () => {
                         magnitude: 1,
                         finished: true,
                         thru: 2,
+                        closeOutRemaining: null,
                     },
                 ],
             },

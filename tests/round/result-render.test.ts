@@ -90,6 +90,7 @@ test('match summary renders exactly as before through the registry', () => {
                 magnitude: 2,
                 finished: false,
                 thru: 9,
+                closeOutRemaining: null,
             },
         ],
     };

@@ -198,7 +198,7 @@ test('a hostile player name never reaches the ranked/match markup unescaped', ()
         kind: 'match_summary',
         title: 'Match <i>play</i>',
         matches: [
-            { sideA: { ballIds: ['evil'] }, sideB: { ballIds: ['b'] }, leader: 'a', magnitude: 1, finished: false, thru: 3 },
+            { sideA: { ballIds: ['evil'] }, sideB: { ballIds: ['b'] }, leader: 'a', magnitude: 1, finished: false, thru: 3, closeOutRemaining: null },
         ],
     };
     const html = renderSlotLeaderboard(slot({ leaderboard: [ranked, ms] }), hostileNameOf);

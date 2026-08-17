@@ -556,6 +556,17 @@ final class StatMeasuresMathTests: XCTestCase {
         m.strokesVsParMissHard = 201
         m.holesScoredMissBunker = 202
         m.strokesVsParMissBunker = 203
+        m.dblPenalty = 204
+        m.dblFailedRecovery = 205
+        m.dblMultiChip = 206
+        m.dblThreePutt = 207
+        m.dblTroubleTee = 208
+        m.dblFullSwing = 209
+        m.dblUnattributed = 210
+        m.dblPenaltyTee = 211
+        m.dblPenaltyApproach = 212
+        m.dblPenaltyShort = 213
+        m.dblPenaltyUnknown = 214
     }
 
     func testEveryMeasureColumnIsAdditiveIncludingTheOnesNoRateReads() throws {
@@ -572,8 +583,8 @@ final class StatMeasuresMathTests: XCTestCase {
         // The count is asserted (and mirrored in the TypeScript twin) so that a
         // field added to the server's measure set and forgotten in the fixture
         // is caught, rather than sweeping a smaller set and passing.
-        XCTAssertEqual(singleFields.count, 203)
-        XCTAssertEqual(Set(singleFields.values).count, 203)
+        XCTAssertEqual(singleFields.count, 214)
+        XCTAssertEqual(Set(singleFields.values).count, 214)
         for (key, single) in singleFields {
             XCTAssertEqual(doubledFields[key], single * 2, "column \(key) is not additive")
         }
@@ -585,7 +596,7 @@ final class StatMeasuresMathTests: XCTestCase {
         let doubledExample = try decoder.decode(
             [String: Double].self,
             from: encoder.encode(StatMeasuresMath.sum([workedExample, workedExample])))
-        XCTAssertEqual(exampleFields.count, 203)
+        XCTAssertEqual(exampleFields.count, 214)
         for (key, single) in exampleFields {
             XCTAssertEqual(doubledExample[key], single * 2, "column \(key) is not additive")
         }

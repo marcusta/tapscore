@@ -360,8 +360,9 @@ test('match panels carry the golf idiom: AS / N UP and Final / thru N', () => {
         kind: 'match_summary',
         title: 'Matches',
         matches: [
-            { sideA: { ballIds: ['a'] }, sideB: { ballIds: ['b'] }, leader: null, magnitude: 0, finished: false, thru: 7 },
-            { sideA: { ballIds: ['a', 'b'] }, sideB: { ballIds: ['c'] }, leader: 'a', magnitude: 3, finished: true, thru: 16 },
+            { sideA: { ballIds: ['a'] }, sideB: { ballIds: ['b'] }, leader: null, magnitude: 0, finished: false, thru: 7, closeOutRemaining: null },
+            { sideA: { ballIds: ['a', 'b'] }, sideB: { ballIds: ['c'] }, leader: 'a', magnitude: 3, finished: true, thru: 16, closeOutRemaining: null },
+            { sideA: { ballIds: ['a'] }, sideB: { ballIds: ['b'] }, leader: 'b', magnitude: 3, finished: true, thru: 16, closeOutRemaining: 2 },
         ],
     };
     const layout = layoutMatchSummary(section, nameOf);
@@ -375,6 +376,8 @@ test('match panels carry the golf idiom: AS / N UP and Final / thru N', () => {
         status: 'thru 7',
     });
     expect(layout.matches[1]).toMatchObject({ sideAName: 'name:a & name:b', standing: '3 UP', status: 'Final' });
+    // Closed out early → the golf scoreline, never a still-running lead.
+    expect(layout.matches[2]).toMatchObject({ standing: '3 & 2', status: 'Final' });
 });
 
 // --- card attachment ---------------------------------------------------------

@@ -403,6 +403,12 @@ export interface PairBallResult {
     holes: PairBallHoleResult[];
     summary: string;
     result: 'won' | 'lost' | 'halved' | 'in_progress';
+    /**
+     * Holes still to play when the match closed out early ("3 & 2" → 2).
+     * Null when the match went the distance, is halved, or is in progress —
+     * and for point-scored pairs (taliban) that never close out.
+     */
+    closeOutRemaining?: number | null;
     /** Winning team label or ball id; null on halved / in-progress. */
     winner: string | null;
     /**

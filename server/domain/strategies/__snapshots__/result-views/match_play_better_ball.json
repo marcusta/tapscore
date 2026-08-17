@@ -1008,7 +1008,8 @@
             "leader": "a",
             "magnitude": 3,
             "finished": true,
-            "thru": 16
+            "thru": 16,
+            "closeOutRemaining": 2
           }
         ]
       }

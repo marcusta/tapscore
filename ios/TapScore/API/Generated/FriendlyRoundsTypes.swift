@@ -1665,6 +1665,7 @@ struct MatchPanel: Codable, Sendable, Equatable {
     var magnitude: Double
     var finished: Bool
     var thru: Double
+    var closeOutRemaining: Double?
 
     enum CodingKeys: String, CodingKey {
         case sideA = "sideA"
@@ -1673,15 +1674,17 @@ struct MatchPanel: Codable, Sendable, Equatable {
         case magnitude = "magnitude"
         case finished = "finished"
         case thru = "thru"
+        case closeOutRemaining = "closeOutRemaining"
     }
 
-    init(sideA: MatchPanelSideA, sideB: MatchPanelSideA, leader: GridRowTeam? = nil, magnitude: Double, finished: Bool, thru: Double) {
+    init(sideA: MatchPanelSideA, sideB: MatchPanelSideA, leader: GridRowTeam? = nil, magnitude: Double, finished: Bool, thru: Double, closeOutRemaining: Double? = nil) {
         self.sideA = sideA
         self.sideB = sideB
         self.leader = leader
         self.magnitude = magnitude
         self.finished = finished
         self.thru = thru
+        self.closeOutRemaining = closeOutRemaining
     }
 
     init(from decoder: any Decoder) throws {
@@ -1692,6 +1695,7 @@ struct MatchPanel: Codable, Sendable, Equatable {
         self.magnitude = try c.decode(Double.self, forKey: .magnitude)
         self.finished = try c.decode(Bool.self, forKey: .finished)
         self.thru = try c.decode(Double.self, forKey: .thru)
+        self.closeOutRemaining = try c.decodeIfPresent(Double.self, forKey: .closeOutRemaining)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -1706,6 +1710,11 @@ struct MatchPanel: Codable, Sendable, Equatable {
         try c.encode(magnitude, forKey: .magnitude)
         try c.encode(finished, forKey: .finished)
         try c.encode(thru, forKey: .thru)
+        if let closeOutRemaining {
+            try c.encode(closeOutRemaining, forKey: .closeOutRemaining)
+        } else {
+            try c.encodeNil(forKey: .closeOutRemaining)
+        }
     }
 }
 

@@ -886,7 +886,18 @@ enum StatMeasuresMath {
         holesScoredMissHard: 0,
         strokesVsParMissHard: 0,
         holesScoredMissBunker: 0,
-        strokesVsParMissBunker: 0
+        strokesVsParMissBunker: 0,
+        dblPenalty: 0,
+        dblFailedRecovery: 0,
+        dblMultiChip: 0,
+        dblThreePutt: 0,
+        dblTroubleTee: 0,
+        dblFullSwing: 0,
+        dblUnattributed: 0,
+        dblPenaltyTee: 0,
+        dblPenaltyApproach: 0,
+        dblPenaltyShort: 0,
+        dblPenaltyUnknown: 0
     )
 
     /// Field-by-field addition. Written out rather than iterated on purpose: the
@@ -1116,7 +1127,18 @@ enum StatMeasuresMath {
             holesScoredMissHard: a.holesScoredMissHard + b.holesScoredMissHard,
             strokesVsParMissHard: a.strokesVsParMissHard + b.strokesVsParMissHard,
             holesScoredMissBunker: a.holesScoredMissBunker + b.holesScoredMissBunker,
-            strokesVsParMissBunker: a.strokesVsParMissBunker + b.strokesVsParMissBunker
+            strokesVsParMissBunker: a.strokesVsParMissBunker + b.strokesVsParMissBunker,
+            dblPenalty: a.dblPenalty + b.dblPenalty,
+            dblFailedRecovery: a.dblFailedRecovery + b.dblFailedRecovery,
+            dblMultiChip: a.dblMultiChip + b.dblMultiChip,
+            dblThreePutt: a.dblThreePutt + b.dblThreePutt,
+            dblTroubleTee: a.dblTroubleTee + b.dblTroubleTee,
+            dblFullSwing: a.dblFullSwing + b.dblFullSwing,
+            dblUnattributed: a.dblUnattributed + b.dblUnattributed,
+            dblPenaltyTee: a.dblPenaltyTee + b.dblPenaltyTee,
+            dblPenaltyApproach: a.dblPenaltyApproach + b.dblPenaltyApproach,
+            dblPenaltyShort: a.dblPenaltyShort + b.dblPenaltyShort,
+            dblPenaltyUnknown: a.dblPenaltyUnknown + b.dblPenaltyUnknown
         )
     }
 

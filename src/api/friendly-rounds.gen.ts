@@ -329,6 +329,7 @@ export interface MatchPanel {
     magnitude: number;
     finished: boolean;
     thru: number;
+    closeOutRemaining: null | number;
 }
 
 export interface GridCell {

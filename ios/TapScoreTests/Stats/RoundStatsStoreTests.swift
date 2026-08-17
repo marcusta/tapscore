@@ -84,7 +84,9 @@ final class RoundStatsStoreTests: XCTestCase {
         "scrambleInside2mSavedHard", "scrambleInside2mResolvedBunker",
         "scrambleInside2mSavedBunker", "holesScoredMissStandard", "strokesVsParMissStandard",
         "holesScoredMissHard", "strokesVsParMissHard", "holesScoredMissBunker",
-        "strokesVsParMissBunker",
+        "strokesVsParMissBunker", "dblPenalty", "dblFailedRecovery", "dblMultiChip",
+        "dblThreePutt", "dblTroubleTee", "dblFullSwing", "dblUnattributed", "dblPenaltyTee",
+        "dblPenaltyApproach", "dblPenaltyShort", "dblPenaltyUnknown",
     ]
 
     private static func roundJSON(

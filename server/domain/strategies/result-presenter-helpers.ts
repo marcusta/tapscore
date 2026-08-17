@@ -386,6 +386,7 @@ export function matchPanel(pair: PairBallResult): MatchPanel {
         magnitude: Math.abs(lead),
         finished: pair.result !== 'in_progress',
         thru,
+        closeOutRemaining: pair.closeOutRemaining ?? null,
     };
 }
 

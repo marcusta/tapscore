@@ -319,6 +319,7 @@ export const matchPlayBetterBall: FormatStrategy = {
             summary: summaryState.summary,
             result: summaryState.result,
             winner,
+            closeOutRemaining: closedOutAt !== null ? closedOutRemaining : null,
         };
 
         return { ballResults, pairResults: [pair] };

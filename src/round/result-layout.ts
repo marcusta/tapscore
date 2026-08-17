@@ -97,6 +97,7 @@ export interface ViewMatchPanel {
     magnitude: number;
     finished: boolean;
     thru: number;
+    closeOutRemaining?: number | null;
 }
 
 export interface ViewMatchSummarySection {
@@ -566,7 +567,14 @@ export function layoutMatchSummary(section: ViewMatchSummarySection, nameOf: Nam
             sideAName: m.sideA.ballIds.map(nameOf).join(NAME_JOINER),
             sideBName: m.sideB.ballIds.map(nameOf).join(NAME_JOINER),
             leader: m.leader,
-            standing: m.magnitude === 0 ? 'AS' : `${m.magnitude} UP`,
+            // A closed-out match reads as the golf scoreline ("3 & 2"), never
+            // as a still-running lead.
+            standing:
+                m.magnitude === 0
+                    ? 'AS'
+                    : m.finished && m.closeOutRemaining != null
+                      ? `${m.magnitude} & ${m.closeOutRemaining}`
+                      : `${m.magnitude} UP`,
             status: m.finished ? 'Final' : `thru ${m.thru}`,
         })),
     };

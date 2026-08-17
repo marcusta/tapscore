@@ -96,6 +96,7 @@ describe('matchPlayBetterBall (new contract)', () => {
                         magnitude: 1,
                         finished: false,
                         thru: 1,
+                        closeOutRemaining: null,
                     },
                 ],
             },

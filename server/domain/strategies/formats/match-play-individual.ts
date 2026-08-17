@@ -231,6 +231,7 @@ function computePair(
             summary: summaryState.summary,
             result: summaryState.result,
             winner,
+            closeOutRemaining: closedOutAt !== null ? closedOutRemaining : null,
         },
         resultA: {
             ballId: ballA.ballId,

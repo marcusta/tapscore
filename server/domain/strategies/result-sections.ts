@@ -203,6 +203,12 @@ export interface MatchPanel {
     /** Match decided (closed out / 18 done) → show "Final"; else "thru N". */
     finished: boolean;
     thru: number;
+    /**
+     * Holes still to play when the match closed out early — the "2" of
+     * "3 & 2". Null when the match went the distance, is halved, is still in
+     * progress, or the format never closes out (taliban).
+     */
+    closeOutRemaining: number | null;
 }
 
 /** Pair/team-vs-team results (match-play, taliban) as structured panels. */
