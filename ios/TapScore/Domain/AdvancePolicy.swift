@@ -44,6 +44,13 @@
 //     `isHoleCompleteOnEntry` for the new hole, storing it as the visit's
 //     `holeCompleteOnEntry`. That re-snapshot is what stops the advance chain
 //     on a hole that was already scored ahead of time.
+//  7. A landed jump must then CLOSE the keypad, leaving the round's score view
+//     visible with the group now standing on the next hole. The hole is
+//     finished, so the next thing the group looks at is the result, not an
+//     empty keypad aimed at a hole nobody has played yet. This closes only on
+//     the AUTO-advance: correction mode answers `stay` (contract: a return
+//     visit never jumps holes), so re-entering a score on an already-scored
+//     hole leaves the keypad exactly where it is.
 
 /// Delay between "hole done" confirmation and the auto-jump to the next hole.
 ///

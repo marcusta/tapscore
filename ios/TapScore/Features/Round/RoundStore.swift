@@ -2012,6 +2012,10 @@ final class RoundStore {
         noteHoleEntered()
         seedMetadata()
         seedStats()
+        // #7 the hole is done, so hand the screen back to the round's score
+        // view. The cursor has already landed on the next hole, so reopening
+        // the keypad resumes there.
+        keypadOpen = false
     }
 
     private func cancelJump() {

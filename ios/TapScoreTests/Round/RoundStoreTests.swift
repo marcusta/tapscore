@@ -569,6 +569,38 @@ final class RoundStoreTests: XCTestCase {
         XCTAssertEqual(store.holeIndex, 1)
         XCTAssertEqual(store.currentBallIndex, 0, "the cursor resets to ball 0 after a jump")
         XCTAssertNil(store.pendingJump)
+        XCTAssertFalse(
+            store.keypadOpen,
+            "CALLER CONTRACT #7: a landed jump hands the screen back to the score view")
+    }
+
+    /// The other half of CALLER CONTRACT #7: correction mode answers `stay`, so
+    /// re-entering a score on an already-scored hole neither jumps nor closes.
+    func testCorrectingAScoredHoleLeavesTheKeypadOpen() async {
+        routeHappyPath()
+        let store = makeStore()
+        await store.load()
+        store.openKeypad(ballId: "ball-1")
+        store.commit(4)
+        await waitUntil("the first ball's write") { self.scoreRequests() == 1 }
+        store.commit(5)
+        await fireClock()
+        await store.jumpTask?.value
+        await settle()
+        XCTAssertFalse(store.keypadOpen)
+
+        // Back to the finished hole to fix a score: a correction visit.
+        store.openKeypad(ballId: "ball-1")
+        store.prevHole()
+        XCTAssertEqual(store.holeIndex, 0)
+        XCTAssertTrue(store.holeCompleteOnEntry, "the visit must be correction mode")
+
+        store.commit(6)
+        await settle()
+
+        XCTAssertTrue(store.keypadOpen, "a correction stays put — nothing jumped, nothing closed")
+        XCTAssertNil(store.pendingJump)
+        XCTAssertEqual(store.holeIndex, 0)
     }
 
     /// The advance pause is the policy's `delayMs`, not a number this store

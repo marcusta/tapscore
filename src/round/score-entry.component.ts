@@ -1663,6 +1663,10 @@ export class ScoreEntryComponent extends Component {
                     // unscored (entry mode), but a hole scored ahead of time
                     // flips to correction mode so the advance chain stops there.
                     this.noteHoleEntered();
+                    // Contract #7: the hole is done, so hand the screen back to
+                    // the round's score view. The cursor has already landed on
+                    // the next hole, so reopening the keypad resumes there.
+                    this.modalOpen.set(false);
                 }, move.delayMs);
                 return;
             }
