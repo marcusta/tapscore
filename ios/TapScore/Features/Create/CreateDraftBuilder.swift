@@ -710,9 +710,48 @@ struct CreateDraftBuilder: Sendable {
     /// "Team A", "Team B", … by position in the draft's team list, exactly as
     /// the web labels them.
     static func teamLabel(_ index: Int) -> String {
+        guard let letter = ballLetter(index) else { return "Team \(index + 1)" }
+        return "Team \(letter)"
+    }
+
+    /// The letter a BALL is known by on the format step — the web's
+    /// `teamLetter`, and the same alphabet `teamLabel` spells a team with, so a
+    /// ball and the side it becomes are never named differently. Nil past Z,
+    /// where the caller falls back to a number.
+    static func ballLetter(_ index: Int) -> String? {
         let letters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-        guard index >= 0, index < letters.count else { return "Team \(index + 1)" }
-        return "Team \(letters[index])"
+        guard index >= 0, index < letters.count else { return nil }
+        return String(letters[index])
+    }
+
+    /// Why a game cannot be played as it is currently assigned, per ball —
+    /// an under-filled ball or an over-filled one (web: `gameWarnings`).
+    ///
+    /// Deliberately NOT part of `preflight`: the web shows these on the game
+    /// card and still lets the user submit, because the server is the authority
+    /// on what its compiler will take. They explain the refusal before it
+    /// arrives; they do not stand in for it.
+    ///
+    /// The roster-level refusal comes FIRST and alone (web: `gameWarnings`
+    /// short-circuits on `gameFits`), but it is counted against the round's ball
+    /// roster, which only the store knows — `CreateStore.ballWarnings` is the
+    /// caller that puts it in front of these.
+    func ballWarnings(formatId: String, memberCounts: [Int]) -> [String] {
+        guard let shape = catalog.playableShape(id: formatId),
+              !catalog.isIndividualShape(shape)
+        else { return [] }
+        let label = catalog.label(formatId) ?? formatId
+        var out: [String] = []
+        for (ball, count) in memberCounts.enumerated() {
+            let who = "\(label) ball \(Self.ballLetter(ball) ?? String(ball + 1))"
+            if count < shape.sizeMin {
+                let need = shape.sizeMin - count
+                out.append("\(who) needs \(need) more player\(need == 1 ? "" : "s").")
+            } else if count > shape.sizeMax {
+                out.append("\(who) takes at most \(shape.sizeMax).")
+            }
+        }
+        return out
     }
 
     static func today(_ now: Date = Date()) -> String {

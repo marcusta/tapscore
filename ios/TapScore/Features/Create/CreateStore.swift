@@ -226,6 +226,24 @@ final class CreateStore {
         /// (B6.11). Keyed by row id rather than position so removing a row
         /// above cannot silently exclude a different player.
         var excludedRowIds: Set<UUID>
+        /// Roster ROW → the ball of THIS game the user put them on (B6.15, web:
+        /// `assignBall`). Empty ⇒ the seed stands, which is the default path;
+        /// an entry WINS over the seed, so a pairing survives a roster edit
+        /// that would otherwise re-split the round by roster order.
+        ///
+        /// Keyed by row id, while `CreateDraftBuilder.Game.ballByPlayer` is
+        /// keyed by roster INDEX — the one place that maps between them is
+        /// `CreateStore.games`. Stale keys (a row that has been removed or
+        /// blanked) are dropped where they are READ, not chased with an
+        /// observer: `filledPlayers` is the only definition of the roster and
+        /// it moves on every keystroke.
+        var ballByRow: [UUID: Int]
+        /// The stored `teams[]` ids this slot's balls are, in ball order — a
+        /// hydrated SIDE slot only (edit mode). It is what makes the ball
+        /// editor possible on a slot that has no game to seed from: the balls
+        /// are the stored sides, and a save rewrites exactly those teams
+        /// (`EditDraftAssembler.Slot.sideTeamIds`). Empty on every other slot.
+        var sideTeamIds: [String]
         /// The entry of the LOADED draft's `formats[]` this slot was hydrated
         /// from (edit mode only). It is what lets a save CARRY a slot's stored
         /// shape — subjects, ball sources, a split allowance — rather than
@@ -240,6 +258,8 @@ final class CreateStore {
             config: [String: String] = [:],
             isCustom: Bool = false,
             excludedRowIds: Set<UUID> = [],
+            ballByRow: [UUID: Int] = [:],
+            sideTeamIds: [String] = [],
             sourceIndex: Int? = nil
         ) {
             self.id = id
@@ -248,6 +268,8 @@ final class CreateStore {
             self.config = config
             self.isCustom = isCustom
             self.excludedRowIds = excludedRowIds
+            self.ballByRow = ballByRow
+            self.sideTeamIds = sideTeamIds
             self.sourceIndex = sourceIndex
         }
 
@@ -1100,8 +1122,46 @@ final class CreateStore {
     }
 
     func removeSlot(id: UUID) {
-        formatSlots.removeAll { $0.id == id }
+        guard let index = formatSlots.firstIndex(where: { $0.id == id }) else { return }
+        handDownSides(from: index)
+        formatSlots.remove(at: index)
         clearSlotDiagnostics()
+    }
+
+    /// Removing the card that OWNS a pairing must not re-pair the round.
+    ///
+    /// Sides are re-derived from slot order on every render, so a Taliban card
+    /// removed from a round that also plays better-ball would leave the
+    /// survivor seeding itself down the roster — the pairing four people agreed
+    /// on, gone with a card they only meant to stop scoring. The web keeps it
+    /// (`unpickGame` → `collectUnreferencedTeams`: removing one of two games
+    /// sharing a side never takes the side with it), so the effective
+    /// assignment is handed to the slot that is about to become the owner.
+    private func handDownSides(from index: Int) {
+        let built = games
+        guard built.indices.contains(index) else { return }
+        let leaving = built[index]
+        let slot = formatSlots[index]
+        guard !slot.isCustom, slot.sideTeamIds.isEmpty, leaving.ballTeams.isEmpty,
+              leaving.ballCount > 0, catalog.isSideFormat(slot.formatId)
+        else { return }
+        guard let heir = formatSlots.indices.first(where: { other in
+            other != index && !formatSlots[other].isCustom
+                && catalog.isSideFormat(formatSlots[other].formatId)
+                && built.indices.contains(other)
+                && built[other].ballCount == leaving.ballCount
+        }) else { return }
+
+        let rows = filledPlayers
+        var byRow: [UUID: Int] = [:]
+        for (at, row) in rows.enumerated() {
+            guard let ball = leaving.ballByPlayer[at] else { continue }
+            byRow[row.id] = ball
+        }
+        // The EFFECTIVE assignment — the seed with this slot's overrides already
+        // written over it — because that is the pairing on screen, and it is the
+        // screen the user is keeping.
+        formatSlots[heir].ballByRow = byRow
     }
 
     /// B6.6: a format change RE-SEEDS the config from the new format's own
@@ -1111,6 +1171,12 @@ final class CreateStore {
         updateSlot(id: id) { slot in
             slot.formatId = formatId
             slot.config = self.catalog.byId(formatId)?.defaults.formatConfig ?? [:]
+            // Same reason as the config: the balls the user picked belong to a
+            // shape the new format need not have, and a stored side slot's
+            // teams are no longer what this slot plays (the assembler seeds it
+            // fresh once the format has changed).
+            slot.ballByRow = [:]
+            slot.sideTeamIds = []
         }
     }
 
@@ -1295,10 +1361,298 @@ final class CreateStore {
             game.allowancePct = slot.allowancePct
             game.config = slot.config
             game.excludedPlayers = Set(slot.excludedRowIds.compactMap { indexByRow[$0] })
+            game.ballByPlayer = Self.ballAssignment(
+                slot: slot, game: game, indexByRow: indexByRow, units: units)
             out.append(game)
             teams = builder.compose(games: out, rosterCount: rows.count, ballTeams: shared).teams
         }
         return out
+    }
+
+    /// The seeded assignment with the user's own ball picks written over it —
+    /// THE one place row ids become the roster indices `ballByPlayer` is keyed
+    /// by (B6.15, web: `assignBall`).
+    ///
+    /// Three rules, and they are the whole of it:
+    ///
+    ///  - An override for a row that is no longer in the roster, or for a ball
+    ///    this game no longer has, is dropped. It is never written back, so a
+    ///    fifth player added and removed again leaves the pairing as it was.
+    ///  - A row on a SHARED ball is skipped: that ball moves whole, and the
+    ///    editor is not offered for it (`ballPlan`).
+    ///  - "–" (sitting this game out) is the existing exclusion mechanism, so a
+    ///    row ticked out stands on no ball at all.
+    private static func ballAssignment(
+        slot: FormatSlot,
+        game: CreateDraftBuilder.Game,
+        indexByRow: [UUID: Int],
+        units: [CreateDraftBuilder.BallUnit]
+    ) -> [Int: Int] {
+        guard !slot.isCustom, game.ballCount > 0 else { return game.ballByPlayer }
+        // Only the card that OWNS the pairing may move anybody. A game
+        // contested between teams the round already had is a BORROWER: its
+        // balls are that composition, and honouring an override here would let
+        // the second card rewrite the first card's sides from a panel that is
+        // shown read-only (`ballPlan`).
+        guard game.ballTeams.isEmpty else { return game.ballByPlayer }
+        let shared = Set(units.filter { $0.teamKey != nil }.flatMap(\.members))
+        var out = game.ballByPlayer
+        for (rowId, ball) in slot.ballByRow {
+            guard let index = indexByRow[rowId], !shared.contains(index),
+                  ball >= 0, ball < game.ballCount
+            else { continue }
+            out[index] = ball
+        }
+        for rowId in slot.excludedRowIds {
+            guard let index = indexByRow[rowId], !shared.contains(index) else { continue }
+            out.removeValue(forKey: index)
+        }
+        return out
+    }
+
+    /// What the format step draws under "Who plays which ball" for one slot:
+    /// the balls, who stands on each, and whether this is the card that OWNS
+    /// the pairing (web: `gamePanel`'s ball group + `gameSummary`).
+    ///
+    /// Nil ⇒ the slot has no ball decision to show at all: an individual game,
+    /// or a custom slot with no stored sides.
+    struct BallPlan: Sendable, Equatable {
+        struct Row: Sendable, Equatable, Identifiable {
+            var id: UUID
+            var name: String
+            /// The ball this row stands on; nil ⇒ sitting this game out.
+            var ball: Int?
+        }
+
+        var ballCount: Int
+        var rows: [Row]
+        /// False when the balls are somebody else's pairing — a shared ball
+        /// built in the Players step, or the sides an earlier game minted.
+        /// Editing them here would silently move the other card too, so the
+        /// composition is shown and `note` says where it is decided.
+        var isEditable: Bool
+        /// False on a STORED side slot, whose save can only re-member the teams
+        /// it already has: sitting a player out would leave a side of one, which
+        /// `EditDraftAssembler.rewrittenSides` refuses outright. Offering "–"
+        /// there would draw a control whose every use is a silent no-op.
+        var allowsSittingOut: Bool
+        var note: String?
+        /// "Anna & Bert vs Cleo & Dan · 100% allowance" (web: `gameSummary`).
+        var summary: String
+        /// Under- and over-filled balls, said before the server says it
+        /// (web: `gameWarnings`).
+        var warnings: [String]
+    }
+
+    func ballPlan(slotId: UUID) -> BallPlan? {
+        guard let index = formatSlots.firstIndex(where: { $0.id == slotId }) else { return nil }
+        let slot = formatSlots[index]
+        let rows = filledPlayers
+        if !slot.sideTeamIds.isEmpty {
+            return storedBallPlan(slot: slot, rows: rows, owner: sidesOwner(at: index))
+        }
+        guard !slot.isCustom else { return nil }
+        let built = games
+        guard built.indices.contains(index) else { return nil }
+        let game = built[index]
+        guard game.ballCount > 0 else { return nil }
+
+        let indexByRow = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($1.id, $0) })
+        let units = ballUnits
+        let shared = Set(units.filter { $0.teamKey != nil }.flatMap(\.members))
+        // A side game over a roster that holds shared balls is contested
+        // between the players still on their OWN ball; the rest are not
+        // available to it (v1), so listing them would offer a move that the
+        // seed then ignores.
+        let listed = rows.filter { row in indexByRow[row.id].map { !shared.contains($0) } ?? false }
+        let planRows = listed.map { row in
+            BallPlan.Row(
+                id: row.id,
+                name: row.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                ball: indexByRow[row.id].flatMap { game.ballByPlayer[$0] })
+        }
+        // A game contested between teams the round already had is a borrower,
+        // and so is a game picked while an earlier slot already owns the sides
+        // (edit mode, where a stored slot's teams are not this session's).
+        let owner = sidesOwner(at: index)
+        let borrowed = !game.ballTeams.isEmpty || owner != nil
+        return BallPlan(
+            ballCount: game.ballCount,
+            rows: planRows,
+            isEditable: !borrowed,
+            allowsSittingOut: true,
+            note: borrowed ? borrowedSidesNote(at: index, game: game, owner: owner) : nil,
+            summary: Self.summary(
+                ballCount: game.ballCount,
+                names: (0..<game.ballCount).map { ball in
+                    rows.indices.filter { game.ballByPlayer[$0] == ball }.map { Self.name(rows[$0]) }
+                },
+                // EVERY player this game does not score, not only the listed
+                // ones: a round with a scramble pair among six plays its side
+                // game between the other four, and the two on the shared ball
+                // are as out of it as somebody who picked "–".
+                sittingOut: rows.indices.filter { game.ballByPlayer[$0] == nil }
+                    .map { Self.name(rows[$0]) },
+                allowancePct: slot.allowanceText),
+            warnings: ballWarnings(
+                slot: slot,
+                memberCounts: (0..<game.ballCount).map { ball in
+                    rows.indices.filter { game.ballByPlayer[$0] == ball }.count
+                }))
+    }
+
+    /// Which EARLIER slot decides the sides this one plays over, or nil when
+    /// this slot owns them.
+    ///
+    /// The single-owner rule, in one place because both panels need it: two
+    /// games over one pairing must not both offer to move it, or the last save
+    /// silently reverts the first. In create the sides are the ones a game
+    /// minted; in edit they are stored teams, named by id.
+    private func sidesOwner(at index: Int) -> Int? {
+        let slot = formatSlots[index]
+        guard index > 0 else { return nil }
+        for earlier in 0..<index {
+            let other = formatSlots[earlier]
+            if !slot.sideTeamIds.isEmpty {
+                // Stored sides are the same sides when they are the same teams.
+                if Set(other.sideTeamIds) == Set(slot.sideTeamIds) { return earlier }
+                continue
+            }
+            // A side game picked during an edit plays the round's stored sides
+            // (the assembler adopts them); the slot they came in on owns them.
+            if !other.sideTeamIds.isEmpty, catalog.isSideFormat(slot.formatId),
+               other.sideTeamIds.count == builder.defaultBallCount(formatId: slot.formatId) {
+                return earlier
+            }
+        }
+        return nil
+    }
+
+    /// The panel's warnings: the roster-level refusal FIRST, as one line, the
+    /// way the web's `gameWarnings` short-circuits on `gameFits`. Four players
+    /// playing Köpenhamnare do not need three lines saying each of its balls is
+    /// short — they need to hear that the round is.
+    private func ballWarnings(slot: FormatSlot, memberCounts: [Int]) -> [String] {
+        if let refusal = boundsRefusal(slot.formatId, voice: .card) {
+            return ["\(catalog.label(slot.formatId) ?? slot.formatId) \(refusal)."]
+        }
+        return builder.ballWarnings(formatId: slot.formatId, memberCounts: memberCounts)
+    }
+
+    /// The same panel for a HYDRATED side slot, whose balls are the stored
+    /// sides rather than a seeded game (edit mode). `ballByRow` is the whole
+    /// state here — a stored side slot's `excludedRowIds` says nothing about
+    /// balls, because its subjects are teams and every player is "missing"
+    /// from them by construction.
+    private func storedBallPlan(slot: FormatSlot, rows: [PlayerRow], owner: Int?) -> BallPlan {
+        let planRows = rows.map { row in
+            BallPlan.Row(id: row.id, name: Self.name(row), ball: slot.ballByRow[row.id])
+        }
+        let ballCount = slot.sideTeamIds.count
+        let members = (0..<ballCount).map { ball in planRows.filter { $0.ball == ball }.map(\.name) }
+        return BallPlan(
+            ballCount: ballCount,
+            rows: planRows,
+            isEditable: owner == nil,
+            allowsSittingOut: false,
+            note: owner.map { earlier in
+                let other = formatSlots[earlier]
+                return "Plays the same sides as \(catalog.label(other.formatId) ?? other.formatId)"
+                    + " — set them up there."
+            },
+            summary: Self.summary(
+                ballCount: ballCount,
+                names: members,
+                sittingOut: planRows.filter { $0.ball == nil }.map(\.name),
+                allowancePct: slot.allowanceText),
+            warnings: ballWarnings(slot: slot, memberCounts: members.map(\.count)))
+    }
+
+    /// Where a slot's balls were actually decided, when they are not this
+    /// card's to move: the Players step for a shared ball, the game that minted
+    /// them for a side. Teams are ROUND-level (ADR-0003), so saying which card
+    /// owns the pairing is the difference between a control that looks broken
+    /// and one that is honestly absent.
+    private func borrowedSidesNote(
+        at index: Int, game: CreateDraftBuilder.Game, owner: Int?
+    ) -> String? {
+        let sharedKeys = Set(ballTeamComposition(rows: filledPlayers).map(\.key))
+        if game.ballTeams.values.contains(where: { sharedKeys.contains($0) }) {
+            return "These balls are the pairs set up under Players."
+        }
+        if let owner {
+            let other = formatSlots[owner]
+            return "Plays the same sides as \(catalog.label(other.formatId) ?? other.formatId)"
+                + " — set them up there."
+        }
+        // The card that MINTED the pairing: the first side game before this
+        // one, which is the game `adoptableTeams` handed these teams down from.
+        // It is identified by its own balls rather than by team keys, because a
+        // freshly seeded game does not carry them — `compose` assigns the keys
+        // afterwards, over the whole list.
+        let built = games
+        for earlier in 0..<index where built.indices.contains(earlier) {
+            let slot = formatSlots[earlier]
+            guard !slot.isCustom, built[earlier].ballCount == game.ballCount,
+                  catalog.isSideFormat(slot.formatId)
+            else { continue }
+            return "Plays the same sides as \(catalog.label(slot.formatId) ?? slot.formatId)"
+                + " — set them up there."
+        }
+        return nil
+    }
+
+    /// B6.15: put a row on a ball, or (nil) sit it out of THIS game.
+    ///
+    /// The pick is per slot, and it is an OVERRIDE — the seed is left where it
+    /// is, so removing the override (by re-picking the seeded ball) is the same
+    /// state the slot started in. Sitting out reuses `excludedRowIds`, the one
+    /// mechanism the flow already has for "this game does not score you", so a
+    /// row can never be excluded and standing on a ball at once.
+    func assignBall(slotId: UUID, rowId: UUID, ball: Int?) {
+        updateSlot(id: slotId) { slot in
+            guard let ball else {
+                // A STORED side slot can only re-member the teams it has: a
+                // save that took a player off one would leave a side of one,
+                // which the assembler refuses outright. The panel does not
+                // offer "–" there (`BallPlan.allowsSittingOut`), and neither
+                // does this.
+                guard slot.sideTeamIds.isEmpty else { return }
+                slot.ballByRow.removeValue(forKey: rowId)
+                slot.excludedRowIds.insert(rowId)
+                return
+            }
+            slot.ballByRow[rowId] = ball
+            slot.excludedRowIds.remove(rowId)
+        }
+    }
+
+    /// "Anna & Bert vs Cleo & Dan · 100% allowance" — the web's `gameSummary`,
+    /// including its "· N sitting out" clause and its `vs` join for three balls
+    /// and up.
+    private static func summary(
+        ballCount: Int,
+        names: [[String]],
+        sittingOut: [String],
+        allowancePct: String
+    ) -> String {
+        var parts: [String] = []
+        if ballCount == 0 {
+            parts.append("everyone")
+        } else {
+            parts.append(names.filter { !$0.isEmpty }.map { $0.joined(separator: " & ") }
+                .joined(separator: " vs "))
+            if !sittingOut.isEmpty {
+                parts.append("\(sittingOut.joined(separator: ", ")) sitting out")
+            }
+        }
+        parts.append("\(allowancePct.isEmpty ? "100" : allowancePct)% allowance")
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    private static func name(_ row: PlayerRow) -> String {
+        let trimmed = row.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Player" : trimmed
     }
 
     var formatStepComplete: Bool { !formatSlots.isEmpty }
@@ -1349,7 +1703,14 @@ final class CreateStore {
         players.removeAll { $0.id == id }
         // A subject tick for a player who is gone would otherwise sit in the
         // slot forever, invisible, ready to exclude whoever inherits the id.
-        for index in formatSlots.indices { formatSlots[index].excludedRowIds.remove(id) }
+        for index in formatSlots.indices {
+            formatSlots[index].excludedRowIds.remove(id)
+            // …and so would a ball pick. `games` already skips a key it cannot
+            // resolve, so dropping it here is housekeeping rather than
+            // correctness — but a slot that keeps growing dead keys is a slot
+            // whose state stops describing what is on screen.
+            formatSlots[index].ballByRow.removeValue(forKey: id)
+        }
         // …and so would a seat on a shared ball. Re-seeding drops it and
         // re-derives the remaining members' allowances for their new size.
         reseedBallTeams()
@@ -1805,7 +2166,16 @@ final class CreateStore {
                     formatId: slot.formatId,
                     allowanceText: slot.allowanceText,
                     config: slot.config,
-                    excludedDefIds: Set(slot.excludedRowIds.compactMap { defIdByRow[$0] }))
+                    excludedDefIds: Set(slot.excludedRowIds.compactMap { defIdByRow[$0] }),
+                    sideTeamIds: slot.sideTeamIds,
+                    // Row ids become def-ids HERE, the same place the rest of
+                    // the slot's row-keyed state does — the assembler speaks
+                    // def-ids only, because that is what a scored ball is
+                    // addressed by.
+                    ballByDefId: Dictionary(
+                        uniqueKeysWithValues: slot.ballByRow.compactMap { rowId, ball in
+                            defIdByRow[rowId].map { ($0, ball) }
+                        }))
             }
             // Nil, not empty, when the formation catalog never loaded: the
             // teams could not be hydrated either, so an empty list would read

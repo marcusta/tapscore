@@ -91,7 +91,9 @@ enum EditDraftHydration {
 
         let allDefIds = players.compactMap(\.producerDefId)
         let slots = draft.formats.enumerated().map { index, format in
-            CreateStore.FormatSlot(
+            let sides = Self.sideBalls(
+                format, teams: draft.teams ?? [], rowIdByDefId: rowIdByDefId)
+            return CreateStore.FormatSlot(
                 formatId: format.formatId,
                 allowanceText: EditDraftAssembler.allowanceText(format.allowanceConfig),
                 config: EditDraftAssembler.stringConfig(format.formatConfig),
@@ -101,6 +103,8 @@ enum EditDraftHydration {
                     allDefIds: allDefIds,
                     rowIdByDefId: rowIdByDefId,
                     sharedMembers: sharedMembers),
+                ballByRow: sides?.ballByRow ?? [:],
+                sideTeamIds: sides?.teamIds ?? [],
                 sourceIndex: index)
         }
 
@@ -153,6 +157,51 @@ enum EditDraftHydration {
                 sourceTeamId: team.id,
                 sourceLabel: team.label)
         }
+    }
+
+    /// A stored SIDE slot read back as balls the format step can edit: the
+    /// teams it is contested between, in subject order, and the ball each row
+    /// stands on.
+    ///
+    /// Nil for anything this flow cannot say out loud, and the list is
+    /// deliberately narrow — a slot only qualifies when its subjects are
+    /// EXACTLY two or more `multi_ball` teams of plain producers, its allowance
+    /// is the flat one the field shows, and it names no inline side entries or
+    /// `ballsFrom` source. A slot that carries web-only exotica keeps no
+    /// editor and passes through untouched on `sourceIndex`, exactly as it did
+    /// before this existed (B7's carry-through invariant).
+    private static func sideBalls(
+        _ format: CompetitionDetailDefaultConfigSlotsItem,
+        teams: [CompetitionsCreateRoundOutputOkDraftTeamsItem],
+        rowIdByDefId: [String: UUID]
+    ) -> (teamIds: [String], ballByRow: [UUID: Int])? {
+        guard let subjects = format.subjects, subjects.count >= 2,
+              format.teams == nil, format.ballsFrom == nil
+        else { return nil }
+        switch format.allowanceConfig {
+        case nil, .flat: break
+        case .split: return nil
+        }
+        let byId = Dictionary(teams.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var teamIds: [String] = []
+        var ballByRow: [UUID: Int] = [:]
+        for subject in subjects {
+            guard case .team(let t) = subject,
+                  let team = byId[t.teamId], team.kind == .multiBall
+            else { return nil }
+            let ball = teamIds.count
+            for member in team.members {
+                // A NESTED team is a composition this flow can neither draw
+                // nor rewrite; the whole slot goes back to passthrough rather
+                // than losing it on the next save.
+                guard case .producerDefId(let m) = member,
+                      let rowId = rowIdByDefId[m.producerDefId]
+                else { return nil }
+                ballByRow[rowId] = ball
+            }
+            teamIds.append(t.teamId)
+        }
+        return (teamIds, ballByRow)
     }
 
     /// True when any producer is an unclaimed seat — the one client-side reason

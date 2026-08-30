@@ -912,6 +912,36 @@ open.
 **B6.14** WHEN advanced surfaces have never been opened AND no custom slot or
 custom team exists THEN they stay hidden — the default path is cards only.
 
+**B6.15** WHEN a slot plays a format contested between balls (a side or ball
+format, not an individual one) THEN its panel shows **Who plays which ball**:
+one row per assignable player, with the game's balls (A, B, …) and `–` for
+sitting this game out, plus a summary line
+(`Anna & Bert vs Cleo & Dan · 100% allowance`). The seed stands until the user
+picks; a pick is an **override** that outlives roster edits, and is dropped only
+with the row it names or when the slot's format changes (B6.6).
+
+Three rules bound the editor:
+
+- **One pairing, one owner.** Sides are round-level (ADR-0003), so a game
+  contested between sides another game already minted — or between a shared
+  ball built in the Players step — shows the composition **read-only** and names
+  where it is decided. Removing the owning card hands the pairing down to the
+  game that inherits it rather than re-pairing the round.
+- **A shared ball moves whole.** Its members are not listed as movable rows;
+  they are named in the summary as sitting the game out, since a side format is
+  contested between the players still on their own ball.
+- **Warnings explain, they do not block.** An under- or over-filled ball is
+  stated in words on the panel (`Taliban ball B needs 1 more player.`), and a
+  roster the format cannot fill at all is stated once for the game. The server
+  remains the authority on what it will accept; these say it earlier.
+
+WHEN the round is being **edited** and a slot's stored sides are readable as
+plain teams (two or more `multi_ball` teams of individual producers, a flat
+allowance, no nested teams and no per-slot team entries) THEN the same editor
+moves players between those teams **in place**, keeping their ids and labels so
+every stored subject still names them. Any other stored composition keeps no
+editor and is carried through untouched.
+
 ### 6.4 CONVERGE
 
 Identical to the web, including which formats are cards, ineligible-but-visible

@@ -145,6 +145,12 @@ interface Scenario {
     tees?: string[];
     /** Gender per player, defaulting to the web's `M`. */
     genders?: ('M' | 'F')[];
+    /**
+     * Balls moved by hand on the game panel, applied after the cards are
+     * picked: which picked game (index into `formatIds`), which roster row,
+     * and the ball it goes on (`null` = sitting the game out).
+     */
+    assignBalls?: { game: number; player: number; ball: number | null }[];
 }
 
 const scenarios: Scenario[] = [
@@ -250,6 +256,19 @@ const scenarios: Scenario[] = [
         formatIds: ['taliban_better_ball', 'stableford_better_ball'],
         players: ['Anna', 'Bert', 'Cleo', 'Dan'],
     },
+    // The pairing the user actually wants, which is rarely the roster order
+    // the seed produced: Anna & Cleo against Bert & Dan. It is the fixture
+    // that catches a native builder ignoring a hand-moved ball, and the one
+    // that pins WHICH side each pair becomes on the wire.
+    {
+        name: 'talibanSwappedPartners',
+        formatIds: ['taliban_better_ball'],
+        players: ['Anna', 'Bert', 'Cleo', 'Dan'],
+        assignBalls: [
+            { game: 0, player: 2, ball: 0 },
+            { game: 0, player: 1, ball: 1 },
+        ],
+    },
     // --- The custom path (spec §6.3): a card game plus a slot no card owns,
     // with its own allowance and its own subject list.
     {
@@ -321,6 +340,13 @@ for (const scenario of scenarios) {
     if (scenario.preset) svc.setPreset(scenario.preset);
     if (scenario.startHole !== undefined) svc.startHole.set(scenario.startHole);
     for (const formatId of scenario.formatIds) svc.pickGame(formatId);
+    for (const move of scenario.assignBalls ?? []) {
+        svc.assignBall(
+            svc.picked.get()[move.game]!.key,
+            svc.players.get()[move.player]!.key,
+            move.ball,
+        );
+    }
     for (const custom of scenario.custom ?? []) {
         // The same two calls the "+ Custom game" button makes: mint a slot no
         // card owns, then point it at the format the user actually wanted.

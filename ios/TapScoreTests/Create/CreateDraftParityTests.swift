@@ -60,6 +60,21 @@ final class CreateDraftParityTests: XCTestCase {
             fixture: WebDraftFixtures.talibanBetterBallFour)
     }
 
+    /// The same four players, paired the way the user asked rather than the way
+    /// the seed guessed: Anna & Cleo against Bert & Dan. The teams the web
+    /// emits are the moved ones, in ball order, and nothing else about the
+    /// draft changes.
+    func testTalibanWithHandMovedBallsMatchesWeb() async throws {
+        try await assertParity(
+            formatIds: ["taliban_better_ball"],
+            indices: [12, 12, 12, 12],
+            assignBalls: [
+                .init(slot: 0, player: 2, ball: 0),
+                .init(slot: 0, player: 1, ball: 1),
+            ],
+            fixture: WebDraftFixtures.talibanSwappedPartners)
+    }
+
     func testStablefordBetterBallFourPlayersMatchesWeb() async throws {
         try await assertParity(
             formatId: "stableford_better_ball",
@@ -345,9 +360,18 @@ final class CreateDraftParityTests: XCTestCase {
     /// runs — and the store's own loop, the one the app actually ships, could
     /// drift away from the web with every fixture still green. Driving the
     /// store means these parity tests cover the store AND the builder.
+    /// One ball moved by hand on the game panel: which slot, which roster row,
+    /// and the ball it goes on (nil = sitting that game out).
+    struct BallMove {
+        var slot: Int
+        var player: Int
+        var ball: Int?
+    }
+
     private func seedGames(
         _ formatIds: [String],
-        rosterCount: Int
+        rosterCount: Int,
+        assignBalls: [BallMove] = []
     ) async -> [CreateDraftBuilder.Game] {
         let store = CreateStore(api: RoundStubURLProtocol.makeAPI())
         await store.load()
@@ -367,19 +391,27 @@ final class CreateDraftParityTests: XCTestCase {
         XCTAssertEqual(
             store.formatSlots.map(\.formatId), formatIds,
             "the store did not end up playing the games under test")
+        for move in assignBalls {
+            store.assignBall(
+                slotId: store.formatSlots[move.slot].id,
+                rowId: store.players[move.player].id,
+                ball: move.ball)
+        }
         return store.games
     }
 
     private func makeDraft(
         formatIds: [String],
         indices: [Double],
-        route: CreateDraftBuilder.Route = .full18()
+        route: CreateDraftBuilder.Route = .full18(),
+        assignBalls: [BallMove] = []
     ) async -> CompetitionsCreateRoundOutputOkDraft {
         let builder = CreateDraftBuilder(catalog: catalog)
         return builder.draft(
             courseId: "c1",
             route: route,
-            games: await seedGames(formatIds, rosterCount: indices.count),
+            games: await seedGames(
+                formatIds, rosterCount: indices.count, assignBalls: assignBalls),
             players: players(indices: indices),
             playedAt: WebDraftFixtures.playedAt)
     }
@@ -409,11 +441,13 @@ final class CreateDraftParityTests: XCTestCase {
         formatIds: [String],
         indices: [Double],
         route: CreateDraftBuilder.Route = .full18(),
+        assignBalls: [BallMove] = [],
         fixture: String,
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
-        let draft = await makeDraft(formatIds: formatIds, indices: indices, route: route)
+        let draft = await makeDraft(
+            formatIds: formatIds, indices: indices, route: route, assignBalls: assignBalls)
         let native = try JSONCanon.text(of: try JSONEncoder().encode(draft))
         let web = try JSONCanon.text(of: Data(fixture.utf8))
         XCTAssertEqual(native, web, "native draft differs from the web's", file: file, line: line)

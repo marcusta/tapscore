@@ -2192,6 +2192,112 @@ enum WebDraftFixtures {
     }
     """
 
+    static let talibanSwappedPartners = """
+    {
+      "courseId": "c1",
+      "formats": [
+        {
+          "allowanceConfig": {
+            "pct": 100,
+            "type": "flat"
+          },
+          "formatConfig": {
+            "bonusRule": "gross"
+          },
+          "formatId": "taliban_better_ball",
+          "subjects": [
+            {
+              "kind": "team",
+              "teamId": "1"
+            },
+            {
+              "kind": "team",
+              "teamId": "2"
+            }
+          ]
+        }
+      ],
+      "playedAt": "2026-01-02",
+      "producers": [
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-1",
+            "kind": "guest"
+          },
+          "producerDefId": "p1",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-2",
+            "kind": "guest"
+          },
+          "producerDefId": "p2",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-3",
+            "kind": "guest"
+          },
+          "producerDefId": "p3",
+          "teeId": "tee-y"
+        },
+        {
+          "gender": "M",
+          "handicapIndex": 12,
+          "playerRef": {
+            "id": "guest-4",
+            "kind": "guest"
+          },
+          "producerDefId": "p4",
+          "teeId": "tee-y"
+        }
+      ],
+      "roundType": "full_18",
+      "teams": [
+        {
+          "formation": "custom",
+          "id": "1",
+          "kind": "multi_ball",
+          "label": "Team A",
+          "members": [
+            {
+              "allowancePct": 100,
+              "producerDefId": "p1"
+            },
+            {
+              "allowancePct": 100,
+              "producerDefId": "p3"
+            }
+          ]
+        },
+        {
+          "formation": "custom",
+          "id": "2",
+          "kind": "multi_ball",
+          "label": "Team B",
+          "members": [
+            {
+              "allowancePct": 100,
+              "producerDefId": "p2"
+            },
+            {
+              "allowancePct": 100,
+              "producerDefId": "p4"
+            }
+          ]
+        }
+      ]
+    }
+    """
+
     static let customStrokePlayAlongsideCard = """
     {
       "courseId": "c1",

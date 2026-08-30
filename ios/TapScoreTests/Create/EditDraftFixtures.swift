@@ -376,6 +376,86 @@ enum EditDraftFixtures {
     }
     """
 
+    /// A stored SIDE round the flow can read back and re-pair: two `multi_ball`
+    /// teams of plain producers, one flat allowance, no inline team entries and
+    /// no `ballsFrom`. Everything `EditDraftHydration.sideBalls` insists on
+    /// before it offers a ball editor.
+    static let talibanSides = """
+    {
+      "courseId": "course-1",
+      "playedAt": "\(playedAt)",
+      "roundType": "full_18",
+      "teams": [
+        {
+          "id": "1", "label": "Team A", "kind": "multi_ball", "formation": "custom",
+          "members": [
+            {"producerDefId": "p1", "allowancePct": 100},
+            {"producerDefId": "p2", "allowancePct": 90}
+          ]
+        },
+        {
+          "id": "2", "label": "Team B", "kind": "multi_ball", "formation": "custom",
+          "members": [
+            {"producerDefId": "p3", "allowancePct": 100},
+            {"producerDefId": "p4", "allowancePct": 100}
+          ]
+        }
+      ],
+      "producers": [
+        {
+          "producerDefId": "p1", "gender": "M", "teeId": "tee-y", "handicapIndex": 12,
+          "playerRef": {"id": "guest-1", "kind": "guest"}
+        },
+        {
+          "producerDefId": "p2", "gender": "M", "teeId": "tee-y", "handicapIndex": 18.4,
+          "playerRef": {"id": "guest-2", "kind": "guest"}
+        },
+        {
+          "producerDefId": "p3", "gender": "M", "teeId": "tee-y", "handicapIndex": 24,
+          "playerRef": {"id": "guest-3", "kind": "guest"}
+        },
+        {
+          "producerDefId": "p4", "gender": "M", "teeId": "tee-y", "handicapIndex": 5,
+          "playerRef": {"id": "guest-4", "kind": "guest"}
+        }
+      ],
+      "formats": [
+        {
+          "id": "slot-0",
+          "formatId": "taliban_better_ball",
+          "allowanceConfig": {"type": "flat", "pct": 100},
+          "subjects": [
+            {"kind": "team", "teamId": "1"},
+            {"kind": "team", "teamId": "2"}
+          ]
+        }
+      ]
+    }
+    """
+
+    /// `talibanSides` contested TWICE — two stored slots over the one pairing.
+    ///
+    /// Both slots hydrate with the same `sideTeamIds`, so both would otherwise
+    /// claim the right to re-member teams 1 and 2, and the later one would
+    /// revert whatever the earlier one just did. One pairing, one owner.
+    ///
+    /// Document order is Stableford better ball first, Taliban second, so the
+    /// owner is the slot at index 0 and the Taliban card borrows.
+    static let talibanSidesTwice = talibanSides.replacingOccurrences(
+        of: "\"formats\": [",
+        with: """
+        "formats": [
+            {
+              "id": "slot-1",
+              "formatId": "stableford_better_ball",
+              "allowanceConfig": {"type": "flat", "pct": 90},
+              "subjects": [
+                {"kind": "team", "teamId": "1"},
+                {"kind": "team", "teamId": "2"}
+              ]
+            },
+        """)
+
     /// A draft with an unclaimed seat — the one client-side refusal (B3).
     static let withPlaceholderSeat = """
     {

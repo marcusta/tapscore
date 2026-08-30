@@ -203,6 +203,140 @@ final class EditDraftAssemblerTests: XCTestCase {
         XCTAssertTrue(assembled.formats.allSatisfy { !($0.subjects ?? []).isEmpty })
     }
 
+    // MARK: - Re-pairing a stored side round
+
+    /// The whole edit-mode round trip for the format step's ball editor: a
+    /// stored Taliban round is hydrated into balls, one player is moved across,
+    /// and the assembled draft carries the move.
+    ///
+    /// The teams keep their ids, labels and order, because every stored subject
+    /// names them — re-minting a pairing would leave the slot pointing at teams
+    /// that no longer exist. A member's stored allowance travels with the
+    /// player, not with the side they left.
+    func testMovingAPlayerBetweenStoredSidesRewritesThoseTeams() throws {
+        let loaded = try EditDraftFixtures.decoded(EditDraftFixtures.talibanSides)
+        let prefill = EditDraftHydration.prefill(draft: loaded)
+        let slot = prefill.slots[0]
+        XCTAssertEqual(slot.sideTeamIds, ["1", "2"], "the sides, in subject order")
+
+        let rowIdByDefId = Dictionary(
+            uniqueKeysWithValues: prefill.players.map { ($0.producerDefId ?? "", $0.id) })
+        XCTAssertEqual(
+            ["p1", "p2", "p3", "p4"].map { slot.ballByRow[rowIdByDefId[$0]!] },
+            [0, 0, 1, 1],
+            "the stored sides read back as balls A and B")
+
+        // Swap the middle two: p1 & p3 against p2 & p4.
+        var ballByDefId = ["p1": 0, "p2": 1, "p3": 0, "p4": 1]
+        let assembled = EditDraftAssembler(catalog: catalog).draft(
+            replacing: loaded,
+            courseId: loaded.courseId,
+            route: .init(preset: .full18, holes: Array(1...18), startHole: 1),
+            producers: producers(["p1", "p2", "p3", "p4"]),
+            slots: [
+                .init(sourceIndex: 0, formatId: "taliban_better_ball", allowanceText: "100",
+                      sideTeamIds: slot.sideTeamIds, ballByDefId: ballByDefId),
+            ])
+
+        XCTAssertEqual(assembled.teams?.map(\.id), ["1", "2"])
+        XCTAssertEqual(assembled.teams?.map(\.label), ["Team A", "Team B"])
+        XCTAssertEqual(memberIds(assembled), [["p1", "p3"], ["p2", "p4"]])
+        XCTAssertEqual(
+            memberPcts(assembled), [[100, 100], [90, 100]],
+            "a stored allowance belongs to the player, not to the side they left")
+        XCTAssertEqual(subjectKeys(assembled.formats[0]), ["team:1", "team:2"])
+
+        // A move that would leave a side with one player is not applied at all:
+        // the round keeps the pairing it had rather than being saved into a
+        // shape the server refuses.
+        ballByDefId["p3"] = 1
+        let lopsided = EditDraftAssembler(catalog: catalog).draft(
+            replacing: loaded,
+            courseId: loaded.courseId,
+            route: .init(preset: .full18, holes: Array(1...18), startHole: 1),
+            producers: producers(["p1", "p2", "p3", "p4"]),
+            slots: [
+                .init(sourceIndex: 0, formatId: "taliban_better_ball", allowanceText: "100",
+                      sideTeamIds: slot.sideTeamIds, ballByDefId: ballByDefId),
+            ])
+        XCTAssertEqual(memberIds(lopsided), [["p1", "p2"], ["p3", "p4"]])
+    }
+
+    /// A side format added DURING an edit mints its sides from the panel the
+    /// flow just showed, not from roster order. The added slot has no
+    /// `sideTeamIds` (nothing stored to re-member) but it does have the balls
+    /// the user set, and minting past them would save a pairing nobody chose.
+    func testSideFormatAddedDuringAnEditMintsTheSidesTheUserSet() throws {
+        let loaded = try EditDraftFixtures.decoded(teamlessFour)
+        let assembled = EditDraftAssembler(catalog: catalog).draft(
+            replacing: loaded,
+            courseId: loaded.courseId,
+            route: .init(preset: .full18, holes: Array(1...18), startHole: 1),
+            producers: producers(["p1", "p2", "p3", "p4"]),
+            slots: [
+                .init(sourceIndex: 0, formatId: "stableford_individual", allowanceText: "100"),
+                .init(sourceIndex: nil, formatId: "taliban_better_ball", allowanceText: "100",
+                      ballByDefId: ["p1": 0, "p2": 1, "p3": 0, "p4": 1]),
+            ])
+
+        XCTAssertEqual(memberIds(assembled), [["p1", "p3"], ["p2", "p4"]])
+        XCTAssertEqual(subjectKeys(assembled.formats[1]), ["team:1", "team:2"])
+    }
+
+    /// Two stored slots over one pairing: the first owns it, the second borrows
+    /// it read-only. Letting both rewrite the teams is how the later slot
+    /// reverts the move the user just made on the earlier one.
+    func testOnlyTheFirstSlotOverAPairingRewritesIt() throws {
+        let loaded = try EditDraftFixtures.decoded(EditDraftFixtures.talibanSidesTwice)
+        let assembled = EditDraftAssembler(catalog: catalog).draft(
+            replacing: loaded,
+            courseId: loaded.courseId,
+            route: .init(preset: .full18, holes: Array(1...18), startHole: 1),
+            producers: producers(["p1", "p2", "p3", "p4"]),
+            slots: [
+                // The owner moved the middle two.
+                .init(sourceIndex: 0, formatId: "stableford_better_ball", allowanceText: "90",
+                      sideTeamIds: ["1", "2"],
+                      ballByDefId: ["p1": 0, "p2": 1, "p3": 0, "p4": 1]),
+                // The borrower still carries what it hydrated with.
+                .init(sourceIndex: 1, formatId: "taliban_better_ball", allowanceText: "100",
+                      sideTeamIds: ["1", "2"],
+                      ballByDefId: ["p1": 0, "p2": 0, "p3": 1, "p4": 1]),
+            ])
+
+        XCTAssertEqual(memberIds(assembled), [["p1", "p3"], ["p2", "p4"]])
+    }
+
+    /// A stored slot the flow cannot say out loud keeps NO ball editor, and is
+    /// carried through exactly as before (B7): `richFour`'s side slot has a
+    /// split allowance and inline team entries.
+    func testASlotWithWebOnlyExoticaGetsNoBallEditor() throws {
+        let loaded = try EditDraftFixtures.decoded(EditDraftFixtures.richFour)
+        let prefill = EditDraftHydration.prefill(draft: loaded)
+        XCTAssertEqual(prefill.slots[0].sideTeamIds, [])
+        XCTAssertEqual(prefill.slots[0].ballByRow, [:])
+    }
+
+    private func memberIds(
+        _ draft: CompetitionsCreateRoundOutputOkDraft
+    ) -> [[String]] {
+        (draft.teams ?? []).map { team in
+            team.members.map { member in
+                if case .producerDefId(let m) = member { m.producerDefId } else { "team" }
+            }
+        }
+    }
+
+    private func memberPcts(
+        _ draft: CompetitionsCreateRoundOutputOkDraft
+    ) -> [[Double]] {
+        (draft.teams ?? []).map { team in
+            team.members.map { member in
+                if case .producerDefId(let m) = member { m.allowancePct ?? -1 } else { -1 }
+            }
+        }
+    }
+
     // MARK: - Fixtures
 
     private let rotatedBackNine = """

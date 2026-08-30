@@ -94,6 +94,17 @@ struct EditDraftAssembler: Sendable {
         var config: [String: String]
         /// Def-ids ticked out of this slot's individual subjects.
         var excludedDefIds: Set<String>
+        /// The stored `teams[]` ids this slot's balls are, in ball order —
+        /// `EditDraftHydration.sideBalls`' half of the round-trip. Empty ⇒ this
+        /// slot has no ball editor, and its stored sides are carried untouched
+        /// like every other part of the document this flow cannot say.
+        var sideTeamIds: [String]
+        /// Def-id → the ball of this slot they stand on. Read only alongside
+        /// `sideTeamIds`, and only to REWRITE the membership of exactly those
+        /// teams: a side is edited by moving its players, and the team keeps
+        /// its id, its label and its position so every stored subject naming it
+        /// still names it.
+        var ballByDefId: [String: Int]
 
         var allowancePct: Double {
             let digits = allowanceText.prefix { $0.isNumber }
@@ -105,13 +116,17 @@ struct EditDraftAssembler: Sendable {
             formatId: String,
             allowanceText: String,
             config: [String: String] = [:],
-            excludedDefIds: Set<String> = []
+            excludedDefIds: Set<String> = [],
+            sideTeamIds: [String] = [],
+            ballByDefId: [String: Int] = [:]
         ) {
             self.sourceIndex = sourceIndex
             self.formatId = formatId
             self.allowanceText = allowanceText
             self.config = config
             self.excludedDefIds = excludedDefIds
+            self.sideTeamIds = sideTeamIds
+            self.ballByDefId = ballByDefId
         }
     }
 
@@ -183,8 +198,17 @@ struct EditDraftAssembler: Sendable {
         }
 
         let carriedTeams = Self.prunedTeams(loaded.teams, liveIds: liveIds)
-        let (merged, mintedIds) = mergedBallTeams(
+        var (merged, mintedIds) = mergedBallTeams(
             carriedTeams ?? [], state: ballTeams, managed: managedTeamIds)
+        // One pairing, one owner (`CreateStore.sidesOwner`): a second game over
+        // the same sides shows them read-only, so its ball state is whatever it
+        // hydrated with, and applying it would revert what the owner just did.
+        let slots = Self.singleOwnerSides(slots, catalog: catalog)
+        // The SIDES a slot's ball editor moved players between. Applied here,
+        // to the team list itself, because that is where a side's membership
+        // lives (ADR-0003) — the slot's subject list names the team and is
+        // carried through unchanged.
+        for slot in slots { merged = Self.rewrittenSides(merged, slot: slot, order: order) }
         let teamIds = Set(merged.map(\.id))
         // The balls a slot may GROW: the ones BUILT during this edit, in
         // document order.
@@ -321,6 +345,80 @@ struct EditDraftAssembler: Sendable {
             members: team.members.map {
                 .producerDefId(.init(producerDefId: $0.producerDefId, allowancePct: $0.allowancePct))
             })
+    }
+
+    /// The slots with every BORROWED ball state cleared, so exactly one slot
+    /// can move a given pairing — the assembler's half of the format step's
+    /// single-owner rule.
+    ///
+    /// Two stored slots over the same teams: the first owns them. A side format
+    /// picked during this edit: it owns its sides only if nothing before it
+    /// already does, because otherwise it adopts (`sideSubjects`) rather than
+    /// minting, and a moved ball would be a move of somebody else's pairing.
+    private static func singleOwnerSides(_ slots: [Slot], catalog: FormatCatalog) -> [Slot] {
+        var out = slots
+        var claimed: [Set<String>] = []
+        var mintOwned = false
+        for index in out.indices {
+            if !out[index].sideTeamIds.isEmpty {
+                let teams = Set(out[index].sideTeamIds)
+                if claimed.contains(teams) { out[index].ballByDefId = [:] } else {
+                    claimed.append(teams)
+                    mintOwned = true
+                }
+            } else if catalog.isSideFormat(out[index].formatId) {
+                if mintOwned { out[index].ballByDefId = [:] } else { mintOwned = true }
+            }
+        }
+        return out
+    }
+
+    /// One slot's sides, re-membered from its ball editor.
+    ///
+    /// In place and by id: the team is the round's, and a save that dropped it
+    /// and minted a replacement would orphan every stored subject naming it. A
+    /// member keeps the allowance % it already had on whichever side it came
+    /// from; a player moved onto a side it has never been on takes 100, the
+    /// same figure `CreateDraftBuilder.compose` seeds a fresh side with.
+    ///
+    /// An assignment that would leave a named side with fewer than two players
+    /// is NOT applied — a one-player side is the ball
+    /// `CreateDraftBuilder` refuses to ship, and the honest outcome is the
+    /// stored composition plus the warning the format step is already showing,
+    /// rather than a silent half-save.
+    private static func rewrittenSides(
+        _ teams: [CompetitionsCreateRoundOutputOkDraftTeamsItem],
+        slot: Slot,
+        order: [String]
+    ) -> [CompetitionsCreateRoundOutputOkDraftTeamsItem] {
+        guard !slot.sideTeamIds.isEmpty else { return teams }
+        // Roster order, so a side lists its players the way the screen does.
+        var members: [String: [String]] = [:]
+        for defId in order {
+            guard let ball = slot.ballByDefId[defId], slot.sideTeamIds.indices.contains(ball)
+            else { continue }
+            members[slot.sideTeamIds[ball], default: []].append(defId)
+        }
+        guard slot.sideTeamIds.allSatisfy({ (members[$0]?.count ?? 0) >= 2 }) else { return teams }
+        // Across ALL of this slot's sides, so a player who changed side takes
+        // their stored allowance with them — it is a fact about the player's
+        // handicap, not about the side they used to be on.
+        var pct: [String: Double] = [:]
+        for team in teams where slot.sideTeamIds.contains(team.id) {
+            for member in team.members {
+                if case .producerDefId(let m) = member {
+                    pct[m.producerDefId] = m.allowancePct
+                }
+            }
+        }
+        return teams.map { team in
+            guard let ids = members[team.id] else { return team }
+            var next = team
+            next.members = ids.map {
+                .producerDefId(.init(producerDefId: $0, allowancePct: pct[$0] ?? 100))
+            }
+            return next
+        }
     }
 
     /// Team id → the def-ids on that shared ball, for every `single_ball` team
@@ -538,7 +636,7 @@ struct EditDraftAssembler: Sendable {
                 pctByPlayer: Dictionary(uniqueKeysWithValues: members.map { ($0, 100.0) }))
         }
 
-        let game = builder.seedGame(
+        var game = builder.seedGame(
             formatId: slot.formatId,
             rosterCount: order.count,
             existingTeams: existing,
@@ -547,6 +645,26 @@ struct EditDraftAssembler: Sendable {
             units: CreateDraftBuilder.ballUnits(
                 rosterCount: order.count,
                 ballTeams: existing.filter { $0.kind == .singleBall }))
+
+        // The pairing the user set on the format step, over the seed — the same
+        // override create applies in `CreateStore.ballAssignment`. Without it a
+        // side format picked DURING an edit is saved paired down the roster,
+        // however the panel it was set up in reads.
+        if game.ballTeams.isEmpty, game.ballCount > 0 {
+            let shared = Set(
+                existing.filter { $0.kind == .singleBall }.filter { $0.members.count >= 2 }
+                    .flatMap(\.members))
+            for (defId, ball) in slot.ballByDefId {
+                guard let at = order.firstIndex(of: defId), !shared.contains(at),
+                      ball >= 0, ball < game.ballCount
+                else { continue }
+                game.ballByPlayer[at] = ball
+            }
+            for defId in slot.excludedDefIds {
+                guard let at = order.firstIndex(of: defId), !shared.contains(at) else { continue }
+                game.ballByPlayer.removeValue(forKey: at)
+            }
+        }
 
         // Adopted: the sides are the round's own, and nothing new is minted.
         if !game.ballTeams.isEmpty {

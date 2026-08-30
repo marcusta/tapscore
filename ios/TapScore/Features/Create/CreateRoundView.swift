@@ -1404,6 +1404,15 @@ struct CreateRoundView: View {
 
                 if slot.isCustom || store.showFlexible {
                     customControls(store, slot: slot)
+                } else {
+                    // The allowance is a property of every game, not of the
+                    // advanced surface — a card-driven Taliban is played off a
+                    // percentage exactly as a custom slot is.
+                    allowanceField(store, slot: slot)
+                }
+
+                if let plan = store.ballPlan(slotId: slot.id) {
+                    ballGroup(store, slot: slot, plan: plan)
                 }
 
                 ForEach(store.slotDiagnostics(index: index), id: \.self) { message in
@@ -1437,26 +1446,7 @@ struct CreateRoundView: View {
                 groups: CreatePickerRows.formats(store.catalog.descriptors, catalog: store.catalog),
                 onSelect: { store.setSlotFormat(id: slot.id, formatId: $0) })
 
-            HStack(spacing: TapSpacing.md) {
-                HStack(spacing: TapSpacing.xs) {
-                    Text("Allowance")
-                        .font(TapFont.ui(size: 12.8, weight: .medium))
-                        .foregroundStyle(TapColors.textMuted)
-                    TextField(
-                        "",
-                        text: Binding(
-                            get: { store.slot(id: slot.id)?.allowanceText ?? "100" },
-                            set: { store.setSlotAllowance(id: slot.id, text: $0) }),
-                        prompt: tapFieldPrompt("100"))
-                        .keyboardType(.numberPad)
-                        .tapField()
-                        .frame(maxWidth: 84)
-                    Text("%")
-                        .font(TapFont.ui(size: 12.8))
-                        .foregroundStyle(TapColors.textMuted)
-                }
-                Spacer(minLength: 0)
-            }
+            allowanceField(store, slot: slot)
 
             // Who this game scores. A side format scores sides only, so the
             // individual list would be a lie — it is not offered.
@@ -1478,6 +1468,103 @@ struct CreateRoundView: View {
                             })
                     }
                 }
+            }
+        }
+    }
+
+    /// The percentage of their handicap every player of this game gets. Web:
+    /// the `Handicap allowance` group of both `gamePanelTpl` and `fslotTpl`.
+    private func allowanceField(_ store: CreateStore, slot: CreateStore.FormatSlot) -> some View {
+        HStack(spacing: TapSpacing.md) {
+            HStack(spacing: TapSpacing.xs) {
+                Text("Allowance")
+                    .font(TapFont.ui(size: 12.8, weight: .medium))
+                    .foregroundStyle(TapColors.textMuted)
+                TextField(
+                    "",
+                    text: Binding(
+                        get: { store.slot(id: slot.id)?.allowanceText ?? "100" },
+                        set: { store.setSlotAllowance(id: slot.id, text: $0) }),
+                    prompt: tapFieldPrompt("100"))
+                    .keyboardType(.numberPad)
+                    .tapField()
+                    .frame(maxWidth: 84)
+                Text("%")
+                    .font(TapFont.ui(size: 12.8))
+                    .foregroundStyle(TapColors.textMuted)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// B6.15 — "Who plays which ball": the one residual decision a picked game
+    /// leaves. One row per player, a ball per option plus "–" for sitting THIS
+    /// game out, and the resulting pairing spelled out underneath.
+    ///
+    /// The letters are a bounded set of short options that must stay on screen
+    /// — `docs/design-guidelines.md` §1's case for a segmented track, not a
+    /// dropdown. A ball the user cannot move here (a pair from the Players
+    /// step, or a side another game minted) is drawn as text with `note`
+    /// saying where it IS moved: teams are round-level, and a control that
+    /// silently edited the other card would be worse than no control.
+    @ViewBuilder
+    private func ballGroup(
+        _ store: CreateStore,
+        slot: CreateStore.FormatSlot,
+        plan: CreateStore.BallPlan
+    ) -> some View {
+        VStack(alignment: .leading, spacing: TapSpacing.sm) {
+            Text("Who plays which ball")
+                .font(TapFont.ui(size: 12.8, weight: .medium))
+                .foregroundStyle(TapColors.textMuted)
+
+            if plan.isEditable {
+                ForEach(plan.rows) { row in
+                    HStack(spacing: TapSpacing.sm) {
+                        Text(row.name)
+                            .font(TapFont.ui(size: 14.4))
+                            .foregroundStyle(TapColors.text)
+                            .lineLimit(1)
+                        Spacer(minLength: TapSpacing.sm)
+                        TapSegmented(
+                            options: (0..<plan.ballCount).map { ball in
+                                TapSegmented.Option(
+                                    value: ball,
+                                    title: CreateDraftBuilder.ballLetter(ball) ?? String(ball + 1))
+                            } + (plan.allowsSittingOut
+                                ? [TapSegmented.Option(value: -1, title: "–")]
+                                : []),
+                            selected: row.ball ?? -1,
+                            onSelect: { ball in
+                                store.assignBall(
+                                    slotId: slot.id, rowId: row.id, ball: ball < 0 ? nil : ball)
+                            })
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("\(row.name)'s ball")
+                }
+            }
+
+            if let note = plan.note {
+                Text(note)
+                    .font(TapFont.ui(size: 12.5))
+                    .foregroundStyle(TapColors.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text(plan.summary)
+                .font(TapFont.ui(size: 12.8))
+                .foregroundStyle(TapColors.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Said before the server says it, and never instead of it: an
+            // imbalanced game is still submitted, and the compiler's refusal
+            // lands on this same card (web: `gameWarnings`).
+            ForEach(plan.warnings, id: \.self) { warning in
+                Text(warning)
+                    .font(TapFont.ui(size: 12.8))
+                    .foregroundStyle(TapColors.danger)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
