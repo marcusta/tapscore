@@ -23,7 +23,11 @@ const PRESETS: RoutePreset[] = ['full_18', 'front_9', 'back_9'];
 /** The decimal-separator glyph the handicap keypad shows (Swedish writes ","). */
 const hcpSep = () => (currentLocale() === 'sv' ? ',' : '.');
 
-const tpl = template(`
+// `<string>`: this template is big enough that 1.7.0's type-level bind
+// extraction hits the compiler's instantiation depth limit (TS2589). The
+// explicit `string` opts this one template out — binds stay unchecked here,
+// exactly as they were before 1.7.0.
+const tpl = template<string>(`
     <div bind="root" class="setup">
         <button bind="back" class="setup__back" type="button">← Home</button>
         <header class="setup__head">

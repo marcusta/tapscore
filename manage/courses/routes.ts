@@ -17,7 +17,7 @@ export const CLUBS_PATH = '/courses';
 export const CLUB_PATH_PREFIX = '/courses/clubs';
 
 /** The pattern `Router.params()` reads the id out of. */
-export const CLUB_ROUTE = `${CLUB_PATH_PREFIX}/:id`;
+export const CLUB_ROUTE = `${CLUB_PATH_PREFIX}/:id` as const;
 
 export function clubPath(id: string): string {
     return `${CLUB_PATH_PREFIX}/${id}`;
@@ -48,7 +48,7 @@ export function clubPath(id: string): string {
 export const COURSE_PATH_PREFIX = '/courses/course';
 
 /** The pattern `Router.params()` reads the two ids out of. */
-export const COURSE_ROUTE = `${COURSE_PATH_PREFIX}/:clubId/:courseId`;
+export const COURSE_ROUTE = `${COURSE_PATH_PREFIX}/:clubId/:courseId` as const;
 
 export function coursePath(clubId: string, courseId: string): string {
     return `${COURSE_PATH_PREFIX}/${clubId}/${courseId}`;

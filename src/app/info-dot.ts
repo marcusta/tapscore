@@ -25,7 +25,7 @@ import { t } from '../theme';
  * thing (a modal sheet vs. an inline paragraph), so the state attribute is the
  * host's to bind.
  */
-export function infoDotMarkup(bind: string, label: string, extra = ''): string {
+export function infoDotMarkup<N extends string>(bind: N, label: string, extra = ''): `${string}bind="${N}"${string}` {
     const cls = extra ? `info-dot ${extra}` : 'info-dot';
     return `<button bind="${bind}" class="${cls}" type="button" aria-label="${label}"><span aria-hidden="true">i</span></button>`;
 }

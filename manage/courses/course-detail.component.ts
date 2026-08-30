@@ -166,7 +166,7 @@ export class CourseDetailComponent extends Component {
     private clubs = this.inject(ClubsService);
     private courses = this.inject(CoursesService);
 
-    private params = this.router.params<{ clubId: string; courseId: string }>(COURSE_ROUTE);
+    private params = this.router.params(COURSE_ROUTE);
 
     render(): DocumentFragment {
         const frag = this.wire(tpl, {

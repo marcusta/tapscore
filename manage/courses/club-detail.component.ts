@@ -295,7 +295,7 @@ export class ClubDetailComponent extends Component {
     private crumbs = this.inject(BreadcrumbService);
     private clubs = this.inject(ClubsService);
 
-    private params = this.router.params<{ id: string }>(CLUB_ROUTE);
+    private params = this.router.params(CLUB_ROUTE);
 
     private editor = new RowEditController();
     private errors = new Signal<ClubFieldErrors>({});

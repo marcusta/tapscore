@@ -32,7 +32,7 @@ import { t } from '../theme';
  * label would break the attribute and anything data-derived would be an
  * injection. Escaping once here is cheaper than a rule callers must remember.
  */
-export function infoDotMarkup(bind: string, label: string): string {
+export function infoDotMarkup<N extends string>(bind: N, label: string): `${string}bind="${N}"${string}` {
     return `<button bind="${bind}" class="minfo-dot" type="button" aria-expanded="false" aria-label="${escapeAttribute(label)}"><span aria-hidden="true">i</span></button>`;
 }
 
