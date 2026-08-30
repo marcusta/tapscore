@@ -1247,11 +1247,21 @@ export class ScoreEntryComponent extends Component {
         // The stats body, in one list: the format's own per-hole toggles
         // (umbrella GIR/fairway, scoped to the hole's par via `appliesWhen`),
         // then a hairline, then the player's own stat prompts.
+        const statsBody = this.ref(frag, 'statsBody');
         this.$each(
-            this.ref(frag, 'statsBody'),
+            statsBody,
             new Computed(() => this.statBodyRows()),
             (row, _i, track) => this.statBodyRow(row, track),
             (row) => row.key,
+        );
+        // Each open is a fresh visit (next ball, next hole), but the step is
+        // one long-lived element toggled with `display: none`, and the browser
+        // keeps the body's scroll offset across that — so a par-5 card answered
+        // to the bottom would reopen scrolled past its first prompt.
+        this.track(
+            effect(() => {
+                if (this.statsOpen.get()) statsBody.scrollTop = 0;
+            }),
         );
         // One explainer card per prompt that is on the card right now, in the
         // same order — the sheet is a reading of THIS step, not a manual.
