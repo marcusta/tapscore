@@ -272,7 +272,11 @@ const CONTROLS: Record<StatEventKey, StatControl> = {
         options: [
             { value: 'tee', label: 'Tee shot' },
             { value: 'approach', label: 'Approach' },
-            { value: 'short_or_green', label: 'Around the green' },
+            // 'Greenside', not 'Around the green': three full-size chips share a
+            // 375px plate, and the long form pushed the row past it — the one
+            // horizontal scrollbar in the app. Same register as its
+            // neighbours (where the shot was), and the codebase's own word.
+            { value: 'short_or_green', label: 'Greenside' },
         ],
     },
 };

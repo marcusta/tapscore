@@ -568,7 +568,9 @@ export class ScoreEntryComponent extends Component {
             }
 
             & .se-stats__body {
-                flex: 1; overflow-y: auto;
+                /* Vertical only — a chip label that outgrows its row clips
+                   here rather than panning the stats plate sideways. */
+                flex: 1; overflow-y: auto; overflow-x: hidden;
                 display: flex; flex-direction: column; gap: ${s('xl')};
                 padding: ${s('lg')} ${s('lg')} ${s('xl')};
                 align-content: flex-start;
@@ -1498,6 +1500,49 @@ export class ScoreEntryComponent extends Component {
             // Leaving the round view is an exit too.
             this.svc.closeStatStep();
         });
+
+        // iOS Safari zooms on a fast second tap DESPITE touch-action:
+        // manipulation standing on the element (measured on device twice:
+        // first with the rule on the surfaces, then on every descendant —
+        // the stats step's labels and values kept zooming both times). So
+        // the gesture itself is cancelled: inside this component two taps
+        // within the double-tap window are scoring, never a zoom request,
+        // and the click the cancelled touchend would have produced is
+        // dispatched by hand so the tap still lands.
+        //
+        // The hole carousel is exempt — its pointer handlers own that
+        // surface and its touch-action: pan-y already rules the zoom out.
+        // Form fields are exempt because a cancelled touchend would also
+        // swallow their focus. Pinch (a multi-touch end) passes through
+        // untouched, on this surface as everywhere else.
+        let lastTouchEnd = 0;
+        const root = frag.firstElementChild as HTMLElement;
+        root.addEventListener(
+            'touchend',
+            (e: TouchEvent) => {
+                const target = e.target instanceof Element ? e.target : null;
+                if (
+                    !e.cancelable ||
+                    e.touches.length > 0 ||
+                    e.changedTouches.length !== 1 ||
+                    !target ||
+                    target.closest('.se__carousel') ||
+                    target.closest('input, textarea, select')
+                ) {
+                    return;
+                }
+                const now = performance.now();
+                const fast = now - lastTouchEnd < 350;
+                lastTouchEnd = now;
+                if (!fast) return;
+                e.preventDefault();
+                const clickable = target.closest('button, a, [role="button"]') ?? target;
+                clickable.dispatchEvent(
+                    new MouseEvent('click', { bubbles: true, cancelable: true, view: window }),
+                );
+            },
+            { passive: false },
+        );
 
         return frag;
     }

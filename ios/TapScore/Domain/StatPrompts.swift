@@ -193,7 +193,9 @@ enum StatVocabulary {
             return .segments([
                 StatOption("tee", "Tee shot"),
                 StatOption("approach", "Approach"),
-                StatOption("short_or_green", "Around the green"),
+                // "Greenside", not "Around the green" — the long form overflowed the
+                // three-chip row on the web plate; both clients say the same word.
+                StatOption("short_or_green", "Greenside"),
             ])
         }
     }

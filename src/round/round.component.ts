@@ -126,6 +126,11 @@ export class RoundComponent extends Component {
             & .round-view__main {
                 flex: 1;
                 overflow-y: auto;
+                /* This page scrolls vertically, full stop. A child grown too
+                   wide (it was a chip label, once) clips instead of putting a
+                   sideways scrollbar on the whole round view; anything that
+                   should pan sideways owns its own overflow-x scroller. */
+                overflow-x: hidden;
                 -webkit-overflow-scrolling: touch;
                 padding: ${s('lg')} ${s('lg')} ${s('2xl')};
             }
