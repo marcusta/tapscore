@@ -20,6 +20,7 @@ import {
 } from './diagnostics';
 import { draftToForms, type StoredDraft } from './draft-to-forms';
 import { getDeviceRounds, recordDeviceRound } from '../landing/device-rounds';
+import { nearestCourse, orderByClubDistance, type GeoPoint } from './course-distance';
 import { defaultRoundName } from './default-round-name';
 import { resolveDefaultTee, sortTees } from './tee-defaults';
 
@@ -307,6 +308,19 @@ export class SetupService {
     readonly error = new Signal<RequestError | null>(null);
 
     readonly courses = new Signal<SetupCourse[]>([]);
+    /**
+     * Where the device is, when it told us — one low-accuracy fix per app
+     * load, requested by `load()` and never awaited: the form works exactly as
+     * before while the browser asks, and a denial simply leaves this null.
+     * Drives the picker's distance ordering and the nearest-course preselect.
+     */
+    readonly position = new Signal<GeoPoint | null>(null);
+    /**
+     * The current course selection is still the automatic seed (first course,
+     * or nearest once a fix lands) — a selection the golfer actually made must
+     * never be moved by a late-arriving position.
+     */
+    private courseAutoSelected = false;
     readonly tees = new Signal<Tee[]>([]);
     readonly courseTeeRoles = new Signal<CourseTeeRole[]>([]);
     readonly maleDefaultTeeId = new Signal<string>('');
@@ -455,6 +469,9 @@ export class SetupService {
         this.editStatus.set(null);
         this.editBlockedReason.set(null);
         this.editPlayedAt = null;
+        // `position` deliberately survives: it is a device fact, not draft
+        // state, and re-prompting per visit would be pure friction.
+        this.courseAutoSelected = false;
         this.nextKey = 1;
         this.nextSlotKey = 1;
         this.nextTeamKey = 1;
@@ -473,11 +490,60 @@ export class SetupService {
         // The ball teams section is optional: no catalog, no section, and
         // nothing else about setup changes.
         void this.formationCatalog.load();
+        // One position fix, in parallel with the catalog. Not awaited: the
+        // permission prompt (or a slow GPS) must never hold the form hostage.
+        void this.locate().then((pos) => this.applyPosition(pos));
         const data = await request(this.loading, this.error, () => api.setup.courses());
         if (!data) return;
         this.courses.set(data);
         if (!this.courseId.get() && data.length > 0) {
-            await this.selectCourse(data[0].id);
+            // Nearest when the fix already landed, otherwise the catalog's
+            // first — and `applyPosition` upgrades that seed if a fix follows.
+            this.courseAutoSelected = true;
+            await this.selectCourse(this.orderedCourses()[0]!.id, { auto: true });
+        }
+    }
+
+    /**
+     * The catalog in picker order: distance-ordered club groups once a
+     * position is known (`orderByClubDistance`), the server's club-then-name
+     * order until then. Reads two signals, so an options effect built on it
+     * re-runs when either lands.
+     */
+    orderedCourses(): SetupCourse[] {
+        return orderByClubDistance(this.courses.get(), this.position.get());
+    }
+
+    /**
+     * One browser position fix; null when geolocation is unavailable, denied,
+     * or slow. Low accuracy on purpose — "which golf club" is a kilometre
+     * question — and a five-minute-old cached fix is welcome.
+     */
+    private locate(): Promise<GeoPoint | null> {
+        const geo = typeof navigator === 'undefined' ? undefined : navigator.geolocation;
+        if (!geo) return Promise.resolve(null);
+        return new Promise((resolve) => {
+            geo.getCurrentPosition(
+                (fix) =>
+                    resolve({
+                        latitude: fix.coords.latitude,
+                        longitude: fix.coords.longitude,
+                    }),
+                () => resolve(null),
+                { enableHighAccuracy: false, timeout: 10_000, maximumAge: 300_000 },
+            );
+        });
+    }
+
+    /** A fix landed (or didn't). Store it and move the AUTOMATIC seed to the
+     * nearest course; a selection the golfer made stays put. */
+    private applyPosition(pos: GeoPoint | null): void {
+        if (pos === null) return;
+        this.position.set(pos);
+        if (!this.courseAutoSelected || this.editToken.get() !== null) return;
+        const nearest = nearestCourse(this.courses.get(), pos);
+        if (nearest && nearest.id !== this.courseId.get()) {
+            void this.selectCourse(nearest.id, { auto: true });
         }
     }
 
@@ -614,7 +680,10 @@ export class SetupService {
         );
     }
 
-    async selectCourse(id: string): Promise<void> {
+    async selectCourse(id: string, opts?: { auto?: boolean }): Promise<void> {
+        // Any non-automatic call is the golfer choosing: from here on a
+        // late-arriving position fix must not move the selection.
+        if (!opts?.auto) this.courseAutoSelected = false;
         this.courseId.set(id);
         // A course switch resets the route — EXCEPT while editing, where the
         // route describes holes that may already carry scores. Someone fixing

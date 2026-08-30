@@ -5,6 +5,7 @@ import { ConfirmComponent } from '@basics/core/client/ui/confirm';
 import { t } from '../theme';
 import { s, btn, input, card } from '../css';
 import { SetupService, type RoutePreset } from './setup.service';
+import { clubDistanceKm, distanceLabel } from './course-distance';
 import type { FormatConfigField } from '../api/setup.gen';
 import { parseHandicapIndex } from './hcp-input';
 import { currentLocale } from '../locale';
@@ -1195,15 +1196,21 @@ export class CreateComponent extends Component {
                 },
             ),
             // Grouped by club: a non-selectable club header before each club's
-            // courses. svc.courses arrives ordered by club then course name
-            // (setup API), so headers drop in wherever the club changes.
+            // courses. `orderedCourses` keeps the setup API's club-then-name
+            // order until a position fix lands, then puts the nearest club
+            // first and words the distance on each club's header.
             options: {
                 get: () => {
+                    const courses = this.svc.orderedCourses();
+                    const pos = this.svc.position.get();
                     const opts: SelectOption[] = [];
                     let lastClub = '';
-                    for (const c of this.svc.courses.get()) {
+                    for (const c of courses) {
                         if (c.clubName !== lastClub) {
-                            opts.push({ value: `__club:${c.clubName}`, label: c.clubName, disabled: true });
+                            const km = pos ? clubDistanceKm(courses, c.clubName, pos) : null;
+                            const label =
+                                km === null ? c.clubName : `${c.clubName} · ${distanceLabel(km)}`;
+                            opts.push({ value: `__club:${c.clubName}`, label, disabled: true });
                             lastClub = c.clubName;
                         }
                         opts.push({ value: c.id, label: c.name });
@@ -1212,6 +1219,8 @@ export class CreateComponent extends Component {
                 },
             },
             placeholder: 'Select a course',
+            searchable: true,
+            searchPlaceholder: 'Type to filter',
             disabled: { get: () => competitionEdit() },
         });
         this.mountSelect(this.ref(frag, 'startHole'), compTrack, {
@@ -1392,6 +1401,8 @@ export class CreateComponent extends Component {
             value: Signal<string>;
             options: { get: () => SelectOption[] };
             placeholder?: string;
+            searchable?: boolean;
+            searchPlaceholder?: string;
             disabled?: { get: () => boolean };
         },
     ): void {
