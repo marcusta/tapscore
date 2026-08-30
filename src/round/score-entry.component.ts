@@ -235,6 +235,15 @@ export class ScoreEntryComponent extends Component {
         .se {
             margin-top: ${s('xl')};
             &.hidden { display: none; }
+
+            /* Score entry is tapped fast and repeatedly: the circle in a row,
+               then keys on the pad. Two taps inside the double-tap window are
+               scoring, never a zoom request, so drop double-tap-to-zoom for
+               this subtree (descendants intersect with their ancestors'
+               touch-action, so the fixed-position keypad and stats screens
+               inherit it too). Pinch-to-zoom is untouched here and everywhere
+               else — the leaderboard still zooms, which some players want. */
+            touch-action: manipulation;
         }
 
         /* Clipped two-cell carousel right-aligned over the score columns. */
